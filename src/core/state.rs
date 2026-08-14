@@ -12,6 +12,10 @@ use crate::equipment::{
     EquipmentDefinitionId, EquipmentId, EquipmentState, EquipmentValidationError,
     validate_loaded_equipment,
 };
+use crate::geology::{
+    GeologicalKnowledgeState, GeologicalKnowledgeValidationError, GeologyState,
+    GeologyValidationError, validate_loaded_geological_knowledge, validate_loaded_geology,
+};
 use crate::inventory::{
     InventoryState, InventoryValidationError, MaterialLotId, StockpileId, validate_loaded_inventory,
 };
@@ -41,6 +45,8 @@ pub struct AppState {
     energy: EnergyState,
     equipment: EquipmentState,
     structures: StructureState,
+    geology: GeologyState,
+    geological_knowledge: GeologicalKnowledgeState,
     inventory: InventoryState,
     production: ProductionState,
 }
@@ -63,6 +69,8 @@ impl AppState {
             energy: EnergyState::new(),
             equipment: EquipmentState::new(),
             structures: StructureState::new(),
+            geology: GeologyState::new(),
+            geological_knowledge: GeologicalKnowledgeState::new(),
             inventory: InventoryState::new(),
             production: ProductionState::new(),
         }
@@ -131,6 +139,29 @@ impl AppState {
         &mut self.structures
     }
 
+    /// Returns authoritative geological truth to owning core systems only.
+    ///
+    /// Player-facing adapters must use `geological_knowledge()` rather than enumerating hidden
+    /// deposit records directly.
+    #[must_use]
+    pub(crate) const fn geology(&self) -> &GeologyState {
+        &self.geology
+    }
+
+    pub(crate) fn geology_state_mut(&mut self) -> &mut GeologyState {
+        &mut self.geology
+    }
+
+    /// Returns acquired geological evidence without exposing it as authoritative world truth.
+    #[must_use]
+    pub const fn geological_knowledge(&self) -> &GeologicalKnowledgeState {
+        &self.geological_knowledge
+    }
+
+    pub(crate) fn geological_knowledge_state_mut(&mut self) -> &mut GeologicalKnowledgeState {
+        &mut self.geological_knowledge
+    }
+
     /// Returns read-only authoritative stockpile state.
     #[must_use]
     pub const fn inventory(&self) -> &InventoryState {
@@ -179,6 +210,8 @@ pub enum StateValidationError {
     UnresolvedStructuralDamage {
         event: StructuralDamageEvent,
     },
+    Geology(GeologyValidationError),
+    GeologicalKnowledge(GeologicalKnowledgeValidationError),
     Inventory(InventoryValidationError),
     Production(ProductionValidationError),
     UnknownStoredCommodity {
@@ -327,6 +360,10 @@ impl Display for StateValidationError {
                 "structural element {} has unresolved canonical damage",
                 event.element().value()
             ),
+            Self::Geology(error) => write!(formatter, "invalid geology state: {error}"),
+            Self::GeologicalKnowledge(error) => {
+                write!(formatter, "invalid geological knowledge state: {error}")
+            }
             Self::Inventory(error) => write!(formatter, "invalid inventory state: {error}"),
             Self::Production(error) => write!(formatter, "invalid production state: {error}"),
             Self::UnknownStoredCommodity {
@@ -561,6 +598,8 @@ impl Error for StateValidationError {
             Self::Equipment(error) => Some(error),
             Self::Structure(error) => Some(error),
             Self::StructureAnalysis(error) => Some(error),
+            Self::Geology(error) => Some(error),
+            Self::GeologicalKnowledge(error) => Some(error),
             Self::Inventory(error) => Some(error),
             Self::Production(error) => Some(error),
             Self::ThermalJob(error) => Some(error),
@@ -623,6 +662,7 @@ pub fn validate_loaded_state(
         registries.materials(),
         &state.structures,
         state.tick(),
+        registries.core().gravity(),
     )
     .map_err(StateValidationError::Structure)?;
 
@@ -687,6 +727,14 @@ pub fn validate_loaded_state(
     if let Some(event) = structural_analysis.damage_events().first().copied() {
         return Err(StateValidationError::UnresolvedStructuralDamage { event });
     }
+    validate_loaded_geology(registries.materials(), &state.geology, state.tick())
+        .map_err(StateValidationError::Geology)?;
+    validate_loaded_geological_knowledge(
+        registries.materials(),
+        &state.geological_knowledge,
+        state.tick(),
+    )
+    .map_err(StateValidationError::GeologicalKnowledge)?;
     validate_loaded_inventory(&state.inventory).map_err(StateValidationError::Inventory)?;
     validate_loaded_production(&state.production).map_err(StateValidationError::Production)?;
 
@@ -925,6 +973,14 @@ pub fn validate_invariants(_registries: &Registries, state: &AppState) {
         "Runtime Invariant 8 (No Lost Runtime State): structural ID cursor must remain valid"
     );
     debug_assert!(
+        state.geology.has_valid_id_cursor(),
+        "Runtime Invariant 8 (No Lost Runtime State): geological deposit ID cursor must remain valid"
+    );
+    debug_assert!(
+        state.geological_knowledge.has_valid_id_cursor(),
+        "Runtime Invariant 8 (No Lost Runtime State): geological observation ID cursor must remain valid"
+    );
+    debug_assert!(
         state.inventory.has_valid_id_cursors(),
         "Runtime Invariant 8 (No Lost Runtime State): inventory ID cursors must remain nonzero"
     );
@@ -972,7 +1028,8 @@ mod tests {
     use crate::spatial::{VoxelBounds, VoxelCoord};
     use crate::structural::{
         StructuralElementId, StructuralLoadKind, StructuralMutationOutcome,
-        ValidatedStructuralMutation, add_structural_element, validate_activate_structural_element,
+        ValidatedStructuralMutation, add_structural_element,
+        materialize_structural_element_for_test, validate_activate_structural_element,
         validate_link_support, validate_set_structural_load,
     };
 
@@ -1031,7 +1088,7 @@ mod tests {
         y: i64,
         grounded: bool,
     ) -> StructuralElementId {
-        match add_structural_element(
+        let element = match add_structural_element(
             registries,
             state,
             STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
@@ -1042,7 +1099,15 @@ mod tests {
         ) {
             Ok(element) => element,
             Err(error) => panic!("soak structural element allocation failed: {error}"),
-        }
+        };
+        materialize_structural_element_for_test(
+            registries,
+            state,
+            element,
+            FORM_LOG,
+            Mass::from_milligrams(1),
+        );
+        element
     }
 
     fn commit_soak_structural_mutation(

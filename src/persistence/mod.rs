@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 14;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 17;
 
 /// Minimal version metadata that adapters decode before choosing a concrete save payload decoder.
 ///
@@ -190,8 +190,8 @@ mod tests {
     use crate::structural::{
         StructuralDamageEvent, StructuralElementId, StructuralFailureCause, StructuralLoadKind,
         StructuralMutationOutcome, StructureValidationError, ValidatedStructuralMutation,
-        add_structural_element, analyze_structure, validate_activate_structural_element,
-        validate_link_support, validate_set_structural_load,
+        add_structural_element, analyze_structure, materialize_structural_element_for_test,
+        validate_activate_structural_element, validate_link_support, validate_set_structural_load,
     };
     use crate::thermal::{
         SensibleHeatingProcessDefinition, SensibleHeatingRequest, ThermalJobValidationError,
@@ -350,7 +350,7 @@ mod tests {
         y: i64,
         grounded: bool,
     ) -> StructuralElementId {
-        match add_structural_element(
+        let element = match add_structural_element(
             registries,
             state,
             STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
@@ -361,7 +361,15 @@ mod tests {
         ) {
             Ok(element) => element,
             Err(error) => panic!("structural persistence element fixture failed: {error}"),
-        }
+        };
+        materialize_structural_element_for_test(
+            registries,
+            state,
+            element,
+            FORM_LOG,
+            Mass::from_milligrams(1),
+        );
+        element
     }
 
     fn commit_test_structural_mutation(
@@ -511,6 +519,13 @@ mod tests {
                     "supports_by_element": {},
                     "dependents_by_support": {}
                 },
+                "geology": {"revision": 0, "next_deposit_id": 1, "deposits": {}},
+                "geological_knowledge": {
+                    "revision": 0,
+                    "next_observation_id": 1,
+                    "observations": {},
+                    "observations_by_material": {}
+                },
                 "inventory": {
                     "revision": 0,
                     "next_stockpile_id": 1,
@@ -604,6 +619,86 @@ mod tests {
     }
 
     #[test]
+    fn tampered_structural_embodied_mass_is_rejected_on_load() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5700_0013));
+        let member = make_test_structural_element(&registries, &mut state, 0, 0, true);
+        let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("structural embodied-mass save serialization failed: {error}"),
+        };
+        encoded["state"]["structures"]["elements"][member.value().to_string()]["embodied_mass"] =
+            serde_json::json!(2_u64);
+        let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
+            Ok(decoded) => decoded,
+            Err(error) => panic!("tampered structural embodied-mass save failed decode: {error}"),
+        };
+
+        assert_eq!(
+            decoded.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Structure(
+                StructureValidationError::EmbodiedMassMismatch {
+                    element: member,
+                    stored: Mass::from_milligrams(2),
+                    traced: Mass::from_milligrams(1),
+                }
+            )))
+        );
+    }
+
+    #[test]
+    fn tampered_structural_self_weight_is_rejected_on_load() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5700_0014));
+        let member = make_test_structural_element(&registries, &mut state, 0, 0, true);
+        let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("structural self-weight save serialization failed: {error}"),
+        };
+        encoded["state"]["structures"]["elements"][member.value().to_string()]["loads"]["SelfWeight"] =
+            serde_json::json!(2_u128);
+        let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
+            Ok(decoded) => decoded,
+            Err(error) => panic!("tampered structural self-weight save failed decode: {error}"),
+        };
+
+        assert_eq!(
+            decoded.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Structure(
+                StructureValidationError::SelfWeightMismatch {
+                    element: member,
+                    stored: Force::from_millinewtons(2),
+                    expected: Force::from_millinewtons(1),
+                }
+            )))
+        );
+    }
+
+    #[test]
+    fn tampered_planned_structural_damage_is_rejected_on_load() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5700_0015));
+        let member = make_test_structural_element(&registries, &mut state, 0, 0, true);
+        let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("planned structural damage save serialization failed: {error}"),
+        };
+        encoded["state"]["structures"]["elements"][member.value().to_string()]["cracked"] =
+            serde_json::json!(true);
+        let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
+            Ok(decoded) => decoded,
+            Err(error) => panic!("tampered planned structural damage save failed decode: {error}"),
+        };
+
+        assert_eq!(
+            decoded.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Structure(
+                StructureValidationError::PlannedElementCracked { element: member }
+            )))
+        );
+    }
+
+    #[test]
     fn tampered_structural_reverse_index_is_rejected_on_load() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5700_0002));
@@ -687,7 +782,7 @@ mod tests {
                     event: StructuralDamageEvent::Failed {
                         element: column,
                         cause: StructuralFailureCause::Overloaded {
-                            carried_load: Force::from_millinewtons(50_000_000),
+                            carried_load: Force::from_millinewtons(50_000_001),
                             effective_capacity: Force::from_millinewtons(40_000_000),
                         },
                     },

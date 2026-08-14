@@ -15,10 +15,14 @@ pub use transactions::{
 pub(crate) use state::validate_loaded_inventory;
 pub(crate) use transactions::{
     ConsumptionReservation, ConsumptionSelection, ConsumptionSelectionError,
-    ExplicitConsumptionSelectionError, ReservationCommitError, ReservationError,
-    apply_consumption_reservation, apply_lot_cursor_and_revision, apply_reserved_deposit,
-    next_material_lot_id, validate_consumption_reservation_from_selection,
-    validate_consumption_selection, validate_explicit_consumption_selection,
+    ExplicitConsumptionSelectionError, MaterialBatchIngressError, MaterialEgressError,
+    MaterialIngressError, ReservationCommitError, ReservationError, ValidatedMaterialBatchIngress,
+    ValidatedMaterialEgress, ValidatedMaterialIngress, apply_consumption_reservation,
+    apply_lot_cursor_and_revision, apply_material_batch_ingress, apply_material_egress,
+    apply_material_ingress, apply_reserved_deposit, next_material_lot_id,
+    validate_consumption_reservation_from_selection, validate_consumption_selection,
+    validate_explicit_consumption_selection, validate_material_batch_ingress,
+    validate_material_egress_from_selection, validate_material_ingress,
 };
 
 #[cfg(test)]

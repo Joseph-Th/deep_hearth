@@ -947,7 +947,8 @@ mod tests {
     use crate::spatial::{VoxelBounds, VoxelCoord};
     use crate::structural::{
         StructuralElementId, StructuralLifecycle, StructuralLoadKind, add_structural_element,
-        validate_activate_structural_element, validate_set_structural_load,
+        materialize_structural_element_for_test, validate_activate_structural_element,
+        validate_set_structural_load,
     };
 
     const HEATING_POWER: CapabilityId = CapabilityId::new(920_001);
@@ -1067,6 +1068,13 @@ mod tests {
             Ok(element) => element,
             Err(error) => panic!("heater-support structural fixture failed: {error}"),
         };
+        materialize_structural_element_for_test(
+            registries,
+            state,
+            support,
+            FORM_LOG,
+            Mass::from_milligrams(1),
+        );
         let activation = match validate_activate_structural_element(registries, state, support) {
             Ok(token) => token,
             Err(error) => panic!("heater-support activation validation failed: {error}"),

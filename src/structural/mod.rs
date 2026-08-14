@@ -1,6 +1,8 @@
 //! Structural load and failure subsystem; definitions classify material response, state owns support graphs, analysis resolves loads, and execution commits consequences.
 
 mod analysis;
+mod construction_execution;
+mod deconstruction_execution;
 mod definitions;
 mod load;
 mod state;
@@ -9,6 +11,16 @@ mod structural_execution;
 pub use analysis::{
     StructuralAnalysis, StructuralAnalysisError, StructuralAssessment, StructuralDamageEvent,
     StructuralFailureCause, StructuralStage, analyze_structure,
+};
+pub use construction_execution::{
+    StructuralConstructionCommitError, StructuralConstructionError,
+    StructuralConstructionResolution, ValidatedStructuralConstruction,
+    validate_structural_construction,
+};
+pub use deconstruction_execution::{
+    StructuralDeconstructionCommitError, StructuralDeconstructionError,
+    StructuralDeconstructionOutcome, StructuralDeconstructionResolution,
+    ValidatedStructuralDeconstruction, validate_structural_deconstruction,
 };
 pub use definitions::{
     STRUCTURAL_PARTS_PER_MILLION, StructuralLoadMode, StructuralProfileDefinition,
@@ -31,3 +43,8 @@ pub use structural_execution::{
 
 pub(crate) use state::validate_loaded_structure;
 pub(crate) use structural_execution::validate_set_owned_structural_load;
+
+#[cfg(test)]
+pub(crate) use construction_execution::materialize_structural_element_for_test;
+#[cfg(test)]
+pub(crate) use deconstruction_execution::make_test_deconstruction_resolution;

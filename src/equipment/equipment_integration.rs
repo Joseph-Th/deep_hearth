@@ -265,7 +265,7 @@ mod tests {
         CapabilityRequirement, CapabilityValue, CapabilityValueKind, evaluate_capabilities,
     };
     use crate::content::make_test_registries_with_equipment;
-    use crate::content::{MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
+    use crate::content::{FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
     use crate::core::quantity::{Area, Force, Mass};
     use crate::core::time::WorldSeed;
     use crate::equipment::{
@@ -274,8 +274,8 @@ mod tests {
     };
     use crate::spatial::{VoxelBounds, VoxelCoord};
     use crate::structural::{
-        StructuralLoadKind, add_structural_element, validate_activate_structural_element,
-        validate_set_structural_load,
+        StructuralLoadKind, add_structural_element, materialize_structural_element_for_test,
+        validate_activate_structural_element, validate_set_structural_load,
     };
 
     const TEST_CAPABILITY: CapabilityId = CapabilityId::new(820_001);
@@ -462,6 +462,13 @@ mod tests {
             Ok(element) => element,
             Err(error) => panic!("support-aware structural fixture failed: {error}"),
         };
+        materialize_structural_element_for_test(
+            &registries,
+            &mut state,
+            support,
+            FORM_LOG,
+            Mass::from_milligrams(1),
+        );
         let activation = match validate_activate_structural_element(&registries, &state, support) {
             Ok(token) => token,
             Err(error) => panic!("support-aware activation validation failed: {error}"),

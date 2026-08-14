@@ -1,4 +1,4 @@
-//! Read-only world matter accounting across stored lots and durable in-process production ownership.
+//! Read-only world matter accounting across geology, structures, stored lots, and durable in-process ownership.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -9,12 +9,26 @@ use crate::core::state::AppState;
 /// World-scale matter projection split by its current authoritative owner.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MatterAccounting {
+    geological: AggregateMass,
+    structural: AggregateMass,
     stored: AggregateMass,
     in_process: AggregateMass,
     total: AggregateMass,
 }
 
 impl MatterAccounting {
+    /// Matter still owned by finite geological deposits.
+    #[must_use]
+    pub const fn geological(self) -> AggregateMass {
+        self.geological
+    }
+
+    /// Matter embodied in structural members.
+    #[must_use]
+    pub const fn structural(self) -> AggregateMass {
+        self.structural
+    }
+
     /// Matter currently owned by inventory lots.
     #[must_use]
     pub const fn stored(self) -> AggregateMass {
@@ -37,6 +51,8 @@ impl MatterAccounting {
 /// Overflow while projecting world-scale matter ownership.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MatterAccountingError {
+    GeologicalMassOverflow,
+    StructuralMassOverflow,
     StoredMassOverflow,
     InProcessMassOverflow,
     TotalMassOverflow,
@@ -45,6 +61,12 @@ pub enum MatterAccountingError {
 impl Display for MatterAccountingError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::GeologicalMassOverflow => {
+                formatter.write_str("geological world matter exceeds aggregate mass range")
+            }
+            Self::StructuralMassOverflow => {
+                formatter.write_str("structural world matter exceeds aggregate mass range")
+            }
             Self::StoredMassOverflow => {
                 formatter.write_str("stored world matter exceeds aggregate mass range")
             }
@@ -62,12 +84,30 @@ impl Error for MatterAccountingError {}
 
 /// Recomputes matter ownership from authoritative records without trusting stockpile caches.
 ///
-/// Production inputs are removed from inventory at process start. The running job's resolved output
-/// snapshot becomes the durable owner of that same matter until completion. Reserved inbound
-/// capacity is therefore not additional matter and is deliberately excluded from this projection.
+/// Finite geological deposits own their remaining extractable matter until a canonical extraction
+/// transfers it into inventory. Construction moves selected inventory matter into structural
+/// embodiment until conserved deconstruction returns or transforms it. Production inputs are removed
+/// from inventory at process start. The running job's resolved output snapshot becomes the durable
+/// owner of that same matter until completion. Reserved inbound capacity is not additional matter and
+/// is deliberately
+/// excluded from this projection.
 pub fn calculate_matter_accounting(
     state: &AppState,
 ) -> Result<MatterAccounting, MatterAccountingError> {
+    let mut geological = AggregateMass::ZERO;
+    for deposit in state.geology().deposits() {
+        geological = geological
+            .checked_add(AggregateMass::from_mass(deposit.remaining_mass()))
+            .ok_or(MatterAccountingError::GeologicalMassOverflow)?;
+    }
+
+    let mut structural = AggregateMass::ZERO;
+    for element in state.structures().elements() {
+        structural = structural
+            .checked_add(AggregateMass::from_mass(element.embodied_mass()))
+            .ok_or(MatterAccountingError::StructuralMassOverflow)?;
+    }
+
     let mut stored = AggregateMass::ZERO;
     for lot in state.inventory().lots() {
         stored = stored
@@ -84,10 +124,16 @@ pub fn calculate_matter_accounting(
         }
     }
 
-    let total = stored
+    let total = geological
+        .checked_add(structural)
+        .ok_or(MatterAccountingError::TotalMassOverflow)?
+        .checked_add(stored)
+        .ok_or(MatterAccountingError::TotalMassOverflow)?
         .checked_add(in_process)
         .ok_or(MatterAccountingError::TotalMassOverflow)?;
     Ok(MatterAccounting {
+        geological,
+        structural,
         stored,
         in_process,
         total,

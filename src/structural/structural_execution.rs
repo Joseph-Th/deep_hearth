@@ -95,6 +95,8 @@ pub fn add_structural_element(
         bounds,
         cross_section,
         grounded,
+        embodied_mass: crate::core::quantity::Mass::ZERO,
+        embodied_material: Vec::new(),
         loads: Default::default(),
         lifecycle: StructuralLifecycle::Planned,
         cracked: false,
@@ -157,6 +159,10 @@ pub enum StructuralMutationError {
         element: StructuralElementId,
         equipment: EquipmentId,
     },
+    ElementOwnsMatter {
+        element: StructuralElementId,
+        mass: crate::core::quantity::Mass,
+    },
     LoadOwnedBySubsystem {
         kind: StructuralLoadKind,
     },
@@ -187,6 +193,9 @@ pub enum StructuralMutationError {
     ActivationUnsupported {
         element: StructuralElementId,
     },
+    ActivationUnmaterialized {
+        element: StructuralElementId,
+    },
     RevisionExhausted,
     Analysis(StructuralAnalysisError),
 }
@@ -210,6 +219,12 @@ impl Display for StructuralMutationError {
                 "structural element {} cannot be removed while it supports equipment {}",
                 element.value(),
                 equipment.value()
+            ),
+            Self::ElementOwnsMatter { element, mass } => write!(
+                formatter,
+                "structural element {} owns {} mg of embodied matter and must be deconstructed through a conserved recovery transaction",
+                element.value(),
+                mass.milligrams()
             ),
             Self::LoadOwnedBySubsystem { kind } => write!(
                 formatter,
@@ -258,6 +273,11 @@ impl Display for StructuralMutationError {
                 "structural element {} cannot activate without an active support or ground anchor",
                 element.value()
             ),
+            Self::ActivationUnmaterialized { element } => write!(
+                formatter,
+                "structural element {} cannot activate before construction matter is committed",
+                element.value()
+            ),
             Self::RevisionExhausted => {
                 formatter.write_str("structural state revision space is exhausted")
             }
@@ -274,6 +294,7 @@ impl Error for StructuralMutationError {
             | Self::UnknownSupport { .. }
             | Self::ElementFailed { .. }
             | Self::ElementSupportsEquipment { .. }
+            | Self::ElementOwnsMatter { .. }
             | Self::LoadOwnedBySubsystem { .. }
             | Self::SupportFailed { .. }
             | Self::GroundedElementCannotHaveSupport { .. }
@@ -283,6 +304,7 @@ impl Error for StructuralMutationError {
             | Self::SupportCycle { .. }
             | Self::ElementNotPlanned { .. }
             | Self::ActivationUnsupported { .. }
+            | Self::ActivationUnmaterialized { .. }
             | Self::RevisionExhausted => None,
         }
     }
@@ -301,6 +323,10 @@ impl ValidatedStructuralMutation {
     #[must_use]
     pub const fn analysis(&self) -> &StructuralAnalysis {
         &self.analysis
+    }
+
+    pub(crate) const fn expected_revision(&self) -> u64 {
+        self.expected_revision
     }
 
     /// Commits the requested structural change and every resolved damage consequence atomically.
@@ -741,6 +767,33 @@ pub fn validate_remove_structural_element(
     state: &AppState,
     element: StructuralElementId,
 ) -> Result<ValidatedStructuralMutation, StructuralMutationError> {
+    let record = state
+        .structures()
+        .get_element(element)
+        .ok_or(StructuralMutationError::UnknownElement { element })?;
+    if let Some(equipment) = state.equipment().supported_equipment(element).next() {
+        return Err(StructuralMutationError::ElementSupportsEquipment { element, equipment });
+    }
+    if !record.embodied_mass().is_zero() {
+        return Err(StructuralMutationError::ElementOwnsMatter {
+            element,
+            mass: record.embodied_mass(),
+        });
+    }
+    build_plan(
+        registries,
+        state,
+        StructuralMutation::RemoveElement { element },
+    )
+}
+
+/// Internal removal plan used only by a cross-owner deconstruction transaction that transfers all
+/// embodied matter before the operation is exposed as successful.
+pub(crate) fn validate_remove_structural_element_with_recovery(
+    registries: &Registries,
+    state: &AppState,
+    element: StructuralElementId,
+) -> Result<ValidatedStructuralMutation, StructuralMutationError> {
     if state.structures().get_element(element).is_none() {
         return Err(StructuralMutationError::UnknownElement { element });
     }
@@ -767,6 +820,9 @@ pub fn validate_activate_structural_element(
     let Some(record) = state.structures().get_element(element) else {
         return Err(StructuralMutationError::UnknownElement { element });
     };
+    if record.embodied_mass().is_zero() {
+        return Err(StructuralMutationError::ActivationUnmaterialized { element });
+    }
     if !record.is_grounded() {
         let has_active_support = state
             .structures()
@@ -797,7 +853,10 @@ pub fn validate_set_structural_load(
     load: Force,
 ) -> Result<ValidatedStructuralMutation, StructuralMutationError> {
     validate_common_element(state, element)?;
-    if kind == StructuralLoadKind::Equipment {
+    if matches!(
+        kind,
+        StructuralLoadKind::Equipment | StructuralLoadKind::SelfWeight
+    ) {
         return Err(StructuralMutationError::LoadOwnedBySubsystem { kind });
     }
     validate_set_owned_structural_load(registries, state, element, kind, load)
@@ -832,10 +891,18 @@ pub(crate) fn validate_set_owned_structural_load(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::{MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries};
+    use crate::content::{
+        FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    };
+    use crate::core::quantity::Mass;
     use crate::core::time::WorldSeed;
+    use crate::inventory::add_stockpile;
     use crate::spatial::VoxelCoord;
-    use crate::structural::{StructuralFailureCause, StructuralStage};
+    use crate::structural::{
+        StructuralFailureCause, StructuralStage, ValidatedStructuralDeconstruction,
+        make_test_deconstruction_resolution, materialize_structural_element_for_test,
+        validate_structural_deconstruction,
+    };
 
     const MEMBER_AREA: Area = Area::from_square_millimeters(1_000);
     const WOOD_COMPRESSION_CAPACITY_MN: u128 = 40_000_000;
@@ -847,6 +914,35 @@ mod tests {
         }
     }
 
+    fn validate_test_deconstruction(
+        registries: &Registries,
+        state: &mut AppState,
+        element: StructuralElementId,
+    ) -> ValidatedStructuralDeconstruction {
+        let mass = match state.structures().get_element(element) {
+            Some(record) => record.embodied_mass(),
+            None => panic!("deconstruction fixture references missing structural element"),
+        };
+        let destination = match add_stockpile(state, mass) {
+            Ok(destination) => destination,
+            Err(error) => panic!("deconstruction fixture stockpile failed: {error}"),
+        };
+        match validate_structural_deconstruction(
+            registries,
+            state,
+            make_test_deconstruction_resolution(element, destination),
+        ) {
+            Ok(token) => token,
+            Err(error) => panic!("deconstruction fixture validation failed: {error}"),
+        }
+    }
+
+    fn commit_test_deconstruction(token: ValidatedStructuralDeconstruction, state: &mut AppState) {
+        if let Err(error) = token.commit(state) {
+            panic!("deconstruction fixture commit failed: {error}");
+        }
+    }
+
     fn make_test_element(
         registries: &Registries,
         state: &mut AppState,
@@ -854,7 +950,7 @@ mod tests {
         y: i64,
         grounded: bool,
     ) -> StructuralElementId {
-        match add_structural_element(
+        let element = match add_structural_element(
             registries,
             state,
             STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
@@ -865,7 +961,15 @@ mod tests {
         ) {
             Ok(element) => element,
             Err(error) => panic!("structural element fixture failed: {error}"),
-        }
+        };
+        materialize_structural_element_for_test(
+            registries,
+            state,
+            element,
+            FORM_LOG,
+            Mass::from_milligrams(1),
+        );
+        element
     }
 
     fn commit_test_mutation(
@@ -955,12 +1059,13 @@ mod tests {
             Force::from_millinewtons(WOOD_COMPRESSION_CAPACITY_MN)
         );
         assert_eq!(deck_assessment.stage(), StructuralStage::Strained);
-        assert_eq!(deck_assessment.carried_load().millinewtons(), 30_000_001);
-        assert_eq!(left_assessment.carried_load().millinewtons(), 15_000_001);
-        assert_eq!(right_assessment.carried_load().millinewtons(), 15_000_000);
+        assert_eq!(deck_assessment.carried_load().millinewtons(), 30_000_002);
+        assert_eq!(left_assessment.carried_load().millinewtons(), 15_000_002);
+        assert_eq!(right_assessment.carried_load().millinewtons(), 15_000_002);
         assert_eq!(
-            left_assessment.carried_load().millinewtons()
-                + right_assessment.carried_load().millinewtons(),
+            left_assessment.carried_load().millinewtons() - 1
+                + right_assessment.carried_load().millinewtons()
+                - 1,
             deck_assessment.carried_load().millinewtons()
         );
         assert_eq!(left_assessment.stage(), StructuralStage::Stable);
@@ -1001,7 +1106,7 @@ mod tests {
             find_assessment(&combined, column)
                 .carried_load()
                 .millinewtons(),
-            30_000_000
+            30_000_001
         );
         assert_eq!(
             find_assessment(&combined, column).stage(),
@@ -1035,14 +1140,36 @@ mod tests {
             find_assessment(&cleared, column)
                 .carried_load()
                 .millinewtons(),
-            10_000_000
+            10_000_001
         );
         let record = match state.structures().get_element(column) {
             Some(record) => record,
             None => panic!("column disappeared after clearing snow load"),
         };
         assert_eq!(record.load(StructuralLoadKind::Snow), Force::ZERO);
-        assert_eq!(record.loads().count(), 1);
+        assert_eq!(record.loads().count(), 2);
+    }
+
+    #[test]
+    fn self_weight_load_channel_rejects_generic_writes() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5100_0013));
+        let member = make_test_element(&registries, &mut state, 0, 0, true);
+        let before = state.clone();
+
+        assert_eq!(
+            validate_set_structural_load(
+                &registries,
+                &state,
+                member,
+                StructuralLoadKind::SelfWeight,
+                Force::from_millinewtons(999),
+            ),
+            Err(StructuralMutationError::LoadOwnedBySubsystem {
+                kind: StructuralLoadKind::SelfWeight,
+            })
+        );
+        assert_eq!(state, before);
     }
 
     #[test]
@@ -1093,7 +1220,7 @@ mod tests {
             &state,
             member,
             StructuralLoadKind::Permanent,
-            Force::from_millinewtons(u128::MAX),
+            Force::from_millinewtons(u128::MAX - 1),
         ) {
             Ok(token) => token,
             Err(error) => panic!("maximum planned load validation failed: {error}"),
@@ -1283,13 +1410,10 @@ mod tests {
         };
         commit_test_mutation(load, &mut state);
 
-        let removal = match validate_remove_structural_element(&registries, &state, left) {
-            Ok(token) => token,
-            Err(error) => panic!("member removal validation failed: {error}"),
-        };
-        assert!(removal.analysis().damage_events().is_empty());
+        let removal = validate_test_deconstruction(&registries, &mut state, left);
+        assert!(removal.structural_analysis().damage_events().is_empty());
         let right_assessment = match removal
-            .analysis()
+            .structural_analysis()
             .assessments()
             .iter()
             .copied()
@@ -1298,9 +1422,9 @@ mod tests {
             Some(assessment) => assessment,
             None => panic!("surviving support assessment disappeared during removal planning"),
         };
-        assert_eq!(right_assessment.carried_load().millinewtons(), 30_000_000);
+        assert_eq!(right_assessment.carried_load().millinewtons(), 30_000_002);
         assert_eq!(right_assessment.stage(), StructuralStage::Strained);
-        commit_test_mutation(removal, &mut state);
+        commit_test_deconstruction(removal, &mut state);
 
         assert!(state.structures().get_element(left).is_none());
         assert!(state.structures().supports(left).is_none());
@@ -1334,13 +1458,15 @@ mod tests {
         link_test_support(&registries, &mut state, top, middle);
         activate_test_element(&registries, &mut state, top);
 
-        let remove_foundation =
-            match validate_remove_structural_element(&registries, &state, foundation) {
-                Ok(token) => token,
-                Err(error) => panic!("foundation removal validation failed: {error}"),
-            };
-        assert_eq!(remove_foundation.analysis().damage_events().len(), 2);
-        commit_test_mutation(remove_foundation, &mut state);
+        let remove_foundation = validate_test_deconstruction(&registries, &mut state, foundation);
+        assert_eq!(
+            remove_foundation
+                .structural_analysis()
+                .damage_events()
+                .len(),
+            2
+        );
+        commit_test_deconstruction(remove_foundation, &mut state);
         assert_eq!(
             state
                 .structures()
@@ -1357,11 +1483,8 @@ mod tests {
         );
 
         for debris in [top, middle] {
-            let token = match validate_remove_structural_element(&registries, &state, debris) {
-                Ok(token) => token,
-                Err(error) => panic!("failed debris removal validation failed: {error}"),
-            };
-            commit_test_mutation(token, &mut state);
+            let token = validate_test_deconstruction(&registries, &mut state, debris);
+            commit_test_deconstruction(token, &mut state);
             assert!(state.structures().get_element(debris).is_none());
         }
         assert_eq!(state.structures().elements().count(), 0);
@@ -1449,7 +1572,7 @@ mod tests {
             stale.commit(&mut state),
             Err(StructuralCommitError::StaleRevision {
                 expected: expected_revision,
-                actual: expected_revision + 1,
+                actual: expected_revision + 2,
             })
         );
         assert_eq!(state, before_commit);

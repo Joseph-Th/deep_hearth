@@ -523,7 +523,8 @@ mod tests {
         CapabilityDefinition, CapabilityId, CapabilityProfile, CapabilityValue, CapabilityValueKind,
     };
     use crate::content::{
-        MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, make_test_registries_with_equipment,
+        FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        make_test_registries_with_equipment,
     };
     use crate::core::quantity::{Area, Mass};
     use crate::core::state::validate_loaded_state;
@@ -533,8 +534,8 @@ mod tests {
     use crate::spatial::{VoxelBounds, VoxelCoord};
     use crate::structural::{
         StructuralDamageEvent, StructuralMutationError, add_structural_element,
-        validate_activate_structural_element, validate_remove_structural_element,
-        validate_set_structural_load,
+        materialize_structural_element_for_test, validate_activate_structural_element,
+        validate_remove_structural_element, validate_set_structural_load,
     };
 
     const TEST_CAPABILITY: CapabilityId = CapabilityId::new(830_001);
@@ -583,7 +584,7 @@ mod tests {
     }
 
     fn add_member(registries: &Registries, state: &mut AppState, x: i64) -> StructuralElementId {
-        match add_structural_element(
+        let element = match add_structural_element(
             registries,
             state,
             STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
@@ -594,7 +595,15 @@ mod tests {
         ) {
             Ok(element) => element,
             Err(error) => panic!("equipment support member fixture failed: {error}"),
-        }
+        };
+        materialize_structural_element_for_test(
+            registries,
+            state,
+            element,
+            FORM_LOG,
+            Mass::from_milligrams(1),
+        );
+        element
     }
 
     fn activate_member(

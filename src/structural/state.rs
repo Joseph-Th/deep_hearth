@@ -6,12 +6,14 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::{Area, Force};
+use crate::core::quantity::{Acceleration, AggregateMass, Area, Force, Mass};
 use crate::core::time::SimulationTick;
+use crate::inventory::ConsumedMaterialTrace;
 use crate::material::{MaterialId, MaterialRegistry};
 use crate::spatial::VoxelBounds;
 
 use super::definitions::{StructuralProfileId, StructuralRegistry};
+use super::load::calculate_aggregate_weight_force_ceiling;
 
 /// Persistent identifier for one structural member record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -44,6 +46,7 @@ pub enum StructuralLifecycle {
 /// another. Structural analysis consumes the sum and does not invent these source values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum StructuralLoadKind {
+    SelfWeight,
     Permanent,
     StoredMatter,
     Equipment,
@@ -62,6 +65,8 @@ pub struct StructuralElementRecord {
     pub(super) bounds: VoxelBounds,
     pub(super) cross_section: Area,
     pub(super) grounded: bool,
+    pub(super) embodied_mass: Mass,
+    pub(super) embodied_material: Vec<ConsumedMaterialTrace>,
     pub(super) loads: BTreeMap<StructuralLoadKind, Force>,
     pub(super) lifecycle: StructuralLifecycle,
     pub(super) cracked: bool,
@@ -97,6 +102,18 @@ impl StructuralElementRecord {
     #[must_use]
     pub const fn is_grounded(&self) -> bool {
         self.grounded
+    }
+
+    /// Exact matter currently owned by this structural member.
+    #[must_use]
+    pub const fn embodied_mass(&self) -> Mass {
+        self.embodied_mass
+    }
+
+    /// Physical/provenance traces transferred into this member at construction.
+    #[must_use]
+    pub fn embodied_material(&self) -> &[ConsumedMaterialTrace] {
+        &self.embodied_material
     }
 
     #[must_use]
@@ -229,6 +246,53 @@ pub enum StructureValidationError {
     ZeroCrossSection {
         element: StructuralElementId,
     },
+    UnmaterializedLoadBearingElement {
+        element: StructuralElementId,
+        lifecycle: StructuralLifecycle,
+    },
+    EmbodiedMassMismatch {
+        element: StructuralElementId,
+        stored: Mass,
+        traced: Mass,
+    },
+    EmbodiedMassOverflow {
+        element: StructuralElementId,
+    },
+    ZeroEmbodiedTrace {
+        element: StructuralElementId,
+    },
+    EmbodiedMaterialMismatch {
+        element: StructuralElementId,
+        expected: MaterialId,
+        found: MaterialId,
+    },
+    UnsupportedEmbodiedComposition {
+        element: StructuralElementId,
+        material: MaterialId,
+    },
+    UnknownEmbodiedCommodity {
+        element: StructuralElementId,
+    },
+    UnknownEmbodiedCompositionMaterial {
+        element: StructuralElementId,
+        material: MaterialId,
+    },
+    InvalidEmbodiedProvenanceRange {
+        element: StructuralElementId,
+    },
+    EmbodiedProvenanceInFuture {
+        element: StructuralElementId,
+        latest_created_at: SimulationTick,
+        current: SimulationTick,
+    },
+    SelfWeightOverflow {
+        element: StructuralElementId,
+    },
+    SelfWeightMismatch {
+        element: StructuralElementId,
+        stored: Force,
+        expected: Force,
+    },
     ZeroLoadContribution {
         element: StructuralElementId,
         kind: StructuralLoadKind,
@@ -237,6 +301,9 @@ pub enum StructureValidationError {
         element: StructuralElementId,
         created_at: SimulationTick,
         current: SimulationTick,
+    },
+    PlannedElementCracked {
+        element: StructuralElementId,
     },
     FailedElementNotCracked {
         element: StructuralElementId,
@@ -305,6 +372,92 @@ impl Display for StructureValidationError {
                 "structural element {} has zero cross-sectional area",
                 element.value()
             ),
+            Self::UnmaterializedLoadBearingElement { element, lifecycle } => write!(
+                formatter,
+                "structural element {} is {lifecycle:?} without embodied construction matter",
+                element.value()
+            ),
+            Self::EmbodiedMassMismatch {
+                element,
+                stored,
+                traced,
+            } => write!(
+                formatter,
+                "structural element {} stores {} mg embodied mass but traces own {} mg",
+                element.value(),
+                stored.milligrams(),
+                traced.milligrams()
+            ),
+            Self::EmbodiedMassOverflow { element } => write!(
+                formatter,
+                "structural element {} embodied traces overflow single-member mass storage",
+                element.value()
+            ),
+            Self::ZeroEmbodiedTrace { element } => write!(
+                formatter,
+                "structural element {} contains a zero-mass embodied trace",
+                element.value()
+            ),
+            Self::EmbodiedMaterialMismatch {
+                element,
+                expected,
+                found,
+            } => write!(
+                formatter,
+                "structural element {} is authored as material {} but owns commodity material {}",
+                element.value(),
+                expected.value(),
+                found.value()
+            ),
+            Self::UnsupportedEmbodiedComposition { element, material } => write!(
+                formatter,
+                "structural element {} uses single-material strength for material {} but its embodied matter is not pure",
+                element.value(),
+                material.value()
+            ),
+            Self::UnknownEmbodiedCommodity { element } => write!(
+                formatter,
+                "structural element {} owns an unknown material/form commodity",
+                element.value()
+            ),
+            Self::UnknownEmbodiedCompositionMaterial { element, material } => write!(
+                formatter,
+                "structural element {} embodied composition references unknown material {}",
+                element.value(),
+                material.value()
+            ),
+            Self::InvalidEmbodiedProvenanceRange { element } => write!(
+                formatter,
+                "structural element {} embodied material has an inverted provenance range",
+                element.value()
+            ),
+            Self::EmbodiedProvenanceInFuture {
+                element,
+                latest_created_at,
+                current,
+            } => write!(
+                formatter,
+                "structural element {} owns material provenance through tick {} after current tick {}",
+                element.value(),
+                latest_created_at.value(),
+                current.value()
+            ),
+            Self::SelfWeightOverflow { element } => write!(
+                formatter,
+                "structural element {} embodied mass exceeds self-weight force range",
+                element.value()
+            ),
+            Self::SelfWeightMismatch {
+                element,
+                stored,
+                expected,
+            } => write!(
+                formatter,
+                "structural element {} stores {} mN self-weight but embodied matter requires {} mN",
+                element.value(),
+                stored.millinewtons(),
+                expected.millinewtons()
+            ),
             Self::ZeroLoadContribution { element, kind } => write!(
                 formatter,
                 "structural element {} stores redundant zero {kind:?} load contribution",
@@ -320,6 +473,11 @@ impl Display for StructureValidationError {
                 element.value(),
                 created_at.value(),
                 current.value()
+            ),
+            Self::PlannedElementCracked { element } => write!(
+                formatter,
+                "planned structural element {} cannot already contain irreversible crack damage",
+                element.value()
             ),
             Self::FailedElementNotCracked { element } => write!(
                 formatter,
@@ -381,6 +539,7 @@ pub(crate) fn validate_loaded_structure(
     materials: &MaterialRegistry,
     state: &StructureState,
     current_tick: SimulationTick,
+    gravity: Acceleration,
 ) -> Result<(), StructureValidationError> {
     if state.next_element_id == 0 {
         return Err(StructureValidationError::ZeroNextElementId);
@@ -416,6 +575,85 @@ pub(crate) fn validate_loaded_structure(
         if record.cross_section.is_zero() {
             return Err(StructureValidationError::ZeroCrossSection { element: record.id });
         }
+        if record.lifecycle != StructuralLifecycle::Planned && record.embodied_mass.is_zero() {
+            return Err(StructureValidationError::UnmaterializedLoadBearingElement {
+                element: record.id,
+                lifecycle: record.lifecycle,
+            });
+        }
+        let mut traced_mass = Mass::ZERO;
+        for trace in &record.embodied_material {
+            if trace.mass().is_zero() {
+                return Err(StructureValidationError::ZeroEmbodiedTrace { element: record.id });
+            }
+            traced_mass = traced_mass
+                .checked_add(trace.mass())
+                .ok_or(StructureValidationError::EmbodiedMassOverflow { element: record.id })?;
+            let commodity = trace.profile().commodity();
+            if !materials.has_commodity(commodity) {
+                return Err(StructureValidationError::UnknownEmbodiedCommodity {
+                    element: record.id,
+                });
+            }
+            if commodity.material() != record.material {
+                return Err(StructureValidationError::EmbodiedMaterialMismatch {
+                    element: record.id,
+                    expected: record.material,
+                    found: commodity.material(),
+                });
+            }
+            if trace.profile().composition()
+                != &crate::material::MaterialComposition::pure(record.material)
+            {
+                return Err(StructureValidationError::UnsupportedEmbodiedComposition {
+                    element: record.id,
+                    material: record.material,
+                });
+            }
+            for component in trace.profile().composition().components() {
+                if materials.get_material(component.material()).is_none() {
+                    return Err(
+                        StructureValidationError::UnknownEmbodiedCompositionMaterial {
+                            element: record.id,
+                            material: component.material(),
+                        },
+                    );
+                }
+            }
+            let provenance = trace.provenance();
+            if provenance.latest_created_at() < provenance.earliest_created_at() {
+                return Err(StructureValidationError::InvalidEmbodiedProvenanceRange {
+                    element: record.id,
+                });
+            }
+            if provenance.latest_created_at() > current_tick {
+                return Err(StructureValidationError::EmbodiedProvenanceInFuture {
+                    element: record.id,
+                    latest_created_at: provenance.latest_created_at(),
+                    current: current_tick,
+                });
+            }
+        }
+        if traced_mass != record.embodied_mass {
+            return Err(StructureValidationError::EmbodiedMassMismatch {
+                element: record.id,
+                stored: record.embodied_mass,
+                traced: traced_mass,
+            });
+        }
+        let expected_self_weight = calculate_aggregate_weight_force_ceiling(
+            AggregateMass::from_mass(record.embodied_mass),
+            gravity,
+        )
+        .ok_or(StructureValidationError::SelfWeightOverflow { element: record.id })?;
+        let stored_self_weight = record.load(StructuralLoadKind::SelfWeight);
+        if stored_self_weight != expected_self_weight {
+            return Err(StructureValidationError::SelfWeightMismatch {
+                element: record.id,
+                stored: stored_self_weight,
+                expected: expected_self_weight,
+            });
+        }
         if let Some((kind, _)) = record.loads.iter().find(|(_, load)| load.is_zero()) {
             return Err(StructureValidationError::ZeroLoadContribution {
                 element: record.id,
@@ -428,6 +666,9 @@ pub(crate) fn validate_loaded_structure(
                 created_at: record.created_at,
                 current: current_tick,
             });
+        }
+        if record.lifecycle == StructuralLifecycle::Planned && record.cracked {
+            return Err(StructureValidationError::PlannedElementCracked { element: record.id });
         }
         if record.lifecycle == StructuralLifecycle::Failed && !record.cracked {
             return Err(StructureValidationError::FailedElementNotCracked { element: record.id });

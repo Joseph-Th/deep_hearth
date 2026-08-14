@@ -9,6 +9,7 @@ pub mod electrical;
 pub mod energy;
 pub mod equipment;
 pub mod fluid;
+pub mod geology;
 pub mod inventory;
 pub mod maintenance;
 pub mod material;

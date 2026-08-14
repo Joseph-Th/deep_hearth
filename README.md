@@ -8,12 +8,15 @@ owners of gameplay state or rules.
 
 The implemented foundation includes persisted independent RNG streams, exact integer engineering
 quantities, composition-aware material lots, atomic inventory transactions, closed-mass durable
-production, typed capability requirements, maintenance condition, thermal/volume calculations,
-condition-sensitive equipment capabilities, equipment weight coupled into structural failure,
-energy/electrical/fluid scalar integration, exact torque/speed mechanical transmission primitives,
-versioned persistence, chunk-independent spatial types, global matter accounting, and deterministic
-soak coverage. Built-in gameplay processes remain unregistered until their real physical
-authorization systems exist.
+production, finite geological matter ownership with conservation-bound extraction, persistent
+prospecting evidence and uncertainty-aware geological maps, typed capability requirements,
+maintenance condition, thermal/volume calculations, condition-sensitive equipment capabilities,
+conserved structural construction/deconstruction with real self-weight, equipment weight coupled into
+structural failure, energy/electrical/fluid scalar integration, exact torque/speed mechanical
+transmission primitives, versioned persistence, chunk-independent spatial types, global matter
+accounting, and deterministic soak coverage. Built-in gameplay processes, physical survey resolvers,
+construction requirement resolvers, and mining authorization remain unavailable until their real
+physical systems exist.
 
 Read these documents before changing the project:
 

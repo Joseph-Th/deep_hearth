@@ -66,8 +66,9 @@ records with dedicated indexes.
 
 `AppState` is the root of generated mutable state that must survive restart boundaries. It currently
 owns the world seed, authoritative clock, independent deterministic RNG streams, finite-energy
-stores, equipment records, structural records, inventory, and production. New subsystems add
-explicit owned state rather than turning `AppState` into a bag of unrelated maps.
+stores, equipment records, structural records, finite geological deposits, acquired geological
+knowledge, inventory, and production. New subsystems add explicit owned state rather than turning
+`AppState` into a bag of unrelated maps.
 
 Runtime records use typed persistent IDs. Each subsystem owns its record collections and synchronized
 indexes; callers receive read-only views and canonical systems retain mutation access.
@@ -77,8 +78,14 @@ indexes; callers receive read-only views and canonical systems retain mutation a
 - `EnergyState` owns finite energy stores, generated store IDs, and an owner revision.
 - `EquipmentState` owns maintainable equipment instances, their structural support assignment, a
   synchronized support-to-equipment reverse index, generated equipment IDs, and an owner revision.
-- `StructureState` owns structural members, support/dependent indexes, source-separated loads, damage,
-  generated member IDs, and an owner revision.
+- `StructureState` owns structural members, exact embodied material traces/mass, support/dependent
+  indexes, source-separated loads including derived self-weight, damage, generated member IDs, and an
+  owner revision.
+- `GeologyState` owns finite generated deposits, their exact remaining matter profile and bounds,
+  generated deposit IDs, depletion lifecycle, and an owner revision.
+- `GeologicalKnowledgeState` owns acquired observations, generated observation IDs, immutable spatial
+  evidence records, a synchronized material-to-observation index, and an owner revision. It does not
+  own or reference exact deposit identities.
 - `ProductionState` owns active jobs, generated job IDs, a due-tick index, and an owner revision.
 - Validated transaction tokens bind to the exact owner revisions they checked, preventing stale
   commits after intervening mutation.
@@ -95,7 +102,7 @@ callbacks, event handlers, record methods, or engine lifecycle hooks.
 ## 7. Persistence
 
 The core defines a versioned semantic save envelope while deliberately leaving byte encoding and
-storage to adapters. The current save schema is version 14. Authored identity/physics compatibility
+storage to adapters. The current save schema is version 17. Authored identity/physics compatibility
 is tracked separately by `RegistrySchemaVersion`; the built-in registry schema is currently version
 5. Core gravity is part of that immutable registry contract because changing it changes persisted
 structural consequences even when authored IDs are unchanged.
@@ -115,8 +122,8 @@ A current-schema load must:
 
 Persistence tests cover deterministic continuation, mixed composition, independent RNG continuation,
 tampered RNG roots, tampered in-process consumed mass, stable immediate JSON reserialization,
-equipment structural support/load agreement, and in-flight jobs surviving later process requirement
-rebalancing from their committed snapshots.
+structural embodied-mass/self-weight agreement, equipment structural support/load agreement, and
+in-flight jobs surviving later process requirement rebalancing from their committed snapshots.
 
 Filesystem layout, compression, atomic writes, cloud storage, and released-save migration
 implementations remain adapter work.
@@ -135,6 +142,9 @@ unselected. Domain records must not assume an ECS, scene graph, renderer object,
 Performance begins with ownership and access patterns rather than premature micro-optimization.
 
 - Authoritative records and indexes remain compact, private, and deterministic.
+- Geological knowledge indexes observations by material so a regional assessment does not scan
+  unrelated material evidence. Full bidirectional index verification remains an exhaustive load/audit
+  check rather than a per-tick invariant.
 - Production uses `BTreeMap<SimulationTick, BTreeSet<ProductionJobId>>` so due work does not require
   scanning all active jobs.
 - Stockpiles maintain cheap derived mass/commodity caches and update them atomically with lot state.
@@ -201,7 +211,7 @@ modeled explicitly.
 The initial material content includes wood, charcoal, copper, slag, and foundational forms. It is
 architecture content, not the complete gameplay catalog.
 
-## 13. Inventory and Matter Ownership
+## 13. Inventory, Geological Matter, and Matter Ownership
 
 Material lots are the authoritative stored-matter representation. Each `MaterialLotRecord` owns a
 persistent lot ID, stockpile owner, exact mass, a `MaterialLotProfile` (commodity, absolute
@@ -213,15 +223,67 @@ stored mass, capacity, and reserved inbound mass. `validate_transfer_bulk` plus 
 split lots in stable ID order without averaging physical properties away. Newly created compatible
 fragments can coalesce into the lowest-ID compatible destination lot.
 
-There is intentionally no public arbitrary-deposit API. Tests can seed matter through `#[cfg(test)]`
-fixtures; real matter creation must eventually originate from canonical extraction, biology, trade,
-or another explicit source system.
+There is intentionally no public arbitrary inventory-deposit API. Tests can seed inventory through
+`#[cfg(test)]` fixtures. World generation has a separately named geological source boundary that
+admits validated finite deposits into `GeologyState`; it is not a player extraction path and does not
+write inventory directly. Its `GeneratedDepositSpec` is opaque and has no production/public
+constructor until a real regional geological generator can authorize one, so exposing the admission
+function does not expose arbitrary matter creation. `AppState` likewise does not publicly expose
+authoritative deposit enumeration: external/player-facing adapters receive acquired geological
+knowledge instead of a hidden-truth escape hatch.
 
 `calculate_matter_accounting` recomputes implemented world matter from authoritative records. It
-counts inventory lots plus in-flight production output snapshots. Consumed-input traces are history,
-not a second owner, and reserved inbound capacity is space rather than matter.
+counts remaining geological deposit mass, embodied structural mass, inventory lots, and in-flight
+production output snapshots. Consumed-input traces are history unless they are explicitly owned as
+structural embodiment; reserved inbound capacity is space rather than matter.
 
-## 14. Timed Production
+`GeologicalDepositRecord` stores a chunk-agnostic `VoxelBounds`, exact initial and remaining mass,
+commodity/form identity, absolute temperature, normalized composition, generated tick, and a
+validated available/depleted lifecycle. It does not prescribe ore-body generation algorithms,
+terrain voxel storage, prospecting visibility, or mining geometry. Overlapping geological bounds are
+therefore not prohibited by this foundation; a future geological model may use overlapping records
+for distinct structures or mineralization rather than forcing a premature one-record-per-voxel rule.
+
+Geological extraction is a revision-bound two-owner transaction. An opaque `ExtractionResolution`
+must already exist before validation, so this foundation does not expose free instant mining. The
+transaction checks finite remaining mass and destination capacity, binds geology and inventory
+revisions, then moves the exact mass, composition, form, temperature, and provenance into a material
+lot atomically. Inventory exposes only a crate-private validated ingress primitive for explicit
+source owners, preserving the existing prohibition on arbitrary gameplay matter insertion.
+
+Explicit modeled-energy accounting includes sensible heat still owned by geological deposits,
+structural members, inventory, and in-process matter. Extraction, construction, and deconstruction
+therefore change ownership without changing the global modeled sensible-energy total.
+
+## 14. Prospecting Knowledge
+
+Authoritative geological deposits and acquired knowledge are deliberately separate owners. Exact
+deposit identity, bounds, remaining mass, and composition are simulation truth; player-facing
+prospecting state contains only observations that a physical survey resolver has authorized.
+
+`GeologicalObservationRecord` stores a chunk-independent spatial footprint, evidence provenance,
+observation tick, and a canonical material-sorted list of bounded abundance estimates in integer
+parts per million. Evidence kinds such as surface exposure, panning, core samples, assays, magnetic,
+electrical, and seismic surveys are provenance labels rather than technology levels. Accuracy is
+represented by the actual abundance interval and spatial footprint supplied by the physical resolver.
+
+An opaque `ProspectingResolution` has no public constructor. Future sampling, drilling, laboratory,
+tool, labor, and instrument systems must determine what was measured before
+`validate_record_prospecting` can create a revision-bound commit token. Persisting knowledge never
+consults hidden deposits and therefore cannot become a magic reveal path.
+
+`assess_geological_knowledge` reads only acquired evidence for one material and region. It clips
+relevant observation footprints to the query and intersects hard abundance bounds only when every
+relevant observation shares a nonempty common locality. Evidence from disjoint subregions is marked
+spatially incomparable rather than being averaged or reported as a false contradiction. Genuine
+incompatible bounds over a common locality remain an explicit conflict. The broader evidence envelope
+is retained, the common evidence region is exposed, and the most precise supporting observation is
+selected deterministically by abundance width, spatial footprint, recency, then ID.
+`build_geological_knowledge_map` produces stable material-ID-ordered regional projections and omits
+materials whose observations do not intersect the requested region. Evidence relevance therefore
+does not imply a fabricated uniform whole-region ore grade.
+
+## 15. Timed Production
 
 Production separates static requirements from operation-specific physical outcomes.
 
@@ -250,7 +312,7 @@ converts reserved capacity into actual output lots before removing the job/index
 The built-in production registry remains empty until real physical authorization systems can resolve
 gameplay operations faithfully.
 
-## 15. Capabilities, Maintenance, Energy, Flow, and Mechanical Power
+## 16. Capabilities, Maintenance, Energy, Flow, and Mechanical Power
 
 Capabilities are typed physical requirements rather than generic progression levels. Current value
 kinds include presence, mass, temperature, energy, pressure, force, power, torque, angular speed,
@@ -289,7 +351,44 @@ Future persistent network owners must preserve carried remainders when integrati
 small rates are not lost to repeated truncation. The mechanical scalar layer intentionally chooses
 no shaft graph, belt routing, flywheel inertia model, slip state, clutch lifecycle, or network solver.
 
-## 16. Equipment Structural Support
+## 17. Structural Construction Matter
+
+Structural planning is deliberately separate from material ownership. `add_structural_element`
+creates a planned geometry/reference record with no embodied matter, and activation is rejected until
+construction matter has been committed. The core does not derive mass from `VoxelBounds` times
+cross-section because bounds are only an occupancy envelope and the current profile does not define a
+member axis, solid length, joinery, or cutting waste. Inventing those assumptions would make later
+geometry and construction systems incompatible with persisted consequences.
+
+An opaque `StructuralConstructionResolution` owns an exact inventory selection produced by a future
+physical construction resolver. `validate_structural_construction` binds inventory and structural
+owner revisions, requires a still-planned unmaterialized target, and currently requires every trace
+to be pure matter matching the member's authored material. This purity restriction is intentional:
+current structural capacity uses one authored material's strength and cannot safely assign full pure
+strength to contaminated or composite matter. Composition-aware structural mechanics can relax this
+only when they define the corresponding physical capacity model.
+
+Construction transfers the exact selected mass, temperature, composition, and provenance from
+inventory into persisted structural embodiment. `StructuralLoadKind::SelfWeight` is then derived from
+the committed aggregate mass under registry-authored gravity. Self-weight is a structure-owned load
+channel and is rejected by the public generic load mutation API, preventing callers from forging or
+erasing the member's own weight. Exhaustive load validation recomputes embodied trace mass and
+self-weight independently.
+
+Direct generic removal is rejected for any member that still owns matter. An opaque
+`StructuralDeconstructionResolution` instead validates a destination stockpile and prepares both a
+structural removal and exact trace-preserving inventory ingress. Commit rechecks both owner revisions,
+removes the member through normal structural cascade analysis, then restores every embodied trace to
+inventory without changing its physical profile or provenance. Failed debris follows the same
+conservation boundary. Future dismantling and demolition resolvers may produce explicit salvage,
+debris, or waste streams, but they must balance the member's committed mass rather than deleting it.
+
+Construction and deconstruction tests verify cross-owner stale-token atomicity, exact matter and
+modeled sensible-energy conservation, direct-deletion prevention, mixed-composition rejection under
+the current strength model, persistence corruption rejection, and a deterministic 1,000-cycle
+inventory-to-structure-to-inventory soak.
+
+## 18. Equipment Structural Support
 
 Equipment records own an optional `StructuralElementId` support assignment, while `EquipmentState`
 maintains the synchronized reverse index used for support-local aggregation and removal checks. A
@@ -319,22 +418,26 @@ duration, and output snapshot; interrupting or partially recovering such work af
 failure remains deferred until production has an explicit interruption/cancellation owner rather than
 silently destroying committed resources.
 
-## 17. Cross-Subsystem Runtime Invariants and Boundaries
+## 19. Cross-Subsystem Runtime Invariants and Boundaries
 
 `validate_loaded_state(registries, state)` validates local owners plus cross-system relationships,
 including registry references, lot provenance, generated ID cursors, due-index membership, stockpile
 cache agreement, capacity/reservation agreement, job lifecycle, consumed-input references, and
-in-process matter conservation, equipment support references, and mounted-equipment structural-load
-agreement. Operation-specific thermal audits recompute condition-sensitive equipment capabilities
-from the persisted provider-condition snapshot so an in-flight job's physical duration contract
-remains reproducible after load.
+in-process matter conservation, geological deposit references/lifecycle/provenance, geological
+observation references/order/provenance and both directions of the material evidence index,
+structural embodied trace mass/material/composition/provenance and self-weight agreement, equipment
+support references, and mounted-equipment structural-load agreement. Operation-specific thermal
+audits recompute condition-sensitive equipment capabilities from the persisted provider-condition
+snapshot so an in-flight job's physical duration contract remains reproducible after load.
 
 The foundation intentionally leaves unresolved choices unresolved. Deferred areas include chunk
-storage/streaming, renderer/ECS/physics/networking, canonical extraction sources, thermal fields and
-phase change, combustion/emissions, real equipment/tool/worker capability providers, production
-resolvers, persistent mechanical networks/inertia/slip, steam/boilers, electrical
-topology/transformers/protection, hydrology and fluid networks, agriculture, ecology/genetics,
-creatures/workers, settlements/logistics/trade, and released save-file migrations/storage adapters.
+storage/streaming, renderer/ECS/physics/networking, regional geological generation, physical
+prospecting resolvers and mining authorization/rates/waste streams, construction geometry/material
+requirement and demolition/salvage resolvers, thermal fields and phase change, combustion/emissions,
+real equipment/tool/worker capability providers, production resolvers, persistent mechanical
+networks/inertia/slip, steam/boilers, electrical topology/transformers/protection, hydrology and fluid
+networks, agriculture, ecology/genetics, creatures/workers, settlements/logistics/trade, and released
+save-file migrations/storage adapters.
 
 New systems must integrate through owned records, immutable definitions, typed IDs/quantities,
 canonical mutations, dedicated errors, persistence semantics, invariant coverage, and behavioral
