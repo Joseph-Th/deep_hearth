@@ -1,5 +1,6 @@
 //! Canonical equipment creation and revision-checked condition mutation for sibling persistent state.
 
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -10,7 +11,7 @@ use crate::production::ProductionJobId;
 use crate::registry::Registries;
 
 use super::definitions::EquipmentDefinitionId;
-use super::state::{EquipmentId, EquipmentRecord};
+use super::state::{EquipmentId, EquipmentRecord, EquipmentState};
 
 /// Failure while allocating one persistent equipment instance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -293,6 +294,82 @@ pub fn apply_equipment_condition_plan(
     record.condition = plan.transition.after();
     equipment_state.revision = plan.next_revision;
     Ok(())
+}
+
+/// One persisted operation outcome that changes equipment condition when its owning job completes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EquipmentOperationConditionOutcome {
+    equipment: EquipmentId,
+    before: Condition,
+    after: Condition,
+}
+
+impl EquipmentOperationConditionOutcome {
+    #[must_use]
+    pub(crate) const fn new(equipment: EquipmentId, before: Condition, after: Condition) -> Self {
+        Self {
+            equipment,
+            before,
+            after,
+        }
+    }
+}
+
+/// Applies a validated batch of completed-operation condition outcomes under one owner revision.
+///
+/// Production owns operation occupancy and batches simultaneous completions. This internal boundary
+/// keeps the equipment mutation itself centralized while avoiding one revision increment per job.
+pub(crate) fn apply_operation_condition_outcomes(
+    state: &mut EquipmentState,
+    expected_revision: u64,
+    next_revision: u64,
+    outcomes: &[EquipmentOperationConditionOutcome],
+) {
+    assert!(!outcomes.is_empty(), "empty equipment outcome batch");
+    assert_eq!(
+        state.revision, expected_revision,
+        "runtime invariant broken: equipment revision changed after completion precheck"
+    );
+    assert_eq!(
+        expected_revision.checked_add(1),
+        Some(next_revision),
+        "completed equipment outcome batch must advance revision exactly once"
+    );
+
+    let mut seen_equipment = BTreeSet::new();
+    for outcome in outcomes {
+        assert!(
+            seen_equipment.insert(outcome.equipment),
+            "completed equipment outcome batch contains duplicate equipment {}",
+            outcome.equipment.value()
+        );
+        let record = match state.records.get(&outcome.equipment) {
+            Some(record) => record,
+            None => panic!(
+                "runtime invariant broken: completed operation references missing equipment {}",
+                outcome.equipment.value()
+            ),
+        };
+        assert_eq!(
+            record.condition,
+            outcome.before,
+            "runtime invariant broken: equipment {} condition changed during its occupied operation",
+            outcome.equipment.value()
+        );
+        assert!(
+            outcome.after <= outcome.before,
+            "completed production operation cannot improve equipment condition"
+        );
+    }
+
+    for outcome in outcomes {
+        let record = match state.records.get_mut(&outcome.equipment) {
+            Some(record) => record,
+            None => unreachable!("equipment outcome batch was prechecked"),
+        };
+        record.condition = outcome.after;
+    }
+    state.revision = next_revision;
 }
 
 #[cfg(test)]

@@ -10,7 +10,10 @@ use crate::energy::{
     EnergyCommitError, EnergyConsumptionReservation, EnergyReservationError,
     apply_energy_consumption_reservation, validate_energy_consumption_reservation,
 };
-use crate::equipment::{EquipmentId, ValidatedEquipmentUse};
+use crate::equipment::{
+    EquipmentId, EquipmentOperationConditionOutcome, ValidatedEquipmentUse,
+    apply_operation_condition_outcomes,
+};
 use crate::inventory::{
     ConsumptionReservation, MaterialLotId, ReservationCommitError, ReservationError, StockpileId,
     apply_consumption_reservation, apply_lot_cursor_and_revision, apply_reserved_deposit,
@@ -607,6 +610,7 @@ pub fn validate_start_process(
             consumed_inputs,
             consumed_energy,
             equipment_provider,
+            equipment_condition_after: resolution.equipment_condition_after(),
             outputs: resolution.outputs().to_vec(),
         },
         next_job_id: next_after,
@@ -697,8 +701,11 @@ pub(crate) struct CompletionPlan {
     next_inventory_revision: u64,
     expected_production_revision: u64,
     next_production_revision: u64,
+    expected_equipment_revision: u64,
+    next_equipment_revision: u64,
     next_lot_id_after: u64,
     entries: Vec<CompletionPlanEntry>,
+    equipment_outcomes: Vec<EquipmentOperationConditionOutcome>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -716,21 +723,24 @@ pub(crate) enum CompletionPlanError {
     MaterialLotIds,
     InventoryRevision,
     ProductionRevision,
+    EquipmentRevision,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CompletionCommitError {
-    StaleInventoryRevision { expected: u64, actual: u64 },
-    StaleProductionRevision { expected: u64, actual: u64 },
+    InventoryStale { expected: u64, actual: u64 },
+    ProductionRevisionChanged { expected: u64, actual: u64 },
+    EquipmentRevisionConflict { expected: u64, actual: u64 },
 }
 
-/// Decides all jobs due on one exact tick without mutating the production or inventory owners.
+/// Decides all jobs due on one exact tick without mutating production, inventory, or equipment.
 pub(crate) fn decide_due_completions(
     state: &AppState,
     tick: SimulationTick,
 ) -> Result<CompletionPlan, CompletionPlanError> {
     let expected_inventory_revision = state.inventory_state().revision();
     let expected_production_revision = state.production_state().revision();
+    let expected_equipment_revision = state.equipment_state().revision();
     let Some(due_ids) = state.production_state().due_jobs.get(&tick) else {
         return Ok(CompletionPlan {
             tick,
@@ -738,8 +748,11 @@ pub(crate) fn decide_due_completions(
             next_inventory_revision: expected_inventory_revision,
             expected_production_revision,
             next_production_revision: expected_production_revision,
+            expected_equipment_revision,
+            next_equipment_revision: expected_equipment_revision,
             next_lot_id_after: next_material_lot_id(state.inventory_state()),
             entries: Vec::new(),
+            equipment_outcomes: Vec::new(),
         });
     };
 
@@ -751,6 +764,7 @@ pub(crate) fn decide_due_completions(
         .ok_or(CompletionPlanError::ProductionRevision)?;
     let mut next_lot_id = next_material_lot_id(state.inventory_state());
     let mut entries = Vec::with_capacity(due_ids.len());
+    let mut equipment_outcomes = Vec::new();
     for job_id in due_ids {
         let job = match state.production_state().jobs.get(job_id) {
             Some(job) => job,
@@ -781,7 +795,43 @@ pub(crate) fn decide_due_completions(
             output_lot_ids,
             reserved_mass,
         });
+        if let (Some(provider), Some(after)) =
+            (job.equipment_provider(), job.equipment_condition_after())
+            && after != provider.condition()
+        {
+            let record = match state.equipment().get_equipment(provider.equipment()) {
+                Some(record) => record,
+                None => panic!(
+                    "runtime invariant broken: production job {} references missing equipment {}",
+                    job_id.value(),
+                    provider.equipment().value()
+                ),
+            };
+            assert_eq!(
+                record.definition(),
+                provider.definition(),
+                "runtime invariant broken: occupied equipment definition changed"
+            );
+            assert_eq!(
+                record.condition(),
+                provider.condition(),
+                "runtime invariant broken: occupied equipment condition changed"
+            );
+            equipment_outcomes.push(EquipmentOperationConditionOutcome::new(
+                provider.equipment(),
+                provider.condition(),
+                after,
+            ));
+        }
     }
+
+    let next_equipment_revision = if equipment_outcomes.is_empty() {
+        expected_equipment_revision
+    } else {
+        expected_equipment_revision
+            .checked_add(1)
+            .ok_or(CompletionPlanError::EquipmentRevision)?
+    };
 
     Ok(CompletionPlan {
         tick,
@@ -789,8 +839,11 @@ pub(crate) fn decide_due_completions(
         next_inventory_revision,
         expected_production_revision,
         next_production_revision,
+        expected_equipment_revision,
+        next_equipment_revision,
         next_lot_id_after: next_lot_id,
         entries,
+        equipment_outcomes,
     })
 }
 
@@ -805,20 +858,32 @@ pub(crate) fn apply_completion_plan(
         next_inventory_revision,
         expected_production_revision,
         next_production_revision,
+        expected_equipment_revision,
+        next_equipment_revision,
         next_lot_id_after,
         entries,
+        equipment_outcomes,
     } = plan;
 
     let actual_inventory_revision = state.inventory_state().revision();
     if actual_inventory_revision != expected_inventory_revision {
-        return Err(CompletionCommitError::StaleInventoryRevision {
+        return Err(CompletionCommitError::InventoryStale {
             expected: expected_inventory_revision,
             actual: actual_inventory_revision,
         });
     }
+    if !equipment_outcomes.is_empty() {
+        let actual_equipment_revision = state.equipment_state().revision();
+        if actual_equipment_revision != expected_equipment_revision {
+            return Err(CompletionCommitError::EquipmentRevisionConflict {
+                expected: expected_equipment_revision,
+                actual: actual_equipment_revision,
+            });
+        }
+    }
     let actual_production_revision = state.production_state().revision();
     if actual_production_revision != expected_production_revision {
-        return Err(CompletionCommitError::StaleProductionRevision {
+        return Err(CompletionCommitError::ProductionRevisionChanged {
             expected: expected_production_revision,
             actual: actual_production_revision,
         });
@@ -856,6 +921,14 @@ pub(crate) fn apply_completion_plan(
     }
 
     if !completions.is_empty() {
+        if !equipment_outcomes.is_empty() {
+            apply_operation_condition_outcomes(
+                state.equipment_state_mut(),
+                expected_equipment_revision,
+                next_equipment_revision,
+                &equipment_outcomes,
+            );
+        }
         apply_lot_cursor_and_revision(
             state.inventory_state_mut(),
             next_lot_id_after,

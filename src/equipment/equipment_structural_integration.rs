@@ -589,20 +589,17 @@ mod tests {
             state,
             STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
             MATERIAL_WOOD,
-            make_bounds(x),
-            Area::from_square_millimeters(1_000),
+            crate::structural::make_test_structural_geometry(
+                make_bounds(x),
+                crate::core::quantity::Length::from_micrometers(1),
+                Area::from_square_millimeters(1_000),
+            ),
             true,
         ) {
             Ok(element) => element,
             Err(error) => panic!("equipment support member fixture failed: {error}"),
         };
-        materialize_structural_element_for_test(
-            registries,
-            state,
-            element,
-            FORM_LOG,
-            Mass::from_milligrams(1),
-        );
+        materialize_structural_element_for_test(registries, state, element, FORM_LOG);
         element
     }
 

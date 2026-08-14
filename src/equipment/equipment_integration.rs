@@ -455,20 +455,17 @@ mod tests {
             &mut state,
             STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
             MATERIAL_WOOD,
-            bounds,
-            Area::from_square_millimeters(1_000),
+            crate::structural::make_test_structural_geometry(
+                bounds,
+                crate::core::quantity::Length::from_micrometers(1),
+                Area::from_square_millimeters(1_000),
+            ),
             true,
         ) {
             Ok(element) => element,
             Err(error) => panic!("support-aware structural fixture failed: {error}"),
         };
-        materialize_structural_element_for_test(
-            &registries,
-            &mut state,
-            support,
-            FORM_LOG,
-            Mass::from_milligrams(1),
-        );
+        materialize_structural_element_for_test(&registries, &mut state, support, FORM_LOG);
         let activation = match validate_activate_structural_element(&registries, &state, support) {
             Ok(token) => token,
             Err(error) => panic!("support-aware activation validation failed: {error}"),

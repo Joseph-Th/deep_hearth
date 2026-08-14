@@ -4,6 +4,7 @@ mod analysis;
 mod construction_execution;
 mod deconstruction_execution;
 mod definitions;
+mod geometry;
 mod load;
 mod state;
 mod structural_execution;
@@ -14,8 +15,9 @@ pub use analysis::{
 };
 pub use construction_execution::{
     StructuralConstructionCommitError, StructuralConstructionError,
-    StructuralConstructionResolution, ValidatedStructuralConstruction,
-    validate_structural_construction,
+    StructuralConstructionResolution, StructuralMaterialRequirement,
+    StructuralMaterialRequirementError, ValidatedStructuralConstruction,
+    resolve_structural_material_requirement, validate_structural_construction,
 };
 pub use deconstruction_execution::{
     StructuralDeconstructionCommitError, StructuralDeconstructionError,
@@ -26,13 +28,17 @@ pub use definitions::{
     STRUCTURAL_PARTS_PER_MILLION, StructuralLoadMode, StructuralProfileDefinition,
     StructuralProfileId, StructuralRegistry,
 };
+pub use geometry::{
+    StructuralGeometryError, calculate_prismatic_material_mass_ceiling,
+    calculate_prismatic_volume_ceiling,
+};
 pub use load::{
     calculate_aggregate_weight_force_ceiling, calculate_pressure_force_ceiling,
     calculate_weight_force_ceiling,
 };
 pub use state::{
-    StructuralElementId, StructuralElementRecord, StructuralLifecycle, StructuralLoadKind,
-    StructureState, StructureValidationError,
+    StructuralElementGeometry, StructuralElementId, StructuralElementRecord, StructuralLifecycle,
+    StructuralLoadKind, StructureState, StructureValidationError,
 };
 pub use structural_execution::{
     AddStructuralElementError, StructuralCommitError, StructuralMutationError,
@@ -48,3 +54,15 @@ pub(crate) use structural_execution::validate_set_owned_structural_load;
 pub(crate) use construction_execution::materialize_structural_element_for_test;
 #[cfg(test)]
 pub(crate) use deconstruction_execution::make_test_deconstruction_resolution;
+
+#[cfg(test)]
+pub(crate) fn make_test_structural_geometry(
+    bounds: crate::spatial::VoxelBounds,
+    length: crate::core::quantity::Length,
+    cross_section: crate::core::quantity::Area,
+) -> StructuralElementGeometry {
+    match StructuralElementGeometry::new(bounds, length, cross_section) {
+        Ok(geometry) => geometry,
+        Err(error) => panic!("structural test geometry is invalid: {error}"),
+    }
+}

@@ -4,15 +4,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::core::quantity::{Acceleration, AggregateMass, Area, Force, Mass};
+use crate::core::quantity::{Acceleration, AggregateMass, Area, Force, Length, Mass};
 use crate::core::time::SimulationTick;
 use crate::inventory::ConsumedMaterialTrace;
 use crate::material::{MaterialId, MaterialRegistry};
 use crate::spatial::VoxelBounds;
 
 use super::definitions::{StructuralProfileId, StructuralRegistry};
+use super::geometry::{StructuralGeometryError, calculate_prismatic_material_mass_ceiling};
 use super::load::calculate_aggregate_weight_force_ceiling;
 
 /// Persistent identifier for one structural member record.
@@ -56,15 +57,93 @@ pub enum StructuralLoadKind {
     Occupancy,
 }
 
+/// Immutable physical geometry of one structural member.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct StructuralElementGeometry {
+    pub(super) bounds: VoxelBounds,
+    pub(super) length: Length,
+    pub(super) cross_section: Area,
+}
+
+impl StructuralElementGeometry {
+    /// Builds validated prismatic member geometry before it can enter authoritative state.
+    pub fn new(
+        bounds: VoxelBounds,
+        length: Length,
+        cross_section: Area,
+    ) -> Result<Self, StructuralGeometryError> {
+        let geometry = Self {
+            bounds,
+            length,
+            cross_section,
+        };
+        geometry.validate()?;
+        Ok(geometry)
+    }
+
+    /// Rechecks geometry after a serialization or internal trust boundary.
+    pub fn validate(self) -> Result<(), StructuralGeometryError> {
+        if self.cross_section.is_zero() {
+            return Err(StructuralGeometryError::ZeroCrossSection);
+        }
+        if self.length.is_zero() {
+            return Err(StructuralGeometryError::ZeroLength);
+        }
+        Ok(())
+    }
+
+    #[must_use]
+    pub const fn bounds(self) -> VoxelBounds {
+        self.bounds
+    }
+
+    #[must_use]
+    pub const fn length(self) -> Length {
+        self.length
+    }
+
+    #[must_use]
+    pub const fn cross_section(self) -> Area {
+        self.cross_section
+    }
+}
+
+#[derive(Deserialize)]
+struct StructuralElementGeometryRepresentation {
+    bounds: VoxelBounds,
+    length: Length,
+    cross_section: Area,
+}
+
+impl<'de> Deserialize<'de> for StructuralElementGeometry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let representation = StructuralElementGeometryRepresentation::deserialize(deserializer)?;
+        Self::new(
+            representation.bounds,
+            representation.length,
+            representation.cross_section,
+        )
+        .map_err(serde::de::Error::custom)
+    }
+}
+
+/// Immutable authored/runtime specification of one structural member.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct StructuralElementConfiguration {
+    pub(super) profile: StructuralProfileId,
+    pub(super) material: MaterialId,
+    pub(super) geometry: StructuralElementGeometry,
+    pub(super) grounded: bool,
+}
+
 /// Persistent physical and lifecycle state for one structural member.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StructuralElementRecord {
     pub(super) id: StructuralElementId,
-    pub(super) profile: StructuralProfileId,
-    pub(super) material: MaterialId,
-    pub(super) bounds: VoxelBounds,
-    pub(super) cross_section: Area,
-    pub(super) grounded: bool,
+    pub(super) configuration: StructuralElementConfiguration,
     pub(super) embodied_mass: Mass,
     pub(super) embodied_material: Vec<ConsumedMaterialTrace>,
     pub(super) loads: BTreeMap<StructuralLoadKind, Force>,
@@ -81,27 +160,37 @@ impl StructuralElementRecord {
 
     #[must_use]
     pub const fn profile(&self) -> StructuralProfileId {
-        self.profile
+        self.configuration.profile
     }
 
     #[must_use]
     pub const fn material(&self) -> MaterialId {
-        self.material
+        self.configuration.material
     }
 
     #[must_use]
     pub const fn bounds(&self) -> VoxelBounds {
-        self.bounds
+        self.configuration.geometry.bounds
     }
 
     #[must_use]
     pub const fn cross_section(&self) -> Area {
-        self.cross_section
+        self.configuration.geometry.cross_section
+    }
+
+    #[must_use]
+    pub const fn length(&self) -> Length {
+        self.configuration.geometry.length
+    }
+
+    #[must_use]
+    pub const fn geometry(&self) -> StructuralElementGeometry {
+        self.configuration.geometry
     }
 
     #[must_use]
     pub const fn is_grounded(&self) -> bool {
-        self.grounded
+        self.configuration.grounded
     }
 
     /// Exact matter currently owned by this structural member.
@@ -204,6 +293,12 @@ impl StructureState {
                 .is_none_or(|id| id.value() < self.next_element_id)
     }
 
+    pub(crate) fn has_valid_geometry(&self) -> bool {
+        self.elements
+            .values()
+            .all(|record| record.geometry().validate().is_ok())
+    }
+
     pub(crate) fn has_path(&self, from: StructuralElementId, target: StructuralElementId) -> bool {
         let mut pending = BTreeSet::from([from]);
         let mut visited = BTreeSet::new();
@@ -245,6 +340,18 @@ pub enum StructureValidationError {
     },
     ZeroCrossSection {
         element: StructuralElementId,
+    },
+    ZeroLength {
+        element: StructuralElementId,
+    },
+    Geometry {
+        element: StructuralElementId,
+        error: StructuralGeometryError,
+    },
+    EmbodiedMassGeometryMismatch {
+        element: StructuralElementId,
+        stored: Mass,
+        required: Mass,
     },
     UnmaterializedLoadBearingElement {
         element: StructuralElementId,
@@ -348,6 +455,27 @@ impl Display for StructureValidationError {
                 formatter,
                 "structural next-id cursor {next} is not above allocated element {}",
                 highest.value()
+            ),
+            Self::ZeroLength { element } => write!(
+                formatter,
+                "structural element {} has zero physical length",
+                element.value()
+            ),
+            Self::Geometry { element, error } => write!(
+                formatter,
+                "structural element {} has invalid physical geometry: {error}",
+                element.value()
+            ),
+            Self::EmbodiedMassGeometryMismatch {
+                element,
+                stored,
+                required,
+            } => write!(
+                formatter,
+                "structural element {} owns {} mg but its geometry and material density require {} mg",
+                element.value(),
+                stored.milligrams(),
+                required.milligrams()
             ),
             Self::ElementKeyMismatch { key, record } => write!(
                 formatter,
@@ -532,7 +660,14 @@ impl Display for StructureValidationError {
     }
 }
 
-impl Error for StructureValidationError {}
+impl Error for StructureValidationError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Geometry { error, .. } => Some(error),
+            _ => None,
+        }
+    }
+}
 
 pub(crate) fn validate_loaded_structure(
     profiles: &StructuralRegistry,
@@ -560,20 +695,23 @@ pub(crate) fn validate_loaded_structure(
                 record: record.id,
             });
         }
-        if profiles.get_profile(record.profile).is_none() {
+        if profiles.get_profile(record.profile()).is_none() {
             return Err(StructureValidationError::UnknownProfile {
                 element: record.id,
-                profile: record.profile,
+                profile: record.profile(),
             });
         }
-        if materials.get_material(record.material).is_none() {
+        if materials.get_material(record.material()).is_none() {
             return Err(StructureValidationError::UnknownMaterial {
                 element: record.id,
-                material: record.material,
+                material: record.material(),
             });
         }
-        if record.cross_section.is_zero() {
+        if record.cross_section().is_zero() {
             return Err(StructureValidationError::ZeroCrossSection { element: record.id });
+        }
+        if record.length().is_zero() {
+            return Err(StructureValidationError::ZeroLength { element: record.id });
         }
         if record.lifecycle != StructuralLifecycle::Planned && record.embodied_mass.is_zero() {
             return Err(StructureValidationError::UnmaterializedLoadBearingElement {
@@ -595,19 +733,19 @@ pub(crate) fn validate_loaded_structure(
                     element: record.id,
                 });
             }
-            if commodity.material() != record.material {
+            if commodity.material() != record.material() {
                 return Err(StructureValidationError::EmbodiedMaterialMismatch {
                     element: record.id,
-                    expected: record.material,
+                    expected: record.material(),
                     found: commodity.material(),
                 });
             }
             if trace.profile().composition()
-                != &crate::material::MaterialComposition::pure(record.material)
+                != &crate::material::MaterialComposition::pure(record.material())
             {
                 return Err(StructureValidationError::UnsupportedEmbodiedComposition {
                     element: record.id,
-                    material: record.material,
+                    material: record.material(),
                 });
             }
             for component in trace.profile().composition().components() {
@@ -640,6 +778,25 @@ pub(crate) fn validate_loaded_structure(
                 stored: record.embodied_mass,
                 traced: traced_mass,
             });
+        }
+        if !record.embodied_mass.is_zero() {
+            let required = calculate_prismatic_material_mass_ceiling(
+                materials,
+                record.material(),
+                record.cross_section(),
+                record.length(),
+            )
+            .map_err(|error| StructureValidationError::Geometry {
+                element: record.id,
+                error,
+            })?;
+            if record.embodied_mass != required {
+                return Err(StructureValidationError::EmbodiedMassGeometryMismatch {
+                    element: record.id,
+                    stored: record.embodied_mass,
+                    required,
+                });
+            }
         }
         let expected_self_weight = calculate_aggregate_weight_force_ceiling(
             AggregateMass::from_mass(record.embodied_mass),
@@ -695,7 +852,7 @@ pub(crate) fn validate_loaded_structure(
             if element == support {
                 return Err(StructureValidationError::SelfSupport { element: *element });
             }
-            if state.elements[element].grounded {
+            if state.elements[element].is_grounded() {
                 return Err(StructureValidationError::GroundedElementHasSupport {
                     element: *element,
                     support: *support,
@@ -741,7 +898,7 @@ pub(crate) fn validate_loaded_structure(
     }
 
     for record in state.elements.values() {
-        if record.lifecycle != StructuralLifecycle::Active || record.grounded {
+        if record.lifecycle != StructuralLifecycle::Active || record.is_grounded() {
             continue;
         }
         let has_active_support =

@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 17;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 19;
 
 /// Minimal version metadata that adapters decode before choosing a concrete save payload decoder.
 ///
@@ -297,6 +297,7 @@ mod tests {
                 TEST_HEAT_MAX_TEMPERATURE,
                 TEST_HEAT_MAX_BATCH_MASS,
                 EnergyCarrier::Electrical,
+                1_000,
             ),
         )
     }
@@ -355,20 +356,17 @@ mod tests {
             state,
             STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
             MATERIAL_WOOD,
-            make_test_structural_bounds(x, y),
-            Area::from_square_millimeters(1_000),
+            crate::structural::make_test_structural_geometry(
+                make_test_structural_bounds(x, y),
+                crate::core::quantity::Length::from_micrometers(1),
+                Area::from_square_millimeters(1_000),
+            ),
             grounded,
         ) {
             Ok(element) => element,
             Err(error) => panic!("structural persistence element fixture failed: {error}"),
         };
-        materialize_structural_element_for_test(
-            registries,
-            state,
-            element,
-            FORM_LOG,
-            Mass::from_milligrams(1),
-        );
+        materialize_structural_element_for_test(registries, state, element, FORM_LOG);
         element
     }
 
@@ -647,6 +645,34 @@ mod tests {
     }
 
     #[test]
+    fn tampered_structural_length_cannot_change_required_embodied_mass() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5700_0017));
+        let member = make_test_structural_element(&registries, &mut state, 0, 0, true);
+        let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("structural length save serialization failed: {error}"),
+        };
+        encoded["state"]["structures"]["elements"][member.value().to_string()]["configuration"]["geometry"]
+            ["length"] = serde_json::json!(2_u64);
+        let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
+            Ok(decoded) => decoded,
+            Err(error) => panic!("tampered structural length save failed decode: {error}"),
+        };
+
+        assert_eq!(
+            decoded.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Structure(
+                StructureValidationError::EmbodiedMassGeometryMismatch {
+                    element: member,
+                    stored: Mass::from_milligrams(1),
+                    required: Mass::from_milligrams(2),
+                }
+            )))
+        );
+    }
+
+    #[test]
     fn tampered_structural_self_weight_is_rejected_on_load() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5700_0014));
@@ -792,14 +818,14 @@ mod tests {
     }
 
     #[test]
-    fn current_save_rejects_prior_registry_schema_after_gravity_semantics_are_added() {
+    fn current_save_rejects_prior_registry_schema_after_structural_quantity_semantics_are_added() {
         let registries = build_registries();
         let state = AppState::new(WorldSeed::new(0x5700_0005));
         let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
             Ok(encoded) => encoded,
             Err(error) => panic!("registry compatibility save serialization failed: {error}"),
         };
-        encoded["registry_schema_version"] = serde_json::json!(4_u32);
+        encoded["registry_schema_version"] = serde_json::json!(6_u32);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("registry compatibility save failed decode: {error}"),
@@ -808,8 +834,8 @@ mod tests {
         assert_eq!(
             decoded.into_state(&registries),
             Err(LoadError::RegistrySchemaMismatch {
-                found: RegistrySchemaVersion::new(4),
-                supported: RegistrySchemaVersion::new(5),
+                found: RegistrySchemaVersion::new(6),
+                supported: RegistrySchemaVersion::new(7),
             })
         );
     }
@@ -1280,6 +1306,8 @@ mod tests {
         let duration = resolved.process_resolution().duration();
         let expected_energy = resolved.process_resolution().energy_input();
         let expected_equipment = resolved.process_resolution().equipment_input();
+        let expected_equipment_condition_after =
+            resolved.process_resolution().equipment_condition_after();
         let token = match validate_start_process(
             &registries,
             &state,
@@ -1308,6 +1336,13 @@ mod tests {
                 .and_then(|record| record.equipment_provider()),
             expected_equipment
         );
+        assert_eq!(
+            state
+                .production()
+                .get_job(job)
+                .and_then(|record| record.equipment_condition_after()),
+            expected_equipment_condition_after
+        );
 
         let mut tampered = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
             Ok(encoded) => encoded,
@@ -1328,6 +1363,29 @@ mod tests {
                     authored: EnergyCarrier::Electrical,
                 }
             ))
+        );
+
+        let mut tampered_condition_outcome =
+            match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+                Ok(encoded) => encoded,
+                Err(error) => panic!("heating wear tamper serialization failed: {error}"),
+            };
+        tampered_condition_outcome["state"]["production"]["jobs"][job.value().to_string()]["equipment_condition_after"] =
+            serde_json::json!(999_999_u32);
+        let tampered_condition_outcome: LoadedSaveEnvelope =
+            match serde_json::from_value(tampered_condition_outcome) {
+                Ok(decoded) => decoded,
+                Err(error) => panic!("heating wear tamper failed decode: {error}"),
+            };
+        assert_eq!(
+            tampered_condition_outcome.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::ThermalJob(
+                ThermalJobValidationError::EquipmentConditionOutcomeMismatch {
+                    job,
+                    stored: condition(999_999),
+                    required: condition(997_000),
+                }
+            )))
         );
 
         let mut tampered_energy = match serde_json::to_value(SaveEnvelope::new(&registries, &state))
@@ -1518,6 +1576,13 @@ mod tests {
                 .and_then(|record| record.equipment_provider()),
             expected_equipment
         );
+        assert_eq!(
+            resumed
+                .production()
+                .get_job(job)
+                .and_then(|record| record.equipment_condition_after()),
+            expected_equipment_condition_after
+        );
 
         for _ in 0..duration.value() {
             let uninterrupted_outcome = match advance_tick(&registries, &mut uninterrupted) {
@@ -1542,6 +1607,13 @@ mod tests {
         };
         assert_eq!(output.temperature(), Temperature::from_millikelvin(303_000));
         assert_eq!(output.mass(), Mass::from_milligrams(10));
+        assert_eq!(
+            resumed
+                .equipment()
+                .get_equipment(equipment)
+                .map(|record| record.condition()),
+            expected_equipment_condition_after
+        );
     }
 
     #[test]

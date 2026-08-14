@@ -1,12 +1,13 @@
-//! Conserved construction-material transfer into planned structural members.
+//! Geometry-constrained construction-material transfer into planned structural members.
 //!
-//! Geometry-to-material requirements, labor, tools, joints, and build duration remain physical
-//! resolver responsibilities. This module owns only the exact matter transfer and derived self-load.
+//! Member geometry and material density now determine the exact conservative solid-mass requirement.
+//! Labor, tools, joints, cutting/placement waste, and build duration remain future physical resolver
+//! responsibilities, so arbitrary runtime construction authorization is still intentionally absent.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::{AggregateMass, Force, Mass};
+use crate::core::quantity::{AggregateMass, Force, Mass, Volume};
 use crate::core::state::AppState;
 use crate::inventory::{
     ConsumedMaterialTrace, MaterialEgressError, StockpileId, ValidatedMaterialEgress,
@@ -20,8 +21,108 @@ use crate::inventory::{
 use crate::material::{MaterialComposition, MaterialId};
 use crate::registry::Registries;
 
+use super::geometry::{
+    StructuralGeometryError, calculate_prismatic_material_mass_ceiling,
+    calculate_prismatic_volume_ceiling,
+};
 use super::load::calculate_aggregate_weight_force_ceiling;
 use super::state::{StructuralElementId, StructuralLifecycle, StructuralLoadKind};
+
+/// Read-only physical material requirement for one prismatic structural member.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StructuralMaterialRequirement {
+    element: StructuralElementId,
+    material: MaterialId,
+    solid_volume_ceiling: Volume,
+    required_mass: Mass,
+}
+
+impl StructuralMaterialRequirement {
+    #[must_use]
+    pub const fn element(self) -> StructuralElementId {
+        self.element
+    }
+
+    #[must_use]
+    pub const fn material(self) -> MaterialId {
+        self.material
+    }
+
+    #[must_use]
+    pub const fn solid_volume_ceiling(self) -> Volume {
+        self.solid_volume_ceiling
+    }
+
+    #[must_use]
+    pub const fn required_mass(self) -> Mass {
+        self.required_mass
+    }
+}
+
+/// Failure while deriving a member's physical solid-material requirement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StructuralMaterialRequirementError {
+    UnknownElement {
+        element: StructuralElementId,
+    },
+    Geometry {
+        element: StructuralElementId,
+        error: StructuralGeometryError,
+    },
+}
+
+impl Display for StructuralMaterialRequirementError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownElement { element } => {
+                write!(formatter, "unknown structural element {}", element.value())
+            }
+            Self::Geometry { element, error } => write!(
+                formatter,
+                "structural element {} material requirement cannot be resolved: {error}",
+                element.value()
+            ),
+        }
+    }
+}
+
+impl Error for StructuralMaterialRequirementError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Geometry { error, .. } => Some(error),
+            Self::UnknownElement { .. } => None,
+        }
+    }
+}
+
+/// Derives conservative solid volume and exact milligram ownership from member geometry and density.
+pub fn resolve_structural_material_requirement(
+    registries: &Registries,
+    state: &AppState,
+    element: StructuralElementId,
+) -> Result<StructuralMaterialRequirement, StructuralMaterialRequirementError> {
+    let record = state
+        .structures()
+        .get_element(element)
+        .ok_or(StructuralMaterialRequirementError::UnknownElement { element })?;
+    let solid_volume_ceiling =
+        calculate_prismatic_volume_ceiling(record.cross_section(), record.length())
+            .map_err(|error| StructuralMaterialRequirementError::Geometry { element, error })?;
+    let required_mass = calculate_prismatic_material_mass_ceiling(
+        registries.materials(),
+        record.material(),
+        record.cross_section(),
+        record.length(),
+    )
+    .map_err(|error| StructuralMaterialRequirementError::Geometry { element, error })?;
+    Ok(StructuralMaterialRequirement {
+        element,
+        material: record.material(),
+        solid_volume_ceiling,
+        required_mass,
+    })
+}
 
 /// Immutable output of a future physical construction resolver.
 ///
@@ -98,6 +199,15 @@ pub enum StructuralConstructionError {
         element: StructuralElementId,
         material: MaterialId,
     },
+    Geometry {
+        element: StructuralElementId,
+        error: StructuralGeometryError,
+    },
+    MaterialQuantityMismatch {
+        element: StructuralElementId,
+        required: Mass,
+        selected: Mass,
+    },
     InventorySelectionStale {
         expected: u64,
         actual: u64,
@@ -119,6 +229,22 @@ impl Display for StructuralConstructionError {
                 formatter,
                 "structural element {} is {lifecycle:?} and cannot receive construction matter",
                 element.value()
+            ),
+            Self::Geometry { element, error } => write!(
+                formatter,
+                "structural element {} construction geometry is invalid: {error}",
+                element.value()
+            ),
+            Self::MaterialQuantityMismatch {
+                element,
+                required,
+                selected,
+            } => write!(
+                formatter,
+                "structural element {} requires {} mg from geometry and density but construction selected {} mg",
+                element.value(),
+                required.milligrams(),
+                selected.milligrams()
             ),
             Self::AlreadyMaterialized { element } => write!(
                 formatter,
@@ -161,7 +287,14 @@ impl Display for StructuralConstructionError {
     }
 }
 
-impl Error for StructuralConstructionError {}
+impl Error for StructuralConstructionError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Geometry { error, .. } => Some(error),
+            _ => None,
+        }
+    }
+}
 
 /// A validated construction transfer can no longer commit because an owning subsystem changed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -301,6 +434,21 @@ pub fn validate_structural_construction(
         }
     }
 
+    let required_mass = calculate_prismatic_material_mass_ceiling(
+        registries.materials(),
+        record.material(),
+        record.cross_section(),
+        record.length(),
+    )
+    .map_err(|error| StructuralConstructionError::Geometry { element, error })?;
+    if resolution.mass() != required_mass {
+        return Err(StructuralConstructionError::MaterialQuantityMismatch {
+            element,
+            required: required_mass,
+            selected: resolution.mass(),
+        });
+    }
+
     let egress = validate_material_egress_from_selection(
         state.inventory_state(),
         resolution.selection.clone(),
@@ -317,8 +465,9 @@ pub fn validate_structural_construction(
     let next_structure_revision = expected_structure_revision
         .checked_add(1)
         .ok_or(StructuralConstructionError::StructureRevisionExhausted)?;
+    debug_assert_eq!(egress.total_consumed(), required_mass);
     let self_weight = calculate_aggregate_weight_force_ceiling(
-        AggregateMass::from_mass(egress.total_consumed()),
+        AggregateMass::from_mass(required_mass),
         registries.core().gravity(),
     )
     .ok_or(StructuralConstructionError::SelfWeightOverflow { element })?;
@@ -339,16 +488,17 @@ pub(crate) fn materialize_structural_element_for_test(
     state: &mut AppState,
     element: StructuralElementId,
     form: crate::material::FormId,
-    mass: Mass,
 ) {
     use crate::core::quantity::Temperature;
     use crate::inventory::{add_stockpile, deposit_lot_for_test};
     use crate::material::CommodityKey;
 
-    let material = match state.structures().get_element(element) {
-        Some(record) => record.material(),
-        None => panic!("construction test fixture references unknown structural element"),
+    let requirement = match resolve_structural_material_requirement(registries, state, element) {
+        Ok(requirement) => requirement,
+        Err(error) => panic!("construction test material requirement failed: {error}"),
     };
+    let material = requirement.material();
+    let mass = requirement.required_mass();
     let source = match add_stockpile(state, mass) {
         Ok(source) => source,
         Err(error) => panic!("construction test stockpile failed: {error}"),
@@ -389,7 +539,7 @@ mod tests {
         FORM_LOG, MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_WOOD,
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
     };
-    use crate::core::quantity::{Area, Energy};
+    use crate::core::quantity::{Area, Energy, Length};
     use crate::core::state::validate_loaded_state;
     use crate::core::time::WorldSeed;
     use crate::energy::{ExplicitEnergyAccountingError, calculate_explicit_energy_accounting};
@@ -403,7 +553,19 @@ mod tests {
         validate_activate_structural_element, validate_structural_deconstruction,
     };
 
-    fn member(registries: &Registries, state: &mut AppState) -> StructuralElementId {
+    fn wood_length_for_mass(mass: Mass) -> Length {
+        assert!(!mass.is_zero(), "test member mass must be nonzero");
+        let numerator = (u128::from(mass.milligrams()) - 1) * 1_000_000;
+        let denominator = 1_000_u128 * 650_u128;
+        let micrometers = numerator / denominator + 1;
+        Length::from_micrometers(micrometers as u64)
+    }
+
+    fn member(
+        registries: &Registries,
+        state: &mut AppState,
+        required_mass: Mass,
+    ) -> StructuralElementId {
         let bounds = match VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(1, 2, 1)) {
             Ok(bounds) => bounds,
             Err(error) => panic!("construction bounds fixture failed: {error}"),
@@ -413,8 +575,11 @@ mod tests {
             state,
             STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
             MATERIAL_WOOD,
-            bounds,
-            Area::from_square_millimeters(1_000),
+            crate::structural::make_test_structural_geometry(
+                bounds,
+                wood_length_for_mass(required_mass),
+                Area::from_square_millimeters(1_000),
+            ),
             true,
         ) {
             Ok(element) => element,
@@ -434,10 +599,95 @@ mod tests {
     }
 
     #[test]
+    fn material_requirement_uses_member_geometry_and_authored_density() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5C00_0010));
+        let bounds = match VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(1, 1, 1)) {
+            Ok(bounds) => bounds,
+            Err(error) => panic!("material-requirement bounds failed: {error}"),
+        };
+        let element = match add_structural_element(
+            &registries,
+            &mut state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            crate::structural::make_test_structural_geometry(
+                bounds,
+                Length::from_micrometers(10_000),
+                Area::from_square_millimeters(1_000),
+            ),
+            true,
+        ) {
+            Ok(element) => element,
+            Err(error) => panic!("material-requirement member failed: {error}"),
+        };
+        let requirement =
+            match resolve_structural_material_requirement(&registries, &state, element) {
+                Ok(requirement) => requirement,
+                Err(error) => panic!("material requirement failed: {error}"),
+            };
+
+        assert_eq!(requirement.element(), element);
+        assert_eq!(requirement.material(), MATERIAL_WOOD);
+        assert_eq!(
+            requirement.solid_volume_ceiling(),
+            Volume::from_microliters(10_000)
+        );
+        assert_eq!(requirement.required_mass(), Mass::from_milligrams(6_500));
+    }
+
+    #[test]
+    fn construction_rejects_under_and_over_materialization_without_mutation() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5C00_0011));
+        let element = member(&registries, &mut state, Mass::from_milligrams(10));
+        let source = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
+            Ok(source) => source,
+            Err(error) => panic!("quantity-mismatch source failed: {error}"),
+        };
+        let lot = match deposit_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            Mass::from_milligrams(20),
+            crate::core::quantity::Temperature::from_millikelvin(300_000),
+        ) {
+            Ok(lot) => lot,
+            Err(error) => panic!("quantity-mismatch lot failed: {error}"),
+        };
+        let before = state.clone();
+
+        for selected in [9_u64, 11_u64] {
+            let resolution = match bind_structural_construction_selection(
+                &state,
+                element,
+                source,
+                &[MaterialLotSelection::new(
+                    lot,
+                    Mass::from_milligrams(selected),
+                )],
+            ) {
+                Ok(resolution) => resolution,
+                Err(error) => panic!("quantity-mismatch binding failed: {error:?}"),
+            };
+            assert_eq!(
+                validate_structural_construction(&registries, &state, &resolution),
+                Err(StructuralConstructionError::MaterialQuantityMismatch {
+                    element,
+                    required: Mass::from_milligrams(10),
+                    selected: Mass::from_milligrams(selected),
+                })
+            );
+            assert_eq!(state, before);
+        }
+    }
+
+    #[test]
     fn activation_requires_conserved_construction_matter() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5C00_0001));
-        let element = member(&registries, &mut state);
+        let element = member(&registries, &mut state, Mass::from_milligrams(1));
         assert_eq!(
             validate_activate_structural_element(&registries, &state, element),
             Err(super::super::StructuralMutationError::ActivationUnmaterialized { element })
@@ -448,7 +698,7 @@ mod tests {
     fn construction_moves_exact_matter_and_derives_self_weight() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5C00_0002));
-        let element = member(&registries, &mut state);
+        let element = member(&registries, &mut state, Mass::from_milligrams(2_000_000));
         let source = match add_stockpile(&mut state, Mass::from_milligrams(2_000_000)) {
             Ok(source) => source,
             Err(error) => panic!("construction source failed: {error}"),
@@ -516,7 +766,7 @@ mod tests {
     fn wrong_material_cannot_become_structural_strength_material() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5C00_0003));
-        let element = member(&registries, &mut state);
+        let element = member(&registries, &mut state, Mass::from_milligrams(100));
         let source = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
             Ok(source) => source,
             Err(error) => panic!("wrong-material source failed: {error}"),
@@ -557,7 +807,7 @@ mod tests {
     fn mixed_composition_cannot_claim_pure_material_structural_strength() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5C00_0004));
-        let element = member(&registries, &mut state);
+        let element = member(&registries, &mut state, Mass::from_milligrams(100));
         let source = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
             Ok(source) => source,
             Err(error) => panic!("mixed construction source failed: {error}"),
@@ -605,7 +855,7 @@ mod tests {
     fn construction_rechecks_both_owner_revisions_before_consuming_matter() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5C00_0005));
-        let element = member(&registries, &mut state);
+        let element = member(&registries, &mut state, Mass::from_milligrams(10));
         let source = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
             Ok(source) => source,
             Err(error) => panic!("stale construction source failed: {error}"),
@@ -653,7 +903,7 @@ mod tests {
                 Ok(token) => token,
                 Err(error) => panic!("stale structure construction validation failed: {error}"),
             };
-        member(&registries, &mut state);
+        member(&registries, &mut state, Mass::from_milligrams(1));
         let before_structure_commit = state.clone();
         assert!(matches!(
             stale_structure.commit(&mut state),
@@ -698,7 +948,7 @@ mod tests {
         let initial_energy = explicit_energy(&registries, &state);
 
         for step in 0_u64..1_000 {
-            let element = member(&registries, &mut state);
+            let element = member(&registries, &mut state, Mass::from_milligrams(10));
             let construction = match bind_structural_construction_selection(
                 &state,
                 element,

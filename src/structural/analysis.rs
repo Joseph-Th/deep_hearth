@@ -478,10 +478,10 @@ fn project_loads(
             .filter(|support| active.contains(support))
             .collect();
 
-        if !record.grounded && active_supports.is_empty() {
+        if !record.is_grounded() && active_supports.is_empty() {
             return Err(StructuralAnalysisError::UnsupportedActiveElement { element });
         }
-        if record.grounded {
+        if record.is_grounded() {
             continue;
         }
 
@@ -526,7 +526,7 @@ fn expand_unsupported_failures(
 
     for element in &active {
         let record = &state.elements[element];
-        if record.grounded {
+        if record.is_grounded() {
             continue;
         }
         let support_count = overlay
@@ -552,7 +552,7 @@ fn expand_unsupported_failures(
             let Some(record) = state.elements.get(dependent) else {
                 continue;
             };
-            if record.grounded {
+            if record.is_grounded() {
                 continue;
             }
             let Some(remaining) = remaining_supports.get_mut(dependent) else {
@@ -576,16 +576,16 @@ fn pristine_capacity(
     element: StructuralElementId,
 ) -> Result<Force, StructuralAnalysisError> {
     let record = &state.elements[&element];
-    let Some(profile) = profiles.get_profile(record.profile) else {
+    let Some(profile) = profiles.get_profile(record.profile()) else {
         return Err(StructuralAnalysisError::UnknownProfile {
             element,
-            profile: record.profile,
+            profile: record.profile(),
         });
     };
-    let Some(material) = materials.get_material(record.material) else {
+    let Some(material) = materials.get_material(record.material()) else {
         return Err(StructuralAnalysisError::UnknownMaterial {
             element,
-            material: record.material,
+            material: record.material(),
         });
     };
     let mechanical = material.properties().mechanical();
@@ -596,7 +596,7 @@ fn pristine_capacity(
 
     // 1 kPa * 1 mm^2 = 1 mN, so authored strength and cross-section multiply exactly.
     Ok(Force::from_millinewtons(
-        u128::from(strength_kpa) * u128::from(record.cross_section.square_millimeters()),
+        u128::from(strength_kpa) * u128::from(record.cross_section().square_millimeters()),
     ))
 }
 
@@ -714,10 +714,10 @@ fn analyze_structure_scoped(
 
         for (element, load) in &projection.carried {
             let record = &state.elements[element];
-            let profile = profiles.get_profile(record.profile).ok_or(
+            let profile = profiles.get_profile(record.profile()).ok_or(
                 StructuralAnalysisError::UnknownProfile {
                     element: *element,
-                    profile: record.profile,
+                    profile: record.profile(),
                 },
             )?;
             let pristine = pristine_capacity(profiles, materials, state, *element)?;
@@ -774,10 +774,10 @@ fn analyze_structure_scoped(
             continue;
         }
         let pristine = pristine_capacity(profiles, materials, state, record.id)?;
-        let profile = profiles.get_profile(record.profile).ok_or(
+        let profile = profiles.get_profile(record.profile()).ok_or(
             StructuralAnalysisError::UnknownProfile {
                 element: record.id,
-                profile: record.profile,
+                profile: record.profile(),
             },
         )?;
         let is_failed = failed.contains(&record.id);

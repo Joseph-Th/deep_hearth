@@ -4,20 +4,21 @@ use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::{Area, Force};
+use crate::core::quantity::Force;
 use crate::core::state::AppState;
 use crate::equipment::EquipmentId;
 use crate::material::MaterialId;
 use crate::registry::Registries;
-use crate::spatial::VoxelBounds;
 
 use super::analysis::{
     StructuralAnalysis, StructuralAnalysisError, StructuralAnalysisOverlay, StructuralDamageEvent,
     analyze_structure_components_with_overlay,
 };
 use super::definitions::StructuralProfileId;
+use super::geometry::StructuralGeometryError;
 use super::state::{
-    StructuralElementId, StructuralElementRecord, StructuralLifecycle, StructuralLoadKind,
+    StructuralElementConfiguration, StructuralElementGeometry, StructuralElementId,
+    StructuralElementRecord, StructuralLifecycle, StructuralLoadKind,
 };
 
 /// Failure while allocating a planned structural member and its synchronized indexes.
@@ -25,7 +26,7 @@ use super::state::{
 pub enum AddStructuralElementError {
     UnknownProfile { profile: StructuralProfileId },
     UnknownMaterial { material: MaterialId },
-    ZeroCrossSection,
+    Geometry(StructuralGeometryError),
     IdExhausted,
     RevisionExhausted,
 }
@@ -43,9 +44,7 @@ impl Display for AddStructuralElementError {
                     material.value()
                 )
             }
-            Self::ZeroCrossSection => {
-                formatter.write_str("structural member cross-sectional area must be nonzero")
-            }
+            Self::Geometry(error) => write!(formatter, "invalid structural geometry: {error}"),
             Self::IdExhausted => {
                 formatter.write_str("structural element identifier space is exhausted")
             }
@@ -56,7 +55,17 @@ impl Display for AddStructuralElementError {
     }
 }
 
-impl Error for AddStructuralElementError {}
+impl Error for AddStructuralElementError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Geometry(error) => Some(error),
+            Self::UnknownProfile { .. }
+            | Self::UnknownMaterial { .. }
+            | Self::IdExhausted
+            | Self::RevisionExhausted => None,
+        }
+    }
+}
 
 /// Adds an inert planned member. It cannot carry or transmit load until activated canonically.
 pub fn add_structural_element(
@@ -64,8 +73,7 @@ pub fn add_structural_element(
     state: &mut AppState,
     profile: StructuralProfileId,
     material: MaterialId,
-    bounds: VoxelBounds,
-    cross_section: Area,
+    geometry: StructuralElementGeometry,
     grounded: bool,
 ) -> Result<StructuralElementId, AddStructuralElementError> {
     if registries.structural().get_profile(profile).is_none() {
@@ -74,10 +82,9 @@ pub fn add_structural_element(
     if registries.materials().get_material(material).is_none() {
         return Err(AddStructuralElementError::UnknownMaterial { material });
     }
-    if cross_section.is_zero() {
-        return Err(AddStructuralElementError::ZeroCrossSection);
-    }
-
+    geometry
+        .validate()
+        .map_err(AddStructuralElementError::Geometry)?;
     let structures = state.structure_state();
     let id = StructuralElementId::new(structures.next_element_id);
     let next_element_id = structures
@@ -90,11 +97,12 @@ pub fn add_structural_element(
         .ok_or(AddStructuralElementError::RevisionExhausted)?;
     let record = StructuralElementRecord {
         id,
-        profile,
-        material,
-        bounds,
-        cross_section,
-        grounded,
+        configuration: StructuralElementConfiguration {
+            profile,
+            material,
+            geometry,
+            grounded,
+        },
         embodied_mass: crate::core::quantity::Mass::ZERO,
         embodied_material: Vec::new(),
         loads: Default::default(),
@@ -894,10 +902,10 @@ mod tests {
     use crate::content::{
         FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
     };
-    use crate::core::quantity::Mass;
+    use crate::core::quantity::{Area, Length};
     use crate::core::time::WorldSeed;
     use crate::inventory::add_stockpile;
-    use crate::spatial::VoxelCoord;
+    use crate::spatial::{VoxelBounds, VoxelCoord};
     use crate::structural::{
         StructuralFailureCause, StructuralStage, ValidatedStructuralDeconstruction,
         make_test_deconstruction_resolution, materialize_structural_element_for_test,
@@ -912,6 +920,61 @@ mod tests {
             Ok(bounds) => bounds,
             Err(error) => panic!("structural bounds fixture failed: {error}"),
         }
+    }
+
+    #[test]
+    fn structural_geometry_rejects_zero_length_before_allocation() {
+        assert_eq!(
+            StructuralElementGeometry::new(make_test_bounds(0, 0), Length::ZERO, MEMBER_AREA),
+            Err(crate::structural::StructuralGeometryError::ZeroLength)
+        );
+        assert_eq!(
+            StructuralElementGeometry::new(
+                make_test_bounds(0, 0),
+                Length::from_micrometers(1),
+                Area::ZERO,
+            ),
+            Err(crate::structural::StructuralGeometryError::ZeroCrossSection)
+        );
+
+        let valid = crate::structural::make_test_structural_geometry(
+            make_test_bounds(0, 0),
+            Length::from_micrometers(1),
+            MEMBER_AREA,
+        );
+        let mut encoded = match serde_json::to_value(valid) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("structural geometry serialization failed: {error}"),
+        };
+        encoded["length"] = serde_json::json!(0_u64);
+        assert!(serde_json::from_value::<StructuralElementGeometry>(encoded).is_err());
+    }
+
+    #[test]
+    fn allocation_revalidates_geometry_before_mutating_state() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5700_1002));
+        let invalid = StructuralElementGeometry {
+            bounds: make_test_bounds(0, 0),
+            length: Length::ZERO,
+            cross_section: MEMBER_AREA,
+        };
+        let before = state.clone();
+
+        assert_eq!(
+            add_structural_element(
+                &registries,
+                &mut state,
+                STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+                MATERIAL_WOOD,
+                invalid,
+                true,
+            ),
+            Err(AddStructuralElementError::Geometry(
+                crate::structural::StructuralGeometryError::ZeroLength
+            ))
+        );
+        assert_eq!(state, before);
     }
 
     fn validate_test_deconstruction(
@@ -955,20 +1018,17 @@ mod tests {
             state,
             STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
             MATERIAL_WOOD,
-            make_test_bounds(x, y),
-            MEMBER_AREA,
+            crate::structural::make_test_structural_geometry(
+                make_test_bounds(x, y),
+                Length::from_micrometers(1),
+                MEMBER_AREA,
+            ),
             grounded,
         ) {
             Ok(element) => element,
             Err(error) => panic!("structural element fixture failed: {error}"),
         };
-        materialize_structural_element_for_test(
-            registries,
-            state,
-            element,
-            FORM_LOG,
-            Mass::from_milligrams(1),
-        );
+        materialize_structural_element_for_test(registries, state, element, FORM_LOG);
         element
     }
 

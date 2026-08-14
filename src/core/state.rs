@@ -973,6 +973,10 @@ pub fn validate_invariants(_registries: &Registries, state: &AppState) {
         "Runtime Invariant 8 (No Lost Runtime State): structural ID cursor must remain valid"
     );
     debug_assert!(
+        state.structures.has_valid_geometry(),
+        "Runtime Invariant 6 (Lifecycle Validity): structural geometry must remain physically valid"
+    );
+    debug_assert!(
         state.geology.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): geological deposit ID cursor must remain valid"
     );
@@ -987,6 +991,10 @@ pub fn validate_invariants(_registries: &Registries, state: &AppState) {
     debug_assert!(
         state.production.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): production ID cursor must remain nonzero"
+    );
+    debug_assert!(
+        state.production.has_valid_equipment_condition_outcomes(),
+        "Runtime Invariant 6 (Lifecycle Validity): equipment-backed jobs must carry non-improving post-operation condition outcomes"
     );
     debug_assert!(
         state
@@ -1093,20 +1101,17 @@ mod tests {
             state,
             STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
             MATERIAL_WOOD,
-            make_soak_structural_bounds(x, y),
-            Area::from_square_millimeters(1_000),
+            crate::structural::make_test_structural_geometry(
+                make_soak_structural_bounds(x, y),
+                crate::core::quantity::Length::from_micrometers(1),
+                Area::from_square_millimeters(1_000),
+            ),
             grounded,
         ) {
             Ok(element) => element,
             Err(error) => panic!("soak structural element allocation failed: {error}"),
         };
-        materialize_structural_element_for_test(
-            registries,
-            state,
-            element,
-            FORM_LOG,
-            Mass::from_milligrams(1),
-        );
+        materialize_structural_element_for_test(registries, state, element, FORM_LOG);
         element
     }
 

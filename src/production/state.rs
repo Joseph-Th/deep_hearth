@@ -11,6 +11,7 @@ use crate::core::time::SimulationTick;
 use crate::energy::ConsumedEnergyTrace;
 use crate::equipment::EquipmentOperationTrace;
 use crate::inventory::{ConsumedMaterialTrace, StockpileId};
+use crate::maintenance::Condition;
 use crate::material::{CommodityKey, CompositionError, MaterialId, MaterialLotSpec};
 
 use super::definitions::ProcessId;
@@ -45,6 +46,7 @@ pub struct ProductionJobRecord {
     pub(super) consumed_inputs: Vec<ConsumedMaterialTrace>,
     pub(super) consumed_energy: Option<ConsumedEnergyTrace>,
     pub(super) equipment_provider: Option<EquipmentOperationTrace>,
+    pub(super) equipment_condition_after: Option<Condition>,
     pub(super) outputs: Vec<MaterialLotSpec>,
 }
 
@@ -101,6 +103,12 @@ impl ProductionJobRecord {
         self.equipment_provider
     }
 
+    /// Returns the persisted post-operation condition for the occupied equipment provider.
+    #[must_use]
+    pub const fn equipment_condition_after(&self) -> Option<Condition> {
+        self.equipment_condition_after
+    }
+
     /// Returns the exact committed output lots promised when this job was started.
     #[must_use]
     pub fn outputs(&self) -> &[MaterialLotSpec] {
@@ -134,6 +142,16 @@ impl ProductionState {
 
     pub(crate) const fn has_valid_id_cursor(&self) -> bool {
         self.next_job_id != 0
+    }
+
+    pub(crate) fn has_valid_equipment_condition_outcomes(&self) -> bool {
+        self.jobs.values().all(|job| {
+            match (job.equipment_provider, job.equipment_condition_after) {
+                (Some(provider), Some(after)) => after <= provider.condition(),
+                (None, None) => true,
+                (Some(_), None) | (None, Some(_)) => false,
+            }
+        })
     }
 
     pub(crate) fn earliest_due_tick(&self) -> Option<SimulationTick> {
@@ -257,6 +275,17 @@ pub enum ProductionValidationError {
     },
     InvalidConsumedEnergyDefinition {
         job: ProductionJobId,
+    },
+    MissingEquipmentConditionOutcome {
+        job: ProductionJobId,
+    },
+    EquipmentConditionWithoutProvider {
+        job: ProductionJobId,
+    },
+    EquipmentConditionImproved {
+        job: ProductionJobId,
+        before: Condition,
+        after: Condition,
     },
     ZeroOutputMass {
         job: ProductionJobId,
@@ -385,6 +414,23 @@ impl Display for ProductionValidationError {
                 formatter,
                 "production job {} traces invalid zero energy-store definition identity",
                 job.value()
+            ),
+            Self::MissingEquipmentConditionOutcome { job } => write!(
+                formatter,
+                "production job {} occupies equipment without a post-operation condition outcome",
+                job.value()
+            ),
+            Self::EquipmentConditionWithoutProvider { job } => write!(
+                formatter,
+                "production job {} stores an equipment condition outcome without a provider",
+                job.value()
+            ),
+            Self::EquipmentConditionImproved { job, before, after } => write!(
+                formatter,
+                "production job {} improves equipment condition from {} ppm to {} ppm",
+                job.value(),
+                before.parts_per_million(),
+                after.parts_per_million()
             ),
             Self::ZeroOutputMass { job, commodity } => write!(
                 formatter,
@@ -533,6 +579,28 @@ pub(crate) fn validate_loaded_production(
                     job: *id,
                 });
             }
+        }
+        match (job.equipment_provider, job.equipment_condition_after) {
+            (Some(provider), Some(after)) => {
+                if after > provider.condition() {
+                    return Err(ProductionValidationError::EquipmentConditionImproved {
+                        job: *id,
+                        before: provider.condition(),
+                        after,
+                    });
+                }
+            }
+            (Some(_), None) => {
+                return Err(
+                    ProductionValidationError::MissingEquipmentConditionOutcome { job: *id },
+                );
+            }
+            (None, Some(_)) => {
+                return Err(
+                    ProductionValidationError::EquipmentConditionWithoutProvider { job: *id },
+                );
+            }
+            (None, None) => {}
         }
         let mut seen_outputs = BTreeSet::new();
         let mut output_mass = Mass::ZERO;

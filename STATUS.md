@@ -8,8 +8,8 @@
 - Persisted independent RNG streams derived from the world seed, normalized integer probability,
   and unbiased bounded random selection.
 - Explicit authoritative integer quantities for mass, aggregate mass, temperature, energy,
-  pressure, area, acceleration, force, power, torque, angular speed, voltage, current, resistance,
-  volume, and volumetric flow.
+  pressure, area, length, acceleration, force, power, torque, angular speed, voltage, current,
+  resistance, volume, and volumetric flow.
 - Typed material/form definitions with density, thermal, mechanical, and electrical properties.
 - Canonical normalized mass-fraction composition for ores, alloys, and mixed material lots, including
   validated deserialization and composition-aware material inputs.
@@ -56,9 +56,11 @@
   Definitions may author deterministic piecewise-linear condition curves per typed capability;
   effective values are resolved on demand without allocating temporary profiles, and pristine values
   remain the single nominal source of truth. Maintenance mutation is rejected while an active
-  production job owns the equipment instance. Continuous condition curves reject presence-only
-  capabilities; discrete capability loss remains an explicit future policy rather than fake numeric
-  interpolation.
+  production job owns the equipment instance. Operation-specific production resolvers can persist an
+  exact post-operation condition and completion applies wear atomically under the equipment owner's
+  revision, with simultaneous due outcomes sharing one revision advance. Continuous condition curves
+  reject presence-only capabilities; discrete capability loss remains an explicit future policy
+  rather than fake numeric interpolation.
 - Persistent equipment-to-structure support assignment with revision-bound two-owner mount/unmount
   transactions and a synchronized support-to-equipment reverse index. Mounted equipment mass is
   aggregated support-locally before gravity conversion, writes only the equipment-owned structural
@@ -74,15 +76,21 @@
   provenance, and registry-aware persistence validation. Public runtime allocation creates empty
   stores only; arbitrary energy seeding remains test/bootstrap-only until a conserved generation or
   charging owner exists. Active jobs reserve a source store's discharge capability exclusively.
-- Persistent structural members with typed material/profile references, voxel bounds, cross-section,
-  planned/active/failed lifecycle, exact embodied material traces and mass, persistent cracking, and
-  synchronized forward/reverse support indexes with cycle rejection. Active or failed members cannot
-  exist without embodied construction matter.
+- Persistent structural members with typed material/profile references, grouped immutable geometry,
+  explicit physical length independent of voxel bounds, cross-section, planned/active/failed
+  lifecycle, exact embodied material traces and mass, persistent cracking, and synchronized
+  forward/reverse support indexes with cycle rejection. Invalid zero length or cross-section cannot
+  enter the normal allocation path, and active or failed members cannot exist without embodied
+  construction matter.
 - Revision-bound construction transfers an exact pre-resolved lot selection from inventory into one
-  planned structural member, preserving composition, temperature, and provenance. The current
-  single-material strength model accepts only pure matter matching the member's authored material,
-  and derives a structure-owned `SelfWeight` load from actual committed mass and registry gravity.
-  `SelfWeight` cannot be written through the generic load API.
+  planned structural member, preserving composition, temperature, and provenance. Prismatic solid
+  volume is derived from cross-section and physical length, while required pure-material mass is
+  derived directly from exact geometry and authored density with one conservative milligram rounding
+  boundary. Read-only material-requirement resolution exposes that physical requirement without
+  authorizing construction. The conserved construction transaction rejects both under- and
+  over-materialization, accepts only pure matter matching the member's authored material, and derives
+  a structure-owned `SelfWeight` load from the committed mass and registry gravity. `SelfWeight`
+  cannot be written through the generic load API.
 - Materialized structural members cannot be deleted through generic removal. Revision-bound
   deconstruction validates destination capacity and both owners, removes the member only as part of a
   conserved recovery transaction, and returns every embodied trace to inventory without losing its
@@ -116,8 +124,11 @@
 - First real physical production resolver: selected-batch sensible heating derives required energy
   from each selected lot's actual mass, composition, and temperature; validates equipment heating
   power, maximum temperature, and maximum batch mass; validates finite energy carrier and discharge
-  power; derives duration exactly; and preserves matter/composition in heated outputs. Sensible
-  heating refuses to cross unresolved material phase boundaries instead of inventing latent heat.
+  power; derives duration exactly; and preserves matter/composition in heated outputs. Its authored
+  active-tick wear rate resolves an exact post-operation equipment condition from the same physical
+  duration, persists that outcome with the job, and applies it only when completion becomes
+  authoritative. Sensible heating refuses to cross unresolved material phase boundaries instead of
+  inventing latent heat.
 - Read-only global matter accounting across geological deposits, embodied structural matter,
   inventory, and in-process matter ownership.
 - Read-only explicit modeled-energy accounting across finite stores, geological, structural, and
@@ -125,28 +136,31 @@
   extraction, structural construction/deconstruction, and sensible heating preserve the modeled total
   across ownership changes.
 - Canonical top-level tick pipeline with cheap per-tick invariants and exhaustive save/load audits.
-- Persistence semantic schema 17 and authored registry compatibility schema 5 with metadata
+- Persistence semantic schema 19 and authored registry compatibility schema 7 with metadata
   preflight, registry-aware state validation, structural topology/damage audits, energy/equipment
-  ownership validation, embodied structural matter/self-weight audits, equipment-support/load
-  agreement audits, exclusive-resource double-book detection, operation-specific thermal job
-  recomputation, stable in-flight conservation snapshots, and deterministic continuation tests.
+  ownership validation, embodied structural matter/self-weight audits, geometry/density-to-mass
+  recomputation, equipment-support/load agreement audits, exclusive-resource double-book detection,
+  operation-specific thermal job recomputation including post-operation condition outcomes, stable
+  in-flight conservation snapshots, and deterministic continuation tests.
 - Chunk-independent 64-bit voxel coordinates and validated spatial bounds without choosing chunk
   dimensions or streaming policy.
 - Deterministic 10,000-tick mixed-system soak with repeated production/transfers, varying structural
   snow load on a persistently cracked supported deck, full-state replay equality, periodic exhaustive
   audits, matter-conservation checks, and lot-fragmentation ceiling.
 - Deterministic 5,000-tick real sensible-heating soak with repeated exact lot resolution, finite
-  energy depletion, equipment/energy reservations, periodic exhaustive audits, matter conservation,
-  modeled-energy conservation, and replay-identical final state.
+  energy depletion, equipment/energy reservations, duration-derived equipment wear, periodic
+  exhaustive audits, matter conservation, modeled-energy conservation, and replay-identical final
+  state.
 - Deterministic 2,000-step geological extraction soak with exact finite depletion, compatible-lot
   coalescing, periodic exhaustive audits, matter and modeled sensible-energy conservation, and
   replay-identical final state.
 - Deterministic 2,000-observation prospecting soak with synchronized material indexes, periodic
   exhaustive audits, stable persistence continuation, and replay-identical final state.
 - Deterministic 1,000-cycle construction/deconstruction soak repeatedly moves one finite material
-  batch between inventory and active structures, with periodic exhaustive audits, matter and modeled
-  sensible-energy conservation, and replay-identical final state.
-- Current debug validation suite: 209 passing tests with `cargo check` silent and
+  batch between inventory and active structures whose geometry resolves to that exact density-based
+  quantity, with periodic exhaustive audits, matter and modeled sensible-energy conservation, and
+  replay-identical final state.
+- Current debug validation suite: 219 passing tests with `cargo check` silent and
   Clippy warnings denied.
 - Release profile keeps integer overflow checks enabled.
 
@@ -168,11 +182,11 @@
 - Concrete equipment/tool/worker content, richer voxel/container equipment placement beyond a
   structural support owner, repair material consumption, discrete capability-disable policies, and
   authored gameplay-specific degradation curves.
-- Physical construction and demolition resolution: member-axis/solid geometry, derived material
-  volume and quantity, joints/connections, cutting and placement waste, tools, labor, duration,
-  salvage fractions, debris transformation, and non-identity-preserving demolition outputs. Current
-  construction/deconstruction transactions conserve already-resolved matter but deliberately do not
-  invent those unresolved physical requirements.
+- Richer physical construction and demolition resolution: member orientation/end geometry,
+  joints/connections, cutting and placement waste, tools, labor, duration, salvage fractions, debris
+  transformation, and non-identity-preserving demolition outputs. Current prismatic geometry resolves
+  solid volume and density-based material quantity, but that quantity foundation deliberately does
+  not pretend unresolved joinery, process, labor, or tooling requirements authorize construction.
 - Structural bending, shear, torsion, buckling, connection/joint capacity, terrain-support inference,
   and automatic voxel-geometry load paths. Current structural profiles model explicit axial load
   paths rather than pretending those unsolved mechanics are already represented.

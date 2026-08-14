@@ -43,10 +43,14 @@ pub enum TickError {
     InventoryRevisionExhausted,
     /// Production cannot advance its persisted revision for this tick's consequences.
     ProductionRevisionExhausted,
+    /// Equipment cannot advance its persisted revision for completed-operation wear.
+    EquipmentRevisionExhausted,
     /// Inventory changed after completion planning and before commit.
     StaleInventoryRevision { expected: u64, actual: u64 },
     /// Production changed after completion planning and before commit.
     StaleProductionRevision { expected: u64, actual: u64 },
+    /// Equipment changed after a wear-bearing completion was planned and before commit.
+    StaleEquipmentRevision { expected: u64, actual: u64 },
 }
 
 impl Display for TickError {
@@ -68,6 +72,9 @@ impl Display for TickError {
             Self::ProductionRevisionExhausted => {
                 formatter.write_str("production revision space is exhausted")
             }
+            Self::EquipmentRevisionExhausted => {
+                formatter.write_str("equipment revision space is exhausted")
+            }
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
                 "tick completion plan expected inventory revision {expected} but current revision is {actual}"
@@ -75,6 +82,10 @@ impl Display for TickError {
             Self::StaleProductionRevision { expected, actual } => write!(
                 formatter,
                 "tick completion plan expected production revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleEquipmentRevision { expected, actual } => write!(
+                formatter,
+                "tick completion plan expected equipment revision {expected} but current revision is {actual}"
             ),
         }
     }
@@ -103,14 +114,18 @@ pub fn advance_tick(
             CompletionPlanError::MaterialLotIds => TickError::MaterialLotIdExhausted,
             CompletionPlanError::InventoryRevision => TickError::InventoryRevisionExhausted,
             CompletionPlanError::ProductionRevision => TickError::ProductionRevisionExhausted,
+            CompletionPlanError::EquipmentRevision => TickError::EquipmentRevisionExhausted,
         })?;
     let production_completions =
         apply_completion_plan(state, completion_plan).map_err(|error| match error {
-            CompletionCommitError::StaleInventoryRevision { expected, actual } => {
+            CompletionCommitError::InventoryStale { expected, actual } => {
                 TickError::StaleInventoryRevision { expected, actual }
             }
-            CompletionCommitError::StaleProductionRevision { expected, actual } => {
+            CompletionCommitError::ProductionRevisionChanged { expected, actual } => {
                 TickError::StaleProductionRevision { expected, actual }
+            }
+            CompletionCommitError::EquipmentRevisionConflict { expected, actual } => {
+                TickError::StaleEquipmentRevision { expected, actual }
             }
         })?;
     apply_clock_advance(state, next_tick);

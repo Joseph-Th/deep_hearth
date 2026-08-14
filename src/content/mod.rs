@@ -30,7 +30,7 @@ pub use structural::{STRUCTURAL_PROFILE_AXIAL_COMPRESSION, STRUCTURAL_PROFILE_AX
 
 const DEFAULT_TICKS_PER_SECOND: u16 = 20;
 const DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED: u64 = 9_806_650;
-const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(5);
+const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(7);
 
 fn build_core_definitions() -> CoreDefinitions {
     CoreDefinitions::new(

@@ -19,6 +19,7 @@ use crate::equipment::{
     EquipmentId, EquipmentProviderError, resolve_equipment_capability, resolve_equipment_provider,
 };
 use crate::inventory::{MaterialLotSelection, StockpileId};
+use crate::maintenance::{CONDITION_PARTS_PER_MILLION, Condition, decide_wear};
 use crate::material::{MaterialLotSpec, MaterialLotSpecError};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessResolution, ProcessResolutionError, ProductionJobId,
@@ -36,6 +37,7 @@ pub struct SensibleHeatingProcessDefinition {
     max_temperature_capability: CapabilityId,
     max_batch_mass_capability: CapabilityId,
     energy_carrier: EnergyCarrier,
+    condition_wear_ppm_per_active_tick: u32,
 }
 
 impl SensibleHeatingProcessDefinition {
@@ -46,6 +48,7 @@ impl SensibleHeatingProcessDefinition {
         max_temperature_capability: CapabilityId,
         max_batch_mass_capability: CapabilityId,
         energy_carrier: EnergyCarrier,
+        condition_wear_ppm_per_active_tick: u32,
     ) -> Self {
         Self {
             process,
@@ -53,6 +56,7 @@ impl SensibleHeatingProcessDefinition {
             max_temperature_capability,
             max_batch_mass_capability,
             energy_carrier,
+            condition_wear_ppm_per_active_tick,
         }
     }
 
@@ -80,6 +84,23 @@ impl SensibleHeatingProcessDefinition {
     pub const fn energy_carrier(self) -> EnergyCarrier {
         self.energy_carrier
     }
+
+    /// Returns baseline condition loss for each authoritative tick spent actively running.
+    #[must_use]
+    pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
+        self.condition_wear_ppm_per_active_tick
+    }
+}
+
+fn condition_after_active_ticks(
+    definition: SensibleHeatingProcessDefinition,
+    before: Condition,
+    duration: TickSpan,
+) -> Condition {
+    let total_wear =
+        u128::from(definition.condition_wear_ppm_per_active_tick()) * u128::from(duration.value());
+    let bounded_wear = std::cmp::min(total_wear, u128::from(CONDITION_PARTS_PER_MILLION)) as u32;
+    decide_wear(before, bounded_wear).after()
 }
 
 /// Immutable lookup table for process-specific thermal resolution semantics.
@@ -507,6 +528,8 @@ pub fn resolve_sensible_heating_process(
         registries.core().ticks_per_second(),
     )
     .map_err(SensibleHeatingResolutionError::Duration)?;
+    let equipment_condition_after =
+        condition_after_active_ticks(definition, provider.condition(), duration);
 
     let mut outputs = Vec::with_capacity(output_masses.len());
     for ((commodity, composition), mass) in output_masses {
@@ -515,7 +538,13 @@ pub fn resolve_sensible_heating_process(
         outputs.push(output);
     }
     let resolution = inputs
-        .resolve_with_energy_and_equipment(duration, outputs, energy_supply, equipment_use)
+        .resolve_with_energy_and_equipment(
+            duration,
+            outputs,
+            energy_supply,
+            equipment_use,
+            equipment_condition_after,
+        )
         .map_err(SensibleHeatingResolutionError::Resolution)?;
     Ok(ResolvedSensibleHeating {
         resolution,
@@ -592,6 +621,14 @@ pub enum ThermalJobValidationError {
         job: ProductionJobId,
         stored: TickSpan,
         required: TickSpan,
+    },
+    MissingEquipmentConditionOutcome {
+        job: ProductionJobId,
+    },
+    EquipmentConditionOutcomeMismatch {
+        job: ProductionJobId,
+        stored: Condition,
+        required: Condition,
     },
 }
 
@@ -713,6 +750,22 @@ impl Display for ThermalJobValidationError {
                 stored.value(),
                 required.value()
             ),
+            Self::MissingEquipmentConditionOutcome { job } => write!(
+                formatter,
+                "sensible-heating job {} has no post-operation equipment condition",
+                job.value()
+            ),
+            Self::EquipmentConditionOutcomeMismatch {
+                job,
+                stored,
+                required,
+            } => write!(
+                formatter,
+                "sensible-heating job {} stores post-operation condition {} ppm but active-time wear requires {} ppm",
+                job.value(),
+                stored.parts_per_million(),
+                required.parts_per_million()
+            ),
         }
     }
 }
@@ -736,7 +789,9 @@ impl Error for ThermalJobValidationError {
             | Self::RequiredEnergyOverflow { .. }
             | Self::EnergyMismatch { .. }
             | Self::OutputMismatch { .. }
-            | Self::DurationMismatch { .. } => None,
+            | Self::DurationMismatch { .. }
+            | Self::MissingEquipmentConditionOutcome { .. }
+            | Self::EquipmentConditionOutcomeMismatch { .. } => None,
         }
     }
 }
@@ -894,6 +949,20 @@ pub(crate) fn validate_loaded_thermal_job(
             required: required_duration,
         });
     }
+    let required_condition_after =
+        condition_after_active_ticks(thermal_definition, provider.condition(), required_duration);
+    let Some(stored_condition_after) = job.equipment_condition_after() else {
+        return Err(ThermalJobValidationError::MissingEquipmentConditionOutcome { job: job.id() });
+    };
+    if stored_condition_after != required_condition_after {
+        return Err(
+            ThermalJobValidationError::EquipmentConditionOutcomeMismatch {
+                job: job.id(),
+                stored: stored_condition_after,
+                required: required_condition_after,
+            },
+        );
+    }
 
     let mut expected_outputs = Vec::with_capacity(output_masses.len());
     for ((commodity, composition), mass) in output_masses {
@@ -925,7 +994,7 @@ mod tests {
     };
     use crate::core::quantity::{Area, Force, Mass, Power};
     use crate::core::state::validate_loaded_state;
-    use crate::core::time::WorldSeed;
+    use crate::core::time::{SimulationTick, WorldSeed};
     use crate::energy::{
         EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store,
         add_energy_store_with_initial_for_test, calculate_explicit_energy_accounting,
@@ -941,7 +1010,8 @@ mod tests {
     use crate::material::{CommodityKey, MaterialComposition};
     use crate::matter::calculate_matter_accounting;
     use crate::production::{
-        ProcessDefinition, StartProcessCommitError, StartProcessError, validate_start_process,
+        CompletionCommitError, ProcessDefinition, StartProcessCommitError, StartProcessError,
+        apply_completion_plan, decide_due_completions, validate_start_process,
     };
     use crate::simulation::advance_tick;
     use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -1042,6 +1112,7 @@ mod tests {
                 MAX_TEMPERATURE,
                 MAX_BATCH_MASS,
                 EnergyCarrier::Electrical,
+                1_000,
             ),
         )
     }
@@ -1061,20 +1132,17 @@ mod tests {
             state,
             STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
             MATERIAL_WOOD,
-            bounds,
-            Area::from_square_millimeters(1_000),
+            crate::structural::make_test_structural_geometry(
+                bounds,
+                crate::core::quantity::Length::from_micrometers(1),
+                Area::from_square_millimeters(1_000),
+            ),
             true,
         ) {
             Ok(element) => element,
             Err(error) => panic!("heater-support structural fixture failed: {error}"),
         };
-        materialize_structural_element_for_test(
-            registries,
-            state,
-            support,
-            FORM_LOG,
-            Mass::from_milligrams(1),
-        );
+        materialize_structural_element_for_test(registries, state, support, FORM_LOG);
         let activation = match validate_activate_structural_element(registries, state, support) {
             Ok(token) => token,
             Err(error) => panic!("heater-support activation validation failed: {error}"),
@@ -1276,6 +1344,10 @@ mod tests {
             Err(error) => panic!("thermal duration fixture failed: {error}"),
         };
         assert_eq!(resolved.process_resolution().duration(), expected_duration);
+        assert_eq!(
+            resolved.process_resolution().equipment_condition_after(),
+            Some(condition(997_000))
+        );
 
         let before_energy = state
             .energy()
@@ -1309,6 +1381,20 @@ mod tests {
                 .and_then(|record| record.consumed_energy()),
             resolved.process_resolution().energy_input()
         );
+        assert_eq!(
+            state
+                .production()
+                .get_job(job)
+                .and_then(|record| record.equipment_condition_after()),
+            Some(condition(997_000))
+        );
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(equipment)
+                .map(|record| record.condition()),
+            Some(Condition::PRISTINE)
+        );
         let in_flight_explicit_energy =
             match calculate_explicit_energy_accounting(&registries, &state).and_then(|accounting| {
                 accounting
@@ -1326,6 +1412,13 @@ mod tests {
             }
         }
         assert!(state.production().get_job(job).is_none());
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(equipment)
+                .map(|record| record.condition()),
+            Some(condition(997_000))
+        );
         let output = match state
             .inventory()
             .lots()
@@ -1422,7 +1515,27 @@ mod tests {
             None => panic!("worn-heater job lost its equipment trace"),
         };
         assert_eq!(provider.condition(), condition(500_000));
+        assert_eq!(
+            state
+                .production()
+                .get_job(job)
+                .and_then(|record| record.equipment_condition_after()),
+            Some(condition(495_000))
+        );
         assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+        for _ in 0..5 {
+            if let Err(error) = advance_tick(&registries, &mut state) {
+                panic!("worn-heater completion failed: {error}");
+            }
+        }
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(equipment)
+                .map(|record| record.condition()),
+            Some(condition(495_000))
+        );
     }
 
     #[test]
@@ -2063,6 +2176,131 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(first.tick().value(), 5_000);
+        assert_eq!(
+            first
+                .equipment()
+                .get_equipment(EquipmentId::new(1))
+                .map(|record| record.condition()),
+            Some(condition(955_000))
+        );
+    }
+
+    #[test]
+    fn same_tick_heating_completions_apply_all_wear_under_one_equipment_revision() {
+        let (registries, mut state, source, destination, first_equipment, first_energy) =
+            make_loaded_fixture(EnergyCarrier::Electrical);
+        if let Err(error) = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            Mass::from_milligrams(10),
+            Temperature::from_millikelvin(300_000),
+        ) {
+            panic!("same-tick wear second input fixture failed: {error}");
+        }
+        let second_equipment =
+            match add_equipment(&registries, &mut state, HEATER, Condition::PRISTINE) {
+                Ok(equipment) => equipment,
+                Err(error) => panic!("same-tick wear second equipment fixture failed: {error}"),
+            };
+        let second_energy = match add_energy_store_with_initial_for_test(
+            &registries,
+            &mut state,
+            BATTERY,
+            Energy::from_nanojoules(500_000_000),
+        ) {
+            Ok(store) => store,
+            Err(error) => panic!("same-tick wear second energy fixture failed: {error}"),
+        };
+        let target = Temperature::from_millikelvin(303_000);
+
+        let first = match resolve_test_sensible_heating_process(
+            &registries,
+            &state,
+            PROCESS,
+            source,
+            first_equipment,
+            first_energy,
+            target,
+        ) {
+            Ok(resolved) => resolved,
+            Err(error) => panic!("same-tick wear first resolution failed: {error}"),
+        };
+        let duration = first.process_resolution().duration();
+        let first_start = match validate_start_process(
+            &registries,
+            &state,
+            first.process_resolution(),
+            source,
+            destination,
+        ) {
+            Ok(token) => token,
+            Err(error) => panic!("same-tick wear first start validation failed: {error}"),
+        };
+        if let Err(error) = first_start.commit(&mut state) {
+            panic!("same-tick wear first start commit failed: {error}");
+        }
+
+        let second = match resolve_test_sensible_heating_process(
+            &registries,
+            &state,
+            PROCESS,
+            source,
+            second_equipment,
+            second_energy,
+            target,
+        ) {
+            Ok(resolved) => resolved,
+            Err(error) => panic!("same-tick wear second resolution failed: {error}"),
+        };
+        assert_eq!(second.process_resolution().duration(), duration);
+        let second_start = match validate_start_process(
+            &registries,
+            &state,
+            second.process_resolution(),
+            source,
+            destination,
+        ) {
+            Ok(token) => token,
+            Err(error) => panic!("same-tick wear second start validation failed: {error}"),
+        };
+        if let Err(error) = second_start.commit(&mut state) {
+            panic!("same-tick wear second start commit failed: {error}");
+        }
+
+        let equipment_revision_before_completion = state.equipment().revision();
+        for _ in 1..duration.value() {
+            let outcome = match advance_tick(&registries, &mut state) {
+                Ok(outcome) => outcome,
+                Err(error) => panic!("same-tick wear pre-completion tick failed: {error}"),
+            };
+            assert!(outcome.production_completions().is_empty());
+            assert_eq!(
+                state.equipment().revision(),
+                equipment_revision_before_completion
+            );
+        }
+
+        let completion = match advance_tick(&registries, &mut state) {
+            Ok(outcome) => outcome,
+            Err(error) => panic!("same-tick wear completion tick failed: {error}"),
+        };
+        assert_eq!(completion.production_completions().len(), 2);
+        assert_eq!(
+            state.equipment().revision(),
+            equipment_revision_before_completion + 1
+        );
+        for equipment in [first_equipment, second_equipment] {
+            assert_eq!(
+                state
+                    .equipment()
+                    .get_equipment(equipment)
+                    .map(|record| record.condition()),
+                Some(condition(997_000))
+            );
+        }
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     }
 
     #[test]
@@ -2478,6 +2716,68 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn due_heating_completion_rejects_stale_equipment_revision_atomically() {
+        let (registries, mut state, source, destination, equipment, energy_store) =
+            make_loaded_fixture(EnergyCarrier::Electrical);
+        let resolved = match resolve_test_sensible_heating_process(
+            &registries,
+            &state,
+            PROCESS,
+            source,
+            equipment,
+            energy_store,
+            Temperature::from_millikelvin(303_000),
+        ) {
+            Ok(resolved) => resolved,
+            Err(error) => panic!("completion-race heating resolution failed: {error}"),
+        };
+        let duration = resolved.process_resolution().duration();
+        let token = match validate_start_process(
+            &registries,
+            &state,
+            resolved.process_resolution(),
+            source,
+            destination,
+        ) {
+            Ok(token) => token,
+            Err(error) => panic!("completion-race start validation failed: {error}"),
+        };
+        let job = match token.commit(&mut state) {
+            Ok(job) => job,
+            Err(error) => panic!("completion-race start commit failed: {error}"),
+        };
+        for _ in 1..duration.value() {
+            if let Err(error) = advance_tick(&registries, &mut state) {
+                panic!("completion-race pre-due tick failed: {error}");
+            }
+        }
+        assert_eq!(state.tick(), SimulationTick::new(duration.value() - 1));
+        let due = match state.production().get_job(job) {
+            Some(record) => record.completes_at(),
+            None => panic!("completion-race job disappeared before due planning"),
+        };
+        let plan = match decide_due_completions(&state, due) {
+            Ok(plan) => plan,
+            Err(error) => panic!("completion-race due planning failed: {error:?}"),
+        };
+        let expected = state.equipment().revision();
+        if let Err(error) = add_equipment(&registries, &mut state, HEATER, Condition::PRISTINE) {
+            panic!("completion-race independent equipment mutation failed: {error}");
+        }
+        let before = state.clone();
+
+        assert_eq!(
+            apply_completion_plan(&mut state, plan),
+            Err(CompletionCommitError::EquipmentRevisionConflict {
+                expected,
+                actual: expected + 1,
+            })
+        );
+        assert_eq!(state, before);
+        assert!(state.production().get_job(job).is_some());
     }
 
     #[test]

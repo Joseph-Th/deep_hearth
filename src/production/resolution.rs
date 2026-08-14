@@ -14,6 +14,7 @@ use crate::inventory::{
     ExplicitConsumptionSelectionError, MaterialLotId, MaterialLotSelection, StockpileId,
     validate_consumption_selection, validate_explicit_consumption_selection,
 };
+use crate::maintenance::Condition;
 use crate::material::{CommodityKey, CompositionError, MaterialId, MaterialLotSpec};
 use crate::registry::Registries;
 
@@ -181,7 +182,7 @@ impl ValidatedProcessInputs {
         duration: TickSpan,
         outputs: Vec<MaterialLotSpec>,
     ) -> Result<ProcessResolution, ProcessResolutionError> {
-        self.resolve_inner(duration, outputs, None, None)
+        self.resolve_inner(duration, outputs, None, None, None)
     }
 
     pub(crate) fn resolve_with_energy_and_equipment(
@@ -190,8 +191,15 @@ impl ValidatedProcessInputs {
         outputs: Vec<MaterialLotSpec>,
         energy_supply: ValidatedEnergySupply,
         equipment_use: ValidatedEquipmentUse,
+        equipment_condition_after: Condition,
     ) -> Result<ProcessResolution, ProcessResolutionError> {
-        self.resolve_inner(duration, outputs, Some(energy_supply), Some(equipment_use))
+        self.resolve_inner(
+            duration,
+            outputs,
+            Some(energy_supply),
+            Some(equipment_use),
+            Some(equipment_condition_after),
+        )
     }
 
     fn resolve_inner(
@@ -200,6 +208,7 @@ impl ValidatedProcessInputs {
         mut outputs: Vec<MaterialLotSpec>,
         energy_supply: Option<ValidatedEnergySupply>,
         equipment_use: Option<ValidatedEquipmentUse>,
+        equipment_condition_after: Option<Condition>,
     ) -> Result<ProcessResolution, ProcessResolutionError> {
         if duration.is_zero() {
             return Err(ProcessResolutionError::ZeroDuration);
@@ -212,11 +221,30 @@ impl ValidatedProcessInputs {
         if sum_lot_spec_mass(&outputs).is_none() {
             return Err(ProcessResolutionError::OutputMassOverflow);
         }
+        match (equipment_use, equipment_condition_after) {
+            (Some(equipment), Some(after)) => {
+                let before = equipment.trace().condition();
+                if after > before {
+                    return Err(ProcessResolutionError::EquipmentConditionImproved {
+                        before,
+                        after,
+                    });
+                }
+            }
+            (Some(_), None) => {
+                return Err(ProcessResolutionError::MissingEquipmentConditionOutcome);
+            }
+            (None, Some(_)) => {
+                return Err(ProcessResolutionError::EquipmentConditionWithoutEquipment);
+            }
+            (None, None) => {}
+        }
         Ok(ProcessResolution {
             process: self.process,
             selection: self.selection,
             energy_supply,
             equipment_use,
+            equipment_condition_after,
             duration,
             outputs,
         })
@@ -337,6 +365,12 @@ pub enum ProcessResolutionError {
         commodity: CommodityKey,
     },
     OutputMassOverflow,
+    MissingEquipmentConditionOutcome,
+    EquipmentConditionWithoutEquipment,
+    EquipmentConditionImproved {
+        before: Condition,
+        after: Condition,
+    },
 }
 
 impl Display for ProcessResolutionError {
@@ -372,6 +406,18 @@ impl Display for ProcessResolutionError {
             Self::OutputMassOverflow => {
                 formatter.write_str("resolved process output mass overflows authoritative storage")
             }
+            Self::MissingEquipmentConditionOutcome => formatter.write_str(
+                "resolved equipment-backed process must commit an explicit post-operation condition",
+            ),
+            Self::EquipmentConditionWithoutEquipment => formatter.write_str(
+                "resolved process cannot commit equipment condition without an equipment provider",
+            ),
+            Self::EquipmentConditionImproved { before, after } => write!(
+                formatter,
+                "production operation cannot improve equipment condition from {} ppm to {} ppm",
+                before.parts_per_million(),
+                after.parts_per_million()
+            ),
         }
     }
 }
@@ -385,7 +431,10 @@ impl Error for ProcessResolutionError {
             | Self::ZeroOutputMass { .. }
             | Self::OutputCompositionMissingHost { .. }
             | Self::DuplicateOutputSpecification { .. }
-            | Self::OutputMassOverflow => None,
+            | Self::OutputMassOverflow
+            | Self::MissingEquipmentConditionOutcome
+            | Self::EquipmentConditionWithoutEquipment
+            | Self::EquipmentConditionImproved { .. } => None,
         }
     }
 }
@@ -401,6 +450,7 @@ pub struct ProcessResolution {
     selection: ConsumptionSelection,
     energy_supply: Option<ValidatedEnergySupply>,
     equipment_use: Option<ValidatedEquipmentUse>,
+    equipment_condition_after: Option<Condition>,
     duration: TickSpan,
     outputs: Vec<MaterialLotSpec>,
 }
@@ -436,6 +486,12 @@ impl ProcessResolution {
     #[must_use]
     pub fn equipment_input(&self) -> Option<EquipmentOperationTrace> {
         self.equipment_use.map(ValidatedEquipmentUse::trace)
+    }
+
+    /// Returns the exact equipment condition committed when this operation completes, if any.
+    #[must_use]
+    pub const fn equipment_condition_after(&self) -> Option<Condition> {
+        self.equipment_condition_after
     }
 
     #[must_use]

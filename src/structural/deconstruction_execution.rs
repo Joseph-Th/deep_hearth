@@ -325,7 +325,7 @@ mod tests {
     use crate::content::{
         FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
     };
-    use crate::core::quantity::{Area, Energy, Mass, Temperature};
+    use crate::core::quantity::{Area, Energy, Length, Mass, Temperature};
     use crate::core::state::validate_loaded_state;
     use crate::core::time::WorldSeed;
     use crate::energy::{ExplicitEnergyAccountingError, calculate_explicit_energy_accounting};
@@ -337,6 +337,13 @@ mod tests {
         StructuralMutationError, add_structural_element, materialize_structural_element_for_test,
         validate_remove_structural_element, validate_structural_construction,
     };
+
+    fn wood_length_for_mass(mass: Mass) -> Length {
+        assert!(!mass.is_zero(), "test member mass must be nonzero");
+        let numerator = (u128::from(mass.milligrams()) - 1) * 1_000_000;
+        let denominator = 1_000_u128 * 650_u128;
+        Length::from_micrometers((numerator / denominator + 1) as u64)
+    }
 
     fn materialized_member(
         registries: &Registries,
@@ -352,14 +359,17 @@ mod tests {
             state,
             STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
             MATERIAL_WOOD,
-            bounds,
-            Area::from_square_millimeters(1_000),
+            crate::structural::make_test_structural_geometry(
+                bounds,
+                wood_length_for_mass(mass),
+                Area::from_square_millimeters(1_000),
+            ),
             true,
         ) {
             Ok(element) => element,
             Err(error) => panic!("deconstruction member fixture failed: {error}"),
         };
-        materialize_structural_element_for_test(registries, state, element, FORM_LOG, mass);
+        materialize_structural_element_for_test(registries, state, element, FORM_LOG);
         element
     }
 
@@ -455,8 +465,11 @@ mod tests {
             &mut state,
             STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
             MATERIAL_WOOD,
-            bounds,
-            Area::from_square_millimeters(1_000),
+            crate::structural::make_test_structural_geometry(
+                bounds,
+                wood_length_for_mass(Mass::from_milligrams(20)),
+                Area::from_square_millimeters(1_000),
+            ),
             true,
         ) {
             Ok(element) => element,
@@ -634,8 +647,11 @@ mod tests {
             &mut state,
             STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
             MATERIAL_WOOD,
-            bounds,
-            Area::from_square_millimeters(1_000),
+            crate::structural::make_test_structural_geometry(
+                bounds,
+                crate::core::quantity::Length::from_micrometers(1),
+                Area::from_square_millimeters(1_000),
+            ),
             true,
         ) {
             panic!("stale deconstruction structural mutation failed: {error}");
