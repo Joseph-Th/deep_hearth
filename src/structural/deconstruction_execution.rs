@@ -10,8 +10,8 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::{
-    MaterialBatchIngressError, MaterialLotId, StockpileId, ValidatedMaterialBatchIngress,
-    apply_material_batch_ingress, validate_material_batch_ingress,
+    MaterialBatchIngressError, MaterialLotId, StockpileId, StockpileStorageError,
+    ValidatedMaterialBatchIngress, apply_material_batch_ingress, validate_material_batch_ingress,
 };
 use crate::registry::Registries;
 
@@ -59,6 +59,7 @@ pub enum StructuralDeconstructionError {
     InvalidEmbodiedMatter {
         element: StructuralElementId,
     },
+    DestinationStorage(StockpileStorageError),
     DestinationMassOverflow {
         stockpile: StockpileId,
     },
@@ -93,6 +94,10 @@ impl Display for StructuralDeconstructionError {
                 formatter,
                 "structural element {} contains embodied matter that cannot enter inventory",
                 element.value()
+            ),
+            Self::DestinationStorage(error) => write!(
+                formatter,
+                "structural recovery destination rejects embodied material: {error}"
             ),
             Self::DestinationMassOverflow { stockpile } => write!(
                 formatter,
@@ -129,6 +134,7 @@ impl Error for StructuralDeconstructionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
+            Self::DestinationStorage(error) => Some(error),
             Self::UnknownElement { .. }
             | Self::NoEmbodiedMatter { .. }
             | Self::UnknownDestination { .. }
@@ -169,6 +175,9 @@ fn map_batch_error(
         MaterialBatchIngressError::LotIdExhausted => StructuralDeconstructionError::LotIdExhausted,
         MaterialBatchIngressError::RevisionExhausted => {
             StructuralDeconstructionError::InventoryRevisionExhausted
+        }
+        MaterialBatchIngressError::Storage(error) => {
+            StructuralDeconstructionError::DestinationStorage(error)
         }
         MaterialBatchIngressError::UnknownMaterial { .. }
         | MaterialBatchIngressError::UnknownForm { .. }

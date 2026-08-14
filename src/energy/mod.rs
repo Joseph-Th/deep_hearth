@@ -14,8 +14,9 @@ pub use definitions::{
 };
 pub use state::{EnergyState, EnergyStoreId, EnergyStoreRecord, EnergyValidationError};
 pub use storage_execution::{
-    AddEnergyStoreError, ConsumedEnergyTrace, EnergySupplyError, ValidatedEnergySupply,
-    add_energy_store, validate_energy_supply,
+    AddEnergyStoreError, ConsumedEnergyTrace, EnergySinkError, EnergySupplyError,
+    ReleasedEnergyTrace, ValidatedEnergySink, ValidatedEnergySupply, add_energy_store,
+    validate_energy_sink, validate_energy_supply,
 };
 
 #[cfg(test)]
@@ -23,8 +24,10 @@ pub(crate) use storage_execution::add_energy_store_with_initial_for_test;
 
 pub(crate) use state::validate_loaded_energy;
 pub(crate) use storage_execution::{
-    EnergyCommitError, EnergyConsumptionReservation, EnergyReservationError,
-    apply_energy_consumption_reservation, validate_energy_consumption_reservation,
+    EnergyCommitError, EnergyConsumptionReservation, EnergyIngressReservation,
+    EnergyIngressReservationError, EnergyReservationError, apply_energy_consumption_reservation,
+    apply_released_energy_outcomes, validate_energy_consumption_reservation,
+    validate_energy_ingress_reservation,
 };
 
 use std::error::Error;

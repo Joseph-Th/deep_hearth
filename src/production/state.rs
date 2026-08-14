@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
-use crate::energy::ConsumedEnergyTrace;
+use crate::energy::{ConsumedEnergyTrace, ReleasedEnergyTrace};
 use crate::equipment::EquipmentOperationTrace;
 use crate::inventory::{ConsumedMaterialTrace, StockpileId};
 use crate::maintenance::Condition;
@@ -45,6 +45,7 @@ pub struct ProductionJobRecord {
     pub(super) consumed_mass: Mass,
     pub(super) consumed_inputs: Vec<ConsumedMaterialTrace>,
     pub(super) consumed_energy: Option<ConsumedEnergyTrace>,
+    pub(super) released_energy: Option<ReleasedEnergyTrace>,
     pub(super) equipment_provider: Option<EquipmentOperationTrace>,
     pub(super) equipment_condition_after: Option<Condition>,
     pub(super) outputs: Vec<MaterialLotSpec>,
@@ -95,6 +96,12 @@ impl ProductionJobRecord {
     #[must_use]
     pub const fn consumed_energy(&self) -> Option<ConsumedEnergyTrace> {
         self.consumed_energy
+    }
+
+    /// Returns exact energy released from process inputs and awaiting sink commit, if any.
+    #[must_use]
+    pub const fn released_energy(&self) -> Option<ReleasedEnergyTrace> {
+        self.released_energy
     }
 
     /// Returns the equipment provider exclusively occupied by this operation, if any.
@@ -152,6 +159,23 @@ impl ProductionState {
                 (Some(_), None) | (None, Some(_)) => false,
             }
         })
+    }
+
+    pub(crate) fn has_unique_energy_reservations(&self) -> bool {
+        let mut occupied = BTreeSet::new();
+        for job in self.jobs.values() {
+            if let Some(trace) = job.consumed_energy
+                && !occupied.insert(trace.source())
+            {
+                return false;
+            }
+            if let Some(trace) = job.released_energy
+                && !occupied.insert(trace.destination())
+            {
+                return false;
+            }
+        }
+        true
     }
 
     pub(crate) fn earliest_due_tick(&self) -> Option<SimulationTick> {
@@ -274,6 +298,15 @@ pub enum ProductionValidationError {
         job: ProductionJobId,
     },
     InvalidConsumedEnergyDefinition {
+        job: ProductionJobId,
+    },
+    ZeroReleasedEnergy {
+        job: ProductionJobId,
+    },
+    InvalidReleasedEnergyDestination {
+        job: ProductionJobId,
+    },
+    InvalidReleasedEnergyDefinition {
         job: ProductionJobId,
     },
     MissingEquipmentConditionOutcome {
@@ -413,6 +446,21 @@ impl Display for ProductionValidationError {
             Self::InvalidConsumedEnergyDefinition { job } => write!(
                 formatter,
                 "production job {} traces invalid zero energy-store definition identity",
+                job.value()
+            ),
+            Self::ZeroReleasedEnergy { job } => write!(
+                formatter,
+                "production job {} traces zero released energy",
+                job.value()
+            ),
+            Self::InvalidReleasedEnergyDestination { job } => write!(
+                formatter,
+                "production job {} traces invalid zero released-energy destination identity",
+                job.value()
+            ),
+            Self::InvalidReleasedEnergyDefinition { job } => write!(
+                formatter,
+                "production job {} traces invalid zero released-energy definition identity",
                 job.value()
             ),
             Self::MissingEquipmentConditionOutcome { job } => write!(
@@ -576,6 +624,21 @@ pub(crate) fn validate_loaded_production(
             }
             if trace.definition().value() == 0 {
                 return Err(ProductionValidationError::InvalidConsumedEnergyDefinition {
+                    job: *id,
+                });
+            }
+        }
+        if let Some(trace) = job.released_energy {
+            if trace.energy().is_zero() {
+                return Err(ProductionValidationError::ZeroReleasedEnergy { job: *id });
+            }
+            if trace.destination().value() == 0 {
+                return Err(
+                    ProductionValidationError::InvalidReleasedEnergyDestination { job: *id },
+                );
+            }
+            if trace.definition().value() == 0 {
+                return Err(ProductionValidationError::InvalidReleasedEnergyDefinition {
                     job: *id,
                 });
             }

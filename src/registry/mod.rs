@@ -8,6 +8,7 @@ use crate::capability::CapabilityRegistry;
 use crate::core::quantity::Acceleration;
 use crate::energy::EnergyRegistry;
 use crate::equipment::EquipmentRegistry;
+use crate::fluid::FluidRegistry;
 use crate::material::MaterialRegistry;
 use crate::production::ProductionRegistry;
 use crate::structural::StructuralRegistry;
@@ -68,6 +69,7 @@ pub struct Registries {
     schema_version: RegistrySchemaVersion,
     core: CoreDefinitions,
     energy: EnergyRegistry,
+    fluid: FluidRegistry,
     capabilities: CapabilityRegistry,
     equipment: EquipmentRegistry,
     structural: StructuralRegistry,
@@ -78,35 +80,14 @@ pub struct Registries {
 
 /// Domain registry bundle used to assemble the immutable root without a wide positional API.
 pub(crate) struct RegistryDomains {
-    energy: EnergyRegistry,
-    capabilities: CapabilityRegistry,
-    equipment: EquipmentRegistry,
-    structural: StructuralRegistry,
-    materials: MaterialRegistry,
-    thermal: ThermalRegistry,
-    production: ProductionRegistry,
-}
-
-impl RegistryDomains {
-    pub(crate) fn new(
-        energy: EnergyRegistry,
-        capabilities: CapabilityRegistry,
-        equipment: EquipmentRegistry,
-        structural: StructuralRegistry,
-        materials: MaterialRegistry,
-        thermal: ThermalRegistry,
-        production: ProductionRegistry,
-    ) -> Self {
-        Self {
-            energy,
-            capabilities,
-            equipment,
-            structural,
-            materials,
-            thermal,
-            production,
-        }
-    }
+    pub(crate) energy: EnergyRegistry,
+    pub(crate) fluid: FluidRegistry,
+    pub(crate) capabilities: CapabilityRegistry,
+    pub(crate) equipment: EquipmentRegistry,
+    pub(crate) structural: StructuralRegistry,
+    pub(crate) materials: MaterialRegistry,
+    pub(crate) thermal: ThermalRegistry,
+    pub(crate) production: ProductionRegistry,
 }
 
 impl Registries {
@@ -115,17 +96,21 @@ impl Registries {
         core: CoreDefinitions,
         domains: RegistryDomains,
     ) -> Self {
+        domains.fluid.validate_references(&domains.materials);
         domains.equipment.validate_references(&domains.capabilities);
         domains
             .production
             .validate_references(&domains.materials, &domains.capabilities);
-        domains
-            .thermal
-            .validate_references(&domains.production, &domains.capabilities);
+        domains.thermal.validate_references(
+            &domains.production,
+            &domains.capabilities,
+            &domains.materials,
+        );
         Self {
             schema_version,
             core,
             energy: domains.energy,
+            fluid: domains.fluid,
             capabilities: domains.capabilities,
             equipment: domains.equipment,
             structural: domains.structural,
@@ -151,6 +136,12 @@ impl Registries {
     #[must_use]
     pub const fn energy(&self) -> &EnergyRegistry {
         &self.energy
+    }
+
+    /// Returns immutable authored fluid identities.
+    #[must_use]
+    pub const fn fluid(&self) -> &FluidRegistry {
+        &self.fluid
     }
 
     /// Returns immutable authored physical/tool/equipment capability definitions.

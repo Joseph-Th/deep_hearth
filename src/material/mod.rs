@@ -218,6 +218,17 @@ impl MaterialComposition {
         &self.components
     }
 
+    /// Returns the sole material when this composition is exactly pure.
+    #[must_use]
+    pub fn pure_material(&self) -> Option<MaterialId> {
+        match self.components.as_slice() {
+            [component] if component.parts_per_million() == COMPOSITION_PARTS_PER_MILLION => {
+                Some(component.material())
+            }
+            _ => None,
+        }
+    }
+
     /// Returns one constituent fraction, or zero when the material is absent.
     #[must_use]
     pub fn parts_per_million(&self, material: MaterialId) -> u32 {
@@ -582,11 +593,46 @@ impl Error for MaterialLotSpecError {
     }
 }
 
+/// Authored solid/liquid fusion boundary and latent-energy requirement for one material.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FusionProperties {
+    melting_point: Temperature,
+    latent_heat_j_per_kg: u32,
+}
+
+impl FusionProperties {
+    #[must_use]
+    pub const fn new(melting_point: Temperature, latent_heat_j_per_kg: u32) -> Self {
+        assert!(
+            melting_point.millikelvin() != 0,
+            "material melting point must be above absolute zero"
+        );
+        assert!(
+            latent_heat_j_per_kg > 0,
+            "material latent heat of fusion must be nonzero"
+        );
+        Self {
+            melting_point,
+            latent_heat_j_per_kg,
+        }
+    }
+
+    #[must_use]
+    pub const fn melting_point(self) -> Temperature {
+        self.melting_point
+    }
+
+    #[must_use]
+    pub const fn latent_heat_j_per_kg(self) -> u32 {
+        self.latent_heat_j_per_kg
+    }
+}
+
 /// Thermal properties used by heat transfer and phase-change systems.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ThermalProperties {
     specific_heat_j_per_kg_k: u32,
-    melting_point: Option<Temperature>,
+    fusion: Option<FusionProperties>,
     conductivity_milli_w_per_m_k: u32,
 }
 
@@ -594,7 +640,7 @@ impl ThermalProperties {
     #[must_use]
     pub const fn new(
         specific_heat_j_per_kg_k: u32,
-        melting_point: Option<Temperature>,
+        fusion: Option<FusionProperties>,
         conductivity_milli_w_per_m_k: u32,
     ) -> Self {
         assert!(
@@ -603,7 +649,7 @@ impl ThermalProperties {
         );
         Self {
             specific_heat_j_per_kg_k,
-            melting_point,
+            fusion,
             conductivity_milli_w_per_m_k,
         }
     }
@@ -615,7 +661,15 @@ impl ThermalProperties {
 
     #[must_use]
     pub const fn melting_point(&self) -> Option<Temperature> {
-        self.melting_point
+        match self.fusion {
+            Some(fusion) => Some(fusion.melting_point()),
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn fusion(&self) -> Option<FusionProperties> {
+        self.fusion
     }
 
     #[must_use]
@@ -771,24 +825,183 @@ impl MaterialDefinition {
     }
 }
 
+/// Phase carried by an authored physical material form.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum MaterialPhase {
+    Solid,
+    Liquid,
+}
+
+/// Failure because a material form, composition, and temperature do not describe a supported phase state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaterialPhaseStateError {
+    UnknownForm {
+        form: FormId,
+    },
+    UnknownMaterial {
+        material: MaterialId,
+    },
+    SolidAboveMeltingPoint {
+        material: MaterialId,
+        temperature: Temperature,
+        melting_point: Temperature,
+    },
+    LiquidRequiresPureComposition,
+    LiquidHostMismatch {
+        host: MaterialId,
+        pure: MaterialId,
+    },
+    LiquidMaterialHasNoFusionProperties {
+        material: MaterialId,
+    },
+    LiquidBelowMeltingPoint {
+        material: MaterialId,
+        temperature: Temperature,
+        melting_point: Temperature,
+    },
+}
+
+impl Display for MaterialPhaseStateError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownForm { form } => {
+                write!(
+                    formatter,
+                    "material phase state references unknown form {}",
+                    form.value()
+                )
+            }
+            Self::UnknownMaterial { material } => write!(
+                formatter,
+                "material phase state references unknown material {}",
+                material.value()
+            ),
+            Self::SolidAboveMeltingPoint {
+                material,
+                temperature,
+                melting_point,
+            } => write!(
+                formatter,
+                "solid material {} at {} mK exceeds its {} mK melting point",
+                material.value(),
+                temperature.millikelvin(),
+                melting_point.millikelvin()
+            ),
+            Self::LiquidRequiresPureComposition => formatter.write_str(
+                "liquid material requires a pure composition until mixture phase diagrams exist",
+            ),
+            Self::LiquidHostMismatch { host, pure } => write!(
+                formatter,
+                "liquid commodity host material {} disagrees with pure composition material {}",
+                host.value(),
+                pure.value()
+            ),
+            Self::LiquidMaterialHasNoFusionProperties { material } => write!(
+                formatter,
+                "liquid material {} has no authored fusion properties",
+                material.value()
+            ),
+            Self::LiquidBelowMeltingPoint {
+                material,
+                temperature,
+                melting_point,
+            } => write!(
+                formatter,
+                "liquid material {} at {} mK is below its {} mK melting point",
+                material.value(),
+                temperature.millikelvin(),
+                melting_point.millikelvin()
+            ),
+        }
+    }
+}
+
+impl Error for MaterialPhaseStateError {}
+
+/// Validates that a material lot's authored form, composition, and temperature are physically
+/// consistent with the currently represented solid/liquid phase model.
+///
+/// Solid mixtures remain supported because each constituent can be checked independently against
+/// its authored melting point. Liquid mixtures are deliberately rejected until alloy/solution phase
+/// diagrams exist, because a generic weighted melting point would create false physics.
+pub fn validate_material_phase_state(
+    materials: &MaterialRegistry,
+    commodity: CommodityKey,
+    composition: &MaterialComposition,
+    temperature: Temperature,
+) -> Result<(), MaterialPhaseStateError> {
+    let form_id = commodity.form();
+    let Some(form) = materials.get_form(form_id) else {
+        return Err(MaterialPhaseStateError::UnknownForm { form: form_id });
+    };
+    match form.phase() {
+        MaterialPhase::Solid => {
+            for component in composition.components() {
+                let material = component.material();
+                let Some(definition) = materials.get_material(material) else {
+                    return Err(MaterialPhaseStateError::UnknownMaterial { material });
+                };
+                if let Some(melting_point) = definition.properties().thermal().melting_point()
+                    && temperature > melting_point
+                {
+                    return Err(MaterialPhaseStateError::SolidAboveMeltingPoint {
+                        material,
+                        temperature,
+                        melting_point,
+                    });
+                }
+            }
+            Ok(())
+        }
+        MaterialPhase::Liquid => {
+            let Some(material) = composition.pure_material() else {
+                return Err(MaterialPhaseStateError::LiquidRequiresPureComposition);
+            };
+            if commodity.material() != material {
+                return Err(MaterialPhaseStateError::LiquidHostMismatch {
+                    host: commodity.material(),
+                    pure: material,
+                });
+            }
+            let Some(definition) = materials.get_material(material) else {
+                return Err(MaterialPhaseStateError::UnknownMaterial { material });
+            };
+            let Some(fusion) = definition.properties().thermal().fusion() else {
+                return Err(
+                    MaterialPhaseStateError::LiquidMaterialHasNoFusionProperties { material },
+                );
+            };
+            if temperature < fusion.melting_point() {
+                return Err(MaterialPhaseStateError::LiquidBelowMeltingPoint {
+                    material,
+                    temperature,
+                    melting_point: fusion.melting_point(),
+                });
+            }
+            Ok(())
+        }
+    }
+}
+
 /// Immutable authored physical-form definition.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FormDefinition {
     id: FormId,
     name: String,
+    phase: MaterialPhase,
 }
 
 impl FormDefinition {
     /// Builds an immutable material-form definition for registry insertion.
     #[must_use]
-    pub fn new(id: FormId, name: impl Into<String>) -> Self {
+    pub fn new(id: FormId, name: impl Into<String>, phase: MaterialPhase) -> Self {
         assert!(id.value() != 0, "material form id must be nonzero");
         let name = name.into();
         assert!(
             !name.trim().is_empty(),
             "material form name must not be empty"
         );
-        Self { id, name }
+        Self { id, name, phase }
     }
 
     #[must_use]
@@ -799,6 +1012,11 @@ impl FormDefinition {
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    #[must_use]
+    pub const fn phase(&self) -> MaterialPhase {
+        self.phase
     }
 }
 
@@ -885,7 +1103,7 @@ mod tests {
 
         assert!(!registry.has_commodity(CommodityKey::new(material, form)));
 
-        registry.register_form(FormDefinition::new(form, "test form"));
+        registry.register_form(FormDefinition::new(form, "test form", MaterialPhase::Solid));
         assert!(registry.has_commodity(CommodityKey::new(material, form)));
     }
 

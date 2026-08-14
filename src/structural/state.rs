@@ -9,7 +9,10 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::core::quantity::{Acceleration, AggregateMass, Area, Force, Length, Mass};
 use crate::core::time::SimulationTick;
 use crate::inventory::ConsumedMaterialTrace;
-use crate::material::{MaterialId, MaterialRegistry};
+use crate::material::{
+    MaterialId, MaterialPhase, MaterialPhaseStateError, MaterialRegistry,
+    validate_material_phase_state,
+};
 use crate::spatial::VoxelBounds;
 
 use super::definitions::{StructuralProfileId, StructuralRegistry};
@@ -380,6 +383,15 @@ pub enum StructureValidationError {
     UnknownEmbodiedCommodity {
         element: StructuralElementId,
     },
+    UnsupportedEmbodiedPhase {
+        element: StructuralElementId,
+        form: crate::material::FormId,
+        phase: MaterialPhase,
+    },
+    InvalidEmbodiedPhaseState {
+        element: StructuralElementId,
+        error: MaterialPhaseStateError,
+    },
     UnknownEmbodiedCompositionMaterial {
         element: StructuralElementId,
         material: MaterialId,
@@ -548,6 +560,21 @@ impl Display for StructureValidationError {
                 "structural element {} owns an unknown material/form commodity",
                 element.value()
             ),
+            Self::UnsupportedEmbodiedPhase {
+                element,
+                form,
+                phase,
+            } => write!(
+                formatter,
+                "structural element {} owns {phase:?} material form {}; structural embodiment must be solid",
+                element.value(),
+                form.value()
+            ),
+            Self::InvalidEmbodiedPhaseState { element, error } => write!(
+                formatter,
+                "structural element {} has invalid embodied material phase state: {error}",
+                element.value()
+            ),
             Self::UnknownEmbodiedCompositionMaterial { element, material } => write!(
                 formatter,
                 "structural element {} embodied composition references unknown material {}",
@@ -664,6 +691,7 @@ impl Error for StructureValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Geometry { error, .. } => Some(error),
+            Self::InvalidEmbodiedPhaseState { error, .. } => Some(error),
             _ => None,
         }
     }
@@ -733,6 +761,33 @@ pub(crate) fn validate_loaded_structure(
                     element: record.id,
                 });
             }
+            let form = match materials.get_form(commodity.form()) {
+                Some(form) => form,
+                None => {
+                    return Err(StructureValidationError::UnknownEmbodiedCommodity {
+                        element: record.id,
+                    });
+                }
+            };
+            if form.phase() != MaterialPhase::Solid {
+                return Err(StructureValidationError::UnsupportedEmbodiedPhase {
+                    element: record.id,
+                    form: commodity.form(),
+                    phase: form.phase(),
+                });
+            }
+            validate_material_phase_state(
+                materials,
+                commodity,
+                trace.profile().composition(),
+                trace.profile().temperature(),
+            )
+            .map_err(
+                |error| StructureValidationError::InvalidEmbodiedPhaseState {
+                    element: record.id,
+                    error,
+                },
+            )?;
             if commodity.material() != record.material() {
                 return Err(StructureValidationError::EmbodiedMaterialMismatch {
                     element: record.id,

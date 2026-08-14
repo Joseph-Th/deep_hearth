@@ -34,13 +34,14 @@ pub enum EnergyCarrier {
     Mechanical,
 }
 
-/// Immutable authored capacity and discharge envelope for one energy-store class.
+/// Immutable authored capacity and directional transfer envelopes for one energy-store class.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EnergyStoreDefinition {
     id: EnergyStoreDefinitionId,
     name: String,
     carrier: EnergyCarrier,
     capacity: Energy,
+    max_input_power: Power,
     max_output_power: Power,
 }
 
@@ -53,6 +54,22 @@ impl EnergyStoreDefinition {
         capacity: Energy,
         max_output_power: Power,
     ) -> Self {
+        Self::new_with_transfer_limits(id, name, carrier, capacity, Power::ZERO, max_output_power)
+    }
+
+    /// Builds a finite energy store with explicit independent input and output power envelopes.
+    ///
+    /// Either direction may be zero, allowing a pure source or pure sink. A store with no transfer
+    /// direction at all would be inert runtime state and is rejected.
+    #[must_use]
+    pub fn new_with_transfer_limits(
+        id: EnergyStoreDefinitionId,
+        name: impl Into<String>,
+        carrier: EnergyCarrier,
+        capacity: Energy,
+        max_input_power: Power,
+        max_output_power: Power,
+    ) -> Self {
         let name = name.into();
         assert!(
             !name.trim().is_empty(),
@@ -60,14 +77,15 @@ impl EnergyStoreDefinition {
         );
         assert!(!capacity.is_zero(), "energy store capacity must be nonzero");
         assert!(
-            !max_output_power.is_zero(),
-            "energy store output power must be nonzero"
+            !max_input_power.is_zero() || !max_output_power.is_zero(),
+            "energy store must accept input, provide output, or both"
         );
         Self {
             id,
             name,
             carrier,
             capacity,
+            max_input_power,
             max_output_power,
         }
     }
@@ -90,6 +108,11 @@ impl EnergyStoreDefinition {
     #[must_use]
     pub const fn capacity(&self) -> Energy {
         self.capacity
+    }
+
+    #[must_use]
+    pub const fn max_input_power(&self) -> Power {
+        self.max_input_power
     }
 
     #[must_use]

@@ -5,11 +5,13 @@ mod transactions;
 
 pub use state::{
     ConsumedMaterialTrace, InventoryState, InventoryValidationError, MaterialLotId,
-    MaterialLotRecord, StockpileId, StockpileRecord,
+    MaterialLotRecord, StockpileId, StockpileRecord, StockpileStorageProfile,
+    StockpileStorageProfileError,
 };
 pub use transactions::{
-    AddStockpileError, DepositError, MaterialLotSelection, TransferCommitError, TransferError,
-    ValidatedTransferBulk, add_stockpile, validate_transfer_bulk,
+    AddStockpileError, DepositError, MaterialLotSelection, StockpileStorageError,
+    TransferCommitError, TransferError, ValidatedTransferBulk, add_stockpile,
+    add_stockpile_with_storage_profile, validate_transfer_bulk,
 };
 
 pub(crate) use state::validate_loaded_inventory;
@@ -22,7 +24,7 @@ pub(crate) use transactions::{
     apply_material_ingress, apply_reserved_deposit, next_material_lot_id,
     validate_consumption_reservation_from_selection, validate_consumption_selection,
     validate_explicit_consumption_selection, validate_material_batch_ingress,
-    validate_material_egress_from_selection, validate_material_ingress,
+    validate_material_egress_from_selection, validate_material_ingress, validate_stockpile_storage,
 };
 
 #[cfg(test)]

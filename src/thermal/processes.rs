@@ -19,15 +19,24 @@ use crate::equipment::{
     EquipmentId, EquipmentProviderError, resolve_equipment_capability, resolve_equipment_provider,
 };
 use crate::inventory::{MaterialLotSelection, StockpileId};
-use crate::maintenance::{CONDITION_PARTS_PER_MILLION, Condition, decide_wear};
-use crate::material::{MaterialLotSpec, MaterialLotSpecError};
+use crate::maintenance::Condition;
+use crate::material::{MaterialLotSpec, MaterialLotSpecError, MaterialPhase, MaterialRegistry};
 use crate::production::{
-    ProcessId, ProcessInputError, ProcessResolution, ProcessResolutionError, ProductionJobId,
-    ProductionJobRecord, ProductionRegistry, validate_selected_process_inputs,
+    ProcessId, ProcessInputError, ProcessInputPolicy, ProcessResolution, ProcessResolutionError,
+    ProductionJobId, ProductionJobRecord, ProductionRegistry, validate_selected_process_inputs,
 };
 use crate::registry::Registries;
 
-use super::{HeatDirection, SensibleHeatError, calculate_sensible_heat};
+use super::casting_execution::{
+    CastingJobValidationError, CastingProcessDefinition, validate_loaded_casting_job,
+};
+use super::melting_execution::{
+    MeltingJobValidationError, MeltingProcessDefinition, validate_loaded_melting_job,
+};
+use super::{
+    HeatDirection, PhaseSensibleHeatError, calculate_phase_sensible_heat,
+    condition_after_active_ticks,
+};
 
 /// Immutable declaration that one process is resolved as ideal sensible heating.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,29 +101,22 @@ impl SensibleHeatingProcessDefinition {
     }
 }
 
-fn condition_after_active_ticks(
-    definition: SensibleHeatingProcessDefinition,
-    before: Condition,
-    duration: TickSpan,
-) -> Condition {
-    let total_wear =
-        u128::from(definition.condition_wear_ppm_per_active_tick()) * u128::from(duration.value());
-    let bounded_wear = std::cmp::min(total_wear, u128::from(CONDITION_PARTS_PER_MILLION)) as u32;
-    decide_wear(before, bounded_wear).after()
-}
-
 /// Immutable lookup table for process-specific thermal resolution semantics.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ThermalRegistry {
     sensible_heating: BTreeMap<ProcessId, SensibleHeatingProcessDefinition>,
+    melting: BTreeMap<ProcessId, MeltingProcessDefinition>,
+    casting: BTreeMap<ProcessId, CastingProcessDefinition>,
 }
 
 impl ThermalRegistry {
     pub(crate) fn new(
-        definitions: impl IntoIterator<Item = SensibleHeatingProcessDefinition>,
+        sensible_heating_definitions: impl IntoIterator<Item = SensibleHeatingProcessDefinition>,
+        melting_definitions: impl IntoIterator<Item = MeltingProcessDefinition>,
+        casting_definitions: impl IntoIterator<Item = CastingProcessDefinition>,
     ) -> Self {
         let mut sensible_heating = BTreeMap::new();
-        for definition in definitions {
+        for definition in sensible_heating_definitions {
             let process = definition.process();
             assert!(
                 sensible_heating.insert(process, definition).is_none(),
@@ -122,7 +124,39 @@ impl ThermalRegistry {
                 process.value()
             );
         }
-        Self { sensible_heating }
+        let mut melting = BTreeMap::new();
+        for definition in melting_definitions {
+            let process = definition.process();
+            assert!(
+                !sensible_heating.contains_key(&process),
+                "thermal process {} cannot be registered as both sensible heating and melting",
+                process.value()
+            );
+            assert!(
+                melting.insert(process, definition).is_none(),
+                "duplicate melting definition for process {}",
+                process.value()
+            );
+        }
+        let mut casting = BTreeMap::new();
+        for definition in casting_definitions {
+            let process = definition.process();
+            assert!(
+                !sensible_heating.contains_key(&process) && !melting.contains_key(&process),
+                "thermal process {} cannot be registered under multiple thermal resolvers",
+                process.value()
+            );
+            assert!(
+                casting.insert(process, definition).is_none(),
+                "duplicate casting definition for process {}",
+                process.value()
+            );
+        }
+        Self {
+            sensible_heating,
+            melting,
+            casting,
+        }
     }
 
     #[must_use]
@@ -133,63 +167,148 @@ impl ThermalRegistry {
         self.sensible_heating.get(&process).copied()
     }
 
+    #[must_use]
+    pub fn get_melting(&self, process: ProcessId) -> Option<MeltingProcessDefinition> {
+        self.melting.get(&process).copied()
+    }
+
+    #[must_use]
+    pub fn get_casting(&self, process: ProcessId) -> Option<CastingProcessDefinition> {
+        self.casting.get(&process).copied()
+    }
+
     pub(crate) fn validate_references(
         &self,
         production: &ProductionRegistry,
         capabilities: &CapabilityRegistry,
+        materials: &MaterialRegistry,
     ) {
         for definition in self.sensible_heating.values().copied() {
-            assert!(
-                production.get_process(definition.process()).is_some(),
-                "thermal definition references missing process {}",
-                definition.process().value()
+            validate_common_thermal_references(
+                definition.process(),
+                definition.heating_power_capability(),
+                definition.max_temperature_capability(),
+                definition.max_batch_mass_capability(),
+                production,
+                capabilities,
             );
-            let power = match capabilities.get_capability(definition.heating_power_capability()) {
-                Some(capability) => capability,
-                None => panic!(
-                    "thermal process {} references missing heating-power capability {}",
+        }
+        for definition in self.casting.values().copied() {
+            validate_common_thermal_references(
+                definition.process(),
+                definition.cooling_power_capability(),
+                definition.max_temperature_capability(),
+                definition.max_batch_mass_capability(),
+                production,
+                capabilities,
+            );
+            let Some(form) = materials.get_form(definition.solid_form()) else {
+                panic!(
+                    "casting process {} references missing output form {}",
                     definition.process().value(),
-                    definition.heating_power_capability().value()
-                ),
+                    definition.solid_form().value()
+                );
             };
             assert_eq!(
-                power.kind(),
-                CapabilityValueKind::Power,
-                "thermal process {} heating-power capability must be Power",
-                definition.process().value()
+                form.phase(),
+                MaterialPhase::Solid,
+                "casting process {} output form {} must be solid",
+                definition.process().value(),
+                definition.solid_form().value()
             );
-            let maximum = match capabilities.get_capability(definition.max_temperature_capability())
-            {
-                Some(capability) => capability,
-                None => panic!(
-                    "thermal process {} references missing maximum-temperature capability {}",
+        }
+        for definition in self.melting.values().copied() {
+            validate_common_thermal_references(
+                definition.process(),
+                definition.heating_power_capability(),
+                definition.max_temperature_capability(),
+                definition.max_batch_mass_capability(),
+                production,
+                capabilities,
+            );
+            let Some(form) = materials.get_form(definition.liquid_form()) else {
+                panic!(
+                    "melting process {} references missing output form {}",
                     definition.process().value(),
-                    definition.max_temperature_capability().value()
-                ),
+                    definition.liquid_form().value()
+                );
             };
             assert_eq!(
-                maximum.kind(),
-                CapabilityValueKind::Temperature,
-                "thermal process {} maximum-temperature capability must be Temperature",
-                definition.process().value()
-            );
-            let maximum_batch =
-                match capabilities.get_capability(definition.max_batch_mass_capability()) {
-                    Some(capability) => capability,
-                    None => panic!(
-                        "thermal process {} references missing maximum-batch-mass capability {}",
-                        definition.process().value(),
-                        definition.max_batch_mass_capability().value()
-                    ),
-                };
-            assert_eq!(
-                maximum_batch.kind(),
-                CapabilityValueKind::Mass,
-                "thermal process {} maximum-batch-mass capability must be Mass",
-                definition.process().value()
+                form.phase(),
+                MaterialPhase::Liquid,
+                "melting process {} output form {} must be liquid",
+                definition.process().value(),
+                definition.liquid_form().value()
             );
         }
     }
+}
+
+fn validate_common_thermal_references(
+    process: ProcessId,
+    thermal_power_capability: CapabilityId,
+    max_temperature_capability: CapabilityId,
+    max_batch_mass_capability: CapabilityId,
+    production: &ProductionRegistry,
+    capabilities: &CapabilityRegistry,
+) {
+    let process_definition = match production.get_process(process) {
+        Some(definition) => definition,
+        None => panic!(
+            "thermal definition references missing process {}",
+            process.value()
+        ),
+    };
+    assert!(
+        matches!(
+            process_definition.input_policy(),
+            ProcessInputPolicy::SelectedBatch
+        ),
+        "thermal process {} must use selected-batch input policy",
+        process.value()
+    );
+    let power = match capabilities.get_capability(thermal_power_capability) {
+        Some(capability) => capability,
+        None => panic!(
+            "thermal process {} references missing thermal-transfer-power capability {}",
+            process.value(),
+            thermal_power_capability.value()
+        ),
+    };
+    assert_eq!(
+        power.kind(),
+        CapabilityValueKind::Power,
+        "thermal process {} thermal-transfer-power capability must be Power",
+        process.value()
+    );
+    let maximum = match capabilities.get_capability(max_temperature_capability) {
+        Some(capability) => capability,
+        None => panic!(
+            "thermal process {} references missing maximum-temperature capability {}",
+            process.value(),
+            max_temperature_capability.value()
+        ),
+    };
+    assert_eq!(
+        maximum.kind(),
+        CapabilityValueKind::Temperature,
+        "thermal process {} maximum-temperature capability must be Temperature",
+        process.value()
+    );
+    let maximum_batch = match capabilities.get_capability(max_batch_mass_capability) {
+        Some(capability) => capability,
+        None => panic!(
+            "thermal process {} references missing maximum-batch-mass capability {}",
+            process.value(),
+            max_batch_mass_capability.value()
+        ),
+    };
+    assert_eq!(
+        maximum_batch.kind(),
+        CapabilityValueKind::Mass,
+        "thermal process {} maximum-batch-mass capability must be Mass",
+        process.value()
+    );
 }
 
 /// Observable physically resolved sensible-heating operation before production start.
@@ -291,7 +410,7 @@ pub enum SensibleHeatingResolutionError {
         current: Temperature,
         target: Temperature,
     },
-    Heat(SensibleHeatError),
+    Heat(PhaseSensibleHeatError),
     RequiredEnergyOverflow,
     NoHeatingRequired,
     Energy(EnergySupplyError),
@@ -486,9 +605,10 @@ pub fn resolve_sensible_heating_process(
                 },
             );
         }
-        let heat = calculate_sensible_heat(
+        let heat = calculate_phase_sensible_heat(
             registries.materials(),
             trace.mass(),
+            profile.commodity(),
             profile.composition(),
             profile.temperature(),
             target,
@@ -528,8 +648,11 @@ pub fn resolve_sensible_heating_process(
         registries.core().ticks_per_second(),
     )
     .map_err(SensibleHeatingResolutionError::Duration)?;
-    let equipment_condition_after =
-        condition_after_active_ticks(definition, provider.condition(), duration);
+    let equipment_condition_after = condition_after_active_ticks(
+        definition.condition_wear_ppm_per_active_tick(),
+        provider.condition(),
+        duration,
+    );
 
     let mut outputs = Vec::with_capacity(output_masses.len());
     for ((commodity, composition), mass) in output_masses {
@@ -558,6 +681,8 @@ pub fn resolve_sensible_heating_process(
 /// Invalid persisted operation-specific thermal semantics discovered during exhaustive load audit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThermalJobValidationError {
+    Casting(CastingJobValidationError),
+    Melting(MeltingJobValidationError),
     MissingEquipmentProvider {
         job: ProductionJobId,
     },
@@ -586,6 +711,11 @@ pub enum ThermalJobValidationError {
     MissingEnergy {
         job: ProductionJobId,
     },
+    WrongEnergyCarrier {
+        job: ProductionJobId,
+        required: EnergyCarrier,
+        provided: EnergyCarrier,
+    },
     MixedOutputTemperatures {
         job: ProductionJobId,
     },
@@ -596,7 +726,7 @@ pub enum ThermalJobValidationError {
     },
     Heat {
         job: ProductionJobId,
-        error: SensibleHeatError,
+        error: PhaseSensibleHeatError,
     },
     RequiredEnergyOverflow {
         job: ProductionJobId,
@@ -635,6 +765,8 @@ pub enum ThermalJobValidationError {
 impl Display for ThermalJobValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Casting(error) => write!(formatter, "invalid casting job: {error}"),
+            Self::Melting(error) => write!(formatter, "invalid melting job: {error}"),
             Self::MissingEquipmentProvider { job } => write!(
                 formatter,
                 "sensible-heating job {} has no equipment provider trace",
@@ -685,6 +817,15 @@ impl Display for ThermalJobValidationError {
             Self::MissingEnergy { job } => write!(
                 formatter,
                 "sensible-heating job {} has no consumed energy trace",
+                job.value()
+            ),
+            Self::WrongEnergyCarrier {
+                job,
+                required,
+                provided,
+            } => write!(
+                formatter,
+                "sensible-heating job {} requires {required:?} energy but traces {provided:?}",
                 job.value()
             ),
             Self::MixedOutputTemperatures { job } => write!(
@@ -773,6 +914,8 @@ impl Display for ThermalJobValidationError {
 impl Error for ThermalJobValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Casting(error) => Some(error),
+            Self::Melting(error) => Some(error),
             Self::Heat { error, .. } => Some(error),
             Self::OutputConstruction { error, .. } => Some(error),
             Self::Duration { error, .. } => Some(error),
@@ -784,6 +927,7 @@ impl Error for ThermalJobValidationError {
             | Self::TargetExceedsEquipmentMaximum { .. }
             | Self::BatchMassExceedsEquipmentCapacity { .. }
             | Self::MissingEnergy { .. }
+            | Self::WrongEnergyCarrier { .. }
             | Self::MixedOutputTemperatures { .. }
             | Self::TargetBelowInputTemperature { .. }
             | Self::RequiredEnergyOverflow { .. }
@@ -796,13 +940,22 @@ impl Error for ThermalJobValidationError {
     }
 }
 
-/// Recomputes the physical contract of an in-flight sensible-heating job from persisted input
-/// traces. This prevents save tampering from changing either the consumed energy magnitude or the
-/// committed heated outputs while retaining a superficially valid generic production record.
+/// Recomputes the physical contract of an in-flight thermal job from persisted input traces.
+///
+/// Operation-specific validators use the same pure physical derivation used during runtime
+/// resolution so save tampering cannot silently alter required energy, duration, wear, or output.
 pub(crate) fn validate_loaded_thermal_job(
     registries: &Registries,
     job: &ProductionJobRecord,
 ) -> Result<(), ThermalJobValidationError> {
+    if let Some(definition) = registries.thermal().get_casting(job.process()) {
+        return validate_loaded_casting_job(registries, job, definition)
+            .map_err(ThermalJobValidationError::Casting);
+    }
+    if let Some(definition) = registries.thermal().get_melting(job.process()) {
+        return validate_loaded_melting_job(registries, job, definition)
+            .map_err(ThermalJobValidationError::Melting);
+    }
     if registries
         .thermal()
         .get_sensible_heating(job.process())
@@ -828,6 +981,13 @@ pub(crate) fn validate_loaded_thermal_job(
         Some(definition) => definition,
         None => return Ok(()),
     };
+    if consumed_energy.carrier() != thermal_definition.energy_carrier() {
+        return Err(ThermalJobValidationError::WrongEnergyCarrier {
+            job: job.id(),
+            required: thermal_definition.energy_carrier(),
+            provided: consumed_energy.carrier(),
+        });
+    }
     let Some(first_output) = job.outputs().first() else {
         return Err(ThermalJobValidationError::OutputMismatch { job: job.id() });
     };
@@ -901,9 +1061,10 @@ pub(crate) fn validate_loaded_thermal_job(
                 target,
             });
         }
-        let heat = calculate_sensible_heat(
+        let heat = calculate_phase_sensible_heat(
             registries.materials(),
             trace.mass(),
+            profile.commodity(),
             profile.composition(),
             profile.temperature(),
             target,
@@ -949,8 +1110,11 @@ pub(crate) fn validate_loaded_thermal_job(
             required: required_duration,
         });
     }
-    let required_condition_after =
-        condition_after_active_ticks(thermal_definition, provider.condition(), required_duration);
+    let required_condition_after = condition_after_active_ticks(
+        thermal_definition.condition_wear_ppm_per_active_tick(),
+        provider.condition(),
+        required_duration,
+    );
     let Some(stored_condition_after) = job.equipment_condition_after() else {
         return Err(ThermalJobValidationError::MissingEquipmentConditionOutcome { job: job.id() });
     };
@@ -989,8 +1153,8 @@ mod tests {
     use super::*;
     use crate::capability::{CapabilityDefinition, CapabilityProfile, CapabilityValue};
     use crate::content::{
-        FORM_LOG, FORM_ORE, MATERIAL_COPPER, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-        make_test_registries_with_sensible_heating,
+        FORM_LOG, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, MATERIAL_WOOD,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION, make_test_registries_with_sensible_heating,
     };
     use crate::core::quantity::{Area, Force, Mass, Power};
     use crate::core::state::validate_loaded_state;
@@ -1005,7 +1169,10 @@ mod tests {
         EquipmentSupportCommitError, add_equipment, apply_equipment_condition_plan,
         decide_equipment_wear, validate_mount_equipment,
     };
-    use crate::inventory::{add_stockpile, deposit_lot_for_test};
+    use crate::inventory::{
+        StockpileStorageProfile, add_stockpile, add_stockpile_with_storage_profile,
+        deposit_lot_for_test,
+    };
     use crate::maintenance::{Condition, MaintenanceThresholds};
     use crate::material::{CommodityKey, MaterialComposition};
     use crate::matter::calculate_matter_accounting;
@@ -1033,6 +1200,152 @@ mod tests {
             Ok(condition) => condition,
             Err(error) => panic!("thermal test condition fixture failed: {error}"),
         }
+    }
+
+    #[test]
+    fn sensible_heating_can_superheat_liquid_without_reapplying_fusion_energy() {
+        let registries = make_registries_with_max_temperature(
+            EnergyCarrier::Electrical,
+            Temperature::from_millikelvin(1_500_000),
+        );
+        let mut state = AppState::new(WorldSeed::new(0x9200_0101));
+        let liquid_profile = match StockpileStorageProfile::new(
+            false,
+            true,
+            Temperature::from_millikelvin(1_500_000),
+        ) {
+            Ok(profile) => profile,
+            Err(error) => panic!("liquid heating storage profile failed: {error}"),
+        };
+        let source = match add_stockpile_with_storage_profile(
+            &mut state,
+            Mass::from_milligrams(100),
+            liquid_profile,
+        ) {
+            Ok(source) => source,
+            Err(error) => panic!("liquid heating source failed: {error}"),
+        };
+        let destination = match add_stockpile_with_storage_profile(
+            &mut state,
+            Mass::from_milligrams(100),
+            liquid_profile,
+        ) {
+            Ok(destination) => destination,
+            Err(error) => panic!("liquid heating destination failed: {error}"),
+        };
+        let melting_point = Temperature::from_millikelvin(1_357_770);
+        let target = Temperature::from_millikelvin(1_400_000);
+        let lot = match deposit_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+            Mass::from_milligrams(10),
+            melting_point,
+        ) {
+            Ok(lot) => lot,
+            Err(error) => panic!("liquid heating input failed: {error}"),
+        };
+        let equipment = match add_equipment(&registries, &mut state, HEATER, Condition::PRISTINE) {
+            Ok(equipment) => equipment,
+            Err(error) => panic!("liquid heating equipment failed: {error}"),
+        };
+        let energy_store = match add_energy_store_with_initial_for_test(
+            &registries,
+            &mut state,
+            BATTERY,
+            Energy::from_nanojoules(1_000_000_000),
+        ) {
+            Ok(store) => store,
+            Err(error) => panic!("liquid heating energy store failed: {error}"),
+        };
+        let initial_energy = match calculate_explicit_energy_accounting(&registries, &state)
+            .and_then(|accounting| {
+                accounting
+                    .total()
+                    .ok_or(crate::energy::ExplicitEnergyAccountingError::Overflow)
+            }) {
+            Ok(total) => total,
+            Err(error) => panic!("liquid heating initial accounting failed: {error}"),
+        };
+        let expected_heat = match calculate_phase_sensible_heat(
+            registries.materials(),
+            Mass::from_milligrams(10),
+            CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+            &MaterialComposition::pure(MATERIAL_COPPER),
+            melting_point,
+            target,
+        ) {
+            Ok(heat) => heat.energy(),
+            Err(error) => panic!("liquid heating expected heat failed: {error}"),
+        };
+
+        let resolved = match resolve_sensible_heating_process(
+            &registries,
+            &state,
+            SensibleHeatingRequest::new(
+                PROCESS,
+                source,
+                &[MaterialLotSelection::new(lot, Mass::from_milligrams(10))],
+                equipment,
+                energy_store,
+                target,
+            ),
+        ) {
+            Ok(resolved) => resolved,
+            Err(error) => panic!("liquid sensible-heating resolution failed: {error}"),
+        };
+        assert_eq!(resolved.required_energy(), expected_heat);
+        assert_eq!(
+            resolved.process_resolution().outputs()[0].commodity(),
+            CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN)
+        );
+        let duration = resolved.process_resolution().duration();
+        let token = match validate_start_process(
+            &registries,
+            &state,
+            resolved.process_resolution(),
+            source,
+            destination,
+        ) {
+            Ok(token) => token,
+            Err(error) => panic!("liquid heating start validation failed: {error}"),
+        };
+        if let Err(error) = token.commit(&mut state) {
+            panic!("liquid heating start commit failed: {error}");
+        }
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        assert_eq!(
+            calculate_explicit_energy_accounting(&registries, &state)
+                .ok()
+                .and_then(|accounting| accounting.total()),
+            Some(initial_energy)
+        );
+
+        for _ in 0..duration.value() {
+            if let Err(error) = advance_tick(&registries, &mut state) {
+                panic!("liquid heating completion failed: {error}");
+            }
+        }
+        let output = match state
+            .inventory()
+            .lots()
+            .find(|candidate| candidate.stockpile() == destination)
+        {
+            Some(output) => output,
+            None => panic!("liquid heating output missing"),
+        };
+        assert_eq!(
+            output.commodity(),
+            CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN)
+        );
+        assert_eq!(output.temperature(), target);
+        assert_eq!(
+            calculate_explicit_energy_accounting(&registries, &state)
+                .ok()
+                .and_then(|accounting| accounting.total()),
+            Some(initial_energy)
+        );
     }
 
     fn make_registries_with_max_temperature(
@@ -1311,9 +1624,10 @@ mod tests {
                 Err(error) => panic!("initial explicit energy accounting failed: {error}"),
             };
         let target = Temperature::from_millikelvin(303_000);
-        let expected_heat = match calculate_sensible_heat(
+        let expected_heat = match calculate_phase_sensible_heat(
             registries.materials(),
             Mass::from_milligrams(10),
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
             &MaterialComposition::pure(MATERIAL_WOOD),
             Temperature::from_millikelvin(300_000),
             target,
@@ -1860,7 +2174,9 @@ mod tests {
                 ),
             ),
             Err(SensibleHeatingResolutionError::Heat(
-                SensibleHeatError::PhaseBoundaryCrossed { .. }
+                PhaseSensibleHeatError::InvalidTargetState(
+                    crate::material::MaterialPhaseStateError::SolidAboveMeltingPoint { .. }
+                )
             ))
         ));
         assert_eq!(state, before);

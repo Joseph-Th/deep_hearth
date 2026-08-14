@@ -6,11 +6,12 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::{
-    MaterialIngressError, MaterialLotId, StockpileId, ValidatedMaterialIngress,
-    apply_material_ingress, validate_material_ingress,
+    MaterialIngressError, MaterialLotId, StockpileId, StockpileStorageError,
+    ValidatedMaterialIngress, apply_material_ingress, validate_material_ingress,
 };
 use crate::material::{
-    CompositionError, FormId, MaterialId, MaterialLotSpec, MaterialLotSpecError,
+    CompositionError, FormId, MaterialId, MaterialLotSpec, MaterialLotSpecError, MaterialPhase,
+    MaterialPhaseStateError, validate_material_phase_state,
 };
 use crate::registry::Registries;
 
@@ -23,6 +24,8 @@ use super::state::{
 pub enum InsertGeneratedDepositError {
     UnknownMaterial { material: MaterialId },
     UnknownForm { form: FormId },
+    UnsupportedPhase { form: FormId, phase: MaterialPhase },
+    InvalidPhaseState(MaterialPhaseStateError),
     UnknownCompositionMaterial { material: MaterialId },
     IdExhausted,
     RevisionExhausted,
@@ -41,6 +44,15 @@ impl Display for InsertGeneratedDepositError {
                 "generated geological deposit references unknown form {}",
                 form.value()
             ),
+            Self::UnsupportedPhase { form, phase } => write!(
+                formatter,
+                "generated geological deposit form {} is {phase:?}; finite geological deposits must be solid",
+                form.value()
+            ),
+            Self::InvalidPhaseState(error) => write!(
+                formatter,
+                "generated geological deposit has invalid material phase state: {error}"
+            ),
             Self::UnknownCompositionMaterial { material } => write!(
                 formatter,
                 "generated geological deposit composition references unknown material {}",
@@ -54,7 +66,19 @@ impl Display for InsertGeneratedDepositError {
     }
 }
 
-impl Error for InsertGeneratedDepositError {}
+impl Error for InsertGeneratedDepositError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::InvalidPhaseState(error) => Some(error),
+            Self::UnknownMaterial { .. }
+            | Self::UnknownForm { .. }
+            | Self::UnsupportedPhase { .. }
+            | Self::UnknownCompositionMaterial { .. }
+            | Self::IdExhausted
+            | Self::RevisionExhausted => None,
+        }
+    }
+}
 
 /// Inserts matter supplied by a world-generation owner, preserving its physical profile exactly.
 ///
@@ -74,13 +98,15 @@ pub fn insert_generated_deposit(
             material: spec.commodity().material(),
         });
     }
-    if registries
-        .materials()
-        .get_form(spec.commodity().form())
-        .is_none()
-    {
+    let Some(form) = registries.materials().get_form(spec.commodity().form()) else {
         return Err(InsertGeneratedDepositError::UnknownForm {
             form: spec.commodity().form(),
+        });
+    };
+    if form.phase() != MaterialPhase::Solid {
+        return Err(InsertGeneratedDepositError::UnsupportedPhase {
+            form: spec.commodity().form(),
+            phase: form.phase(),
         });
     }
     for component in spec.composition().components() {
@@ -94,6 +120,13 @@ pub fn insert_generated_deposit(
             });
         }
     }
+    validate_material_phase_state(
+        registries.materials(),
+        spec.commodity(),
+        spec.composition(),
+        spec.temperature(),
+    )
+    .map_err(InsertGeneratedDepositError::InvalidPhaseState)?;
 
     let geology = state.geology();
     let id = GeologicalDepositId::new(geology.next_deposit_id);
@@ -185,6 +218,7 @@ pub enum GeologicalExtractionError {
     DepositCompositionMissingHost {
         host: MaterialId,
     },
+    DestinationStorage(StockpileStorageError),
     DestinationMassOverflow {
         stockpile: StockpileId,
     },
@@ -257,6 +291,10 @@ impl Display for GeologicalExtractionError {
                 "geological extraction deposit composition omits host material {}",
                 host.value()
             ),
+            Self::DestinationStorage(error) => write!(
+                formatter,
+                "geological extraction destination rejects material: {error}"
+            ),
             Self::DestinationMassOverflow { stockpile } => write!(
                 formatter,
                 "geological extraction overflows destination stockpile {} mass accounting",
@@ -293,6 +331,7 @@ impl Error for GeologicalExtractionError {
         match self {
             Self::InvalidOutput(error) => Some(error),
             Self::InvalidDepositComposition { error } => Some(error),
+            Self::DestinationStorage(error) => Some(error),
             Self::UnknownDeposit { .. }
             | Self::DepositDepleted { .. }
             | Self::ZeroMass
@@ -331,6 +370,9 @@ fn map_material_ingress_error(error: MaterialIngressError) -> GeologicalExtracti
         }
         MaterialIngressError::CompositionMissingHost { host } => {
             GeologicalExtractionError::DepositCompositionMissingHost { host }
+        }
+        MaterialIngressError::Storage(error) => {
+            GeologicalExtractionError::DestinationStorage(error)
         }
         MaterialIngressError::MassOverflow { stockpile } => {
             GeologicalExtractionError::DestinationMassOverflow { stockpile }
@@ -536,13 +578,15 @@ pub fn validate_geological_extraction(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::{FORM_ORE, MATERIAL_COPPER, build_registries};
+    use crate::content::{FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, build_registries};
     use crate::core::quantity::{AggregateMass, Energy, Temperature};
     use crate::core::state::validate_loaded_state;
     use crate::core::time::WorldSeed;
     use crate::energy::calculate_explicit_energy_accounting;
     use crate::inventory::add_stockpile;
-    use crate::material::{CommodityKey, CompositionComponent, MaterialComposition, MaterialId};
+    use crate::material::{
+        CommodityKey, CompositionComponent, MaterialComposition, MaterialId, MaterialPhase,
+    };
     use crate::matter::calculate_matter_accounting;
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
     use crate::simulation::advance_tick;
@@ -553,6 +597,32 @@ mod tests {
             Ok(bounds) => bounds,
             Err(error) => panic!("geological extraction bounds fixture failed: {error}"),
         }
+    }
+
+    #[test]
+    fn generated_geological_owner_rejects_liquid_material_form_without_mutation() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x6E00_0011));
+        let spec = match GeneratedDepositSpec::new(
+            bounds(0),
+            CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+            Mass::from_milligrams(100),
+            Temperature::from_millikelvin(1_357_770),
+            MaterialComposition::pure(MATERIAL_COPPER),
+        ) {
+            Ok(spec) => spec,
+            Err(error) => panic!("liquid geology specification fixture failed: {error}"),
+        };
+        let before = state.clone();
+
+        assert_eq!(
+            insert_generated_deposit(&registries, &mut state, spec),
+            Err(InsertGeneratedDepositError::UnsupportedPhase {
+                form: FORM_MOLTEN,
+                phase: MaterialPhase::Liquid,
+            })
+        );
+        assert_eq!(state, before);
     }
 
     fn deposit_spec(x: i64, mass: u64) -> GeneratedDepositSpec {

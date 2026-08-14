@@ -18,7 +18,7 @@ use crate::inventory::{
     ExplicitConsumptionSelectionError, MaterialLotSelection,
     validate_explicit_consumption_selection,
 };
-use crate::material::{MaterialComposition, MaterialId};
+use crate::material::{FormId, MaterialComposition, MaterialId, MaterialPhase};
 use crate::registry::Registries;
 
 use super::geometry::{
@@ -199,6 +199,15 @@ pub enum StructuralConstructionError {
         element: StructuralElementId,
         material: MaterialId,
     },
+    UnknownMaterialForm {
+        element: StructuralElementId,
+        form: FormId,
+    },
+    UnsupportedPhase {
+        element: StructuralElementId,
+        form: FormId,
+        phase: MaterialPhase,
+    },
     Geometry {
         element: StructuralElementId,
         error: StructuralGeometryError,
@@ -229,6 +238,12 @@ impl Display for StructuralConstructionError {
                 formatter,
                 "structural element {} is {lifecycle:?} and cannot receive construction matter",
                 element.value()
+            ),
+            Self::UnknownMaterialForm { element, form } => write!(
+                formatter,
+                "structural element {} construction batch references unknown material form {}",
+                element.value(),
+                form.value()
             ),
             Self::Geometry { element, error } => write!(
                 formatter,
@@ -267,6 +282,16 @@ impl Display for StructuralConstructionError {
                 "structural element {} currently requires pure material {} because mixed-composition strength is not yet modeled",
                 element.value(),
                 material.value()
+            ),
+            Self::UnsupportedPhase {
+                element,
+                form,
+                phase,
+            } => write!(
+                formatter,
+                "structural element {} cannot embody {phase:?} material form {}; construction requires solid matter",
+                element.value(),
+                form.value()
             ),
             Self::InventorySelectionStale { expected, actual } => write!(
                 formatter,
@@ -418,6 +443,20 @@ pub fn validate_structural_construction(
         return Err(StructuralConstructionError::AlreadyMaterialized { element });
     }
     for trace in resolution.selection.consumed_inputs() {
+        let form_id = trace.profile().commodity().form();
+        let Some(form) = registries.materials().get_form(form_id) else {
+            return Err(StructuralConstructionError::UnknownMaterialForm {
+                element,
+                form: form_id,
+            });
+        };
+        if form.phase() != MaterialPhase::Solid {
+            return Err(StructuralConstructionError::UnsupportedPhase {
+                element,
+                form: form_id,
+                phase: form.phase(),
+            });
+        }
         let found = trace.profile().commodity().material();
         if found != record.material() {
             return Err(StructuralConstructionError::MaterialMismatch {
@@ -536,14 +575,17 @@ pub(crate) fn materialize_structural_element_for_test(
 mod tests {
     use super::*;
     use crate::content::{
-        FORM_LOG, MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_WOOD,
+        FORM_LOG, FORM_MOLTEN, MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_WOOD,
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
     };
     use crate::core::quantity::{Area, Energy, Length};
     use crate::core::state::validate_loaded_state;
     use crate::core::time::WorldSeed;
     use crate::energy::{ExplicitEnergyAccountingError, calculate_explicit_energy_accounting};
-    use crate::inventory::{add_stockpile, deposit_composed_lot_for_test, deposit_lot_for_test};
+    use crate::inventory::{
+        StockpileStorageProfile, add_stockpile, add_stockpile_with_storage_profile,
+        deposit_composed_lot_for_test, deposit_lot_for_test,
+    };
     use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
     use crate::matter::calculate_matter_accounting;
     use crate::simulation::advance_tick;
@@ -559,6 +601,83 @@ mod tests {
         let denominator = 1_000_u128 * 650_u128;
         let micrometers = numerator / denominator + 1;
         Length::from_micrometers(micrometers as u64)
+    }
+
+    #[test]
+    fn liquid_material_cannot_become_structural_embodiment() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5C00_0012));
+        let bounds = match VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(1, 1, 1)) {
+            Ok(bounds) => bounds,
+            Err(error) => panic!("liquid construction bounds failed: {error}"),
+        };
+        let element = match add_structural_element(
+            &registries,
+            &mut state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_COPPER,
+            crate::structural::make_test_structural_geometry(
+                bounds,
+                Length::from_micrometers(1),
+                Area::from_square_millimeters(1_000),
+            ),
+            true,
+        ) {
+            Ok(element) => element,
+            Err(error) => panic!("liquid construction member failed: {error}"),
+        };
+        let requirement =
+            match resolve_structural_material_requirement(&registries, &state, element) {
+                Ok(requirement) => requirement,
+                Err(error) => panic!("liquid construction requirement failed: {error}"),
+            };
+        let vessel_profile = match StockpileStorageProfile::new(
+            false,
+            true,
+            crate::core::quantity::Temperature::from_millikelvin(1_500_000),
+        ) {
+            Ok(profile) => profile,
+            Err(error) => panic!("liquid construction vessel profile failed: {error}"),
+        };
+        let source = match add_stockpile_with_storage_profile(
+            &mut state,
+            requirement.required_mass(),
+            vessel_profile,
+        ) {
+            Ok(source) => source,
+            Err(error) => panic!("liquid construction source failed: {error}"),
+        };
+        let lot = match deposit_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+            requirement.required_mass(),
+            crate::core::quantity::Temperature::from_millikelvin(1_357_770),
+        ) {
+            Ok(lot) => lot,
+            Err(error) => panic!("liquid construction lot failed: {error}"),
+        };
+        let resolution = match bind_structural_construction_selection(
+            &state,
+            element,
+            source,
+            &[MaterialLotSelection::new(lot, requirement.required_mass())],
+        ) {
+            Ok(resolution) => resolution,
+            Err(error) => panic!("liquid construction binding failed: {error:?}"),
+        };
+        let before = state.clone();
+
+        assert_eq!(
+            validate_structural_construction(&registries, &state, &resolution),
+            Err(StructuralConstructionError::UnsupportedPhase {
+                element,
+                form: FORM_MOLTEN,
+                phase: MaterialPhase::Liquid,
+            })
+        );
+        assert_eq!(state, before);
     }
 
     fn member(

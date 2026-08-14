@@ -2,8 +2,8 @@
 
 use crate::core::quantity::Temperature;
 use crate::material::{
-    ElectricalProperties, FormDefinition, FormId, MaterialDefinition, MaterialId,
-    MaterialProperties, MaterialRegistry, MechanicalProperties, ThermalProperties,
+    ElectricalProperties, FormDefinition, FormId, FusionProperties, MaterialDefinition, MaterialId,
+    MaterialPhase, MaterialProperties, MaterialRegistry, MechanicalProperties, ThermalProperties,
 };
 
 pub const MATERIAL_WOOD: MaterialId = MaterialId::new(1);
@@ -16,15 +16,29 @@ pub const FORM_LUMP: FormId = FormId::new(2);
 pub const FORM_ORE: FormId = FormId::new(3);
 pub const FORM_CONCENTRATE: FormId = FormId::new(4);
 pub const FORM_INGOT: FormId = FormId::new(5);
+pub const FORM_MOLTEN: FormId = FormId::new(6);
 
 pub(crate) fn build_material_registry() -> MaterialRegistry {
     let mut registry = MaterialRegistry::new();
 
-    registry.register_form(FormDefinition::new(FORM_LOG, "log"));
-    registry.register_form(FormDefinition::new(FORM_LUMP, "lump"));
-    registry.register_form(FormDefinition::new(FORM_ORE, "ore"));
-    registry.register_form(FormDefinition::new(FORM_CONCENTRATE, "concentrate"));
-    registry.register_form(FormDefinition::new(FORM_INGOT, "ingot"));
+    registry.register_form(FormDefinition::new(FORM_LOG, "log", MaterialPhase::Solid));
+    registry.register_form(FormDefinition::new(FORM_LUMP, "lump", MaterialPhase::Solid));
+    registry.register_form(FormDefinition::new(FORM_ORE, "ore", MaterialPhase::Solid));
+    registry.register_form(FormDefinition::new(
+        FORM_CONCENTRATE,
+        "concentrate",
+        MaterialPhase::Solid,
+    ));
+    registry.register_form(FormDefinition::new(
+        FORM_INGOT,
+        "ingot",
+        MaterialPhase::Solid,
+    ));
+    registry.register_form(FormDefinition::new(
+        FORM_MOLTEN,
+        "molten",
+        MaterialPhase::Liquid,
+    ));
 
     registry.register_material(MaterialDefinition::new(
         MATERIAL_WOOD,
@@ -51,7 +65,14 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
         "copper",
         MaterialProperties::new(
             8_960,
-            ThermalProperties::new(385, Some(Temperature::from_millikelvin(1_357_770)), 401_000),
+            ThermalProperties::new(
+                385,
+                Some(FusionProperties::new(
+                    Temperature::from_millikelvin(1_357_770),
+                    205_000,
+                )),
+                401_000,
+            ),
             MechanicalProperties::new(70_000, 210_000, 369),
             ElectricalProperties::new(Some(17)),
         ),

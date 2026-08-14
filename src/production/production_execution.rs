@@ -7,8 +7,10 @@ use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::energy::{
-    EnergyCommitError, EnergyConsumptionReservation, EnergyReservationError,
-    apply_energy_consumption_reservation, validate_energy_consumption_reservation,
+    EnergyCommitError, EnergyConsumptionReservation, EnergyIngressReservation,
+    EnergyIngressReservationError, EnergyReservationError, ReleasedEnergyTrace,
+    apply_energy_consumption_reservation, apply_released_energy_outcomes,
+    validate_energy_consumption_reservation, validate_energy_ingress_reservation,
 };
 use crate::equipment::{
     EquipmentId, EquipmentOperationConditionOutcome, ValidatedEquipmentUse,
@@ -16,8 +18,9 @@ use crate::equipment::{
 };
 use crate::inventory::{
     ConsumptionReservation, MaterialLotId, ReservationCommitError, ReservationError, StockpileId,
-    apply_consumption_reservation, apply_lot_cursor_and_revision, apply_reserved_deposit,
-    next_material_lot_id, validate_consumption_reservation_from_selection,
+    StockpileStorageError, apply_consumption_reservation, apply_lot_cursor_and_revision,
+    apply_reserved_deposit, next_material_lot_id, validate_consumption_reservation_from_selection,
+    validate_stockpile_storage,
 };
 use crate::material::{FormId, MaterialId, MaterialLotSpec};
 use crate::registry::Registries;
@@ -45,6 +48,7 @@ pub enum StartProcessError {
     UnknownStockpile {
         stockpile: StockpileId,
     },
+    DestinationStorage(StockpileStorageError),
     CapacityExceeded {
         stockpile: StockpileId,
         capacity: Mass,
@@ -88,6 +92,13 @@ pub enum StartProcessError {
     },
     ResolvedEnergyStoreMissing,
     ResolvedEnergyInsufficient,
+    ResolvedEnergySinkMissing,
+    ResolvedEnergySinkCapacity,
+    EnergyStoreBusy {
+        store: crate::energy::EnergyStoreId,
+        job: ProductionJobId,
+        completes_at: SimulationTick,
+    },
     ResolvedEquipmentMissing {
         equipment: EquipmentId,
     },
@@ -145,6 +156,12 @@ impl Display for StartProcessError {
             ),
             Self::UnknownStockpile { stockpile } => {
                 write!(formatter, "unknown stockpile id {}", stockpile.value())
+            }
+            Self::DestinationStorage(error) => {
+                write!(
+                    formatter,
+                    "process destination rejects resolved output: {error}"
+                )
             }
             Self::CapacityExceeded {
                 stockpile,
@@ -233,6 +250,23 @@ impl Display for StartProcessError {
             Self::ResolvedEnergyInsufficient => {
                 formatter.write_str("resolved process energy amount is no longer available")
             }
+            Self::ResolvedEnergySinkMissing => {
+                formatter.write_str("resolved process energy sink no longer exists")
+            }
+            Self::ResolvedEnergySinkCapacity => {
+                formatter.write_str("resolved process energy sink no longer has required capacity")
+            }
+            Self::EnergyStoreBusy {
+                store,
+                job,
+                completes_at,
+            } => write!(
+                formatter,
+                "energy store {} is occupied by production job {} until tick {}",
+                store.value(),
+                job.value(),
+                completes_at.value()
+            ),
             Self::ResolvedEquipmentMissing { equipment } => write!(
                 formatter,
                 "resolved process equipment {} no longer exists",
@@ -288,7 +322,43 @@ impl Display for StartProcessError {
     }
 }
 
-impl Error for StartProcessError {}
+impl Error for StartProcessError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::DestinationStorage(error) => Some(error),
+            Self::UnknownProcess { .. }
+            | Self::UnknownOutputMaterial { .. }
+            | Self::UnknownOutputForm { .. }
+            | Self::UnknownOutputCompositionMaterial { .. }
+            | Self::UnknownStockpile { .. }
+            | Self::CapacityExceeded { .. }
+            | Self::MassOverflow { .. }
+            | Self::MatterBalanceMismatch { .. }
+            | Self::CompletionTickOverflow { .. }
+            | Self::JobIdExhausted
+            | Self::InventoryRevisionExhausted
+            | Self::ProductionRevisionExhausted
+            | Self::EnergyRevisionExhausted
+            | Self::ResolutionSourceMismatch { .. }
+            | Self::StaleResolvedInputs { .. }
+            | Self::StaleResolvedEnergy { .. }
+            | Self::StaleResolvedEquipment { .. }
+            | Self::StaleResolvedStructure { .. }
+            | Self::ResolvedEnergyStoreMissing
+            | Self::ResolvedEnergyInsufficient
+            | Self::ResolvedEnergySinkMissing
+            | Self::ResolvedEnergySinkCapacity
+            | Self::EnergyStoreBusy { .. }
+            | Self::ResolvedEquipmentMissing { .. }
+            | Self::ResolvedEquipmentDefinitionChanged { .. }
+            | Self::ResolvedEquipmentConditionChanged { .. }
+            | Self::ResolvedEquipmentSupportChanged { .. }
+            | Self::ResolvedEquipmentSupportMissing { .. }
+            | Self::ResolvedEquipmentSupportNotActive { .. }
+            | Self::EquipmentBusy { .. } => None,
+        }
+    }
+}
 
 /// Failure when a validated process start is committed after either owning state has changed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -339,6 +409,7 @@ pub struct ValidatedStartProcess {
     next_production_revision: u64,
     reservation: ConsumptionReservation,
     energy_reservation: Option<EnergyConsumptionReservation>,
+    energy_ingress_reservation: Option<EnergyIngressReservation>,
     equipment_use: Option<ValidatedEquipmentUse>,
 }
 
@@ -352,6 +423,7 @@ impl ValidatedStartProcess {
             next_production_revision,
             reservation,
             energy_reservation,
+            energy_ingress_reservation,
             equipment_use,
         } = self;
         let job_id = job.id();
@@ -362,6 +434,16 @@ impl ValidatedStartProcess {
                 expected: expected_production_revision,
                 actual: actual_production_revision,
             });
+        }
+        if let Some(energy) = energy_ingress_reservation {
+            let expected_energy_revision = energy.expected_revision();
+            let actual_energy_revision = state.energy_state().revision();
+            if actual_energy_revision != expected_energy_revision {
+                return Err(StartProcessCommitError::StaleEnergyRevision {
+                    expected: expected_energy_revision,
+                    actual: actual_energy_revision,
+                });
+            }
         }
         let expected_inventory_revision = reservation.expected_revision();
         let actual_inventory_revision = state.inventory_state().revision();
@@ -474,6 +556,23 @@ pub fn validate_start_process(
         }
     }
 
+    let Some(destination_record) = state.inventory().get_stockpile(destination) else {
+        return Err(StartProcessError::UnknownStockpile {
+            stockpile: destination,
+        });
+    };
+    for output in resolution.outputs() {
+        validate_stockpile_storage(
+            registries,
+            destination_record,
+            destination,
+            output.commodity(),
+            output.composition(),
+            output.temperature(),
+        )
+        .map_err(StartProcessError::DestinationStorage)?;
+    }
+
     let current = state.tick();
     let Some(completes_at) = current.checked_add_span(resolution.duration()) else {
         return Err(StartProcessError::CompletionTickOverflow {
@@ -519,6 +618,33 @@ pub fn validate_start_process(
         None => None,
     };
     let consumed_energy = energy_reservation.map(EnergyConsumptionReservation::trace);
+    let energy_ingress_reservation = match resolution.energy_sink() {
+        Some(selection) => Some(
+            validate_energy_ingress_reservation(registries, state.energy_state(), selection)
+                .map_err(map_energy_ingress_reservation_error)?,
+        ),
+        None => None,
+    };
+    let released_energy = energy_ingress_reservation.map(EnergyIngressReservation::trace);
+    for store in consumed_energy
+        .map(|trace| trace.source())
+        .into_iter()
+        .chain(released_energy.map(|trace| trace.destination()))
+    {
+        if let Some(job) = state.production().jobs().find(|job| {
+            job.consumed_energy()
+                .is_some_and(|trace| trace.source() == store)
+                || job
+                    .released_energy()
+                    .is_some_and(|trace| trace.destination() == store)
+        }) {
+            return Err(StartProcessError::EnergyStoreBusy {
+                store,
+                job: job.id(),
+                completes_at: job.completes_at(),
+            });
+        }
+    }
     let equipment_use = resolution.equipment_use();
     let equipment_provider = match equipment_use {
         Some(selection) => {
@@ -609,6 +735,7 @@ pub fn validate_start_process(
             consumed_mass: input_mass,
             consumed_inputs,
             consumed_energy,
+            released_energy,
             equipment_provider,
             equipment_condition_after: resolution.equipment_condition_after(),
             outputs: resolution.outputs().to_vec(),
@@ -618,8 +745,27 @@ pub fn validate_start_process(
         next_production_revision,
         reservation,
         energy_reservation,
+        energy_ingress_reservation,
         equipment_use,
     })
+}
+
+fn map_energy_ingress_reservation_error(error: EnergyIngressReservationError) -> StartProcessError {
+    match error {
+        EnergyIngressReservationError::StaleSelection { expected, actual } => {
+            StartProcessError::StaleResolvedEnergy {
+                expected_energy_revision: expected,
+                actual_energy_revision: actual,
+            }
+        }
+        EnergyIngressReservationError::UnknownStore { .. } => {
+            StartProcessError::ResolvedEnergySinkMissing
+        }
+        EnergyIngressReservationError::CapacityOverflow { .. }
+        | EnergyIngressReservationError::InsufficientCapacity { .. } => {
+            StartProcessError::ResolvedEnergySinkCapacity
+        }
+    }
 }
 
 fn map_energy_reservation_error(error: EnergyReservationError) -> StartProcessError {
@@ -703,9 +849,12 @@ pub(crate) struct CompletionPlan {
     next_production_revision: u64,
     expected_equipment_revision: u64,
     next_equipment_revision: u64,
+    expected_energy_revision: u64,
+    next_energy_revision: u64,
     next_lot_id_after: u64,
     entries: Vec<CompletionPlanEntry>,
     equipment_outcomes: Vec<EquipmentOperationConditionOutcome>,
+    released_energy_outcomes: Vec<ReleasedEnergyTrace>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -724,6 +873,7 @@ pub(crate) enum CompletionPlanError {
     InventoryRevision,
     ProductionRevision,
     EquipmentRevision,
+    EnergyRevision,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -731,6 +881,7 @@ pub(crate) enum CompletionCommitError {
     InventoryStale { expected: u64, actual: u64 },
     ProductionRevisionChanged { expected: u64, actual: u64 },
     EquipmentRevisionConflict { expected: u64, actual: u64 },
+    EnergyRevisionConflict { expected: u64, actual: u64 },
 }
 
 /// Decides all jobs due on one exact tick without mutating production, inventory, or equipment.
@@ -741,6 +892,7 @@ pub(crate) fn decide_due_completions(
     let expected_inventory_revision = state.inventory_state().revision();
     let expected_production_revision = state.production_state().revision();
     let expected_equipment_revision = state.equipment_state().revision();
+    let expected_energy_revision = state.energy_state().revision();
     let Some(due_ids) = state.production_state().due_jobs.get(&tick) else {
         return Ok(CompletionPlan {
             tick,
@@ -750,9 +902,12 @@ pub(crate) fn decide_due_completions(
             next_production_revision: expected_production_revision,
             expected_equipment_revision,
             next_equipment_revision: expected_equipment_revision,
+            expected_energy_revision,
+            next_energy_revision: expected_energy_revision,
             next_lot_id_after: next_material_lot_id(state.inventory_state()),
             entries: Vec::new(),
             equipment_outcomes: Vec::new(),
+            released_energy_outcomes: Vec::new(),
         });
     };
 
@@ -765,6 +920,7 @@ pub(crate) fn decide_due_completions(
     let mut next_lot_id = next_material_lot_id(state.inventory_state());
     let mut entries = Vec::with_capacity(due_ids.len());
     let mut equipment_outcomes = Vec::new();
+    let mut released_energy_outcomes = Vec::new();
     for job_id in due_ids {
         let job = match state.production_state().jobs.get(job_id) {
             Some(job) => job,
@@ -823,6 +979,9 @@ pub(crate) fn decide_due_completions(
                 after,
             ));
         }
+        if let Some(released) = job.released_energy() {
+            released_energy_outcomes.push(released);
+        }
     }
 
     let next_equipment_revision = if equipment_outcomes.is_empty() {
@@ -831,6 +990,13 @@ pub(crate) fn decide_due_completions(
         expected_equipment_revision
             .checked_add(1)
             .ok_or(CompletionPlanError::EquipmentRevision)?
+    };
+    let next_energy_revision = if released_energy_outcomes.is_empty() {
+        expected_energy_revision
+    } else {
+        expected_energy_revision
+            .checked_add(1)
+            .ok_or(CompletionPlanError::EnergyRevision)?
     };
 
     Ok(CompletionPlan {
@@ -841,9 +1007,12 @@ pub(crate) fn decide_due_completions(
         next_production_revision,
         expected_equipment_revision,
         next_equipment_revision,
+        expected_energy_revision,
+        next_energy_revision,
         next_lot_id_after: next_lot_id,
         entries,
         equipment_outcomes,
+        released_energy_outcomes,
     })
 }
 
@@ -860,9 +1029,12 @@ pub(crate) fn apply_completion_plan(
         next_production_revision,
         expected_equipment_revision,
         next_equipment_revision,
+        expected_energy_revision,
+        next_energy_revision,
         next_lot_id_after,
         entries,
         equipment_outcomes,
+        released_energy_outcomes,
     } = plan;
 
     let actual_inventory_revision = state.inventory_state().revision();
@@ -871,6 +1043,15 @@ pub(crate) fn apply_completion_plan(
             expected: expected_inventory_revision,
             actual: actual_inventory_revision,
         });
+    }
+    if !released_energy_outcomes.is_empty() {
+        let actual_energy_revision = state.energy_state().revision();
+        if actual_energy_revision != expected_energy_revision {
+            return Err(CompletionCommitError::EnergyRevisionConflict {
+                expected: expected_energy_revision,
+                actual: actual_energy_revision,
+            });
+        }
     }
     if !equipment_outcomes.is_empty() {
         let actual_equipment_revision = state.equipment_state().revision();
@@ -927,6 +1108,14 @@ pub(crate) fn apply_completion_plan(
                 expected_equipment_revision,
                 next_equipment_revision,
                 &equipment_outcomes,
+            );
+        }
+        if !released_energy_outcomes.is_empty() {
+            apply_released_energy_outcomes(
+                state.energy_state_mut(),
+                expected_energy_revision,
+                next_energy_revision,
+                &released_energy_outcomes,
             );
         }
         apply_lot_cursor_and_revision(

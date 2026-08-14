@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 19;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 22;
 
 /// Minimal version metadata that adapters decode before choosing a concrete save payload decoder.
 ///
@@ -156,8 +156,8 @@ mod tests {
         CapabilityRequirement, CapabilityValue, CapabilityValueKind,
     };
     use crate::content::{
-        FORM_LOG, FORM_LUMP, FORM_ORE, MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG,
-        MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+        FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE, MATERIAL_CHARCOAL, MATERIAL_COPPER,
+        MATERIAL_SLAG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
         make_test_registries_with_energy_store, make_test_registries_with_equipment,
         make_test_registries_with_process, make_test_registries_with_sensible_heating,
     };
@@ -218,6 +218,37 @@ mod tests {
             Energy::from_nanojoules(1_000_000),
             Power::from_microwatts(100_000),
         ))
+    }
+
+    #[test]
+    fn tampered_structural_liquid_embodiment_is_rejected_on_load() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5700_0018));
+        let member = make_test_structural_element(&registries, &mut state, 0, 0, true);
+        let molten_wood = CommodityKey::new(MATERIAL_WOOD, FORM_MOLTEN);
+        let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("structural liquid-embodiment save serialization failed: {error}"),
+        };
+        encoded["state"]["structures"]["elements"][member.value().to_string()]["embodied_material"]
+            [0]["profile"]["commodity"] = serde_json::json!(molten_wood.value());
+        let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
+            Ok(decoded) => decoded,
+            Err(error) => {
+                panic!("tampered structural liquid-embodiment save failed decode: {error}")
+            }
+        };
+
+        assert_eq!(
+            decoded.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Structure(
+                StructureValidationError::UnsupportedEmbodiedPhase {
+                    element: member,
+                    form: FORM_MOLTEN,
+                    phase: crate::material::MaterialPhase::Liquid,
+                }
+            )))
+        );
     }
 
     fn make_test_heating_registries() -> Registries {
@@ -504,6 +535,7 @@ mod tests {
                     }
                 },
                 "energy": {"revision": 0, "next_store_id": 1, "records": {}},
+                "fluid": {"revision": 0, "next_store_id": 1, "records": {}},
                 "equipment": {
                     "revision": 0,
                     "next_equipment_id": 1,
@@ -818,14 +850,14 @@ mod tests {
     }
 
     #[test]
-    fn current_save_rejects_prior_registry_schema_after_structural_quantity_semantics_are_added() {
+    fn current_save_rejects_prior_registry_schema_after_directional_energy_semantics_are_added() {
         let registries = build_registries();
         let state = AppState::new(WorldSeed::new(0x5700_0005));
         let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
             Ok(encoded) => encoded,
             Err(error) => panic!("registry compatibility save serialization failed: {error}"),
         };
-        encoded["registry_schema_version"] = serde_json::json!(6_u32);
+        encoded["registry_schema_version"] = serde_json::json!(9_u32);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("registry compatibility save failed decode: {error}"),
@@ -834,8 +866,8 @@ mod tests {
         assert_eq!(
             decoded.into_state(&registries),
             Err(LoadError::RegistrySchemaMismatch {
-                found: RegistrySchemaVersion::new(6),
-                supported: RegistrySchemaVersion::new(7),
+                found: RegistrySchemaVersion::new(9),
+                supported: RegistrySchemaVersion::new(10),
             })
         );
     }
@@ -1884,43 +1916,42 @@ mod tests {
             Err(error) => panic!("fixture stockpile failed: {error}"),
         };
         let unknown = MaterialId::new(999_999);
-        let composition = match MaterialComposition::new(vec![
-            CompositionComponent::new(MATERIAL_WOOD, 900_000),
-            CompositionComponent::new(unknown, 100_000),
-        ]) {
-            Ok(composition) => composition,
-            Err(error) => panic!("composition fixture failed: {error}"),
-        };
-        let lot = match deposit_composed_lot_for_test(
+        let lot = match deposit_lot_for_test(
             &registries,
             &mut state,
             stockpile,
             CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
             Mass::from_milligrams(10),
             Temperature::from_millikelvin(295_000),
-            composition,
         ) {
             Ok(id) => id,
             Err(error) => panic!("lot fixture failed: {error}"),
         };
 
-        let encoded = match serde_json::to_vec(&SaveEnvelope::new(&registries, &state)) {
+        let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
             Ok(encoded) => encoded,
             Err(error) => panic!("serialization failed: {error}"),
         };
-        let decoded: LoadedSaveEnvelope = match serde_json::from_slice(&encoded) {
+        encoded["state"]["inventory"]["lots"][lot.value().to_string()]["profile"]["composition"]
+            ["components"] = serde_json::json!([
+            {"material": MATERIAL_WOOD.value(), "parts_per_million": 900_000_u32},
+            {"material": unknown.value(), "parts_per_million": 100_000_u32},
+        ]);
+        let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("deserialization failed: {error}"),
         };
 
         assert_eq!(
             decoded.into_state(&registries),
-            Err(LoadError::InvalidState(
-                StateValidationError::UnknownLotCompositionMaterial {
+            Err(LoadError::InvalidState(StateValidationError::Inventory(
+                crate::inventory::InventoryValidationError::InvalidLotPhaseState {
                     lot,
-                    material: unknown,
+                    error: crate::material::MaterialPhaseStateError::UnknownMaterial {
+                        material: unknown,
+                    },
                 }
-            ))
+            )))
         );
     }
 }

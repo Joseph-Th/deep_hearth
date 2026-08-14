@@ -8,7 +8,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::SimulationTick;
-use crate::material::{CommodityKey, CompositionError, MaterialComposition};
+use crate::material::{
+    CommodityKey, CompositionError, FormId, MaterialComposition, MaterialPhase,
+    MaterialPhaseStateError, MaterialRegistry, validate_material_phase_state,
+};
 
 /// Persistent identifier for a runtime stockpile record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -26,6 +29,89 @@ impl StockpileId {
         self.0
     }
 }
+
+/// Physical containment envelope for one stockpile's directly owned material lots.
+///
+/// This is intentionally explicit runtime state rather than an implicit property of the UI label
+/// "stockpile". A dry pile may hold hot or cold solids, while a crucible-like store can explicitly
+/// admit liquid matter up to an authored thermal limit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StockpileStorageProfile {
+    allow_solid: bool,
+    allow_liquid: bool,
+    maximum_temperature: Temperature,
+}
+
+impl StockpileStorageProfile {
+    /// Builds a validated material-containment envelope.
+    pub fn new(
+        allow_solid: bool,
+        allow_liquid: bool,
+        maximum_temperature: Temperature,
+    ) -> Result<Self, StockpileStorageProfileError> {
+        let profile = Self {
+            allow_solid,
+            allow_liquid,
+            maximum_temperature,
+        };
+        profile.validate()?;
+        Ok(profile)
+    }
+
+    /// Default loose/general solid storage used by the legacy stockpile allocation convenience API.
+    #[must_use]
+    pub const fn solid_only() -> Self {
+        Self {
+            allow_solid: true,
+            allow_liquid: false,
+            maximum_temperature: Temperature::from_millikelvin(u32::MAX),
+        }
+    }
+
+    #[must_use]
+    pub const fn allows_phase(self, phase: MaterialPhase) -> bool {
+        match phase {
+            MaterialPhase::Solid => self.allow_solid,
+            MaterialPhase::Liquid => self.allow_liquid,
+        }
+    }
+
+    #[must_use]
+    pub const fn maximum_temperature(self) -> Temperature {
+        self.maximum_temperature
+    }
+
+    pub(crate) fn validate(self) -> Result<(), StockpileStorageProfileError> {
+        if !self.allow_solid && !self.allow_liquid {
+            return Err(StockpileStorageProfileError::NoAcceptedPhase);
+        }
+        if self.maximum_temperature.millikelvin() == 0 {
+            return Err(StockpileStorageProfileError::ZeroMaximumTemperature);
+        }
+        Ok(())
+    }
+}
+
+/// Invalid stockpile containment envelope.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StockpileStorageProfileError {
+    NoAcceptedPhase,
+    ZeroMaximumTemperature,
+}
+
+impl Display for StockpileStorageProfileError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoAcceptedPhase => formatter
+                .write_str("stockpile storage profile must accept at least one material phase"),
+            Self::ZeroMaximumTemperature => formatter.write_str(
+                "stockpile storage profile maximum temperature must be above absolute zero",
+            ),
+        }
+    }
+}
+
+impl Error for StockpileStorageProfileError {}
 
 /// Physical/provenance snapshot of one material slice consumed by an in-flight operation.
 ///
@@ -182,6 +268,7 @@ impl MaterialLotRecord {
 pub struct StockpileRecord {
     pub(super) id: StockpileId,
     pub(super) capacity: Mass,
+    pub(super) storage_profile: StockpileStorageProfile,
     pub(super) stored_mass: Mass,
     pub(super) reserved_inbound: Mass,
     pub(super) lot_ids: BTreeSet<MaterialLotId>,
@@ -197,6 +284,11 @@ impl StockpileRecord {
     #[must_use]
     pub const fn capacity(&self) -> Mass {
         self.capacity
+    }
+
+    #[must_use]
+    pub const fn storage_profile(&self) -> StockpileStorageProfile {
+        self.storage_profile
     }
 
     #[must_use]
@@ -301,9 +393,28 @@ pub enum InventoryValidationError {
     ZeroCapacity {
         stockpile: StockpileId,
     },
+    InvalidStorageProfile {
+        stockpile: StockpileId,
+        error: StockpileStorageProfileError,
+    },
     ZeroCommodityMass {
         stockpile: StockpileId,
         commodity: CommodityKey,
+    },
+    UnknownLotForm {
+        lot: MaterialLotId,
+        form: FormId,
+    },
+    LotPhaseNotAccepted {
+        lot: MaterialLotId,
+        stockpile: StockpileId,
+        phase: MaterialPhase,
+    },
+    LotTemperatureExceedsStorageMaximum {
+        lot: MaterialLotId,
+        stockpile: StockpileId,
+        temperature: Temperature,
+        maximum: Temperature,
     },
     LotIdMismatch {
         key: MaterialLotId,
@@ -319,6 +430,10 @@ pub enum InventoryValidationError {
     LotCompositionMissingHost {
         lot: MaterialLotId,
         host: crate::material::MaterialId,
+    },
+    InvalidLotPhaseState {
+        lot: MaterialLotId,
+        error: MaterialPhaseStateError,
     },
     InvalidLotProvenanceRange {
         lot: MaterialLotId,
@@ -391,6 +506,11 @@ impl Display for InventoryValidationError {
                     stockpile.value()
                 )
             }
+            Self::InvalidStorageProfile { stockpile, error } => write!(
+                formatter,
+                "stockpile {} has invalid storage profile: {error}",
+                stockpile.value()
+            ),
             Self::ZeroCommodityMass {
                 stockpile,
                 commodity,
@@ -400,6 +520,35 @@ impl Display for InventoryValidationError {
                 stockpile.value(),
                 commodity.material().value(),
                 commodity.form().value()
+            ),
+            Self::UnknownLotForm { lot, form } => write!(
+                formatter,
+                "material lot {} references unknown form {}",
+                lot.value(),
+                form.value()
+            ),
+            Self::LotPhaseNotAccepted {
+                lot,
+                stockpile,
+                phase,
+            } => write!(
+                formatter,
+                "material lot {} is {phase:?} but stockpile {} does not accept that phase",
+                lot.value(),
+                stockpile.value()
+            ),
+            Self::LotTemperatureExceedsStorageMaximum {
+                lot,
+                stockpile,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "material lot {} temperature {} mK exceeds stockpile {} maximum {} mK",
+                lot.value(),
+                temperature.millikelvin(),
+                stockpile.value(),
+                maximum.millikelvin()
             ),
             Self::LotIdMismatch { key, record } => write!(
                 formatter,
@@ -420,6 +569,11 @@ impl Display for InventoryValidationError {
                 "material lot {} composition omits host material {}",
                 lot.value(),
                 host.value()
+            ),
+            Self::InvalidLotPhaseState { lot, error } => write!(
+                formatter,
+                "material lot {} has invalid phase state: {error}",
+                lot.value()
             ),
             Self::InvalidLotProvenanceRange {
                 lot,
@@ -503,6 +657,7 @@ impl Display for InventoryValidationError {
 impl Error for InventoryValidationError {}
 
 pub(crate) fn validate_loaded_inventory(
+    materials: &MaterialRegistry,
     state: &InventoryState,
 ) -> Result<(), InventoryValidationError> {
     if state.next_stockpile_id == 0 {
@@ -527,6 +682,15 @@ pub(crate) fn validate_loaded_inventory(
             next: state.next_lot_id,
             highest,
         });
+    }
+
+    for (stockpile, record) in &state.stockpiles {
+        record.storage_profile.validate().map_err(|error| {
+            InventoryValidationError::InvalidStorageProfile {
+                stockpile: *stockpile,
+                error,
+            }
+        })?;
     }
 
     let mut calculated_by_stockpile =
@@ -557,6 +721,13 @@ pub(crate) fn validate_loaded_inventory(
                 host: lot.commodity().material(),
             });
         }
+        validate_material_phase_state(
+            materials,
+            lot.commodity(),
+            lot.composition(),
+            lot.temperature(),
+        )
+        .map_err(|error| InventoryValidationError::InvalidLotPhaseState { lot: *key, error })?;
         if lot.latest_created_at() < lot.created_at() {
             return Err(InventoryValidationError::InvalidLotProvenanceRange {
                 lot: *key,
@@ -570,6 +741,30 @@ pub(crate) fn validate_loaded_inventory(
                 stockpile: lot.stockpile,
             });
         };
+        let form_id = lot.commodity().form();
+        let Some(form) = materials.get_form(form_id) else {
+            return Err(InventoryValidationError::UnknownLotForm {
+                lot: *key,
+                form: form_id,
+            });
+        };
+        if !owner.storage_profile.allows_phase(form.phase()) {
+            return Err(InventoryValidationError::LotPhaseNotAccepted {
+                lot: *key,
+                stockpile: lot.stockpile,
+                phase: form.phase(),
+            });
+        }
+        if lot.temperature() > owner.storage_profile.maximum_temperature() {
+            return Err(
+                InventoryValidationError::LotTemperatureExceedsStorageMaximum {
+                    lot: *key,
+                    stockpile: lot.stockpile,
+                    temperature: lot.temperature(),
+                    maximum: owner.storage_profile.maximum_temperature(),
+                },
+            );
+        }
         if !owner.lot_ids.contains(key) {
             return Err(InventoryValidationError::LotMissingFromOwnerIndex {
                 lot: *key,

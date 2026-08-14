@@ -1,4 +1,21 @@
-//! Exact volumetric-flow integration across simulation ticks; fluid topology and pressure networks remain separate systems.
+//! Finite fluid ownership and exact flow integration; sibling modules separate definitions, state, accounting, and canonical storage mutation.
+
+mod accounting;
+mod definitions;
+mod state;
+mod storage_execution;
+
+pub use accounting::{
+    FluidVolumeAccounting, FluidVolumeAccountingError, calculate_fluid_volume_accounting,
+};
+pub use definitions::{FluidDefinition, FluidDefinitionId, FluidRegistry};
+pub use state::{FluidContents, FluidState, FluidStoreId, FluidStoreRecord, FluidValidationError};
+pub use storage_execution::{
+    AddFluidStoreError, FluidTransferCommitError, FluidTransferError, FluidTransferOutcome,
+    FluidTransferResolution, ValidatedFluidTransfer, add_fluid_store, validate_fluid_transfer,
+};
+
+pub(crate) use state::validate_loaded_fluid;
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};

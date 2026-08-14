@@ -45,12 +45,16 @@ pub enum TickError {
     ProductionRevisionExhausted,
     /// Equipment cannot advance its persisted revision for completed-operation wear.
     EquipmentRevisionExhausted,
+    /// Energy storage cannot advance its persisted revision for completed energy release.
+    EnergyRevisionExhausted,
     /// Inventory changed after completion planning and before commit.
     StaleInventoryRevision { expected: u64, actual: u64 },
     /// Production changed after completion planning and before commit.
     StaleProductionRevision { expected: u64, actual: u64 },
     /// Equipment changed after a wear-bearing completion was planned and before commit.
     StaleEquipmentRevision { expected: u64, actual: u64 },
+    /// Energy storage changed after a released-energy completion was planned and before commit.
+    StaleEnergyRevision { expected: u64, actual: u64 },
 }
 
 impl Display for TickError {
@@ -75,6 +79,9 @@ impl Display for TickError {
             Self::EquipmentRevisionExhausted => {
                 formatter.write_str("equipment revision space is exhausted")
             }
+            Self::EnergyRevisionExhausted => {
+                formatter.write_str("energy revision space is exhausted")
+            }
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
                 "tick completion plan expected inventory revision {expected} but current revision is {actual}"
@@ -86,6 +93,10 @@ impl Display for TickError {
             Self::StaleEquipmentRevision { expected, actual } => write!(
                 formatter,
                 "tick completion plan expected equipment revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleEnergyRevision { expected, actual } => write!(
+                formatter,
+                "tick completion plan expected energy revision {expected} but current revision is {actual}"
             ),
         }
     }
@@ -115,6 +126,7 @@ pub fn advance_tick(
             CompletionPlanError::InventoryRevision => TickError::InventoryRevisionExhausted,
             CompletionPlanError::ProductionRevision => TickError::ProductionRevisionExhausted,
             CompletionPlanError::EquipmentRevision => TickError::EquipmentRevisionExhausted,
+            CompletionPlanError::EnergyRevision => TickError::EnergyRevisionExhausted,
         })?;
     let production_completions =
         apply_completion_plan(state, completion_plan).map_err(|error| match error {
@@ -126,6 +138,9 @@ pub fn advance_tick(
             }
             CompletionCommitError::EquipmentRevisionConflict { expected, actual } => {
                 TickError::StaleEquipmentRevision { expected, actual }
+            }
+            CompletionCommitError::EnergyRevisionConflict { expected, actual } => {
+                TickError::StaleEnergyRevision { expected, actual }
             }
         })?;
     apply_clock_advance(state, next_tick);

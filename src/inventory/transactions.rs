@@ -4,21 +4,19 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Mass;
-#[cfg(test)]
-use crate::core::quantity::Temperature;
+use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
-#[cfg(test)]
-use crate::material::MaterialComposition;
 use crate::material::{
-    CommodityKey, CompositionError, FormId, MaterialId, MaterialInputSpec, MaterialLotSpec,
+    CommodityKey, CompositionError, FormId, MaterialComposition, MaterialId, MaterialInputSpec,
+    MaterialLotSpec, MaterialPhase, MaterialPhaseStateError, validate_material_phase_state,
 };
 use crate::registry::Registries;
 
 use super::state::{
     ConsumedMaterialTrace, InventoryState, MaterialLotId, MaterialLotProfile,
     MaterialLotProvenance, MaterialLotRecord, StockpileId, StockpileRecord,
+    StockpileStorageProfile,
 };
 
 #[cfg(test)]
@@ -30,6 +28,102 @@ pub enum AddStockpileError {
     ZeroCapacity,
     IdExhausted,
     RevisionExhausted,
+}
+
+/// Failure because a stockpile's physical containment envelope rejects a material lot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StockpileStorageError {
+    UnknownForm {
+        form: FormId,
+    },
+    InvalidMaterialPhaseState(MaterialPhaseStateError),
+    PhaseNotAccepted {
+        stockpile: StockpileId,
+        phase: MaterialPhase,
+    },
+    TemperatureExceedsMaximum {
+        stockpile: StockpileId,
+        temperature: Temperature,
+        maximum: Temperature,
+    },
+}
+
+impl Display for StockpileStorageError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownForm { form } => {
+                write!(
+                    formatter,
+                    "storage compatibility references unknown form {}",
+                    form.value()
+                )
+            }
+            Self::InvalidMaterialPhaseState(error) => {
+                write!(
+                    formatter,
+                    "material phase state is invalid for storage: {error}"
+                )
+            }
+            Self::PhaseNotAccepted { stockpile, phase } => write!(
+                formatter,
+                "stockpile {} does not accept {phase:?} material",
+                stockpile.value()
+            ),
+            Self::TemperatureExceedsMaximum {
+                stockpile,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "material temperature {} mK exceeds stockpile {} maximum {} mK",
+                temperature.millikelvin(),
+                stockpile.value(),
+                maximum.millikelvin()
+            ),
+        }
+    }
+}
+
+impl Error for StockpileStorageError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::InvalidMaterialPhaseState(error) => Some(error),
+            Self::UnknownForm { .. }
+            | Self::PhaseNotAccepted { .. }
+            | Self::TemperatureExceedsMaximum { .. } => None,
+        }
+    }
+}
+
+pub(crate) fn validate_stockpile_storage(
+    registries: &Registries,
+    record: &StockpileRecord,
+    stockpile: StockpileId,
+    commodity: CommodityKey,
+    composition: &MaterialComposition,
+    temperature: Temperature,
+) -> Result<(), StockpileStorageError> {
+    validate_material_phase_state(registries.materials(), commodity, composition, temperature)
+        .map_err(StockpileStorageError::InvalidMaterialPhaseState)?;
+    let form_id = commodity.form();
+    let Some(form) = registries.materials().get_form(form_id) else {
+        return Err(StockpileStorageError::UnknownForm { form: form_id });
+    };
+    let profile = record.storage_profile();
+    if !profile.allows_phase(form.phase()) {
+        return Err(StockpileStorageError::PhaseNotAccepted {
+            stockpile,
+            phase: form.phase(),
+        });
+    }
+    if temperature > profile.maximum_temperature() {
+        return Err(StockpileStorageError::TemperatureExceedsMaximum {
+            stockpile,
+            temperature,
+            maximum: profile.maximum_temperature(),
+        });
+    }
+    Ok(())
 }
 
 /// Failure while validating multiple conserved material traces entering one stockpile.
@@ -55,6 +149,7 @@ pub(crate) enum MaterialBatchIngressError {
     CompositionMissingHost {
         host: MaterialId,
     },
+    Storage(StockpileStorageError),
     InvalidProvenance,
     ProvenanceInFuture {
         latest: SimulationTick,
@@ -250,6 +345,15 @@ pub(crate) fn validate_material_batch_ingress(
                 });
             }
         }
+        validate_stockpile_storage(
+            registries,
+            destination_record,
+            destination,
+            profile.commodity(),
+            profile.composition(),
+            profile.temperature(),
+        )
+        .map_err(MaterialBatchIngressError::Storage)?;
         let provenance = trace.provenance();
         if provenance.latest_created_at() < provenance.earliest_created_at() {
             return Err(MaterialBatchIngressError::InvalidProvenance);
@@ -383,6 +487,7 @@ pub enum DepositError {
         form: FormId,
     },
     ZeroMass,
+    Storage(StockpileStorageError),
     MassOverflow {
         stockpile: StockpileId,
     },
@@ -407,6 +512,7 @@ impl Display for DepositError {
             }
             Self::UnknownForm { form } => write!(formatter, "unknown form id {}", form.value()),
             Self::ZeroMass => formatter.write_str("deposit mass must be nonzero"),
+            Self::Storage(error) => write!(formatter, "stockpile rejects deposit: {error}"),
             Self::MassOverflow { stockpile } => write!(
                 formatter,
                 "mass accounting overflow in stockpile {}",
@@ -433,7 +539,21 @@ impl Display for DepositError {
     }
 }
 
-impl Error for DepositError {}
+impl Error for DepositError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Storage(error) => Some(error),
+            Self::UnknownStockpile { .. }
+            | Self::UnknownMaterial { .. }
+            | Self::UnknownForm { .. }
+            | Self::ZeroMass
+            | Self::MassOverflow { .. }
+            | Self::CapacityExceeded { .. }
+            | Self::LotIdExhausted
+            | Self::RevisionExhausted => None,
+        }
+    }
+}
 
 /// Crate-internal failure while validating matter entering inventory from an explicit owner.
 ///
@@ -460,6 +580,7 @@ pub(crate) enum MaterialIngressError {
     CompositionMissingHost {
         host: MaterialId,
     },
+    Storage(StockpileStorageError),
     MassOverflow {
         stockpile: StockpileId,
     },
@@ -488,6 +609,9 @@ impl Display for MaterialIngressError {
                 "material ingress composition references unknown material {}",
                 material.value()
             ),
+            Self::Storage(error) => {
+                write!(formatter, "stockpile rejects material ingress: {error}")
+            }
             Self::ZeroMass => formatter.write_str("material ingress mass must be nonzero"),
             Self::InvalidComposition { error } => {
                 write!(
@@ -530,6 +654,7 @@ impl Error for MaterialIngressError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::InvalidComposition { error } => Some(error),
+            Self::Storage(error) => Some(error),
             Self::UnknownStockpile { .. }
             | Self::UnknownMaterial { .. }
             | Self::UnknownForm { .. }
@@ -576,6 +701,7 @@ pub enum TransferError {
         form: FormId,
     },
     ZeroMass,
+    Storage(StockpileStorageError),
     InsufficientMass {
         stockpile: StockpileId,
         commodity: CommodityKey,
@@ -606,6 +732,7 @@ impl Display for TransferError {
             }
             Self::UnknownForm { form } => write!(formatter, "unknown form id {}", form.value()),
             Self::ZeroMass => formatter.write_str("transfer mass must be nonzero"),
+            Self::Storage(error) => write!(formatter, "destination rejects transfer: {error}"),
             Self::InsufficientMass {
                 stockpile,
                 available,
@@ -644,7 +771,22 @@ impl Display for TransferError {
     }
 }
 
-impl Error for TransferError {}
+impl Error for TransferError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Storage(error) => Some(error),
+            Self::UnknownStockpile { .. }
+            | Self::UnknownMaterial { .. }
+            | Self::UnknownForm { .. }
+            | Self::ZeroMass
+            | Self::InsufficientMass { .. }
+            | Self::MassOverflow { .. }
+            | Self::CapacityExceeded { .. }
+            | Self::LotIdExhausted
+            | Self::RevisionExhausted => None,
+        }
+    }
+}
 
 /// Failure when a previously validated transfer is committed after inventory has changed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -752,6 +894,15 @@ pub fn add_stockpile(
     state: &mut AppState,
     capacity: Mass,
 ) -> Result<StockpileId, AddStockpileError> {
+    add_stockpile_with_storage_profile(state, capacity, StockpileStorageProfile::solid_only())
+}
+
+/// Adds empty material storage with an explicit phase and temperature containment envelope.
+pub fn add_stockpile_with_storage_profile(
+    state: &mut AppState,
+    capacity: Mass,
+    storage_profile: StockpileStorageProfile,
+) -> Result<StockpileId, AddStockpileError> {
     if capacity.is_zero() {
         return Err(AddStockpileError::ZeroCapacity);
     }
@@ -768,6 +919,7 @@ pub fn add_stockpile(
     let record = StockpileRecord {
         id,
         capacity,
+        storage_profile,
         stored_mass: Mass::ZERO,
         reserved_inbound: Mass::ZERO,
         lot_ids: std::collections::BTreeSet::new(),
@@ -828,6 +980,15 @@ pub(crate) fn validate_material_ingress(
             stockpile: destination,
         });
     };
+    validate_stockpile_storage(
+        registries,
+        destination_record,
+        destination,
+        output.commodity(),
+        output.composition(),
+        output.temperature(),
+    )
+    .map_err(MaterialIngressError::Storage)?;
     let committed = destination_record
         .stored_mass
         .checked_add(destination_record.reserved_inbound)
@@ -987,6 +1148,15 @@ pub(crate) fn deposit_composed_lot_for_test(
     let Some(record) = inventories.get_stockpile(stockpile) else {
         return Err(DepositError::UnknownStockpile { stockpile });
     };
+    validate_stockpile_storage(
+        registries,
+        record,
+        stockpile,
+        commodity,
+        &composition,
+        temperature,
+    )
+    .map_err(DepositError::Storage)?;
     let committed = record
         .stored_mass
         .checked_add(record.reserved_inbound)
@@ -1077,16 +1247,6 @@ pub fn validate_transfer_bulk(
         });
     };
 
-    if source != destination {
-        validate_destination_capacity(destination_record, destination, mass)?;
-        destination_record
-            .get_mass(commodity)
-            .checked_add(mass)
-            .ok_or(TransferError::MassOverflow {
-                stockpile: destination,
-            })?;
-    }
-
     if source == destination {
         return Ok(ValidatedTransferBulk {
             expected_revision: inventories.revision,
@@ -1101,10 +1261,33 @@ pub fn validate_transfer_bulk(
         });
     }
 
+    let slices = select_lot_slices(inventories, source_record, commodity, mass);
+    for slice in &slices {
+        let lot = match inventories.lots.get(&slice.lot) {
+            Some(lot) => lot,
+            None => panic!("validated transfer source lot disappeared during validation"),
+        };
+        validate_stockpile_storage(
+            registries,
+            destination_record,
+            destination,
+            lot.commodity(),
+            lot.composition(),
+            lot.temperature(),
+        )
+        .map_err(TransferError::Storage)?;
+    }
+    validate_destination_capacity(destination_record, destination, mass)?;
+    destination_record
+        .get_mass(commodity)
+        .checked_add(mass)
+        .ok_or(TransferError::MassOverflow {
+            stockpile: destination,
+        })?;
+
     let Some(next_revision) = inventories.revision.checked_add(1) else {
         return Err(TransferError::RevisionExhausted);
     };
-    let slices = select_lot_slices(inventories, source_record, commodity, mass);
     let needs_split = slices.last().is_some_and(|slice| {
         inventories
             .lots
@@ -1983,7 +2166,8 @@ fn get_stockpile_mut_or_panic(
 mod tests {
     use super::*;
     use crate::content::{
-        FORM_LOG, FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_WOOD, build_registries,
+        FORM_LOG, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_WOOD,
+        build_registries,
     };
     use crate::core::time::WorldSeed;
     use crate::inventory::validate_loaded_inventory;
@@ -1991,6 +2175,146 @@ mod tests {
 
     fn wood_log() -> CommodityKey {
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
+    }
+
+    #[test]
+    fn default_stockpile_rejects_liquid_material_without_mutation() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x1A70_1001));
+        let stockpile = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+            Ok(stockpile) => stockpile,
+            Err(error) => panic!("solid stockpile fixture failed: {error}"),
+        };
+        let before = state.clone();
+
+        let result = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            stockpile,
+            CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+            Mass::from_milligrams(10),
+            Temperature::from_millikelvin(1_357_770),
+        );
+
+        assert_eq!(
+            result,
+            Err(DepositError::Storage(
+                StockpileStorageError::PhaseNotAccepted {
+                    stockpile,
+                    phase: MaterialPhase::Liquid,
+                }
+            ))
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn liquid_storage_accepts_matching_phase_but_enforces_temperature_limit() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x1A70_1002));
+        let maximum = Temperature::from_millikelvin(1_400_000);
+        let profile = match StockpileStorageProfile::new(false, true, maximum) {
+            Ok(profile) => profile,
+            Err(error) => panic!("liquid storage profile fixture failed: {error}"),
+        };
+        let vessel = match add_stockpile_with_storage_profile(
+            &mut state,
+            Mass::from_milligrams(100),
+            profile,
+        ) {
+            Ok(stockpile) => stockpile,
+            Err(error) => panic!("liquid storage fixture failed: {error}"),
+        };
+
+        if let Err(error) = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            vessel,
+            CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+            Mass::from_milligrams(10),
+            Temperature::from_millikelvin(1_357_770),
+        ) {
+            panic!("valid molten deposit was rejected: {error}");
+        }
+        let before_hot_rejection = state.clone();
+        let too_hot = Temperature::from_millikelvin(1_500_000);
+        assert_eq!(
+            deposit_lot_for_test(
+                &registries,
+                &mut state,
+                vessel,
+                CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+                Mass::from_milligrams(1),
+                too_hot,
+            ),
+            Err(DepositError::Storage(
+                StockpileStorageError::TemperatureExceedsMaximum {
+                    stockpile: vessel,
+                    temperature: too_hot,
+                    maximum,
+                }
+            ))
+        );
+        assert_eq!(state, before_hot_rejection);
+        assert_eq!(
+            validate_loaded_inventory(registries.materials(), state.inventory()),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn transfer_rechecks_destination_containment_for_actual_selected_lots() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x1A70_1003));
+        let source_profile = match StockpileStorageProfile::new(
+            false,
+            true,
+            Temperature::from_millikelvin(2_000_000),
+        ) {
+            Ok(profile) => profile,
+            Err(error) => panic!("source vessel profile failed: {error}"),
+        };
+        let source = match add_stockpile_with_storage_profile(
+            &mut state,
+            Mass::from_milligrams(100),
+            source_profile,
+        ) {
+            Ok(stockpile) => stockpile,
+            Err(error) => panic!("source vessel failed: {error}"),
+        };
+        let destination = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+            Ok(stockpile) => stockpile,
+            Err(error) => panic!("destination pile failed: {error}"),
+        };
+        if let Err(error) = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+            Mass::from_milligrams(10),
+            Temperature::from_millikelvin(1_357_770),
+        ) {
+            panic!("molten transfer source fixture failed: {error}");
+        }
+        let before = state.clone();
+
+        assert_eq!(
+            validate_transfer_bulk(
+                &registries,
+                &state,
+                source,
+                destination,
+                CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+                Mass::from_milligrams(5),
+            ),
+            Err(TransferError::Storage(
+                StockpileStorageError::PhaseNotAccepted {
+                    stockpile: destination,
+                    phase: MaterialPhase::Liquid,
+                }
+            ))
+        );
+        assert_eq!(state, before);
     }
 
     #[test]
@@ -2087,7 +2411,10 @@ mod tests {
             destination_record.get_mass(wood_log()),
             Mass::from_milligrams(12)
         );
-        assert_eq!(validate_loaded_inventory(state.inventory()), Ok(()));
+        assert_eq!(
+            validate_loaded_inventory(registries.materials(), state.inventory()),
+            Ok(())
+        );
     }
 
     #[test]
@@ -2181,7 +2508,10 @@ mod tests {
             split_lot.temperature(),
             Temperature::from_millikelvin(800_000)
         );
-        assert_eq!(validate_loaded_inventory(state.inventory()), Ok(()));
+        assert_eq!(
+            validate_loaded_inventory(registries.materials(), state.inventory()),
+            Ok(())
+        );
     }
 
     #[test]
@@ -2284,7 +2614,10 @@ mod tests {
         );
         assert_eq!(destination_record.lot_ids().count(), 1);
         assert_eq!(state.inventory().lots().count(), 2);
-        assert_eq!(validate_loaded_inventory(state.inventory()), Ok(()));
+        assert_eq!(
+            validate_loaded_inventory(registries.materials(), state.inventory()),
+            Ok(())
+        );
     }
 
     #[test]
@@ -2363,7 +2696,10 @@ mod tests {
             split.composition().parts_per_million(MATERIAL_SLAG),
             300_000
         );
-        assert_eq!(validate_loaded_inventory(state.inventory()), Ok(()));
+        assert_eq!(
+            validate_loaded_inventory(registries.materials(), state.inventory()),
+            Ok(())
+        );
     }
 }
 

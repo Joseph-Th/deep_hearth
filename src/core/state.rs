@@ -6,18 +6,20 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::{AggregateMass, Force, Mass};
+use crate::core::quantity::{AggregateMass, Energy, Force, Mass};
 use crate::energy::{EnergyState, EnergyValidationError, validate_loaded_energy};
 use crate::equipment::{
     EquipmentDefinitionId, EquipmentId, EquipmentState, EquipmentValidationError,
     validate_loaded_equipment,
 };
+use crate::fluid::{FluidState, FluidValidationError, validate_loaded_fluid};
 use crate::geology::{
     GeologicalKnowledgeState, GeologicalKnowledgeValidationError, GeologyState,
     GeologyValidationError, validate_loaded_geological_knowledge, validate_loaded_geology,
 };
 use crate::inventory::{
-    InventoryState, InventoryValidationError, MaterialLotId, StockpileId, validate_loaded_inventory,
+    InventoryState, InventoryValidationError, MaterialLotId, StockpileId, StockpileStorageError,
+    validate_loaded_inventory, validate_stockpile_storage,
 };
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, MaterialId};
@@ -43,6 +45,7 @@ pub struct AppState {
     clock: ClockState,
     random: RandomState,
     energy: EnergyState,
+    fluid: FluidState,
     equipment: EquipmentState,
     structures: StructureState,
     geology: GeologyState,
@@ -67,6 +70,7 @@ impl AppState {
             },
             random: RandomState::new(world_seed),
             energy: EnergyState::new(),
+            fluid: FluidState::new(),
             equipment: EquipmentState::new(),
             structures: StructureState::new(),
             geology: GeologyState::new(),
@@ -109,6 +113,20 @@ impl AppState {
 
     pub(crate) fn energy_state_mut(&mut self) -> &mut EnergyState {
         &mut self.energy
+    }
+
+    /// Returns read-only authoritative finite fluid state.
+    #[must_use]
+    pub const fn fluid(&self) -> &FluidState {
+        &self.fluid
+    }
+
+    pub(crate) const fn fluid_state(&self) -> &FluidState {
+        &self.fluid
+    }
+
+    pub(crate) fn fluid_state_mut(&mut self) -> &mut FluidState {
+        &mut self.fluid
     }
 
     /// Returns read-only authoritative equipment state.
@@ -204,6 +222,7 @@ pub enum StateValidationError {
         random_seed: WorldSeed,
     },
     Energy(EnergyValidationError),
+    Fluid(FluidValidationError),
     Equipment(EquipmentValidationError),
     Structure(StructureValidationError),
     StructureAnalysis(StructuralAnalysisError),
@@ -257,6 +276,35 @@ pub enum StateValidationError {
         job: ProductionJobId,
         traced: crate::energy::EnergyCarrier,
         authored: crate::energy::EnergyCarrier,
+    },
+    UnknownJobEnergySink {
+        job: ProductionJobId,
+        store: crate::energy::EnergyStoreId,
+    },
+    JobReleasedEnergyDefinitionMismatch {
+        job: ProductionJobId,
+        traced: crate::energy::EnergyStoreDefinitionId,
+        stored: crate::energy::EnergyStoreDefinitionId,
+    },
+    JobReleasedEnergyCarrierMismatch {
+        job: ProductionJobId,
+        traced: crate::energy::EnergyCarrier,
+        authored: crate::energy::EnergyCarrier,
+    },
+    JobReleasedEnergySinkHasNoInputPower {
+        job: ProductionJobId,
+        store: crate::energy::EnergyStoreId,
+    },
+    JobReleasedEnergyCapacityOverflow {
+        job: ProductionJobId,
+        store: crate::energy::EnergyStoreId,
+    },
+    JobReleasedEnergyCapacityExceeded {
+        job: ProductionJobId,
+        store: crate::energy::EnergyStoreId,
+        stored: Energy,
+        released: Energy,
+        capacity: Energy,
     },
     EnergyStoreDoubleBooked {
         store: crate::energy::EnergyStoreId,
@@ -318,6 +366,10 @@ pub enum StateValidationError {
         job: ProductionJobId,
         material: MaterialId,
     },
+    JobOutputStorage {
+        job: ProductionJobId,
+        error: StockpileStorageError,
+    },
     UnknownJobConsumedCommodity {
         job: ProductionJobId,
         commodity: CommodityKey,
@@ -350,6 +402,7 @@ impl Display for StateValidationError {
                 random_seed.value()
             ),
             Self::Energy(error) => write!(formatter, "invalid energy state: {error}"),
+            Self::Fluid(error) => write!(formatter, "invalid fluid state: {error}"),
             Self::Equipment(error) => write!(formatter, "invalid equipment state: {error}"),
             Self::Structure(error) => write!(formatter, "invalid structural state: {error}"),
             Self::StructureAnalysis(error) => {
@@ -461,6 +514,59 @@ impl Display for StateValidationError {
                 "production job {} traces {traced:?} energy but source definition is {authored:?}",
                 job.value()
             ),
+            Self::UnknownJobEnergySink { job, store } => write!(
+                formatter,
+                "production job {} traces missing released-energy sink {}",
+                job.value(),
+                store.value()
+            ),
+            Self::JobReleasedEnergyDefinitionMismatch {
+                job,
+                traced,
+                stored,
+            } => write!(
+                formatter,
+                "production job {} traces released-energy definition {} but sink store references {}",
+                job.value(),
+                traced.value(),
+                stored.value()
+            ),
+            Self::JobReleasedEnergyCarrierMismatch {
+                job,
+                traced,
+                authored,
+            } => write!(
+                formatter,
+                "production job {} traces released {traced:?} energy but sink definition is {authored:?}",
+                job.value()
+            ),
+            Self::JobReleasedEnergySinkHasNoInputPower { job, store } => write!(
+                formatter,
+                "production job {} reserves energy sink {} whose definition accepts no input power",
+                job.value(),
+                store.value()
+            ),
+            Self::JobReleasedEnergyCapacityOverflow { job, store } => write!(
+                formatter,
+                "production job {} released-energy reservation overflows sink {} accounting",
+                job.value(),
+                store.value()
+            ),
+            Self::JobReleasedEnergyCapacityExceeded {
+                job,
+                store,
+                stored,
+                released,
+                capacity,
+            } => write!(
+                formatter,
+                "production job {} reserves {} nJ into sink {} containing {} nJ above capacity {} nJ",
+                job.value(),
+                released.nanojoules(),
+                store.value(),
+                stored.nanojoules(),
+                capacity.nanojoules()
+            ),
             Self::EnergyStoreDoubleBooked {
                 store,
                 first,
@@ -570,6 +676,11 @@ impl Display for StateValidationError {
                 job.value(),
                 material.value()
             ),
+            Self::JobOutputStorage { job, error } => write!(
+                formatter,
+                "production job {} reserved output is incompatible with its destination: {error}",
+                job.value()
+            ),
             Self::JobOutputMassOverflow { job } => write!(
                 formatter,
                 "production job {} output mass overflows authoritative quantity storage",
@@ -595,6 +706,7 @@ impl Error for StateValidationError {
         match self {
             Self::Random(error) => Some(error),
             Self::Energy(error) => Some(error),
+            Self::Fluid(error) => Some(error),
             Self::Equipment(error) => Some(error),
             Self::Structure(error) => Some(error),
             Self::StructureAnalysis(error) => Some(error),
@@ -603,6 +715,7 @@ impl Error for StateValidationError {
             Self::Inventory(error) => Some(error),
             Self::Production(error) => Some(error),
             Self::ThermalJob(error) => Some(error),
+            Self::JobOutputStorage { error, .. } => Some(error),
             Self::RandomWorldSeedMismatch { .. }
             | Self::UnresolvedStructuralDamage { .. }
             | Self::UnknownStoredCommodity { .. }
@@ -615,6 +728,12 @@ impl Error for StateValidationError {
             | Self::UnknownJobEnergySource { .. }
             | Self::JobEnergyDefinitionMismatch { .. }
             | Self::JobEnergyCarrierMismatch { .. }
+            | Self::UnknownJobEnergySink { .. }
+            | Self::JobReleasedEnergyDefinitionMismatch { .. }
+            | Self::JobReleasedEnergyCarrierMismatch { .. }
+            | Self::JobReleasedEnergySinkHasNoInputPower { .. }
+            | Self::JobReleasedEnergyCapacityOverflow { .. }
+            | Self::JobReleasedEnergyCapacityExceeded { .. }
             | Self::EnergyStoreDoubleBooked { .. }
             | Self::UnknownJobEquipment { .. }
             | Self::JobEquipmentDefinitionMismatch { .. }
@@ -655,6 +774,8 @@ pub fn validate_loaded_state(
 
     validate_loaded_energy(registries.energy(), &state.energy, state.tick())
         .map_err(StateValidationError::Energy)?;
+    validate_loaded_fluid(registries.fluid(), &state.fluid, state.tick())
+        .map_err(StateValidationError::Fluid)?;
     validate_loaded_equipment(registries.equipment(), &state.equipment, state.tick())
         .map_err(StateValidationError::Equipment)?;
     validate_loaded_structure(
@@ -735,7 +856,8 @@ pub fn validate_loaded_state(
         state.tick(),
     )
     .map_err(StateValidationError::GeologicalKnowledge)?;
-    validate_loaded_inventory(&state.inventory).map_err(StateValidationError::Inventory)?;
+    validate_loaded_inventory(registries.materials(), &state.inventory)
+        .map_err(StateValidationError::Inventory)?;
     validate_loaded_production(&state.production).map_err(StateValidationError::Production)?;
 
     for stockpile in state.inventory.stockpiles() {
@@ -793,12 +915,12 @@ pub fn validate_loaded_state(
                 stockpile: job.source(),
             });
         }
-        if state.inventory.get_stockpile(job.destination()).is_none() {
+        let Some(destination_record) = state.inventory.get_stockpile(job.destination()) else {
             return Err(StateValidationError::UnknownJobDestination {
                 job: job.id(),
                 stockpile: job.destination(),
             });
-        }
+        };
         if let Some(trace) = job.consumed_energy() {
             let Some(store) = state.energy.get_store(trace.source()) else {
                 return Err(StateValidationError::UnknownJobEnergySource {
@@ -831,6 +953,64 @@ pub fn validate_loaded_state(
             if let Some(first) = occupied_energy.insert(trace.source(), job.id()) {
                 return Err(StateValidationError::EnergyStoreDoubleBooked {
                     store: trace.source(),
+                    first,
+                    second: job.id(),
+                });
+            }
+        }
+        if let Some(trace) = job.released_energy() {
+            let Some(store) = state.energy.get_store(trace.destination()) else {
+                return Err(StateValidationError::UnknownJobEnergySink {
+                    job: job.id(),
+                    store: trace.destination(),
+                });
+            };
+            if store.definition() != trace.definition() {
+                return Err(StateValidationError::JobReleasedEnergyDefinitionMismatch {
+                    job: job.id(),
+                    traced: trace.definition(),
+                    stored: store.definition(),
+                });
+            }
+            let Some(definition) = registries.energy().get_store(trace.definition()) else {
+                return Err(StateValidationError::Energy(
+                    EnergyValidationError::UnknownDefinition {
+                        store: trace.destination(),
+                        definition: trace.definition(),
+                    },
+                ));
+            };
+            if definition.carrier() != trace.carrier() {
+                return Err(StateValidationError::JobReleasedEnergyCarrierMismatch {
+                    job: job.id(),
+                    traced: trace.carrier(),
+                    authored: definition.carrier(),
+                });
+            }
+            if definition.max_input_power().is_zero() {
+                return Err(StateValidationError::JobReleasedEnergySinkHasNoInputPower {
+                    job: job.id(),
+                    store: trace.destination(),
+                });
+            }
+            let after = store.stored().checked_add(trace.energy()).ok_or(
+                StateValidationError::JobReleasedEnergyCapacityOverflow {
+                    job: job.id(),
+                    store: trace.destination(),
+                },
+            )?;
+            if after > definition.capacity() {
+                return Err(StateValidationError::JobReleasedEnergyCapacityExceeded {
+                    job: job.id(),
+                    store: trace.destination(),
+                    stored: store.stored(),
+                    released: trace.energy(),
+                    capacity: definition.capacity(),
+                });
+            }
+            if let Some(first) = occupied_energy.insert(trace.destination(), job.id()) {
+                return Err(StateValidationError::EnergyStoreDoubleBooked {
+                    store: trace.destination(),
                     first,
                     second: job.id(),
                 });
@@ -917,6 +1097,18 @@ pub fn validate_loaded_state(
                     });
                 }
             }
+            validate_stockpile_storage(
+                registries,
+                destination_record,
+                job.destination(),
+                output.commodity(),
+                output.composition(),
+                output.temperature(),
+            )
+            .map_err(|error| StateValidationError::JobOutputStorage {
+                job: job.id(),
+                error,
+            })?;
         }
         let output_mass = sum_lot_spec_mass(job.outputs())
             .ok_or(StateValidationError::JobOutputMassOverflow { job: job.id() })?;
@@ -961,6 +1153,14 @@ pub fn validate_invariants(_registries: &Registries, state: &AppState) {
         "Runtime Invariant 8 (No Lost Runtime State): energy store ID cursor must remain valid"
     );
     debug_assert!(
+        state.fluid.has_valid_id_cursor(),
+        "Runtime Invariant 8 (No Lost Runtime State): fluid store ID cursor must remain valid"
+    );
+    debug_assert!(
+        state.fluid.has_valid_records(),
+        "Runtime Invariant 6 (Lifecycle Validity): fluid stores must have nonzero capacity and canonical nonempty contents"
+    );
+    debug_assert!(
         state.equipment.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): equipment ID cursor must remain valid"
     );
@@ -995,6 +1195,10 @@ pub fn validate_invariants(_registries: &Registries, state: &AppState) {
     debug_assert!(
         state.production.has_valid_equipment_condition_outcomes(),
         "Runtime Invariant 6 (Lifecycle Validity): equipment-backed jobs must carry non-improving post-operation condition outcomes"
+    );
+    debug_assert!(
+        state.production.has_unique_energy_reservations(),
+        "Runtime Invariant 5 (Ownership Exclusivity): active production jobs must not share finite energy sources or sinks"
     );
     debug_assert!(
         state

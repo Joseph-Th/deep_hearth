@@ -7,7 +7,9 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
-use crate::energy::{ConsumedEnergyTrace, ValidatedEnergySupply};
+use crate::energy::{
+    ConsumedEnergyTrace, ReleasedEnergyTrace, ValidatedEnergySink, ValidatedEnergySupply,
+};
 use crate::equipment::{EquipmentOperationTrace, ValidatedEquipmentUse};
 use crate::inventory::{
     ConsumedMaterialTrace, ConsumptionSelection, ConsumptionSelectionError,
@@ -182,7 +184,7 @@ impl ValidatedProcessInputs {
         duration: TickSpan,
         outputs: Vec<MaterialLotSpec>,
     ) -> Result<ProcessResolution, ProcessResolutionError> {
-        self.resolve_inner(duration, outputs, None, None, None)
+        self.resolve_inner(duration, outputs, None, None, None, None)
     }
 
     pub(crate) fn resolve_with_energy_and_equipment(
@@ -197,6 +199,25 @@ impl ValidatedProcessInputs {
             duration,
             outputs,
             Some(energy_supply),
+            None,
+            Some(equipment_use),
+            Some(equipment_condition_after),
+        )
+    }
+
+    pub(crate) fn resolve_with_equipment_and_energy_release(
+        self,
+        duration: TickSpan,
+        outputs: Vec<MaterialLotSpec>,
+        energy_sink: ValidatedEnergySink,
+        equipment_use: ValidatedEquipmentUse,
+        equipment_condition_after: Condition,
+    ) -> Result<ProcessResolution, ProcessResolutionError> {
+        self.resolve_inner(
+            duration,
+            outputs,
+            None,
+            Some(energy_sink),
             Some(equipment_use),
             Some(equipment_condition_after),
         )
@@ -207,6 +228,7 @@ impl ValidatedProcessInputs {
         duration: TickSpan,
         mut outputs: Vec<MaterialLotSpec>,
         energy_supply: Option<ValidatedEnergySupply>,
+        energy_sink: Option<ValidatedEnergySink>,
         equipment_use: Option<ValidatedEquipmentUse>,
         equipment_condition_after: Option<Condition>,
     ) -> Result<ProcessResolution, ProcessResolutionError> {
@@ -243,6 +265,7 @@ impl ValidatedProcessInputs {
             process: self.process,
             selection: self.selection,
             energy_supply,
+            energy_sink,
             equipment_use,
             equipment_condition_after,
             duration,
@@ -449,6 +472,7 @@ pub struct ProcessResolution {
     process: ProcessId,
     selection: ConsumptionSelection,
     energy_supply: Option<ValidatedEnergySupply>,
+    energy_sink: Option<ValidatedEnergySink>,
     equipment_use: Option<ValidatedEquipmentUse>,
     equipment_condition_after: Option<Condition>,
     duration: TickSpan,
@@ -482,6 +506,12 @@ impl ProcessResolution {
         self.energy_supply.map(ValidatedEnergySupply::trace)
     }
 
+    /// Returns exact energy released from material and bound to a finite sink, if any.
+    #[must_use]
+    pub fn energy_output(&self) -> Option<ReleasedEnergyTrace> {
+        self.energy_sink.map(ValidatedEnergySink::trace)
+    }
+
     /// Returns the exact equipment-provider snapshot bound by the physical resolver, if any.
     #[must_use]
     pub fn equipment_input(&self) -> Option<EquipmentOperationTrace> {
@@ -510,6 +540,10 @@ impl ProcessResolution {
 
     pub(crate) const fn energy_supply(&self) -> Option<ValidatedEnergySupply> {
         self.energy_supply
+    }
+
+    pub(crate) const fn energy_sink(&self) -> Option<ValidatedEnergySink> {
+        self.energy_sink
     }
 
     pub(crate) const fn equipment_use(&self) -> Option<ValidatedEquipmentUse> {

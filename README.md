@@ -7,16 +7,18 @@ networking, platform integration, and save-file storage are adapters around that
 owners of gameplay state or rules.
 
 The implemented foundation includes persisted independent RNG streams, exact integer engineering
-quantities, composition-aware material lots, atomic inventory transactions, closed-mass durable
-production, finite geological matter ownership with conservation-bound extraction, persistent
-prospecting evidence and uncertainty-aware geological maps, typed capability requirements,
-maintenance condition, thermal/volume calculations, condition-sensitive equipment capabilities,
+quantities, composition-aware and phase-aware material lots, temperature/phase-constrained storage,
+atomic inventory transactions, closed-mass durable production, finite geological matter ownership
+with conservation-bound extraction, persistent prospecting evidence and uncertainty-aware geological
+maps, typed capability requirements, maintenance condition, condition-sensitive equipment,
 conserved structural construction/deconstruction with real self-weight, equipment weight coupled into
-structural failure, energy/electrical/fluid scalar integration, exact torque/speed mechanical
-transmission primitives, versioned persistence, chunk-independent spatial types, global matter
-accounting, and deterministic soak coverage. Built-in gameplay processes, physical survey resolvers,
-construction requirement resolvers, and mining authorization remain unavailable until their real
-physical systems exist.
+structural failure, directional finite energy stores, finite homogeneous fluid storage, exact
+electrical/flow/rotational scalar mechanics, and physical thermal production for sensible heating,
+pure-material melting, and casting with explicit latent heat and finite heat sinks. Versioned
+persistence revalidates cross-owner conservation and operation-specific physics, and deterministic
+soak coverage exercises the major ownership paths. Physical survey/mining authorization, alloy phase
+diagrams and chemical smelting, environmental heat transport, fluid networks, richer construction,
+and later labor/ecology/settlement systems remain unavailable until their real physical owners exist.
 
 Read these documents before changing the project:
 

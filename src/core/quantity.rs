@@ -49,6 +49,39 @@ impl Mass {
     }
 }
 
+/// World-scale fluid volume aggregate in microliters with wider accumulation than one store.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
+)]
+pub struct AggregateVolume(u128);
+
+impl AggregateVolume {
+    pub const ZERO: Self = Self(0);
+
+    #[must_use]
+    pub const fn from_microliters(microliters: u128) -> Self {
+        Self(microliters)
+    }
+
+    #[must_use]
+    pub fn from_volume(volume: Volume) -> Self {
+        Self(u128::from(volume.microliters()))
+    }
+
+    #[must_use]
+    pub const fn microliters(self) -> u128 {
+        self.0
+    }
+
+    #[must_use]
+    pub const fn checked_add(self, other: Self) -> Option<Self> {
+        match self.0.checked_add(other.0) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
+    }
+}
+
 /// World-scale mass aggregate stored in milligrams with wider accumulation than individual lots.
 ///
 /// Individual runtime records intentionally use compact `u64` mass. Projections that sum matter
@@ -297,6 +330,16 @@ mod tests {
         assert_eq!(
             Mass::from_milligrams(1).checked_sub(Mass::from_milligrams(2)),
             None
+        );
+    }
+
+    #[test]
+    fn aggregate_volume_accumulates_beyond_single_store_range() {
+        let largest_store = AggregateVolume::from_volume(Volume::from_microliters(u64::MAX));
+
+        assert_eq!(
+            largest_store.checked_add(largest_store),
+            Some(AggregateVolume::from_microliters(u128::from(u64::MAX) * 2))
         );
     }
 

@@ -175,6 +175,9 @@ pub enum EnergySupplyError {
         definition: EnergyStoreDefinitionId,
     },
     ZeroEnergy,
+    NoOutputPower {
+        store: EnergyStoreId,
+    },
     InsufficientEnergy {
         store: EnergyStoreId,
         available: Energy,
@@ -200,6 +203,11 @@ impl Display for EnergySupplyError {
                 definition.value()
             ),
             Self::ZeroEnergy => formatter.write_str("energy supply request must be nonzero"),
+            Self::NoOutputPower { store } => write!(
+                formatter,
+                "energy store {} has no authored output-power capability",
+                store.value()
+            ),
             Self::InsufficientEnergy {
                 store,
                 available,
@@ -247,9 +255,15 @@ pub fn validate_energy_supply(
             definition: record.definition(),
         });
     };
+    if definition.max_output_power().is_zero() {
+        return Err(EnergySupplyError::NoOutputPower { store });
+    }
     if let Some(job) = state.production().jobs().find(|job| {
         job.consumed_energy()
             .is_some_and(|trace| trace.source() == store)
+            || job
+                .released_energy()
+                .is_some_and(|trace| trace.destination() == store)
     }) {
         return Err(EnergySupplyError::StoreBusy {
             store,
@@ -274,6 +288,304 @@ pub fn validate_energy_supply(
         },
         max_output_power: definition.max_output_power(),
     })
+}
+
+/// Exact energy released by an in-flight operation and committed to one finite sink at completion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReleasedEnergyTrace {
+    destination: EnergyStoreId,
+    definition: EnergyStoreDefinitionId,
+    carrier: EnergyCarrier,
+    energy: Energy,
+}
+
+impl ReleasedEnergyTrace {
+    #[must_use]
+    pub const fn destination(self) -> EnergyStoreId {
+        self.destination
+    }
+
+    #[must_use]
+    pub const fn definition(self) -> EnergyStoreDefinitionId {
+        self.definition
+    }
+
+    #[must_use]
+    pub const fn carrier(self) -> EnergyCarrier {
+        self.carrier
+    }
+
+    #[must_use]
+    pub const fn energy(self) -> Energy {
+        self.energy
+    }
+}
+
+/// Read-only revision-bound proof that one finite store can accept exact released energy.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ValidatedEnergySink {
+    expected_revision: u64,
+    trace: ReleasedEnergyTrace,
+    max_input_power: Power,
+}
+
+impl ValidatedEnergySink {
+    #[must_use]
+    pub const fn trace(self) -> ReleasedEnergyTrace {
+        self.trace
+    }
+
+    #[must_use]
+    pub const fn max_input_power(self) -> Power {
+        self.max_input_power
+    }
+}
+
+/// Failure while binding exact released energy to a finite sink.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EnergySinkError {
+    UnknownStore {
+        store: EnergyStoreId,
+    },
+    UnknownDefinition {
+        store: EnergyStoreId,
+        definition: EnergyStoreDefinitionId,
+    },
+    ZeroEnergy,
+    NoInputPower {
+        store: EnergyStoreId,
+    },
+    StoreBusy {
+        store: EnergyStoreId,
+        job: ProductionJobId,
+        completes_at: SimulationTick,
+    },
+    CapacityOverflow {
+        store: EnergyStoreId,
+    },
+    InsufficientCapacity {
+        store: EnergyStoreId,
+        stored: Energy,
+        requested: Energy,
+        capacity: Energy,
+    },
+}
+
+impl Display for EnergySinkError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownStore { store } => {
+                write!(formatter, "unknown energy sink store {}", store.value())
+            }
+            Self::UnknownDefinition { store, definition } => write!(
+                formatter,
+                "energy sink store {} references unknown definition {}",
+                store.value(),
+                definition.value()
+            ),
+            Self::ZeroEnergy => formatter.write_str("energy sink request must be nonzero"),
+            Self::NoInputPower { store } => write!(
+                formatter,
+                "energy store {} has no authored input-power capability",
+                store.value()
+            ),
+            Self::StoreBusy {
+                store,
+                job,
+                completes_at,
+            } => write!(
+                formatter,
+                "energy store {} is reserved by production job {} until tick {}",
+                store.value(),
+                job.value(),
+                completes_at.value()
+            ),
+            Self::CapacityOverflow { store } => write!(
+                formatter,
+                "energy sink store {} capacity accounting overflowed",
+                store.value()
+            ),
+            Self::InsufficientCapacity {
+                store,
+                stored,
+                requested,
+                capacity,
+            } => write!(
+                formatter,
+                "energy sink store {} contains {} nJ and cannot accept {} nJ within capacity {} nJ",
+                store.value(),
+                stored.nanojoules(),
+                requested.nanojoules(),
+                capacity.nanojoules()
+            ),
+        }
+    }
+}
+
+impl Error for EnergySinkError {}
+
+/// Binds exact released energy to current sink capacity without mutation.
+pub fn validate_energy_sink(
+    registries: &Registries,
+    state: &AppState,
+    store: EnergyStoreId,
+    requested: Energy,
+) -> Result<ValidatedEnergySink, EnergySinkError> {
+    if requested.is_zero() {
+        return Err(EnergySinkError::ZeroEnergy);
+    }
+    let Some(record) = state.energy().get_store(store) else {
+        return Err(EnergySinkError::UnknownStore { store });
+    };
+    let Some(definition) = registries.energy().get_store(record.definition()) else {
+        return Err(EnergySinkError::UnknownDefinition {
+            store,
+            definition: record.definition(),
+        });
+    };
+    if definition.max_input_power().is_zero() {
+        return Err(EnergySinkError::NoInputPower { store });
+    }
+    if let Some(job) = state.production().jobs().find(|job| {
+        job.consumed_energy()
+            .is_some_and(|trace| trace.source() == store)
+            || job
+                .released_energy()
+                .is_some_and(|trace| trace.destination() == store)
+    }) {
+        return Err(EnergySinkError::StoreBusy {
+            store,
+            job: job.id(),
+            completes_at: job.completes_at(),
+        });
+    }
+    let after = record
+        .stored()
+        .checked_add(requested)
+        .ok_or(EnergySinkError::CapacityOverflow { store })?;
+    if after > definition.capacity() {
+        return Err(EnergySinkError::InsufficientCapacity {
+            store,
+            stored: record.stored(),
+            requested,
+            capacity: definition.capacity(),
+        });
+    }
+    Ok(ValidatedEnergySink {
+        expected_revision: state.energy().revision(),
+        trace: ReleasedEnergyTrace {
+            destination: store,
+            definition: record.definition(),
+            carrier: definition.carrier(),
+            energy: requested,
+        },
+        max_input_power: definition.max_input_power(),
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EnergyIngressReservation {
+    expected_revision: u64,
+    trace: ReleasedEnergyTrace,
+}
+
+impl EnergyIngressReservation {
+    pub(crate) const fn expected_revision(self) -> u64 {
+        self.expected_revision
+    }
+
+    pub(crate) const fn trace(self) -> ReleasedEnergyTrace {
+        self.trace
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EnergyIngressReservationError {
+    StaleSelection {
+        expected: u64,
+        actual: u64,
+    },
+    UnknownStore {
+        store: EnergyStoreId,
+    },
+    CapacityOverflow {
+        store: EnergyStoreId,
+    },
+    InsufficientCapacity {
+        store: EnergyStoreId,
+        stored: Energy,
+        requested: Energy,
+        capacity: Energy,
+    },
+}
+
+pub(crate) fn validate_energy_ingress_reservation(
+    registries: &Registries,
+    state: &EnergyState,
+    selection: ValidatedEnergySink,
+) -> Result<EnergyIngressReservation, EnergyIngressReservationError> {
+    if state.revision != selection.expected_revision {
+        return Err(EnergyIngressReservationError::StaleSelection {
+            expected: selection.expected_revision,
+            actual: state.revision,
+        });
+    }
+    let trace = selection.trace;
+    let Some(record) = state.records.get(&trace.destination) else {
+        return Err(EnergyIngressReservationError::UnknownStore {
+            store: trace.destination,
+        });
+    };
+    let capacity = match registries.energy().get_store(record.definition) {
+        Some(definition) => definition.capacity(),
+        None => {
+            unreachable!("validated energy sink definition disappeared from immutable registry")
+        }
+    };
+    let after = record.stored.checked_add(trace.energy).ok_or(
+        EnergyIngressReservationError::CapacityOverflow {
+            store: trace.destination,
+        },
+    )?;
+    if after > capacity {
+        return Err(EnergyIngressReservationError::InsufficientCapacity {
+            store: trace.destination,
+            stored: record.stored,
+            requested: trace.energy,
+            capacity,
+        });
+    }
+    Ok(EnergyIngressReservation {
+        expected_revision: state.revision,
+        trace,
+    })
+}
+
+pub(crate) fn apply_released_energy_outcomes(
+    state: &mut EnergyState,
+    expected_revision: u64,
+    next_revision: u64,
+    traces: &[ReleasedEnergyTrace],
+) {
+    assert_eq!(
+        state.revision, expected_revision,
+        "released-energy completion requires its planned energy revision"
+    );
+    for trace in traces {
+        let record = match state.records.get_mut(&trace.destination) {
+            Some(record) => record,
+            None => panic!(
+                "runtime invariant broken: released-energy sink {} disappeared",
+                trace.destination.value()
+            ),
+        };
+        record.stored = match record.stored.checked_add(trace.energy) {
+            Some(stored) => stored,
+            None => panic!("runtime invariant broken: released-energy sink overflowed"),
+        };
+    }
+    state.revision = next_revision;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -394,6 +706,19 @@ mod tests {
             Energy::from_nanojoules(1_000),
             Power::from_microwatts(25),
         ))
+    }
+
+    fn sink_registries() -> Registries {
+        make_test_registries_with_energy_store(
+            super::super::EnergyStoreDefinition::new_with_transfer_limits(
+                STORE_DEFINITION,
+                "energy sink execution fixture",
+                EnergyCarrier::Thermal,
+                Energy::from_nanojoules(1_000),
+                Power::from_microwatts(40),
+                Power::ZERO,
+            ),
+        )
     }
 
     #[test]
@@ -544,6 +869,114 @@ mod tests {
                 store,
                 available: Energy::from_nanojoules(50),
                 requested: Energy::from_nanojoules(51),
+            })
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn output_only_store_rejects_energy_sink_binding_without_mutation() {
+        let registries = registries();
+        let mut state = AppState::new(WorldSeed::new(0x9300_0006));
+        let store = match add_energy_store(&registries, &mut state, STORE_DEFINITION) {
+            Ok(store) => store,
+            Err(error) => panic!("output-only store fixture failed: {error}"),
+        };
+        let before = state.clone();
+
+        assert_eq!(
+            validate_energy_sink(&registries, &state, store, Energy::from_nanojoules(1),),
+            Err(EnergySinkError::NoInputPower { store })
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn sink_only_store_rejects_energy_supply_binding_without_mutation() {
+        let registries = sink_registries();
+        let mut state = AppState::new(WorldSeed::new(0x9300_0007));
+        let store = match add_energy_store_with_initial_for_test(
+            &registries,
+            &mut state,
+            STORE_DEFINITION,
+            Energy::from_nanojoules(500),
+        ) {
+            Ok(store) => store,
+            Err(error) => panic!("sink-only store fixture failed: {error}"),
+        };
+        let before = state.clone();
+
+        assert_eq!(
+            validate_energy_supply(&registries, &state, store, Energy::from_nanojoules(1),),
+            Err(EnergySupplyError::NoOutputPower { store })
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn sink_binding_reserves_exact_capacity_and_is_revision_bound() {
+        let registries = sink_registries();
+        let mut state = AppState::new(WorldSeed::new(0x9300_0008));
+        let store = match add_energy_store_with_initial_for_test(
+            &registries,
+            &mut state,
+            STORE_DEFINITION,
+            Energy::from_nanojoules(700),
+        ) {
+            Ok(store) => store,
+            Err(error) => panic!("energy sink fixture failed: {error}"),
+        };
+        let sink =
+            match validate_energy_sink(&registries, &state, store, Energy::from_nanojoules(300)) {
+                Ok(sink) => sink,
+                Err(error) => panic!("energy sink validation failed: {error}"),
+            };
+        assert_eq!(sink.max_input_power(), Power::from_microwatts(40));
+        assert_eq!(sink.trace().destination(), store);
+        assert_eq!(sink.trace().energy(), Energy::from_nanojoules(300));
+        assert_eq!(
+            state
+                .energy()
+                .get_store(store)
+                .map(EnergyStoreRecord::stored),
+            Some(Energy::from_nanojoules(700))
+        );
+
+        let expected = state.energy().revision();
+        if let Err(error) = add_energy_store(&registries, &mut state, STORE_DEFINITION) {
+            panic!("independent sink mutation failed: {error}");
+        }
+        assert_eq!(
+            validate_energy_ingress_reservation(&registries, state.energy_state(), sink),
+            Err(EnergyIngressReservationError::StaleSelection {
+                expected,
+                actual: expected + 1,
+            })
+        );
+    }
+
+    #[test]
+    fn sink_rejects_capacity_overrun_without_mutation() {
+        let registries = sink_registries();
+        let mut state = AppState::new(WorldSeed::new(0x9300_0009));
+        let store = match add_energy_store_with_initial_for_test(
+            &registries,
+            &mut state,
+            STORE_DEFINITION,
+            Energy::from_nanojoules(900),
+        ) {
+            Ok(store) => store,
+            Err(error) => panic!("capacity sink fixture failed: {error}"),
+        };
+        let before = state.clone();
+
+        assert_eq!(
+            validate_energy_sink(&registries, &state, store, Energy::from_nanojoules(101),),
+            Err(EnergySinkError::InsufficientCapacity {
+                store,
+                stored: Energy::from_nanojoules(900),
+                requested: Energy::from_nanojoules(101),
+                capacity: Energy::from_nanojoules(1_000),
             })
         );
         assert_eq!(state, before);

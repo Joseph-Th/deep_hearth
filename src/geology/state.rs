@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::SimulationTick;
 use crate::material::{
-    CommodityKey, CompositionError, MaterialComposition, MaterialId, MaterialRegistry,
+    CommodityKey, CompositionError, MaterialComposition, MaterialId, MaterialPhase,
+    MaterialPhaseStateError, MaterialRegistry, validate_material_phase_state,
 };
 use crate::spatial::VoxelBounds;
 
@@ -275,6 +276,15 @@ pub enum GeologyValidationError {
         deposit: GeologicalDepositId,
         form: crate::material::FormId,
     },
+    UnsupportedCommodityPhase {
+        deposit: GeologicalDepositId,
+        form: crate::material::FormId,
+        phase: MaterialPhase,
+    },
+    InvalidPhaseState {
+        deposit: GeologicalDepositId,
+        error: MaterialPhaseStateError,
+    },
     UnknownCompositionMaterial {
         deposit: GeologicalDepositId,
         material: MaterialId,
@@ -354,6 +364,21 @@ impl Display for GeologyValidationError {
                 deposit.value(),
                 form.value()
             ),
+            Self::UnsupportedCommodityPhase {
+                deposit,
+                form,
+                phase,
+            } => write!(
+                formatter,
+                "geological deposit {} uses {phase:?} form {}; finite geological deposits must be solid",
+                deposit.value(),
+                form.value()
+            ),
+            Self::InvalidPhaseState { deposit, error } => write!(
+                formatter,
+                "geological deposit {} has invalid material phase state: {error}",
+                deposit.value()
+            ),
             Self::UnknownCompositionMaterial { deposit, material } => write!(
                 formatter,
                 "geological deposit {} composition references unknown material {}",
@@ -379,6 +404,7 @@ impl Error for GeologyValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::InvalidComposition { error, .. } => Some(error),
+            Self::InvalidPhaseState { error, .. } => Some(error),
             Self::ZeroNextDepositId
             | Self::NextIdNotAfterExisting { .. }
             | Self::ZeroDepositId
@@ -390,6 +416,7 @@ impl Error for GeologyValidationError {
             | Self::CompositionMissingHost { .. }
             | Self::UnknownCommodityMaterial { .. }
             | Self::UnknownCommodityForm { .. }
+            | Self::UnsupportedCommodityPhase { .. }
             | Self::UnknownCompositionMaterial { .. }
             | Self::GeneratedInFuture { .. } => None,
         }
@@ -470,10 +497,17 @@ pub(crate) fn validate_loaded_geology(
                 material: record.commodity.material(),
             });
         }
-        if materials.get_form(record.commodity.form()).is_none() {
+        let Some(form) = materials.get_form(record.commodity.form()) else {
             return Err(GeologyValidationError::UnknownCommodityForm {
                 deposit: *key,
                 form: record.commodity.form(),
+            });
+        };
+        if form.phase() != MaterialPhase::Solid {
+            return Err(GeologyValidationError::UnsupportedCommodityPhase {
+                deposit: *key,
+                form: record.commodity.form(),
+                phase: form.phase(),
             });
         }
         for component in record.composition.components() {
@@ -484,6 +518,16 @@ pub(crate) fn validate_loaded_geology(
                 });
             }
         }
+        validate_material_phase_state(
+            materials,
+            record.commodity,
+            &record.composition,
+            record.temperature,
+        )
+        .map_err(|error| GeologyValidationError::InvalidPhaseState {
+            deposit: *key,
+            error,
+        })?;
         if record.generated_at > current {
             return Err(GeologyValidationError::GeneratedInFuture {
                 deposit: *key,
@@ -499,7 +543,7 @@ pub(crate) fn validate_loaded_geology(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::{FORM_ORE, MATERIAL_COPPER, build_registries};
+    use crate::content::{FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, build_registries};
     use crate::spatial::VoxelCoord;
 
     fn bounds() -> VoxelBounds {
@@ -535,6 +579,37 @@ mod tests {
             Err(GeologyValidationError::DepletedWithRemainingMass {
                 deposit,
                 remaining: Mass::from_milligrams(25),
+            })
+        );
+    }
+
+    #[test]
+    fn loaded_validation_rejects_liquid_geological_deposit() {
+        let registries = build_registries();
+        let deposit = GeologicalDepositId::new(1);
+        let mut state = GeologyState::new();
+        state.next_deposit_id = 2;
+        state.deposits.insert(
+            deposit,
+            GeologicalDepositRecord {
+                id: deposit,
+                bounds: bounds(),
+                commodity: CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+                initial_mass: Mass::from_milligrams(100),
+                remaining_mass: Mass::from_milligrams(100),
+                temperature: Temperature::from_millikelvin(1_357_770),
+                composition: MaterialComposition::pure(MATERIAL_COPPER),
+                lifecycle: GeologicalDepositLifecycle::Available,
+                generated_at: SimulationTick::ZERO,
+            },
+        );
+
+        assert_eq!(
+            validate_loaded_geology(registries.materials(), &state, SimulationTick::ZERO),
+            Err(GeologyValidationError::UnsupportedCommodityPhase {
+                deposit,
+                form: FORM_MOLTEN,
+                phase: MaterialPhase::Liquid,
             })
         );
     }
