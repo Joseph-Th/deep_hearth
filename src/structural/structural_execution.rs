@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Area, Force};
 use crate::core::state::AppState;
+use crate::equipment::EquipmentId;
 use crate::material::MaterialId;
 use crate::registry::Registries;
 use crate::spatial::VoxelBounds;
@@ -152,6 +153,13 @@ pub enum StructuralMutationError {
     ElementFailed {
         element: StructuralElementId,
     },
+    ElementSupportsEquipment {
+        element: StructuralElementId,
+        equipment: EquipmentId,
+    },
+    LoadOwnedBySubsystem {
+        kind: StructuralLoadKind,
+    },
     SupportFailed {
         support: StructuralElementId,
     },
@@ -196,6 +204,16 @@ impl Display for StructuralMutationError {
                 formatter,
                 "failed structural element {} cannot be reconfigured",
                 element.value()
+            ),
+            Self::ElementSupportsEquipment { element, equipment } => write!(
+                formatter,
+                "structural element {} cannot be removed while it supports equipment {}",
+                element.value(),
+                equipment.value()
+            ),
+            Self::LoadOwnedBySubsystem { kind } => write!(
+                formatter,
+                "structural {kind:?} load contribution is owned by its source subsystem and cannot be set directly"
             ),
             Self::SupportFailed { support } => write!(
                 formatter,
@@ -255,6 +273,8 @@ impl Error for StructuralMutationError {
             Self::UnknownElement { .. }
             | Self::UnknownSupport { .. }
             | Self::ElementFailed { .. }
+            | Self::ElementSupportsEquipment { .. }
+            | Self::LoadOwnedBySubsystem { .. }
             | Self::SupportFailed { .. }
             | Self::GroundedElementCannotHaveSupport { .. }
             | Self::SelfSupport { .. }
@@ -724,6 +744,9 @@ pub fn validate_remove_structural_element(
     if state.structures().get_element(element).is_none() {
         return Err(StructuralMutationError::UnknownElement { element });
     }
+    if let Some(equipment) = state.equipment().supported_equipment(element).next() {
+        return Err(StructuralMutationError::ElementSupportsEquipment { element, equipment });
+    }
     build_plan(
         registries,
         state,
@@ -774,6 +797,27 @@ pub fn validate_set_structural_load(
     load: Force,
 ) -> Result<ValidatedStructuralMutation, StructuralMutationError> {
     validate_common_element(state, element)?;
+    if kind == StructuralLoadKind::Equipment {
+        return Err(StructuralMutationError::LoadOwnedBySubsystem { kind });
+    }
+    validate_set_owned_structural_load(registries, state, element, kind, load)
+}
+
+/// Validates a load contribution written by the subsystem that owns that physical source.
+///
+/// Owned integrations may need to clear their contribution from failed debris, which is why this
+/// internal boundary requires only record existence while the public arbitrary-load API rejects
+/// failed elements.
+pub(crate) fn validate_set_owned_structural_load(
+    registries: &Registries,
+    state: &AppState,
+    element: StructuralElementId,
+    kind: StructuralLoadKind,
+    load: Force,
+) -> Result<ValidatedStructuralMutation, StructuralMutationError> {
+    if state.structures().get_element(element).is_none() {
+        return Err(StructuralMutationError::UnknownElement { element });
+    }
     build_plan(
         registries,
         state,

@@ -14,7 +14,10 @@ pub use definitions::{
     STRUCTURAL_PARTS_PER_MILLION, StructuralLoadMode, StructuralProfileDefinition,
     StructuralProfileId, StructuralRegistry,
 };
-pub use load::{calculate_pressure_force_ceiling, calculate_weight_force_ceiling};
+pub use load::{
+    calculate_aggregate_weight_force_ceiling, calculate_pressure_force_ceiling,
+    calculate_weight_force_ceiling,
+};
 pub use state::{
     StructuralElementId, StructuralElementRecord, StructuralLifecycle, StructuralLoadKind,
     StructureState, StructureValidationError,
@@ -27,3 +30,4 @@ pub use structural_execution::{
 };
 
 pub(crate) use state::validate_loaded_structure;
+pub(crate) use structural_execution::validate_set_owned_structural_load;

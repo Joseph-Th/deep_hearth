@@ -4,9 +4,11 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::capability::{CapabilityProfile, CapabilityRegistry};
+use crate::capability::{
+    CapabilityId, CapabilityProfile, CapabilityRegistry, CapabilityValue, CapabilityValueKind,
+};
 use crate::core::quantity::Mass;
-use crate::maintenance::MaintenanceThresholds;
+use crate::maintenance::{Condition, MaintenanceThresholds};
 
 /// Stable authored identifier for one equipment definition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -25,6 +27,123 @@ impl EquipmentDefinitionId {
     }
 }
 
+/// One authored effective capability value at a specific remaining-condition point.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CapabilityConditionPoint {
+    condition: Condition,
+    value: CapabilityValue,
+}
+
+impl CapabilityConditionPoint {
+    #[must_use]
+    pub const fn new(condition: Condition, value: CapabilityValue) -> Self {
+        Self { condition, value }
+    }
+
+    #[must_use]
+    pub const fn condition(self) -> Condition {
+        self.condition
+    }
+
+    #[must_use]
+    pub const fn value(self) -> CapabilityValue {
+        self.value
+    }
+}
+
+/// Authored piecewise-linear response of one capability to equipment degradation.
+///
+/// The pristine endpoint is the equipment's nominal capability value and is deliberately not
+/// duplicated here. Curves begin at failed condition, cover one physical value kind, and use
+/// strictly increasing condition points. Resolution clamps at the failed endpoint and interpolates
+/// deterministically toward the nominal pristine value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CapabilityConditionCurve {
+    capability: CapabilityId,
+    points: Vec<CapabilityConditionPoint>,
+}
+
+impl CapabilityConditionCurve {
+    #[must_use]
+    pub fn new(capability: CapabilityId, mut points: Vec<CapabilityConditionPoint>) -> Self {
+        assert!(
+            !points.is_empty(),
+            "equipment capability condition curve {} must contain at least one point",
+            capability.value()
+        );
+        points.sort_by_key(|point| point.condition());
+        assert_eq!(
+            points[0].condition(),
+            Condition::FAILED,
+            "equipment capability condition curve {} must begin at failed condition",
+            capability.value()
+        );
+        let kind = points[0].value().kind();
+        assert_ne!(
+            kind,
+            CapabilityValueKind::Presence,
+            "equipment capability condition curve {} cannot interpolate a Presence capability; discrete capability availability requires an explicit policy",
+            capability.value()
+        );
+        for point in &points {
+            assert!(
+                point.condition() < Condition::PRISTINE,
+                "equipment capability condition curve {} must not duplicate the implicit pristine endpoint",
+                capability.value()
+            );
+            assert_eq!(
+                point.value().kind(),
+                kind,
+                "equipment capability condition curve {} mixes physical value kinds",
+                capability.value()
+            );
+        }
+        for pair in points.windows(2) {
+            assert!(
+                pair[0].condition() < pair[1].condition(),
+                "equipment capability condition curve {} contains duplicate condition points",
+                capability.value()
+            );
+        }
+        Self { capability, points }
+    }
+
+    #[must_use]
+    pub const fn capability(&self) -> CapabilityId {
+        self.capability
+    }
+
+    #[must_use]
+    pub fn points(&self) -> &[CapabilityConditionPoint] {
+        &self.points
+    }
+
+    pub(crate) fn value_kind(&self) -> crate::capability::CapabilityValueKind {
+        self.points[0].value().kind()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn continuous_condition_curve_rejects_presence_capability() {
+        let capability = CapabilityId::new(810_001);
+        let result = std::panic::catch_unwind(|| {
+            CapabilityConditionCurve::new(
+                capability,
+                vec![CapabilityConditionPoint::new(
+                    Condition::FAILED,
+                    CapabilityValue::Present,
+                )],
+            )
+        });
+
+        assert!(result.is_err());
+    }
+}
+
 /// Immutable authored properties shared by all runtime instances of one equipment class.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EquipmentDefinition {
@@ -32,6 +151,7 @@ pub struct EquipmentDefinition {
     name: String,
     mass: Mass,
     capabilities: CapabilityProfile,
+    capability_condition_curves: BTreeMap<CapabilityId, CapabilityConditionCurve>,
     maintenance_thresholds: MaintenanceThresholds,
 }
 
@@ -44,17 +164,62 @@ impl EquipmentDefinition {
         capabilities: CapabilityProfile,
         maintenance_thresholds: MaintenanceThresholds,
     ) -> Self {
+        Self::new_with_capability_condition_curves(
+            id,
+            name,
+            mass,
+            capabilities,
+            maintenance_thresholds,
+            Vec::new(),
+        )
+    }
+
+    #[must_use]
+    pub fn new_with_capability_condition_curves(
+        id: EquipmentDefinitionId,
+        name: impl Into<String>,
+        mass: Mass,
+        capabilities: CapabilityProfile,
+        maintenance_thresholds: MaintenanceThresholds,
+        capability_condition_curves: Vec<CapabilityConditionCurve>,
+    ) -> Self {
         let name = name.into();
         assert!(
             !name.trim().is_empty(),
             "equipment definition name must not be empty"
         );
         assert!(!mass.is_zero(), "equipment definition mass must be nonzero");
+        let mut curves_by_capability = BTreeMap::new();
+        for curve in capability_condition_curves {
+            let capability = curve.capability();
+            let nominal = match capabilities.get_capability(capability) {
+                Some(value) => value,
+                None => panic!(
+                    "equipment definition {} condition curve references missing nominal capability {}",
+                    id.value(),
+                    capability.value()
+                ),
+            };
+            assert_eq!(
+                nominal.kind(),
+                curve.value_kind(),
+                "equipment definition {} condition curve {} has wrong physical value kind",
+                id.value(),
+                capability.value()
+            );
+            assert!(
+                curves_by_capability.insert(capability, curve).is_none(),
+                "equipment definition {} contains duplicate condition curves for capability {}",
+                id.value(),
+                capability.value()
+            );
+        }
         Self {
             id,
             name,
             mass,
             capabilities,
+            capability_condition_curves: curves_by_capability,
             maintenance_thresholds,
         }
     }
@@ -77,6 +242,14 @@ impl EquipmentDefinition {
     #[must_use]
     pub const fn capabilities(&self) -> &CapabilityProfile {
         &self.capabilities
+    }
+
+    #[must_use]
+    pub fn get_capability_condition_curve(
+        &self,
+        capability: CapabilityId,
+    ) -> Option<&CapabilityConditionCurve> {
+        self.capability_condition_curves.get(&capability)
     }
 
     #[must_use]

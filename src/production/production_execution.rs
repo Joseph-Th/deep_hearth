@@ -18,6 +18,7 @@ use crate::inventory::{
 };
 use crate::material::{FormId, MaterialId, MaterialLotSpec};
 use crate::registry::Registries;
+use crate::structural::{StructuralElementId, StructuralLifecycle};
 
 use super::definitions::ProcessId;
 use super::resolution::{ProcessResolution, sum_lot_spec_mass};
@@ -78,6 +79,10 @@ pub enum StartProcessError {
         expected_equipment_revision: u64,
         actual_equipment_revision: u64,
     },
+    StaleResolvedStructure {
+        expected_structure_revision: u64,
+        actual_structure_revision: u64,
+    },
     ResolvedEnergyStoreMissing,
     ResolvedEnergyInsufficient,
     ResolvedEquipmentMissing {
@@ -88,6 +93,20 @@ pub enum StartProcessError {
     },
     ResolvedEquipmentConditionChanged {
         equipment: EquipmentId,
+    },
+    ResolvedEquipmentSupportChanged {
+        equipment: EquipmentId,
+        expected: Option<StructuralElementId>,
+        actual: Option<StructuralElementId>,
+    },
+    ResolvedEquipmentSupportMissing {
+        equipment: EquipmentId,
+        element: StructuralElementId,
+    },
+    ResolvedEquipmentSupportNotActive {
+        equipment: EquipmentId,
+        element: StructuralElementId,
+        lifecycle: StructuralLifecycle,
     },
     EquipmentBusy {
         equipment: EquipmentId,
@@ -198,6 +217,13 @@ impl Display for StartProcessError {
                 formatter,
                 "resolved process equipment expected revision {expected_equipment_revision} but current equipment revision is {actual_equipment_revision}"
             ),
+            Self::StaleResolvedStructure {
+                expected_structure_revision,
+                actual_structure_revision,
+            } => write!(
+                formatter,
+                "resolved process equipment support expected structural revision {expected_structure_revision} but current structural revision is {actual_structure_revision}"
+            ),
             Self::ResolvedEnergyStoreMissing => {
                 formatter.write_str("resolved process energy store no longer exists")
             }
@@ -218,6 +244,31 @@ impl Display for StartProcessError {
                 formatter,
                 "resolved process equipment {} changed condition after resolution",
                 equipment.value()
+            ),
+            Self::ResolvedEquipmentSupportChanged {
+                equipment,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "resolved process equipment {} support changed from {expected:?} to {actual:?} after resolution",
+                equipment.value()
+            ),
+            Self::ResolvedEquipmentSupportMissing { equipment, element } => write!(
+                formatter,
+                "resolved process equipment {} references missing structural support {}",
+                equipment.value(),
+                element.value()
+            ),
+            Self::ResolvedEquipmentSupportNotActive {
+                equipment,
+                element,
+                lifecycle,
+            } => write!(
+                formatter,
+                "resolved process equipment {} structural support {} is {lifecycle:?} and cannot authorize process start",
+                equipment.value(),
+                element.value()
             ),
             Self::EquipmentBusy {
                 equipment,
@@ -243,6 +294,7 @@ pub enum StartProcessCommitError {
     StaleInventoryRevision { expected: u64, actual: u64 },
     StaleEnergyRevision { expected: u64, actual: u64 },
     StaleEquipmentRevision { expected: u64, actual: u64 },
+    StaleStructureRevision { expected: u64, actual: u64 },
 }
 
 impl Display for StartProcessCommitError {
@@ -263,6 +315,10 @@ impl Display for StartProcessCommitError {
             Self::StaleEquipmentRevision { expected, actual } => write!(
                 formatter,
                 "validated process start expected equipment revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "validated process start expected structural revision {expected} but current revision is {actual}"
             ),
         }
     }
@@ -323,13 +379,22 @@ impl ValidatedStartProcess {
             }
         }
         if let Some(equipment) = equipment_use {
-            let expected_equipment_revision = equipment.expected_revision();
+            let expected_equipment_revision = equipment.expected_equipment_revision();
             let actual_equipment_revision = state.equipment_state().revision();
             if actual_equipment_revision != expected_equipment_revision {
                 return Err(StartProcessCommitError::StaleEquipmentRevision {
                     expected: expected_equipment_revision,
                     actual: actual_equipment_revision,
                 });
+            }
+            if let Some(expected_structure_revision) = equipment.expected_structure_revision() {
+                let actual_structure_revision = state.structures().revision();
+                if actual_structure_revision != expected_structure_revision {
+                    return Err(StartProcessCommitError::StaleStructureRevision {
+                        expected: expected_structure_revision,
+                        actual: actual_structure_revision,
+                    });
+                }
             }
         }
         apply_consumption_reservation(state.inventory_state_mut(), reservation).map_err(
@@ -454,7 +519,7 @@ pub fn validate_start_process(
     let equipment_use = resolution.equipment_use();
     let equipment_provider = match equipment_use {
         Some(selection) => {
-            let expected = selection.expected_revision();
+            let expected = selection.expected_equipment_revision();
             let actual = state.equipment().revision();
             if actual != expected {
                 return Err(StartProcessError::StaleResolvedEquipment {
@@ -477,6 +542,43 @@ pub fn validate_start_process(
                 return Err(StartProcessError::ResolvedEquipmentConditionChanged {
                     equipment: trace.equipment(),
                 });
+            }
+            let expected_support = selection.support();
+            let actual_support = record.supported_by();
+            if actual_support != expected_support {
+                return Err(StartProcessError::ResolvedEquipmentSupportChanged {
+                    equipment: trace.equipment(),
+                    expected: expected_support,
+                    actual: actual_support,
+                });
+            }
+            if let Some(expected_structure_revision) = selection.expected_structure_revision() {
+                let actual_structure_revision = state.structures().revision();
+                if actual_structure_revision != expected_structure_revision {
+                    return Err(StartProcessError::StaleResolvedStructure {
+                        expected_structure_revision,
+                        actual_structure_revision,
+                    });
+                }
+                let element = match expected_support {
+                    Some(element) => element,
+                    None => panic!(
+                        "validated equipment use has structural revision without a support element"
+                    ),
+                };
+                let Some(support) = state.structures().get_element(element) else {
+                    return Err(StartProcessError::ResolvedEquipmentSupportMissing {
+                        equipment: trace.equipment(),
+                        element,
+                    });
+                };
+                if support.lifecycle() != StructuralLifecycle::Active {
+                    return Err(StartProcessError::ResolvedEquipmentSupportNotActive {
+                        equipment: trace.equipment(),
+                        element,
+                        lifecycle: support.lifecycle(),
+                    });
+                }
             }
             if let Some(job) = state.production().jobs().find(|job| {
                 job.equipment_provider()

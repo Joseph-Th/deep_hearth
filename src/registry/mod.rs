@@ -5,6 +5,7 @@ use std::num::NonZeroU16;
 use serde::{Deserialize, Serialize};
 
 use crate::capability::CapabilityRegistry;
+use crate::core::quantity::Acceleration;
 use crate::energy::EnergyRegistry;
 use crate::equipment::EquipmentRegistry;
 use crate::material::MaterialRegistry;
@@ -33,21 +34,31 @@ impl RegistrySchemaVersion {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CoreDefinitions {
     ticks_per_second: NonZeroU16,
+    gravity: Acceleration,
 }
 
 impl CoreDefinitions {
-    pub(crate) fn new(ticks_per_second: u16) -> Self {
+    pub(crate) fn new(ticks_per_second: u16, gravity: Acceleration) -> Self {
         let Some(ticks_per_second) = NonZeroU16::new(ticks_per_second) else {
             panic!("core registry ticks_per_second must be nonzero");
         };
 
-        Self { ticks_per_second }
+        Self {
+            ticks_per_second,
+            gravity,
+        }
     }
 
     /// Returns the authoritative base tick frequency.
     #[must_use]
     pub const fn ticks_per_second(&self) -> NonZeroU16 {
         self.ticks_per_second
+    }
+
+    /// Returns the authored world gravitational acceleration used by weight-bearing systems.
+    #[must_use]
+    pub const fn gravity(&self) -> Acceleration {
+        self.gravity
     }
 }
 

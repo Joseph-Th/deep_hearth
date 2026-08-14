@@ -8,6 +8,7 @@ mod processes;
 mod structural;
 mod thermal;
 
+use crate::core::quantity::Acceleration;
 use crate::registry::{CoreDefinitions, Registries, RegistryDomains, RegistrySchemaVersion};
 
 #[cfg(test)]
@@ -28,14 +29,24 @@ pub use materials::{
 pub use structural::{STRUCTURAL_PROFILE_AXIAL_COMPRESSION, STRUCTURAL_PROFILE_AXIAL_TENSION};
 
 const DEFAULT_TICKS_PER_SECOND: u16 = 20;
-const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(4);
+const DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED: u64 = 9_806_650;
+const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(5);
+
+fn build_core_definitions() -> CoreDefinitions {
+    CoreDefinitions::new(
+        DEFAULT_TICKS_PER_SECOND,
+        Acceleration::from_micrometers_per_second_squared(
+            DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED,
+        ),
+    )
+}
 
 /// Builds the immutable built-in registry set used by a new application instance.
 #[must_use]
 pub fn build_registries() -> Registries {
     Registries::new(
         REGISTRY_SCHEMA_VERSION,
-        CoreDefinitions::new(DEFAULT_TICKS_PER_SECOND),
+        build_core_definitions(),
         RegistryDomains::new(
             energy::build_energy_registry(),
             capabilities::build_capability_registry(),
@@ -57,7 +68,7 @@ pub(crate) fn make_test_registries_with_equipment(
     capabilities.register_capability(capability);
     Registries::new(
         REGISTRY_SCHEMA_VERSION,
-        CoreDefinitions::new(DEFAULT_TICKS_PER_SECOND),
+        build_core_definitions(),
         RegistryDomains::new(
             energy::build_energy_registry(),
             capabilities,
@@ -76,7 +87,7 @@ pub(crate) fn make_test_registries_with_process(process: ProcessDefinition) -> R
     production.register_process_for_test(process);
     Registries::new(
         REGISTRY_SCHEMA_VERSION,
-        CoreDefinitions::new(DEFAULT_TICKS_PER_SECOND),
+        build_core_definitions(),
         RegistryDomains::new(
             energy::build_energy_registry(),
             capabilities::build_capability_registry(),
@@ -95,7 +106,7 @@ pub(crate) fn make_test_registries_with_energy_store(
 ) -> Registries {
     Registries::new(
         REGISTRY_SCHEMA_VERSION,
-        CoreDefinitions::new(DEFAULT_TICKS_PER_SECOND),
+        build_core_definitions(),
         RegistryDomains::new(
             EnergyRegistry::new([definition]),
             capabilities::build_capability_registry(),
@@ -124,7 +135,7 @@ pub(crate) fn make_test_registries_with_sensible_heating(
     production.register_process_for_test(process);
     Registries::new(
         REGISTRY_SCHEMA_VERSION,
-        CoreDefinitions::new(DEFAULT_TICKS_PER_SECOND),
+        build_core_definitions(),
         RegistryDomains::new(
             EnergyRegistry::new([energy_definition]),
             capabilities,
@@ -156,6 +167,10 @@ mod tests {
         let registries = build_registries();
 
         assert_eq!(registries.core().ticks_per_second().get(), 20);
+        assert_eq!(
+            registries.core().gravity().micrometers_per_second_squared(),
+            DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED
+        );
     }
 
     #[test]
@@ -184,7 +199,7 @@ mod tests {
 
         let registries = Registries::new(
             REGISTRY_SCHEMA_VERSION,
-            CoreDefinitions::new(DEFAULT_TICKS_PER_SECOND),
+            build_core_definitions(),
             RegistryDomains::new(
                 energy::build_energy_registry(),
                 capabilities,

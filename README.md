@@ -9,9 +9,11 @@ owners of gameplay state or rules.
 The implemented foundation includes persisted independent RNG streams, exact integer engineering
 quantities, composition-aware material lots, atomic inventory transactions, closed-mass durable
 production, typed capability requirements, maintenance condition, thermal/volume calculations,
-energy/electrical/fluid scalar integration, versioned persistence, chunk-independent spatial types,
-global matter accounting, and a deterministic 10,000-tick soak. Built-in gameplay processes remain
-unregistered until their real physical authorization systems exist.
+condition-sensitive equipment capabilities, equipment weight coupled into structural failure,
+energy/electrical/fluid scalar integration, exact torque/speed mechanical transmission primitives,
+versioned persistence, chunk-independent spatial types, global matter accounting, and deterministic
+soak coverage. Built-in gameplay processes remain unregistered until their real physical
+authorization systems exist.
 
 Read these documents before changing the project:
 

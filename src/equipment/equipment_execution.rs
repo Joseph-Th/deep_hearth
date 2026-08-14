@@ -61,6 +61,7 @@ pub fn add_equipment(
         id,
         definition,
         condition,
+        supported_by: None,
         created_at: state.tick(),
     };
 
@@ -207,6 +208,11 @@ pub enum EquipmentConditionCommitError {
         expected: Condition,
         actual: Condition,
     },
+    EquipmentBusy {
+        equipment: EquipmentId,
+        job: ProductionJobId,
+        completes_at: SimulationTick,
+    },
 }
 
 impl Display for EquipmentConditionCommitError {
@@ -230,6 +236,17 @@ impl Display for EquipmentConditionCommitError {
                 expected.parts_per_million(),
                 actual.parts_per_million()
             ),
+            Self::EquipmentBusy {
+                equipment,
+                job,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} became occupied by production job {} until tick {} before condition commit",
+                equipment.value(),
+                job.value(),
+                completes_at.value()
+            ),
         }
     }
 }
@@ -241,13 +258,25 @@ pub fn apply_equipment_condition_plan(
     state: &mut AppState,
     plan: EquipmentConditionPlan,
 ) -> Result<(), EquipmentConditionCommitError> {
-    let equipment_state = state.equipment_state_mut();
-    if equipment_state.revision != plan.expected_revision {
+    let actual_revision = state.equipment().revision();
+    if actual_revision != plan.expected_revision {
         return Err(EquipmentConditionCommitError::StaleRevision {
             expected: plan.expected_revision,
-            actual: equipment_state.revision,
+            actual: actual_revision,
         });
     }
+    if let Some(job) = state.production().jobs().find(|job| {
+        job.equipment_provider()
+            .is_some_and(|provider| provider.equipment() == plan.equipment)
+    }) {
+        return Err(EquipmentConditionCommitError::EquipmentBusy {
+            equipment: plan.equipment,
+            job: job.id(),
+            completes_at: job.completes_at(),
+        });
+    }
+
+    let equipment_state = state.equipment_state_mut();
     let Some(record) = equipment_state.records.get_mut(&plan.equipment) else {
         return Err(EquipmentConditionCommitError::UnknownEquipment {
             equipment: plan.equipment,

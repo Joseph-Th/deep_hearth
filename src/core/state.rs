@@ -6,7 +6,7 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::Mass;
+use crate::core::quantity::{AggregateMass, Force, Mass};
 use crate::energy::{EnergyState, EnergyValidationError, validate_loaded_energy};
 use crate::equipment::{
     EquipmentDefinitionId, EquipmentId, EquipmentState, EquipmentValidationError,
@@ -23,8 +23,9 @@ use crate::production::{
 };
 use crate::registry::Registries;
 use crate::structural::{
-    StructuralAnalysisError, StructuralDamageEvent, StructureState, StructureValidationError,
-    analyze_structure, validate_loaded_structure,
+    StructuralAnalysisError, StructuralDamageEvent, StructuralElementId, StructuralLifecycle,
+    StructuralLoadKind, StructureState, StructureValidationError, analyze_structure,
+    calculate_aggregate_weight_force_ceiling, validate_loaded_structure,
 };
 use crate::thermal::{ThermalJobValidationError, validate_loaded_thermal_job};
 
@@ -248,6 +249,25 @@ pub enum StateValidationError {
         first: ProductionJobId,
         second: ProductionJobId,
     },
+    UnknownEquipmentSupport {
+        equipment: EquipmentId,
+        element: StructuralElementId,
+    },
+    EquipmentSupportedByPlannedElement {
+        equipment: EquipmentId,
+        element: StructuralElementId,
+    },
+    MountedEquipmentMassOverflow {
+        element: StructuralElementId,
+    },
+    MountedEquipmentWeightOverflow {
+        element: StructuralElementId,
+    },
+    EquipmentStructuralLoadMismatch {
+        element: StructuralElementId,
+        stored: Force,
+        expected: Force,
+    },
     ThermalJob(ThermalJobValidationError),
     JobAlreadyDue {
         job: ProductionJobId,
@@ -454,6 +474,39 @@ impl Display for StateValidationError {
                 first.value(),
                 second.value()
             ),
+            Self::UnknownEquipmentSupport { equipment, element } => write!(
+                formatter,
+                "equipment {} references missing structural support element {}",
+                equipment.value(),
+                element.value()
+            ),
+            Self::EquipmentSupportedByPlannedElement { equipment, element } => write!(
+                formatter,
+                "equipment {} is assigned to planned structural element {} before activation",
+                equipment.value(),
+                element.value()
+            ),
+            Self::MountedEquipmentMassOverflow { element } => write!(
+                formatter,
+                "mounted equipment mass overflows aggregate accounting on structural element {}",
+                element.value()
+            ),
+            Self::MountedEquipmentWeightOverflow { element } => write!(
+                formatter,
+                "mounted equipment weight exceeds structural force range on element {}",
+                element.value()
+            ),
+            Self::EquipmentStructuralLoadMismatch {
+                element,
+                stored,
+                expected,
+            } => write!(
+                formatter,
+                "structural element {} stores {} mN equipment load but mounted equipment requires {} mN",
+                element.value(),
+                stored.millinewtons(),
+                expected.millinewtons()
+            ),
             Self::ThermalJob(error) => write!(formatter, "invalid thermal production job: {error}"),
             Self::JobAlreadyDue { job, current, due } => write!(
                 formatter,
@@ -528,6 +581,11 @@ impl Error for StateValidationError {
             | Self::JobEquipmentDefinitionMismatch { .. }
             | Self::JobEquipmentConditionMismatch { .. }
             | Self::EquipmentDoubleBooked { .. }
+            | Self::UnknownEquipmentSupport { .. }
+            | Self::EquipmentSupportedByPlannedElement { .. }
+            | Self::MountedEquipmentMassOverflow { .. }
+            | Self::MountedEquipmentWeightOverflow { .. }
+            | Self::EquipmentStructuralLoadMismatch { .. }
             | Self::JobAlreadyDue { .. }
             | Self::ReservedMassOverflow { .. }
             | Self::UnknownJobOutputCommodity { .. }
@@ -567,6 +625,59 @@ pub fn validate_loaded_state(
         state.tick(),
     )
     .map_err(StateValidationError::Structure)?;
+
+    let mut mounted_mass_by_element = BTreeMap::<StructuralElementId, AggregateMass>::new();
+    for equipment in state.equipment.equipment() {
+        let Some(element) = equipment.supported_by() else {
+            continue;
+        };
+        let Some(structural) = state.structures.get_element(element) else {
+            return Err(StateValidationError::UnknownEquipmentSupport {
+                equipment: equipment.id(),
+                element,
+            });
+        };
+        if structural.lifecycle() == StructuralLifecycle::Planned {
+            return Err(StateValidationError::EquipmentSupportedByPlannedElement {
+                equipment: equipment.id(),
+                element,
+            });
+        }
+        let Some(definition) = registries.equipment().get_equipment(equipment.definition()) else {
+            return Err(StateValidationError::Equipment(
+                EquipmentValidationError::UnknownDefinition {
+                    equipment: equipment.id(),
+                    definition: equipment.definition(),
+                },
+            ));
+        };
+        let current = mounted_mass_by_element
+            .get(&element)
+            .copied()
+            .unwrap_or(AggregateMass::ZERO);
+        let next = current
+            .checked_add(AggregateMass::from_mass(definition.mass()))
+            .ok_or(StateValidationError::MountedEquipmentMassOverflow { element })?;
+        mounted_mass_by_element.insert(element, next);
+    }
+    for structural in state.structures.elements() {
+        let element = structural.id();
+        let mass = mounted_mass_by_element
+            .get(&element)
+            .copied()
+            .unwrap_or(AggregateMass::ZERO);
+        let expected = calculate_aggregate_weight_force_ceiling(mass, registries.core().gravity())
+            .ok_or(StateValidationError::MountedEquipmentWeightOverflow { element })?;
+        let stored = structural.load(StructuralLoadKind::Equipment);
+        if stored != expected {
+            return Err(StateValidationError::EquipmentStructuralLoadMismatch {
+                element,
+                stored,
+                expected,
+            });
+        }
+    }
+
     let structural_analysis = analyze_structure(
         registries.structural(),
         registries.materials(),
@@ -804,6 +915,10 @@ pub fn validate_invariants(_registries: &Registries, state: &AppState) {
     debug_assert!(
         state.equipment.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): equipment ID cursor must remain valid"
+    );
+    debug_assert!(
+        state.equipment.has_valid_support_index(),
+        "Runtime Invariant 12 (Derived Data Consistency): equipment support reverse index must match support ownership"
     );
     debug_assert!(
         state.structures.has_valid_id_cursor(),

@@ -13,6 +13,7 @@ pub mod inventory;
 pub mod maintenance;
 pub mod material;
 pub mod matter;
+pub mod mechanical;
 pub mod persistence;
 pub mod production;
 pub mod registry;

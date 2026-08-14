@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 13;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 14;
 
 /// Minimal version metadata that adapters decode before choosing a concrete save payload decoder.
 ///
@@ -169,6 +169,7 @@ mod tests {
     };
     use crate::equipment::{
         EquipmentDefinition, EquipmentDefinitionId, EquipmentValidationError, add_equipment,
+        validate_mount_equipment,
     };
     use crate::inventory::{
         MaterialLotSelection, add_stockpile, deposit_bulk_for_test, deposit_composed_lot_for_test,
@@ -482,7 +483,7 @@ mod tests {
     fn unsupported_schema_is_rejected_before_runtime_use() {
         let encoded = br#"{
             "schema_version": 999,
-            "registry_schema_version": 4,
+            "registry_schema_version": 5,
             "state": {
                 "world_seed": 11,
                 "clock": {"tick": 0},
@@ -497,7 +498,12 @@ mod tests {
                     }
                 },
                 "energy": {"revision": 0, "next_store_id": 1, "records": {}},
-                "equipment": {"revision": 0, "next_equipment_id": 1, "records": {}},
+                "equipment": {
+                    "revision": 0,
+                    "next_equipment_id": 1,
+                    "records": {},
+                    "equipment_by_support": {}
+                },
                 "structures": {
                     "revision": 0,
                     "next_element_id": 1,
@@ -667,7 +673,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("structural overload save serialization failed: {error}"),
         };
-        encoded["state"]["structures"]["elements"][column.value().to_string()]["loads"]["Equipment"] =
+        encoded["state"]["structures"]["elements"][column.value().to_string()]["loads"]["Snow"] =
             serde_json::json!(50_000_000_u64);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
@@ -691,14 +697,14 @@ mod tests {
     }
 
     #[test]
-    fn current_save_rejects_prior_registry_schema_after_energy_and_thermal_ids_are_added() {
+    fn current_save_rejects_prior_registry_schema_after_gravity_semantics_are_added() {
         let registries = build_registries();
         let state = AppState::new(WorldSeed::new(0x5700_0005));
         let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
             Ok(encoded) => encoded,
             Err(error) => panic!("registry compatibility save serialization failed: {error}"),
         };
-        encoded["registry_schema_version"] = serde_json::json!(3_u32);
+        encoded["registry_schema_version"] = serde_json::json!(4_u32);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("registry compatibility save failed decode: {error}"),
@@ -707,8 +713,8 @@ mod tests {
         assert_eq!(
             decoded.into_state(&registries),
             Err(LoadError::RegistrySchemaMismatch {
-                found: RegistrySchemaVersion::new(3),
-                supported: RegistrySchemaVersion::new(4),
+                found: RegistrySchemaVersion::new(4),
+                supported: RegistrySchemaVersion::new(5),
             })
         );
     }
@@ -748,6 +754,204 @@ mod tests {
         assert_eq!(record.stored(), Energy::from_nanojoules(600_000));
         assert_eq!(loaded.energy().revision(), 1);
         assert_eq!(loaded, state);
+    }
+
+    #[test]
+    fn mounted_equipment_round_trip_preserves_support_and_derived_structural_load() {
+        let registries = make_test_equipment_registries();
+        let mut state = AppState::new(WorldSeed::new(0xE011_0010));
+        let support = make_test_structural_element(&registries, &mut state, 0, 0, true);
+        activate_test_structural_element(&registries, &mut state, support);
+        let equipment = match add_equipment(
+            &registries,
+            &mut state,
+            TEST_EQUIPMENT_DEFINITION,
+            condition(575_000),
+        ) {
+            Ok(equipment) => equipment,
+            Err(error) => panic!("mounted equipment fixture creation failed: {error}"),
+        };
+        let mount = match validate_mount_equipment(&registries, &state, equipment, support) {
+            Ok(mount) => mount,
+            Err(error) => panic!("mounted equipment support validation failed: {error}"),
+        };
+        if let Err(error) = mount.commit(&mut state) {
+            panic!("mounted equipment support commit failed: {error}");
+        }
+        let expected_load = state
+            .structures()
+            .get_element(support)
+            .map(|record| record.load(StructuralLoadKind::Equipment));
+
+        let encoded = match serde_json::to_vec(&SaveEnvelope::new(&registries, &state)) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("mounted equipment save serialization failed: {error}"),
+        };
+        let decoded: LoadedSaveEnvelope = match serde_json::from_slice(&encoded) {
+            Ok(decoded) => decoded,
+            Err(error) => panic!("mounted equipment save deserialization failed: {error}"),
+        };
+        let loaded = match decoded.into_state(&registries) {
+            Ok(loaded) => loaded,
+            Err(error) => panic!("mounted equipment save validation failed: {error}"),
+        };
+
+        assert_eq!(
+            loaded
+                .equipment()
+                .get_equipment(equipment)
+                .and_then(|record| record.supported_by()),
+            Some(support)
+        );
+        assert_eq!(
+            loaded
+                .structures()
+                .get_element(support)
+                .map(|record| record.load(StructuralLoadKind::Equipment)),
+            expected_load
+        );
+        assert_eq!(loaded, state);
+    }
+
+    #[test]
+    fn mounted_equipment_with_missing_support_is_rejected_on_load() {
+        let registries = make_test_equipment_registries();
+        let mut state = AppState::new(WorldSeed::new(0xE011_0011));
+        let support = make_test_structural_element(&registries, &mut state, 0, 0, true);
+        activate_test_structural_element(&registries, &mut state, support);
+        let equipment = match add_equipment(
+            &registries,
+            &mut state,
+            TEST_EQUIPMENT_DEFINITION,
+            Condition::PRISTINE,
+        ) {
+            Ok(equipment) => equipment,
+            Err(error) => panic!("missing-support equipment fixture failed: {error}"),
+        };
+        let mount = match validate_mount_equipment(&registries, &state, equipment, support) {
+            Ok(mount) => mount,
+            Err(error) => panic!("missing-support mount validation failed: {error}"),
+        };
+        if let Err(error) = mount.commit(&mut state) {
+            panic!("missing-support mount commit failed: {error}");
+        }
+        let missing = StructuralElementId::new(999_991);
+        let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("missing-support save serialization failed: {error}"),
+        };
+        encoded["state"]["equipment"]["records"][equipment.value().to_string()]["supported_by"] =
+            serde_json::json!(missing.value());
+        encoded["state"]["equipment"]["equipment_by_support"] = serde_json::json!({});
+        encoded["state"]["equipment"]["equipment_by_support"][missing.value().to_string()] =
+            serde_json::json!([equipment.value()]);
+        let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
+            Ok(decoded) => decoded,
+            Err(error) => panic!("missing-support tampered save failed decode: {error}"),
+        };
+
+        assert_eq!(
+            decoded.into_state(&registries),
+            Err(LoadError::InvalidState(
+                StateValidationError::UnknownEquipmentSupport {
+                    equipment,
+                    element: missing,
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn mounted_equipment_missing_reverse_index_is_rejected_on_load() {
+        let registries = make_test_equipment_registries();
+        let mut state = AppState::new(WorldSeed::new(0xE011_0013));
+        let support = make_test_structural_element(&registries, &mut state, 0, 0, true);
+        activate_test_structural_element(&registries, &mut state, support);
+        let equipment = match add_equipment(
+            &registries,
+            &mut state,
+            TEST_EQUIPMENT_DEFINITION,
+            Condition::PRISTINE,
+        ) {
+            Ok(equipment) => equipment,
+            Err(error) => panic!("reverse-index equipment fixture failed: {error}"),
+        };
+        let mount = match validate_mount_equipment(&registries, &state, equipment, support) {
+            Ok(mount) => mount,
+            Err(error) => panic!("reverse-index mount validation failed: {error}"),
+        };
+        if let Err(error) = mount.commit(&mut state) {
+            panic!("reverse-index mount commit failed: {error}");
+        }
+        let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("reverse-index save serialization failed: {error}"),
+        };
+        encoded["state"]["equipment"]["equipment_by_support"] = serde_json::json!({});
+        let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
+            Ok(decoded) => decoded,
+            Err(error) => panic!("reverse-index tampered save failed decode: {error}"),
+        };
+
+        assert_eq!(
+            decoded.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Equipment(
+                EquipmentValidationError::MissingSupportIndex {
+                    equipment,
+                    element: support,
+                }
+            )))
+        );
+    }
+
+    #[test]
+    fn tampered_equipment_structural_load_is_rejected_on_load() {
+        let registries = make_test_equipment_registries();
+        let mut state = AppState::new(WorldSeed::new(0xE011_0012));
+        let support = make_test_structural_element(&registries, &mut state, 0, 0, true);
+        activate_test_structural_element(&registries, &mut state, support);
+        let equipment = match add_equipment(
+            &registries,
+            &mut state,
+            TEST_EQUIPMENT_DEFINITION,
+            Condition::PRISTINE,
+        ) {
+            Ok(equipment) => equipment,
+            Err(error) => panic!("load-tamper equipment fixture failed: {error}"),
+        };
+        let mount = match validate_mount_equipment(&registries, &state, equipment, support) {
+            Ok(mount) => mount,
+            Err(error) => panic!("load-tamper mount validation failed: {error}"),
+        };
+        if let Err(error) = mount.commit(&mut state) {
+            panic!("load-tamper mount commit failed: {error}");
+        }
+        let expected = match state.structures().get_element(support) {
+            Some(record) => record.load(StructuralLoadKind::Equipment),
+            None => panic!("load-tamper support disappeared"),
+        };
+        let stored = Force::from_millinewtons(expected.millinewtons() - 1);
+        let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("load-tamper save serialization failed: {error}"),
+        };
+        encoded["state"]["structures"]["elements"][support.value().to_string()]["loads"]["Equipment"] =
+            serde_json::json!(stored.millinewtons());
+        let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
+            Ok(decoded) => decoded,
+            Err(error) => panic!("load-tamper save failed decode: {error}"),
+        };
+
+        assert_eq!(
+            decoded.into_state(&registries),
+            Err(LoadError::InvalidState(
+                StateValidationError::EquipmentStructuralLoadMismatch {
+                    element: support,
+                    stored,
+                    expected,
+                }
+            ))
+        );
     }
 
     #[test]

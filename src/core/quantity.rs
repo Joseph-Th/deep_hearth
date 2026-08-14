@@ -150,6 +150,16 @@ unsigned_quantity!(
 );
 unsigned_quantity!(Power, u128, from_picowatts, picowatts);
 unsigned_quantity!(Force, u128, from_millinewtons, millinewtons);
+// Rotational torque uses micronewton-meters. Together with microradians/second this multiplies
+// exactly into picowatts, avoiding floating-point angular conversions in authoritative physics.
+unsigned_quantity!(Torque, u64, from_micronewton_meters, micronewton_meters);
+// Angular speed uses microradians per second. Radians are dimensionless for power calculation.
+unsigned_quantity!(
+    AngularSpeed,
+    u64,
+    from_microradians_per_second,
+    microradians_per_second
+);
 unsigned_quantity!(ElectricPotential, u64, from_microvolts, microvolts);
 unsigned_quantity!(ElectricCurrent, u64, from_microamperes, microamperes);
 unsigned_quantity!(ElectricalResistance, u64, from_microohms, microohms);
@@ -343,6 +353,14 @@ mod tests {
         );
         assert_eq!(Force::from_millinewtons(4_000).millinewtons(), 4_000);
         assert_eq!(Power::from_microwatts(3).picowatts(), 3_000_000);
+        assert_eq!(
+            Torque::from_micronewton_meters(2_000_000).micronewton_meters(),
+            2_000_000
+        );
+        assert_eq!(
+            AngularSpeed::from_microradians_per_second(3_000_000).microradians_per_second(),
+            3_000_000
+        );
         assert_eq!(ElectricPotential::from_microvolts(12).microvolts(), 12);
         assert_eq!(ElectricCurrent::from_microamperes(5).microamperes(), 5);
         assert_eq!(ElectricalResistance::from_microohms(7).microohms(), 7);

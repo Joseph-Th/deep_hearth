@@ -8,8 +8,8 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{
-    Area, ElectricCurrent, ElectricPotential, ElectricalResistance, Energy, Force, Mass, Power,
-    Pressure, Temperature, Volume, VolumetricFlow,
+    AngularSpeed, Area, ElectricCurrent, ElectricPotential, ElectricalResistance, Energy, Force,
+    Mass, Power, Pressure, Temperature, Torque, Volume, VolumetricFlow,
 };
 use crate::maintenance::Condition;
 
@@ -44,6 +44,8 @@ pub enum CapabilityValueKind {
     Area,
     Force,
     Power,
+    Torque,
+    AngularSpeed,
     ElectricPotential,
     ElectricCurrent,
     ElectricalResistance,
@@ -63,6 +65,8 @@ pub enum CapabilityValue {
     Area(Area),
     Force(Force),
     Power(Power),
+    Torque(Torque),
+    AngularSpeed(AngularSpeed),
     ElectricPotential(ElectricPotential),
     ElectricCurrent(ElectricCurrent),
     ElectricalResistance(ElectricalResistance),
@@ -83,6 +87,8 @@ impl CapabilityValue {
             Self::Area(_) => CapabilityValueKind::Area,
             Self::Force(_) => CapabilityValueKind::Force,
             Self::Power(_) => CapabilityValueKind::Power,
+            Self::Torque(_) => CapabilityValueKind::Torque,
+            Self::AngularSpeed(_) => CapabilityValueKind::AngularSpeed,
             Self::ElectricPotential(_) => CapabilityValueKind::ElectricPotential,
             Self::ElectricCurrent(_) => CapabilityValueKind::ElectricCurrent,
             Self::ElectricalResistance(_) => CapabilityValueKind::ElectricalResistance,
@@ -102,6 +108,8 @@ impl CapabilityValue {
             Self::Area(value) => u128::from(value.square_millimeters()),
             Self::Force(value) => value.millinewtons(),
             Self::Power(value) => value.picowatts(),
+            Self::Torque(value) => u128::from(value.micronewton_meters()),
+            Self::AngularSpeed(value) => u128::from(value.microradians_per_second()),
             Self::ElectricPotential(value) => u128::from(value.microvolts()),
             Self::ElectricCurrent(value) => u128::from(value.microamperes()),
             Self::ElectricalResistance(value) => u128::from(value.microohms()),
@@ -116,6 +124,111 @@ impl CapabilityValue {
             return None;
         }
         Some(self.magnitude().cmp(&other.magnitude()))
+    }
+}
+
+fn interpolate_magnitude_toward(
+    degraded: u128,
+    improved: u128,
+    numerator: u32,
+    denominator: u32,
+) -> u128 {
+    debug_assert!(denominator != 0);
+    debug_assert!(numerator <= denominator);
+    if numerator == 0 || degraded == improved {
+        return degraded;
+    }
+    if numerator == denominator {
+        return improved;
+    }
+
+    let delta = degraded.abs_diff(improved);
+    let denominator = u128::from(denominator);
+    let numerator = u128::from(numerator);
+    // Split before multiplying so interpolation remains valid even for u128::MAX capability
+    // magnitudes. Rounding stays toward the degraded endpoint, never overstating recovery.
+    let scaled_delta =
+        (delta / denominator) * numerator + ((delta % denominator) * numerator) / denominator;
+    if improved >= degraded {
+        degraded + scaled_delta
+    } else {
+        degraded - scaled_delta
+    }
+}
+
+pub(crate) fn interpolate_capability_value(
+    degraded: CapabilityValue,
+    improved: CapabilityValue,
+    numerator: u32,
+    denominator: u32,
+) -> Option<CapabilityValue> {
+    if degraded.kind() != improved.kind() || denominator == 0 || numerator > denominator {
+        return None;
+    }
+    let magnitude = interpolate_magnitude_toward(
+        degraded.magnitude(),
+        improved.magnitude(),
+        numerator,
+        denominator,
+    );
+
+    match degraded {
+        CapabilityValue::Present => None,
+        CapabilityValue::Mass(_) => u64::try_from(magnitude)
+            .ok()
+            .map(Mass::from_milligrams)
+            .map(CapabilityValue::Mass),
+        CapabilityValue::Temperature(_) => u32::try_from(magnitude)
+            .ok()
+            .map(Temperature::from_millikelvin)
+            .map(CapabilityValue::Temperature),
+        CapabilityValue::Energy(_) => {
+            Some(CapabilityValue::Energy(Energy::from_nanojoules(magnitude)))
+        }
+        CapabilityValue::Pressure(_) => u64::try_from(magnitude)
+            .ok()
+            .map(Pressure::from_pascals)
+            .map(CapabilityValue::Pressure),
+        CapabilityValue::Area(_) => u64::try_from(magnitude)
+            .ok()
+            .map(Area::from_square_millimeters)
+            .map(CapabilityValue::Area),
+        CapabilityValue::Force(_) => {
+            Some(CapabilityValue::Force(Force::from_millinewtons(magnitude)))
+        }
+        CapabilityValue::Power(_) => Some(CapabilityValue::Power(Power::from_picowatts(magnitude))),
+        CapabilityValue::Torque(_) => u64::try_from(magnitude)
+            .ok()
+            .map(Torque::from_micronewton_meters)
+            .map(CapabilityValue::Torque),
+        CapabilityValue::AngularSpeed(_) => u64::try_from(magnitude)
+            .ok()
+            .map(AngularSpeed::from_microradians_per_second)
+            .map(CapabilityValue::AngularSpeed),
+        CapabilityValue::ElectricPotential(_) => u64::try_from(magnitude)
+            .ok()
+            .map(ElectricPotential::from_microvolts)
+            .map(CapabilityValue::ElectricPotential),
+        CapabilityValue::ElectricCurrent(_) => u64::try_from(magnitude)
+            .ok()
+            .map(ElectricCurrent::from_microamperes)
+            .map(CapabilityValue::ElectricCurrent),
+        CapabilityValue::ElectricalResistance(_) => u64::try_from(magnitude)
+            .ok()
+            .map(ElectricalResistance::from_microohms)
+            .map(CapabilityValue::ElectricalResistance),
+        CapabilityValue::Volume(_) => u64::try_from(magnitude)
+            .ok()
+            .map(Volume::from_microliters)
+            .map(CapabilityValue::Volume),
+        CapabilityValue::VolumetricFlow(_) => u64::try_from(magnitude)
+            .ok()
+            .map(VolumetricFlow::from_microliters_per_second)
+            .map(CapabilityValue::VolumetricFlow),
+        CapabilityValue::Condition(_) => {
+            let value = u32::try_from(magnitude).ok()?;
+            Condition::new(value).ok().map(CapabilityValue::Condition)
+        }
     }
 }
 
@@ -235,6 +348,14 @@ pub struct CapabilityProfile {
     values: BTreeMap<CapabilityId, CapabilityValue>,
 }
 
+/// Read-only source of typed capability values.
+///
+/// Static profiles and runtime-adjusted providers share this interface so evaluators do not need
+/// to materialize temporary maps when capability values depend on condition or another owner.
+pub trait CapabilitySource {
+    fn get_capability(&self, capability: CapabilityId) -> Option<CapabilityValue>;
+}
+
 impl CapabilityProfile {
     /// Builds a deterministic profile and rejects repeated capability IDs.
     pub fn new(
@@ -259,6 +380,12 @@ impl CapabilityProfile {
         self.values
             .iter()
             .map(|(capability, value)| (*capability, *value))
+    }
+}
+
+impl CapabilitySource for CapabilityProfile {
+    fn get_capability(&self, capability: CapabilityId) -> Option<CapabilityValue> {
+        CapabilityProfile::get_capability(self, capability)
     }
 }
 
@@ -355,10 +482,10 @@ impl Display for CapabilityEvaluationError {
 
 impl Error for CapabilityEvaluationError {}
 
-/// Validates and evaluates requirements against one explicit provider profile.
+/// Validates and evaluates requirements against one explicit capability source.
 pub fn evaluate_capabilities(
     registry: &CapabilityRegistry,
-    profile: &CapabilityProfile,
+    source: &(impl CapabilitySource + ?Sized),
     requirements: &[CapabilityRequirement],
 ) -> Result<(), CapabilityEvaluationError> {
     for requirement in requirements {
@@ -373,7 +500,7 @@ pub fn evaluate_capabilities(
                 found: requirement.threshold().kind(),
             });
         }
-        let Some(provided) = profile.get_capability(capability) else {
+        let Some(provided) = source.get_capability(capability) else {
             return Err(CapabilityEvaluationError::MissingCapability { capability });
         };
         if provided.kind() != definition.kind() {
@@ -512,6 +639,53 @@ mod tests {
                 required,
                 provided,
             })
+        );
+    }
+
+    #[test]
+    fn capability_interpolation_handles_full_width_and_decreasing_ranges() {
+        assert_eq!(
+            interpolate_capability_value(
+                CapabilityValue::Power(Power::ZERO),
+                CapabilityValue::Power(Power::from_picowatts(u128::MAX)),
+                1,
+                2,
+            ),
+            Some(CapabilityValue::Power(Power::from_picowatts(u128::MAX / 2)))
+        );
+        assert_eq!(
+            interpolate_capability_value(
+                CapabilityValue::Mass(Mass::from_milligrams(100)),
+                CapabilityValue::Mass(Mass::ZERO),
+                1,
+                3,
+            ),
+            Some(CapabilityValue::Mass(Mass::from_milligrams(67)))
+        );
+        assert_eq!(
+            interpolate_capability_value(
+                CapabilityValue::Mass(Mass::from_milligrams(1)),
+                CapabilityValue::Power(Power::from_picowatts(1)),
+                1,
+                2,
+            ),
+            None
+        );
+        assert_eq!(
+            interpolate_capability_value(CapabilityValue::Present, CapabilityValue::Present, 1, 2,),
+            None
+        );
+    }
+
+    #[test]
+    fn rotational_capabilities_keep_torque_and_speed_as_distinct_dimensions() {
+        assert_eq!(
+            CapabilityValue::Torque(Torque::from_micronewton_meters(12)).kind(),
+            CapabilityValueKind::Torque
+        );
+        assert_eq!(
+            CapabilityValue::AngularSpeed(AngularSpeed::from_microradians_per_second(12)).kind(),
+            CapabilityValueKind::AngularSpeed
         );
     }
 }

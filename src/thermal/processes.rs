@@ -15,7 +15,9 @@ use crate::energy::{
     EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerDurationError,
     calculate_power_duration_ceiling, validate_energy_supply,
 };
-use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
+use crate::equipment::{
+    EquipmentId, EquipmentProviderError, resolve_equipment_capability, resolve_equipment_provider,
+};
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::material::{MaterialLotSpec, MaterialLotSpecError};
 use crate::production::{
@@ -404,15 +406,12 @@ pub fn resolve_sensible_heating_process(
     };
     evaluate_capabilities(
         registries.capabilities(),
-        provider.capabilities(),
+        &provider,
         process_definition.capability_requirements(),
     )
     .map_err(SensibleHeatingResolutionError::Capability)?;
 
-    let heating_power = match provider
-        .capabilities()
-        .get_capability(definition.heating_power_capability())
-    {
+    let heating_power = match provider.get_capability(definition.heating_power_capability()) {
         Some(CapabilityValue::Power(power)) => power,
         Some(_) | None => {
             return Err(SensibleHeatingResolutionError::MissingHeatingPower {
@@ -420,9 +419,7 @@ pub fn resolve_sensible_heating_process(
             });
         }
     };
-    let maximum_temperature = match provider
-        .capabilities()
-        .get_capability(definition.max_temperature_capability())
+    let maximum_temperature = match provider.get_capability(definition.max_temperature_capability())
     {
         Some(CapabilityValue::Temperature(temperature)) => temperature,
         Some(_) | None => {
@@ -439,10 +436,7 @@ pub fn resolve_sensible_heating_process(
             },
         );
     }
-    let maximum_batch_mass = match provider
-        .capabilities()
-        .get_capability(definition.max_batch_mass_capability())
-    {
+    let maximum_batch_mass = match provider.get_capability(definition.max_batch_mass_capability()) {
         Some(CapabilityValue::Mass(mass)) => mass,
         Some(_) | None => {
             return Err(SensibleHeatingResolutionError::MissingMaximumBatchMass {
@@ -790,19 +784,21 @@ pub(crate) fn validate_loaded_thermal_job(
     {
         return Err(ThermalJobValidationError::MixedOutputTemperatures { job: job.id() });
     }
-    let heating_power = match equipment_definition
-        .capabilities()
-        .get_capability(thermal_definition.heating_power_capability())
-    {
+    let heating_power = match resolve_equipment_capability(
+        equipment_definition,
+        provider.condition(),
+        thermal_definition.heating_power_capability(),
+    ) {
         Some(CapabilityValue::Power(power)) => power,
         Some(_) | None => {
             return Err(ThermalJobValidationError::MissingHeatingPowerCapability { job: job.id() });
         }
     };
-    let maximum_temperature = match equipment_definition
-        .capabilities()
-        .get_capability(thermal_definition.max_temperature_capability())
-    {
+    let maximum_temperature = match resolve_equipment_capability(
+        equipment_definition,
+        provider.condition(),
+        thermal_definition.max_temperature_capability(),
+    ) {
         Some(CapabilityValue::Temperature(temperature)) => temperature,
         Some(_) | None => {
             return Err(
@@ -817,10 +813,11 @@ pub(crate) fn validate_loaded_thermal_job(
             maximum: maximum_temperature,
         });
     }
-    let maximum_batch_mass = match equipment_definition
-        .capabilities()
-        .get_capability(thermal_definition.max_batch_mass_capability())
-    {
+    let maximum_batch_mass = match resolve_equipment_capability(
+        equipment_definition,
+        provider.condition(),
+        thermal_definition.max_batch_mass_capability(),
+    ) {
         Some(CapabilityValue::Mass(mass)) => mass,
         Some(_) | None => {
             return Err(
@@ -923,10 +920,10 @@ mod tests {
     use super::*;
     use crate::capability::{CapabilityDefinition, CapabilityProfile, CapabilityValue};
     use crate::content::{
-        FORM_LOG, FORM_ORE, MATERIAL_COPPER, MATERIAL_WOOD,
+        FORM_LOG, FORM_ORE, MATERIAL_COPPER, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
         make_test_registries_with_sensible_heating,
     };
-    use crate::core::quantity::{Mass, Power};
+    use crate::core::quantity::{Area, Force, Mass, Power};
     use crate::core::state::validate_loaded_state;
     use crate::core::time::WorldSeed;
     use crate::energy::{
@@ -934,15 +931,24 @@ mod tests {
         add_energy_store_with_initial_for_test, calculate_explicit_energy_accounting,
     };
     use crate::equipment::{
-        EquipmentConditionPlanError, EquipmentDefinition, EquipmentDefinitionId, add_equipment,
-        decide_equipment_wear,
+        CapabilityConditionCurve, CapabilityConditionPoint, EquipmentConditionCommitError,
+        EquipmentConditionPlanError, EquipmentDefinition, EquipmentDefinitionId,
+        EquipmentSupportCommitError, add_equipment, apply_equipment_condition_plan,
+        decide_equipment_wear, validate_mount_equipment,
     };
     use crate::inventory::{add_stockpile, deposit_lot_for_test};
     use crate::maintenance::{Condition, MaintenanceThresholds};
     use crate::material::{CommodityKey, MaterialComposition};
     use crate::matter::calculate_matter_accounting;
-    use crate::production::{ProcessDefinition, validate_start_process};
+    use crate::production::{
+        ProcessDefinition, StartProcessCommitError, StartProcessError, validate_start_process,
+    };
     use crate::simulation::advance_tick;
+    use crate::spatial::{VoxelBounds, VoxelCoord};
+    use crate::structural::{
+        StructuralElementId, StructuralLifecycle, StructuralLoadKind, add_structural_element,
+        validate_activate_structural_element, validate_set_structural_load,
+    };
 
     const HEATING_POWER: CapabilityId = CapabilityId::new(920_001);
     const MAX_TEMPERATURE: CapabilityId = CapabilityId::new(920_002);
@@ -961,6 +967,14 @@ mod tests {
     fn make_registries_with_max_temperature(
         carrier: EnergyCarrier,
         maximum_temperature: Temperature,
+    ) -> Registries {
+        make_registries_with_condition_curves(carrier, maximum_temperature, Vec::new())
+    }
+
+    fn make_registries_with_condition_curves(
+        carrier: EnergyCarrier,
+        maximum_temperature: Temperature,
+        curves: Vec<CapabilityConditionCurve>,
     ) -> Registries {
         let capabilities = match CapabilityProfile::new([
             (
@@ -983,12 +997,13 @@ mod tests {
             Ok(thresholds) => thresholds,
             Err(error) => panic!("thermal maintenance fixture failed: {error}"),
         };
-        let equipment = EquipmentDefinition::new(
+        let equipment = EquipmentDefinition::new_with_capability_condition_curves(
             HEATER,
             "test resistive heater",
             Mass::from_milligrams(1_000_000),
             capabilities,
             thresholds,
+            curves,
         );
         let energy = EnergyStoreDefinition::new(
             BATTERY,
@@ -1030,6 +1045,61 @@ mod tests {
         )
     }
 
+    fn add_active_support(
+        registries: &Registries,
+        state: &mut AppState,
+        x: i64,
+    ) -> StructuralElementId {
+        let bounds = match VoxelBounds::new(VoxelCoord::new(x, 0, 0), VoxelCoord::new(x + 1, 1, 1))
+        {
+            Ok(bounds) => bounds,
+            Err(error) => panic!("heater-support bounds fixture failed: {error}"),
+        };
+        let support = match add_structural_element(
+            registries,
+            state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            bounds,
+            Area::from_square_millimeters(1_000),
+            true,
+        ) {
+            Ok(element) => element,
+            Err(error) => panic!("heater-support structural fixture failed: {error}"),
+        };
+        let activation = match validate_activate_structural_element(registries, state, support) {
+            Ok(token) => token,
+            Err(error) => panic!("heater-support activation validation failed: {error}"),
+        };
+        if let Err(error) = activation.commit(state) {
+            panic!("heater-support activation commit failed: {error}");
+        }
+        support
+    }
+
+    fn fail_support(registries: &Registries, state: &mut AppState, support: StructuralElementId) {
+        let overload = match validate_set_structural_load(
+            registries,
+            state,
+            support,
+            StructuralLoadKind::Snow,
+            Force::from_millinewtons(50_000_000),
+        ) {
+            Ok(token) => token,
+            Err(error) => panic!("heater-support overload validation failed: {error}"),
+        };
+        if let Err(error) = overload.commit(state) {
+            panic!("heater-support overload commit failed: {error}");
+        }
+        assert_eq!(
+            state
+                .structures()
+                .get_element(support)
+                .map(|record| record.lifecycle()),
+            Some(StructuralLifecycle::Failed)
+        );
+    }
+
     fn make_registries(carrier: EnergyCarrier) -> Registries {
         make_registries_with_max_temperature(carrier, Temperature::from_millikelvin(400_000))
     }
@@ -1047,6 +1117,27 @@ mod tests {
         EnergyStoreId,
     ) {
         let registries = make_registries(carrier);
+        make_loaded_fixture_with_registries(
+            registries,
+            Condition::PRISTINE,
+            input_temperature,
+            initial_energy,
+        )
+    }
+
+    fn make_loaded_fixture_with_registries(
+        registries: Registries,
+        equipment_condition: Condition,
+        input_temperature: Temperature,
+        initial_energy: Energy,
+    ) -> (
+        Registries,
+        AppState,
+        StockpileId,
+        StockpileId,
+        EquipmentId,
+        EnergyStoreId,
+    ) {
         let mut state = AppState::new(WorldSeed::new(0x9200_0001));
         let source = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
             Ok(id) => id,
@@ -1066,7 +1157,7 @@ mod tests {
         ) {
             panic!("thermal input fixture failed: {error}");
         }
-        let equipment = match add_equipment(&registries, &mut state, HEATER, Condition::PRISTINE) {
+        let equipment = match add_equipment(&registries, &mut state, HEATER, equipment_condition) {
             Ok(id) => id,
             Err(error) => panic!("thermal equipment fixture failed: {error}"),
         };
@@ -1251,6 +1342,79 @@ mod tests {
             Err(error) => panic!("final explicit energy accounting failed: {error}"),
         };
         assert_eq!(final_explicit_energy, initial_explicit_energy);
+    }
+
+    #[test]
+    fn worn_heater_derates_transfer_power_and_persisted_duration_contract() {
+        let curve = CapabilityConditionCurve::new(
+            HEATING_POWER,
+            vec![
+                CapabilityConditionPoint::new(
+                    Condition::FAILED,
+                    CapabilityValue::Power(Power::from_microwatts(100_000)),
+                ),
+                CapabilityConditionPoint::new(
+                    condition(500_000),
+                    CapabilityValue::Power(Power::from_microwatts(250_000)),
+                ),
+            ],
+        );
+        let registries = make_registries_with_condition_curves(
+            EnergyCarrier::Electrical,
+            Temperature::from_millikelvin(400_000),
+            vec![curve],
+        );
+        let (registries, mut state, source, destination, equipment, energy_store) =
+            make_loaded_fixture_with_registries(
+                registries,
+                condition(500_000),
+                Temperature::from_millikelvin(300_000),
+                Energy::from_nanojoules(500_000_000),
+            );
+
+        let resolved = match resolve_test_sensible_heating_process(
+            &registries,
+            &state,
+            PROCESS,
+            source,
+            equipment,
+            energy_store,
+            Temperature::from_millikelvin(303_000),
+        ) {
+            Ok(resolved) => resolved,
+            Err(error) => panic!("worn-heater resolution failed: {error}"),
+        };
+        assert_eq!(
+            resolved.required_energy(),
+            Energy::from_nanojoules(51_000_000)
+        );
+        assert_eq!(resolved.transfer_power(), Power::from_microwatts(250_000));
+        assert_eq!(resolved.process_resolution().duration().value(), 5);
+
+        let token = match validate_start_process(
+            &registries,
+            &state,
+            resolved.process_resolution(),
+            source,
+            destination,
+        ) {
+            Ok(token) => token,
+            Err(error) => panic!("worn-heater process start validation failed: {error}"),
+        };
+        let job = match token.commit(&mut state) {
+            Ok(job) => job,
+            Err(error) => panic!("worn-heater process start commit failed: {error}"),
+        };
+        let provider = match state
+            .production()
+            .get_job(job)
+            .and_then(|record| record.equipment_provider())
+        {
+            Some(provider) => provider,
+            None => panic!("worn-heater job lost its equipment trace"),
+        };
+        assert_eq!(provider.condition(), condition(500_000));
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     }
 
     #[test]
@@ -1891,6 +2055,197 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(first.tick().value(), 5_000);
+    }
+
+    #[test]
+    fn sensible_heating_rejects_heater_after_mounted_support_fails() {
+        let (registries, mut state, source, _, equipment, energy_store) =
+            make_loaded_fixture(EnergyCarrier::Electrical);
+        let support = add_active_support(&registries, &mut state, 0);
+        let mount = match validate_mount_equipment(&registries, &state, equipment, support) {
+            Ok(token) => token,
+            Err(error) => panic!("heater-support mount validation failed: {error}"),
+        };
+        if let Err(error) = mount.commit(&mut state) {
+            panic!("heater-support mount commit failed: {error}");
+        }
+        fail_support(&registries, &mut state, support);
+
+        assert!(matches!(
+            resolve_test_sensible_heating_process(
+                &registries,
+                &state,
+                PROCESS,
+                source,
+                equipment,
+                energy_store,
+                Temperature::from_millikelvin(303_000),
+            ),
+            Err(SensibleHeatingResolutionError::Equipment(
+                EquipmentProviderError::StructuralSupportNotActive {
+                    equipment: rejected_equipment,
+                    element,
+                    lifecycle: StructuralLifecycle::Failed,
+                }
+            )) if rejected_equipment == equipment && element == support
+        ));
+    }
+
+    #[test]
+    fn resolved_heating_becomes_stale_when_support_changes_before_start_validation() {
+        let (registries, mut state, source, destination, equipment, energy_store) =
+            make_loaded_fixture(EnergyCarrier::Electrical);
+        let support = add_active_support(&registries, &mut state, 0);
+        let mount = match validate_mount_equipment(&registries, &state, equipment, support) {
+            Ok(token) => token,
+            Err(error) => panic!("stale-support mount validation failed: {error}"),
+        };
+        if let Err(error) = mount.commit(&mut state) {
+            panic!("stale-support mount commit failed: {error}");
+        }
+        let resolved = match resolve_test_sensible_heating_process(
+            &registries,
+            &state,
+            PROCESS,
+            source,
+            equipment,
+            energy_store,
+            Temperature::from_millikelvin(303_000),
+        ) {
+            Ok(resolved) => resolved,
+            Err(error) => panic!("stale-support heating resolution failed: {error}"),
+        };
+        let expected_structure_revision = state.structures().revision();
+        fail_support(&registries, &mut state, support);
+
+        assert_eq!(
+            validate_start_process(
+                &registries,
+                &state,
+                resolved.process_resolution(),
+                source,
+                destination,
+            ),
+            Err(StartProcessError::StaleResolvedStructure {
+                expected_structure_revision,
+                actual_structure_revision: expected_structure_revision + 1,
+            })
+        );
+    }
+
+    #[test]
+    fn validated_heating_start_rejects_support_change_before_commit_without_consuming_resources() {
+        let (registries, mut state, source, destination, equipment, energy_store) =
+            make_loaded_fixture(EnergyCarrier::Electrical);
+        let support = add_active_support(&registries, &mut state, 0);
+        let mount = match validate_mount_equipment(&registries, &state, equipment, support) {
+            Ok(token) => token,
+            Err(error) => panic!("commit-race mount validation failed: {error}"),
+        };
+        if let Err(error) = mount.commit(&mut state) {
+            panic!("commit-race mount commit failed: {error}");
+        }
+        let resolved = match resolve_test_sensible_heating_process(
+            &registries,
+            &state,
+            PROCESS,
+            source,
+            equipment,
+            energy_store,
+            Temperature::from_millikelvin(303_000),
+        ) {
+            Ok(resolved) => resolved,
+            Err(error) => panic!("commit-race heating resolution failed: {error}"),
+        };
+        let start = match validate_start_process(
+            &registries,
+            &state,
+            resolved.process_resolution(),
+            source,
+            destination,
+        ) {
+            Ok(token) => token,
+            Err(error) => panic!("commit-race start validation failed: {error}"),
+        };
+        let expected_structure_revision = state.structures().revision();
+        fail_support(&registries, &mut state, support);
+        let before = state.clone();
+
+        assert_eq!(
+            start.commit(&mut state),
+            Err(StartProcessCommitError::StaleStructureRevision {
+                expected: expected_structure_revision,
+                actual: expected_structure_revision + 1,
+            })
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn prevalidated_maintenance_and_mount_are_blocked_if_job_starts_first() {
+        let (registries, mut state, source, destination, equipment, energy_store) =
+            make_loaded_fixture(EnergyCarrier::Electrical);
+        let support = add_active_support(&registries, &mut state, 0);
+        let wear = match decide_equipment_wear(&state, equipment, 1) {
+            Ok(plan) => plan,
+            Err(error) => panic!("occupancy-race wear validation failed: {error}"),
+        };
+        let mount = match validate_mount_equipment(&registries, &state, equipment, support) {
+            Ok(token) => token,
+            Err(error) => panic!("occupancy-race mount validation failed: {error}"),
+        };
+        let resolved = match resolve_test_sensible_heating_process(
+            &registries,
+            &state,
+            PROCESS,
+            source,
+            equipment,
+            energy_store,
+            Temperature::from_millikelvin(303_000),
+        ) {
+            Ok(resolved) => resolved,
+            Err(error) => panic!("occupancy-race heating resolution failed: {error}"),
+        };
+        let start = match validate_start_process(
+            &registries,
+            &state,
+            resolved.process_resolution(),
+            source,
+            destination,
+        ) {
+            Ok(token) => token,
+            Err(error) => panic!("occupancy-race start validation failed: {error}"),
+        };
+        let job = match start.commit(&mut state) {
+            Ok(job) => job,
+            Err(error) => panic!("occupancy-race start commit failed: {error}"),
+        };
+        let completes_at = match state.production().get_job(job) {
+            Some(record) => record.completes_at(),
+            None => panic!("occupancy-race job disappeared"),
+        };
+
+        let before_wear = state.clone();
+        assert_eq!(
+            apply_equipment_condition_plan(&mut state, wear),
+            Err(EquipmentConditionCommitError::EquipmentBusy {
+                equipment,
+                job,
+                completes_at,
+            })
+        );
+        assert_eq!(state, before_wear);
+
+        let before_mount = state.clone();
+        assert_eq!(
+            mount.commit(&mut state),
+            Err(EquipmentSupportCommitError::EquipmentBusy {
+                equipment,
+                job,
+                completes_at,
+            })
+        );
+        assert_eq!(state, before_mount);
     }
 
     #[test]

@@ -65,15 +65,20 @@ records with dedicated indexes.
 ## 5. State and Records
 
 `AppState` is the root of generated mutable state that must survive restart boundaries. It currently
-owns the world seed, authoritative clock, independent deterministic RNG streams, inventory owner, and
-production owner. New subsystems add explicit owned state rather than turning `AppState` into a bag
-of unrelated maps.
+owns the world seed, authoritative clock, independent deterministic RNG streams, finite-energy
+stores, equipment records, structural records, inventory, and production. New subsystems add
+explicit owned state rather than turning `AppState` into a bag of unrelated maps.
 
 Runtime records use typed persistent IDs. Each subsystem owns its record collections and synchronized
 indexes; callers receive read-only views and canonical systems retain mutation access.
 
 - `InventoryState` owns stockpiles, persistent material lots, generated stockpile/lot IDs, derived
   commodity totals, cached stored mass, inbound reservations, and an owner revision.
+- `EnergyState` owns finite energy stores, generated store IDs, and an owner revision.
+- `EquipmentState` owns maintainable equipment instances, their structural support assignment, a
+  synchronized support-to-equipment reverse index, generated equipment IDs, and an owner revision.
+- `StructureState` owns structural members, support/dependent indexes, source-separated loads, damage,
+  generated member IDs, and an owner revision.
 - `ProductionState` owns active jobs, generated job IDs, a due-tick index, and an owner revision.
 - Validated transaction tokens bind to the exact owner revisions they checked, preventing stale
   commits after intervening mutation.
@@ -90,8 +95,10 @@ callbacks, event handlers, record methods, or engine lifecycle hooks.
 ## 7. Persistence
 
 The core defines a versioned semantic save envelope while deliberately leaving byte encoding and
-storage to adapters. The current save schema is version 9. Authored identity compatibility is tracked
-separately by `RegistrySchemaVersion`; the built-in registry schema is currently version 1.
+storage to adapters. The current save schema is version 14. Authored identity/physics compatibility
+is tracked separately by `RegistrySchemaVersion`; the built-in registry schema is currently version
+5. Core gravity is part of that immutable registry contract because changing it changes persisted
+structural consequences even when authored IDs are unchanged.
 
 `SaveMetadata` can be decoded without decoding the current `AppState` shape. A future adapter can
 therefore inspect an old schema first and route it to a version-specific DTO and explicit migration.
@@ -107,8 +114,9 @@ A current-schema load must:
 5. Reject corrupted state before returning `AppState` to runtime use.
 
 Persistence tests cover deterministic continuation, mixed composition, independent RNG continuation,
-tampered RNG roots, tampered in-process consumed mass, stable immediate JSON reserialization, and
-in-flight jobs surviving later process requirement rebalancing from their committed snapshots.
+tampered RNG roots, tampered in-process consumed mass, stable immediate JSON reserialization,
+equipment structural support/load agreement, and in-flight jobs surviving later process requirement
+rebalancing from their committed snapshots.
 
 Filesystem layout, compression, atomic writes, cloud storage, and released-save migration
 implementations remain adapter work.
@@ -158,7 +166,12 @@ units:
 - `Temperature`: nonnegative absolute millikelvin (`u32`);
 - `Energy`: nanojoules (`u128`);
 - `Pressure`: pascals (`u64`);
+- `Area`: square millimeters (`u64`);
+- `Acceleration`: micrometers per second squared (`u64`);
+- `Force`: millinewtons (`u128`);
 - `Power`: picowatts (`u128`), with a microwatt convenience constructor;
+- `Torque`: micronewton-meters (`u64`);
+- `AngularSpeed`: microradians per second (`u64`);
 - `ElectricPotential`: microvolts (`u64`);
 - `ElectricCurrent`: microamperes (`u64`);
 - `ElectricalResistance`: microohms (`u64`);
@@ -237,18 +250,26 @@ converts reserved capacity into actual output lots before removing the job/index
 The built-in production registry remains empty until real physical authorization systems can resolve
 gameplay operations faithfully.
 
-## 15. Capabilities, Maintenance, Energy, and Flow
+## 15. Capabilities, Maintenance, Energy, Flow, and Mechanical Power
 
 Capabilities are typed physical requirements rather than generic progression levels. Current value
-kinds include presence, mass, temperature, energy, pressure, power, electrical quantities,
-volume/flow, and equipment condition. Each requirement states `AtLeast` or `AtMost` threshold
-semantics. `CapabilityProfile` is currently a transient provider/view value and is intentionally not
-persisted until a real equipment, tool, structure, or worker owner exists. The built-in capability
-registry therefore remains empty.
+kinds include presence, mass, temperature, energy, pressure, force, power, torque, angular speed,
+electrical quantities, volume/flow, and equipment condition. Each requirement states `AtLeast` or
+`AtMost` threshold semantics. `CapabilityProfile` owns deterministic nominal/static values, while
+`CapabilitySource` lets runtime-adjusted providers satisfy the same evaluator without materializing
+temporary maps. The built-in capability registry remains empty until concrete gameplay providers are
+authored.
 
-Maintenance uses normalized `Condition` with authored warning and critical thresholds. Pure wear and
-repair plans clamp at physical bounds without deleting the owning record; degradation curves,
-failure probabilities, repair resources, and ownership remain subsystem-specific.
+Maintenance uses normalized `Condition` with authored warning and critical thresholds. Equipment
+definitions may additionally author piecewise-linear response curves for individual typed
+capabilities. Each curve owns an explicit failed-condition endpoint and interpolates toward the
+definition's nominal capability at pristine condition using overflow-safe integer arithmetic that
+rounds toward the degraded endpoint. Runtime equipment providers resolve these effective values on
+demand without allocation. Uncurved capabilities remain nominal. Presence-only capabilities cannot
+use continuous condition curves because the capability model has no numeric absence state; any
+future capability-disable behavior must be an explicit discrete policy. Pure wear and repair plans
+still clamp at physical bounds without deleting the owning record; failure probabilities, repair
+resources, and broader ownership policies remain subsystem-specific.
 
 The current engineering modules provide scalar conservation foundations without prematurely choosing
 network topology:
@@ -256,24 +277,64 @@ network topology:
 - picowatt power integrates across ticks into nanojoules plus an explicit carried remainder;
 - volumetric flow integrates into microliters plus an explicit carried remainder;
 - microvolt times microampere electrical power is exact at the picowatt scale;
-- resistive voltage drop returns whole microvolts plus a validated picovolt remainder.
+- resistive voltage drop returns whole microvolts plus a validated picovolt remainder;
+- micronewton-meter torque times microradian/second angular speed is exact in picowatts;
+- rotational operating points can be checked independently against torque, speed, and power limits;
+- mechanical efficiency splits input into useful output and explicit loss without overflowing
+  full-width power;
+- canonical rational transmission ratios transform torque/speed conservatively, with authored loss
+  separated from integer-resolution loss so gearing cannot create power through rounding.
 
 Future persistent network owners must preserve carried remainders when integrating incrementally so
-small rates are not lost to repeated truncation.
+small rates are not lost to repeated truncation. The mechanical scalar layer intentionally chooses
+no shaft graph, belt routing, flywheel inertia model, slip state, clutch lifecycle, or network solver.
 
-## 16. Cross-Subsystem Runtime Invariants and Boundaries
+## 16. Equipment Structural Support
+
+Equipment records own an optional `StructuralElementId` support assignment, while `EquipmentState`
+maintains the synchronized reverse index used for support-local aggregation and removal checks. A
+mount/unmount is a revision-bound cross-owner transaction: the equipment owner changes both support
+views atomically while the structural owner changes only `StructuralLoadKind::Equipment`. The load is
+derived from the aggregate mass of all equipment indexed on the element under registry-authored
+gravity, then structural analysis resolves cracking or collapse before commit.
+
+The equipment load cause is not writable through the public generic structural-load API. This keeps
+one authoritative source for the derived value. Equipment load validation first audits both directions
+of the persisted support index, including empty, missing, unknown, and mismatched entries. Exhaustive
+cross-owner validation then independently recomputes mounted aggregate mass and required force,
+rejects missing/planned support references, and requires every structural member's stored equipment
+load to agree exactly. Structural removal is rejected while equipment still references the member.
+Unmounting from failed debris is permitted so cleanup does not require resurrecting the structure;
+unloading never clears persisted crack/failure state.
+
+Mount/unmount also respects active production occupancy. A machine cannot move while an in-flight job
+owns it, and support/maintenance commits recheck that derived production occupancy immediately before
+mutation because job start does not increment the equipment owner revision. Provider resolution
+requires any assigned structural support to remain active. For mounted equipment, the resulting use
+token binds both the equipment and structural owner revisions plus the exact support assignment;
+process start validation and commit reject intervening structural changes before consuming matter or
+energy. A collapsed support therefore cannot authorize new production through a stale resolution. An
+operation that was already committed retains its durable matter, energy, equipment-condition,
+duration, and output snapshot; interrupting or partially recovering such work after a later support
+failure remains deferred until production has an explicit interruption/cancellation owner rather than
+silently destroying committed resources.
+
+## 17. Cross-Subsystem Runtime Invariants and Boundaries
 
 `validate_loaded_state(registries, state)` validates local owners plus cross-system relationships,
 including registry references, lot provenance, generated ID cursors, due-index membership, stockpile
 cache agreement, capacity/reservation agreement, job lifecycle, consumed-input references, and
-in-process matter conservation.
+in-process matter conservation, equipment support references, and mounted-equipment structural-load
+agreement. Operation-specific thermal audits recompute condition-sensitive equipment capabilities
+from the persisted provider-condition snapshot so an in-flight job's physical duration contract
+remains reproducible after load.
 
 The foundation intentionally leaves unresolved choices unresolved. Deferred areas include chunk
 storage/streaming, renderer/ECS/physics/networking, canonical extraction sources, thermal fields and
 phase change, combustion/emissions, real equipment/tool/worker capability providers, production
-resolvers, mechanical power, steam/boilers, electrical topology/transformers/protection, hydrology
-and fluid networks, agriculture, ecology/genetics, creatures/workers, settlements/logistics/trade,
-and released save-file migrations/storage adapters.
+resolvers, persistent mechanical networks/inertia/slip, steam/boilers, electrical
+topology/transformers/protection, hydrology and fluid networks, agriculture, ecology/genetics,
+creatures/workers, settlements/logistics/trade, and released save-file migrations/storage adapters.
 
 New systems must integrate through owned records, immutable definitions, typed IDs/quantities,
 canonical mutations, dedicated errors, persistence semantics, invariant coverage, and behavioral
