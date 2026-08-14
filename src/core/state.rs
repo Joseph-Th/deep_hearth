@@ -7,15 +7,26 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Mass;
+use crate::energy::{EnergyState, EnergyValidationError, validate_loaded_energy};
+use crate::equipment::{
+    EquipmentDefinitionId, EquipmentId, EquipmentState, EquipmentValidationError,
+    validate_loaded_equipment,
+};
 use crate::inventory::{
     InventoryState, InventoryValidationError, MaterialLotId, StockpileId, validate_loaded_inventory,
 };
+use crate::maintenance::Condition;
 use crate::material::{CommodityKey, MaterialId};
 use crate::production::{
     ProcessId, ProductionJobId, ProductionState, ProductionValidationError, sum_lot_spec_mass,
     validate_loaded_production,
 };
 use crate::registry::Registries;
+use crate::structural::{
+    StructuralAnalysisError, StructuralDamageEvent, StructureState, StructureValidationError,
+    analyze_structure, validate_loaded_structure,
+};
+use crate::thermal::{ThermalJobValidationError, validate_loaded_thermal_job};
 
 use super::rng::{RandomState, RandomStateValidationError, RngStreamId};
 use super::time::{SimulationTick, WorldSeed};
@@ -26,6 +37,9 @@ pub struct AppState {
     world_seed: WorldSeed,
     clock: ClockState,
     random: RandomState,
+    energy: EnergyState,
+    equipment: EquipmentState,
+    structures: StructureState,
     inventory: InventoryState,
     production: ProductionState,
 }
@@ -45,6 +59,9 @@ impl AppState {
                 tick: SimulationTick::ZERO,
             },
             random: RandomState::new(world_seed),
+            energy: EnergyState::new(),
+            equipment: EquipmentState::new(),
+            structures: StructureState::new(),
             inventory: InventoryState::new(),
             production: ProductionState::new(),
         }
@@ -69,6 +86,48 @@ impl AppState {
             Some(algorithm) => algorithm,
             None => panic!("runtime invariant broken: core random stream is missing"),
         }
+    }
+
+    /// Returns read-only authoritative finite-energy state.
+    #[must_use]
+    pub const fn energy(&self) -> &EnergyState {
+        &self.energy
+    }
+
+    pub(crate) const fn energy_state(&self) -> &EnergyState {
+        &self.energy
+    }
+
+    pub(crate) fn energy_state_mut(&mut self) -> &mut EnergyState {
+        &mut self.energy
+    }
+
+    /// Returns read-only authoritative equipment state.
+    #[must_use]
+    pub const fn equipment(&self) -> &EquipmentState {
+        &self.equipment
+    }
+
+    pub(crate) const fn equipment_state(&self) -> &EquipmentState {
+        &self.equipment
+    }
+
+    pub(crate) fn equipment_state_mut(&mut self) -> &mut EquipmentState {
+        &mut self.equipment
+    }
+
+    /// Returns read-only authoritative structural state.
+    #[must_use]
+    pub const fn structures(&self) -> &StructureState {
+        &self.structures
+    }
+
+    pub(crate) const fn structure_state(&self) -> &StructureState {
+        &self.structures
+    }
+
+    pub(crate) fn structure_state_mut(&mut self) -> &mut StructureState {
+        &mut self.structures
     }
 
     /// Returns read-only authoritative stockpile state.
@@ -112,6 +171,13 @@ pub enum StateValidationError {
         world_seed: WorldSeed,
         random_seed: WorldSeed,
     },
+    Energy(EnergyValidationError),
+    Equipment(EquipmentValidationError),
+    Structure(StructureValidationError),
+    StructureAnalysis(StructuralAnalysisError),
+    UnresolvedStructuralDamage {
+        event: StructuralDamageEvent,
+    },
     Inventory(InventoryValidationError),
     Production(ProductionValidationError),
     UnknownStoredCommodity {
@@ -144,6 +210,45 @@ pub enum StateValidationError {
         job: ProductionJobId,
         stockpile: StockpileId,
     },
+    UnknownJobEnergySource {
+        job: ProductionJobId,
+        store: crate::energy::EnergyStoreId,
+    },
+    JobEnergyDefinitionMismatch {
+        job: ProductionJobId,
+        traced: crate::energy::EnergyStoreDefinitionId,
+        stored: crate::energy::EnergyStoreDefinitionId,
+    },
+    JobEnergyCarrierMismatch {
+        job: ProductionJobId,
+        traced: crate::energy::EnergyCarrier,
+        authored: crate::energy::EnergyCarrier,
+    },
+    EnergyStoreDoubleBooked {
+        store: crate::energy::EnergyStoreId,
+        first: ProductionJobId,
+        second: ProductionJobId,
+    },
+    UnknownJobEquipment {
+        job: ProductionJobId,
+        equipment: EquipmentId,
+    },
+    JobEquipmentDefinitionMismatch {
+        job: ProductionJobId,
+        traced: EquipmentDefinitionId,
+        stored: EquipmentDefinitionId,
+    },
+    JobEquipmentConditionMismatch {
+        job: ProductionJobId,
+        traced: Condition,
+        stored: Condition,
+    },
+    EquipmentDoubleBooked {
+        equipment: EquipmentId,
+        first: ProductionJobId,
+        second: ProductionJobId,
+    },
+    ThermalJob(ThermalJobValidationError),
     JobAlreadyDue {
         job: ProductionJobId,
         current: SimulationTick,
@@ -190,6 +295,17 @@ impl Display for StateValidationError {
                 "world seed {} disagrees with random-state root seed {}",
                 world_seed.value(),
                 random_seed.value()
+            ),
+            Self::Energy(error) => write!(formatter, "invalid energy state: {error}"),
+            Self::Equipment(error) => write!(formatter, "invalid equipment state: {error}"),
+            Self::Structure(error) => write!(formatter, "invalid structural state: {error}"),
+            Self::StructureAnalysis(error) => {
+                write!(formatter, "structural state cannot be analyzed: {error}")
+            }
+            Self::UnresolvedStructuralDamage { event } => write!(
+                formatter,
+                "structural element {} has unresolved canonical damage",
+                event.element().value()
             ),
             Self::Inventory(error) => write!(formatter, "invalid inventory state: {error}"),
             Self::Production(error) => write!(formatter, "invalid production state: {error}"),
@@ -262,6 +378,83 @@ impl Display for StateValidationError {
                 job.value(),
                 stockpile.value()
             ),
+            Self::UnknownJobEnergySource { job, store } => write!(
+                formatter,
+                "production job {} traces missing energy store {}",
+                job.value(),
+                store.value()
+            ),
+            Self::JobEnergyDefinitionMismatch {
+                job,
+                traced,
+                stored,
+            } => write!(
+                formatter,
+                "production job {} traces energy definition {} but source store references {}",
+                job.value(),
+                traced.value(),
+                stored.value()
+            ),
+            Self::JobEnergyCarrierMismatch {
+                job,
+                traced,
+                authored,
+            } => write!(
+                formatter,
+                "production job {} traces {traced:?} energy but source definition is {authored:?}",
+                job.value()
+            ),
+            Self::EnergyStoreDoubleBooked {
+                store,
+                first,
+                second,
+            } => write!(
+                formatter,
+                "energy store {} is simultaneously reserved by production jobs {} and {}",
+                store.value(),
+                first.value(),
+                second.value()
+            ),
+            Self::UnknownJobEquipment { job, equipment } => write!(
+                formatter,
+                "production job {} references missing equipment {}",
+                job.value(),
+                equipment.value()
+            ),
+            Self::JobEquipmentDefinitionMismatch {
+                job,
+                traced,
+                stored,
+            } => write!(
+                formatter,
+                "production job {} traces equipment definition {} but provider record references {}",
+                job.value(),
+                traced.value(),
+                stored.value()
+            ),
+            Self::JobEquipmentConditionMismatch {
+                job,
+                traced,
+                stored,
+            } => write!(
+                formatter,
+                "production job {} traces equipment condition {} ppm but provider record is {} ppm",
+                job.value(),
+                traced.parts_per_million(),
+                stored.parts_per_million()
+            ),
+            Self::EquipmentDoubleBooked {
+                equipment,
+                first,
+                second,
+            } => write!(
+                formatter,
+                "equipment {} is simultaneously assigned to production jobs {} and {}",
+                equipment.value(),
+                first.value(),
+                second.value()
+            ),
+            Self::ThermalJob(error) => write!(formatter, "invalid thermal production job: {error}"),
             Self::JobAlreadyDue { job, current, due } => write!(
                 formatter,
                 "production job {} is due at tick {} but current tick is {}",
@@ -311,9 +504,15 @@ impl Error for StateValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Random(error) => Some(error),
+            Self::Energy(error) => Some(error),
+            Self::Equipment(error) => Some(error),
+            Self::Structure(error) => Some(error),
+            Self::StructureAnalysis(error) => Some(error),
             Self::Inventory(error) => Some(error),
             Self::Production(error) => Some(error),
+            Self::ThermalJob(error) => Some(error),
             Self::RandomWorldSeedMismatch { .. }
+            | Self::UnresolvedStructuralDamage { .. }
             | Self::UnknownStoredCommodity { .. }
             | Self::LotCreatedInFuture { .. }
             | Self::LotProvenanceInFuture { .. }
@@ -321,6 +520,14 @@ impl Error for StateValidationError {
             | Self::UnknownJobProcess { .. }
             | Self::UnknownJobSource { .. }
             | Self::UnknownJobDestination { .. }
+            | Self::UnknownJobEnergySource { .. }
+            | Self::JobEnergyDefinitionMismatch { .. }
+            | Self::JobEnergyCarrierMismatch { .. }
+            | Self::EnergyStoreDoubleBooked { .. }
+            | Self::UnknownJobEquipment { .. }
+            | Self::JobEquipmentDefinitionMismatch { .. }
+            | Self::JobEquipmentConditionMismatch { .. }
+            | Self::EquipmentDoubleBooked { .. }
             | Self::JobAlreadyDue { .. }
             | Self::ReservedMassOverflow { .. }
             | Self::UnknownJobOutputCommodity { .. }
@@ -349,6 +556,26 @@ pub fn validate_loaded_state(
         });
     }
 
+    validate_loaded_energy(registries.energy(), &state.energy, state.tick())
+        .map_err(StateValidationError::Energy)?;
+    validate_loaded_equipment(registries.equipment(), &state.equipment, state.tick())
+        .map_err(StateValidationError::Equipment)?;
+    validate_loaded_structure(
+        registries.structural(),
+        registries.materials(),
+        &state.structures,
+        state.tick(),
+    )
+    .map_err(StateValidationError::Structure)?;
+    let structural_analysis = analyze_structure(
+        registries.structural(),
+        registries.materials(),
+        &state.structures,
+    )
+    .map_err(StateValidationError::StructureAnalysis)?;
+    if let Some(event) = structural_analysis.damage_events().first().copied() {
+        return Err(StateValidationError::UnresolvedStructuralDamage { event });
+    }
     validate_loaded_inventory(&state.inventory).map_err(StateValidationError::Inventory)?;
     validate_loaded_production(&state.production).map_err(StateValidationError::Production)?;
 
@@ -392,6 +619,8 @@ pub fn validate_loaded_state(
     }
 
     let mut expected_reservations = BTreeMap::<StockpileId, Mass>::new();
+    let mut occupied_energy = BTreeMap::<crate::energy::EnergyStoreId, ProductionJobId>::new();
+    let mut occupied_equipment = BTreeMap::<EquipmentId, ProductionJobId>::new();
     for job in state.production.jobs() {
         if registries.production().get_process(job.process()).is_none() {
             return Err(StateValidationError::UnknownJobProcess {
@@ -411,6 +640,73 @@ pub fn validate_loaded_state(
                 stockpile: job.destination(),
             });
         }
+        if let Some(trace) = job.consumed_energy() {
+            let Some(store) = state.energy.get_store(trace.source()) else {
+                return Err(StateValidationError::UnknownJobEnergySource {
+                    job: job.id(),
+                    store: trace.source(),
+                });
+            };
+            if store.definition() != trace.definition() {
+                return Err(StateValidationError::JobEnergyDefinitionMismatch {
+                    job: job.id(),
+                    traced: trace.definition(),
+                    stored: store.definition(),
+                });
+            }
+            let Some(definition) = registries.energy().get_store(trace.definition()) else {
+                return Err(StateValidationError::Energy(
+                    EnergyValidationError::UnknownDefinition {
+                        store: trace.source(),
+                        definition: trace.definition(),
+                    },
+                ));
+            };
+            if definition.carrier() != trace.carrier() {
+                return Err(StateValidationError::JobEnergyCarrierMismatch {
+                    job: job.id(),
+                    traced: trace.carrier(),
+                    authored: definition.carrier(),
+                });
+            }
+            if let Some(first) = occupied_energy.insert(trace.source(), job.id()) {
+                return Err(StateValidationError::EnergyStoreDoubleBooked {
+                    store: trace.source(),
+                    first,
+                    second: job.id(),
+                });
+            }
+        }
+        if let Some(provider) = job.equipment_provider() {
+            let Some(record) = state.equipment.get_equipment(provider.equipment()) else {
+                return Err(StateValidationError::UnknownJobEquipment {
+                    job: job.id(),
+                    equipment: provider.equipment(),
+                });
+            };
+            if record.definition() != provider.definition() {
+                return Err(StateValidationError::JobEquipmentDefinitionMismatch {
+                    job: job.id(),
+                    traced: provider.definition(),
+                    stored: record.definition(),
+                });
+            }
+            if record.condition() != provider.condition() {
+                return Err(StateValidationError::JobEquipmentConditionMismatch {
+                    job: job.id(),
+                    traced: provider.condition(),
+                    stored: record.condition(),
+                });
+            }
+            if let Some(first) = occupied_equipment.insert(provider.equipment(), job.id()) {
+                return Err(StateValidationError::EquipmentDoubleBooked {
+                    equipment: provider.equipment(),
+                    first,
+                    second: job.id(),
+                });
+            }
+        }
+        validate_loaded_thermal_job(registries, job).map_err(StateValidationError::ThermalJob)?;
         if job.completes_at() <= state.tick() {
             return Err(StateValidationError::JobAlreadyDue {
                 job: job.id(),
@@ -502,6 +798,18 @@ pub fn validate_invariants(_registries: &Registries, state: &AppState) {
         "Runtime Invariant 11 (Serialization Completeness): core RNG stream must remain valid"
     );
     debug_assert!(
+        state.energy.has_valid_id_cursor(),
+        "Runtime Invariant 8 (No Lost Runtime State): energy store ID cursor must remain valid"
+    );
+    debug_assert!(
+        state.equipment.has_valid_id_cursor(),
+        "Runtime Invariant 8 (No Lost Runtime State): equipment ID cursor must remain valid"
+    );
+    debug_assert!(
+        state.structures.has_valid_id_cursor(),
+        "Runtime Invariant 8 (No Lost Runtime State): structural ID cursor must remain valid"
+    );
+    debug_assert!(
         state.inventory.has_valid_id_cursors(),
         "Runtime Invariant 8 (No Lost Runtime State): inventory ID cursors must remain nonzero"
     );
@@ -533,19 +841,25 @@ pub(crate) fn make_test_state_at_tick(world_seed: WorldSeed, tick: SimulationTic
 mod tests {
     use super::*;
     use crate::content::{
-        FORM_LOG, FORM_LUMP, MATERIAL_CHARCOAL, MATERIAL_WOOD, build_registries,
-        make_test_registries_with_process,
+        FORM_LOG, FORM_LUMP, MATERIAL_CHARCOAL, MATERIAL_WOOD,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries, make_test_registries_with_process,
     };
-    use crate::core::quantity::{Mass, Temperature};
+    use crate::core::quantity::{Area, Force, Mass, Temperature};
     use crate::core::rng::RngAlgorithm;
     use crate::inventory::{add_stockpile, deposit_bulk_for_test, validate_transfer_bulk};
     use crate::material::{CommodityKey, MaterialInputSpec, MaterialLotSpec};
     use crate::matter::calculate_matter_accounting;
     use crate::production::{
         ProcessDefinition, ProcessId, ProcessResolution, make_test_process_resolution,
-        validate_start_process,
+        validate_process_inputs, validate_start_process,
     };
     use crate::simulation::advance_tick;
+    use crate::spatial::{VoxelBounds, VoxelCoord};
+    use crate::structural::{
+        StructuralElementId, StructuralLoadKind, StructuralMutationOutcome,
+        ValidatedStructuralMutation, add_structural_element, validate_activate_structural_element,
+        validate_link_support, validate_set_structural_load,
+    };
 
     const SOAK_PROCESS: ProcessId = ProcessId::new(900_201);
 
@@ -561,9 +875,17 @@ mod tests {
         )
     }
 
-    fn make_test_soak_resolution() -> ProcessResolution {
+    fn make_test_soak_resolution(
+        registries: &Registries,
+        state: &AppState,
+        source: crate::inventory::StockpileId,
+    ) -> ProcessResolution {
+        let inputs = match validate_process_inputs(registries, state, SOAK_PROCESS, source) {
+            Ok(inputs) => inputs,
+            Err(error) => panic!("soak process input binding failed: {error}"),
+        };
         make_test_process_resolution(
-            SOAK_PROCESS,
+            inputs,
             29,
             vec![MaterialLotSpec::new(
                 CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
@@ -580,9 +902,115 @@ mod tests {
         }
     }
 
+    fn make_soak_structural_bounds(x: i64, y: i64) -> VoxelBounds {
+        match VoxelBounds::new(VoxelCoord::new(x, y, 0), VoxelCoord::new(x + 1, y + 1, 1)) {
+            Ok(bounds) => bounds,
+            Err(error) => panic!("soak structural bounds failed: {error}"),
+        }
+    }
+
+    fn add_soak_structural_element(
+        registries: &Registries,
+        state: &mut AppState,
+        x: i64,
+        y: i64,
+        grounded: bool,
+    ) -> StructuralElementId {
+        match add_structural_element(
+            registries,
+            state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            make_soak_structural_bounds(x, y),
+            Area::from_square_millimeters(1_000),
+            grounded,
+        ) {
+            Ok(element) => element,
+            Err(error) => panic!("soak structural element allocation failed: {error}"),
+        }
+    }
+
+    fn commit_soak_structural_mutation(
+        token: ValidatedStructuralMutation,
+        state: &mut AppState,
+    ) -> StructuralMutationOutcome {
+        match token.commit(state) {
+            Ok(outcome) => outcome,
+            Err(error) => panic!("soak structural mutation failed: {error}"),
+        }
+    }
+
+    fn build_soak_structure(registries: &Registries, state: &mut AppState) -> StructuralElementId {
+        let left = add_soak_structural_element(registries, state, 0, 0, true);
+        let right = add_soak_structural_element(registries, state, 2, 0, true);
+        let deck = add_soak_structural_element(registries, state, 1, 1, false);
+
+        for element in [left, right] {
+            let token = match validate_activate_structural_element(registries, state, element) {
+                Ok(token) => token,
+                Err(error) => panic!("soak structural support activation failed: {error}"),
+            };
+            commit_soak_structural_mutation(token, state);
+        }
+        for support in [left, right] {
+            let token = match validate_link_support(registries, state, deck, support) {
+                Ok(token) => token,
+                Err(error) => panic!("soak structural support link failed: {error}"),
+            };
+            commit_soak_structural_mutation(token, state);
+        }
+        let activation = match validate_activate_structural_element(registries, state, deck) {
+            Ok(token) => token,
+            Err(error) => panic!("soak deck activation failed: {error}"),
+        };
+        commit_soak_structural_mutation(activation, state);
+
+        // Begin the soak with visible persistent damage but below post-crack failure capacity.
+        let initial_load = match validate_set_structural_load(
+            registries,
+            state,
+            deck,
+            StructuralLoadKind::Snow,
+            Force::from_millinewtons(35_000_000),
+        ) {
+            Ok(token) => token,
+            Err(error) => panic!("soak initial structural load failed: {error}"),
+        };
+        let outcome = commit_soak_structural_mutation(initial_load, state);
+        assert_eq!(outcome.analysis().damage_events().len(), 1);
+        deck
+    }
+
+    fn vary_soak_structural_load(
+        registries: &Registries,
+        state: &mut AppState,
+        deck: StructuralElementId,
+        step: u64,
+    ) {
+        let load = if (step / 19).is_multiple_of(2) {
+            Force::from_millinewtons(20_000_000)
+        } else {
+            Force::from_millinewtons(35_000_000)
+        };
+        let token = match validate_set_structural_load(
+            registries,
+            state,
+            deck,
+            StructuralLoadKind::Snow,
+            load,
+        ) {
+            Ok(token) => token,
+            Err(error) => panic!("soak structural load validation failed at step {step}: {error}"),
+        };
+        let outcome = commit_soak_structural_mutation(token, state);
+        assert!(
+            outcome.analysis().damage_events().is_empty(),
+            "soak structural load generated unexpected new damage at step {step}"
+        );
+    }
+
     fn schedule_soak_process(
         registries: &Registries,
-        resolution: &ProcessResolution,
         state: &mut AppState,
         source: crate::inventory::StockpileId,
         processing: crate::inventory::StockpileId,
@@ -595,7 +1023,8 @@ mod tests {
         if available < Mass::from_milligrams(10) {
             return;
         }
-        let token = match validate_start_process(registries, state, resolution, source, processing)
+        let resolution = make_test_soak_resolution(registries, state, source);
+        let token = match validate_start_process(registries, state, &resolution, source, processing)
         {
             Ok(token) => token,
             Err(error) => panic!("soak process validation failed: {error}"),
@@ -637,11 +1066,11 @@ mod tests {
 
     fn run_test_soak(seed: WorldSeed) -> AppState {
         let registries = make_test_registries_with_process(make_test_soak_process());
-        let resolution = make_test_soak_resolution();
         let mut state = AppState::new(seed);
         let source = add_soak_stockpile(&mut state, 30_000);
         let processing = add_soak_stockpile(&mut state, 10_000);
         let archive = add_soak_stockpile(&mut state, 10_000);
+        let structural_deck = build_soak_structure(&registries, &mut state);
         let wood = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
         let charcoal = CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP);
         if let Err(error) = deposit_bulk_for_test(
@@ -660,17 +1089,13 @@ mod tests {
 
         for step in 0_u64..10_000 {
             if step % 11 == 0 {
-                schedule_soak_process(
-                    &registries,
-                    &resolution,
-                    &mut state,
-                    source,
-                    processing,
-                    wood,
-                );
+                schedule_soak_process(&registries, &mut state, source, processing, wood);
             }
             if step % 17 == 0 {
                 transfer_soak_output(&registries, &mut state, processing, archive, charcoal);
+            }
+            if step % 19 == 0 {
+                vary_soak_structural_load(&registries, &mut state, structural_deck, step);
             }
             if let Err(error) = advance_tick(&registries, &mut state) {
                 panic!("soak tick {step} failed: {error}");
@@ -715,7 +1140,7 @@ mod tests {
     }
 
     #[test]
-    fn test_headless_production_soak_preserves_invariants_and_determinism() {
+    fn test_headless_mixed_system_soak_preserves_invariants_and_determinism() {
         let seed = WorldSeed::new(0x5A0C_D37E_4D11_0001);
         let first = run_test_soak(seed);
         let second = run_test_soak(seed);

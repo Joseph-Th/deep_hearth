@@ -1,5 +1,32 @@
 //! Exact power-to-energy integration across simulation ticks with explicit fractional remainder ownership.
 
+mod accounting;
+mod definitions;
+mod state;
+mod storage_execution;
+
+pub use accounting::{
+    ExplicitEnergyAccounting, ExplicitEnergyAccountingError, calculate_explicit_energy_accounting,
+};
+
+pub use definitions::{
+    EnergyCarrier, EnergyRegistry, EnergyStoreDefinition, EnergyStoreDefinitionId,
+};
+pub use state::{EnergyState, EnergyStoreId, EnergyStoreRecord, EnergyValidationError};
+pub use storage_execution::{
+    AddEnergyStoreError, ConsumedEnergyTrace, EnergySupplyError, ValidatedEnergySupply,
+    add_energy_store, validate_energy_supply,
+};
+
+#[cfg(test)]
+pub(crate) use storage_execution::add_energy_store_with_initial_for_test;
+
+pub(crate) use state::validate_loaded_energy;
+pub(crate) use storage_execution::{
+    EnergyCommitError, EnergyConsumptionReservation, EnergyReservationError,
+    apply_energy_consumption_reservation, validate_energy_consumption_reservation,
+};
+
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU16;
@@ -109,6 +136,80 @@ pub fn integrate_power(
     Ok(PowerIntegration { energy, remainder })
 }
 
+/// Failure while converting an exact energy requirement into the minimum whole simulation ticks
+/// at a constant power rate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PowerDurationError {
+    ZeroPower,
+    DurationOverflow,
+}
+
+impl Display for PowerDurationError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ZeroPower => {
+                formatter.write_str("nonzero energy cannot be supplied at zero power")
+            }
+            Self::DurationOverflow => formatter.write_str(
+                "required energy cannot be supplied within the authoritative tick-span range",
+            ),
+        }
+    }
+}
+
+impl Error for PowerDurationError {}
+
+fn integrated_energy_is_at_least(
+    power: Power,
+    ticks: u64,
+    ticks_per_second: NonZeroU16,
+    required: Energy,
+) -> bool {
+    let denominator = u128::from(ticks_per_second.get()) * 1_000;
+    let power_value = power.picowatts();
+    let whole_per_tick = power_value / denominator;
+    let remainder_per_tick = power_value % denominator;
+    let ticks_u128 = u128::from(ticks);
+    let whole = match whole_per_tick.checked_mul(ticks_u128) {
+        Some(value) => value,
+        None => return true,
+    };
+    let fractional = remainder_per_tick * ticks_u128 / denominator;
+    match whole.checked_add(fractional) {
+        Some(delivered) => delivered >= required.nanojoules(),
+        None => true,
+    }
+}
+
+/// Returns the least whole tick span whose integrated constant power supplies at least `required`.
+pub fn calculate_power_duration_ceiling(
+    power: Power,
+    required: Energy,
+    ticks_per_second: NonZeroU16,
+) -> Result<TickSpan, PowerDurationError> {
+    if required.is_zero() {
+        return Ok(TickSpan::ZERO);
+    }
+    if power.is_zero() {
+        return Err(PowerDurationError::ZeroPower);
+    }
+    if !integrated_energy_is_at_least(power, u64::MAX, ticks_per_second, required) {
+        return Err(PowerDurationError::DurationOverflow);
+    }
+
+    let mut low = 1_u64;
+    let mut high = u64::MAX;
+    while low < high {
+        let midpoint = low + (high - low) / 2;
+        if integrated_energy_is_at_least(power, midpoint, ticks_per_second, required) {
+            high = midpoint;
+        } else {
+            low = midpoint + 1;
+        }
+    }
+    Ok(TickSpan::new(low))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,5 +258,76 @@ mod tests {
 
         assert_eq!(accumulated, Energy::from_nanojoules(1_000));
         assert_eq!(remainder, PowerRemainder::ZERO);
+    }
+
+    #[test]
+    fn duration_ceiling_returns_first_tick_that_meets_energy_requirement() {
+        let rate = tick_rate(20);
+        let required = Energy::from_nanojoules(51);
+        let duration =
+            match calculate_power_duration_ceiling(Power::from_microwatts(1), required, rate) {
+                Ok(duration) => duration,
+                Err(error) => panic!("duration calculation failed: {error}"),
+            };
+
+        assert_eq!(duration, TickSpan::new(2));
+        let one_tick = match integrate_power(
+            Power::from_microwatts(1),
+            TickSpan::new(1),
+            rate,
+            PowerRemainder::ZERO,
+        ) {
+            Ok(result) => result.energy(),
+            Err(error) => panic!("one-tick integration failed: {error}"),
+        };
+        let two_ticks = match integrate_power(
+            Power::from_microwatts(1),
+            duration,
+            rate,
+            PowerRemainder::ZERO,
+        ) {
+            Ok(result) => result.energy(),
+            Err(error) => panic!("two-tick integration failed: {error}"),
+        };
+        assert!(one_tick < required);
+        assert!(two_ticks >= required);
+    }
+
+    #[test]
+    fn duration_ceiling_rejects_nonzero_energy_at_zero_power() {
+        assert_eq!(
+            calculate_power_duration_ceiling(
+                Power::ZERO,
+                Energy::from_nanojoules(1),
+                tick_rate(20),
+            ),
+            Err(PowerDurationError::ZeroPower)
+        );
+    }
+
+    #[test]
+    fn duration_ceiling_handles_maximum_authoritative_values_without_overflow() {
+        let duration = match calculate_power_duration_ceiling(
+            Power::from_picowatts(u128::MAX),
+            Energy::from_nanojoules(u128::MAX),
+            tick_rate(1),
+        ) {
+            Ok(duration) => duration,
+            Err(error) => panic!("maximum-value duration calculation failed: {error}"),
+        };
+
+        assert_eq!(duration, TickSpan::new(1_000));
+    }
+
+    #[test]
+    fn duration_ceiling_reports_when_u64_tick_range_is_insufficient() {
+        assert_eq!(
+            calculate_power_duration_ceiling(
+                Power::from_picowatts(1),
+                Energy::from_nanojoules(u128::MAX),
+                tick_rate(u16::MAX),
+            ),
+            Err(PowerDurationError::DurationOverflow)
+        );
     }
 }

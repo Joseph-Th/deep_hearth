@@ -1,8 +1,6 @@
 //! Immutable process definitions and deterministic lookup registry for the production subsystem.
 
 use std::collections::BTreeMap;
-#[cfg(test)]
-use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
@@ -31,9 +29,22 @@ impl ProcessId {
 pub struct ProcessDefinition {
     id: ProcessId,
     name: String,
-    inputs: Vec<MaterialInputSpec>,
+    input_policy: ProcessInputPolicy,
     capability_requirements: Vec<CapabilityRequirement>,
-    input_mass: Mass,
+}
+
+/// Static policy for how matter enters one process class.
+///
+/// Fixed processes author exact material requirements. Selected-batch processes deliberately do
+/// not encode a recipe-shaped feed amount: a physical resolver must bind explicit runtime lots and
+/// derive the outcome from those exact material traces.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProcessInputPolicy {
+    Fixed {
+        inputs: Vec<MaterialInputSpec>,
+        input_mass: Mass,
+    },
+    SelectedBatch,
 }
 
 impl ProcessDefinition {
@@ -70,9 +81,28 @@ impl ProcessDefinition {
         Self {
             id,
             name,
-            inputs,
+            input_policy: ProcessInputPolicy::Fixed { inputs, input_mass },
             capability_requirements,
-            input_mass,
+        }
+    }
+
+    /// Builds a process whose exact conserved matter batch is chosen at resolution time.
+    #[must_use]
+    pub fn new_selected_batch(
+        id: ProcessId,
+        name: impl Into<String>,
+        mut capability_requirements: Vec<CapabilityRequirement>,
+    ) -> Self {
+        assert!(id.value() != 0, "process id must be nonzero");
+        let name = name.into();
+        assert!(!name.trim().is_empty(), "process name must not be empty");
+        capability_requirements.sort();
+        validate_capability_requirements(id, &capability_requirements);
+        Self {
+            id,
+            name,
+            input_policy: ProcessInputPolicy::SelectedBatch,
+            capability_requirements,
         }
     }
 
@@ -87,8 +117,17 @@ impl ProcessDefinition {
     }
 
     #[must_use]
-    pub fn inputs(&self) -> &[MaterialInputSpec] {
-        &self.inputs
+    pub const fn input_policy(&self) -> &ProcessInputPolicy {
+        &self.input_policy
+    }
+
+    /// Returns static material requirements only for fixed-feed processes.
+    #[must_use]
+    pub fn fixed_inputs(&self) -> Option<&[MaterialInputSpec]> {
+        match &self.input_policy {
+            ProcessInputPolicy::Fixed { inputs, .. } => Some(inputs),
+            ProcessInputPolicy::SelectedBatch => None,
+        }
     }
 
     #[must_use]
@@ -97,8 +136,11 @@ impl ProcessDefinition {
     }
 
     #[must_use]
-    pub const fn input_mass(&self) -> Mass {
-        self.input_mass
+    pub const fn fixed_input_mass(&self) -> Option<Mass> {
+        match &self.input_policy {
+            ProcessInputPolicy::Fixed { input_mass, .. } => Some(*input_mass),
+            ProcessInputPolicy::SelectedBatch => None,
+        }
     }
 }
 
@@ -136,38 +178,6 @@ fn sum_input_spec_mass(entries: &[MaterialInputSpec]) -> Option<Mass> {
         total = total.checked_add(entry.mass())?;
     }
     Some(total)
-}
-
-#[cfg(test)]
-pub(super) fn validate_resolved_outputs(id: ProcessId, outputs: &[MaterialLotSpec]) {
-    let mut seen = BTreeSet::new();
-    for output in outputs {
-        assert!(
-            !output.mass().is_zero(),
-            "process {} contains zero-mass output",
-            id.value()
-        );
-        if let Err(error) = output.composition().validate() {
-            panic!(
-                "process {} contains invalid output composition: {error}",
-                id.value()
-            );
-        }
-        assert!(
-            output
-                .composition()
-                .parts_per_million(output.commodity().material())
-                > 0,
-            "process {} output composition omits host material {}",
-            id.value(),
-            output.commodity().material().value()
-        );
-        assert!(
-            seen.insert(output.clone()),
-            "process {} contains duplicate resolved output lot specification",
-            id.value()
-        );
-    }
 }
 
 pub(crate) fn sum_lot_spec_mass(entries: &[MaterialLotSpec]) -> Option<Mass> {
@@ -214,21 +224,23 @@ impl ProductionRegistry {
         capabilities: &CapabilityRegistry,
     ) {
         for definition in self.definitions.values() {
-            for input in definition.inputs() {
-                assert!(
-                    materials.has_commodity(input.commodity()),
-                    "process {} references missing input material {} or form {}",
-                    definition.id().value(),
-                    input.commodity().material().value(),
-                    input.commodity().form().value()
-                );
-                for constraint in input.constraints() {
+            if let Some(inputs) = definition.fixed_inputs() {
+                for input in inputs {
                     assert!(
-                        materials.get_material(constraint.material()).is_some(),
-                        "process {} input constraint references missing material {}",
+                        materials.has_commodity(input.commodity()),
+                        "process {} references missing input material {} or form {}",
                         definition.id().value(),
-                        constraint.material().value()
+                        input.commodity().material().value(),
+                        input.commodity().form().value()
                     );
+                    for constraint in input.constraints() {
+                        assert!(
+                            materials.get_material(constraint.material()).is_some(),
+                            "process {} input constraint references missing material {}",
+                            definition.id().value(),
+                            constraint.material().value()
+                        );
+                    }
                 }
             }
             for requirement in definition.capability_requirements() {

@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
+use crate::energy::ConsumedEnergyTrace;
+use crate::equipment::EquipmentOperationTrace;
 use crate::inventory::{ConsumedMaterialTrace, StockpileId};
 use crate::material::{CommodityKey, CompositionError, MaterialId, MaterialLotSpec};
 
@@ -41,6 +43,8 @@ pub struct ProductionJobRecord {
     pub(super) completes_at: SimulationTick,
     pub(super) consumed_mass: Mass,
     pub(super) consumed_inputs: Vec<ConsumedMaterialTrace>,
+    pub(super) consumed_energy: Option<ConsumedEnergyTrace>,
+    pub(super) equipment_provider: Option<EquipmentOperationTrace>,
     pub(super) outputs: Vec<MaterialLotSpec>,
 }
 
@@ -83,6 +87,18 @@ impl ProductionJobRecord {
     #[must_use]
     pub fn consumed_inputs(&self) -> &[ConsumedMaterialTrace] {
         &self.consumed_inputs
+    }
+
+    /// Returns the finite energy moved into this in-flight operation at start, if any.
+    #[must_use]
+    pub const fn consumed_energy(&self) -> Option<ConsumedEnergyTrace> {
+        self.consumed_energy
+    }
+
+    /// Returns the equipment provider exclusively occupied by this operation, if any.
+    #[must_use]
+    pub const fn equipment_provider(&self) -> Option<EquipmentOperationTrace> {
+        self.equipment_provider
     }
 
     /// Returns the exact committed output lots promised when this job was started.
@@ -233,6 +249,15 @@ pub enum ProductionValidationError {
         traced: Mass,
         consumed: Mass,
     },
+    ZeroConsumedEnergy {
+        job: ProductionJobId,
+    },
+    InvalidConsumedEnergySource {
+        job: ProductionJobId,
+    },
+    InvalidConsumedEnergyDefinition {
+        job: ProductionJobId,
+    },
     ZeroOutputMass {
         job: ProductionJobId,
         commodity: CommodityKey,
@@ -345,6 +370,21 @@ impl Display for ProductionValidationError {
                 job.value(),
                 latest_created_at.value(),
                 started_at.value()
+            ),
+            Self::ZeroConsumedEnergy { job } => write!(
+                formatter,
+                "production job {} traces a zero-energy operation input",
+                job.value()
+            ),
+            Self::InvalidConsumedEnergySource { job } => write!(
+                formatter,
+                "production job {} traces invalid zero energy-store identity",
+                job.value()
+            ),
+            Self::InvalidConsumedEnergyDefinition { job } => write!(
+                formatter,
+                "production job {} traces invalid zero energy-store definition identity",
+                job.value()
             ),
             Self::ZeroOutputMass { job, commodity } => write!(
                 formatter,
@@ -480,6 +520,19 @@ pub(crate) fn validate_loaded_production(
                 traced: traced_input_mass,
                 consumed: job.consumed_mass,
             });
+        }
+        if let Some(trace) = job.consumed_energy {
+            if trace.energy().is_zero() {
+                return Err(ProductionValidationError::ZeroConsumedEnergy { job: *id });
+            }
+            if trace.source().value() == 0 {
+                return Err(ProductionValidationError::InvalidConsumedEnergySource { job: *id });
+            }
+            if trace.definition().value() == 0 {
+                return Err(ProductionValidationError::InvalidConsumedEnergyDefinition {
+                    job: *id,
+                });
+            }
         }
         let mut seen_outputs = BTreeSet::new();
         let mut output_mass = Mass::ZERO;

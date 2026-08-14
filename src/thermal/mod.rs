@@ -1,5 +1,15 @@
 //! Deterministic sensible-heat calculations over material composition; phase-changing systems must resolve boundaries explicitly.
 
+mod processes;
+
+pub use processes::{
+    ResolvedSensibleHeating, SensibleHeatingProcessDefinition, SensibleHeatingRequest,
+    SensibleHeatingResolutionError, ThermalJobValidationError, ThermalRegistry,
+    resolve_sensible_heating_process,
+};
+
+pub(crate) use processes::validate_loaded_thermal_job;
+
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 

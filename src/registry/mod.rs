@@ -5,8 +5,12 @@ use std::num::NonZeroU16;
 use serde::{Deserialize, Serialize};
 
 use crate::capability::CapabilityRegistry;
+use crate::energy::EnergyRegistry;
+use crate::equipment::EquipmentRegistry;
 use crate::material::MaterialRegistry;
 use crate::production::ProductionRegistry;
+use crate::structural::StructuralRegistry;
+use crate::thermal::ThermalRegistry;
 
 /// Compatibility version for stable authored registry identities and cross-reference semantics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -52,26 +56,71 @@ impl CoreDefinitions {
 pub struct Registries {
     schema_version: RegistrySchemaVersion,
     core: CoreDefinitions,
+    energy: EnergyRegistry,
     capabilities: CapabilityRegistry,
+    equipment: EquipmentRegistry,
+    structural: StructuralRegistry,
     materials: MaterialRegistry,
+    thermal: ThermalRegistry,
     production: ProductionRegistry,
+}
+
+/// Domain registry bundle used to assemble the immutable root without a wide positional API.
+pub(crate) struct RegistryDomains {
+    energy: EnergyRegistry,
+    capabilities: CapabilityRegistry,
+    equipment: EquipmentRegistry,
+    structural: StructuralRegistry,
+    materials: MaterialRegistry,
+    thermal: ThermalRegistry,
+    production: ProductionRegistry,
+}
+
+impl RegistryDomains {
+    pub(crate) fn new(
+        energy: EnergyRegistry,
+        capabilities: CapabilityRegistry,
+        equipment: EquipmentRegistry,
+        structural: StructuralRegistry,
+        materials: MaterialRegistry,
+        thermal: ThermalRegistry,
+        production: ProductionRegistry,
+    ) -> Self {
+        Self {
+            energy,
+            capabilities,
+            equipment,
+            structural,
+            materials,
+            thermal,
+            production,
+        }
+    }
 }
 
 impl Registries {
     pub(crate) fn new(
         schema_version: RegistrySchemaVersion,
         core: CoreDefinitions,
-        capabilities: CapabilityRegistry,
-        materials: MaterialRegistry,
-        production: ProductionRegistry,
+        domains: RegistryDomains,
     ) -> Self {
-        production.validate_references(&materials, &capabilities);
+        domains.equipment.validate_references(&domains.capabilities);
+        domains
+            .production
+            .validate_references(&domains.materials, &domains.capabilities);
+        domains
+            .thermal
+            .validate_references(&domains.production, &domains.capabilities);
         Self {
             schema_version,
             core,
-            capabilities,
-            materials,
-            production,
+            energy: domains.energy,
+            capabilities: domains.capabilities,
+            equipment: domains.equipment,
+            structural: domains.structural,
+            materials: domains.materials,
+            thermal: domains.thermal,
+            production: domains.production,
         }
     }
 
@@ -87,16 +136,40 @@ impl Registries {
         &self.core
     }
 
+    /// Returns immutable finite-energy store definitions.
+    #[must_use]
+    pub const fn energy(&self) -> &EnergyRegistry {
+        &self.energy
+    }
+
     /// Returns immutable authored physical/tool/equipment capability definitions.
     #[must_use]
     pub const fn capabilities(&self) -> &CapabilityRegistry {
         &self.capabilities
     }
 
+    /// Returns immutable maintainable equipment definitions.
+    #[must_use]
+    pub const fn equipment(&self) -> &EquipmentRegistry {
+        &self.equipment
+    }
+
+    /// Returns immutable structural load-response profiles.
+    #[must_use]
+    pub const fn structural(&self) -> &StructuralRegistry {
+        &self.structural
+    }
+
     /// Returns immutable material and physical-form definitions.
     #[must_use]
     pub const fn materials(&self) -> &MaterialRegistry {
         &self.materials
+    }
+
+    /// Returns immutable physical thermal-process resolution semantics.
+    #[must_use]
+    pub const fn thermal(&self) -> &ThermalRegistry {
+        &self.thermal
     }
 
     /// Returns immutable material-transformation definitions.

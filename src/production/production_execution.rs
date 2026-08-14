@@ -6,12 +6,17 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
+use crate::energy::{
+    EnergyCommitError, EnergyConsumptionReservation, EnergyReservationError,
+    apply_energy_consumption_reservation, validate_energy_consumption_reservation,
+};
+use crate::equipment::{EquipmentId, ValidatedEquipmentUse};
 use crate::inventory::{
     ConsumptionReservation, MaterialLotId, ReservationCommitError, ReservationError, StockpileId,
     apply_consumption_reservation, apply_lot_cursor_and_revision, apply_reserved_deposit,
-    next_material_lot_id, validate_consumption_reservation,
+    next_material_lot_id, validate_consumption_reservation_from_selection,
 };
-use crate::material::{CommodityKey, FormId, MaterialId, MaterialLotSpec};
+use crate::material::{FormId, MaterialId, MaterialLotSpec};
 use crate::registry::Registries;
 
 use super::definitions::ProcessId;
@@ -36,12 +41,6 @@ pub enum StartProcessError {
     UnknownStockpile {
         stockpile: StockpileId,
     },
-    InsufficientMass {
-        stockpile: StockpileId,
-        commodity: CommodityKey,
-        available: Mass,
-        requested: Mass,
-    },
     CapacityExceeded {
         stockpile: StockpileId,
         capacity: Mass,
@@ -62,6 +61,39 @@ pub enum StartProcessError {
     JobIdExhausted,
     InventoryRevisionExhausted,
     ProductionRevisionExhausted,
+    EnergyRevisionExhausted,
+    ResolutionSourceMismatch {
+        bound: StockpileId,
+        requested: StockpileId,
+    },
+    StaleResolvedInputs {
+        expected_inventory_revision: u64,
+        actual_inventory_revision: u64,
+    },
+    StaleResolvedEnergy {
+        expected_energy_revision: u64,
+        actual_energy_revision: u64,
+    },
+    StaleResolvedEquipment {
+        expected_equipment_revision: u64,
+        actual_equipment_revision: u64,
+    },
+    ResolvedEnergyStoreMissing,
+    ResolvedEnergyInsufficient,
+    ResolvedEquipmentMissing {
+        equipment: EquipmentId,
+    },
+    ResolvedEquipmentDefinitionChanged {
+        equipment: EquipmentId,
+    },
+    ResolvedEquipmentConditionChanged {
+        equipment: EquipmentId,
+    },
+    EquipmentBusy {
+        equipment: EquipmentId,
+        job: ProductionJobId,
+        completes_at: SimulationTick,
+    },
 }
 
 impl Display for StartProcessError {
@@ -92,18 +124,6 @@ impl Display for StartProcessError {
             Self::UnknownStockpile { stockpile } => {
                 write!(formatter, "unknown stockpile id {}", stockpile.value())
             }
-            Self::InsufficientMass {
-                stockpile,
-                available,
-                requested,
-                ..
-            } => write!(
-                formatter,
-                "stockpile {} has {} mg available but process requires {} mg",
-                stockpile.value(),
-                available.milligrams(),
-                requested.milligrams()
-            ),
             Self::CapacityExceeded {
                 stockpile,
                 capacity,
@@ -148,6 +168,68 @@ impl Display for StartProcessError {
             Self::ProductionRevisionExhausted => {
                 formatter.write_str("production revision space is exhausted")
             }
+            Self::EnergyRevisionExhausted => {
+                formatter.write_str("energy state revision space is exhausted")
+            }
+            Self::ResolutionSourceMismatch { bound, requested } => write!(
+                formatter,
+                "resolved process is bound to source stockpile {} but start requested stockpile {}",
+                bound.value(),
+                requested.value()
+            ),
+            Self::StaleResolvedInputs {
+                expected_inventory_revision,
+                actual_inventory_revision,
+            } => write!(
+                formatter,
+                "resolved process inputs expected inventory revision {expected_inventory_revision} but current revision is {actual_inventory_revision}"
+            ),
+            Self::StaleResolvedEnergy {
+                expected_energy_revision,
+                actual_energy_revision,
+            } => write!(
+                formatter,
+                "resolved process energy expected revision {expected_energy_revision} but current energy revision is {actual_energy_revision}"
+            ),
+            Self::StaleResolvedEquipment {
+                expected_equipment_revision,
+                actual_equipment_revision,
+            } => write!(
+                formatter,
+                "resolved process equipment expected revision {expected_equipment_revision} but current equipment revision is {actual_equipment_revision}"
+            ),
+            Self::ResolvedEnergyStoreMissing => {
+                formatter.write_str("resolved process energy store no longer exists")
+            }
+            Self::ResolvedEnergyInsufficient => {
+                formatter.write_str("resolved process energy amount is no longer available")
+            }
+            Self::ResolvedEquipmentMissing { equipment } => write!(
+                formatter,
+                "resolved process equipment {} no longer exists",
+                equipment.value()
+            ),
+            Self::ResolvedEquipmentDefinitionChanged { equipment } => write!(
+                formatter,
+                "resolved process equipment {} changed definition after resolution",
+                equipment.value()
+            ),
+            Self::ResolvedEquipmentConditionChanged { equipment } => write!(
+                formatter,
+                "resolved process equipment {} changed condition after resolution",
+                equipment.value()
+            ),
+            Self::EquipmentBusy {
+                equipment,
+                job,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by production job {} until tick {}",
+                equipment.value(),
+                job.value(),
+                completes_at.value()
+            ),
         }
     }
 }
@@ -159,6 +241,8 @@ impl Error for StartProcessError {}
 pub enum StartProcessCommitError {
     StaleProductionRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
+    StaleEnergyRevision { expected: u64, actual: u64 },
+    StaleEquipmentRevision { expected: u64, actual: u64 },
 }
 
 impl Display for StartProcessCommitError {
@@ -171,6 +255,14 @@ impl Display for StartProcessCommitError {
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
                 "validated process start expected inventory revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleEnergyRevision { expected, actual } => write!(
+                formatter,
+                "validated process start expected energy revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleEquipmentRevision { expected, actual } => write!(
+                formatter,
+                "validated process start expected equipment revision {expected} but current revision is {actual}"
             ),
         }
     }
@@ -187,6 +279,8 @@ pub struct ValidatedStartProcess {
     expected_production_revision: u64,
     next_production_revision: u64,
     reservation: ConsumptionReservation,
+    energy_reservation: Option<EnergyConsumptionReservation>,
+    equipment_use: Option<ValidatedEquipmentUse>,
 }
 
 impl ValidatedStartProcess {
@@ -198,6 +292,8 @@ impl ValidatedStartProcess {
             expected_production_revision,
             next_production_revision,
             reservation,
+            energy_reservation,
+            equipment_use,
         } = self;
         let job_id = job.id();
 
@@ -208,6 +304,34 @@ impl ValidatedStartProcess {
                 actual: actual_production_revision,
             });
         }
+        let expected_inventory_revision = reservation.expected_revision();
+        let actual_inventory_revision = state.inventory_state().revision();
+        if actual_inventory_revision != expected_inventory_revision {
+            return Err(StartProcessCommitError::StaleInventoryRevision {
+                expected: expected_inventory_revision,
+                actual: actual_inventory_revision,
+            });
+        }
+        if let Some(energy) = energy_reservation {
+            let expected_energy_revision = energy.expected_revision();
+            let actual_energy_revision = state.energy_state().revision();
+            if actual_energy_revision != expected_energy_revision {
+                return Err(StartProcessCommitError::StaleEnergyRevision {
+                    expected: expected_energy_revision,
+                    actual: actual_energy_revision,
+                });
+            }
+        }
+        if let Some(equipment) = equipment_use {
+            let expected_equipment_revision = equipment.expected_revision();
+            let actual_equipment_revision = state.equipment_state().revision();
+            if actual_equipment_revision != expected_equipment_revision {
+                return Err(StartProcessCommitError::StaleEquipmentRevision {
+                    expected: expected_equipment_revision,
+                    actual: actual_equipment_revision,
+                });
+            }
+        }
         apply_consumption_reservation(state.inventory_state_mut(), reservation).map_err(
             |error| match error {
                 ReservationCommitError::StaleInventoryRevision { expected, actual } => {
@@ -215,6 +339,15 @@ impl ValidatedStartProcess {
                 }
             },
         )?;
+        if let Some(energy) = energy_reservation {
+            apply_energy_consumption_reservation(state.energy_state_mut(), energy).map_err(
+                |error| match error {
+                    EnergyCommitError::StaleRevision { expected, actual } => {
+                        StartProcessCommitError::StaleEnergyRevision { expected, actual }
+                    }
+                },
+            )?;
+        }
         state
             .production_state_mut()
             .insert_job(job, next_job_id, next_production_revision);
@@ -231,9 +364,15 @@ pub fn validate_start_process(
     destination: StockpileId,
 ) -> Result<ValidatedStartProcess, StartProcessError> {
     let process = resolution.process();
-    let Some(definition) = registries.production().get_process(process) else {
+    if source != resolution.source() {
+        return Err(StartProcessError::ResolutionSourceMismatch {
+            bound: resolution.source(),
+            requested: source,
+        });
+    }
+    if registries.production().get_process(process).is_none() {
         return Err(StartProcessError::UnknownProcess { process });
-    };
+    }
 
     for output in resolution.outputs() {
         if registries
@@ -289,21 +428,70 @@ pub fn validate_start_process(
         Some(mass) => mass,
         None => panic!("resolved process output mass overflowed after resolution validation"),
     };
-    if output_mass != definition.input_mass() {
+    let input_mass = resolution.input_mass();
+    if output_mass != input_mass {
         return Err(StartProcessError::MatterBalanceMismatch {
-            input_mass: definition.input_mass(),
+            input_mass,
             output_mass,
         });
     }
-    let reservation = validate_consumption_reservation(
+    let reservation = validate_consumption_reservation_from_selection(
         state.inventory_state(),
-        source,
         destination,
-        definition.inputs(),
+        resolution.selection().clone(),
         output_mass,
     )
     .map_err(map_reservation_error)?;
     let consumed_inputs = reservation.consumed_inputs().to_vec();
+    let energy_reservation = match resolution.energy_supply() {
+        Some(selection) => Some(
+            validate_energy_consumption_reservation(state.energy_state(), selection)
+                .map_err(map_energy_reservation_error)?,
+        ),
+        None => None,
+    };
+    let consumed_energy = energy_reservation.map(EnergyConsumptionReservation::trace);
+    let equipment_use = resolution.equipment_use();
+    let equipment_provider = match equipment_use {
+        Some(selection) => {
+            let expected = selection.expected_revision();
+            let actual = state.equipment().revision();
+            if actual != expected {
+                return Err(StartProcessError::StaleResolvedEquipment {
+                    expected_equipment_revision: expected,
+                    actual_equipment_revision: actual,
+                });
+            }
+            let trace = selection.trace();
+            let Some(record) = state.equipment().get_equipment(trace.equipment()) else {
+                return Err(StartProcessError::ResolvedEquipmentMissing {
+                    equipment: trace.equipment(),
+                });
+            };
+            if record.definition() != trace.definition() {
+                return Err(StartProcessError::ResolvedEquipmentDefinitionChanged {
+                    equipment: trace.equipment(),
+                });
+            }
+            if record.condition() != trace.condition() {
+                return Err(StartProcessError::ResolvedEquipmentConditionChanged {
+                    equipment: trace.equipment(),
+                });
+            }
+            if let Some(job) = state.production().jobs().find(|job| {
+                job.equipment_provider()
+                    .is_some_and(|provider| provider.equipment() == trace.equipment())
+            }) {
+                return Err(StartProcessError::EquipmentBusy {
+                    equipment: trace.equipment(),
+                    job: job.id(),
+                    completes_at: job.completes_at(),
+                });
+            }
+            Some(trace)
+        }
+        None => None,
+    };
 
     Ok(ValidatedStartProcess {
         job: ProductionJobRecord {
@@ -313,15 +501,37 @@ pub fn validate_start_process(
             destination,
             started_at: current,
             completes_at,
-            consumed_mass: definition.input_mass(),
+            consumed_mass: input_mass,
             consumed_inputs,
+            consumed_energy,
+            equipment_provider,
             outputs: resolution.outputs().to_vec(),
         },
         next_job_id: next_after,
         expected_production_revision,
         next_production_revision,
         reservation,
+        energy_reservation,
+        equipment_use,
     })
+}
+
+fn map_energy_reservation_error(error: EnergyReservationError) -> StartProcessError {
+    match error {
+        EnergyReservationError::StaleSelection { expected, actual } => {
+            StartProcessError::StaleResolvedEnergy {
+                expected_energy_revision: expected,
+                actual_energy_revision: actual,
+            }
+        }
+        EnergyReservationError::UnknownStore { .. } => {
+            StartProcessError::ResolvedEnergyStoreMissing
+        }
+        EnergyReservationError::InsufficientEnergy { .. } => {
+            StartProcessError::ResolvedEnergyInsufficient
+        }
+        EnergyReservationError::RevisionExhausted => StartProcessError::EnergyRevisionExhausted,
+    }
 }
 
 fn map_reservation_error(error: ReservationError) -> StartProcessError {
@@ -329,17 +539,6 @@ fn map_reservation_error(error: ReservationError) -> StartProcessError {
         ReservationError::UnknownStockpile { stockpile } => {
             StartProcessError::UnknownStockpile { stockpile }
         }
-        ReservationError::InsufficientMass {
-            stockpile,
-            commodity,
-            available,
-            requested,
-        } => StartProcessError::InsufficientMass {
-            stockpile,
-            commodity,
-            available,
-            requested,
-        },
         ReservationError::MassOverflow { stockpile } => {
             StartProcessError::MassOverflow { stockpile }
         }
@@ -355,6 +554,12 @@ fn map_reservation_error(error: ReservationError) -> StartProcessError {
             requested_inbound,
         },
         ReservationError::RevisionExhausted => StartProcessError::InventoryRevisionExhausted,
+        ReservationError::StaleSelection { expected, actual } => {
+            StartProcessError::StaleResolvedInputs {
+                expected_inventory_revision: expected,
+                actual_inventory_revision: actual,
+            }
+        }
     }
 }
 
@@ -573,7 +778,9 @@ mod tests {
         CommodityKey, CompositionComponent, CompositionConstraint, MaterialComposition,
         MaterialInputSpec, MaterialLotSpec,
     };
-    use crate::production::{ProcessDefinition, make_test_process_resolution};
+    use crate::production::{
+        ProcessDefinition, ProcessInputError, make_test_process_resolution, validate_process_inputs,
+    };
     use crate::simulation::advance_tick;
 
     const TEST_PROCESS: ProcessId = ProcessId::new(900_001);
@@ -629,16 +836,22 @@ mod tests {
         )
     }
 
-    fn make_test_setup(duration_ticks: u64) -> (Registries, ProcessResolution) {
-        (
-            make_test_registries_with_process(make_test_process()),
-            make_test_resolution(duration_ticks),
-        )
+    fn make_test_registries() -> Registries {
+        make_test_registries_with_process(make_test_process())
     }
 
-    fn make_test_resolution(duration_ticks: u64) -> ProcessResolution {
+    fn make_test_resolution(
+        registries: &Registries,
+        state: &AppState,
+        source: StockpileId,
+        duration_ticks: u64,
+    ) -> ProcessResolution {
+        let inputs = match validate_process_inputs(registries, state, TEST_PROCESS, source) {
+            Ok(inputs) => inputs,
+            Err(error) => panic!("test process input binding failed: {error}"),
+        };
         make_test_process_resolution(
-            TEST_PROCESS,
+            inputs,
             duration_ticks,
             vec![MaterialLotSpec::new(
                 charcoal_lump(),
@@ -646,6 +859,21 @@ mod tests {
                 Temperature::from_millikelvin(600_000),
             )],
         )
+    }
+
+    fn make_resolution_for_process(
+        registries: &Registries,
+        state: &AppState,
+        source: StockpileId,
+        process: ProcessId,
+        duration_ticks: u64,
+        outputs: Vec<MaterialLotSpec>,
+    ) -> ProcessResolution {
+        let inputs = match validate_process_inputs(registries, state, process, source) {
+            Ok(inputs) => inputs,
+            Err(error) => panic!("test process input binding failed: {error}"),
+        };
+        make_test_process_resolution(inputs, duration_ticks, outputs)
     }
 
     fn commit_process_for_test(
@@ -684,11 +912,12 @@ mod tests {
 
     #[test]
     fn process_consumes_inputs_reserves_capacity_and_completes_on_due_tick() {
-        let (registries, resolution) = make_test_setup(3);
+        let registries = make_test_registries();
         let mut state = AppState::new(WorldSeed::new(10));
         let source = add_test_stockpile(&mut state, 100);
         let destination = add_test_stockpile(&mut state, 100);
         deposit_test_wood(&registries, &mut state, source, 20);
+        let resolution = make_test_resolution(&registries, &state, source, 3);
 
         let token =
             match validate_start_process(&registries, &state, &resolution, source, destination) {
@@ -761,26 +990,33 @@ mod tests {
 
     #[test]
     fn failed_process_start_is_atomic() {
-        let (registries, resolution) = make_test_setup(3);
+        let registries = make_test_registries();
         let mut state = AppState::new(WorldSeed::new(11));
         let source = add_test_stockpile(&mut state, 100);
-        let destination = add_test_stockpile(&mut state, 100);
+        add_test_stockpile(&mut state, 100);
         deposit_test_wood(&registries, &mut state, source, 5);
         let before = state.clone();
 
-        let result = validate_start_process(&registries, &state, &resolution, source, destination);
+        let result = validate_process_inputs(&registries, &state, TEST_PROCESS, source);
 
         assert!(matches!(
             result,
-            Err(StartProcessError::InsufficientMass { .. })
+            Err(ProcessInputError::InsufficientMass { .. })
         ));
         assert_eq!(state, before);
     }
 
     #[test]
     fn resolved_process_cannot_create_or_destroy_unaccounted_matter() {
-        let registries = make_test_registries_with_process(make_test_process());
-        let lossy_resolution = make_test_process_resolution(
+        let registries = make_test_registries();
+        let mut state = AppState::new(WorldSeed::new(111));
+        let source = add_test_stockpile(&mut state, 100);
+        let destination = add_test_stockpile(&mut state, 100);
+        deposit_test_wood(&registries, &mut state, source, 10);
+        let lossy_resolution = make_resolution_for_process(
+            &registries,
+            &state,
+            source,
             TEST_PROCESS,
             3,
             vec![MaterialLotSpec::new(
@@ -789,10 +1025,6 @@ mod tests {
                 Temperature::from_millikelvin(600_000),
             )],
         );
-        let mut state = AppState::new(WorldSeed::new(111));
-        let source = add_test_stockpile(&mut state, 100);
-        let destination = add_test_stockpile(&mut state, 100);
-        deposit_test_wood(&registries, &mut state, source, 10);
         let before = state.clone();
 
         let result =
@@ -811,11 +1043,12 @@ mod tests {
 
     #[test]
     fn reserved_output_capacity_cannot_be_taken_by_later_deposits() {
-        let (registries, resolution) = make_test_setup(20);
+        let registries = make_test_registries();
         let mut state = AppState::new(WorldSeed::new(12));
         let source = add_test_stockpile(&mut state, 100);
         let destination = add_test_stockpile(&mut state, 12);
         deposit_test_wood(&registries, &mut state, source, 10);
+        let resolution = make_test_resolution(&registries, &state, source, 20);
         let token =
             match validate_start_process(&registries, &state, &resolution, source, destination) {
                 Ok(token) => token,
@@ -839,10 +1072,11 @@ mod tests {
 
     #[test]
     fn same_stockpile_process_accounts_for_consumed_space_before_reserving_output() {
-        let (registries, resolution) = make_test_setup(2);
+        let registries = make_test_registries();
         let mut state = AppState::new(WorldSeed::new(13));
         let stockpile = add_test_stockpile(&mut state, 10);
         deposit_test_wood(&registries, &mut state, stockpile, 10);
+        let resolution = make_test_resolution(&registries, &state, stockpile, 2);
 
         let token =
             match validate_start_process(&registries, &state, &resolution, stockpile, stockpile) {
@@ -861,22 +1095,34 @@ mod tests {
 
     #[test]
     fn same_tick_completions_are_emitted_in_stable_job_id_order() {
-        let (registries, resolution) = make_test_setup(1);
+        let registries = make_test_registries();
         let mut state = AppState::new(WorldSeed::new(14));
         let source = add_test_stockpile(&mut state, 100);
         let destination = add_test_stockpile(&mut state, 100);
         deposit_test_wood(&registries, &mut state, source, 20);
 
-        let first =
-            match validate_start_process(&registries, &state, &resolution, source, destination) {
-                Ok(token) => commit_process_for_test(token, &mut state),
-                Err(error) => panic!("first process validation failed: {error}"),
-            };
-        let second =
-            match validate_start_process(&registries, &state, &resolution, source, destination) {
-                Ok(token) => commit_process_for_test(token, &mut state),
-                Err(error) => panic!("second process validation failed: {error}"),
-            };
+        let first_resolution = make_test_resolution(&registries, &state, source, 1);
+        let first = match validate_start_process(
+            &registries,
+            &state,
+            &first_resolution,
+            source,
+            destination,
+        ) {
+            Ok(token) => commit_process_for_test(token, &mut state),
+            Err(error) => panic!("first process validation failed: {error}"),
+        };
+        let second_resolution = make_test_resolution(&registries, &state, source, 1);
+        let second = match validate_start_process(
+            &registries,
+            &state,
+            &second_resolution,
+            source,
+            destination,
+        ) {
+            Ok(token) => commit_process_for_test(token, &mut state),
+            Err(error) => panic!("second process validation failed: {error}"),
+        };
 
         let outcome = match advance_tick(&registries, &mut state) {
             Ok(outcome) => outcome,
@@ -892,27 +1138,39 @@ mod tests {
 
     #[test]
     fn compatible_production_outputs_coalesce_and_preserve_provenance_range() {
-        let (registries, resolution) = make_test_setup(1);
+        let registries = make_test_registries();
         let mut state = AppState::new(WorldSeed::new(141));
         let source = add_test_stockpile(&mut state, 100);
         let destination = add_test_stockpile(&mut state, 100);
         deposit_test_wood(&registries, &mut state, source, 20);
 
-        let first =
-            match validate_start_process(&registries, &state, &resolution, source, destination) {
-                Ok(token) => token,
-                Err(error) => panic!("first process validation failed: {error}"),
-            };
+        let first_resolution = make_test_resolution(&registries, &state, source, 1);
+        let first = match validate_start_process(
+            &registries,
+            &state,
+            &first_resolution,
+            source,
+            destination,
+        ) {
+            Ok(token) => token,
+            Err(error) => panic!("first process validation failed: {error}"),
+        };
         commit_process_for_test(first, &mut state);
         if let Err(error) = advance_tick(&registries, &mut state) {
             panic!("first completion failed: {error}");
         }
 
-        let second =
-            match validate_start_process(&registries, &state, &resolution, source, destination) {
-                Ok(token) => token,
-                Err(error) => panic!("second process validation failed: {error}"),
-            };
+        let second_resolution = make_test_resolution(&registries, &state, source, 1);
+        let second = match validate_start_process(
+            &registries,
+            &state,
+            &second_resolution,
+            source,
+            destination,
+        ) {
+            Ok(token) => token,
+            Err(error) => panic!("second process validation failed: {error}"),
+        };
         commit_process_for_test(second, &mut state);
         if let Err(error) = advance_tick(&registries, &mut state) {
             panic!("second completion failed: {error}");
@@ -934,12 +1192,57 @@ mod tests {
     }
 
     #[test]
+    fn resolution_source_mismatch_is_rejected_before_any_start_mutation() {
+        let registries = make_test_registries();
+        let mut state = AppState::new(WorldSeed::new(1415));
+        let source = add_test_stockpile(&mut state, 100);
+        let other_source = add_test_stockpile(&mut state, 100);
+        let destination = add_test_stockpile(&mut state, 100);
+        deposit_test_wood(&registries, &mut state, source, 10);
+        deposit_test_wood(&registries, &mut state, other_source, 10);
+        let resolution = make_test_resolution(&registries, &state, source, 10);
+        let before = state.clone();
+
+        assert_eq!(
+            validate_start_process(&registries, &state, &resolution, other_source, destination,),
+            Err(StartProcessError::ResolutionSourceMismatch {
+                bound: source,
+                requested: other_source,
+            })
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn resolved_inputs_become_stale_after_inventory_changes_before_start_validation() {
+        let registries = make_test_registries();
+        let mut state = AppState::new(WorldSeed::new(1416));
+        let source = add_test_stockpile(&mut state, 100);
+        let destination = add_test_stockpile(&mut state, 100);
+        deposit_test_wood(&registries, &mut state, source, 20);
+        let resolution = make_test_resolution(&registries, &state, source, 10);
+        let expected_revision = state.inventory().revision();
+        add_test_stockpile(&mut state, 1);
+        let before = state.clone();
+
+        assert_eq!(
+            validate_start_process(&registries, &state, &resolution, source, destination),
+            Err(StartProcessError::StaleResolvedInputs {
+                expected_inventory_revision: expected_revision,
+                actual_inventory_revision: expected_revision + 1,
+            })
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
     fn stale_inventory_revision_rejects_validated_process_without_mutation() {
-        let (registries, resolution) = make_test_setup(10);
+        let registries = make_test_registries();
         let mut state = AppState::new(WorldSeed::new(15));
         let source = add_test_stockpile(&mut state, 100);
         let destination = add_test_stockpile(&mut state, 100);
         deposit_test_wood(&registries, &mut state, source, 20);
+        let resolution = make_test_resolution(&registries, &state, source, 10);
         let token =
             match validate_start_process(&registries, &state, &resolution, source, destination) {
                 Ok(token) => token,
@@ -959,11 +1262,12 @@ mod tests {
 
     #[test]
     fn stale_production_revision_rejects_second_validated_token_without_mutation() {
-        let (registries, resolution) = make_test_setup(10);
+        let registries = make_test_registries();
         let mut state = AppState::new(WorldSeed::new(16));
         let source = add_test_stockpile(&mut state, 100);
         let destination = add_test_stockpile(&mut state, 100);
         deposit_test_wood(&registries, &mut state, source, 30);
+        let resolution = make_test_resolution(&registries, &state, source, 10);
         let stale =
             match validate_start_process(&registries, &state, &resolution, source, destination) {
                 Ok(token) => token,
@@ -988,8 +1292,16 @@ mod tests {
 
     #[test]
     fn in_flight_job_uses_committed_output_snapshot_after_later_resolution_differs() {
-        let (registries, resolution) = make_test_setup(1);
-        let later_resolution = make_test_process_resolution(
+        let registries = make_test_registries();
+        let mut state = AppState::new(WorldSeed::new(17));
+        let source = add_test_stockpile(&mut state, 100);
+        let destination = add_test_stockpile(&mut state, 100);
+        deposit_test_wood(&registries, &mut state, source, 10);
+        let resolution = make_test_resolution(&registries, &state, source, 1);
+        let later_resolution = make_resolution_for_process(
+            &registries,
+            &state,
+            source,
             TEST_PROCESS,
             1,
             vec![
@@ -1006,10 +1318,6 @@ mod tests {
             ],
         );
         assert_ne!(resolution.outputs(), later_resolution.outputs());
-        let mut state = AppState::new(WorldSeed::new(17));
-        let source = add_test_stockpile(&mut state, 100);
-        let destination = add_test_stockpile(&mut state, 100);
-        deposit_test_wood(&registries, &mut state, source, 10);
         let token =
             match validate_start_process(&registries, &state, &resolution, source, destination) {
                 Ok(token) => token,
@@ -1056,22 +1364,6 @@ mod tests {
             vec![input],
             Vec::new(),
         );
-        let resolution = make_test_process_resolution(
-            TEST_COMPOSITION_PROCESS,
-            5,
-            vec![
-                MaterialLotSpec::new(
-                    copper_concentrate(),
-                    Mass::from_milligrams(8),
-                    Temperature::from_millikelvin(350_000),
-                ),
-                MaterialLotSpec::new(
-                    slag_lump(),
-                    Mass::from_milligrams(2),
-                    Temperature::from_millikelvin(350_000),
-                ),
-            ],
-        );
         let registries = make_test_registries_with_process(process);
         let mut state = AppState::new(WorldSeed::new(18));
         let source = add_test_stockpile(&mut state, 100);
@@ -1090,9 +1382,9 @@ mod tests {
         };
 
         let poor_only =
-            validate_start_process(&registries, &state, &resolution, source, destination);
+            validate_process_inputs(&registries, &state, TEST_COMPOSITION_PROCESS, source);
         match poor_only {
-            Err(StartProcessError::InsufficientMass { available, .. }) => {
+            Err(ProcessInputError::InsufficientMass { available, .. }) => {
                 assert_eq!(available, Mass::ZERO);
             }
             Err(error) => panic!("unexpected composition validation error: {error}"),
@@ -1111,6 +1403,25 @@ mod tests {
             Ok(id) => id,
             Err(error) => panic!("rich ore fixture failed: {error}"),
         };
+        let resolution = make_resolution_for_process(
+            &registries,
+            &state,
+            source,
+            TEST_COMPOSITION_PROCESS,
+            5,
+            vec![
+                MaterialLotSpec::new(
+                    copper_concentrate(),
+                    Mass::from_milligrams(8),
+                    Temperature::from_millikelvin(350_000),
+                ),
+                MaterialLotSpec::new(
+                    slag_lump(),
+                    Mass::from_milligrams(2),
+                    Temperature::from_millikelvin(350_000),
+                ),
+            ],
+        );
         let token =
             match validate_start_process(&registries, &state, &resolution, source, destination) {
                 Ok(token) => token,
@@ -1154,19 +1465,10 @@ mod tests {
             vec![first, second],
             Vec::new(),
         );
-        let resolution = make_test_process_resolution(
-            TEST_COMPOSITION_PROCESS,
-            5,
-            vec![MaterialLotSpec::new(
-                copper_concentrate(),
-                Mass::from_milligrams(12),
-                Temperature::from_millikelvin(350_000),
-            )],
-        );
         let registries = make_test_registries_with_process(process);
         let mut state = AppState::new(WorldSeed::new(19));
         let source = add_test_stockpile(&mut state, 100);
-        let destination = add_test_stockpile(&mut state, 100);
+        add_test_stockpile(&mut state, 100);
         if let Err(error) = deposit_composed_lot_for_test(
             &registries,
             &mut state,
@@ -1179,10 +1481,10 @@ mod tests {
             panic!("overlap lot fixture failed: {error}");
         }
 
-        let result = validate_start_process(&registries, &state, &resolution, source, destination);
+        let result = validate_process_inputs(&registries, &state, TEST_COMPOSITION_PROCESS, source);
 
         match result {
-            Err(StartProcessError::InsufficientMass {
+            Err(ProcessInputError::InsufficientMass {
                 available,
                 requested,
                 ..

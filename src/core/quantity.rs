@@ -141,7 +141,15 @@ macro_rules! unsigned_quantity {
 }
 
 unsigned_quantity!(Pressure, u64, from_pascals, pascals);
+unsigned_quantity!(Area, u64, from_square_millimeters, square_millimeters);
+unsigned_quantity!(
+    Acceleration,
+    u64,
+    from_micrometers_per_second_squared,
+    micrometers_per_second_squared
+);
 unsigned_quantity!(Power, u128, from_picowatts, picowatts);
+unsigned_quantity!(Force, u128, from_millinewtons, millinewtons);
 unsigned_quantity!(ElectricPotential, u64, from_microvolts, microvolts);
 unsigned_quantity!(ElectricCurrent, u64, from_microamperes, microamperes);
 unsigned_quantity!(ElectricalResistance, u64, from_microohms, microohms);
@@ -327,6 +335,13 @@ mod tests {
     #[test]
     fn physical_rate_and_electrical_quantities_use_explicit_units() {
         assert_eq!(Pressure::from_pascals(101_325).pascals(), 101_325);
+        assert_eq!(Area::from_square_millimeters(250).square_millimeters(), 250);
+        assert_eq!(
+            Acceleration::from_micrometers_per_second_squared(9_806_650)
+                .micrometers_per_second_squared(),
+            9_806_650
+        );
+        assert_eq!(Force::from_millinewtons(4_000).millinewtons(), 4_000);
         assert_eq!(Power::from_microwatts(3).picowatts(), 3_000_000);
         assert_eq!(ElectricPotential::from_microvolts(12).microvolts(), 12);
         assert_eq!(ElectricCurrent::from_microamperes(5).microamperes(), 5);

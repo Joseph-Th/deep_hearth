@@ -8,8 +8,8 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{
-    ElectricCurrent, ElectricPotential, ElectricalResistance, Energy, Mass, Power, Pressure,
-    Temperature, Volume, VolumetricFlow,
+    Area, ElectricCurrent, ElectricPotential, ElectricalResistance, Energy, Force, Mass, Power,
+    Pressure, Temperature, Volume, VolumetricFlow,
 };
 use crate::maintenance::Condition;
 
@@ -41,6 +41,8 @@ pub enum CapabilityValueKind {
     Temperature,
     Energy,
     Pressure,
+    Area,
+    Force,
     Power,
     ElectricPotential,
     ElectricCurrent,
@@ -58,6 +60,8 @@ pub enum CapabilityValue {
     Temperature(Temperature),
     Energy(Energy),
     Pressure(Pressure),
+    Area(Area),
+    Force(Force),
     Power(Power),
     ElectricPotential(ElectricPotential),
     ElectricCurrent(ElectricCurrent),
@@ -76,6 +80,8 @@ impl CapabilityValue {
             Self::Temperature(_) => CapabilityValueKind::Temperature,
             Self::Energy(_) => CapabilityValueKind::Energy,
             Self::Pressure(_) => CapabilityValueKind::Pressure,
+            Self::Area(_) => CapabilityValueKind::Area,
+            Self::Force(_) => CapabilityValueKind::Force,
             Self::Power(_) => CapabilityValueKind::Power,
             Self::ElectricPotential(_) => CapabilityValueKind::ElectricPotential,
             Self::ElectricCurrent(_) => CapabilityValueKind::ElectricCurrent,
@@ -93,6 +99,8 @@ impl CapabilityValue {
             Self::Temperature(value) => u128::from(value.millikelvin()),
             Self::Energy(value) => value.nanojoules(),
             Self::Pressure(value) => u128::from(value.pascals()),
+            Self::Area(value) => u128::from(value.square_millimeters()),
+            Self::Force(value) => value.millinewtons(),
             Self::Power(value) => value.picowatts(),
             Self::ElectricPotential(value) => u128::from(value.microvolts()),
             Self::ElectricCurrent(value) => u128::from(value.microamperes()),
@@ -244,6 +252,13 @@ impl CapabilityProfile {
     #[must_use]
     pub fn get_capability(&self, capability: CapabilityId) -> Option<CapabilityValue> {
         self.values.get(&capability).copied()
+    }
+
+    /// Iterates deterministic capability/value pairs in stable authored-ID order.
+    pub fn entries(&self) -> impl Iterator<Item = (CapabilityId, CapabilityValue)> + '_ {
+        self.values
+            .iter()
+            .map(|(capability, value)| (*capability, *value))
     }
 }
 

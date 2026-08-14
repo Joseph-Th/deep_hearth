@@ -5,12 +5,15 @@ mod production_execution;
 mod resolution;
 mod state;
 
-pub use definitions::{ProcessDefinition, ProcessId, ProductionRegistry};
+pub use definitions::{ProcessDefinition, ProcessId, ProcessInputPolicy, ProductionRegistry};
 pub use production_execution::{
     ProcessCompletion, StartProcessCommitError, StartProcessError, ValidatedStartProcess,
     validate_start_process,
 };
-pub use resolution::ProcessResolution;
+pub use resolution::{
+    ProcessInputError, ProcessResolution, ProcessResolutionError, ValidatedProcessInputs,
+    validate_process_inputs, validate_selected_process_inputs,
+};
 pub use state::{ProductionJobId, ProductionJobRecord, ProductionState, ProductionValidationError};
 
 pub(crate) use production_execution::{

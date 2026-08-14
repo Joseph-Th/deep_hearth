@@ -671,7 +671,7 @@ fn validate_destination_capacity(
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ReservationError {
+pub(crate) enum ConsumptionSelectionError {
     UnknownStockpile {
         stockpile: StockpileId,
     },
@@ -684,6 +684,73 @@ pub(crate) enum ReservationError {
     MassOverflow {
         stockpile: StockpileId,
     },
+}
+
+/// Explicit runtime selection of conserved matter from one homogeneous lot.
+///
+/// Physical operation resolvers use these selections when input quantity and material identity are
+/// properties of the chosen batch rather than static recipe requirements.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct MaterialLotSelection {
+    lot: MaterialLotId,
+    mass: Mass,
+}
+
+impl MaterialLotSelection {
+    #[must_use]
+    pub const fn new(lot: MaterialLotId, mass: Mass) -> Self {
+        Self { lot, mass }
+    }
+
+    #[must_use]
+    pub const fn lot(self) -> MaterialLotId {
+        self.lot
+    }
+
+    #[must_use]
+    pub const fn mass(self) -> Mass {
+        self.mass
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ExplicitConsumptionSelectionError {
+    UnknownStockpile {
+        stockpile: StockpileId,
+    },
+    EmptySelection,
+    ZeroMass {
+        lot: MaterialLotId,
+    },
+    DuplicateLot {
+        lot: MaterialLotId,
+    },
+    UnknownLot {
+        lot: MaterialLotId,
+    },
+    LotOwnedElsewhere {
+        lot: MaterialLotId,
+        requested_source: StockpileId,
+        actual_source: StockpileId,
+    },
+    InsufficientLotMass {
+        lot: MaterialLotId,
+        available: Mass,
+        requested: Mass,
+    },
+    MassOverflow {
+        stockpile: StockpileId,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ReservationError {
+    UnknownStockpile {
+        stockpile: StockpileId,
+    },
+    MassOverflow {
+        stockpile: StockpileId,
+    },
     CapacityExceeded {
         stockpile: StockpileId,
         capacity: Mass,
@@ -691,6 +758,10 @@ pub(crate) enum ReservationError {
         requested_inbound: Mass,
     },
     RevisionExhausted,
+    StaleSelection {
+        expected: u64,
+        actual: u64,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -710,29 +781,52 @@ pub(crate) struct ConsumptionReservation {
     inbound_mass: Mass,
 }
 
+/// Deterministic read-only material selection for physical process resolution.
+///
+/// The selection owns the exact lot slices and physical/provenance traces chosen from one
+/// inventory revision. A later reservation consumes this same selection rather than selecting
+/// equivalent-looking matter a second time after a resolver has already calculated an outcome.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ConsumptionSelection {
+    expected_revision: u64,
+    source: StockpileId,
+    inputs: Vec<MaterialInputSpec>,
+    lot_slices: Vec<LotSlice>,
+    consumed_inputs: Vec<ConsumedMaterialTrace>,
+    total_consumed: Mass,
+}
+
+impl ConsumptionSelection {
+    pub(crate) const fn source(&self) -> StockpileId {
+        self.source
+    }
+
+    pub(crate) fn consumed_inputs(&self) -> &[ConsumedMaterialTrace] {
+        &self.consumed_inputs
+    }
+
+    pub(crate) const fn total_consumed(&self) -> Mass {
+        self.total_consumed
+    }
+}
+
 impl ConsumptionReservation {
+    pub(crate) const fn expected_revision(&self) -> u64 {
+        self.expected_revision
+    }
+
     pub(crate) fn consumed_inputs(&self) -> &[ConsumedMaterialTrace] {
         &self.consumed_inputs
     }
 }
 
-pub(crate) fn validate_consumption_reservation(
+pub(crate) fn validate_consumption_selection(
     state: &InventoryState,
     source: StockpileId,
-    destination: StockpileId,
     inputs: &[MaterialInputSpec],
-    inbound_mass: Mass,
-) -> Result<ConsumptionReservation, ReservationError> {
+) -> Result<ConsumptionSelection, ConsumptionSelectionError> {
     let Some(source_record) = state.get_stockpile(source) else {
-        return Err(ReservationError::UnknownStockpile { stockpile: source });
-    };
-    let Some(destination_record) = state.get_stockpile(destination) else {
-        return Err(ReservationError::UnknownStockpile {
-            stockpile: destination,
-        });
-    };
-    let Some(next_revision) = state.revision.checked_add(1) else {
-        return Err(ReservationError::RevisionExhausted);
+        return Err(ConsumptionSelectionError::UnknownStockpile { stockpile: source });
     };
 
     let mut total_consumed = Mass::ZERO;
@@ -742,7 +836,7 @@ pub(crate) fn validate_consumption_reservation(
         let (selected, available) =
             select_input_lot_slices(state, source_record, input, &mut selected_by_lot);
         let Some(selected) = selected else {
-            return Err(ReservationError::InsufficientMass {
+            return Err(ConsumptionSelectionError::InsufficientMass {
                 stockpile: source,
                 commodity: input.commodity(),
                 available,
@@ -751,9 +845,149 @@ pub(crate) fn validate_consumption_reservation(
         };
         total_consumed = total_consumed
             .checked_add(input.mass())
-            .ok_or(ReservationError::MassOverflow { stockpile: source })?;
+            .ok_or(ConsumptionSelectionError::MassOverflow { stockpile: source })?;
         lot_slices.extend(selected);
     }
+
+    let consumed_inputs = lot_slices
+        .iter()
+        .map(|slice| {
+            let lot = match state.lots.get(&slice.lot) {
+                Some(lot) => lot,
+                None => panic!(
+                    "validated input slice references missing material lot {}",
+                    slice.lot.value()
+                ),
+            };
+            ConsumedMaterialTrace {
+                mass: slice.mass,
+                profile: lot.profile.clone(),
+                provenance: lot.provenance,
+            }
+        })
+        .collect();
+
+    Ok(ConsumptionSelection {
+        expected_revision: state.revision,
+        source,
+        inputs: inputs.to_vec(),
+        lot_slices,
+        consumed_inputs,
+        total_consumed,
+    })
+}
+
+pub(crate) fn validate_explicit_consumption_selection(
+    state: &InventoryState,
+    source: StockpileId,
+    selections: &[MaterialLotSelection],
+) -> Result<ConsumptionSelection, ExplicitConsumptionSelectionError> {
+    if state.get_stockpile(source).is_none() {
+        return Err(ExplicitConsumptionSelectionError::UnknownStockpile { stockpile: source });
+    }
+    if selections.is_empty() {
+        return Err(ExplicitConsumptionSelectionError::EmptySelection);
+    }
+
+    let mut ordered = selections.to_vec();
+    ordered.sort();
+    for pair in ordered.windows(2) {
+        if pair[0].lot == pair[1].lot {
+            return Err(ExplicitConsumptionSelectionError::DuplicateLot { lot: pair[0].lot });
+        }
+    }
+
+    let mut total_consumed = Mass::ZERO;
+    let mut lot_slices = Vec::with_capacity(ordered.len());
+    let mut consumed_inputs = Vec::with_capacity(ordered.len());
+    let mut aggregate_inputs = BTreeMap::<CommodityKey, Mass>::new();
+    for selection in ordered {
+        if selection.mass.is_zero() {
+            return Err(ExplicitConsumptionSelectionError::ZeroMass { lot: selection.lot });
+        }
+        let Some(lot) = state.get_lot(selection.lot) else {
+            return Err(ExplicitConsumptionSelectionError::UnknownLot { lot: selection.lot });
+        };
+        if lot.stockpile() != source {
+            return Err(ExplicitConsumptionSelectionError::LotOwnedElsewhere {
+                lot: selection.lot,
+                requested_source: source,
+                actual_source: lot.stockpile(),
+            });
+        }
+        if lot.mass() < selection.mass {
+            return Err(ExplicitConsumptionSelectionError::InsufficientLotMass {
+                lot: selection.lot,
+                available: lot.mass(),
+                requested: selection.mass,
+            });
+        }
+        total_consumed = total_consumed
+            .checked_add(selection.mass)
+            .ok_or(ExplicitConsumptionSelectionError::MassOverflow { stockpile: source })?;
+        let current = aggregate_inputs
+            .get(&lot.commodity())
+            .copied()
+            .unwrap_or(Mass::ZERO);
+        aggregate_inputs.insert(
+            lot.commodity(),
+            current
+                .checked_add(selection.mass)
+                .ok_or(ExplicitConsumptionSelectionError::MassOverflow { stockpile: source })?,
+        );
+        lot_slices.push(LotSlice {
+            lot: selection.lot,
+            mass: selection.mass,
+        });
+        consumed_inputs.push(ConsumedMaterialTrace {
+            mass: selection.mass,
+            profile: lot.profile.clone(),
+            provenance: lot.provenance,
+        });
+    }
+
+    let inputs = aggregate_inputs
+        .into_iter()
+        .map(|(commodity, mass)| MaterialInputSpec::new(commodity, mass))
+        .collect();
+    Ok(ConsumptionSelection {
+        expected_revision: state.revision,
+        source,
+        inputs,
+        lot_slices,
+        consumed_inputs,
+        total_consumed,
+    })
+}
+
+pub(crate) fn validate_consumption_reservation_from_selection(
+    state: &InventoryState,
+    destination: StockpileId,
+    selection: ConsumptionSelection,
+    inbound_mass: Mass,
+) -> Result<ConsumptionReservation, ReservationError> {
+    let ConsumptionSelection {
+        expected_revision,
+        source,
+        inputs,
+        lot_slices,
+        consumed_inputs,
+        total_consumed,
+    } = selection;
+    if state.revision != expected_revision {
+        return Err(ReservationError::StaleSelection {
+            expected: expected_revision,
+            actual: state.revision,
+        });
+    }
+    let Some(destination_record) = state.get_stockpile(destination) else {
+        return Err(ReservationError::UnknownStockpile {
+            stockpile: destination,
+        });
+    };
+    let Some(next_revision) = state.revision.checked_add(1) else {
+        return Err(ReservationError::RevisionExhausted);
+    };
 
     let destination_stored_after_consumption = if source == destination {
         destination_record
@@ -782,30 +1016,12 @@ pub(crate) fn validate_consumption_reservation(
         });
     }
 
-    let consumed_inputs = lot_slices
-        .iter()
-        .map(|slice| {
-            let lot = match state.lots.get(&slice.lot) {
-                Some(lot) => lot,
-                None => panic!(
-                    "validated input slice references missing material lot {}",
-                    slice.lot.value()
-                ),
-            };
-            ConsumedMaterialTrace {
-                mass: slice.mass,
-                profile: lot.profile.clone(),
-                provenance: lot.provenance,
-            }
-        })
-        .collect();
-
     Ok(ConsumptionReservation {
-        expected_revision: state.revision,
+        expected_revision,
         next_revision,
         source,
         destination,
-        inputs: inputs.to_vec(),
+        inputs,
         lot_slices,
         consumed_inputs,
         inbound_mass,

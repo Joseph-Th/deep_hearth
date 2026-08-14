@@ -105,7 +105,8 @@ mod tests {
     use crate::inventory::{add_stockpile, deposit_bulk_for_test};
     use crate::material::{CommodityKey, MaterialInputSpec, MaterialLotSpec};
     use crate::production::{
-        ProcessDefinition, ProcessId, make_test_process_resolution, validate_start_process,
+        ProcessDefinition, ProcessId, make_test_process_resolution, validate_process_inputs,
+        validate_start_process,
     };
     use crate::simulation::advance_tick;
 
@@ -123,15 +124,6 @@ mod tests {
             Vec::new(),
         );
         let registries = make_test_registries_with_process(process);
-        let resolution = make_test_process_resolution(
-            PROCESS,
-            1,
-            vec![MaterialLotSpec::new(
-                CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
-                Mass::from_milligrams(10),
-                Temperature::from_millikelvin(500_000),
-            )],
-        );
         let mut state = AppState::new(WorldSeed::new(0x0ACC_0017));
         let source = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
             Ok(id) => id,
@@ -150,6 +142,19 @@ mod tests {
         ) {
             panic!("matter fixture deposit failed: {error}");
         }
+        let inputs = match validate_process_inputs(&registries, &state, PROCESS, source) {
+            Ok(inputs) => inputs,
+            Err(error) => panic!("matter fixture input binding failed: {error}"),
+        };
+        let resolution = make_test_process_resolution(
+            inputs,
+            1,
+            vec![MaterialLotSpec::new(
+                CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+                Mass::from_milligrams(10),
+                Temperature::from_millikelvin(500_000),
+            )],
+        );
         let before = match calculate_matter_accounting(&state) {
             Ok(accounting) => accounting,
             Err(error) => panic!("initial accounting failed: {error}"),

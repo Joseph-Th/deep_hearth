@@ -7,6 +7,7 @@ pub mod content;
 pub mod core;
 pub mod electrical;
 pub mod energy;
+pub mod equipment;
 pub mod fluid;
 pub mod inventory;
 pub mod maintenance;
@@ -17,6 +18,7 @@ pub mod production;
 pub mod registry;
 pub mod simulation;
 pub mod spatial;
+pub mod structural;
 pub mod thermal;
 
 pub use content::build_registries;

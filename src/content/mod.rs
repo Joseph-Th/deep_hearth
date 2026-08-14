@@ -1,21 +1,34 @@
 //! Built-in immutable game definitions; sibling files own authored definitions for each registry domain.
 
 mod capabilities;
+mod energy;
+mod equipment;
 mod materials;
 mod processes;
+mod structural;
+mod thermal;
 
-use crate::registry::{CoreDefinitions, Registries, RegistrySchemaVersion};
+use crate::registry::{CoreDefinitions, Registries, RegistryDomains, RegistrySchemaVersion};
 
 #[cfg(test)]
+use crate::capability::{CapabilityDefinition, CapabilityRegistry};
+#[cfg(test)]
+use crate::energy::{EnergyRegistry, EnergyStoreDefinition};
+#[cfg(test)]
+use crate::equipment::{EquipmentDefinition, EquipmentRegistry};
+#[cfg(test)]
 use crate::production::{ProcessDefinition, ProductionRegistry};
+#[cfg(test)]
+use crate::thermal::{SensibleHeatingProcessDefinition, ThermalRegistry};
 
 pub use materials::{
     FORM_CONCENTRATE, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_ORE, MATERIAL_CHARCOAL,
     MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_WOOD,
 };
+pub use structural::{STRUCTURAL_PROFILE_AXIAL_COMPRESSION, STRUCTURAL_PROFILE_AXIAL_TENSION};
 
 const DEFAULT_TICKS_PER_SECOND: u16 = 20;
-const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(1);
+const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(4);
 
 /// Builds the immutable built-in registry set used by a new application instance.
 #[must_use]
@@ -23,9 +36,37 @@ pub fn build_registries() -> Registries {
     Registries::new(
         REGISTRY_SCHEMA_VERSION,
         CoreDefinitions::new(DEFAULT_TICKS_PER_SECOND),
-        capabilities::build_capability_registry(),
-        materials::build_material_registry(),
-        processes::build_production_registry(),
+        RegistryDomains::new(
+            energy::build_energy_registry(),
+            capabilities::build_capability_registry(),
+            equipment::build_equipment_registry(),
+            structural::build_structural_registry(),
+            materials::build_material_registry(),
+            thermal::build_thermal_registry(),
+            processes::build_production_registry(),
+        ),
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn make_test_registries_with_equipment(
+    capability: CapabilityDefinition,
+    equipment_definition: EquipmentDefinition,
+) -> Registries {
+    let mut capabilities = CapabilityRegistry::new();
+    capabilities.register_capability(capability);
+    Registries::new(
+        REGISTRY_SCHEMA_VERSION,
+        CoreDefinitions::new(DEFAULT_TICKS_PER_SECOND),
+        RegistryDomains::new(
+            energy::build_energy_registry(),
+            capabilities,
+            EquipmentRegistry::new([equipment_definition]),
+            structural::build_structural_registry(),
+            materials::build_material_registry(),
+            thermal::build_thermal_registry(),
+            ProductionRegistry::new(),
+        ),
     )
 }
 
@@ -36,9 +77,63 @@ pub(crate) fn make_test_registries_with_process(process: ProcessDefinition) -> R
     Registries::new(
         REGISTRY_SCHEMA_VERSION,
         CoreDefinitions::new(DEFAULT_TICKS_PER_SECOND),
-        capabilities::build_capability_registry(),
-        materials::build_material_registry(),
-        production,
+        RegistryDomains::new(
+            energy::build_energy_registry(),
+            capabilities::build_capability_registry(),
+            equipment::build_equipment_registry(),
+            structural::build_structural_registry(),
+            materials::build_material_registry(),
+            thermal::build_thermal_registry(),
+            production,
+        ),
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn make_test_registries_with_energy_store(
+    definition: EnergyStoreDefinition,
+) -> Registries {
+    Registries::new(
+        REGISTRY_SCHEMA_VERSION,
+        CoreDefinitions::new(DEFAULT_TICKS_PER_SECOND),
+        RegistryDomains::new(
+            EnergyRegistry::new([definition]),
+            capabilities::build_capability_registry(),
+            equipment::build_equipment_registry(),
+            structural::build_structural_registry(),
+            materials::build_material_registry(),
+            thermal::build_thermal_registry(),
+            ProductionRegistry::new(),
+        ),
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn make_test_registries_with_sensible_heating(
+    capability_definitions: Vec<CapabilityDefinition>,
+    equipment_definition: EquipmentDefinition,
+    energy_definition: EnergyStoreDefinition,
+    process: ProcessDefinition,
+    thermal_definition: SensibleHeatingProcessDefinition,
+) -> Registries {
+    let mut capabilities = CapabilityRegistry::new();
+    for capability in capability_definitions {
+        capabilities.register_capability(capability);
+    }
+    let mut production = ProductionRegistry::new();
+    production.register_process_for_test(process);
+    Registries::new(
+        REGISTRY_SCHEMA_VERSION,
+        CoreDefinitions::new(DEFAULT_TICKS_PER_SECOND),
+        RegistryDomains::new(
+            EnergyRegistry::new([energy_definition]),
+            capabilities,
+            EquipmentRegistry::new([equipment_definition]),
+            structural::build_structural_registry(),
+            materials::build_material_registry(),
+            ThermalRegistry::new([thermal_definition]),
+            production,
+        ),
     )
 }
 
@@ -90,9 +185,15 @@ mod tests {
         let registries = Registries::new(
             REGISTRY_SCHEMA_VERSION,
             CoreDefinitions::new(DEFAULT_TICKS_PER_SECOND),
-            capabilities,
-            materials::build_material_registry(),
-            production,
+            RegistryDomains::new(
+                energy::build_energy_registry(),
+                capabilities,
+                equipment::build_equipment_registry(),
+                structural::build_structural_registry(),
+                materials::build_material_registry(),
+                thermal::build_thermal_registry(),
+                production,
+            ),
         );
 
         assert!(
