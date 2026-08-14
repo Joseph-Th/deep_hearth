@@ -10,7 +10,8 @@ use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::SimulationTick;
 use crate::material::{
     CommodityKey, CompositionError, FormId, MaterialComposition, MaterialPhase,
-    MaterialPhaseStateError, MaterialRegistry, validate_material_phase_state,
+    MaterialPhaseStateError, MaterialRegistry, ParticleSizeRange, ParticleSizeStateError,
+    validate_material_particle_size_state, validate_material_phase_state,
 };
 use crate::structural::StructuralElementId;
 
@@ -171,6 +172,7 @@ pub struct MaterialLotProfile {
     pub(super) commodity: CommodityKey,
     pub(super) temperature: Temperature,
     pub(super) composition: MaterialComposition,
+    pub(super) particle_size: Option<ParticleSizeRange>,
 }
 
 impl MaterialLotProfile {
@@ -187,6 +189,11 @@ impl MaterialLotProfile {
     #[must_use]
     pub const fn composition(&self) -> &MaterialComposition {
         &self.composition
+    }
+
+    #[must_use]
+    pub const fn particle_size(&self) -> Option<ParticleSizeRange> {
+        self.particle_size
     }
 }
 
@@ -252,6 +259,11 @@ impl MaterialLotRecord {
     #[must_use]
     pub const fn composition(&self) -> &MaterialComposition {
         &self.profile.composition
+    }
+
+    #[must_use]
+    pub const fn particle_size(&self) -> Option<ParticleSizeRange> {
+        self.profile.particle_size
     }
 
     #[must_use]
@@ -540,6 +552,10 @@ pub enum InventoryValidationError {
         lot: MaterialLotId,
         error: MaterialPhaseStateError,
     },
+    InvalidLotParticleSizeState {
+        lot: MaterialLotId,
+        error: ParticleSizeStateError,
+    },
     InvalidLotProvenanceRange {
         lot: MaterialLotId,
         earliest: SimulationTick,
@@ -698,6 +714,11 @@ impl Display for InventoryValidationError {
             Self::InvalidLotPhaseState { lot, error } => write!(
                 formatter,
                 "material lot {} has invalid phase state: {error}",
+                lot.value()
+            ),
+            Self::InvalidLotParticleSizeState { lot, error } => write!(
+                formatter,
+                "material lot {} has invalid particle-size state: {error}",
                 lot.value()
             ),
             Self::InvalidLotProvenanceRange {
@@ -888,6 +909,10 @@ pub(crate) fn validate_loaded_inventory(
             lot.temperature(),
         )
         .map_err(|error| InventoryValidationError::InvalidLotPhaseState { lot: *key, error })?;
+        validate_material_particle_size_state(materials, lot.commodity(), lot.particle_size())
+            .map_err(
+                |error| InventoryValidationError::InvalidLotParticleSizeState { lot: *key, error },
+            )?;
         if lot.latest_created_at() < lot.created_at() {
             return Err(InventoryValidationError::InvalidLotProvenanceRange {
                 lot: *key,

@@ -4,6 +4,7 @@ mod accounting;
 mod definitions;
 mod state;
 mod storage_execution;
+mod structural_integration;
 
 pub use accounting::{
     FluidVolumeAccounting, FluidVolumeAccountingError, calculate_fluid_volume_accounting,
@@ -14,8 +15,13 @@ pub use storage_execution::{
     AddFluidStoreError, FluidTransferCommitError, FluidTransferError, FluidTransferOutcome,
     FluidTransferResolution, ValidatedFluidTransfer, add_fluid_store, validate_fluid_transfer,
 };
+pub use structural_integration::{
+    FluidStructuralLoadError, FluidSupportCommitError, FluidSupportError, FluidSupportOutcome,
+    ValidatedFluidSupportChange, validate_mount_fluid_store, validate_unmount_fluid_store,
+};
 
 pub(crate) use state::validate_loaded_fluid;
+pub(crate) use structural_integration::validate_existing_fluid_load;
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};

@@ -9,7 +9,8 @@ use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::material::{
     CommodityKey, CompositionError, FormId, MaterialComposition, MaterialId, MaterialInputSpec,
-    MaterialLotSpec, MaterialPhase, MaterialPhaseStateError, validate_material_phase_state,
+    MaterialLotSpec, MaterialPhase, MaterialPhaseStateError, ParticleSizeRange,
+    ParticleSizeStateError, validate_material_particle_size_state, validate_material_phase_state,
 };
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
@@ -42,6 +43,7 @@ pub enum StockpileStorageError {
         form: FormId,
     },
     InvalidMaterialPhaseState(MaterialPhaseStateError),
+    InvalidParticleSizeState(ParticleSizeStateError),
     PhaseNotAccepted {
         stockpile: StockpileId,
         phase: MaterialPhase,
@@ -63,6 +65,10 @@ impl Display for StockpileStorageError {
                     form.value()
                 )
             }
+            Self::InvalidParticleSizeState(error) => write!(
+                formatter,
+                "material particle-size state is invalid for storage: {error}"
+            ),
             Self::InvalidMaterialPhaseState(error) => {
                 write!(
                     formatter,
@@ -93,6 +99,7 @@ impl Error for StockpileStorageError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::InvalidMaterialPhaseState(error) => Some(error),
+            Self::InvalidParticleSizeState(error) => Some(error),
             Self::UnknownForm { .. }
             | Self::PhaseNotAccepted { .. }
             | Self::TemperatureExceedsMaximum { .. } => None,
@@ -107,9 +114,12 @@ pub(crate) fn validate_stockpile_storage(
     commodity: CommodityKey,
     composition: &MaterialComposition,
     temperature: Temperature,
+    particle_size: Option<ParticleSizeRange>,
 ) -> Result<(), StockpileStorageError> {
     validate_material_phase_state(registries.materials(), commodity, composition, temperature)
         .map_err(StockpileStorageError::InvalidMaterialPhaseState)?;
+    validate_material_particle_size_state(registries.materials(), commodity, particle_size)
+        .map_err(StockpileStorageError::InvalidParticleSizeState)?;
     let form_id = commodity.form();
     let Some(form) = registries.materials().get_form(form_id) else {
         return Err(StockpileStorageError::UnknownForm { form: form_id });
@@ -224,6 +234,228 @@ impl ValidatedMaterialEgress {
 
     pub(crate) fn consumed_inputs(&self) -> &[ConsumedMaterialTrace] {
         &self.consumed_inputs
+    }
+}
+
+/// Revision-bound relocation of one already-resolved exact lot selection between stockpiles.
+///
+/// Cross-owner systems use this when a physical resolver inspected specific lot slices before
+/// deciding a consequence. The relocation preserves selected profiles and provenance exactly and
+/// never substitutes equivalent-looking inventory at validation time.
+#[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ValidatedMaterialRelocation {
+    expected_revision: u64,
+    next_revision: u64,
+    source: StockpileId,
+    destination: StockpileId,
+    inputs: Vec<MaterialInputSpec>,
+    lot_slices: Vec<LotSlice>,
+    split_lot_ids: Vec<Option<MaterialLotId>>,
+    next_lot_id_after: Option<u64>,
+    total_mass: Mass,
+    structural: Option<ValidatedStockpileStructuralLoad>,
+}
+
+impl ValidatedMaterialRelocation {
+    pub(crate) const fn total_mass(&self) -> Mass {
+        self.total_mass
+    }
+
+    pub(crate) fn commit(self, state: &mut AppState) -> Result<(), MaterialRelocationCommitError> {
+        let actual = state.inventory_state().revision();
+        if actual != self.expected_revision {
+            return Err(MaterialRelocationCommitError::StaleInventoryRevision {
+                expected: self.expected_revision,
+                actual,
+            });
+        }
+        if let Some(structural) = self.structural {
+            structural
+                .commit(state)
+                .map_err(MaterialRelocationCommitError::Structure)?;
+        }
+
+        let inventories = state.inventory_state_mut();
+        for input in &self.inputs {
+            apply_aggregate_withdraw(inventories, self.source, input.commodity(), input.mass());
+            apply_aggregate_deposit(
+                inventories,
+                self.destination,
+                input.commodity(),
+                input.mass(),
+            );
+        }
+        for (slice, split_lot_id) in self.lot_slices.into_iter().zip(self.split_lot_ids) {
+            let lot_mass = match inventories.lots.get(&slice.lot) {
+                Some(lot) => lot.mass,
+                None => panic!(
+                    "validated material relocation references missing lot {}",
+                    slice.lot.value()
+                ),
+            };
+            if slice.mass == lot_mass {
+                debug_assert!(split_lot_id.is_none());
+                apply_move_full_lot(inventories, slice.lot, self.source, self.destination);
+            } else {
+                let split_lot_id = match split_lot_id {
+                    Some(split_lot_id) => split_lot_id,
+                    None => panic!(
+                        "validated partial material relocation is missing an allocated lot id"
+                    ),
+                };
+                apply_split_lot(
+                    inventories,
+                    slice.lot,
+                    split_lot_id,
+                    self.destination,
+                    slice.mass,
+                );
+            }
+        }
+        if let Some(next_lot_id) = self.next_lot_id_after {
+            inventories.next_lot_id = next_lot_id;
+        }
+        inventories.revision = self.next_revision;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum MaterialRelocationError {
+    StaleSelection {
+        expected: u64,
+        actual: u64,
+    },
+    UnknownSource {
+        stockpile: StockpileId,
+    },
+    UnknownDestination {
+        stockpile: StockpileId,
+    },
+    SameStockpile {
+        stockpile: StockpileId,
+    },
+    DestinationStorage(StockpileStorageError),
+    DestinationMassOverflow {
+        stockpile: StockpileId,
+    },
+    DestinationCapacityExceeded {
+        stockpile: StockpileId,
+        capacity: Mass,
+        committed: Mass,
+        requested: Mass,
+    },
+    LotIdExhausted,
+    RevisionExhausted,
+    StructuralLoad(StockpileStructuralLoadError),
+}
+
+impl Display for MaterialRelocationError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StaleSelection { expected, actual } => write!(
+                formatter,
+                "exact material relocation expected inventory revision {expected} but current revision is {actual}"
+            ),
+            Self::UnknownSource { stockpile } => write!(
+                formatter,
+                "exact material relocation source stockpile {} does not exist",
+                stockpile.value()
+            ),
+            Self::UnknownDestination { stockpile } => write!(
+                formatter,
+                "exact material relocation destination stockpile {} does not exist",
+                stockpile.value()
+            ),
+            Self::SameStockpile { stockpile } => write!(
+                formatter,
+                "exact material relocation requires distinct source and destination; both are stockpile {}",
+                stockpile.value()
+            ),
+            Self::DestinationStorage(error) => write!(
+                formatter,
+                "exact material relocation destination rejects selected matter: {error}"
+            ),
+            Self::DestinationMassOverflow { stockpile } => write!(
+                formatter,
+                "exact material relocation overflows destination stockpile {} mass accounting",
+                stockpile.value()
+            ),
+            Self::DestinationCapacityExceeded {
+                stockpile,
+                capacity,
+                committed,
+                requested,
+            } => write!(
+                formatter,
+                "exact material relocation exceeds stockpile {} capacity {} mg: {} mg committed, {} mg requested",
+                stockpile.value(),
+                capacity.milligrams(),
+                committed.milligrams(),
+                requested.milligrams()
+            ),
+            Self::LotIdExhausted => formatter
+                .write_str("material lot identifier space is exhausted during exact relocation"),
+            Self::RevisionExhausted => {
+                formatter.write_str("inventory revision space is exhausted during exact relocation")
+            }
+            Self::StructuralLoad(error) => {
+                write!(
+                    formatter,
+                    "exact material relocation structural load failed: {error}"
+                )
+            }
+        }
+    }
+}
+
+impl Error for MaterialRelocationError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::DestinationStorage(error) => Some(error),
+            Self::StructuralLoad(error) => Some(error),
+            Self::StaleSelection { .. }
+            | Self::UnknownSource { .. }
+            | Self::UnknownDestination { .. }
+            | Self::SameStockpile { .. }
+            | Self::DestinationMassOverflow { .. }
+            | Self::DestinationCapacityExceeded { .. }
+            | Self::LotIdExhausted
+            | Self::RevisionExhausted => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum MaterialRelocationCommitError {
+    StaleInventoryRevision { expected: u64, actual: u64 },
+    Structure(StructuralCommitError),
+}
+
+impl Display for MaterialRelocationCommitError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StaleInventoryRevision { expected, actual } => write!(
+                formatter,
+                "validated material relocation expected inventory revision {expected} but current revision is {actual}"
+            ),
+            Self::Structure(error) => {
+                write!(
+                    formatter,
+                    "material relocation structural commit failed: {error}"
+                )
+            }
+        }
+    }
+}
+
+impl Error for MaterialRelocationCommitError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Structure(error) => Some(error),
+            Self::StaleInventoryRevision { .. } => None,
+        }
     }
 }
 
@@ -357,6 +589,7 @@ pub(crate) fn validate_material_batch_ingress(
             profile.commodity(),
             profile.composition(),
             profile.temperature(),
+            profile.particle_size(),
         )
         .map_err(MaterialBatchIngressError::Storage)?;
         let provenance = trace.provenance();
@@ -1036,6 +1269,7 @@ pub(crate) fn validate_material_ingress(
         output.commodity(),
         output.composition(),
         output.temperature(),
+        output.particle_size(),
     )
     .map_err(MaterialIngressError::Storage)?;
     let committed = destination_record
@@ -1113,6 +1347,7 @@ pub(crate) fn apply_material_ingress(
                 commodity: output.commodity(),
                 temperature: output.temperature(),
                 composition: output.composition().clone(),
+                particle_size: output.particle_size(),
             },
             provenance: MaterialLotProvenance {
                 earliest_created_at: created_at,
@@ -1183,16 +1418,36 @@ pub(crate) fn deposit_composed_lot_for_test(
         composition.parts_per_million(commodity.material()) > 0,
         "test fixture composition must contain its host material"
     );
+    if mass.is_zero() {
+        return Err(DepositError::ZeroMass);
+    }
+    let specification =
+        match MaterialLotSpec::with_composition(commodity, mass, temperature, composition) {
+            Ok(specification) => specification,
+            Err(error) => panic!("validated test material lot could not be specified: {error}"),
+        };
+    deposit_lot_spec_for_test(registries, state, stockpile, specification)
+}
+
+/// Seeds one already-validated lot specification through the normal inventory storage checks.
+#[cfg(test)]
+pub(crate) fn deposit_lot_spec_for_test(
+    registries: &Registries,
+    state: &mut AppState,
+    stockpile: StockpileId,
+    specification: MaterialLotSpec,
+) -> Result<MaterialLotId, DepositError> {
+    let commodity = specification.commodity();
+    let mass = specification.mass();
+    let temperature = specification.temperature();
+    let composition = specification.composition().clone();
+    let particle_size = specification.particle_size();
     validate_commodity(registries, commodity).map_err(|error| match error {
         CommodityReferenceError::UnknownMaterial { material } => {
             DepositError::UnknownMaterial { material }
         }
         CommodityReferenceError::UnknownForm { form } => DepositError::UnknownForm { form },
     })?;
-    if mass.is_zero() {
-        return Err(DepositError::ZeroMass);
-    }
-
     let inventories = state.inventory_state();
     let Some(record) = inventories.get_stockpile(stockpile) else {
         return Err(DepositError::UnknownStockpile { stockpile });
@@ -1204,6 +1459,7 @@ pub(crate) fn deposit_composed_lot_for_test(
         commodity,
         &composition,
         temperature,
+        particle_size,
     )
     .map_err(DepositError::Storage)?;
     let committed = record
@@ -1260,6 +1516,7 @@ pub(crate) fn deposit_composed_lot_for_test(
                 commodity,
                 temperature,
                 composition,
+                particle_size,
             },
             provenance: MaterialLotProvenance {
                 earliest_created_at: created_at,
@@ -1339,6 +1596,7 @@ pub fn validate_transfer_bulk(
             lot.commodity(),
             lot.composition(),
             lot.temperature(),
+            lot.particle_size(),
         )
         .map_err(TransferError::Storage)?;
     }
@@ -1825,6 +2083,144 @@ pub(crate) fn validate_explicit_consumption_selection(
     })
 }
 
+/// Validates relocation of the exact lot slices already bound by a physical resolver.
+pub(crate) fn validate_material_relocation_from_selection(
+    registries: &Registries,
+    state: &AppState,
+    destination: StockpileId,
+    selection: ConsumptionSelection,
+) -> Result<ValidatedMaterialRelocation, MaterialRelocationError> {
+    let ConsumptionSelection {
+        expected_revision,
+        source,
+        inputs,
+        lot_slices,
+        consumed_inputs,
+        total_consumed,
+    } = selection;
+    let inventories = state.inventory_state();
+    if inventories.revision != expected_revision {
+        return Err(MaterialRelocationError::StaleSelection {
+            expected: expected_revision,
+            actual: inventories.revision,
+        });
+    }
+    let source_record = inventories
+        .get_stockpile(source)
+        .ok_or(MaterialRelocationError::UnknownSource { stockpile: source })?;
+    let destination_record = inventories.get_stockpile(destination).ok_or(
+        MaterialRelocationError::UnknownDestination {
+            stockpile: destination,
+        },
+    )?;
+    if source == destination {
+        return Err(MaterialRelocationError::SameStockpile { stockpile: source });
+    }
+
+    for trace in &consumed_inputs {
+        validate_stockpile_storage(
+            registries,
+            destination_record,
+            destination,
+            trace.profile().commodity(),
+            trace.profile().composition(),
+            trace.profile().temperature(),
+            trace.profile().particle_size(),
+        )
+        .map_err(MaterialRelocationError::DestinationStorage)?;
+    }
+    let committed = destination_record
+        .stored_mass
+        .checked_add(destination_record.reserved_inbound)
+        .ok_or(MaterialRelocationError::DestinationMassOverflow {
+            stockpile: destination,
+        })?;
+    let capacity_after = committed.checked_add(total_consumed).ok_or(
+        MaterialRelocationError::DestinationMassOverflow {
+            stockpile: destination,
+        },
+    )?;
+    if capacity_after > destination_record.capacity {
+        return Err(MaterialRelocationError::DestinationCapacityExceeded {
+            stockpile: destination,
+            capacity: destination_record.capacity,
+            committed,
+            requested: total_consumed,
+        });
+    }
+    let destination_stored_after = destination_record
+        .stored_mass()
+        .checked_add(total_consumed)
+        .ok_or(MaterialRelocationError::DestinationMassOverflow {
+            stockpile: destination,
+        })?;
+    for input in &inputs {
+        destination_record
+            .get_mass(input.commodity())
+            .checked_add(input.mass())
+            .ok_or(MaterialRelocationError::DestinationMassOverflow {
+                stockpile: destination,
+            })?;
+    }
+
+    let source_after = source_record
+        .stored_mass()
+        .checked_sub(total_consumed)
+        .ok_or(MaterialRelocationError::StaleSelection {
+            expected: expected_revision,
+            actual: inventories.revision,
+        })?;
+    let structural = validate_stockpile_stored_mass_changes(
+        registries,
+        state,
+        [
+            StockpileStoredMassChange::new(source, source_after),
+            StockpileStoredMassChange::new(destination, destination_stored_after),
+        ],
+    )
+    .map_err(MaterialRelocationError::StructuralLoad)?;
+
+    let mut split_lot_ids = Vec::with_capacity(lot_slices.len());
+    let mut next_lot_id = inventories.next_lot_id;
+    let mut allocated_any = false;
+    for slice in &lot_slices {
+        let lot = match inventories.lots.get(&slice.lot) {
+            Some(lot) => lot,
+            None => panic!(
+                "validated exact selection references missing lot {}",
+                slice.lot.value()
+            ),
+        };
+        if slice.mass == lot.mass {
+            split_lot_ids.push(None);
+        } else {
+            split_lot_ids.push(Some(MaterialLotId::new(next_lot_id)));
+            next_lot_id = next_lot_id
+                .checked_add(1)
+                .ok_or(MaterialRelocationError::LotIdExhausted)?;
+            allocated_any = true;
+        }
+    }
+    let next_lot_id_after = allocated_any.then_some(next_lot_id);
+    let next_revision = inventories
+        .revision
+        .checked_add(1)
+        .ok_or(MaterialRelocationError::RevisionExhausted)?;
+
+    Ok(ValidatedMaterialRelocation {
+        expected_revision,
+        next_revision,
+        source,
+        destination,
+        inputs,
+        lot_slices,
+        split_lot_ids,
+        next_lot_id_after,
+        total_mass: total_consumed,
+        structural,
+    })
+}
+
 pub(crate) fn validate_consumption_reservation_from_selection(
     state: &InventoryState,
     destination: StockpileId,
@@ -1972,6 +2368,7 @@ pub(crate) fn apply_reserved_deposit(
                     commodity: output.commodity(),
                     temperature: output.temperature(),
                     composition: output.composition().clone(),
+                    particle_size: output.particle_size(),
                 },
                 provenance: MaterialLotProvenance {
                     earliest_created_at: created_at,

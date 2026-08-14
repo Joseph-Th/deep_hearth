@@ -39,7 +39,7 @@ pub use structural::{STRUCTURAL_PROFILE_AXIAL_COMPRESSION, STRUCTURAL_PROFILE_AX
 
 const DEFAULT_TICKS_PER_SECOND: u16 = 20;
 const DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED: u64 = 9_806_650;
-const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(11);
+const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(13);
 
 fn build_core_definitions() -> CoreDefinitions {
     CoreDefinitions::new(
@@ -298,9 +298,9 @@ mod tests {
         CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityRegistry,
         CapabilityRequirement, CapabilityValue, CapabilityValueKind,
     };
-    use crate::core::quantity::{Mass, MassSpecificEnergy, Temperature};
+    use crate::core::quantity::{Length, Mass, MassSpecificEnergy, Temperature};
     use crate::energy::EnergyCarrier;
-    use crate::material::{CommodityKey, MaterialInputSpec};
+    use crate::material::{CommodityKey, MaterialInputSpec, ParticleSizeRange};
     use crate::ore_processing::{ComminutionOperatingProfile, ComminutionProcessDefinition};
     use crate::production::{ProcessDefinition, ProcessId, ProductionRegistry};
     use crate::thermal::{SensibleHeatingProcessDefinition, ThermalRegistry};
@@ -410,6 +410,13 @@ mod tests {
             TEST_PROCESS,
             FORM_ORE,
             FORM_CRUSHED,
+            match ParticleSizeRange::new(
+                Length::from_micrometers(1),
+                Length::from_micrometers(20_000),
+            ) {
+                Ok(range) => range,
+                Err(error) => panic!("comminution particle-size fixture failed: {error}"),
+            },
             ComminutionOperatingProfile::new(
                 TEST_MASS_FLOW,
                 TEST_MAX_BATCH_MASS,

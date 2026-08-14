@@ -1,6 +1,6 @@
 //! Persistent finite fluid-store records; sibling execution owns all consequential mutation.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Temperature, Volume};
 use crate::core::time::SimulationTick;
+use crate::structural::StructuralElementId;
 
 use super::definitions::{FluidDefinitionId, FluidRegistry};
 
@@ -63,6 +64,7 @@ pub struct FluidStoreRecord {
     pub(super) id: FluidStoreId,
     pub(super) capacity: Volume,
     pub(super) contents: Option<FluidContents>,
+    pub(super) supported_by: Option<StructuralElementId>,
     pub(super) created_at: SimulationTick,
 }
 
@@ -90,6 +92,12 @@ impl FluidStoreRecord {
         }
     }
 
+    /// Returns the structural member carrying this store's fluid weight, if assigned.
+    #[must_use]
+    pub const fn supported_by(&self) -> Option<StructuralElementId> {
+        self.supported_by
+    }
+
     #[must_use]
     pub const fn created_at(&self) -> SimulationTick {
         self.created_at
@@ -102,6 +110,7 @@ pub struct FluidState {
     pub(super) revision: u64,
     pub(super) next_store_id: u64,
     pub(super) records: BTreeMap<FluidStoreId, FluidStoreRecord>,
+    pub(super) stores_by_support: BTreeMap<StructuralElementId, BTreeSet<FluidStoreId>>,
 }
 
 impl FluidState {
@@ -111,6 +120,7 @@ impl FluidState {
             revision: 0,
             next_store_id: 1,
             records: BTreeMap::new(),
+            stores_by_support: BTreeMap::new(),
         }
     }
 
@@ -126,6 +136,71 @@ impl FluidState {
 
     pub fn stores(&self) -> impl Iterator<Item = &FluidStoreRecord> {
         self.records.values()
+    }
+
+    /// Iterates fluid stores assigned to one structural support in stable store-ID order.
+    pub(crate) fn supported_stores(
+        &self,
+        support: StructuralElementId,
+    ) -> impl Iterator<Item = FluidStoreId> + '_ {
+        self.stores_by_support
+            .get(&support)
+            .into_iter()
+            .flat_map(|stores| stores.iter().copied())
+    }
+
+    pub(super) fn apply_support_change(
+        &mut self,
+        store: FluidStoreId,
+        before: Option<StructuralElementId>,
+        after: Option<StructuralElementId>,
+        next_revision: u64,
+    ) {
+        if let Some(before) = before {
+            let remove_entry = {
+                let indexed = match self.stores_by_support.get_mut(&before) {
+                    Some(indexed) => indexed,
+                    None => panic!(
+                        "runtime invariant broken: fluid support index missing element {} for store {}",
+                        before.value(),
+                        store.value()
+                    ),
+                };
+                assert!(
+                    indexed.remove(&store),
+                    "runtime invariant broken: fluid support index element {} missing store {}",
+                    before.value(),
+                    store.value()
+                );
+                indexed.is_empty()
+            };
+            if remove_entry {
+                self.stores_by_support.remove(&before);
+            }
+        }
+        if let Some(after) = after {
+            let inserted = self
+                .stores_by_support
+                .entry(after)
+                .or_default()
+                .insert(store);
+            assert!(
+                inserted,
+                "runtime invariant broken: fluid support index element {} already contains store {}",
+                after.value(),
+                store.value()
+            );
+        }
+        let record = match self.records.get_mut(&store) {
+            Some(record) => record,
+            None => panic!(
+                "runtime invariant broken: fluid store {} disappeared during support update",
+                store.value()
+            ),
+        };
+        debug_assert_eq!(record.supported_by, before);
+        record.supported_by = after;
+        self.revision = next_revision;
     }
 
     pub(crate) fn has_valid_id_cursor(&self) -> bool {
@@ -144,6 +219,31 @@ impl FluidState {
                     !contents.volume.is_zero() && contents.volume <= record.capacity
                 })
         })
+    }
+
+    pub(crate) fn has_valid_support_index(&self) -> bool {
+        let records_match_index = self
+            .records
+            .values()
+            .all(|record| match record.supported_by {
+                Some(support) => self
+                    .stores_by_support
+                    .get(&support)
+                    .is_some_and(|stores| stores.contains(&record.id)),
+                None => true,
+            });
+        let index_matches_records = self.stores_by_support.iter().all(|(support, stores)| {
+            support.value() != 0
+                && !stores.is_empty()
+                && stores.iter().all(|id| {
+                    id.value() != 0
+                        && self
+                            .records
+                            .get(id)
+                            .is_some_and(|record| record.supported_by == Some(*support))
+                })
+        });
+        records_match_index && index_matches_records
     }
 }
 
@@ -169,6 +269,29 @@ pub enum FluidValidationError {
     UnknownDefinition {
         store: FluidStoreId,
         definition: FluidDefinitionId,
+    },
+    ZeroSupportElementId {
+        store: FluidStoreId,
+    },
+    ZeroIndexedSupportElementId,
+    ZeroIndexedStoreId {
+        element: StructuralElementId,
+    },
+    EmptySupportIndex {
+        element: StructuralElementId,
+    },
+    MissingSupportIndex {
+        store: FluidStoreId,
+        element: StructuralElementId,
+    },
+    UnknownIndexedStore {
+        store: FluidStoreId,
+        element: StructuralElementId,
+    },
+    SupportIndexMismatch {
+        store: FluidStoreId,
+        indexed: StructuralElementId,
+        actual: Option<StructuralElementId>,
     },
     CreatedInFuture {
         store: FluidStoreId,
@@ -211,6 +334,46 @@ impl Display for FluidValidationError {
                 "fluid store {} references unknown fluid definition {}",
                 store.value(),
                 definition.value()
+            ),
+            Self::ZeroSupportElementId { store } => write!(
+                formatter,
+                "fluid store {} references zero structural support id",
+                store.value()
+            ),
+            Self::ZeroIndexedSupportElementId => {
+                formatter.write_str("fluid support reverse index contains zero structural id")
+            }
+            Self::ZeroIndexedStoreId { element } => write!(
+                formatter,
+                "fluid support reverse index for element {} contains zero store id",
+                element.value()
+            ),
+            Self::EmptySupportIndex { element } => write!(
+                formatter,
+                "fluid support reverse index contains empty entry for element {}",
+                element.value()
+            ),
+            Self::MissingSupportIndex { store, element } => write!(
+                formatter,
+                "fluid store {} references support element {} but is absent from the reverse index",
+                store.value(),
+                element.value()
+            ),
+            Self::UnknownIndexedStore { store, element } => write!(
+                formatter,
+                "fluid support reverse index element {} references missing store {}",
+                element.value(),
+                store.value()
+            ),
+            Self::SupportIndexMismatch {
+                store,
+                indexed,
+                actual,
+            } => write!(
+                formatter,
+                "fluid support reverse index places store {} on element {} but record support is {actual:?}",
+                store.value(),
+                indexed.value()
             ),
             Self::CreatedInFuture {
                 store,
@@ -265,12 +428,55 @@ pub(crate) fn validate_loaded_fluid(
                 });
             }
         }
+        if record
+            .supported_by
+            .is_some_and(|element| element.value() == 0)
+        {
+            return Err(FluidValidationError::ZeroSupportElementId { store: record.id });
+        }
+        if let Some(element) = record.supported_by
+            && !state
+                .stores_by_support
+                .get(&element)
+                .is_some_and(|stores| stores.contains(&record.id))
+        {
+            return Err(FluidValidationError::MissingSupportIndex {
+                store: record.id,
+                element,
+            });
+        }
         if record.created_at > current {
             return Err(FluidValidationError::CreatedInFuture {
                 store: record.id,
                 created_at: record.created_at,
                 current,
             });
+        }
+    }
+    for (element, stores) in &state.stores_by_support {
+        if element.value() == 0 {
+            return Err(FluidValidationError::ZeroIndexedSupportElementId);
+        }
+        if stores.is_empty() {
+            return Err(FluidValidationError::EmptySupportIndex { element: *element });
+        }
+        for store in stores {
+            if store.value() == 0 {
+                return Err(FluidValidationError::ZeroIndexedStoreId { element: *element });
+            }
+            let Some(record) = state.records.get(store) else {
+                return Err(FluidValidationError::UnknownIndexedStore {
+                    store: *store,
+                    element: *element,
+                });
+            };
+            if record.supported_by != Some(*element) {
+                return Err(FluidValidationError::SupportIndexMismatch {
+                    store: *store,
+                    indexed: *element,
+                    actual: record.supported_by,
+                });
+            }
         }
     }
     Ok(())

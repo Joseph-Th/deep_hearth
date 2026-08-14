@@ -4,6 +4,7 @@ mod definitions;
 mod equipment_execution;
 mod equipment_integration;
 mod equipment_structural_integration;
+mod repair_execution;
 mod state;
 
 pub use definitions::{
@@ -13,7 +14,7 @@ pub use definitions::{
 pub use equipment_execution::{
     AddEquipmentError, EquipmentConditionCommitError, EquipmentConditionPlan,
     EquipmentConditionPlanError, add_equipment, apply_equipment_condition_plan,
-    decide_equipment_repair, decide_equipment_wear,
+    decide_equipment_wear,
 };
 pub use equipment_integration::{
     EquipmentProviderError, ResolvedEquipmentProvider, resolve_equipment_provider,
@@ -21,6 +22,11 @@ pub use equipment_integration::{
 pub use equipment_structural_integration::{
     EquipmentSupportCommitError, EquipmentSupportError, EquipmentSupportOutcome,
     ValidatedEquipmentSupportChange, validate_mount_equipment, validate_unmount_equipment,
+};
+pub use repair_execution::{
+    EquipmentRepairCommitError, EquipmentRepairError, EquipmentRepairMaterialError,
+    EquipmentRepairOutcome, EquipmentRepairResolution, ValidatedEquipmentRepair,
+    validate_equipment_repair,
 };
 pub use state::{
     EquipmentId, EquipmentOperationTrace, EquipmentRecord, EquipmentState, EquipmentValidationError,

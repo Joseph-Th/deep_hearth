@@ -32,17 +32,32 @@ pub struct FluidDefinition {
     id: FluidDefinitionId,
     name: String,
     material: MaterialId,
+    density_kg_per_m3: u32,
 }
 
 impl FluidDefinition {
     #[must_use]
-    pub fn new(id: FluidDefinitionId, name: impl Into<String>, material: MaterialId) -> Self {
+    pub fn new(
+        id: FluidDefinitionId,
+        name: impl Into<String>,
+        material: MaterialId,
+        density_kg_per_m3: u32,
+    ) -> Self {
         let name = name.into();
         assert!(
             !name.trim().is_empty(),
             "fluid definition name must not be empty"
         );
-        Self { id, name, material }
+        assert!(
+            density_kg_per_m3 > 0,
+            "fluid definition density must be nonzero"
+        );
+        Self {
+            id,
+            name,
+            material,
+            density_kg_per_m3,
+        }
     }
 
     #[must_use]
@@ -58,6 +73,11 @@ impl FluidDefinition {
     #[must_use]
     pub const fn material(&self) -> MaterialId {
         self.material
+    }
+
+    #[must_use]
+    pub const fn density_kg_per_m3(&self) -> u32 {
+        self.density_kg_per_m3
     }
 }
 

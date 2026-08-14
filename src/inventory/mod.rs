@@ -28,18 +28,21 @@ pub(crate) use structural_integration::{
 pub(crate) use transactions::{
     ConsumptionReservation, ConsumptionSelection, ConsumptionSelectionError,
     ExplicitConsumptionSelectionError, MaterialBatchIngressError, MaterialEgressError,
-    MaterialIngressError, ReservationCommitError, ReservationError, ValidatedMaterialBatchIngress,
-    ValidatedMaterialEgress, ValidatedMaterialIngress, apply_consumption_reservation,
-    apply_lot_cursor_and_revision, apply_material_batch_ingress, apply_material_egress,
-    apply_material_ingress, apply_reserved_deposit, next_material_lot_id,
+    MaterialIngressError, MaterialRelocationCommitError, MaterialRelocationError,
+    ReservationCommitError, ReservationError, ValidatedMaterialBatchIngress,
+    ValidatedMaterialEgress, ValidatedMaterialIngress, ValidatedMaterialRelocation,
+    apply_consumption_reservation, apply_lot_cursor_and_revision, apply_material_batch_ingress,
+    apply_material_egress, apply_material_ingress, apply_reserved_deposit, next_material_lot_id,
     validate_consumption_reservation_from_selection, validate_consumption_selection,
     validate_explicit_consumption_selection, validate_material_batch_ingress,
-    validate_material_egress_from_selection, validate_material_ingress, validate_stockpile_storage,
+    validate_material_egress_from_selection, validate_material_ingress,
+    validate_material_relocation_from_selection, validate_stockpile_storage,
 };
 
 #[cfg(test)]
 pub(crate) use transactions::{
     deposit_bulk_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
+    deposit_lot_spec_for_test,
 };
 
 #[cfg(test)]

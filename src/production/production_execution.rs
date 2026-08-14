@@ -624,6 +624,7 @@ pub fn validate_start_process(
             output.commodity(),
             output.composition(),
             output.temperature(),
+            output.particle_size(),
         )
         .map_err(StartProcessError::DestinationStorage)?;
     }

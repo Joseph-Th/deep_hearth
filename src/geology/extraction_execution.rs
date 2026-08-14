@@ -13,7 +13,7 @@ use crate::inventory::{
 };
 use crate::material::{
     CompositionError, FormId, MaterialId, MaterialLotSpec, MaterialLotSpecError, MaterialPhase,
-    MaterialPhaseStateError, validate_material_phase_state,
+    MaterialPhaseStateError, ParticleSizeStatePolicy, validate_material_phase_state,
 };
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
@@ -28,6 +28,7 @@ pub enum InsertGeneratedDepositError {
     UnknownMaterial { material: MaterialId },
     UnknownForm { form: FormId },
     UnsupportedPhase { form: FormId, phase: MaterialPhase },
+    UnsupportedParticulateForm { form: FormId },
     InvalidPhaseState(MaterialPhaseStateError),
     UnknownCompositionMaterial { material: MaterialId },
     IdExhausted,
@@ -50,6 +51,11 @@ impl Display for InsertGeneratedDepositError {
             Self::UnsupportedPhase { form, phase } => write!(
                 formatter,
                 "generated geological deposit form {} is {phase:?}; finite geological deposits must be solid",
+                form.value()
+            ),
+            Self::UnsupportedParticulateForm { form } => write!(
+                formatter,
+                "generated geological deposit form {} requires processed particle-size state; natural geological deposits cannot own it",
                 form.value()
             ),
             Self::InvalidPhaseState(error) => write!(
@@ -76,6 +82,7 @@ impl Error for InsertGeneratedDepositError {
             Self::UnknownMaterial { .. }
             | Self::UnknownForm { .. }
             | Self::UnsupportedPhase { .. }
+            | Self::UnsupportedParticulateForm { .. }
             | Self::UnknownCompositionMaterial { .. }
             | Self::IdExhausted
             | Self::RevisionExhausted => None,
@@ -110,6 +117,11 @@ pub fn insert_generated_deposit(
         return Err(InsertGeneratedDepositError::UnsupportedPhase {
             form: spec.commodity().form(),
             phase: form.phase(),
+        });
+    }
+    if form.particle_size_policy() == ParticleSizeStatePolicy::Required {
+        return Err(InsertGeneratedDepositError::UnsupportedParticulateForm {
+            form: spec.commodity().form(),
         });
     }
     for component in spec.composition().components() {
@@ -644,8 +656,8 @@ pub fn validate_geological_extraction(
 mod tests {
     use super::*;
     use crate::content::{
-        FORM_INGOT, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-        build_registries,
+        FORM_CRUSHED, FORM_INGOT, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
     };
     use crate::core::quantity::{AggregateMass, Area, Energy, Force, Length, Temperature};
     use crate::core::state::validate_loaded_state;
@@ -725,6 +737,29 @@ mod tests {
                 form: FORM_MOLTEN,
                 phase: MaterialPhase::Liquid,
             })
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn generated_geological_owner_rejects_processed_particulate_form_without_mutation() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x6E00_0012));
+        let spec = match GeneratedDepositSpec::new(
+            bounds(0),
+            CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+            Mass::from_milligrams(100),
+            Temperature::from_millikelvin(300_000),
+            MaterialComposition::pure(MATERIAL_COPPER),
+        ) {
+            Ok(spec) => spec,
+            Err(error) => panic!("particulate geology specification fixture failed: {error}"),
+        };
+        let before = state.clone();
+
+        assert_eq!(
+            insert_generated_deposit(&registries, &mut state, spec),
+            Err(InsertGeneratedDepositError::UnsupportedParticulateForm { form: FORM_CRUSHED })
         );
         assert_eq!(state, before);
     }

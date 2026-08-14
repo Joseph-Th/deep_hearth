@@ -10,7 +10,8 @@ use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::SimulationTick;
 use crate::material::{
     CommodityKey, CompositionError, MaterialComposition, MaterialId, MaterialPhase,
-    MaterialPhaseStateError, MaterialRegistry, validate_material_phase_state,
+    MaterialPhaseStateError, MaterialRegistry, ParticleSizeStatePolicy,
+    validate_material_phase_state,
 };
 use crate::spatial::VoxelBounds;
 
@@ -281,6 +282,10 @@ pub enum GeologyValidationError {
         form: crate::material::FormId,
         phase: MaterialPhase,
     },
+    UnsupportedCommodityParticulateForm {
+        deposit: GeologicalDepositId,
+        form: crate::material::FormId,
+    },
     InvalidPhaseState {
         deposit: GeologicalDepositId,
         error: MaterialPhaseStateError,
@@ -364,6 +369,12 @@ impl Display for GeologyValidationError {
                 deposit.value(),
                 form.value()
             ),
+            Self::UnsupportedCommodityParticulateForm { deposit, form } => write!(
+                formatter,
+                "geological deposit {} uses particulate form {}; natural geological ownership does not carry processed particle-size state",
+                deposit.value(),
+                form.value()
+            ),
             Self::UnsupportedCommodityPhase {
                 deposit,
                 form,
@@ -417,6 +428,7 @@ impl Error for GeologyValidationError {
             | Self::UnknownCommodityMaterial { .. }
             | Self::UnknownCommodityForm { .. }
             | Self::UnsupportedCommodityPhase { .. }
+            | Self::UnsupportedCommodityParticulateForm { .. }
             | Self::UnknownCompositionMaterial { .. }
             | Self::GeneratedInFuture { .. } => None,
         }
@@ -510,6 +522,14 @@ pub(crate) fn validate_loaded_geology(
                 phase: form.phase(),
             });
         }
+        if form.particle_size_policy() == ParticleSizeStatePolicy::Required {
+            return Err(
+                GeologyValidationError::UnsupportedCommodityParticulateForm {
+                    deposit: *key,
+                    form: record.commodity.form(),
+                },
+            );
+        }
         for component in record.composition.components() {
             if materials.get_material(component.material()).is_none() {
                 return Err(GeologyValidationError::UnknownCompositionMaterial {
@@ -543,7 +563,7 @@ pub(crate) fn validate_loaded_geology(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::{FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, build_registries};
+    use crate::content::{FORM_CRUSHED, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, build_registries};
     use crate::spatial::VoxelCoord;
 
     fn bounds() -> VoxelBounds {
@@ -611,6 +631,38 @@ mod tests {
                 form: FORM_MOLTEN,
                 phase: MaterialPhase::Liquid,
             })
+        );
+    }
+
+    #[test]
+    fn loaded_validation_rejects_processed_particulate_geological_deposit() {
+        let registries = build_registries();
+        let deposit = GeologicalDepositId::new(1);
+        let mut state = GeologyState::new();
+        state.next_deposit_id = 2;
+        state.deposits.insert(
+            deposit,
+            GeologicalDepositRecord {
+                id: deposit,
+                bounds: bounds(),
+                commodity: CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+                initial_mass: Mass::from_milligrams(100),
+                remaining_mass: Mass::from_milligrams(100),
+                temperature: Temperature::from_millikelvin(300_000),
+                composition: MaterialComposition::pure(MATERIAL_COPPER),
+                lifecycle: GeologicalDepositLifecycle::Available,
+                generated_at: SimulationTick::ZERO,
+            },
+        );
+
+        assert_eq!(
+            validate_loaded_geology(registries.materials(), &state, SimulationTick::ZERO),
+            Err(
+                GeologyValidationError::UnsupportedCommodityParticulateForm {
+                    deposit,
+                    form: FORM_CRUSHED,
+                }
+            )
         );
     }
 }

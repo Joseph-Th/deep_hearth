@@ -5,11 +5,15 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Temperature, Volume};
 use crate::core::state::AppState;
-#[cfg(test)]
 use crate::registry::Registries;
+use crate::structural::{StructuralAnalysis, StructuralCommitError, StructuralMutationOutcome};
 
 use super::definitions::FluidDefinitionId;
 use super::state::{FluidContents, FluidStoreId, FluidStoreRecord};
+use super::structural_integration::{
+    FluidContentsChange, FluidStructuralLoadError, ValidatedFluidStructuralLoad,
+    validate_fluid_contents_changes,
+};
 
 /// Failure while allocating one authoritative finite fluid store.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,6 +91,7 @@ fn allocate_fluid_store(
         id,
         capacity,
         contents,
+        supported_by: None,
         created_at: state.tick(),
     };
 
@@ -154,7 +159,7 @@ impl FluidTransferResolution {
 }
 
 #[cfg(test)]
-fn make_test_fluid_transfer_resolution(
+pub(crate) fn make_test_fluid_transfer_resolution(
     source: FluidStoreId,
     destination: FluidStoreId,
     volume: Volume,
@@ -167,7 +172,7 @@ fn make_test_fluid_transfer_resolution(
 }
 
 /// Failure while validating one already physically resolved fluid transfer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FluidTransferError {
     SameStore {
         store: FluidStoreId,
@@ -181,6 +186,9 @@ pub enum FluidTransferError {
     },
     SourceEmpty {
         store: FluidStoreId,
+    },
+    UnknownFluidDefinition {
+        definition: FluidDefinitionId,
     },
     InsufficientSourceVolume {
         store: FluidStoreId,
@@ -206,6 +214,7 @@ pub enum FluidTransferError {
         stored: Volume,
         requested: Volume,
     },
+    StructuralLoad(FluidStructuralLoadError),
     RevisionExhausted,
 }
 
@@ -229,6 +238,11 @@ impl Display for FluidTransferError {
             Self::SourceEmpty { store } => {
                 write!(formatter, "source fluid store {} is empty", store.value())
             }
+            Self::UnknownFluidDefinition { definition } => write!(
+                formatter,
+                "fluid transfer references unknown fluid definition {}",
+                definition.value()
+            ),
             Self::InsufficientSourceVolume {
                 store,
                 available,
@@ -280,6 +294,9 @@ impl Display for FluidTransferError {
                 requested.microliters(),
                 stored.microliters()
             ),
+            Self::StructuralLoad(error) => {
+                write!(formatter, "fluid transfer structural load failed: {error}")
+            }
             Self::RevisionExhausted => {
                 formatter.write_str("fluid state revision space is exhausted")
             }
@@ -287,21 +304,54 @@ impl Display for FluidTransferError {
     }
 }
 
-impl Error for FluidTransferError {}
+impl Error for FluidTransferError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::StructuralLoad(error) => Some(error),
+            Self::SameStore { .. }
+            | Self::ZeroVolume
+            | Self::UnknownSource { .. }
+            | Self::UnknownDestination { .. }
+            | Self::SourceEmpty { .. }
+            | Self::UnknownFluidDefinition { .. }
+            | Self::InsufficientSourceVolume { .. }
+            | Self::DestinationFluidMismatch { .. }
+            | Self::DestinationTemperatureMismatch { .. }
+            | Self::DestinationVolumeOverflow { .. }
+            | Self::DestinationCapacityExceeded { .. }
+            | Self::RevisionExhausted => None,
+        }
+    }
+}
 
 /// Consumed proof that one resolved fluid transfer can commit against an exact owner revision.
 #[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedFluidTransfer {
     expected_revision: u64,
     next_revision: u64,
     resolution: FluidTransferResolution,
     source_before: FluidContents,
     destination_before: Option<FluidContents>,
+    source_after: Option<FluidContents>,
+    destination_after: FluidContents,
+    structural: Option<ValidatedFluidStructuralLoad>,
+}
+
+impl ValidatedFluidTransfer {
+    /// Returns the structural consequence precomputed from both stores' final contents, when any
+    /// affected support load changes.
+    #[must_use]
+    pub fn structural_analysis(&self) -> Option<&StructuralAnalysis> {
+        self.structural
+            .as_ref()
+            .and_then(ValidatedFluidStructuralLoad::analysis)
+    }
 }
 
 /// Validates all store, identity, thermal, quantity, and capacity constraints before mutation.
 pub fn validate_fluid_transfer(
+    registries: &Registries,
     state: &AppState,
     resolution: FluidTransferResolution,
 ) -> Result<ValidatedFluidTransfer, FluidTransferError> {
@@ -326,6 +376,15 @@ pub fn validate_fluid_transfer(
     let source_before = source_record
         .contents()
         .ok_or(FluidTransferError::SourceEmpty { store: source })?;
+    if registries
+        .fluid()
+        .get_fluid(source_before.fluid())
+        .is_none()
+    {
+        return Err(FluidTransferError::UnknownFluidDefinition {
+            definition: source_before.fluid(),
+        });
+    }
     if source_before.volume() < volume {
         return Err(FluidTransferError::InsufficientSourceVolume {
             store: source,
@@ -362,6 +421,36 @@ pub fn validate_fluid_transfer(
             requested: volume,
         });
     }
+    let source_after_volume = source_before.volume().checked_sub(volume).ok_or(
+        FluidTransferError::InsufficientSourceVolume {
+            store: source,
+            available: source_before.volume(),
+            requested: volume,
+        },
+    )?;
+    let source_after = if source_after_volume.is_zero() {
+        None
+    } else {
+        Some(FluidContents {
+            fluid: source_before.fluid(),
+            volume: source_after_volume,
+            temperature: source_before.temperature(),
+        })
+    };
+    let destination_after = FluidContents {
+        fluid: source_before.fluid(),
+        volume: destination_after,
+        temperature: source_before.temperature(),
+    };
+    let structural = validate_fluid_contents_changes(
+        registries,
+        state,
+        [
+            FluidContentsChange::new(source, source_after),
+            FluidContentsChange::new(destination, Some(destination_after)),
+        ],
+    )
+    .map_err(FluidTransferError::StructuralLoad)?;
     let next_revision = fluid
         .revision()
         .checked_add(1)
@@ -372,15 +461,19 @@ pub fn validate_fluid_transfer(
         resolution,
         source_before,
         destination_before,
+        source_after,
+        destination_after,
+        structural,
     })
 }
 
 /// Failure when a validated fluid transfer no longer matches its exact owner snapshot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FluidTransferCommitError {
     StaleRevision { expected: u64, actual: u64 },
     SourceChanged { store: FluidStoreId },
     DestinationChanged { store: FluidStoreId },
+    Structure(StructuralCommitError),
 }
 
 impl Display for FluidTransferCommitError {
@@ -400,47 +493,69 @@ impl Display for FluidTransferCommitError {
                 "fluid transfer destination {} changed without the validated owner revision",
                 store.value()
             ),
+            Self::Structure(error) => write!(
+                formatter,
+                "fluid transfer structural commit failed: {error}"
+            ),
         }
     }
 }
 
-impl Error for FluidTransferCommitError {}
+impl Error for FluidTransferCommitError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Structure(error) => Some(error),
+            Self::StaleRevision { .. }
+            | Self::SourceChanged { .. }
+            | Self::DestinationChanged { .. } => None,
+        }
+    }
+}
 
 /// Observable outcome of one committed exact fluid transfer.
 #[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FluidTransferOutcome {
     source: FluidStoreId,
     destination: FluidStoreId,
     fluid: FluidDefinitionId,
     volume: Volume,
     temperature: Temperature,
+    structural: Option<StructuralMutationOutcome>,
 }
 
 impl FluidTransferOutcome {
     #[must_use]
-    pub const fn source(self) -> FluidStoreId {
+    pub const fn source(&self) -> FluidStoreId {
         self.source
     }
 
     #[must_use]
-    pub const fn destination(self) -> FluidStoreId {
+    pub const fn destination(&self) -> FluidStoreId {
         self.destination
     }
 
     #[must_use]
-    pub const fn fluid(self) -> FluidDefinitionId {
+    pub const fn fluid(&self) -> FluidDefinitionId {
         self.fluid
     }
 
     #[must_use]
-    pub const fn volume(self) -> Volume {
+    pub const fn volume(&self) -> Volume {
         self.volume
     }
 
     #[must_use]
-    pub const fn temperature(self) -> Temperature {
+    pub const fn temperature(&self) -> Temperature {
         self.temperature
+    }
+
+    /// Structural analysis produced by the fluid-weight change, when any load value changed.
+    #[must_use]
+    pub fn structural_analysis(&self) -> Option<&StructuralAnalysis> {
+        self.structural
+            .as_ref()
+            .map(StructuralMutationOutcome::analysis)
     }
 }
 
@@ -456,60 +571,46 @@ impl ValidatedFluidTransfer {
             resolution,
             source_before,
             destination_before,
+            source_after,
+            destination_after,
+            structural,
         } = self;
         let FluidTransferResolution {
             source,
             destination,
             volume,
         } = resolution;
-        let fluid = state.fluid_state();
-        if fluid.revision != expected_revision {
-            return Err(FluidTransferCommitError::StaleRevision {
-                expected: expected_revision,
-                actual: fluid.revision,
-            });
-        }
-        if fluid.get_store(source).and_then(FluidStoreRecord::contents) != Some(source_before) {
-            return Err(FluidTransferCommitError::SourceChanged { store: source });
-        }
-        if fluid
-            .get_store(destination)
-            .and_then(FluidStoreRecord::contents)
-            != destination_before
         {
-            return Err(FluidTransferCommitError::DestinationChanged { store: destination });
+            let fluid = state.fluid_state();
+            if fluid.revision != expected_revision {
+                return Err(FluidTransferCommitError::StaleRevision {
+                    expected: expected_revision,
+                    actual: fluid.revision,
+                });
+            }
+            if fluid.get_store(source).and_then(FluidStoreRecord::contents) != Some(source_before) {
+                return Err(FluidTransferCommitError::SourceChanged { store: source });
+            }
+            if fluid
+                .get_store(destination)
+                .and_then(FluidStoreRecord::contents)
+                != destination_before
+            {
+                return Err(FluidTransferCommitError::DestinationChanged { store: destination });
+            }
         }
-
-        let source_after_volume = match source_before.volume.checked_sub(volume) {
-            Some(value) => value,
-            None => unreachable!("validated fluid source volume cannot underflow"),
-        };
-        let destination_after_volume = match destination_before {
-            Some(contents) => match contents.volume.checked_add(volume) {
-                Some(value) => value,
-                None => unreachable!("validated fluid destination volume cannot overflow"),
-            },
-            None => volume,
-        };
-        let destination_after = FluidContents {
-            fluid: source_before.fluid,
-            volume: destination_after_volume,
-            temperature: source_before.temperature,
+        let structural = match structural {
+            Some(structural) => structural
+                .commit(state)
+                .map_err(FluidTransferCommitError::Structure)?,
+            None => None,
         };
 
         let fluid = state.fluid_state_mut();
         let Some(source_record) = fluid.records.get_mut(&source) else {
             unreachable!("validated fluid source cannot disappear without a revision change");
         };
-        source_record.contents = if source_after_volume.is_zero() {
-            None
-        } else {
-            Some(FluidContents {
-                fluid: source_before.fluid,
-                volume: source_after_volume,
-                temperature: source_before.temperature,
-            })
-        };
+        source_record.contents = source_after;
         let Some(destination_record) = fluid.records.get_mut(&destination) else {
             unreachable!("validated fluid destination cannot disappear without a revision change");
         };
@@ -522,6 +623,7 @@ impl ValidatedFluidTransfer {
             fluid: source_before.fluid,
             volume,
             temperature: source_before.temperature,
+            structural,
         })
     }
 }
@@ -542,8 +644,13 @@ mod tests {
 
     fn registries() -> Registries {
         make_test_registries_with_fluids(vec![
-            FluidDefinition::new(WATER_LIKE, "fluid transfer fixture A", MATERIAL_COPPER),
-            FluidDefinition::new(OIL_LIKE, "fluid transfer fixture B", MATERIAL_SLAG),
+            FluidDefinition::new(
+                WATER_LIKE,
+                "fluid transfer fixture A",
+                MATERIAL_COPPER,
+                1_000,
+            ),
+            FluidDefinition::new(OIL_LIKE, "fluid transfer fixture B", MATERIAL_SLAG, 850),
         ])
     }
 
@@ -569,6 +676,7 @@ mod tests {
     }
 
     fn commit_transfer(
+        registries: &Registries,
         state: &mut AppState,
         source: FluidStoreId,
         destination: FluidStoreId,
@@ -579,7 +687,7 @@ mod tests {
             destination,
             Volume::from_microliters(volume),
         );
-        let token = match validate_fluid_transfer(state, resolution) {
+        let token = match validate_fluid_transfer(registries, state, resolution) {
             Ok(token) => token,
             Err(error) => panic!("fluid transfer validation failed: {error}"),
         };
@@ -618,7 +726,7 @@ mod tests {
         };
         let before = calculate_fluid_volume_accounting(&state);
 
-        let outcome = commit_transfer(&mut state, source, destination, 275);
+        let outcome = commit_transfer(&registries, &mut state, source, destination, 275);
 
         assert_eq!(outcome.fluid(), WATER_LIKE);
         assert_eq!(outcome.volume(), Volume::from_microliters(275));
@@ -659,6 +767,7 @@ mod tests {
 
         assert!(matches!(
             validate_fluid_transfer(
+                &registries,
                 &state,
                 make_test_fluid_transfer_resolution(
                     source,
@@ -670,6 +779,7 @@ mod tests {
         ));
         assert!(matches!(
             validate_fluid_transfer(
+                &registries,
                 &state,
                 make_test_fluid_transfer_resolution(source, hotter, Volume::from_microliters(1),),
             ),
@@ -687,6 +797,7 @@ mod tests {
         let before_capacity_failure = state.clone();
         assert!(matches!(
             validate_fluid_transfer(
+                &registries,
                 &state,
                 make_test_fluid_transfer_resolution(
                     source,
@@ -699,6 +810,7 @@ mod tests {
         assert_eq!(state, before_capacity_failure);
 
         let token = match validate_fluid_transfer(
+            &registries,
             &state,
             make_test_fluid_transfer_resolution(source, destination, Volume::from_microliters(5)),
         ) {
@@ -754,7 +866,7 @@ mod tests {
             AggregateVolume::from_microliters(u128::from(u64::MAX) * 2 - 10)
         );
 
-        let _ = commit_transfer(&mut state, first, third, 10);
+        let _ = commit_transfer(&registries, &mut state, first, third, 10);
         let final_accounting = calculate_fluid_volume_accounting(&state);
         assert_eq!(final_accounting, Ok(initial));
         assert_eq!(
@@ -775,7 +887,7 @@ mod tests {
             Ok(store) => store,
             Err(error) => panic!("round-trip destination failed: {error}"),
         };
-        let _ = commit_transfer(&mut state, source, destination, 125);
+        let _ = commit_transfer(&registries, &mut state, source, destination, 125);
 
         let encoded = match serde_json::to_vec(&SaveEnvelope::new(&registries, &state)) {
             Ok(encoded) => encoded,
@@ -791,8 +903,8 @@ mod tests {
         };
         assert_eq!(loaded, state);
 
-        let _ = commit_transfer(&mut state, source, destination, 75);
-        let _ = commit_transfer(&mut loaded, source, destination, 75);
+        let _ = commit_transfer(&registries, &mut state, source, destination, 75);
+        let _ = commit_transfer(&registries, &mut loaded, source, destination, 75);
         assert_eq!(loaded, state);
     }
 
@@ -858,8 +970,8 @@ mod tests {
                 3 => (middle, source),
                 _ => unreachable!("modulo four must be exhaustive"),
             };
-            let _ = commit_transfer(&mut first, from, to, 1);
-            let _ = commit_transfer(&mut second, from, to, 1);
+            let _ = commit_transfer(&registries, &mut first, from, to, 1);
+            let _ = commit_transfer(&registries, &mut second, from, to, 1);
             if step % 127 == 0 {
                 let accounting = match calculate_fluid_volume_accounting(&first) {
                     Ok(accounting) => accounting,

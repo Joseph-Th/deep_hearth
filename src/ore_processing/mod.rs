@@ -11,7 +11,9 @@ use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
 use crate::core::quantity::{Mass, MassFlow, MassSpecificEnergy};
 use crate::core::time::TickSpan;
 use crate::energy::EnergyCarrier;
-use crate::material::{FormId, MaterialPhase, MaterialRegistry};
+use crate::material::{
+    FormId, MaterialPhase, MaterialRegistry, ParticleSizeRange, ParticleSizeStatePolicy,
+};
 use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
 
 pub use comminution_execution::{
@@ -27,6 +29,7 @@ pub struct ComminutionProcessDefinition {
     process: ProcessId,
     input_form: FormId,
     output_form: FormId,
+    output_particle_size: ParticleSizeRange,
     operating: ComminutionOperatingProfile,
 }
 
@@ -69,16 +72,14 @@ impl ComminutionProcessDefinition {
         process: ProcessId,
         input_form: FormId,
         output_form: FormId,
+        output_particle_size: ParticleSizeRange,
         operating: ComminutionOperatingProfile,
     ) -> Self {
-        assert!(
-            input_form.value() != output_form.value(),
-            "comminution input and output forms must differ"
-        );
         Self {
             process,
             input_form,
             output_form,
+            output_particle_size,
             operating,
         }
     }
@@ -96,6 +97,11 @@ impl ComminutionProcessDefinition {
     #[must_use]
     pub const fn output_form(self) -> FormId {
         self.output_form
+    }
+
+    #[must_use]
+    pub const fn output_particle_size(self) -> ParticleSizeRange {
+        self.output_particle_size
     }
 
     #[must_use]
@@ -221,6 +227,17 @@ impl OreProcessingRegistry {
                     form.value()
                 );
             }
+            let output_form = match materials.get_form(definition.output_form()) {
+                Some(output_form) => output_form,
+                None => unreachable!("comminution output form was resolved above"),
+            };
+            assert_eq!(
+                output_form.particle_size_policy(),
+                ParticleSizeStatePolicy::Required,
+                "comminution process {} output form {} must require particle-size state",
+                definition.process().value(),
+                definition.output_form().value()
+            );
         }
     }
 }

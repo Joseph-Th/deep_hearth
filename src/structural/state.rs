@@ -10,7 +10,7 @@ use crate::core::quantity::{Acceleration, AggregateMass, Area, Force, Length, Ma
 use crate::core::time::SimulationTick;
 use crate::inventory::ConsumedMaterialTrace;
 use crate::material::{
-    MaterialId, MaterialPhase, MaterialPhaseStateError, MaterialRegistry,
+    MaterialId, MaterialPhase, MaterialPhaseStateError, MaterialRegistry, ParticleSizeStatePolicy,
     validate_material_phase_state,
 };
 use crate::spatial::VoxelBounds;
@@ -390,6 +390,10 @@ pub enum StructureValidationError {
         form: crate::material::FormId,
         phase: MaterialPhase,
     },
+    UnsupportedEmbodiedParticulateForm {
+        element: StructuralElementId,
+        form: crate::material::FormId,
+    },
     InvalidEmbodiedPhaseState {
         element: StructuralElementId,
         error: MaterialPhaseStateError,
@@ -469,6 +473,12 @@ impl Display for StructureValidationError {
                 formatter,
                 "structural next-id cursor {next} is not above allocated element {}",
                 highest.value()
+            ),
+            Self::UnsupportedEmbodiedParticulateForm { element, form } => write!(
+                formatter,
+                "structural element {} directly embodies particulate form {} without consolidation physics",
+                element.value(),
+                form.value()
             ),
             Self::ZeroLength { element } => write!(
                 formatter,
@@ -710,6 +720,7 @@ impl Error for StructureValidationError {
             | Self::UnsupportedEmbodiedComposition { .. }
             | Self::UnknownEmbodiedCommodity { .. }
             | Self::UnsupportedEmbodiedPhase { .. }
+            | Self::UnsupportedEmbodiedParticulateForm { .. }
             | Self::UnknownEmbodiedCompositionMaterial { .. }
             | Self::InvalidEmbodiedProvenanceRange { .. }
             | Self::EmbodiedProvenanceInFuture { .. }
@@ -809,6 +820,14 @@ pub(crate) fn validate_loaded_structure(
                     form: commodity.form(),
                     phase: form.phase(),
                 });
+            }
+            if form.particle_size_policy() == ParticleSizeStatePolicy::Required {
+                return Err(
+                    StructureValidationError::UnsupportedEmbodiedParticulateForm {
+                        element: record.id,
+                        form: commodity.form(),
+                    },
+                );
             }
             validate_material_phase_state(
                 materials,

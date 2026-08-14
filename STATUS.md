@@ -11,7 +11,8 @@
   pressure, area, length, acceleration, force, power, torque, angular speed, voltage, current,
   resistance, volume, aggregate volume, and volumetric flow.
 - Typed material/form definitions with density, thermal, mechanical, and electrical properties,
-  explicit solid/liquid form phase, and optional authored fusion temperature/latent heat.
+  explicit solid/liquid form phase, explicit particulate-state policy, and optional authored fusion
+  temperature/latent heat.
 - Canonical normalized mass-fraction composition for ores, alloys, and mixed material lots, including
   validated deserialization and composition-aware material inputs.
 - Density-based conservative material-volume calculation, composition-weighted sensible heat, exact
@@ -19,7 +20,9 @@
   reach but not exceed its authored fusion boundary; liquid matter must remain at or above it. Mixed
   liquid compositions are refused until real alloy/solution phase diagrams exist rather than being
   assigned an invented weighted melting point.
-- Persistent material lots with mass, temperature, composition, ownership, and provenance ranges.
+- Persistent material lots with mass, temperature, composition, optional validated particle-size
+  bounds, ownership, and provenance ranges. Particle-size state is part of lot fungibility rather
+  than a detached ore-processing annotation.
 - Capacity-aware stockpiles with derived commodity totals, cached mass, inbound reservations,
   revision-bound atomic transfers, deterministic splitting, compatible-fragment coalescing, and a
   persisted material-containment envelope for accepted solid/liquid phases and maximum temperature.
@@ -44,8 +47,9 @@
   generated IDs, owner revision, and exhaustive registry/state validation. Authoritative deposit
   enumeration remains crate-private. World-generation admission accepts an opaque generated-deposit
   plan with no production/public constructor, so player-facing adapters cannot bypass prospecting or
-  use the source boundary as a matter-spawn API. Geological ownership is explicitly solid-only and
-  independently revalidated on load.
+  use the source boundary as a matter-spawn API. Geological ownership is explicitly solid-only,
+  excludes processed particulate forms whose size state belongs to material-processing owners, and
+  is independently revalidated on load.
 - Revision-bound geological extraction transfers exact conserved matter into inventory through a
   crate-private validated ingress primitive. Extraction binds both geology and inventory revisions,
   rejects stale or over-capacity commits without partial mutation, preserves physical material
@@ -70,11 +74,11 @@
 - Typed authored capability requirements with physical value kinds and registry-reference validation.
   Built-in capability and production registries remain intentionally empty until real providers and
   physical resolvers exist.
-- Continuous equipment `Condition`, authored maintenance warning/critical bands, and pure wear/repair
-  plans without disposable durability semantics.
+- Continuous equipment `Condition`, authored maintenance warning/critical bands, and pure wear plans
+  without disposable durability semantics.
 - Persistent maintainable equipment records with immutable physical mass and capability-provider
-  definitions, revision-checked wear/repair application, provider resolution, registry-reference
-  validation, save/load ownership, in-flight provider provenance, and exclusive operation occupancy.
+  definitions, revision-checked wear application, provider resolution, registry-reference validation,
+  save/load ownership, in-flight provider provenance, and exclusive operation occupancy.
   Definitions may author deterministic piecewise-linear condition curves per typed capability;
   effective values are resolved on demand without allocating temporary profiles, and pristine values
   remain the single nominal source of truth. Maintenance mutation is rejected while an active
@@ -83,6 +87,16 @@
   revision, with simultaneous due outcomes sharing one revision advance. Continuous condition curves
   reject presence-only capabilities; discrete capability loss remains an explicit future policy
   rather than fake numeric interpolation.
+- Resource-backed equipment repair replaces the former arbitrary condition-increase path. A future
+  physical maintenance resolver must produce an opaque repair resolution that binds the equipment
+  owner revision and observed condition, strictly improved final condition, exact selected inventory
+  lot slices, and an explicit spent-material destination. Canonical validation relocates those exact
+  traces without changing composition, temperature, particle-size state, or provenance; source and
+  destination `StoredMatter` structural loads are planned together, and both equipment and inventory
+  revisions are rechecked before commit. Repair also rechecks derived production occupancy immediately
+  before material moves because job start does not advance the equipment owner revision. The current
+  conservative boundary preserves spent material identity rather than inventing unmodeled replacement
+  part or waste chemistry.
 - Persistent equipment-to-structure support assignment with revision-bound two-owner mount/unmount
   transactions and a synchronized support-to-equipment reverse index. Mounted equipment mass is
   aggregated support-locally before gravity conversion, writes only the equipment-owned structural
@@ -114,8 +128,10 @@
   derived directly from exact geometry and authored density with one conservative milligram rounding
   boundary. Read-only material-requirement resolution exposes that physical requirement without
   authorizing construction. The conserved construction transaction rejects both under- and
-  over-materialization, accepts only pure solid matter matching the member's authored material, and
-  derives a structure-owned `SelfWeight` load from the committed mass and registry gravity.
+  over-materialization, accepts only pure consolidated solid matter matching the member's authored
+  material, rejects particulate forms until a real compaction/binder/sintering/casting path produces
+  a load-bearing bulk form, and derives a structure-owned `SelfWeight` load from the committed mass
+  and registry gravity.
   A supported source stockpile is unloaded in the same cross-owner transaction. Persisted structural
   embodiment independently rechecks its solid phase. `SelfWeight` cannot be written through the
   generic load API.
@@ -144,15 +160,23 @@
 - Exact power-to-energy, flow-to-volume, electrical-power, and resistive-drop scalar calculations
   with explicit carried fractional remainders where repeated truncation would lose resources.
 - Persistent finite fluid stores with monotonic runtime IDs/revisions, explicit capacity, homogeneous
-  authored fluid identity, volume, temperature, and exhaustive persistence validation. Fluid
-  definitions are registry-owned and cross-reference underlying material identity; the built-in fluid
-  registry remains intentionally empty until phase-aware world fluid content exists. Public runtime
-  allocation creates empty capacity only, so the storage owner cannot manufacture water or other
-  fluid. Revision-bound transfer commits conserve exact aggregate volume and clear zero-volume
-  identities canonically. Gameplay cannot construct a transfer resolution directly: gravity,
-  pressure, channel, or pump systems must eventually authorize movement. The current conservative
-  transfer path refuses unlike fluid identities or temperatures rather than silently inventing
-  mixture chemistry or thermal equilibration.
+  authored fluid identity, volume, temperature, optional structural support assignment, and a
+  synchronized support-to-store reverse index. Fluid definitions are registry-owned, cross-reference
+  underlying material identity, and author constant bulk density for exact weight projection; the
+  built-in fluid registry remains intentionally empty until phase-aware world fluid content exists.
+  Public runtime allocation creates empty capacity only, so the storage owner cannot manufacture
+  water or other fluid. Revision-bound transfer commits conserve exact aggregate volume and clear
+  zero-volume identities canonically. Supported transfers resolve both stores' final contents and all
+  affected `Fluid` structural loads as one cross-owner plan. Volume-times-density is aggregated across
+  every store on a support before one conservative milligram rounding boundary and gravity conversion,
+  preventing per-container rounding from fabricating weight. Increasing aggregate fluid weight
+  requires an active support and can crack or collapse it through normal structural analysis; draining,
+  same-support redistribution without added weight, and unmounting from failed debris remain possible.
+  The `Fluid` load channel is exclusively fluid-owned, and structural removal is blocked until stores
+  are unmounted. Gameplay still cannot construct a transfer resolution directly: gravity, pressure,
+  channel, or pump systems must eventually authorize movement. The current conservative transfer path
+  refuses unlike fluid identities or temperatures rather than silently inventing mixture chemistry or
+  thermal equilibration.
 - Read-only world-scale fluid-volume accounting aggregates beyond one store's `u64` range without
   trusting cached totals.
 - Exact scalar rotational mechanics with micronewton-meter torque and microradian/second angular
@@ -167,13 +191,16 @@
   equipment without abusing batch mass or floating-point rates.
 - Selected-batch comminution is the first ore-processing resolver. It accepts exact solid lot slices,
   requires authored equipment throughput, maximum batch mass, energy carrier, and exact
-  mass-specific work, then reserves that work from a finite energy source. It changes only the
-  authored physical form and preserves each distinct input profile's mass, normalized composition,
-  and temperature. Runtime equipment condition can derate throughput, while finite source output
-  power can independently bottleneck the operation; authoritative duration uses the slower limit and
-  therefore drives active-tick wear. Persisted jobs recompute output form, exact work energy, carrier,
-  power-limited duration, and wear from their committed traces. No built-in crushing process is
-  registered until concrete crusher and finite power-source content exists.
+  mass-specific work, then reserves that work from a finite energy source. Each comminution
+  definition authors a validated output particle-diameter envelope. Coarse untracked feed may acquire
+  its first explicit size state, while already-particulate feed must strictly reduce maximum diameter
+  without coarsening represented fines. Input and output forms may therefore be identical for real
+  grinding distinctions. Mass, normalized composition, and temperature remain exact. Runtime
+  equipment condition can derate throughput, while finite source output power can independently
+  bottleneck the operation; authoritative duration uses the slower limit and therefore drives
+  active-tick wear. Persisted jobs recompute output form and particle bounds, exact work energy,
+  carrier, power-limited duration, and wear from their committed traces. No built-in crushing or
+  grinding process is registered until concrete equipment and finite power-source content exists.
 - Ore-processing and thermal resolver registries have exclusive process ownership, preventing one
   process ID from silently acquiring two incompatible physical interpretations.
 - Selected-batch sensible heating derives required energy from each selected lot's actual mass,
@@ -203,15 +230,16 @@
   structural construction/deconstruction, sensible heating, pure-material melting, and casting all
   preserve the modeled total across ownership changes.
 - Canonical top-level tick pipeline with cheap per-tick invariants and exhaustive save/load audits.
-- Persistence semantic schema 23 and authored registry compatibility schema 11 with metadata
+- Persistence semantic schema 25 and authored registry compatibility schema 13 with metadata
   preflight, registry-aware state validation, structural topology/damage audits, energy/equipment
   ownership validation, directional energy-source/sink reservation and capacity audits, embodied
   structural matter/self-weight/phase audits, geometry/density-to-mass recomputation,
   equipment-support/load agreement audits, stockpile-support/index/stored-matter-load agreement
-  audits, exclusive-resource double-book detection,
-  operation-specific sensible-heating/melting/casting and comminution recomputation including
-  post-operation condition outcomes and released heat, stable in-flight conservation snapshots, and
-  deterministic continuation tests.
+  audits, fluid-support/index/density-derived-load agreement audits, exclusive-resource double-book
+  detection,
+  particle-size policy/state audits, operation-specific sensible-heating/melting/casting and
+  comminution recomputation including exact output particle bounds, post-operation condition outcomes
+  and released heat, stable in-flight conservation snapshots, and deterministic continuation tests.
 - Chunk-independent 64-bit voxel coordinates and validated spatial bounds without choosing chunk
   dimensions or streaming policy.
 - Deterministic 10,000-tick mixed-system soak with repeated production/transfers, varying structural
@@ -233,6 +261,13 @@
 - Deterministic 2,000-transfer fluid-storage soak repeatedly moves one finite homogeneous fluid volume
   through multiple stores, with periodic exhaustive state audits, aggregate-volume conservation, and
   replay-identical final state.
+- Deterministic 1,000-transfer supported-fluid soak moves one finite homogeneous fluid volume between
+  separately supported stores, recomputing both density-derived structural loads on every transfer,
+  with periodic exhaustive audits, aggregate-volume conservation, and replay-identical final state.
+- Deterministic 500-cycle maintenance soak repeatedly applies wear, commits an exact resource-backed
+  repair, and returns the same finite test material for the next transaction cycle, with periodic
+  exhaustive audits, matter and modeled-energy conservation, and replay-identical final state. The
+  return transfer is a transaction stress fixture, not a gameplay claim that spent parts self-renew.
 - Deterministic 500-operation pure-material melting soak repeatedly transfers one finite copper batch
   from solid inventory through exact sensible-plus-latent heating into molten storage, with periodic
   exhaustive audits, matter and modeled-energy conservation, finite energy depletion, equipment wear,
@@ -248,7 +283,7 @@
 - Deterministic 1,000-transfer supported-stockpile soak repeatedly moves one finite material lot
   between separately supported stockpiles, updating both derived structural loads on every transfer,
   with periodic exhaustive audits and replay-identical final state.
-- Current debug validation suite: 285 passing tests with `cargo check` silent and
+- Current debug validation suite: 311 passing tests with `cargo check` silent and
   Clippy warnings denied.
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
   as variants evolve instead of relying on review to catch silent fallback behavior.
@@ -273,8 +308,10 @@
   fusion and finite explicit thermal sinks are modeled; an implicit environment is deliberately not
   used as an infinite heat source or sink.
 - Concrete equipment/tool/worker content, richer voxel/container equipment placement beyond a
-  structural support owner, repair material consumption, discrete capability-disable policies, and
-  authored gameplay-specific degradation curves.
+  structural support owner, physical spare-part suitability, repair tools/labor/duration, replacement
+  and waste transformations, discrete capability-disable policies, and authored gameplay-specific
+  degradation curves. Exact maintenance matter is now required and conserved by the canonical repair
+  boundary, but that boundary deliberately does not authorize repairs by itself.
 - Richer physical construction and demolition resolution: member orientation/end geometry,
   joints/connections, cutting and placement waste, tools, labor, duration, salvage fractions, debris
   transformation, and non-identity-preserving demolition outputs. Current prismatic geometry resolves
@@ -283,25 +320,29 @@
 - Structural bending, shear, torsion, buckling, connection/joint capacity, terrain-support inference,
   and automatic voxel-geometry load paths. Current structural profiles model explicit axial load
   paths rather than pretending those unsolved mechanics are already represented.
-- Automatic bindings from fluid contents, snow/weather, wind, and terrain pressure into their
-  source-separated structural load contributions. Structural self-weight, supported inventory matter,
-  and mounted equipment weight now write their own aggregate contributions canonically; the remaining
-  owners remain deferred.
+- Automatic bindings from snow/weather, wind, and terrain pressure into their source-separated
+  structural load contributions. Structural self-weight, supported inventory matter, mounted
+  equipment weight, and supported fluid weight now write their own aggregate contributions
+  canonically; the remaining owners remain deferred.
 - Additional production resolvers beyond sensible heating, pure-material melt/cast, and conservative
-  comminution, including screening, grinding distinctions that require particle-size state, washing,
+  comminution, including screening mass partition, particle-size distributions needed when a screen
+  cut intersects a lot's current diameter envelope, multi-destination material-stream ownership for
+  simultaneous oversize/undersize outputs, concrete grinding equipment/process content, washing,
   gravity/flotation separation, explicit recovery/tailings physics, chemical smelting/reduction,
   alloying, forging/working, machining/tool wear, labor/skill, chemistry, and environmental
-  constraints. Gameplay processes remain unregistered until their corresponding physical gates
-  exist.
+  constraints. Diameter bounds deliberately do not fabricate a size distribution or screening yield,
+  and the current one-destination production owner is not stretched into a fake separation API.
+  Gameplay processes remain unregistered until their corresponding physical gates exist.
 - Persistent mechanical-power networks and shaft/belt layout, rotational inertia/flywheels, slip and
   clutch state, steam/boilers, electrical networks, transformers, protection, and distribution
   topology, plus conserved primary energy-generation paths for finite stores. Directional finite
   input/output transfer and process-released-heat sinks now exist, but no free charging/generation API
   is exposed.
 - Pressure/gravity-resolved hydrology topology, terrain/surface/groundwater ownership, precipitation
-  and runoff, pumps, irrigation, sanitation, wastewater, contamination/water-quality mixtures, and a
-  phase-aware bridge between conserved material mass and hydraulic fluid volume. The current finite
-  fluid owner is deliberately a storage/conservation boundary, not a pathless movement or water-spawn
+  and runoff, pumps, irrigation, sanitation, wastewater, contamination/water-quality mixtures,
+  temperature/pressure-dependent fluid properties, and a phase-aware bridge between conserved
+  material mass and hydraulic fluid volume. The current finite fluid owner now contributes real
+  support weight but remains a storage/conservation boundary, not a pathless movement or water-spawn
   shortcut.
 - Agriculture, soil processes, ecology, genetics, creatures, workers, settlements, logistics, trade,
   economy, migration, and other gameplay systems.

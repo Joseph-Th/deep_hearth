@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 23;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 25;
 
 /// Minimal version metadata that adapters decode before choosing a concrete save payload decoder.
 ///
@@ -535,7 +535,12 @@ mod tests {
                     }
                 },
                 "energy": {"revision": 0, "next_store_id": 1, "records": {}},
-                "fluid": {"revision": 0, "next_store_id": 1, "records": {}},
+                "fluid": {
+                    "revision": 0,
+                    "next_store_id": 1,
+                    "records": {},
+                    "stores_by_support": {}
+                },
                 "equipment": {
                     "revision": 0,
                     "next_equipment_id": 1,
@@ -858,7 +863,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("registry compatibility save serialization failed: {error}"),
         };
-        encoded["registry_schema_version"] = serde_json::json!(10_u32);
+        encoded["registry_schema_version"] = serde_json::json!(12_u32);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("registry compatibility save failed decode: {error}"),
@@ -867,31 +872,31 @@ mod tests {
         assert_eq!(
             decoded.into_state(&registries),
             Err(LoadError::RegistrySchemaMismatch {
-                found: RegistrySchemaVersion::new(10),
-                supported: RegistrySchemaVersion::new(11),
+                found: RegistrySchemaVersion::new(12),
+                supported: RegistrySchemaVersion::new(13),
             })
         );
     }
 
     #[test]
-    fn current_save_rejects_prior_semantic_schema_after_stockpile_support_ownership() {
+    fn current_save_rejects_prior_semantic_schema_before_fluid_support_state() {
         let registries = build_registries();
         let state = AppState::new(WorldSeed::new(0x5700_0020));
         let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
             Ok(encoded) => encoded,
-            Err(error) => panic!("stockpile-support schema fixture failed serialization: {error}"),
+            Err(error) => panic!("fluid-support schema fixture failed serialization: {error}"),
         };
-        encoded["schema_version"] = serde_json::json!(22_u32);
+        encoded["schema_version"] = serde_json::json!(24_u32);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
-            Err(error) => panic!("stockpile-support schema fixture failed decode: {error}"),
+            Err(error) => panic!("fluid-support schema fixture failed decode: {error}"),
         };
 
         assert_eq!(
             decoded.into_state(&registries),
             Err(LoadError::UnsupportedSchemaVersion {
-                found: 22,
-                supported: 23,
+                found: 24,
+                supported: 25,
             })
         );
     }

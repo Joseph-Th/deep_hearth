@@ -624,7 +624,11 @@ pub fn resolve_sensible_heating_process(
         required_energy = required_energy
             .checked_add(heat.energy())
             .ok_or(SensibleHeatingResolutionError::RequiredEnergyOverflow)?;
-        let key = (profile.commodity(), profile.composition().clone());
+        let key = (
+            profile.commodity(),
+            profile.composition().clone(),
+            profile.particle_size(),
+        );
         let current = output_masses.get(&key).copied().unwrap_or(Mass::ZERO);
         let combined = current
             .checked_add(trace.mass())
@@ -658,9 +662,18 @@ pub fn resolve_sensible_heating_process(
     );
 
     let mut outputs = Vec::with_capacity(output_masses.len());
-    for ((commodity, composition), mass) in output_masses {
-        let output = MaterialLotSpec::with_composition(commodity, mass, target, composition)
-            .map_err(SensibleHeatingResolutionError::Output)?;
+    for ((commodity, composition, particle_size), mass) in output_masses {
+        let output = match particle_size {
+            Some(particle_size) => MaterialLotSpec::with_composition_and_particle_size(
+                commodity,
+                mass,
+                target,
+                composition,
+                particle_size,
+            ),
+            None => MaterialLotSpec::with_composition(commodity, mass, target, composition),
+        }
+        .map_err(SensibleHeatingResolutionError::Output)?;
         outputs.push(output);
     }
     let resolution = inputs
@@ -1079,7 +1092,11 @@ pub(crate) fn validate_loaded_thermal_job(
         required_energy = required_energy
             .checked_add(heat.energy())
             .ok_or(ThermalJobValidationError::RequiredEnergyOverflow { job: job.id() })?;
-        let key = (profile.commodity(), profile.composition().clone());
+        let key = (
+            profile.commodity(),
+            profile.composition().clone(),
+            profile.particle_size(),
+        );
         let current = output_masses.get(&key).copied().unwrap_or(Mass::ZERO);
         output_masses.insert(
             key,
@@ -1132,15 +1149,22 @@ pub(crate) fn validate_loaded_thermal_job(
     }
 
     let mut expected_outputs = Vec::with_capacity(output_masses.len());
-    for ((commodity, composition), mass) in output_masses {
-        expected_outputs.push(
-            MaterialLotSpec::with_composition(commodity, mass, target, composition).map_err(
-                |error| ThermalJobValidationError::OutputConstruction {
-                    job: job.id(),
-                    error,
-                },
-            )?,
-        );
+    for ((commodity, composition, particle_size), mass) in output_masses {
+        let output = match particle_size {
+            Some(particle_size) => MaterialLotSpec::with_composition_and_particle_size(
+                commodity,
+                mass,
+                target,
+                composition,
+                particle_size,
+            ),
+            None => MaterialLotSpec::with_composition(commodity, mass, target, composition),
+        }
+        .map_err(|error| ThermalJobValidationError::OutputConstruction {
+            job: job.id(),
+            error,
+        })?;
+        expected_outputs.push(output);
     }
     expected_outputs.sort();
     let mut actual_outputs = job.outputs().to_vec();

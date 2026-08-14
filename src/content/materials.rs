@@ -3,7 +3,8 @@
 use crate::core::quantity::Temperature;
 use crate::material::{
     ElectricalProperties, FormDefinition, FormId, FusionProperties, MaterialDefinition, MaterialId,
-    MaterialPhase, MaterialProperties, MaterialRegistry, MechanicalProperties, ThermalProperties,
+    MaterialPhase, MaterialProperties, MaterialRegistry, MechanicalProperties,
+    ParticleSizeStatePolicy, ThermalProperties,
 };
 
 pub const MATERIAL_WOOD: MaterialId = MaterialId::new(1);
@@ -22,28 +23,47 @@ pub const FORM_CRUSHED: FormId = FormId::new(7);
 pub(crate) fn build_material_registry() -> MaterialRegistry {
     let mut registry = MaterialRegistry::new();
 
-    registry.register_form(FormDefinition::new(FORM_LOG, "log", MaterialPhase::Solid));
-    registry.register_form(FormDefinition::new(FORM_LUMP, "lump", MaterialPhase::Solid));
-    registry.register_form(FormDefinition::new(FORM_ORE, "ore", MaterialPhase::Solid));
+    registry.register_form(FormDefinition::new(
+        FORM_LOG,
+        "log",
+        MaterialPhase::Solid,
+        ParticleSizeStatePolicy::Untracked,
+    ));
+    registry.register_form(FormDefinition::new(
+        FORM_LUMP,
+        "lump",
+        MaterialPhase::Solid,
+        ParticleSizeStatePolicy::Untracked,
+    ));
+    registry.register_form(FormDefinition::new(
+        FORM_ORE,
+        "ore",
+        MaterialPhase::Solid,
+        ParticleSizeStatePolicy::Untracked,
+    ));
     registry.register_form(FormDefinition::new(
         FORM_CONCENTRATE,
         "concentrate",
         MaterialPhase::Solid,
+        ParticleSizeStatePolicy::Untracked,
     ));
     registry.register_form(FormDefinition::new(
         FORM_INGOT,
         "ingot",
         MaterialPhase::Solid,
+        ParticleSizeStatePolicy::Untracked,
     ));
     registry.register_form(FormDefinition::new(
         FORM_MOLTEN,
         "molten",
         MaterialPhase::Liquid,
+        ParticleSizeStatePolicy::Untracked,
     ));
     registry.register_form(FormDefinition::new(
         FORM_CRUSHED,
         "crushed",
         MaterialPhase::Solid,
+        ParticleSizeStatePolicy::Required,
     ));
 
     registry.register_material(MaterialDefinition::new(

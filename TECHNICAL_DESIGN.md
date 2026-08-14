@@ -80,7 +80,8 @@ indexes; callers receive read-only views and canonical systems retain mutation a
 - `EnergyState` owns finite energy stores, generated store IDs, and an owner revision. Store behavior
   is defined by immutable carrier, capacity, and independent input/output power envelopes.
 - `FluidState` owns finite homogeneous fluid stores, generated store IDs, exact volume and
-  temperature, and an owner revision. Empty stores carry no residual fluid identity.
+  temperature, optional structural support assignments, a synchronized support-to-store reverse
+  index, and an owner revision. Empty stores carry no residual fluid identity.
 - `EquipmentState` owns maintainable equipment instances, their structural support assignment, a
   synchronized support-to-equipment reverse index, generated equipment IDs, and an owner revision.
 - `StructureState` owns structural members, exact embodied material traces/mass, support/dependent
@@ -107,12 +108,12 @@ callbacks, event handlers, record methods, or engine lifecycle hooks.
 ## 7. Persistence
 
 The core defines a versioned semantic save envelope while deliberately leaving byte encoding and
-storage to adapters. The current save schema is version 23. Authored identity/physics compatibility
+storage to adapters. The current save schema is version 25. Authored identity/physics compatibility
 is tracked separately by `RegistrySchemaVersion`; the built-in registry schema is currently version
-11. Core gravity, material phase/fusion semantics, physical form identities, fluid definitions,
-directional energy-store semantics, and operation-specific resolver identities are part of that
-immutable registry contract because changing them can alter persisted physical consequences even
-when authored IDs are unchanged.
+13. Core gravity, material phase/fusion semantics, physical form and particle-state policies, fluid
+identity/density definitions, directional energy-store semantics, and operation-specific resolver
+identities are part of that immutable registry contract because changing them can alter persisted
+physical consequences even when authored IDs are unchanged.
 
 `SaveMetadata` can be decoded without decoding the current `AppState` shape. A future adapter can
 therefore inspect an old schema first and route it to a version-specific DTO and explicit migration.
@@ -130,12 +131,15 @@ A current-schema load must:
 Persistence tests cover deterministic continuation, mixed composition, independent RNG continuation,
 tampered RNG roots, tampered in-process consumed mass, stable immediate JSON reserialization,
 stockpile phase/temperature containment, stockpile structural support/index/load agreement,
-fluid-store references and conservation state, structural embodied-mass/self-weight/phase agreement,
-equipment structural support/load agreement, directional energy source/sink ownership, and
+fluid-store references/conservation plus support/index/density-derived-load agreement, structural
+embodied-mass/self-weight/phase agreement, equipment structural support/load agreement, directional
+energy source/sink ownership, and
 operation-specific sensible-heating/melting/casting replay from committed physical traces.
 Comminution jobs are likewise recomputed from exact consumed-material, equipment, and energy traces,
-including authored form transition, mass-specific work, carrier, condition-sensitive throughput,
-power-limited duration, and post-operation wear.
+including authored form transition and particle-size envelope, mass-specific work, carrier,
+condition-sensitive throughput, power-limited duration, and post-operation wear. Current-schema lot,
+output, and consumed-trace validation also rejects particle-size state that disagrees with the
+authored form policy.
 
 Filesystem layout, compression, atomic writes, cloud storage, and released-save migration
 implementations remain adapter work.
@@ -160,6 +164,8 @@ Performance begins with ownership and access patterns rather than premature micr
 - Production uses `BTreeMap<SimulationTick, BTreeSet<ProductionJobId>>` so due work does not require
   scanning all active jobs.
 - Stockpiles maintain cheap derived mass/commodity caches and update them atomically with lot state.
+- Fluid stores index support membership bidirectionally, so transfer-time structural recomputation
+  visits only stores sharing affected supports rather than scanning all hydraulic storage.
 - Output capacity is reserved at process start so completion does not discover a late full-destination
   failure.
 - Compatible newly created lot fragments coalesce deterministically to prevent unbounded tiny-lot
@@ -189,6 +195,7 @@ units:
 - `Energy`: nanojoules (`u128`);
 - `Pressure`: pascals (`u64`);
 - `Area`: square millimeters (`u64`);
+- `Length`: micrometers (`u64`);
 - `Acceleration`: micrometers per second squared (`u64`);
 - `Force`: millinewtons (`u128`);
 - `Power`: picowatts (`u128`), with a microwatt convenience constructor;
@@ -210,9 +217,15 @@ implemented authoritative physical calculations.
 
 Materials are immutable definitions with typed IDs and grouped density, thermal, mechanical, and
 electrical properties. Physical forms such as log, lump, ore, crushed material, concentrate, ingot,
-and molten matter have typed `FormId` definitions and an explicit `MaterialPhase`. `CommodityKey`
-combines one material and one form for coarse indexing. Thermal definitions may author an exact
-solid/liquid fusion point and latent heat.
+and molten matter have typed `FormId` definitions, an explicit `MaterialPhase`, and an authored
+particle-size-state policy. `CommodityKey` combines one material and one form for coarse indexing.
+Thermal definitions may author an exact solid/liquid fusion point and latent heat.
+
+`ParticleSizeRange` stores a validated nonzero minimum and maximum particle diameter using typed
+`Length`. It is intentionally a compact authoritative envelope rather than a fabricated particle-size
+distribution. Forms marked as requiring particulate state must carry a range; forms marked untracked
+must not. A screen cut that lies inside a range therefore cannot infer oversize/undersize mass until
+a future resolver has a real distribution or another physically justified partition model.
 
 `MaterialComposition` is a canonical normalized mass-fraction profile. Components are sorted by
 material ID, use integer parts per million, and total exactly 1,000,000 ppm. Duplicate materials,
@@ -234,7 +247,9 @@ architecture content, not the complete gameplay catalog.
 
 Material lots are the authoritative stored-matter representation. Each `MaterialLotRecord` owns a
 persistent lot ID, stockpile owner, exact mass, a `MaterialLotProfile` (commodity, absolute
-temperature, normalized composition), and a creation provenance range.
+temperature, normalized composition, and optional form-governed particle-size range), and a creation
+provenance range. Lot coalescing compares the complete profile, so different particle-size envelopes
+cannot be averaged away by inventory compaction.
 
 Stockpiles maintain derived deterministic indexes/caches for lot IDs, per-commodity mass, total
 stored mass, capacity, reserved inbound mass, and a persisted containment profile declaring accepted
@@ -254,6 +269,14 @@ lots in stable ID order without averaging physical properties away. Newly create
 fragments can coalesce into the lowest-ID compatible destination lot. Every canonical ingress and
 production-output reservation rechecks destination containment.
 
+Cross-owner systems that physically inspect exact lot slices before deciding an outcome use a
+crate-private exact-relocation transaction rather than `validate_transfer_bulk`. It consumes the
+already-bound `ConsumptionSelection`, preserves each selected profile and provenance exactly, assigns
+distinct deterministic IDs for multiple partial slices, validates destination containment/capacity,
+and plans source/destination stored-matter loads together. Reserved inbound capacity participates in
+the space check but never in structural weight. This primitive does not select material itself and is
+therefore not an arbitrary gameplay movement API.
+
 There is intentionally no public arbitrary inventory-deposit API. Tests can seed inventory through
 `#[cfg(test)]` fixtures. World generation has a separately named geological source boundary that
 admits validated finite deposits into `GeologyState`; it is not a player extraction path and does not
@@ -270,8 +293,11 @@ structural embodiment; reserved inbound capacity is space rather than matter.
 
 `GeologicalDepositRecord` stores a chunk-agnostic `VoxelBounds`, exact initial and remaining mass,
 commodity/form identity, absolute temperature, normalized composition, generated tick, and a
-validated available/depleted lifecycle. It does not prescribe ore-body generation algorithms,
-terrain voxel storage, prospecting visibility, or mining geometry. Overlapping geological bounds are
+validated available/depleted lifecycle. Natural geological ownership accepts only solid forms that do
+not require processed particle-size state; crushed/ground particulate belongs to later material-
+processing owners rather than being admitted as an under-specified natural deposit. It does not
+prescribe ore-body generation algorithms, terrain voxel storage, prospecting visibility, or mining
+geometry. Overlapping geological bounds are
 therefore not prohibited by this foundation; a future geological model may use overlapping records
 for distinct structures or mineralization rather than forcing a premature one-record-per-voxel rule.
 
@@ -331,13 +357,17 @@ specific operation plus optional finite energy/equipment outcomes owned by that 
 public arbitrary constructor. Physical resolvers must produce the plan before the canonical start
 transaction can accept it. Implemented thermal resolvers cover phase-aware sensible heating,
 pure-material melting, and pure-material casting. The ore-processing foundation additionally resolves
-selected-batch comminution: a crusher/grinder changes an authored solid form while preserving each
-distinct input trace's mass, composition, and temperature, derives duration from condition-sensitive
-`MassFlow`, enforces maximum batch mass, and requires exact authored `MassSpecificEnergy` from a
-finite source of the required carrier. Authoritative duration is the slower of equipment throughput
-and source output power, so weak power infrastructure reduces throughput and increases active-tick
-wear. Separation, recovery, chemical smelting, alloying, tooling, labor, and skill remain separate
-future resolvers.
+selected-batch comminution: a crusher/grinder assigns an authored particulate diameter envelope while
+preserving each distinct input trace's mass, composition, and temperature, derives duration from
+condition-sensitive `MassFlow`, enforces maximum batch mass, and requires exact authored
+`MassSpecificEnergy` from a finite source of the required carrier. Coarse untracked input can establish
+its first explicit envelope. Already-particulate input must reduce maximum diameter without increasing
+minimum diameter, so a grinder can perform a same-form `crushed -> crushed` transition without
+inventing a second material form merely to encode fineness. Authoritative duration is the slower of
+equipment throughput and source output power, so weak power infrastructure reduces throughput and
+increases active-tick wear. Screening remains separate because diameter bounds alone cannot determine
+a mass fraction when a screen cut intersects the envelope. Separation, recovery, chemical smelting,
+alloying, tooling, labor, and skill remain separate future resolvers.
 
 Production is closed-mass in the implemented core: resolved output mass must equal authored input
 mass. Slag, tailings, wastewater, gas, and similar losses must therefore be explicit material streams
@@ -389,9 +419,25 @@ definition's nominal capability at pristine condition using overflow-safe intege
 rounds toward the degraded endpoint. Runtime equipment providers resolve these effective values on
 demand without allocation. Uncurved capabilities remain nominal. Presence-only capabilities cannot
 use continuous condition curves because the capability model has no numeric absence state; any
-future capability-disable behavior must be an explicit discrete policy. Pure wear and repair plans
-still clamp at physical bounds without deleting the owning record; failure probabilities, repair
-resources, and broader ownership policies remain subsystem-specific.
+future capability-disable behavior must be an explicit discrete policy. Pure wear plans clamp at the
+physical failed bound without deleting the owning record.
+
+Equipment repair is a separate conserved cross-owner transaction rather than a public condition
+increment. `EquipmentRepairResolution` has no public constructor. A future physical maintenance
+resolver must bind a specific equipment instance together with the equipment owner revision and
+observed pre-repair `Condition`, a strictly improved final `Condition`, an exact inventory
+`ConsumptionSelection`, and an explicit spent-material stockpile. Transaction validation first
+rejects a stale equipment snapshot, then resolves the equipment definition, rejects active production
+occupancy, binds the resulting owner revisions, and delegates the exact matter movement to the
+inventory relocation primitive. Commit rechecks equipment revision, condition, and production
+occupancy before allowing any material mutation, then relocates the exact selected matter and finally
+applies the infallible condition improvement. If the maintenance source
+or spent destination is structurally supported, both final `StoredMatter` loads are analyzed in the
+same validated relocation. The current boundary intentionally preserves spent material identity,
+temperature, composition, particulate state, and provenance; replacement-part consumption,
+lubrication chemistry, salvage/waste transformation, tools, workers, skill, duration, access, and
+maintenance-process automation remain responsibilities of future physical resolvers rather than
+being guessed inside the transaction.
 
 The current engineering modules provide scalar conservation foundations without prematurely choosing
 network topology:
@@ -416,12 +462,33 @@ all participating owner revisions have been rechecked, so a stale energy mutatio
 solidify material, wear equipment, remove a job, or deposit heat.
 
 Finite fluid storage is a separate conservation boundary. `FluidDefinition` binds an authored fluid
-identity to an underlying material identity; `FluidStoreRecord` owns finite volume and temperature.
-Runtime allocation creates empty capacity only. The storage transaction can move an already
-physically resolved volume atomically, but `FluidTransferResolution` has no public constructor, so the
-storage layer cannot authorize pathless movement. Transfers refuse unlike identities or temperatures
-instead of inventing mixture chemistry or thermal equilibration. Pressure, gravity, channels, pumps,
-surface water, groundwater, and a mass/volume phase bridge remain future owners.
+identity to an underlying material identity and a nonzero constant bulk density in kilograms per
+cubic meter. Density is fluid-specific rather than borrowed from the underlying material's solid
+density and is part of registry compatibility because it changes persistent structural consequences.
+`FluidStoreRecord` owns finite volume, temperature, and one optional structural support assignment;
+`FluidState` owns the synchronized support-to-store reverse index. Runtime allocation creates empty
+capacity only.
+
+`StructuralLoadKind::Fluid` is exclusively owned by the fluid integration. For each structural
+support, exact `volume_uL * density_kg_per_m3` numerators are summed across every supported store
+before one conservative ceiling conversion to aggregate milligrams and then one gravity conversion to
+force. This keeps support weight independent of how the same fluid volume is partitioned among tanks.
+Mount and unmount are revision-bound fluid/structure transactions. New support assignments and any
+transfer that increases a support's aggregate fluid weight require an active member; the resulting
+load may crack or collapse that member through ordinary structural analysis. Draining failed debris,
+redistributing fluid between stores on the same failed support when aggregate weight does not rise,
+and unmounting failed stores remain legal so cleanup cannot require resurrecting a structure.
+Structural removal is rejected while the member remains referenced by any fluid store.
+
+The storage transaction moves an already physically resolved volume atomically, but
+`FluidTransferResolution` has no public constructor, so the storage layer cannot authorize pathless
+movement. Transfer validation computes both stores' final contents and all affected support loads in
+one plan, binding the structural revision even when a same-support transfer leaves aggregate force
+numerically unchanged. Commit applies structural consequences before the infallible owner mutation,
+and `FluidTransferOutcome` exposes any resulting structural analysis. Transfers refuse unlike
+identities or temperatures instead of inventing mixture chemistry or thermal equilibration. Pressure,
+gravity-driven routing, channels, pumps, temperature/pressure-dependent density, surface water,
+groundwater, and a mass/volume phase bridge remain future owners.
 
 Thermal phase-change production builds on these boundaries. Pure-material melting combines sensible
 heating to the fusion point with authored latent heat and requires a liquid-capable destination.
@@ -534,17 +601,20 @@ silently destroying committed resources.
 ## 20. Cross-Subsystem Runtime Invariants and Boundaries
 
 `validate_loaded_state(registries, state)` validates local owners plus cross-system relationships,
-including registry references, lot provenance and phase state, generated ID cursors, due-index
-membership, stockpile cache/containment/reservation agreement, finite fluid definitions/capacity,
+including registry references, lot provenance, phase state, and particle-size policy, generated ID
+cursors, due-index membership, stockpile cache/containment/reservation agreement, finite fluid
+definitions/capacity/support indexes and independently derived fluid structural weight,
 job lifecycle, consumed-input references, energy source/sink ownership, and in-process matter/energy
-conservation, geological deposit references/lifecycle/provenance/solid phase, geological observation
+conservation, geological deposit references/lifecycle/provenance/solid nonparticulate form, geological observation
 references/order/provenance and both directions of the material evidence index, structural embodied
-trace mass/material/composition/provenance/solid phase and self-weight agreement, equipment support
-references and mounted-equipment structural-load agreement, stockpile support references and both
-directions of the inventory support index, and independently derived stored-matter structural-load
-agreement. Operation-specific thermal audits recompute sensible heating, melting, casting,
-condition-sensitive equipment outcomes, and released heat from persisted physical traces so an
-in-flight job's contract remains reproducible after load.
+trace mass/material/composition/provenance/solid phase, consolidated-form eligibility, and self-weight
+agreement, equipment support references and mounted-equipment structural-load agreement, stockpile
+support references and both directions of the inventory support index, independently derived
+stored-matter structural-load agreement, and fluid support references in both directions. Operation-
+specific thermal audits recompute sensible heating, melting, casting,
+condition-sensitive equipment outcomes, and released heat from persisted physical traces. Comminution
+audits likewise recompute the exact form and particle-size result, so an in-flight job's contract
+remains reproducible after load.
 
 The foundation intentionally leaves unresolved choices unresolved. Deferred areas include chunk
 storage/streaming, renderer/ECS/physics/networking, regional geological generation, physical

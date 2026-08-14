@@ -18,6 +18,7 @@ use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId}
 use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
 use crate::material::{
     CommodityKey, FormId, MaterialComposition, MaterialLotSpec, MaterialLotSpecError,
+    ParticleSizeRange,
 };
 use crate::production::{
     ProcessId, ProcessInputError, ProcessResolution, ProcessResolutionError, ProductionJobId,
@@ -62,7 +63,14 @@ impl<'selection> ComminutionRequest<'selection> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ComminutionBatchError {
     EmptyInput,
-    InputFormMismatch { expected: FormId, found: FormId },
+    InputFormMismatch {
+        expected: FormId,
+        found: FormId,
+    },
+    ParticleSizeNotReduced {
+        input: ParticleSizeRange,
+        output: ParticleSizeRange,
+    },
     MassOverflow,
     Output(MaterialLotSpecError),
 }
@@ -77,6 +85,14 @@ impl Display for ComminutionBatchError {
                 expected.value(),
                 found.value()
             ),
+            Self::ParticleSizeNotReduced { input, output } => write!(
+                formatter,
+                "comminution output {}..={} um does not strictly reduce input {}..={} um without coarsening fines",
+                output.minimum_diameter().micrometers(),
+                output.maximum_diameter().micrometers(),
+                input.minimum_diameter().micrometers(),
+                input.maximum_diameter().micrometers()
+            ),
             Self::MassOverflow => formatter.write_str("comminution output mass overflowed"),
             Self::Output(error) => write!(
                 formatter,
@@ -90,7 +106,10 @@ impl Error for ComminutionBatchError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Output(error) => Some(error),
-            Self::EmptyInput | Self::InputFormMismatch { .. } | Self::MassOverflow => None,
+            Self::EmptyInput
+            | Self::InputFormMismatch { .. }
+            | Self::ParticleSizeNotReduced { .. }
+            | Self::MassOverflow => None,
         }
     }
 }
@@ -113,6 +132,17 @@ fn resolve_comminution_outputs(
                 found: input_form,
             });
         }
+        if let Some(input_particle_size) = profile.particle_size() {
+            let output_particle_size = definition.output_particle_size();
+            if output_particle_size.minimum_diameter() > input_particle_size.minimum_diameter()
+                || output_particle_size.maximum_diameter() >= input_particle_size.maximum_diameter()
+            {
+                return Err(ComminutionBatchError::ParticleSizeNotReduced {
+                    input: input_particle_size,
+                    output: output_particle_size,
+                });
+            }
+        }
         let commodity = CommodityKey::new(profile.commodity().material(), definition.output_form());
         let key = (
             commodity,
@@ -129,8 +159,14 @@ fn resolve_comminution_outputs(
     grouped
         .into_iter()
         .map(|((commodity, temperature, composition), mass)| {
-            MaterialLotSpec::with_composition(commodity, mass, temperature, composition)
-                .map_err(ComminutionBatchError::Output)
+            MaterialLotSpec::with_composition_and_particle_size(
+                commodity,
+                mass,
+                temperature,
+                composition,
+                definition.output_particle_size(),
+            )
+            .map_err(ComminutionBatchError::Output)
         })
         .collect()
 }
@@ -269,7 +305,9 @@ impl ResolvedComminution {
 
 /// Resolves exact crushing/grinding behavior from selected solid matter and runtime equipment.
 ///
-/// Comminution changes physical form while preserving each distinct composition and temperature.
+/// Comminution assigns an authored particle-size envelope while preserving each distinct
+/// composition and temperature. Particulate inputs must be strictly reduced without coarsening
+/// their represented fines; untracked coarse inputs establish their first explicit size state.
 /// It does not purify ore or invent yield bonuses. Exact mass-specific work is reserved from a finite
 /// energy source, while operation duration is the slower of equipment throughput and source power.
 /// Concrete gameplay processes remain unregistered until real world equipment/power content exists.
@@ -721,7 +759,7 @@ mod tests {
         FORM_CONCENTRATE, FORM_CRUSHED, FORM_INGOT, FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG,
         make_test_registries_with_comminution,
     };
-    use crate::core::quantity::{AggregateMass, MassSpecificEnergy};
+    use crate::core::quantity::{AggregateMass, Length, MassSpecificEnergy};
     use crate::core::state::{StateValidationError, validate_loaded_state};
     use crate::core::time::{TickSpan, WorldSeed};
     use crate::energy::{
@@ -731,7 +769,9 @@ mod tests {
         CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition,
         EquipmentDefinitionId, add_equipment,
     };
-    use crate::inventory::{add_stockpile, deposit_composed_lot_for_test};
+    use crate::inventory::{
+        add_stockpile, deposit_composed_lot_for_test, deposit_lot_spec_for_test,
+    };
     use crate::maintenance::MaintenanceThresholds;
     use crate::material::CompositionComponent;
     use crate::matter::calculate_matter_accounting;
@@ -748,6 +788,23 @@ mod tests {
     const INPUT_TEMPERATURE: Temperature = Temperature::from_millikelvin(300_000);
     const SPECIFIC_WORK: MassSpecificEnergy =
         MassSpecificEnergy::from_nanojoules_per_milligram(100);
+
+    fn crushed_particle_size() -> ParticleSizeRange {
+        match ParticleSizeRange::new(
+            Length::from_micrometers(1),
+            Length::from_micrometers(20_000),
+        ) {
+            Ok(range) => range,
+            Err(error) => panic!("comminution particle-size fixture failed: {error}"),
+        }
+    }
+
+    fn ground_particle_size() -> ParticleSizeRange {
+        match ParticleSizeRange::new(Length::from_micrometers(1), Length::from_micrometers(5_000)) {
+            Ok(range) => range,
+            Err(error) => panic!("grinding particle-size fixture failed: {error}"),
+        }
+    }
 
     fn condition(parts_per_million: u32) -> Condition {
         match Condition::new(parts_per_million) {
@@ -767,6 +824,30 @@ mod tests {
     }
 
     fn make_registries_with_energy(carrier: EnergyCarrier, max_output_power: Power) -> Registries {
+        make_registries_with_definition(
+            carrier,
+            max_output_power,
+            ComminutionProcessDefinition::new(
+                PROCESS,
+                FORM_ORE,
+                FORM_CRUSHED,
+                crushed_particle_size(),
+                ComminutionOperatingProfile::new(
+                    MASS_FLOW_CAPABILITY,
+                    MAX_BATCH_MASS_CAPABILITY,
+                    EnergyCarrier::Mechanical,
+                    SPECIFIC_WORK,
+                    1_000,
+                ),
+            ),
+        )
+    }
+
+    fn make_registries_with_definition(
+        carrier: EnergyCarrier,
+        max_output_power: Power,
+        comminution_definition: ComminutionProcessDefinition,
+    ) -> Registries {
         let capabilities = match CapabilityProfile::new([
             (
                 MASS_FLOW_CAPABILITY,
@@ -830,10 +911,24 @@ mod tests {
                 max_output_power,
             ),
             process,
+            comminution_definition,
+        )
+    }
+
+    fn make_registries() -> Registries {
+        make_registries_with_energy(EnergyCarrier::Mechanical, Power::from_microwatts(100))
+    }
+
+    #[test]
+    fn comminution_can_reduce_particle_size_without_relabeling_the_material_form() {
+        let registries = make_registries_with_definition(
+            EnergyCarrier::Mechanical,
+            Power::from_microwatts(100),
             ComminutionProcessDefinition::new(
                 PROCESS,
-                FORM_ORE,
                 FORM_CRUSHED,
+                FORM_CRUSHED,
+                ground_particle_size(),
                 ComminutionOperatingProfile::new(
                     MASS_FLOW_CAPABILITY,
                     MAX_BATCH_MASS_CAPABILITY,
@@ -842,11 +937,61 @@ mod tests {
                     1_000,
                 ),
             ),
-        )
-    }
+        );
+        let mut state = AppState::new(WorldSeed::new(0x9700_0006));
+        let source = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+            Ok(source) => source,
+            Err(error) => panic!("grinding source fixture failed: {error}"),
+        };
+        let input = match MaterialLotSpec::with_composition_and_particle_size(
+            CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+            Mass::from_milligrams(20),
+            INPUT_TEMPERATURE,
+            mixed_ore_composition(),
+            crushed_particle_size(),
+        ) {
+            Ok(input) => input,
+            Err(error) => panic!("grinding input specification failed: {error}"),
+        };
+        let lot = match deposit_lot_spec_for_test(&registries, &mut state, source, input) {
+            Ok(lot) => lot,
+            Err(error) => panic!("grinding input fixture failed: {error}"),
+        };
+        let equipment = match add_equipment(&registries, &mut state, CRUSHER, Condition::PRISTINE) {
+            Ok(equipment) => equipment,
+            Err(error) => panic!("grinding equipment fixture failed: {error}"),
+        };
+        let energy_store = match add_energy_store_with_initial_for_test(
+            &registries,
+            &mut state,
+            ENERGY_STORE_DEFINITION,
+            Energy::from_nanojoules(1_000_000),
+        ) {
+            Ok(energy_store) => energy_store,
+            Err(error) => panic!("grinding energy fixture failed: {error}"),
+        };
 
-    fn make_registries() -> Registries {
-        make_registries_with_energy(EnergyCarrier::Mechanical, Power::from_microwatts(100))
+        let resolved = match resolve_comminution_process(
+            &registries,
+            &state,
+            ComminutionRequest::new(
+                PROCESS,
+                source,
+                &[MaterialLotSelection::new(lot, Mass::from_milligrams(20))],
+                equipment,
+                energy_store,
+            ),
+        ) {
+            Ok(resolved) => resolved,
+            Err(error) => panic!("same-form grinding resolution failed: {error}"),
+        };
+        let outputs = resolved.process_resolution().outputs();
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(
+            outputs[0].commodity(),
+            CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED)
+        );
+        assert_eq!(outputs[0].particle_size(), Some(ground_particle_size()));
     }
 
     struct Fixture {
@@ -975,6 +1120,7 @@ mod tests {
         assert_eq!(output.mass(), Mass::from_milligrams(20));
         assert_eq!(output.temperature(), INPUT_TEMPERATURE);
         assert_eq!(output.composition(), &mixed_ore_composition());
+        assert_eq!(output.particle_size(), Some(crushed_particle_size()));
         assert_eq!(
             resolved.process_resolution().equipment_condition_after(),
             Some(condition(496_000))
@@ -1015,6 +1161,7 @@ mod tests {
             CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED)
         );
         assert_eq!(output.composition(), &mixed_ore_composition());
+        assert_eq!(output.particle_size(), Some(crushed_particle_size()));
         assert_eq!(matter_total(&fixture.state), initial_matter);
         assert_eq!(
             fixture
@@ -1223,6 +1370,29 @@ mod tests {
         };
         assert_eq!(
             tampered.into_state(&fixture.registries),
+            Err(LoadError::InvalidState(
+                StateValidationError::ComminutionJob(
+                    ComminutionJobValidationError::OutputMismatch { job }
+                )
+            ))
+        );
+
+        let mut tampered_particle_size =
+            match serde_json::to_value(SaveEnvelope::new(&fixture.registries, &fixture.state)) {
+                Ok(encoded) => encoded,
+                Err(error) => {
+                    panic!("comminution particle-size tamper serialization failed: {error}")
+                }
+            };
+        tampered_particle_size["state"]["production"]["jobs"][job.value().to_string()]["outputs"]
+            [0]["particle_size"]["maximum_diameter"] = serde_json::json!(5_000_u64);
+        let tampered_particle_size: LoadedSaveEnvelope =
+            match serde_json::from_value(tampered_particle_size) {
+                Ok(decoded) => decoded,
+                Err(error) => panic!("comminution particle-size tamper failed decode: {error}"),
+            };
+        assert_eq!(
+            tampered_particle_size.into_state(&fixture.registries),
             Err(LoadError::InvalidState(
                 StateValidationError::ComminutionJob(
                     ComminutionJobValidationError::OutputMismatch { job }

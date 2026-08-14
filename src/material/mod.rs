@@ -10,7 +10,7 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::core::quantity::{Mass, Temperature};
+use crate::core::quantity::{Length, Mass, Temperature};
 
 /// Normalization scale used by runtime material compositions.
 pub const COMPOSITION_PARTS_PER_MILLION: u32 = 1_000_000;
@@ -32,6 +32,98 @@ impl MaterialId {
         self.0
     }
 }
+
+/// Compact authoritative diameter envelope for particulate material.
+///
+/// This intentionally records only guaranteed bounds, not a size distribution. Systems such as
+/// screening must not infer a mass fraction from this range when the bounds straddle a screen cut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+pub struct ParticleSizeRange {
+    minimum_diameter: Length,
+    maximum_diameter: Length,
+}
+
+impl ParticleSizeRange {
+    pub fn new(
+        minimum_diameter: Length,
+        maximum_diameter: Length,
+    ) -> Result<Self, ParticleSizeRangeError> {
+        if minimum_diameter.is_zero() {
+            return Err(ParticleSizeRangeError::ZeroMinimumDiameter);
+        }
+        if maximum_diameter.is_zero() {
+            return Err(ParticleSizeRangeError::ZeroMaximumDiameter);
+        }
+        if minimum_diameter > maximum_diameter {
+            return Err(ParticleSizeRangeError::MinimumExceedsMaximum {
+                minimum: minimum_diameter,
+                maximum: maximum_diameter,
+            });
+        }
+        Ok(Self {
+            minimum_diameter,
+            maximum_diameter,
+        })
+    }
+
+    #[must_use]
+    pub const fn minimum_diameter(self) -> Length {
+        self.minimum_diameter
+    }
+
+    #[must_use]
+    pub const fn maximum_diameter(self) -> Length {
+        self.maximum_diameter
+    }
+}
+
+#[derive(Deserialize)]
+struct ParticleSizeRangeRepresentation {
+    minimum_diameter: Length,
+    maximum_diameter: Length,
+}
+
+impl<'de> Deserialize<'de> for ParticleSizeRange {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let representation = ParticleSizeRangeRepresentation::deserialize(deserializer)?;
+        Self::new(
+            representation.minimum_diameter,
+            representation.maximum_diameter,
+        )
+        .map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ParticleSizeRangeError {
+    ZeroMinimumDiameter,
+    ZeroMaximumDiameter,
+    MinimumExceedsMaximum { minimum: Length, maximum: Length },
+}
+
+impl Display for ParticleSizeRangeError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ZeroMinimumDiameter => {
+                formatter.write_str("particle-size minimum diameter must be nonzero")
+            }
+            Self::ZeroMaximumDiameter => {
+                formatter.write_str("particle-size maximum diameter must be nonzero")
+            }
+            Self::MinimumExceedsMaximum { minimum, maximum } => write!(
+                formatter,
+                "particle-size minimum {} um exceeds maximum {} um",
+                minimum.micrometers(),
+                maximum.micrometers()
+            ),
+        }
+    }
+}
+
+impl Error for ParticleSizeRangeError {}
 
 /// One constituent fraction in a normalized runtime material composition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -494,6 +586,7 @@ pub struct MaterialLotSpec {
     mass: Mass,
     temperature: Temperature,
     composition: MaterialComposition,
+    particle_size: Option<ParticleSizeRange>,
 }
 
 impl MaterialLotSpec {
@@ -508,6 +601,7 @@ impl MaterialLotSpec {
             mass,
             temperature,
             composition: MaterialComposition::pure(commodity.material()),
+            particle_size: None,
         }
     }
 
@@ -534,7 +628,21 @@ impl MaterialLotSpec {
             mass,
             temperature,
             composition,
+            particle_size: None,
         })
+    }
+
+    /// Builds a lot specification with explicit composition and particulate diameter bounds.
+    pub fn with_composition_and_particle_size(
+        commodity: CommodityKey,
+        mass: Mass,
+        temperature: Temperature,
+        composition: MaterialComposition,
+        particle_size: ParticleSizeRange,
+    ) -> Result<Self, MaterialLotSpecError> {
+        let mut specification = Self::with_composition(commodity, mass, temperature, composition)?;
+        specification.particle_size = Some(particle_size);
+        Ok(specification)
     }
 
     #[must_use]
@@ -555,6 +663,11 @@ impl MaterialLotSpec {
     #[must_use]
     pub const fn composition(&self) -> &MaterialComposition {
         &self.composition
+    }
+
+    #[must_use]
+    pub const fn particle_size(&self) -> Option<ParticleSizeRange> {
+        self.particle_size
     }
 }
 
@@ -832,6 +945,69 @@ pub enum MaterialPhase {
     Liquid,
 }
 
+/// Authored contract for whether lots of one physical form carry particulate size state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ParticleSizeStatePolicy {
+    Untracked,
+    Required,
+}
+
+/// Failure because a lot's particle-size state disagrees with its authored physical form.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ParticleSizeStateError {
+    UnknownForm { form: FormId },
+    MissingRequired { form: FormId },
+    UnexpectedForUntrackedForm { form: FormId },
+}
+
+impl Display for ParticleSizeStateError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownForm { form } => {
+                write!(
+                    formatter,
+                    "particle-size state references unknown form {}",
+                    form.value()
+                )
+            }
+            Self::MissingRequired { form } => write!(
+                formatter,
+                "material form {} requires particle-size state",
+                form.value()
+            ),
+            Self::UnexpectedForUntrackedForm { form } => write!(
+                formatter,
+                "material form {} does not track particle-size state",
+                form.value()
+            ),
+        }
+    }
+}
+
+impl Error for ParticleSizeStateError {}
+
+/// Validates the runtime particulate state carried by one material/form key.
+pub fn validate_material_particle_size_state(
+    materials: &MaterialRegistry,
+    commodity: CommodityKey,
+    particle_size: Option<ParticleSizeRange>,
+) -> Result<(), ParticleSizeStateError> {
+    let form_id = commodity.form();
+    let Some(form) = materials.get_form(form_id) else {
+        return Err(ParticleSizeStateError::UnknownForm { form: form_id });
+    };
+    match (form.particle_size_policy(), particle_size) {
+        (ParticleSizeStatePolicy::Required, None) => {
+            Err(ParticleSizeStateError::MissingRequired { form: form_id })
+        }
+        (ParticleSizeStatePolicy::Untracked, Some(_)) => {
+            Err(ParticleSizeStateError::UnexpectedForUntrackedForm { form: form_id })
+        }
+        (ParticleSizeStatePolicy::Required, Some(_))
+        | (ParticleSizeStatePolicy::Untracked, None) => Ok(()),
+    }
+}
+
 /// Failure because a material form, composition, and temperature do not describe a supported phase state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MaterialPhaseStateError {
@@ -989,19 +1165,35 @@ pub struct FormDefinition {
     id: FormId,
     name: String,
     phase: MaterialPhase,
+    particle_size_policy: ParticleSizeStatePolicy,
 }
 
 impl FormDefinition {
     /// Builds an immutable material-form definition for registry insertion.
     #[must_use]
-    pub fn new(id: FormId, name: impl Into<String>, phase: MaterialPhase) -> Self {
+    pub fn new(
+        id: FormId,
+        name: impl Into<String>,
+        phase: MaterialPhase,
+        particle_size_policy: ParticleSizeStatePolicy,
+    ) -> Self {
         assert!(id.value() != 0, "material form id must be nonzero");
+        assert!(
+            phase == MaterialPhase::Solid
+                || particle_size_policy == ParticleSizeStatePolicy::Untracked,
+            "liquid forms cannot require discrete particle-size state"
+        );
         let name = name.into();
         assert!(
             !name.trim().is_empty(),
             "material form name must not be empty"
         );
-        Self { id, name, phase }
+        Self {
+            id,
+            name,
+            phase,
+            particle_size_policy,
+        }
     }
 
     #[must_use]
@@ -1017,6 +1209,11 @@ impl FormDefinition {
     #[must_use]
     pub const fn phase(&self) -> MaterialPhase {
         self.phase
+    }
+
+    #[must_use]
+    pub const fn particle_size_policy(&self) -> ParticleSizeStatePolicy {
+        self.particle_size_policy
     }
 }
 
@@ -1103,8 +1300,52 @@ mod tests {
 
         assert!(!registry.has_commodity(CommodityKey::new(material, form)));
 
-        registry.register_form(FormDefinition::new(form, "test form", MaterialPhase::Solid));
+        registry.register_form(FormDefinition::new(
+            form,
+            "test form",
+            MaterialPhase::Solid,
+            ParticleSizeStatePolicy::Untracked,
+        ));
         assert!(registry.has_commodity(CommodityKey::new(material, form)));
+    }
+
+    #[test]
+    fn particle_size_range_and_form_policy_reject_ambiguous_runtime_state() {
+        assert_eq!(
+            ParticleSizeRange::new(Length::ZERO, Length::from_micrometers(10)),
+            Err(ParticleSizeRangeError::ZeroMinimumDiameter)
+        );
+        assert_eq!(
+            ParticleSizeRange::new(Length::from_micrometers(11), Length::from_micrometers(10),),
+            Err(ParticleSizeRangeError::MinimumExceedsMaximum {
+                minimum: Length::from_micrometers(11),
+                maximum: Length::from_micrometers(10),
+            })
+        );
+
+        let mut registry = MaterialRegistry::new();
+        let form = FormId::new(9);
+        registry.register_form(FormDefinition::new(
+            form,
+            "particulate fixture",
+            MaterialPhase::Solid,
+            ParticleSizeStatePolicy::Required,
+        ));
+        let commodity = CommodityKey::new(MaterialId::new(1), form);
+        assert_eq!(
+            validate_material_particle_size_state(&registry, commodity, None),
+            Err(ParticleSizeStateError::MissingRequired { form })
+        );
+        let range =
+            match ParticleSizeRange::new(Length::from_micrometers(1), Length::from_micrometers(10))
+            {
+                Ok(range) => range,
+                Err(error) => panic!("particle-size fixture failed: {error}"),
+            };
+        assert_eq!(
+            validate_material_particle_size_state(&registry, commodity, Some(range)),
+            Ok(())
+        );
     }
 
     #[test]

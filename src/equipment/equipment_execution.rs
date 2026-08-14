@@ -6,7 +6,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
-use crate::maintenance::{Condition, ConditionPlan, decide_repair, decide_wear};
+use crate::maintenance::{Condition, ConditionPlan, decide_wear};
 use crate::production::ProductionJobId;
 use crate::registry::Registries;
 
@@ -180,17 +180,6 @@ pub fn decide_equipment_wear(
 ) -> Result<EquipmentConditionPlan, EquipmentConditionPlanError> {
     decide_condition_change(state, equipment, |condition| {
         decide_wear(condition, wear_ppm)
-    })
-}
-
-/// Decides deterministic repair without mutating the equipment record.
-pub fn decide_equipment_repair(
-    state: &AppState,
-    equipment: EquipmentId,
-    repair_ppm: u32,
-) -> Result<EquipmentConditionPlan, EquipmentConditionPlanError> {
-    decide_condition_change(state, equipment, |condition| {
-        decide_repair(condition, repair_ppm)
     })
 }
 
@@ -423,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn creation_and_condition_changes_use_canonical_revisioned_state() {
+    fn creation_and_wear_use_canonical_revisioned_state() {
         let registries = make_registries();
         let mut state = AppState::new(WorldSeed::new(17));
         let equipment = match add_equipment(
@@ -445,20 +434,12 @@ mod tests {
             panic!("wear commit failed: {error}");
         }
 
-        let repair = match decide_equipment_repair(&state, equipment, 100_000) {
-            Ok(plan) => plan,
-            Err(error) => panic!("repair planning failed: {error}"),
-        };
-        if let Err(error) = apply_equipment_condition_plan(&mut state, repair) {
-            panic!("repair commit failed: {error}");
-        }
-
         let record = match state.equipment().get_equipment(equipment) {
             Some(record) => record,
             None => panic!("equipment disappeared after condition changes"),
         };
-        assert_eq!(record.condition(), condition(800_000));
-        assert_eq!(state.equipment().revision(), 3);
+        assert_eq!(record.condition(), condition(700_000));
+        assert_eq!(state.equipment().revision(), 2);
     }
 
     #[test]

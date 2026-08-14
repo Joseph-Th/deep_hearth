@@ -180,16 +180,6 @@ pub(crate) fn calculate_condition_after_active_ticks(
     decide_wear(before, bounded_wear).after()
 }
 
-#[must_use]
-pub fn decide_repair(current: Condition, repair_ppm: u32) -> ConditionPlan {
-    let repaired = current.0.saturating_add(repair_ppm);
-    let after = Condition(std::cmp::min(repaired, CONDITION_PARTS_PER_MILLION));
-    ConditionPlan {
-        before: current,
-        after,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,12 +192,8 @@ mod tests {
     }
 
     #[test]
-    fn wear_and_repair_clamp_at_physical_bounds_without_destroying_records() {
+    fn wear_clamps_at_failed_bound_without_destroying_records() {
         assert_eq!(decide_wear(condition(10), 20).after(), Condition::FAILED);
-        assert_eq!(
-            decide_repair(condition(999_990), 20).after(),
-            Condition::PRISTINE
-        );
     }
 
     #[test]

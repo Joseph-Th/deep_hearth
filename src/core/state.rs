@@ -12,7 +12,10 @@ use crate::equipment::{
     EquipmentDefinitionId, EquipmentId, EquipmentState, EquipmentValidationError,
     validate_loaded_equipment,
 };
-use crate::fluid::{FluidState, FluidValidationError, validate_loaded_fluid};
+use crate::fluid::{
+    FluidState, FluidStoreId, FluidStructuralLoadError, FluidValidationError,
+    validate_existing_fluid_load, validate_loaded_fluid,
+};
 use crate::geology::{
     GeologicalKnowledgeState, GeologicalKnowledgeValidationError, GeologyState,
     GeologyValidationError, validate_loaded_geological_knowledge, validate_loaded_geology,
@@ -22,7 +25,9 @@ use crate::inventory::{
     validate_loaded_inventory, validate_stockpile_storage,
 };
 use crate::maintenance::Condition;
-use crate::material::{CommodityKey, MaterialId};
+use crate::material::{
+    CommodityKey, MaterialId, ParticleSizeStateError, validate_material_particle_size_state,
+};
 use crate::ore_processing::{ComminutionJobValidationError, validate_loaded_comminution_job};
 use crate::production::{
     ProcessId, ProductionJobId, ProductionState, ProductionValidationError, sum_lot_spec_mass,
@@ -369,6 +374,15 @@ pub enum StateValidationError {
         stored: Force,
         expected: Force,
     },
+    UnknownFluidSupport {
+        store: FluidStoreId,
+        element: StructuralElementId,
+    },
+    FluidSupportedByPlannedElement {
+        store: FluidStoreId,
+        element: StructuralElementId,
+    },
+    FluidStructuralLoad(FluidStructuralLoadError),
     ComminutionJob(ComminutionJobValidationError),
     ThermalJob(ThermalJobValidationError),
     JobAlreadyDue {
@@ -398,6 +412,10 @@ pub enum StateValidationError {
     UnknownJobConsumedCompositionMaterial {
         job: ProductionJobId,
         material: MaterialId,
+    },
+    InvalidJobConsumedParticleSizeState {
+        job: ProductionJobId,
+        error: ParticleSizeStateError,
     },
     JobOutputMassOverflow {
         job: ProductionJobId,
@@ -490,6 +508,11 @@ impl Display for StateValidationError {
                 "production job {} consumed-input composition references unknown material {}",
                 job.value(),
                 material.value()
+            ),
+            Self::InvalidJobConsumedParticleSizeState { job, error } => write!(
+                formatter,
+                "production job {} consumed invalid particle-size state: {error}",
+                job.value()
             ),
             Self::UnknownJobProcess { job, process } => write!(
                 formatter,
@@ -671,6 +694,24 @@ impl Display for StateValidationError {
                 stored.millinewtons(),
                 expected.millinewtons()
             ),
+            Self::UnknownFluidSupport { store, element } => write!(
+                formatter,
+                "fluid store {} references missing structural support element {}",
+                store.value(),
+                element.value()
+            ),
+            Self::FluidSupportedByPlannedElement { store, element } => write!(
+                formatter,
+                "fluid store {} is assigned to planned structural element {} before activation",
+                store.value(),
+                element.value()
+            ),
+            Self::FluidStructuralLoad(error) => {
+                write!(
+                    formatter,
+                    "invalid supported-fluid structural load: {error}"
+                )
+            }
             Self::UnknownStockpileSupport { stockpile, element } => write!(
                 formatter,
                 "stockpile {} references missing structural support element {}",
@@ -774,6 +815,8 @@ impl Error for StateValidationError {
             Self::ComminutionJob(error) => Some(error),
             Self::ThermalJob(error) => Some(error),
             Self::JobOutputStorage { error, .. } => Some(error),
+            Self::InvalidJobConsumedParticleSizeState { error, .. } => Some(error),
+            Self::FluidStructuralLoad(error) => Some(error),
             Self::RandomWorldSeedMismatch { .. }
             | Self::UnresolvedStructuralDamage { .. }
             | Self::UnknownStoredCommodity { .. }
@@ -807,6 +850,8 @@ impl Error for StateValidationError {
             | Self::StoredMatterMassOverflow { .. }
             | Self::StoredMatterWeightOverflow { .. }
             | Self::StoredMatterStructuralLoadMismatch { .. }
+            | Self::UnknownFluidSupport { .. }
+            | Self::FluidSupportedByPlannedElement { .. }
             | Self::JobAlreadyDue { .. }
             | Self::ReservedMassOverflow { .. }
             | Self::UnknownJobOutputCommodity { .. }
@@ -946,6 +991,28 @@ pub fn validate_loaded_state(
                 expected,
             });
         }
+    }
+
+    for store in state.fluid.stores() {
+        let Some(element) = store.supported_by() else {
+            continue;
+        };
+        let Some(structural) = state.structures.get_element(element) else {
+            return Err(StateValidationError::UnknownFluidSupport {
+                store: store.id(),
+                element,
+            });
+        };
+        if structural.lifecycle() == StructuralLifecycle::Planned {
+            return Err(StateValidationError::FluidSupportedByPlannedElement {
+                store: store.id(),
+                element,
+            });
+        }
+    }
+    for structural in state.structures.elements() {
+        validate_existing_fluid_load(registries, state, structural.id())
+            .map_err(StateValidationError::FluidStructuralLoad)?;
     }
 
     let structural_analysis = analyze_structure(
@@ -1185,6 +1252,17 @@ pub fn validate_loaded_state(
                     );
                 }
             }
+            validate_material_particle_size_state(
+                registries.materials(),
+                commodity,
+                trace.profile().particle_size(),
+            )
+            .map_err(|error| {
+                StateValidationError::InvalidJobConsumedParticleSizeState {
+                    job: job.id(),
+                    error,
+                }
+            })?;
         }
 
         for output in job.outputs() {
@@ -1213,6 +1291,7 @@ pub fn validate_loaded_state(
                 output.commodity(),
                 output.composition(),
                 output.temperature(),
+                output.particle_size(),
             )
             .map_err(|error| StateValidationError::JobOutputStorage {
                 job: job.id(),
@@ -1268,6 +1347,10 @@ pub fn validate_invariants(_registries: &Registries, state: &AppState) {
     debug_assert!(
         state.fluid.has_valid_records(),
         "Runtime Invariant 6 (Lifecycle Validity): fluid stores must have nonzero capacity and canonical nonempty contents"
+    );
+    debug_assert!(
+        state.fluid.has_valid_support_index(),
+        "Runtime Invariant 12 (Derived Data Consistency): fluid support reverse index must match store support ownership"
     );
     debug_assert!(
         state.equipment.has_valid_id_cursor(),

@@ -20,7 +20,9 @@ use crate::inventory::{
     ExplicitConsumptionSelectionError, MaterialLotSelection,
     validate_explicit_consumption_selection,
 };
-use crate::material::{FormId, MaterialComposition, MaterialId, MaterialPhase};
+use crate::material::{
+    FormId, MaterialComposition, MaterialId, MaterialPhase, ParticleSizeStatePolicy,
+};
 use crate::registry::Registries;
 
 use super::StructuralCommitError;
@@ -211,6 +213,10 @@ pub enum StructuralConstructionError {
         form: FormId,
         phase: MaterialPhase,
     },
+    UnsupportedParticulateForm {
+        element: StructuralElementId,
+        form: FormId,
+    },
     Geometry {
         element: StructuralElementId,
         error: StructuralGeometryError,
@@ -246,6 +252,12 @@ impl Display for StructuralConstructionError {
             Self::UnknownMaterialForm { element, form } => write!(
                 formatter,
                 "structural element {} construction batch references unknown material form {}",
+                element.value(),
+                form.value()
+            ),
+            Self::UnsupportedParticulateForm { element, form } => write!(
+                formatter,
+                "structural element {} cannot directly embody particulate form {}; consolidation physics must produce a load-bearing bulk form first",
                 element.value(),
                 form.value()
             ),
@@ -332,6 +344,7 @@ impl Error for StructuralConstructionError {
             | Self::UnsupportedComposition { .. }
             | Self::UnknownMaterialForm { .. }
             | Self::UnsupportedPhase { .. }
+            | Self::UnsupportedParticulateForm { .. }
             | Self::MaterialQuantityMismatch { .. }
             | Self::InventorySelectionStale { .. }
             | Self::InventoryRevisionExhausted
@@ -506,6 +519,12 @@ pub fn validate_structural_construction(
                 phase: form.phase(),
             });
         }
+        if form.particle_size_policy() == ParticleSizeStatePolicy::Required {
+            return Err(StructuralConstructionError::UnsupportedParticulateForm {
+                element,
+                form: form_id,
+            });
+        }
         let found = trace.profile().commodity().material();
         if found != record.material() {
             return Err(StructuralConstructionError::MaterialMismatch {
@@ -649,7 +668,7 @@ pub(crate) fn materialize_structural_element_for_test(
 mod tests {
     use super::*;
     use crate::content::{
-        FORM_LOG, FORM_MOLTEN, MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_WOOD,
+        FORM_CRUSHED, FORM_LOG, FORM_MOLTEN, MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_WOOD,
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
     };
     use crate::core::quantity::{Area, Energy, Force, Length};
@@ -658,9 +677,12 @@ mod tests {
     use crate::energy::{ExplicitEnergyAccountingError, calculate_explicit_energy_accounting};
     use crate::inventory::{
         StockpileStorageProfile, add_stockpile, add_stockpile_with_storage_profile,
-        deposit_composed_lot_for_test, deposit_lot_for_test, validate_mount_stockpile,
+        deposit_composed_lot_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
+        validate_mount_stockpile,
     };
-    use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
+    use crate::material::{
+        CommodityKey, CompositionComponent, MaterialComposition, MaterialLotSpec, ParticleSizeRange,
+    };
     use crate::matter::calculate_matter_accounting;
     use crate::simulation::advance_tick;
     use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -749,6 +771,80 @@ mod tests {
                 element,
                 form: FORM_MOLTEN,
                 phase: MaterialPhase::Liquid,
+            })
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn particulate_material_requires_consolidation_before_structural_embodiment() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5C00_0013));
+        let bounds = match VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(1, 1, 1)) {
+            Ok(bounds) => bounds,
+            Err(error) => panic!("particulate construction bounds failed: {error}"),
+        };
+        let element = match add_structural_element(
+            &registries,
+            &mut state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_COPPER,
+            crate::structural::make_test_structural_geometry(
+                bounds,
+                Length::from_micrometers(1),
+                Area::from_square_millimeters(1_000),
+            ),
+            true,
+        ) {
+            Ok(element) => element,
+            Err(error) => panic!("particulate construction member failed: {error}"),
+        };
+        let requirement =
+            match resolve_structural_material_requirement(&registries, &state, element) {
+                Ok(requirement) => requirement,
+                Err(error) => panic!("particulate construction requirement failed: {error}"),
+            };
+        let source = match add_stockpile(&mut state, requirement.required_mass()) {
+            Ok(source) => source,
+            Err(error) => panic!("particulate construction source failed: {error}"),
+        };
+        let particle_size = match ParticleSizeRange::new(
+            Length::from_micrometers(1),
+            Length::from_micrometers(20_000),
+        ) {
+            Ok(range) => range,
+            Err(error) => panic!("particulate construction size range failed: {error}"),
+        };
+        let specification = match MaterialLotSpec::with_composition_and_particle_size(
+            CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+            requirement.required_mass(),
+            crate::core::quantity::Temperature::from_millikelvin(300_000),
+            MaterialComposition::pure(MATERIAL_COPPER),
+            particle_size,
+        ) {
+            Ok(specification) => specification,
+            Err(error) => panic!("particulate construction specification failed: {error}"),
+        };
+        let lot = match deposit_lot_spec_for_test(&registries, &mut state, source, specification) {
+            Ok(lot) => lot,
+            Err(error) => panic!("particulate construction lot failed: {error}"),
+        };
+        let resolution = match bind_structural_construction_selection(
+            &state,
+            element,
+            source,
+            &[MaterialLotSelection::new(lot, requirement.required_mass())],
+        ) {
+            Ok(resolution) => resolution,
+            Err(error) => panic!("particulate construction binding failed: {error:?}"),
+        };
+        let before = state.clone();
+
+        assert_eq!(
+            validate_structural_construction(&registries, &state, &resolution),
+            Err(StructuralConstructionError::UnsupportedParticulateForm {
+                element,
+                form: FORM_CRUSHED,
             })
         );
         assert_eq!(state, before);

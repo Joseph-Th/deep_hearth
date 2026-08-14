@@ -7,6 +7,7 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Force;
 use crate::core::state::AppState;
 use crate::equipment::EquipmentId;
+use crate::fluid::FluidStoreId;
 use crate::inventory::StockpileId;
 use crate::material::MaterialId;
 use crate::registry::Registries;
@@ -172,6 +173,10 @@ pub enum StructuralMutationError {
         element: StructuralElementId,
         stockpile: StockpileId,
     },
+    ElementSupportsFluidStore {
+        element: StructuralElementId,
+        store: FluidStoreId,
+    },
     ElementOwnsMatter {
         element: StructuralElementId,
         mass: crate::core::quantity::Mass,
@@ -242,6 +247,12 @@ impl Display for StructuralMutationError {
                 "structural element {} cannot be removed while it supports stockpile {}",
                 element.value(),
                 stockpile.value()
+            ),
+            Self::ElementSupportsFluidStore { element, store } => write!(
+                formatter,
+                "structural element {} cannot be removed while it supports fluid store {}",
+                element.value(),
+                store.value()
             ),
             Self::ElementOwnsMatter { element, mass } => write!(
                 formatter,
@@ -323,6 +334,7 @@ impl Error for StructuralMutationError {
             | Self::ElementFailed { .. }
             | Self::ElementSupportsEquipment { .. }
             | Self::ElementSupportsStockpile { .. }
+            | Self::ElementSupportsFluidStore { .. }
             | Self::ElementOwnsMatter { .. }
             | Self::LoadOwnedBySubsystem { .. }
             | Self::LoadTargetsRemovedElement { .. }
@@ -429,6 +441,11 @@ pub(crate) struct ValidatedStructuralLoadBatch {
 }
 
 impl ValidatedStructuralLoadBatch {
+    #[must_use]
+    pub(crate) const fn analysis(&self) -> &StructuralAnalysis {
+        &self.analysis
+    }
+
     pub(crate) fn commit(
         self,
         state: &mut AppState,
@@ -943,6 +960,9 @@ pub fn validate_remove_structural_element(
     if let Some(stockpile) = state.inventory().supported_stockpiles(element).next() {
         return Err(StructuralMutationError::ElementSupportsStockpile { element, stockpile });
     }
+    if let Some(store) = state.fluid().supported_stores(element).next() {
+        return Err(StructuralMutationError::ElementSupportsFluidStore { element, store });
+    }
     if !record.embodied_mass().is_zero() {
         return Err(StructuralMutationError::ElementOwnsMatter {
             element,
@@ -976,6 +996,9 @@ pub(crate) fn validate_remove_structural_element_with_owned_loads(
     }
     if let Some(stockpile) = state.inventory().supported_stockpiles(element).next() {
         return Err(StructuralMutationError::ElementSupportsStockpile { element, stockpile });
+    }
+    if let Some(store) = state.fluid().supported_stores(element).next() {
+        return Err(StructuralMutationError::ElementSupportsFluidStore { element, store });
     }
 
     let mut changed = BTreeMap::new();
@@ -1080,6 +1103,7 @@ pub fn validate_set_structural_load(
     if matches!(
         kind,
         StructuralLoadKind::Equipment
+            | StructuralLoadKind::Fluid
             | StructuralLoadKind::SelfWeight
             | StructuralLoadKind::StoredMatter
     ) {
