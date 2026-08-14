@@ -5,6 +5,8 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::core::time::TickSpan;
+
 pub const CONDITION_PARTS_PER_MILLION: u32 = 1_000_000;
 
 /// Normalized remaining physical condition where zero is fully degraded and one million is pristine.
@@ -163,6 +165,21 @@ pub fn decide_wear(current: Condition, wear_ppm: u32) -> ConditionPlan {
     }
 }
 
+/// Calculates condition after an operation remains active for an exact authoritative tick span.
+///
+/// Per-tick wear is accumulated in `u128`, then clamped once at the normalized condition range so
+/// long operations cannot overflow or behave differently when split into smaller arithmetic steps.
+#[must_use]
+pub(crate) fn calculate_condition_after_active_ticks(
+    wear_ppm_per_active_tick: u32,
+    before: Condition,
+    duration: TickSpan,
+) -> Condition {
+    let total_wear = u128::from(wear_ppm_per_active_tick) * u128::from(duration.value());
+    let bounded_wear = std::cmp::min(total_wear, u128::from(CONDITION_PARTS_PER_MILLION)) as u32;
+    decide_wear(before, bounded_wear).after()
+}
+
 #[must_use]
 pub fn decide_repair(current: Condition, repair_ppm: u32) -> ConditionPlan {
     let repaired = current.0.saturating_add(repair_ppm);
@@ -190,6 +207,18 @@ mod tests {
         assert_eq!(
             decide_repair(condition(999_990), 20).after(),
             Condition::PRISTINE
+        );
+    }
+
+    #[test]
+    fn active_tick_wear_clamps_without_duration_overflow() {
+        assert_eq!(
+            calculate_condition_after_active_ticks(
+                CONDITION_PARTS_PER_MILLION,
+                Condition::PRISTINE,
+                TickSpan::new(u64::MAX),
+            ),
+            Condition::FAILED
         );
     }
 

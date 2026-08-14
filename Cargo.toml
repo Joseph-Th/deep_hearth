@@ -20,6 +20,7 @@ expect_used = "deny"
 todo = "deny"
 unimplemented = "deny"
 unwrap_used = "deny"
+wildcard_enum_match_arm = "deny"
 
 [profile.release]
 overflow-checks = true

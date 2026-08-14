@@ -200,53 +200,50 @@ enum StructuralSupportOverlay {
 }
 
 /// One-operation read overlay used to analyze a proposed mutation without cloning structural state.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct StructuralAnalysisOverlay {
     support: Option<StructuralSupportOverlay>,
     lifecycle: Option<(StructuralElementId, StructuralLifecycle)>,
-    load: Option<(StructuralElementId, StructuralLoadKind, Force)>,
+    loads: BTreeMap<(StructuralElementId, StructuralLoadKind), Force>,
     removed: Option<StructuralElementId>,
 }
 
 impl StructuralAnalysisOverlay {
     #[must_use]
-    pub(crate) const fn link_support(
-        element: StructuralElementId,
-        support: StructuralElementId,
-    ) -> Self {
+    pub(crate) fn link_support(element: StructuralElementId, support: StructuralElementId) -> Self {
         Self {
             support: Some(StructuralSupportOverlay::Link { element, support }),
             lifecycle: None,
-            load: None,
+            loads: BTreeMap::new(),
             removed: None,
         }
     }
 
     #[must_use]
-    pub(crate) const fn remove_support(
+    pub(crate) fn remove_support(
         element: StructuralElementId,
         support: StructuralElementId,
     ) -> Self {
         Self {
             support: Some(StructuralSupportOverlay::Remove { element, support }),
             lifecycle: None,
-            load: None,
+            loads: BTreeMap::new(),
             removed: None,
         }
     }
 
     #[must_use]
-    pub(crate) const fn activate(element: StructuralElementId) -> Self {
+    pub(crate) fn activate(element: StructuralElementId) -> Self {
         Self {
             support: None,
             lifecycle: Some((element, StructuralLifecycle::Active)),
-            load: None,
+            loads: BTreeMap::new(),
             removed: None,
         }
     }
 
     #[must_use]
-    pub(crate) const fn set_load(
+    pub(crate) fn set_load(
         element: StructuralElementId,
         kind: StructuralLoadKind,
         load: Force,
@@ -254,26 +251,51 @@ impl StructuralAnalysisOverlay {
         Self {
             support: None,
             lifecycle: None,
-            load: Some((element, kind, load)),
+            loads: BTreeMap::from([((element, kind), load)]),
             removed: None,
         }
     }
 
     #[must_use]
-    pub(crate) const fn remove_element(element: StructuralElementId) -> Self {
+    pub(crate) fn set_loads(
+        loads: BTreeMap<(StructuralElementId, StructuralLoadKind), Force>,
+    ) -> Self {
         Self {
             support: None,
             lifecycle: None,
-            load: None,
+            loads,
+            removed: None,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn remove_element(element: StructuralElementId) -> Self {
+        Self {
+            support: None,
+            lifecycle: None,
+            loads: BTreeMap::new(),
             removed: Some(element),
         }
     }
 
-    fn is_removed(self, element: StructuralElementId) -> bool {
+    #[must_use]
+    pub(crate) fn remove_element_with_loads(
+        element: StructuralElementId,
+        loads: BTreeMap<(StructuralElementId, StructuralLoadKind), Force>,
+    ) -> Self {
+        Self {
+            support: None,
+            lifecycle: None,
+            loads,
+            removed: Some(element),
+        }
+    }
+
+    fn is_removed(&self, element: StructuralElementId) -> bool {
         self.removed == Some(element)
     }
 
-    fn lifecycle(self, record: &StructuralElementRecord) -> StructuralLifecycle {
+    fn lifecycle(&self, record: &StructuralElementRecord) -> StructuralLifecycle {
         match self.lifecycle {
             Some((element, lifecycle)) if element == record.id => lifecycle,
             Some(_) | None => record.lifecycle,
@@ -281,7 +303,7 @@ impl StructuralAnalysisOverlay {
     }
 
     fn supports<'state>(
-        self,
+        &self,
         state: &'state StructureState,
         element: StructuralElementId,
     ) -> Cow<'state, BTreeSet<StructuralElementId>> {
@@ -328,7 +350,7 @@ impl StructuralAnalysisOverlay {
     }
 
     fn dependents<'state>(
-        self,
+        &self,
         state: &'state StructureState,
         support: StructuralElementId,
     ) -> Cow<'state, BTreeSet<StructuralElementId>> {
@@ -374,26 +396,20 @@ impl StructuralAnalysisOverlay {
         Cow::Owned(owned)
     }
 
-    fn sum_applied_load(self, record: &StructuralElementRecord) -> Option<Force> {
+    fn sum_applied_load(&self, record: &StructuralElementRecord) -> Option<Force> {
         let mut total = Force::ZERO;
-        let mut override_seen = false;
         for (kind, stored) in &record.loads {
-            let load = match self.load {
-                Some((element, override_kind, override_load))
-                    if element == record.id && override_kind == *kind =>
-                {
-                    override_seen = true;
-                    override_load
-                }
-                Some(_) | None => *stored,
-            };
+            let load = self
+                .loads
+                .get(&(record.id, *kind))
+                .copied()
+                .unwrap_or(*stored);
             total = total.checked_add(load)?;
         }
-        if let Some((element, _, load)) = self.load
-            && element == record.id
-            && !override_seen
-        {
-            total = total.checked_add(load)?;
+        for ((element, kind), load) in &self.loads {
+            if *element == record.id && !record.loads.contains_key(kind) {
+                total = total.checked_add(*load)?;
+            }
         }
         Some(total)
     }
@@ -401,7 +417,7 @@ impl StructuralAnalysisOverlay {
 
 fn collect_connected_scope(
     state: &StructureState,
-    overlay: StructuralAnalysisOverlay,
+    overlay: &StructuralAnalysisOverlay,
     seeds: &BTreeSet<StructuralElementId>,
 ) -> BTreeSet<StructuralElementId> {
     let mut pending = seeds.clone();
@@ -422,7 +438,7 @@ fn collect_connected_scope(
 fn active_ids(
     state: &StructureState,
     failed: &BTreeSet<StructuralElementId>,
-    overlay: StructuralAnalysisOverlay,
+    overlay: &StructuralAnalysisOverlay,
     scope: &BTreeSet<StructuralElementId>,
 ) -> BTreeSet<StructuralElementId> {
     scope
@@ -441,7 +457,7 @@ fn active_ids(
 fn project_loads(
     state: &StructureState,
     failed: &BTreeSet<StructuralElementId>,
-    overlay: StructuralAnalysisOverlay,
+    overlay: &StructuralAnalysisOverlay,
     scope: &BTreeSet<StructuralElementId>,
 ) -> Result<LoadProjection, StructuralAnalysisError> {
     let active = active_ids(state, failed, overlay, scope);
@@ -517,7 +533,7 @@ fn project_loads(
 fn expand_unsupported_failures(
     state: &StructureState,
     failed: &BTreeSet<StructuralElementId>,
-    overlay: StructuralAnalysisOverlay,
+    overlay: &StructuralAnalysisOverlay,
     scope: &BTreeSet<StructuralElementId>,
 ) -> BTreeSet<StructuralElementId> {
     let active = active_ids(state, failed, overlay, scope);
@@ -640,13 +656,8 @@ pub fn analyze_structure(
     state: &StructureState,
 ) -> Result<StructuralAnalysis, StructuralAnalysisError> {
     let scope: BTreeSet<_> = state.elements.keys().copied().collect();
-    analyze_structure_scoped(
-        profiles,
-        materials,
-        state,
-        StructuralAnalysisOverlay::default(),
-        &scope,
-    )
+    let overlay = StructuralAnalysisOverlay::default();
+    analyze_structure_scoped(profiles, materials, state, &overlay, &scope)
 }
 
 pub(crate) fn analyze_structure_components_with_overlay(
@@ -656,15 +667,15 @@ pub(crate) fn analyze_structure_components_with_overlay(
     overlay: StructuralAnalysisOverlay,
     seeds: &BTreeSet<StructuralElementId>,
 ) -> Result<StructuralAnalysis, StructuralAnalysisError> {
-    let scope = collect_connected_scope(state, overlay, seeds);
-    analyze_structure_scoped(profiles, materials, state, overlay, &scope)
+    let scope = collect_connected_scope(state, &overlay, seeds);
+    analyze_structure_scoped(profiles, materials, state, &overlay, &scope)
 }
 
 fn analyze_structure_scoped(
     profiles: &StructuralRegistry,
     materials: &MaterialRegistry,
     state: &StructureState,
-    overlay: StructuralAnalysisOverlay,
+    overlay: &StructuralAnalysisOverlay,
     scope: &BTreeSet<StructuralElementId>,
 ) -> Result<StructuralAnalysis, StructuralAnalysisError> {
     for element in scope {
@@ -693,7 +704,7 @@ fn analyze_structure_scoped(
             state
                 .elements
                 .get(element)
-                .is_some_and(|record| !overlay.is_removed(record.id) && record.cracked)
+                .is_some_and(|record| !overlay.is_removed(record.id) && record.is_cracked)
         })
         .collect();
     let initially_failed = failed.clone();

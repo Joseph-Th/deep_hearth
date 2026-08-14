@@ -5,11 +5,13 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::state::{AppState, apply_clock_advance, validate_invariants};
 use crate::core::time::SimulationTick;
+use crate::inventory::{StockpileId, StockpileStructuralLoadError};
 use crate::production::{
     CompletionCommitError, CompletionPlanError, ProcessCompletion, apply_completion_plan,
     decide_due_completions,
 };
 use crate::registry::Registries;
+use crate::structural::StructuralCommitError;
 
 /// Successful result of one canonical simulation tick.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,7 +35,7 @@ impl TickOutcome {
 }
 
 /// Failure returned before any mutation when a simulation tick cannot advance.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TickError {
     /// The authoritative tick counter has reached its representable maximum.
     ClockExhausted { current: SimulationTick },
@@ -47,6 +49,10 @@ pub enum TickError {
     EquipmentRevisionExhausted,
     /// Energy storage cannot advance its persisted revision for completed energy release.
     EnergyRevisionExhausted,
+    /// Due output mass cannot be aggregated in its destination stockpile.
+    DestinationMassOverflow { stockpile: StockpileId },
+    /// Due output weight cannot be resolved against its structural support.
+    StructuralLoad(StockpileStructuralLoadError),
     /// Inventory changed after completion planning and before commit.
     StaleInventoryRevision { expected: u64, actual: u64 },
     /// Production changed after completion planning and before commit.
@@ -55,6 +61,10 @@ pub enum TickError {
     StaleEquipmentRevision { expected: u64, actual: u64 },
     /// Energy storage changed after a released-energy completion was planned and before commit.
     StaleEnergyRevision { expected: u64, actual: u64 },
+    /// Structure changed after a stored-matter load completion was planned and before commit.
+    StaleStructureRevision { expected: u64, actual: u64 },
+    /// A validated stored-matter structural consequence could not commit.
+    Structure(StructuralCommitError),
 }
 
 impl Display for TickError {
@@ -82,6 +92,17 @@ impl Display for TickError {
             Self::EnergyRevisionExhausted => {
                 formatter.write_str("energy revision space is exhausted")
             }
+            Self::DestinationMassOverflow { stockpile } => write!(
+                formatter,
+                "due production output mass overflows stockpile {}",
+                stockpile.value()
+            ),
+            Self::StructuralLoad(error) => {
+                write!(
+                    formatter,
+                    "due production stored-matter load failed: {error}"
+                )
+            }
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
                 "tick completion plan expected inventory revision {expected} but current revision is {actual}"
@@ -98,11 +119,40 @@ impl Display for TickError {
                 formatter,
                 "tick completion plan expected energy revision {expected} but current revision is {actual}"
             ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "tick completion plan expected structural revision {expected} but current revision is {actual}"
+            ),
+            Self::Structure(error) => {
+                write!(
+                    formatter,
+                    "tick stored-matter structural commit failed: {error}"
+                )
+            }
         }
     }
 }
 
-impl Error for TickError {}
+impl Error for TickError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::StructuralLoad(error) => Some(error),
+            Self::Structure(error) => Some(error),
+            Self::ClockExhausted { .. }
+            | Self::MaterialLotIdExhausted
+            | Self::InventoryRevisionExhausted
+            | Self::ProductionRevisionExhausted
+            | Self::EquipmentRevisionExhausted
+            | Self::EnergyRevisionExhausted
+            | Self::DestinationMassOverflow { .. }
+            | Self::StaleInventoryRevision { .. }
+            | Self::StaleProductionRevision { .. }
+            | Self::StaleEquipmentRevision { .. }
+            | Self::StaleEnergyRevision { .. }
+            | Self::StaleStructureRevision { .. } => None,
+        }
+    }
+}
 
 /// Advances the full authoritative simulation by exactly one base tick.
 ///
@@ -121,12 +171,16 @@ pub fn advance_tick(
 
     // Decide against the pre-tick snapshot; due jobs are indexed by exact authoritative tick.
     let completion_plan =
-        decide_due_completions(state, next_tick).map_err(|error| match error {
+        decide_due_completions(registries, state, next_tick).map_err(|error| match error {
             CompletionPlanError::MaterialLotIds => TickError::MaterialLotIdExhausted,
             CompletionPlanError::InventoryRevision => TickError::InventoryRevisionExhausted,
             CompletionPlanError::ProductionRevision => TickError::ProductionRevisionExhausted,
             CompletionPlanError::EquipmentRevision => TickError::EquipmentRevisionExhausted,
             CompletionPlanError::EnergyRevision => TickError::EnergyRevisionExhausted,
+            CompletionPlanError::DestinationMassOverflow { stockpile } => {
+                TickError::DestinationMassOverflow { stockpile }
+            }
+            CompletionPlanError::StructuralLoad(error) => TickError::StructuralLoad(error),
         })?;
     let production_completions =
         apply_completion_plan(state, completion_plan).map_err(|error| match error {
@@ -142,6 +196,10 @@ pub fn advance_tick(
             CompletionCommitError::EnergyRevisionConflict { expected, actual } => {
                 TickError::StaleEnergyRevision { expected, actual }
             }
+            CompletionCommitError::StructureRevisionConflict { expected, actual } => {
+                TickError::StaleStructureRevision { expected, actual }
+            }
+            CompletionCommitError::Structure(error) => TickError::Structure(error),
         })?;
     apply_clock_advance(state, next_tick);
 

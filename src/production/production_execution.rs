@@ -1,5 +1,6 @@
 //! Production validation, scheduling, completion planning, and atomic application for the sibling state owner.
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -18,13 +19,15 @@ use crate::equipment::{
 };
 use crate::inventory::{
     ConsumptionReservation, MaterialLotId, ReservationCommitError, ReservationError, StockpileId,
-    StockpileStorageError, apply_consumption_reservation, apply_lot_cursor_and_revision,
+    StockpileStorageError, StockpileStoredMassChange, StockpileStructuralLoadError,
+    ValidatedStockpileStructuralLoad, apply_consumption_reservation, apply_lot_cursor_and_revision,
     apply_reserved_deposit, next_material_lot_id, validate_consumption_reservation_from_selection,
-    validate_stockpile_storage,
+    validate_stockpile_storage, validate_stockpile_stored_mass_changes,
+    validate_stockpile_support_for_new_inbound,
 };
 use crate::material::{FormId, MaterialId, MaterialLotSpec};
 use crate::registry::Registries;
-use crate::structural::{StructuralElementId, StructuralLifecycle};
+use crate::structural::{StructuralCommitError, StructuralElementId, StructuralLifecycle};
 
 use super::definitions::ProcessId;
 use super::resolution::{ProcessResolution, sum_lot_spec_mass};
@@ -127,6 +130,7 @@ pub enum StartProcessError {
         job: ProductionJobId,
         completes_at: SimulationTick,
     },
+    StructuralLoad(StockpileStructuralLoadError),
 }
 
 impl Display for StartProcessError {
@@ -318,6 +322,12 @@ impl Display for StartProcessError {
                 job.value(),
                 completes_at.value()
             ),
+            Self::StructuralLoad(error) => {
+                write!(
+                    formatter,
+                    "process start cannot update stored-matter load: {error}"
+                )
+            }
         }
     }
 }
@@ -326,6 +336,7 @@ impl Error for StartProcessError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::DestinationStorage(error) => Some(error),
+            Self::StructuralLoad(error) => Some(error),
             Self::UnknownProcess { .. }
             | Self::UnknownOutputMaterial { .. }
             | Self::UnknownOutputForm { .. }
@@ -361,13 +372,14 @@ impl Error for StartProcessError {
 }
 
 /// Failure when a validated process start is committed after either owning state has changed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartProcessCommitError {
     StaleProductionRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     StaleEnergyRevision { expected: u64, actual: u64 },
     StaleEquipmentRevision { expected: u64, actual: u64 },
     StaleStructureRevision { expected: u64, actual: u64 },
+    Structure(StructuralCommitError),
 }
 
 impl Display for StartProcessCommitError {
@@ -393,11 +405,26 @@ impl Display for StartProcessCommitError {
                 formatter,
                 "validated process start expected structural revision {expected} but current revision is {actual}"
             ),
+            Self::Structure(error) => write!(
+                formatter,
+                "validated process start could not commit stored-matter structural load: {error}"
+            ),
         }
     }
 }
 
-impl Error for StartProcessCommitError {}
+impl Error for StartProcessCommitError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Structure(error) => Some(error),
+            Self::StaleProductionRevision { .. }
+            | Self::StaleInventoryRevision { .. }
+            | Self::StaleEnergyRevision { .. }
+            | Self::StaleEquipmentRevision { .. }
+            | Self::StaleStructureRevision { .. } => None,
+        }
+    }
+}
 
 /// Consumed proof that process references, matter, capacity, time, and job identity are valid.
 #[must_use]
@@ -411,6 +438,8 @@ pub struct ValidatedStartProcess {
     energy_reservation: Option<EnergyConsumptionReservation>,
     energy_ingress_reservation: Option<EnergyIngressReservation>,
     equipment_use: Option<ValidatedEquipmentUse>,
+    destination_structure_revision: Option<u64>,
+    structural_load: Option<ValidatedStockpileStructuralLoad>,
 }
 
 impl ValidatedStartProcess {
@@ -425,6 +454,8 @@ impl ValidatedStartProcess {
             energy_reservation,
             energy_ingress_reservation,
             equipment_use,
+            destination_structure_revision,
+            structural_load,
         } = self;
         let job_id = job.id();
 
@@ -481,6 +512,30 @@ impl ValidatedStartProcess {
                     });
                 }
             }
+        }
+        if let Some(expected_structure_revision) = destination_structure_revision {
+            let actual_structure_revision = state.structures().revision();
+            if actual_structure_revision != expected_structure_revision {
+                return Err(StartProcessCommitError::StaleStructureRevision {
+                    expected: expected_structure_revision,
+                    actual: actual_structure_revision,
+                });
+            }
+        }
+        if let Some(structural_load) = &structural_load {
+            let expected_structure_revision = structural_load.expected_revision();
+            let actual_structure_revision = state.structures().revision();
+            if actual_structure_revision != expected_structure_revision {
+                return Err(StartProcessCommitError::StaleStructureRevision {
+                    expected: expected_structure_revision,
+                    actual: actual_structure_revision,
+                });
+            }
+        }
+        if let Some(structural_load) = structural_load {
+            structural_load
+                .commit(state)
+                .map_err(StartProcessCommitError::Structure)?;
         }
         apply_consumption_reservation(state.inventory_state_mut(), reservation).map_err(
             |error| match error {
@@ -572,6 +627,9 @@ pub fn validate_start_process(
         )
         .map_err(StartProcessError::DestinationStorage)?;
     }
+    let destination_structure_revision =
+        validate_stockpile_support_for_new_inbound(state, destination)
+            .map_err(StartProcessError::StructuralLoad)?;
 
     let current = state.tick();
     let Some(completes_at) = current.checked_add_span(resolution.duration()) else {
@@ -723,6 +781,20 @@ pub fn validate_start_process(
         }
         None => None,
     };
+    let source_record = state
+        .inventory()
+        .get_stockpile(source)
+        .ok_or(StartProcessError::UnknownStockpile { stockpile: source })?;
+    let source_after = source_record
+        .stored_mass()
+        .checked_sub(input_mass)
+        .ok_or(StartProcessError::MassOverflow { stockpile: source })?;
+    let structural_load = validate_stockpile_stored_mass_changes(
+        registries,
+        state,
+        [StockpileStoredMassChange::new(source, source_after)],
+    )
+    .map_err(StartProcessError::StructuralLoad)?;
 
     Ok(ValidatedStartProcess {
         job: ProductionJobRecord {
@@ -747,6 +819,8 @@ pub fn validate_start_process(
         energy_reservation,
         energy_ingress_reservation,
         equipment_use,
+        destination_structure_revision,
+        structural_load,
     })
 }
 
@@ -855,6 +929,7 @@ pub(crate) struct CompletionPlan {
     entries: Vec<CompletionPlanEntry>,
     equipment_outcomes: Vec<EquipmentOperationConditionOutcome>,
     released_energy_outcomes: Vec<ReleasedEnergyTrace>,
+    structural_load: Option<ValidatedStockpileStructuralLoad>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -867,25 +942,30 @@ struct CompletionPlanEntry {
     reserved_mass: Mass,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CompletionPlanError {
     MaterialLotIds,
     InventoryRevision,
     ProductionRevision,
     EquipmentRevision,
     EnergyRevision,
+    DestinationMassOverflow { stockpile: StockpileId },
+    StructuralLoad(StockpileStructuralLoadError),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CompletionCommitError {
     InventoryStale { expected: u64, actual: u64 },
     ProductionRevisionChanged { expected: u64, actual: u64 },
     EquipmentRevisionConflict { expected: u64, actual: u64 },
     EnergyRevisionConflict { expected: u64, actual: u64 },
+    StructureRevisionConflict { expected: u64, actual: u64 },
+    Structure(StructuralCommitError),
 }
 
 /// Decides all jobs due on one exact tick without mutating production, inventory, or equipment.
 pub(crate) fn decide_due_completions(
+    registries: &Registries,
     state: &AppState,
     tick: SimulationTick,
 ) -> Result<CompletionPlan, CompletionPlanError> {
@@ -908,6 +988,7 @@ pub(crate) fn decide_due_completions(
             entries: Vec::new(),
             equipment_outcomes: Vec::new(),
             released_energy_outcomes: Vec::new(),
+            structural_load: None,
         });
     };
 
@@ -921,6 +1002,7 @@ pub(crate) fn decide_due_completions(
     let mut entries = Vec::with_capacity(due_ids.len());
     let mut equipment_outcomes = Vec::new();
     let mut released_energy_outcomes = Vec::new();
+    let mut deposited_mass_by_destination = BTreeMap::<StockpileId, Mass>::new();
     for job_id in due_ids {
         let job = match state.production_state().jobs.get(job_id) {
             Some(job) => job,
@@ -951,6 +1033,16 @@ pub(crate) fn decide_due_completions(
             output_lot_ids,
             reserved_mass,
         });
+        let current = deposited_mass_by_destination
+            .get(&job.destination())
+            .copied()
+            .unwrap_or(Mass::ZERO);
+        let next = current.checked_add(reserved_mass).ok_or(
+            CompletionPlanError::DestinationMassOverflow {
+                stockpile: job.destination(),
+            },
+        )?;
+        deposited_mass_by_destination.insert(job.destination(), next);
         if let (Some(provider), Some(after)) =
             (job.equipment_provider(), job.equipment_condition_after())
             && after != provider.condition()
@@ -998,6 +1090,29 @@ pub(crate) fn decide_due_completions(
             .checked_add(1)
             .ok_or(CompletionPlanError::EnergyRevision)?
     };
+    let mut mass_changes = Vec::with_capacity(deposited_mass_by_destination.len());
+    for (destination, deposited) in deposited_mass_by_destination {
+        let record = state
+            .inventory()
+            .get_stockpile(destination)
+            .unwrap_or_else(|| {
+                panic!(
+                    "due production destination {} disappeared",
+                    destination.value()
+                )
+            });
+        let stored_after = record.stored_mass().checked_add(deposited).ok_or(
+            CompletionPlanError::DestinationMassOverflow {
+                stockpile: destination,
+            },
+        )?;
+        mass_changes.push(StockpileStoredMassChange::new_committed_inbound(
+            destination,
+            stored_after,
+        ));
+    }
+    let structural_load = validate_stockpile_stored_mass_changes(registries, state, mass_changes)
+        .map_err(CompletionPlanError::StructuralLoad)?;
 
     Ok(CompletionPlan {
         tick,
@@ -1013,6 +1128,7 @@ pub(crate) fn decide_due_completions(
         entries,
         equipment_outcomes,
         released_energy_outcomes,
+        structural_load,
     })
 }
 
@@ -1035,6 +1151,7 @@ pub(crate) fn apply_completion_plan(
         entries,
         equipment_outcomes,
         released_energy_outcomes,
+        structural_load,
     } = plan;
 
     let actual_inventory_revision = state.inventory_state().revision();
@@ -1068,6 +1185,21 @@ pub(crate) fn apply_completion_plan(
             expected: expected_production_revision,
             actual: actual_production_revision,
         });
+    }
+    if let Some(structural_load) = &structural_load {
+        let expected_structure_revision = structural_load.expected_revision();
+        let actual_structure_revision = state.structures().revision();
+        if actual_structure_revision != expected_structure_revision {
+            return Err(CompletionCommitError::StructureRevisionConflict {
+                expected: expected_structure_revision,
+                actual: actual_structure_revision,
+            });
+        }
+    }
+    if let Some(structural_load) = structural_load {
+        structural_load
+            .commit(state)
+            .map_err(CompletionCommitError::Structure)?;
     }
 
     let mut completions = Vec::with_capacity(entries.len());

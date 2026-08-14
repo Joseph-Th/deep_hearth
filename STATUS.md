@@ -25,6 +25,20 @@
   persisted material-containment envelope for accepted solid/liquid phases and maximum temperature.
   The convenience stockpile allocator remains solid-only. Every deposit, ingress, transfer, future
   production output, and exhaustive save audit rechecks phase and temperature compatibility.
+- Persistent stockpile-to-structure support assignment with a synchronized support-to-stockpile
+  reverse index. Inventory exclusively owns `StoredMatter` structural load: all supported stockpile
+  masses are aggregated per member before gravity conversion, generic callers cannot write the load
+  channel, stored matter can crack/collapse supports through normal analysis, and support removal is
+  blocked until stockpiles are unmounted. Failed debris can be unloaded without repairing it.
+  Newly initiated inbound matter requires an active support, while output already durably reserved by
+  an in-flight production job may still complete after a later support collapse. Production occupancy
+  prevents moving source/destination stockpiles while a job is active.
+- Every canonical stockpile-mass mutation keeps stored-matter load synchronized in the same validated
+  transaction: manual transfer, production start/completion, geological extraction, structural
+  construction/deconstruction, and test/bootstrap ingress. Multi-stockpile transfers and simultaneous
+  production completions use one deterministic batch structural plan, so results do not depend on an
+  intermediate mutation order. Supported operations bind the structural revision even when aggregate
+  force rounds to the same value. Reserved inbound capacity remains space and does not create weight.
 - Persistent finite geological deposits with chunk-independent bounds, exact initial/remaining mass,
   material form, normalized composition, temperature, generation provenance, depletion lifecycle,
   generated IDs, owner revision, and exhaustive registry/state validation. Authoritative deposit
@@ -35,8 +49,8 @@
 - Revision-bound geological extraction transfers exact conserved matter into inventory through a
   crate-private validated ingress primitive. Extraction binds both geology and inventory revisions,
   rejects stale or over-capacity commits without partial mutation, preserves physical material
-  profiles, and exposes no public constructor for mining authorization before tool/labor/geometry
-  physics exist.
+  profiles, updates a supported destination's derived stored-matter load atomically, and exposes no
+  public constructor for mining authorization before tool/labor/geometry physics exist.
 - Persistent geological knowledge is separate from authoritative deposit truth. Prospecting
   observations own stable IDs, spatial footprints, evidence provenance, bounded material-abundance
   estimates, observation time, a revision, and a synchronized material-to-observation index.
@@ -102,21 +116,23 @@
   authorizing construction. The conserved construction transaction rejects both under- and
   over-materialization, accepts only pure solid matter matching the member's authored material, and
   derives a structure-owned `SelfWeight` load from the committed mass and registry gravity.
-  Persisted structural embodiment independently rechecks its solid phase. `SelfWeight` cannot be
-  written through the generic load API.
+  A supported source stockpile is unloaded in the same cross-owner transaction. Persisted structural
+  embodiment independently rechecks its solid phase. `SelfWeight` cannot be written through the
+  generic load API.
 - Materialized structural members cannot be deleted through generic removal. Revision-bound
   deconstruction validates destination capacity and both owners, removes the member only as part of a
   conserved recovery transaction, and returns every embodied trace to inventory without losing its
-  physical history. Failed debris uses the same recovery boundary.
+  physical history. If recovery targets a supported stockpile, removal and final stored-matter load
+  are analyzed together under one structural revision. Failed debris uses the same recovery boundary.
 - Deterministic axial structural analysis using authored material compressive/tensile strength and
   exact strength-times-area force capacity, stable equal-load sharing, readable stable/strained/
   cracking/failed stages, cracked-capacity degradation, and synchronous overload/support-loss
   cascades.
 - Source-separated structural load contributions for self-weight, permanent load, stored matter,
   equipment, fluid, snow, wind, and occupancy so independent owning systems cannot overwrite each
-  other's causes. Self-weight and equipment load channels are exclusively owned by their source
-  integrations; direct generic writes are rejected. Zero writable contributions are removed
-  canonically.
+  other's causes. Self-weight, stored-matter, and equipment load channels are exclusively owned by
+  their source integrations; direct generic writes are rejected. Zero writable contributions are
+  removed canonically.
 - Revision-bound structural transactions for support linking/removal, activation, load updates, and
   unmaterialized-plan removal. Consequences are resolved before commit; materialized removal is
   routed through conserved deconstruction and rebuilt structures never reuse identity.
@@ -146,6 +162,20 @@
   as loss instead of creating power. Shaft/belt network topology remains deliberately unchosen.
 - Exact inverse power-duration calculation returns the minimum whole tick span that can supply an
   energy requirement, including authoritative-range overflow handling without floating point.
+- Typed material mass throughput in milligrams per second plus exact whole-tick duration resolution
+  provides a shared rate foundation for crushers, grinders, conveyors, and later continuous material
+  equipment without abusing batch mass or floating-point rates.
+- Selected-batch comminution is the first ore-processing resolver. It accepts exact solid lot slices,
+  requires authored equipment throughput, maximum batch mass, energy carrier, and exact
+  mass-specific work, then reserves that work from a finite energy source. It changes only the
+  authored physical form and preserves each distinct input profile's mass, normalized composition,
+  and temperature. Runtime equipment condition can derate throughput, while finite source output
+  power can independently bottleneck the operation; authoritative duration uses the slower limit and
+  therefore drives active-tick wear. Persisted jobs recompute output form, exact work energy, carrier,
+  power-limited duration, and wear from their committed traces. No built-in crushing process is
+  registered until concrete crusher and finite power-source content exists.
+- Ore-processing and thermal resolver registries have exclusive process ownership, preventing one
+  process ID from silently acquiring two incompatible physical interpretations.
 - Selected-batch sensible heating derives required energy from each selected lot's actual mass,
   composition, temperature, and authored phase; validates equipment heating power, maximum
   temperature, maximum batch mass, finite energy carrier, and discharge power; derives duration
@@ -173,14 +203,15 @@
   structural construction/deconstruction, sensible heating, pure-material melting, and casting all
   preserve the modeled total across ownership changes.
 - Canonical top-level tick pipeline with cheap per-tick invariants and exhaustive save/load audits.
-- Persistence semantic schema 22 and authored registry compatibility schema 10 with metadata
+- Persistence semantic schema 23 and authored registry compatibility schema 11 with metadata
   preflight, registry-aware state validation, structural topology/damage audits, energy/equipment
   ownership validation, directional energy-source/sink reservation and capacity audits, embodied
   structural matter/self-weight/phase audits, geometry/density-to-mass recomputation,
-  equipment-support/load agreement audits, exclusive-resource double-book detection,
-  operation-specific sensible-heating/melting/casting recomputation including post-operation
-  condition outcomes and released heat, stable in-flight conservation snapshots, and deterministic
-  continuation tests.
+  equipment-support/load agreement audits, stockpile-support/index/stored-matter-load agreement
+  audits, exclusive-resource double-book detection,
+  operation-specific sensible-heating/melting/casting and comminution recomputation including
+  post-operation condition outcomes and released heat, stable in-flight conservation snapshots, and
+  deterministic continuation tests.
 - Chunk-independent 64-bit voxel coordinates and validated spatial bounds without choosing chunk
   dimensions or streaming policy.
 - Deterministic 10,000-tick mixed-system soak with repeated production/transfers, varying structural
@@ -210,8 +241,19 @@
   into solid ingots while accumulating the exact released latent heat in a bounded thermal sink, with
   periodic exhaustive audits, matter and modeled-energy conservation, and replay-identical final
   state.
-- Current debug validation suite: 258 passing tests with `cargo check` silent and
+- Deterministic 300-operation comminution soak repeatedly crushes one finite mixed-composition ore
+  batch through condition-sensitive equipment, with periodic exhaustive persistence audits, exact
+  matter conservation, exact finite work-energy depletion, bounded lot coalescing, accumulated
+  equipment wear, and replay-identical final state.
+- Deterministic 1,000-transfer supported-stockpile soak repeatedly moves one finite material lot
+  between separately supported stockpiles, updating both derived structural loads on every transfer,
+  with periodic exhaustive audits and replay-identical final state.
+- Current debug validation suite: 285 passing tests with `cargo check` silent and
   Clippy warnings denied.
+- Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
+  as variants evolve instead of relying on review to catch silent fallback behavior.
+- Boolean fields, parameters, and predicate APIs follow the project `is_`/`has_`/`can_` vocabulary;
+  persisted JSON field names remain stable where internal Rust names were corrected.
 - Release profile keeps integer overflow checks enabled.
 
 ## Deliberately Deferred
@@ -241,14 +283,16 @@
 - Structural bending, shear, torsion, buckling, connection/joint capacity, terrain-support inference,
   and automatic voxel-geometry load paths. Current structural profiles model explicit axial load
   paths rather than pretending those unsolved mechanics are already represented.
-- Automatic bindings from inventory mass, fluid contents, snow/weather, wind, and terrain pressure
-  into their source-separated structural load contributions. Structural self-weight and mounted
-  equipment weight now write their own aggregate contributions canonically; the other owners remain
-  deferred.
-- Additional production resolvers beyond sensible heating and pure-material melt/cast, including ore
-  preparation and chemical smelting/reduction, alloying, forging/working, machining/tool wear,
-  labor/skill, chemistry, and environmental constraints. Gameplay processes remain unregistered until
-  their corresponding physical gates exist.
+- Automatic bindings from fluid contents, snow/weather, wind, and terrain pressure into their
+  source-separated structural load contributions. Structural self-weight, supported inventory matter,
+  and mounted equipment weight now write their own aggregate contributions canonically; the remaining
+  owners remain deferred.
+- Additional production resolvers beyond sensible heating, pure-material melt/cast, and conservative
+  comminution, including screening, grinding distinctions that require particle-size state, washing,
+  gravity/flotation separation, explicit recovery/tailings physics, chemical smelting/reduction,
+  alloying, forging/working, machining/tool wear, labor/skill, chemistry, and environmental
+  constraints. Gameplay processes remain unregistered until their corresponding physical gates
+  exist.
 - Persistent mechanical-power networks and shaft/belt layout, rotational inertia/flywheels, slip and
   clutch state, steam/boilers, electrical networks, transformers, protection, and distribution
   topology, plus conserved primary energy-generation paths for finite stores. Directional finite

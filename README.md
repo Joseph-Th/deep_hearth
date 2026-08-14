@@ -11,9 +11,10 @@ quantities, composition-aware and phase-aware material lots, temperature/phase-c
 atomic inventory transactions, closed-mass durable production, finite geological matter ownership
 with conservation-bound extraction, persistent prospecting evidence and uncertainty-aware geological
 maps, typed capability requirements, maintenance condition, condition-sensitive equipment,
-conserved structural construction/deconstruction with real self-weight, equipment weight coupled into
-structural failure, directional finite energy stores, finite homogeneous fluid storage, exact
-electrical/flow/rotational scalar mechanics, and physical thermal production for sensible heating,
+conserved structural construction/deconstruction with real self-weight, inventory and equipment weight
+coupled into structural failure, directional finite energy stores, finite homogeneous fluid storage,
+exact electrical/flow/rotational scalar mechanics, selected-batch comminution with finite work energy
+and condition-sensitive throughput, and physical thermal production for sensible heating,
 pure-material melting, and casting with explicit latent heat and finite heat sinks. Versioned
 persistence revalidates cross-owner conservation and operation-specific physics, and deterministic
 soak coverage exercises the major ownership paths. Physical survey/mining authorization, alloy phase

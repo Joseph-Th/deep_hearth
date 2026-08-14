@@ -139,7 +139,8 @@ pub(super) struct StructuralElementConfiguration {
     pub(super) profile: StructuralProfileId,
     pub(super) material: MaterialId,
     pub(super) geometry: StructuralElementGeometry,
-    pub(super) grounded: bool,
+    #[serde(rename = "grounded")]
+    pub(super) is_grounded: bool,
 }
 
 /// Persistent physical and lifecycle state for one structural member.
@@ -151,7 +152,8 @@ pub struct StructuralElementRecord {
     pub(super) embodied_material: Vec<ConsumedMaterialTrace>,
     pub(super) loads: BTreeMap<StructuralLoadKind, Force>,
     pub(super) lifecycle: StructuralLifecycle,
-    pub(super) cracked: bool,
+    #[serde(rename = "cracked")]
+    pub(super) is_cracked: bool,
     pub(super) created_at: SimulationTick,
 }
 
@@ -193,7 +195,7 @@ impl StructuralElementRecord {
 
     #[must_use]
     pub const fn is_grounded(&self) -> bool {
-        self.configuration.grounded
+        self.configuration.is_grounded
     }
 
     /// Exact matter currently owned by this structural member.
@@ -224,7 +226,7 @@ impl StructuralElementRecord {
 
     #[must_use]
     pub const fn is_cracked(&self) -> bool {
-        self.cracked
+        self.is_cracked
     }
 
     #[must_use]
@@ -692,7 +694,39 @@ impl Error for StructureValidationError {
         match self {
             Self::Geometry { error, .. } => Some(error),
             Self::InvalidEmbodiedPhaseState { error, .. } => Some(error),
-            _ => None,
+            Self::ZeroNextElementId
+            | Self::NextElementIdNotAboveAllocated { .. }
+            | Self::ElementKeyMismatch { .. }
+            | Self::UnknownProfile { .. }
+            | Self::UnknownMaterial { .. }
+            | Self::ZeroCrossSection { .. }
+            | Self::ZeroLength { .. }
+            | Self::EmbodiedMassGeometryMismatch { .. }
+            | Self::UnmaterializedLoadBearingElement { .. }
+            | Self::EmbodiedMassMismatch { .. }
+            | Self::EmbodiedMassOverflow { .. }
+            | Self::ZeroEmbodiedTrace { .. }
+            | Self::EmbodiedMaterialMismatch { .. }
+            | Self::UnsupportedEmbodiedComposition { .. }
+            | Self::UnknownEmbodiedCommodity { .. }
+            | Self::UnsupportedEmbodiedPhase { .. }
+            | Self::UnknownEmbodiedCompositionMaterial { .. }
+            | Self::InvalidEmbodiedProvenanceRange { .. }
+            | Self::EmbodiedProvenanceInFuture { .. }
+            | Self::SelfWeightOverflow { .. }
+            | Self::SelfWeightMismatch { .. }
+            | Self::ZeroLoadContribution { .. }
+            | Self::CreatedInFuture { .. }
+            | Self::PlannedElementCracked { .. }
+            | Self::FailedElementNotCracked { .. }
+            | Self::MissingSupportIndex { .. }
+            | Self::OrphanSupportIndex { .. }
+            | Self::UnknownSupportReference { .. }
+            | Self::SelfSupport { .. }
+            | Self::GroundedElementHasSupport { .. }
+            | Self::ReverseIndexMismatch { .. }
+            | Self::SupportCycle { .. }
+            | Self::ActiveElementUnsupported { .. } => None,
         }
     }
 }
@@ -879,10 +913,10 @@ pub(crate) fn validate_loaded_structure(
                 current: current_tick,
             });
         }
-        if record.lifecycle == StructuralLifecycle::Planned && record.cracked {
+        if record.lifecycle == StructuralLifecycle::Planned && record.is_cracked {
             return Err(StructureValidationError::PlannedElementCracked { element: record.id });
         }
-        if record.lifecycle == StructuralLifecycle::Failed && !record.cracked {
+        if record.lifecycle == StructuralLifecycle::Failed && !record.is_cracked {
             return Err(StructureValidationError::FailedElementNotCracked { element: record.id });
         }
         if !state.supports_by_element.contains_key(id)

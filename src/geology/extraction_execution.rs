@@ -7,13 +7,16 @@ use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::{
     MaterialIngressError, MaterialLotId, StockpileId, StockpileStorageError,
-    ValidatedMaterialIngress, apply_material_ingress, validate_material_ingress,
+    StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedMaterialIngress,
+    ValidatedStockpileStructuralLoad, apply_material_ingress, validate_material_ingress,
+    validate_stockpile_stored_mass_changes,
 };
 use crate::material::{
     CompositionError, FormId, MaterialId, MaterialLotSpec, MaterialLotSpecError, MaterialPhase,
     MaterialPhaseStateError, validate_material_phase_state,
 };
 use crate::registry::Registries;
+use crate::structural::StructuralCommitError;
 
 use super::state::{
     GeneratedDepositSpec, GeologicalDepositId, GeologicalDepositLifecycle, GeologicalDepositRecord,
@@ -231,6 +234,7 @@ pub enum GeologicalExtractionError {
     LotIdExhausted,
     InventoryRevisionExhausted,
     GeologyRevisionExhausted,
+    StructuralLoad(StockpileStructuralLoadError),
 }
 
 impl Display for GeologicalExtractionError {
@@ -322,6 +326,10 @@ impl Display for GeologicalExtractionError {
             Self::GeologyRevisionExhausted => {
                 formatter.write_str("geology revision space is exhausted")
             }
+            Self::StructuralLoad(error) => write!(
+                formatter,
+                "geological extraction cannot update stored-matter structural load: {error}"
+            ),
         }
     }
 }
@@ -332,6 +340,7 @@ impl Error for GeologicalExtractionError {
             Self::InvalidOutput(error) => Some(error),
             Self::InvalidDepositComposition { error } => Some(error),
             Self::DestinationStorage(error) => Some(error),
+            Self::StructuralLoad(error) => Some(error),
             Self::UnknownDeposit { .. }
             | Self::DepositDepleted { .. }
             | Self::ZeroMass
@@ -396,10 +405,12 @@ fn map_material_ingress_error(error: MaterialIngressError) -> GeologicalExtracti
 }
 
 /// Failure to commit a revision-bound geological extraction after validation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GeologicalExtractionCommitError {
     StaleGeologyRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
+    StaleStructureRevision { expected: u64, actual: u64 },
+    Structure(StructuralCommitError),
 }
 
 impl Display for GeologicalExtractionCommitError {
@@ -413,11 +424,28 @@ impl Display for GeologicalExtractionCommitError {
                 formatter,
                 "validated extraction expected inventory revision {expected} but current revision is {actual}"
             ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "validated extraction expected structural revision {expected} but current revision is {actual}"
+            ),
+            Self::Structure(error) => write!(
+                formatter,
+                "validated extraction could not commit stored-matter structural load: {error}"
+            ),
         }
     }
 }
 
-impl Error for GeologicalExtractionCommitError {}
+impl Error for GeologicalExtractionCommitError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Structure(error) => Some(error),
+            Self::StaleGeologyRevision { .. }
+            | Self::StaleInventoryRevision { .. }
+            | Self::StaleStructureRevision { .. } => None,
+        }
+    }
+}
 
 /// Successful conserved transfer from one finite deposit into one stockpile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -426,7 +454,7 @@ pub struct GeologicalExtractionOutcome {
     destination: StockpileId,
     lot: MaterialLotId,
     mass: Mass,
-    depleted: bool,
+    is_depleted: bool,
 }
 
 impl GeologicalExtractionOutcome {
@@ -451,8 +479,8 @@ impl GeologicalExtractionOutcome {
     }
 
     #[must_use]
-    pub const fn depleted(self) -> bool {
-        self.depleted
+    pub const fn is_depleted(self) -> bool {
+        self.is_depleted
     }
 }
 
@@ -467,6 +495,7 @@ pub struct ValidatedGeologicalExtraction {
     destination: StockpileId,
     mass: Mass,
     ingress: ValidatedMaterialIngress,
+    structural_load: Option<ValidatedStockpileStructuralLoad>,
 }
 
 impl ValidatedGeologicalExtraction {
@@ -490,6 +519,21 @@ impl ValidatedGeologicalExtraction {
                 actual: actual_inventory_revision,
             });
         }
+        if let Some(structural_load) = &self.structural_load {
+            let expected_structure_revision = structural_load.expected_revision();
+            let actual_structure_revision = state.structures().revision();
+            if actual_structure_revision != expected_structure_revision {
+                return Err(GeologicalExtractionCommitError::StaleStructureRevision {
+                    expected: expected_structure_revision,
+                    actual: actual_structure_revision,
+                });
+            }
+        }
+        if let Some(structural_load) = self.structural_load {
+            structural_load
+                .commit(state)
+                .map_err(GeologicalExtractionCommitError::Structure)?;
+        }
 
         let lot = apply_material_ingress(state.inventory_state_mut(), self.ingress);
         let geology = state.geology_state_mut();
@@ -508,7 +552,7 @@ impl ValidatedGeologicalExtraction {
             destination: self.destination,
             lot,
             mass: self.mass,
-            depleted: self.remaining_after.is_zero(),
+            is_depleted: self.remaining_after.is_zero(),
         })
     }
 }
@@ -559,6 +603,26 @@ pub fn validate_geological_extraction(
         state.tick(),
     )
     .map_err(map_material_ingress_error)?;
+    let destination_record = state.inventory().get_stockpile(destination).ok_or(
+        GeologicalExtractionError::UnknownDestination {
+            stockpile: destination,
+        },
+    )?;
+    let destination_after = destination_record
+        .stored_mass()
+        .checked_add(resolution.mass)
+        .ok_or(GeologicalExtractionError::DestinationMassOverflow {
+            stockpile: destination,
+        })?;
+    let structural_load = validate_stockpile_stored_mass_changes(
+        registries,
+        state,
+        [StockpileStoredMassChange::new(
+            destination,
+            destination_after,
+        )],
+    )
+    .map_err(GeologicalExtractionError::StructuralLoad)?;
     let expected_geology_revision = state.geology().revision();
     let Some(next_geology_revision) = expected_geology_revision.checked_add(1) else {
         return Err(GeologicalExtractionError::GeologyRevisionExhausted);
@@ -572,18 +636,22 @@ pub fn validate_geological_extraction(
         destination,
         mass: resolution.mass,
         ingress,
+        structural_load,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::{FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, build_registries};
-    use crate::core::quantity::{AggregateMass, Energy, Temperature};
+    use crate::content::{
+        FORM_INGOT, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        build_registries,
+    };
+    use crate::core::quantity::{AggregateMass, Area, Energy, Force, Length, Temperature};
     use crate::core::state::validate_loaded_state;
     use crate::core::time::WorldSeed;
     use crate::energy::calculate_explicit_energy_accounting;
-    use crate::inventory::add_stockpile;
+    use crate::inventory::{add_stockpile, validate_mount_stockpile};
     use crate::material::{
         CommodityKey, CompositionComponent, MaterialComposition, MaterialId, MaterialPhase,
     };
@@ -591,6 +659,42 @@ mod tests {
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
     use crate::simulation::advance_tick;
     use crate::spatial::{VoxelBounds, VoxelCoord};
+    use crate::structural::{
+        StructuralElementId, StructuralLoadKind, add_structural_element,
+        materialize_structural_element_for_test, validate_activate_structural_element,
+    };
+
+    fn active_support(registries: &Registries, state: &mut AppState) -> StructuralElementId {
+        let bounds = match VoxelBounds::new(VoxelCoord::new(100, 0, 0), VoxelCoord::new(101, 1, 1))
+        {
+            Ok(bounds) => bounds,
+            Err(error) => panic!("geological support bounds failed: {error}"),
+        };
+        let element = match add_structural_element(
+            registries,
+            state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_COPPER,
+            crate::structural::make_test_structural_geometry(
+                bounds,
+                Length::from_micrometers(1),
+                Area::from_square_millimeters(1_000),
+            ),
+            true,
+        ) {
+            Ok(element) => element,
+            Err(error) => panic!("geological support fixture failed: {error}"),
+        };
+        materialize_structural_element_for_test(registries, state, element, FORM_INGOT);
+        let activation = match validate_activate_structural_element(registries, state, element) {
+            Ok(activation) => activation,
+            Err(error) => panic!("geological support activation failed: {error}"),
+        };
+        if let Err(error) = activation.commit(state) {
+            panic!("geological support activation commit failed: {error}");
+        }
+        element
+    }
 
     fn bounds(x: i64) -> VoxelBounds {
         match VoxelBounds::new(VoxelCoord::new(x, -12, 0), VoxelCoord::new(x + 4, -8, 4)) {
@@ -708,10 +812,18 @@ mod tests {
     fn extraction_moves_exact_profile_and_conserves_modeled_matter_and_energy() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x6E00_0001));
+        let support = active_support(&registries, &mut state);
         let destination = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
             Ok(destination) => destination,
             Err(error) => panic!("geological extraction destination failed: {error}"),
         };
+        let mount = match validate_mount_stockpile(&registries, &state, destination, support) {
+            Ok(mount) => mount,
+            Err(error) => panic!("geological extraction destination mount failed: {error}"),
+        };
+        if let Err(error) = mount.commit(&mut state) {
+            panic!("geological extraction destination mount commit failed: {error}");
+        }
         let deposit = match insert_generated_deposit(&registries, &mut state, deposit_spec(0, 100))
         {
             Ok(deposit) => deposit,
@@ -738,7 +850,7 @@ mod tests {
         };
 
         assert_eq!(outcome.mass(), Mass::from_milligrams(40));
-        assert!(!outcome.depleted());
+        assert!(!outcome.is_depleted());
         let record = match state.geology().get_deposit(deposit) {
             Some(record) => record,
             None => panic!("geological deposit disappeared after extraction"),
@@ -766,6 +878,13 @@ mod tests {
         assert_eq!(matter.geological(), AggregateMass::from_milligrams(60));
         assert_eq!(matter.stored(), AggregateMass::from_milligrams(40));
         assert_eq!(matter.total(), initial_matter);
+        assert_eq!(
+            state
+                .structures()
+                .get_element(support)
+                .map(|record| record.load(StructuralLoadKind::StoredMatter)),
+            Some(Force::from_millinewtons(1))
+        );
         assert_eq!(total_explicit_energy(&registries, &state), initial_energy);
         assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     }
@@ -907,7 +1026,7 @@ mod tests {
                 Ok(outcome) => outcome,
                 Err(error) => panic!("round-trip continuation commit failed: {error}"),
             };
-            assert!(outcome.depleted());
+            assert!(outcome.is_depleted());
         }
         assert_eq!(loaded, state);
         assert_eq!(

@@ -199,6 +199,20 @@ unsigned_quantity!(ElectricCurrent, u64, from_microamperes, microamperes);
 unsigned_quantity!(ElectricalResistance, u64, from_microohms, microohms);
 unsigned_quantity!(Volume, u64, from_microliters, microliters);
 unsigned_quantity!(
+    MassSpecificEnergy,
+    u64,
+    from_nanojoules_per_milligram,
+    nanojoules_per_milligram
+);
+// Mass flow uses milligrams per second so material-throughput systems can derive authoritative
+// duration without introducing floating point or conflating throughput with one-time batch mass.
+unsigned_quantity!(
+    MassFlow,
+    u64,
+    from_milligrams_per_second,
+    milligrams_per_second
+);
+unsigned_quantity!(
     VolumetricFlow,
     u64,
     from_microliters_per_second,
@@ -410,6 +424,14 @@ mod tests {
         assert_eq!(ElectricCurrent::from_microamperes(5).microamperes(), 5);
         assert_eq!(ElectricalResistance::from_microohms(7).microohms(), 7);
         assert_eq!(Volume::from_microliters(9).microliters(), 9);
+        assert_eq!(
+            MassSpecificEnergy::from_nanojoules_per_milligram(17).nanojoules_per_milligram(),
+            17
+        );
+        assert_eq!(
+            MassFlow::from_milligrams_per_second(13).milligrams_per_second(),
+            13
+        );
         assert_eq!(
             VolumetricFlow::from_microliters_per_second(11).microliters_per_second(),
             11

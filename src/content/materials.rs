@@ -17,6 +17,7 @@ pub const FORM_ORE: FormId = FormId::new(3);
 pub const FORM_CONCENTRATE: FormId = FormId::new(4);
 pub const FORM_INGOT: FormId = FormId::new(5);
 pub const FORM_MOLTEN: FormId = FormId::new(6);
+pub const FORM_CRUSHED: FormId = FormId::new(7);
 
 pub(crate) fn build_material_registry() -> MaterialRegistry {
     let mut registry = MaterialRegistry::new();
@@ -38,6 +39,11 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
         FORM_MOLTEN,
         "molten",
         MaterialPhase::Liquid,
+    ));
+    registry.register_form(FormDefinition::new(
+        FORM_CRUSHED,
+        "crushed",
+        MaterialPhase::Solid,
     ));
 
     registry.register_material(MaterialDefinition::new(

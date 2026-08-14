@@ -1,12 +1,18 @@
 //! Fungible matter storage subsystem; `state` owns records and indexes while `transactions` owns canonical mutations.
 
 mod state;
+mod structural_integration;
 mod transactions;
 
 pub use state::{
     ConsumedMaterialTrace, InventoryState, InventoryValidationError, MaterialLotId,
     MaterialLotRecord, StockpileId, StockpileRecord, StockpileStorageProfile,
     StockpileStorageProfileError,
+};
+pub use structural_integration::{
+    StockpileStructuralLoadError, StockpileSupportCommitError, StockpileSupportError,
+    StockpileSupportOutcome, ValidatedStockpileSupportChange, validate_mount_stockpile,
+    validate_unmount_stockpile,
 };
 pub use transactions::{
     AddStockpileError, DepositError, MaterialLotSelection, StockpileStorageError,
@@ -15,6 +21,10 @@ pub use transactions::{
 };
 
 pub(crate) use state::validate_loaded_inventory;
+pub(crate) use structural_integration::{
+    StockpileStoredMassChange, ValidatedStockpileStructuralLoad, resolve_stockpile_stored_loads,
+    validate_stockpile_stored_mass_changes, validate_stockpile_support_for_new_inbound,
+};
 pub(crate) use transactions::{
     ConsumptionReservation, ConsumptionSelection, ConsumptionSelectionError,
     ExplicitConsumptionSelectionError, MaterialBatchIngressError, MaterialEgressError,

@@ -10,6 +10,7 @@ use crate::energy::EnergyRegistry;
 use crate::equipment::EquipmentRegistry;
 use crate::fluid::FluidRegistry;
 use crate::material::MaterialRegistry;
+use crate::ore_processing::OreProcessingRegistry;
 use crate::production::ProductionRegistry;
 use crate::structural::StructuralRegistry;
 use crate::thermal::ThermalRegistry;
@@ -74,6 +75,7 @@ pub struct Registries {
     equipment: EquipmentRegistry,
     structural: StructuralRegistry,
     materials: MaterialRegistry,
+    ore_processing: OreProcessingRegistry,
     thermal: ThermalRegistry,
     production: ProductionRegistry,
 }
@@ -86,6 +88,7 @@ pub(crate) struct RegistryDomains {
     pub(crate) equipment: EquipmentRegistry,
     pub(crate) structural: StructuralRegistry,
     pub(crate) materials: MaterialRegistry,
+    pub(crate) ore_processing: OreProcessingRegistry,
     pub(crate) thermal: ThermalRegistry,
     pub(crate) production: ProductionRegistry,
 }
@@ -101,11 +104,23 @@ impl Registries {
         domains
             .production
             .validate_references(&domains.materials, &domains.capabilities);
+        domains.ore_processing.validate_references(
+            &domains.production,
+            &domains.capabilities,
+            &domains.materials,
+        );
         domains.thermal.validate_references(
             &domains.production,
             &domains.capabilities,
             &domains.materials,
         );
+        for process in domains.ore_processing.process_ids() {
+            assert!(
+                !domains.thermal.has_process(process),
+                "process {} cannot own both ore-processing and thermal resolver semantics",
+                process.value()
+            );
+        }
         Self {
             schema_version,
             core,
@@ -115,6 +130,7 @@ impl Registries {
             equipment: domains.equipment,
             structural: domains.structural,
             materials: domains.materials,
+            ore_processing: domains.ore_processing,
             thermal: domains.thermal,
             production: domains.production,
         }
@@ -166,6 +182,12 @@ impl Registries {
     #[must_use]
     pub const fn materials(&self) -> &MaterialRegistry {
         &self.materials
+    }
+
+    /// Returns immutable physical ore/material-preparation resolver definitions.
+    #[must_use]
+    pub const fn ore_processing(&self) -> &OreProcessingRegistry {
+        &self.ore_processing
     }
 
     /// Returns immutable physical thermal-process resolution semantics.

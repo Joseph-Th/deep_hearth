@@ -355,7 +355,7 @@ impl CompositionConstraint {
     }
 
     #[must_use]
-    pub fn matches(self, composition: &MaterialComposition) -> bool {
+    pub fn is_satisfied_by(self, composition: &MaterialComposition) -> bool {
         let fraction = composition.parts_per_million(self.material);
         fraction >= self.minimum_parts_per_million && fraction <= self.maximum_parts_per_million
     }
@@ -452,10 +452,10 @@ impl MaterialInputSpec {
     }
 
     #[must_use]
-    pub fn matches_composition(&self, composition: &MaterialComposition) -> bool {
+    pub fn is_satisfied_by(&self, composition: &MaterialComposition) -> bool {
         self.constraints
             .iter()
-            .all(|constraint| constraint.matches(composition))
+            .all(|constraint| constraint.is_satisfied_by(composition))
     }
 }
 
@@ -1178,7 +1178,7 @@ mod tests {
             Err(error) => panic!("constraint unexpectedly failed: {error}"),
         };
 
-        assert!(accepts.matches(&composition));
-        assert!(!rejects.matches(&composition));
+        assert!(accepts.is_satisfied_by(&composition));
+        assert!(!rejects.is_satisfied_by(&composition));
     }
 }

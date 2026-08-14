@@ -11,14 +11,15 @@ use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::{
     MaterialBatchIngressError, MaterialLotId, StockpileId, StockpileStorageError,
-    ValidatedMaterialBatchIngress, apply_material_batch_ingress, validate_material_batch_ingress,
+    StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedMaterialBatchIngress,
+    apply_material_batch_ingress, resolve_stockpile_stored_loads, validate_material_batch_ingress,
 };
 use crate::registry::Registries;
 
-use super::state::StructuralElementId;
+use super::state::{StructuralElementId, StructuralLoadKind};
 use super::structural_execution::{
     StructuralCommitError, StructuralMutationError, StructuralMutationOutcome,
-    ValidatedStructuralMutation, validate_remove_structural_element_with_recovery,
+    ValidatedStructuralRemovalWithLoads, validate_remove_structural_element_with_owned_loads,
 };
 
 /// Opaque result of a future dismantling/demolition authorization system.
@@ -71,6 +72,7 @@ pub enum StructuralDeconstructionError {
     },
     LotIdExhausted,
     InventoryRevisionExhausted,
+    StoredMatterLoad(StockpileStructuralLoadError),
     Structure(StructuralMutationError),
 }
 
@@ -123,6 +125,10 @@ impl Display for StructuralDeconstructionError {
             Self::InventoryRevisionExhausted => {
                 formatter.write_str("inventory revision space is exhausted during recovery")
             }
+            Self::StoredMatterLoad(error) => write!(
+                formatter,
+                "structural recovery cannot update destination stored-matter load: {error}"
+            ),
             Self::Structure(error) => {
                 write!(formatter, "structural removal cannot proceed: {error}")
             }
@@ -135,6 +141,7 @@ impl Error for StructuralDeconstructionError {
         match self {
             Self::Structure(error) => Some(error),
             Self::DestinationStorage(error) => Some(error),
+            Self::StoredMatterLoad(error) => Some(error),
             Self::UnknownElement { .. }
             | Self::NoEmbodiedMatter { .. }
             | Self::UnknownDestination { .. }
@@ -246,7 +253,7 @@ impl StructuralDeconstructionOutcome {
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedStructuralDeconstruction {
-    removal: ValidatedStructuralMutation,
+    removal: ValidatedStructuralRemovalWithLoads,
     ingress: ValidatedMaterialBatchIngress,
 }
 
@@ -306,8 +313,35 @@ pub fn validate_structural_deconstruction(
         state.tick(),
     )
     .map_err(|error| map_batch_error(element, error))?;
-    let removal = validate_remove_structural_element_with_recovery(registries, state, element)
-        .map_err(StructuralDeconstructionError::Structure)?;
+    let destination = state
+        .inventory()
+        .get_stockpile(resolution.destination)
+        .ok_or(StructuralDeconstructionError::UnknownDestination {
+            stockpile: resolution.destination,
+        })?;
+    let destination_after = destination
+        .stored_mass()
+        .checked_add(record.embodied_mass())
+        .ok_or(StructuralDeconstructionError::DestinationMassOverflow {
+            stockpile: resolution.destination,
+        })?;
+    let stored_matter_loads = resolve_stockpile_stored_loads(
+        registries,
+        state,
+        [StockpileStoredMassChange::new(
+            resolution.destination,
+            destination_after,
+        )],
+    )
+    .map_err(StructuralDeconstructionError::StoredMatterLoad)?;
+    let removal = validate_remove_structural_element_with_owned_loads(
+        registries,
+        state,
+        element,
+        StructuralLoadKind::StoredMatter,
+        stored_matter_loads,
+    )
+    .map_err(StructuralDeconstructionError::Structure)?;
     debug_assert_eq!(
         removal.expected_revision(),
         state.structures().revision(),
@@ -334,18 +368,55 @@ mod tests {
     use crate::content::{
         FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
     };
-    use crate::core::quantity::{Area, Energy, Length, Mass, Temperature};
+    use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
     use crate::core::state::validate_loaded_state;
     use crate::core::time::WorldSeed;
     use crate::energy::{ExplicitEnergyAccountingError, calculate_explicit_energy_accounting};
-    use crate::inventory::{MaterialLotSelection, add_stockpile, deposit_lot_for_test};
+    use crate::inventory::{
+        MaterialLotSelection, add_stockpile, deposit_lot_for_test, validate_mount_stockpile,
+    };
     use crate::material::CommodityKey;
     use crate::matter::calculate_matter_accounting;
     use crate::spatial::{VoxelBounds, VoxelCoord};
     use crate::structural::{
-        StructuralMutationError, add_structural_element, materialize_structural_element_for_test,
+        StructuralLoadKind, StructuralMutationError, add_structural_element,
+        materialize_structural_element_for_test, validate_activate_structural_element,
         validate_remove_structural_element, validate_structural_construction,
     };
+
+    fn active_storage_support(
+        registries: &Registries,
+        state: &mut AppState,
+    ) -> StructuralElementId {
+        let bounds = match VoxelBounds::new(VoxelCoord::new(10, 0, 0), VoxelCoord::new(11, 1, 1)) {
+            Ok(bounds) => bounds,
+            Err(error) => panic!("deconstruction storage support bounds failed: {error}"),
+        };
+        let element = match add_structural_element(
+            registries,
+            state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            crate::structural::make_test_structural_geometry(
+                bounds,
+                Length::from_micrometers(1),
+                Area::from_square_millimeters(1_000),
+            ),
+            true,
+        ) {
+            Ok(element) => element,
+            Err(error) => panic!("deconstruction storage support failed: {error}"),
+        };
+        materialize_structural_element_for_test(registries, state, element, FORM_LOG);
+        let activation = match validate_activate_structural_element(registries, state, element) {
+            Ok(activation) => activation,
+            Err(error) => panic!("deconstruction storage support activation failed: {error}"),
+        };
+        if let Err(error) = activation.commit(state) {
+            panic!("deconstruction storage support activation commit failed: {error}");
+        }
+        element
+    }
 
     fn wood_length_for_mass(mass: Mass) -> Length {
         assert!(!mass.is_zero(), "test member mass must be nonzero");
@@ -413,6 +484,7 @@ mod tests {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5D00_0002));
         let element = materialized_member(&registries, &mut state, Mass::from_milligrams(10));
+        let support = active_storage_support(&registries, &mut state);
         let trace = match state.structures().get_element(element) {
             Some(record) => record.embodied_material()[0].clone(),
             None => panic!("deconstruction member disappeared"),
@@ -421,6 +493,13 @@ mod tests {
             Ok(destination) => destination,
             Err(error) => panic!("deconstruction destination failed: {error}"),
         };
+        let mount = match validate_mount_stockpile(&registries, &state, destination, support) {
+            Ok(mount) => mount,
+            Err(error) => panic!("deconstruction destination mount failed: {error}"),
+        };
+        if let Err(error) = mount.commit(&mut state) {
+            panic!("deconstruction destination mount commit failed: {error}");
+        }
         let initial = match calculate_matter_accounting(&state) {
             Ok(accounting) => accounting.total(),
             Err(error) => panic!("deconstruction initial accounting failed: {error}"),
@@ -452,6 +531,13 @@ mod tests {
         assert_eq!(
             lot.latest_created_at(),
             trace.provenance().latest_created_at()
+        );
+        assert_eq!(
+            state
+                .structures()
+                .get_element(support)
+                .map(|record| record.load(StructuralLoadKind::StoredMatter)),
+            Some(Force::from_millinewtons(1))
         );
         assert_eq!(
             calculate_matter_accounting(&state).map(|accounting| accounting.total()),

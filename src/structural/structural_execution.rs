@@ -1,12 +1,13 @@
 //! Canonical structural construction and revision-bound mutations with synchronous damage-cascade resolution.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Force;
 use crate::core::state::AppState;
 use crate::equipment::EquipmentId;
+use crate::inventory::StockpileId;
 use crate::material::MaterialId;
 use crate::registry::Registries;
 
@@ -74,7 +75,7 @@ pub fn add_structural_element(
     profile: StructuralProfileId,
     material: MaterialId,
     geometry: StructuralElementGeometry,
-    grounded: bool,
+    is_grounded: bool,
 ) -> Result<StructuralElementId, AddStructuralElementError> {
     if registries.structural().get_profile(profile).is_none() {
         return Err(AddStructuralElementError::UnknownProfile { profile });
@@ -101,13 +102,13 @@ pub fn add_structural_element(
             profile,
             material,
             geometry,
-            grounded,
+            is_grounded,
         },
         embodied_mass: crate::core::quantity::Mass::ZERO,
         embodied_material: Vec::new(),
         loads: Default::default(),
         lifecycle: StructuralLifecycle::Planned,
-        cracked: false,
+        is_cracked: false,
         created_at: state.tick(),
     };
 
@@ -167,11 +168,19 @@ pub enum StructuralMutationError {
         element: StructuralElementId,
         equipment: EquipmentId,
     },
+    ElementSupportsStockpile {
+        element: StructuralElementId,
+        stockpile: StockpileId,
+    },
     ElementOwnsMatter {
         element: StructuralElementId,
         mass: crate::core::quantity::Mass,
     },
     LoadOwnedBySubsystem {
+        kind: StructuralLoadKind,
+    },
+    LoadTargetsRemovedElement {
+        element: StructuralElementId,
         kind: StructuralLoadKind,
     },
     SupportFailed {
@@ -228,6 +237,12 @@ impl Display for StructuralMutationError {
                 element.value(),
                 equipment.value()
             ),
+            Self::ElementSupportsStockpile { element, stockpile } => write!(
+                formatter,
+                "structural element {} cannot be removed while it supports stockpile {}",
+                element.value(),
+                stockpile.value()
+            ),
             Self::ElementOwnsMatter { element, mass } => write!(
                 formatter,
                 "structural element {} owns {} mg of embodied matter and must be deconstructed through a conserved recovery transaction",
@@ -237,6 +252,11 @@ impl Display for StructuralMutationError {
             Self::LoadOwnedBySubsystem { kind } => write!(
                 formatter,
                 "structural {kind:?} load contribution is owned by its source subsystem and cannot be set directly"
+            ),
+            Self::LoadTargetsRemovedElement { element, kind } => write!(
+                formatter,
+                "structural {kind:?} load cannot target element {} while that element is removed by the same mutation",
+                element.value()
             ),
             Self::SupportFailed { support } => write!(
                 formatter,
@@ -302,8 +322,10 @@ impl Error for StructuralMutationError {
             | Self::UnknownSupport { .. }
             | Self::ElementFailed { .. }
             | Self::ElementSupportsEquipment { .. }
+            | Self::ElementSupportsStockpile { .. }
             | Self::ElementOwnsMatter { .. }
             | Self::LoadOwnedBySubsystem { .. }
+            | Self::LoadTargetsRemovedElement { .. }
             | Self::SupportFailed { .. }
             | Self::GroundedElementCannotHaveSupport { .. }
             | Self::SelfSupport { .. }
@@ -331,10 +353,6 @@ impl ValidatedStructuralMutation {
     #[must_use]
     pub const fn analysis(&self) -> &StructuralAnalysis {
         &self.analysis
-    }
-
-    pub(crate) const fn expected_revision(&self) -> u64 {
-        self.expected_revision
     }
 
     /// Commits the requested structural change and every resolved damage consequence atomically.
@@ -365,25 +383,165 @@ impl ValidatedStructuralMutation {
         }
 
         apply_operation_unchecked(structures, self.operation);
-        for event in self.analysis.damage_events() {
-            let element = event.element();
-            let Some(record) = structures.elements.get_mut(&element) else {
-                debug_assert!(
-                    false,
-                    "Runtime Invariant 2 (Record Reference Validity): prevalidated structural damage target disappeared"
-                );
-                continue;
-            };
-            match event {
-                StructuralDamageEvent::Cracked { .. } => {
-                    record.cracked = true;
-                }
-                StructuralDamageEvent::Failed { .. } => {
-                    record.cracked = true;
-                    record.lifecycle = StructuralLifecycle::Failed;
-                }
+        apply_damage_events(structures, self.analysis.damage_events());
+        structures.revision = self.next_revision;
+        Ok(StructuralMutationOutcome {
+            analysis: self.analysis,
+        })
+    }
+}
+
+fn apply_damage_events(
+    structures: &mut super::state::StructureState,
+    events: &[StructuralDamageEvent],
+) {
+    for event in events {
+        let element = event.element();
+        let Some(record) = structures.elements.get_mut(&element) else {
+            debug_assert!(
+                false,
+                "Runtime Invariant 2 (Record Reference Validity): prevalidated structural damage target disappeared"
+            );
+            continue;
+        };
+        match event {
+            StructuralDamageEvent::Cracked { .. } => record.is_cracked = true,
+            StructuralDamageEvent::Failed { .. } => {
+                record.is_cracked = true;
+                record.lifecycle = StructuralLifecycle::Failed;
             }
         }
+    }
+}
+
+/// Revision-bound batch of load contributions owned by one external subsystem.
+///
+/// The entire batch is analyzed and committed under one structural revision so a cross-owner
+/// transaction never exposes an impossible intermediate load arrangement.
+#[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ValidatedStructuralLoadBatch {
+    kind: StructuralLoadKind,
+    loads: BTreeMap<StructuralElementId, Force>,
+    expected_revision: u64,
+    next_revision: u64,
+    analysis: StructuralAnalysis,
+}
+
+impl ValidatedStructuralLoadBatch {
+    pub(crate) fn commit(
+        self,
+        state: &mut AppState,
+    ) -> Result<StructuralMutationOutcome, StructuralCommitError> {
+        let structures = state.structure_state_mut();
+        if structures.revision != self.expected_revision {
+            return Err(StructuralCommitError::StaleRevision {
+                expected: self.expected_revision,
+                actual: structures.revision,
+            });
+        }
+        for element in self.loads.keys().copied() {
+            if !structures.elements.contains_key(&element) {
+                return Err(StructuralCommitError::StateChanged { element });
+            }
+        }
+        for event in self.analysis.damage_events() {
+            if !structures.elements.contains_key(&event.element()) {
+                return Err(StructuralCommitError::StateChanged {
+                    element: event.element(),
+                });
+            }
+        }
+
+        apply_owned_loads(structures, self.kind, self.loads);
+        apply_damage_events(structures, self.analysis.damage_events());
+        structures.revision = self.next_revision;
+        Ok(StructuralMutationOutcome {
+            analysis: self.analysis,
+        })
+    }
+}
+
+fn apply_owned_loads(
+    structures: &mut super::state::StructureState,
+    kind: StructuralLoadKind,
+    loads: BTreeMap<StructuralElementId, Force>,
+) {
+    for (element, load) in loads {
+        let record = match structures.elements.get_mut(&element) {
+            Some(record) => record,
+            None => unreachable!("owned-load targets were prechecked"),
+        };
+        if load.is_zero() {
+            record.loads.remove(&kind);
+        } else {
+            record.loads.insert(kind, load);
+        }
+    }
+}
+
+/// Revision-bound removal analyzed together with an external subsystem's final load contributions.
+#[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ValidatedStructuralRemovalWithLoads {
+    element: StructuralElementId,
+    kind: StructuralLoadKind,
+    loads: BTreeMap<StructuralElementId, Force>,
+    expected_revision: u64,
+    next_revision: u64,
+    analysis: StructuralAnalysis,
+}
+
+impl ValidatedStructuralRemovalWithLoads {
+    #[must_use]
+    pub(crate) const fn analysis(&self) -> &StructuralAnalysis {
+        &self.analysis
+    }
+
+    pub(crate) const fn expected_revision(&self) -> u64 {
+        self.expected_revision
+    }
+
+    pub(crate) fn commit(
+        self,
+        state: &mut AppState,
+    ) -> Result<StructuralMutationOutcome, StructuralCommitError> {
+        let structures = state.structure_state_mut();
+        if structures.revision != self.expected_revision {
+            return Err(StructuralCommitError::StaleRevision {
+                expected: self.expected_revision,
+                actual: structures.revision,
+            });
+        }
+        validate_operation_commit_state(
+            structures,
+            StructuralMutation::RemoveElement {
+                element: self.element,
+            },
+        )?;
+        for element in self.loads.keys().copied() {
+            if element == self.element || !structures.elements.contains_key(&element) {
+                return Err(StructuralCommitError::StateChanged { element });
+            }
+        }
+        for event in self.analysis.damage_events() {
+            if event.element() == self.element
+                || !structures.elements.contains_key(&event.element())
+            {
+                return Err(StructuralCommitError::StateChanged {
+                    element: event.element(),
+                });
+            }
+        }
+
+        apply_operation_unchecked(
+            structures,
+            StructuralMutation::RemoveElement {
+                element: self.element,
+            },
+        );
+        apply_owned_loads(structures, self.kind, self.loads);
+        apply_damage_events(structures, self.analysis.damage_events());
         structures.revision = self.next_revision;
         Ok(StructuralMutationOutcome {
             analysis: self.analysis,
@@ -782,6 +940,9 @@ pub fn validate_remove_structural_element(
     if let Some(equipment) = state.equipment().supported_equipment(element).next() {
         return Err(StructuralMutationError::ElementSupportsEquipment { element, equipment });
     }
+    if let Some(stockpile) = state.inventory().supported_stockpiles(element).next() {
+        return Err(StructuralMutationError::ElementSupportsStockpile { element, stockpile });
+    }
     if !record.embodied_mass().is_zero() {
         return Err(StructuralMutationError::ElementOwnsMatter {
             element,
@@ -795,24 +956,79 @@ pub fn validate_remove_structural_element(
     )
 }
 
-/// Internal removal plan used only by a cross-owner deconstruction transaction that transfers all
-/// embodied matter before the operation is exposed as successful.
-pub(crate) fn validate_remove_structural_element_with_recovery(
+/// Validates structural removal together with final external load values under one revision.
+///
+/// This is used by cross-owner recovery operations where removing a member and depositing recovered
+/// matter can affect the same structural component. Analysis therefore sees both consequences at
+/// once rather than depending on an arbitrary intermediate mutation order.
+pub(crate) fn validate_remove_structural_element_with_owned_loads(
     registries: &Registries,
     state: &AppState,
     element: StructuralElementId,
-) -> Result<ValidatedStructuralMutation, StructuralMutationError> {
+    kind: StructuralLoadKind,
+    loads: BTreeMap<StructuralElementId, Force>,
+) -> Result<ValidatedStructuralRemovalWithLoads, StructuralMutationError> {
     if state.structures().get_element(element).is_none() {
         return Err(StructuralMutationError::UnknownElement { element });
     }
     if let Some(equipment) = state.equipment().supported_equipment(element).next() {
         return Err(StructuralMutationError::ElementSupportsEquipment { element, equipment });
     }
-    build_plan(
-        registries,
-        state,
-        StructuralMutation::RemoveElement { element },
+    if let Some(stockpile) = state.inventory().supported_stockpiles(element).next() {
+        return Err(StructuralMutationError::ElementSupportsStockpile { element, stockpile });
+    }
+
+    let mut changed = BTreeMap::new();
+    for (load_element, load) in loads {
+        if load_element == element {
+            return Err(StructuralMutationError::LoadTargetsRemovedElement { element, kind });
+        }
+        let record = state.structures().get_element(load_element).ok_or(
+            StructuralMutationError::UnknownElement {
+                element: load_element,
+            },
+        )?;
+        if record.load(kind) != load {
+            changed.insert(load_element, load);
+        }
+    }
+
+    let expected_revision = state.structures().revision();
+    let next_revision = expected_revision
+        .checked_add(1)
+        .ok_or(StructuralMutationError::RevisionExhausted)?;
+    let overlay = StructuralAnalysisOverlay::remove_element_with_loads(
+        element,
+        changed
+            .iter()
+            .map(|(load_element, load)| ((*load_element, kind), *load))
+            .collect(),
+    );
+    let mut seeds = BTreeSet::new();
+    if let Some(supports) = state.structures().supports(element) {
+        seeds.extend(supports);
+    }
+    if let Some(dependents) = state.structures().dependents(element) {
+        seeds.extend(dependents);
+    }
+    seeds.extend(changed.keys().copied());
+    let analysis = analyze_structure_components_with_overlay(
+        registries.structural(),
+        registries.materials(),
+        state.structure_state(),
+        overlay,
+        &seeds,
     )
+    .map_err(StructuralMutationError::Analysis)?;
+
+    Ok(ValidatedStructuralRemovalWithLoads {
+        element,
+        kind,
+        loads: changed,
+        expected_revision,
+        next_revision,
+        analysis,
+    })
 }
 
 /// Validates transition from construction planning into the active load-bearing graph.
@@ -863,7 +1079,9 @@ pub fn validate_set_structural_load(
     validate_common_element(state, element)?;
     if matches!(
         kind,
-        StructuralLoadKind::Equipment | StructuralLoadKind::SelfWeight
+        StructuralLoadKind::Equipment
+            | StructuralLoadKind::SelfWeight
+            | StructuralLoadKind::StoredMatter
     ) {
         return Err(StructuralMutationError::LoadOwnedBySubsystem { kind });
     }
@@ -894,6 +1112,59 @@ pub(crate) fn validate_set_owned_structural_load(
             load,
         },
     )
+}
+
+/// Validates several load contributions owned by one external subsystem as one structural change.
+///
+/// Entries already equal to authoritative state are omitted. If every requested load already
+/// matches, no structural revision is required and this returns `None`.
+pub(crate) fn validate_set_owned_structural_loads(
+    registries: &Registries,
+    state: &AppState,
+    kind: StructuralLoadKind,
+    loads: BTreeMap<StructuralElementId, Force>,
+) -> Result<Option<ValidatedStructuralLoadBatch>, StructuralMutationError> {
+    let mut changed = BTreeMap::new();
+    for (element, load) in loads {
+        let record = state
+            .structures()
+            .get_element(element)
+            .ok_or(StructuralMutationError::UnknownElement { element })?;
+        if record.load(kind) != load {
+            changed.insert(element, load);
+        }
+    }
+    if changed.is_empty() {
+        return Ok(None);
+    }
+
+    let expected_revision = state.structures().revision();
+    let next_revision = expected_revision
+        .checked_add(1)
+        .ok_or(StructuralMutationError::RevisionExhausted)?;
+    let overlay = StructuralAnalysisOverlay::set_loads(
+        changed
+            .iter()
+            .map(|(element, load)| ((*element, kind), *load))
+            .collect(),
+    );
+    let seeds = changed.keys().copied().collect();
+    let analysis = analyze_structure_components_with_overlay(
+        registries.structural(),
+        registries.materials(),
+        state.structure_state(),
+        overlay,
+        &seeds,
+    )
+    .map_err(StructuralMutationError::Analysis)?;
+
+    Ok(Some(ValidatedStructuralLoadBatch {
+        kind,
+        loads: changed,
+        expected_revision,
+        next_revision,
+        analysis,
+    }))
 }
 
 #[cfg(test)]
@@ -1011,7 +1282,7 @@ mod tests {
         state: &mut AppState,
         x: i64,
         y: i64,
-        grounded: bool,
+        is_grounded: bool,
     ) -> StructuralElementId {
         let element = match add_structural_element(
             registries,
@@ -1023,7 +1294,7 @@ mod tests {
                 Length::from_micrometers(1),
                 MEMBER_AREA,
             ),
-            grounded,
+            is_grounded,
         ) {
             Ok(element) => element,
             Err(error) => panic!("structural element fixture failed: {error}"),

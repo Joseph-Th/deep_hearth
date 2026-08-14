@@ -36,7 +36,7 @@ use std::num::NonZeroU16;
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::{Energy, Power};
+use crate::core::quantity::{Energy, Mass, MassSpecificEnergy, Power};
 use crate::core::time::TickSpan;
 
 /// Fractional nanojoule numerator retained between power-integration steps.
@@ -213,6 +213,17 @@ pub fn calculate_power_duration_ceiling(
     Ok(TickSpan::new(low))
 }
 
+/// Resolves exact work/heat energy from material mass and an authored mass-specific requirement.
+///
+/// `Mass` and `MassSpecificEnergy` both use integer base units, and their `u64 * u64` product fits
+/// exactly in the authoritative `u128` nanojoule representation.
+#[must_use]
+pub fn calculate_mass_specific_energy(mass: Mass, specific: MassSpecificEnergy) -> Energy {
+    Energy::from_nanojoules(
+        u128::from(mass.milligrams()) * u128::from(specific.nanojoules_per_milligram()),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,6 +233,17 @@ mod tests {
             Some(value) => value,
             None => panic!("test tick rate must be nonzero"),
         }
+    }
+
+    #[test]
+    fn mass_specific_energy_scales_exactly_without_rounding() {
+        assert_eq!(
+            calculate_mass_specific_energy(
+                Mass::from_milligrams(25),
+                MassSpecificEnergy::from_nanojoules_per_milligram(40),
+            ),
+            Energy::from_nanojoules(1_000)
+        );
     }
 
     #[test]

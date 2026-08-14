@@ -23,6 +23,7 @@ use crate::inventory::{
 };
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, MaterialId};
+use crate::ore_processing::{ComminutionJobValidationError, validate_loaded_comminution_job};
 use crate::production::{
     ProcessId, ProductionJobId, ProductionState, ProductionValidationError, sum_lot_spec_mass,
     validate_loaded_production,
@@ -349,6 +350,26 @@ pub enum StateValidationError {
         stored: Force,
         expected: Force,
     },
+    UnknownStockpileSupport {
+        stockpile: StockpileId,
+        element: StructuralElementId,
+    },
+    StockpileSupportedByPlannedElement {
+        stockpile: StockpileId,
+        element: StructuralElementId,
+    },
+    StoredMatterMassOverflow {
+        element: StructuralElementId,
+    },
+    StoredMatterWeightOverflow {
+        element: StructuralElementId,
+    },
+    StoredMatterStructuralLoadMismatch {
+        element: StructuralElementId,
+        stored: Force,
+        expected: Force,
+    },
+    ComminutionJob(ComminutionJobValidationError),
     ThermalJob(ThermalJobValidationError),
     JobAlreadyDue {
         job: ProductionJobId,
@@ -650,6 +671,42 @@ impl Display for StateValidationError {
                 stored.millinewtons(),
                 expected.millinewtons()
             ),
+            Self::UnknownStockpileSupport { stockpile, element } => write!(
+                formatter,
+                "stockpile {} references missing structural support element {}",
+                stockpile.value(),
+                element.value()
+            ),
+            Self::StockpileSupportedByPlannedElement { stockpile, element } => write!(
+                formatter,
+                "stockpile {} is assigned to planned structural element {} before activation",
+                stockpile.value(),
+                element.value()
+            ),
+            Self::StoredMatterMassOverflow { element } => write!(
+                formatter,
+                "stored matter mass overflows aggregate accounting on structural element {}",
+                element.value()
+            ),
+            Self::StoredMatterWeightOverflow { element } => write!(
+                formatter,
+                "stored matter weight exceeds structural force range on element {}",
+                element.value()
+            ),
+            Self::StoredMatterStructuralLoadMismatch {
+                element,
+                stored,
+                expected,
+            } => write!(
+                formatter,
+                "structural element {} stores {} mN stored-matter load but supported stockpiles require {} mN",
+                element.value(),
+                stored.millinewtons(),
+                expected.millinewtons()
+            ),
+            Self::ComminutionJob(error) => {
+                write!(formatter, "invalid comminution production job: {error}")
+            }
             Self::ThermalJob(error) => write!(formatter, "invalid thermal production job: {error}"),
             Self::JobAlreadyDue { job, current, due } => write!(
                 formatter,
@@ -714,6 +771,7 @@ impl Error for StateValidationError {
             Self::GeologicalKnowledge(error) => Some(error),
             Self::Inventory(error) => Some(error),
             Self::Production(error) => Some(error),
+            Self::ComminutionJob(error) => Some(error),
             Self::ThermalJob(error) => Some(error),
             Self::JobOutputStorage { error, .. } => Some(error),
             Self::RandomWorldSeedMismatch { .. }
@@ -744,6 +802,11 @@ impl Error for StateValidationError {
             | Self::MountedEquipmentMassOverflow { .. }
             | Self::MountedEquipmentWeightOverflow { .. }
             | Self::EquipmentStructuralLoadMismatch { .. }
+            | Self::UnknownStockpileSupport { .. }
+            | Self::StockpileSupportedByPlannedElement { .. }
+            | Self::StoredMatterMassOverflow { .. }
+            | Self::StoredMatterWeightOverflow { .. }
+            | Self::StoredMatterStructuralLoadMismatch { .. }
             | Self::JobAlreadyDue { .. }
             | Self::ReservedMassOverflow { .. }
             | Self::UnknownJobOutputCommodity { .. }
@@ -786,6 +849,8 @@ pub fn validate_loaded_state(
         registries.core().gravity(),
     )
     .map_err(StateValidationError::Structure)?;
+    validate_loaded_inventory(registries.materials(), &state.inventory)
+        .map_err(StateValidationError::Inventory)?;
 
     let mut mounted_mass_by_element = BTreeMap::<StructuralElementId, AggregateMass>::new();
     for equipment in state.equipment.equipment() {
@@ -839,6 +904,50 @@ pub fn validate_loaded_state(
         }
     }
 
+    let mut stored_mass_by_element = BTreeMap::<StructuralElementId, AggregateMass>::new();
+    for stockpile in state.inventory.stockpiles() {
+        let Some(element) = stockpile.supported_by() else {
+            continue;
+        };
+        let Some(structural) = state.structures.get_element(element) else {
+            return Err(StateValidationError::UnknownStockpileSupport {
+                stockpile: stockpile.id(),
+                element,
+            });
+        };
+        if structural.lifecycle() == StructuralLifecycle::Planned {
+            return Err(StateValidationError::StockpileSupportedByPlannedElement {
+                stockpile: stockpile.id(),
+                element,
+            });
+        }
+        let current = stored_mass_by_element
+            .get(&element)
+            .copied()
+            .unwrap_or(AggregateMass::ZERO);
+        let next = current
+            .checked_add(AggregateMass::from_mass(stockpile.stored_mass()))
+            .ok_or(StateValidationError::StoredMatterMassOverflow { element })?;
+        stored_mass_by_element.insert(element, next);
+    }
+    for structural in state.structures.elements() {
+        let element = structural.id();
+        let mass = stored_mass_by_element
+            .get(&element)
+            .copied()
+            .unwrap_or(AggregateMass::ZERO);
+        let expected = calculate_aggregate_weight_force_ceiling(mass, registries.core().gravity())
+            .ok_or(StateValidationError::StoredMatterWeightOverflow { element })?;
+        let stored = structural.load(StructuralLoadKind::StoredMatter);
+        if stored != expected {
+            return Err(StateValidationError::StoredMatterStructuralLoadMismatch {
+                element,
+                stored,
+                expected,
+            });
+        }
+    }
+
     let structural_analysis = analyze_structure(
         registries.structural(),
         registries.materials(),
@@ -856,8 +965,6 @@ pub fn validate_loaded_state(
         state.tick(),
     )
     .map_err(StateValidationError::GeologicalKnowledge)?;
-    validate_loaded_inventory(registries.materials(), &state.inventory)
-        .map_err(StateValidationError::Inventory)?;
     validate_loaded_production(&state.production).map_err(StateValidationError::Production)?;
 
     for stockpile in state.inventory.stockpiles() {
@@ -1045,6 +1152,8 @@ pub fn validate_loaded_state(
                 });
             }
         }
+        validate_loaded_comminution_job(registries, job)
+            .map_err(StateValidationError::ComminutionJob)?;
         validate_loaded_thermal_job(registries, job).map_err(StateValidationError::ThermalJob)?;
         if job.completes_at() <= state.tick() {
             return Err(StateValidationError::JobAlreadyDue {
@@ -1189,6 +1298,10 @@ pub fn validate_invariants(_registries: &Registries, state: &AppState) {
         "Runtime Invariant 8 (No Lost Runtime State): inventory ID cursors must remain nonzero"
     );
     debug_assert!(
+        state.inventory.has_valid_support_index(),
+        "Runtime Invariant 12 (Derived Data Consistency): inventory support reverse index must match stockpile support ownership"
+    );
+    debug_assert!(
         state.production.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): production ID cursor must remain nonzero"
     );
@@ -1298,7 +1411,7 @@ mod tests {
         state: &mut AppState,
         x: i64,
         y: i64,
-        grounded: bool,
+        is_grounded: bool,
     ) -> StructuralElementId {
         let element = match add_structural_element(
             registries,
@@ -1310,7 +1423,7 @@ mod tests {
                 crate::core::quantity::Length::from_micrometers(1),
                 Area::from_square_millimeters(1_000),
             ),
-            grounded,
+            is_grounded,
         ) {
             Ok(element) => element,
             Err(error) => panic!("soak structural element allocation failed: {error}"),

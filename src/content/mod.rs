@@ -5,6 +5,7 @@ mod energy;
 mod equipment;
 mod fluid;
 mod materials;
+mod ore_processing;
 mod processes;
 mod structural;
 mod thermal;
@@ -21,6 +22,8 @@ use crate::equipment::{EquipmentDefinition, EquipmentRegistry};
 #[cfg(test)]
 use crate::fluid::{FluidDefinition, FluidRegistry};
 #[cfg(test)]
+use crate::ore_processing::{ComminutionProcessDefinition, OreProcessingRegistry};
+#[cfg(test)]
 use crate::production::{ProcessDefinition, ProductionRegistry};
 #[cfg(test)]
 use crate::thermal::{
@@ -29,14 +32,14 @@ use crate::thermal::{
 };
 
 pub use materials::{
-    FORM_CONCENTRATE, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE, MATERIAL_CHARCOAL,
-    MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_WOOD,
+    FORM_CONCENTRATE, FORM_CRUSHED, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE,
+    MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_WOOD,
 };
 pub use structural::{STRUCTURAL_PROFILE_AXIAL_COMPRESSION, STRUCTURAL_PROFILE_AXIAL_TENSION};
 
 const DEFAULT_TICKS_PER_SECOND: u16 = 20;
 const DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED: u64 = 9_806_650;
-const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(10);
+const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(11);
 
 fn build_core_definitions() -> CoreDefinitions {
     CoreDefinitions::new(
@@ -60,6 +63,7 @@ pub fn build_registries() -> Registries {
             equipment: equipment::build_equipment_registry(),
             structural: structural::build_structural_registry(),
             materials: materials::build_material_registry(),
+            ore_processing: ore_processing::build_ore_processing_registry(),
             thermal: thermal::build_thermal_registry(),
             production: processes::build_production_registry(),
         },
@@ -83,6 +87,7 @@ pub(crate) fn make_test_registries_with_equipment(
             equipment: EquipmentRegistry::new([equipment_definition]),
             structural: structural::build_structural_registry(),
             materials: materials::build_material_registry(),
+            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: thermal::build_thermal_registry(),
             production: ProductionRegistry::new(),
         },
@@ -103,6 +108,7 @@ pub(crate) fn make_test_registries_with_process(process: ProcessDefinition) -> R
             equipment: equipment::build_equipment_registry(),
             structural: structural::build_structural_registry(),
             materials: materials::build_material_registry(),
+            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: thermal::build_thermal_registry(),
             production,
         },
@@ -123,6 +129,7 @@ pub(crate) fn make_test_registries_with_energy_store(
             equipment: equipment::build_equipment_registry(),
             structural: structural::build_structural_registry(),
             materials: materials::build_material_registry(),
+            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: thermal::build_thermal_registry(),
             production: ProductionRegistry::new(),
         },
@@ -153,6 +160,7 @@ pub(crate) fn make_test_registries_with_sensible_heating(
             equipment: EquipmentRegistry::new([equipment_definition]),
             structural: structural::build_structural_registry(),
             materials: materials::build_material_registry(),
+            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: ThermalRegistry::new(
                 [thermal_definition],
                 std::iter::empty(),
@@ -187,6 +195,7 @@ pub(crate) fn make_test_registries_with_melting(
             equipment: EquipmentRegistry::new([equipment_definition]),
             structural: structural::build_structural_registry(),
             materials: materials::build_material_registry(),
+            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: ThermalRegistry::new(
                 std::iter::empty(),
                 [thermal_definition],
@@ -221,6 +230,7 @@ pub(crate) fn make_test_registries_with_casting(
             equipment: EquipmentRegistry::new([equipment_definition]),
             structural: structural::build_structural_registry(),
             materials: materials::build_material_registry(),
+            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: ThermalRegistry::new(
                 std::iter::empty(),
                 std::iter::empty(),
@@ -243,8 +253,40 @@ pub(crate) fn make_test_registries_with_fluids(definitions: Vec<FluidDefinition>
             equipment: equipment::build_equipment_registry(),
             structural: structural::build_structural_registry(),
             materials: materials::build_material_registry(),
+            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: thermal::build_thermal_registry(),
             production: processes::build_production_registry(),
+        },
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn make_test_registries_with_comminution(
+    capability_definitions: Vec<CapabilityDefinition>,
+    equipment_definition: EquipmentDefinition,
+    energy_definition: EnergyStoreDefinition,
+    process: ProcessDefinition,
+    comminution_definition: ComminutionProcessDefinition,
+) -> Registries {
+    let mut capabilities = CapabilityRegistry::new();
+    for capability in capability_definitions {
+        capabilities.register_capability(capability);
+    }
+    let mut production = ProductionRegistry::new();
+    production.register_process_for_test(process);
+    Registries::new(
+        REGISTRY_SCHEMA_VERSION,
+        build_core_definitions(),
+        RegistryDomains {
+            energy: EnergyRegistry::new([energy_definition]),
+            fluid: fluid::build_fluid_registry(),
+            capabilities,
+            equipment: EquipmentRegistry::new([equipment_definition]),
+            structural: structural::build_structural_registry(),
+            materials: materials::build_material_registry(),
+            ore_processing: OreProcessingRegistry::new([comminution_definition]),
+            thermal: thermal::build_thermal_registry(),
+            production,
         },
     )
 }
@@ -256,12 +298,19 @@ mod tests {
         CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityRegistry,
         CapabilityRequirement, CapabilityValue, CapabilityValueKind,
     };
-    use crate::core::quantity::{Mass, Temperature};
+    use crate::core::quantity::{Mass, MassSpecificEnergy, Temperature};
+    use crate::energy::EnergyCarrier;
     use crate::material::{CommodityKey, MaterialInputSpec};
+    use crate::ore_processing::{ComminutionOperatingProfile, ComminutionProcessDefinition};
     use crate::production::{ProcessDefinition, ProcessId, ProductionRegistry};
+    use crate::thermal::{SensibleHeatingProcessDefinition, ThermalRegistry};
 
     const TEST_CAPABILITY: CapabilityId = CapabilityId::new(700_001);
     const TEST_PROCESS: ProcessId = ProcessId::new(700_001);
+    const TEST_MASS_FLOW: CapabilityId = CapabilityId::new(700_002);
+    const TEST_MAX_BATCH_MASS: CapabilityId = CapabilityId::new(700_003);
+    const TEST_HEATING_POWER: CapabilityId = CapabilityId::new(700_004);
+    const TEST_MAX_TEMPERATURE: CapabilityId = CapabilityId::new(700_005);
 
     #[test]
     fn built_in_tick_rate_is_nonzero_and_stable() {
@@ -308,6 +357,7 @@ mod tests {
                 equipment: equipment::build_equipment_registry(),
                 structural: structural::build_structural_registry(),
                 materials: materials::build_material_registry(),
+                ore_processing: OreProcessingRegistry::new(std::iter::empty()),
                 thermal: thermal::build_thermal_registry(),
                 production,
             },
@@ -320,5 +370,85 @@ mod tests {
                 .is_some()
         );
         assert!(registries.production().get_process(TEST_PROCESS).is_some());
+    }
+
+    #[test]
+    fn process_cannot_own_multiple_physical_resolver_semantics() {
+        let mut capabilities = CapabilityRegistry::new();
+        for (id, name, kind) in [
+            (
+                TEST_MASS_FLOW,
+                "test mass flow",
+                CapabilityValueKind::MassFlow,
+            ),
+            (
+                TEST_MAX_BATCH_MASS,
+                "test maximum batch mass",
+                CapabilityValueKind::Mass,
+            ),
+            (
+                TEST_HEATING_POWER,
+                "test heating power",
+                CapabilityValueKind::Power,
+            ),
+            (
+                TEST_MAX_TEMPERATURE,
+                "test maximum temperature",
+                CapabilityValueKind::Temperature,
+            ),
+        ] {
+            capabilities.register_capability(CapabilityDefinition::new(id, name, kind));
+        }
+        let process = ProcessDefinition::new_selected_batch(
+            TEST_PROCESS,
+            "ambiguous physical resolver fixture",
+            Vec::new(),
+        );
+        let mut production = ProductionRegistry::new();
+        production.register_process_for_test(process);
+        let ore_processing = OreProcessingRegistry::new([ComminutionProcessDefinition::new(
+            TEST_PROCESS,
+            FORM_ORE,
+            FORM_CRUSHED,
+            ComminutionOperatingProfile::new(
+                TEST_MASS_FLOW,
+                TEST_MAX_BATCH_MASS,
+                EnergyCarrier::Mechanical,
+                MassSpecificEnergy::from_nanojoules_per_milligram(1),
+                1,
+            ),
+        )]);
+        let thermal = ThermalRegistry::new(
+            [SensibleHeatingProcessDefinition::new(
+                TEST_PROCESS,
+                TEST_HEATING_POWER,
+                TEST_MAX_TEMPERATURE,
+                TEST_MAX_BATCH_MASS,
+                EnergyCarrier::Electrical,
+                1,
+            )],
+            std::iter::empty(),
+            std::iter::empty(),
+        );
+
+        let result = std::panic::catch_unwind(|| {
+            Registries::new(
+                REGISTRY_SCHEMA_VERSION,
+                build_core_definitions(),
+                RegistryDomains {
+                    energy: energy::build_energy_registry(),
+                    fluid: fluid::build_fluid_registry(),
+                    capabilities,
+                    equipment: equipment::build_equipment_registry(),
+                    structural: structural::build_structural_registry(),
+                    materials: materials::build_material_registry(),
+                    ore_processing,
+                    thermal,
+                    production,
+                },
+            )
+        });
+
+        assert!(result.is_err());
     }
 }

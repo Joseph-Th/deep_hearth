@@ -17,7 +17,7 @@ use crate::equipment::{
     EquipmentId, EquipmentProviderError, resolve_equipment_capability, resolve_equipment_provider,
 };
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
-use crate::maintenance::Condition;
+use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
 use crate::material::{
     CommodityKey, FormId, MaterialComposition, MaterialId, MaterialLotSpec, MaterialLotSpecError,
     MaterialPhase, MaterialRegistry,
@@ -28,10 +28,7 @@ use crate::production::{
 };
 use crate::registry::Registries;
 
-use super::{
-    FusionHeatError, SensibleHeatError, calculate_fusion_heat, calculate_sensible_heat,
-    condition_after_active_ticks,
-};
+use super::{FusionHeatError, SensibleHeatError, calculate_fusion_heat, calculate_sensible_heat};
 
 /// Immutable declaration that one selected-batch process solidifies pure liquid matter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -615,7 +612,7 @@ pub fn resolve_casting_process(
         registries.core().ticks_per_second(),
     )
     .map_err(CastingResolutionError::Duration)?;
-    let equipment_condition_after = condition_after_active_ticks(
+    let equipment_condition_after = calculate_condition_after_active_ticks(
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
         duration,
@@ -983,7 +980,7 @@ pub(super) fn validate_loaded_casting_job(
             required: required_duration,
         });
     }
-    let required_condition_after = condition_after_active_ticks(
+    let required_condition_after = calculate_condition_after_active_ticks(
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
         required_duration,
@@ -1566,7 +1563,7 @@ mod tests {
             Some(record) => record.completes_at(),
             None => panic!("casting completion-race job disappeared before planning"),
         };
-        let plan = match decide_due_completions(&fixture.state, due) {
+        let plan = match decide_due_completions(&fixture.registries, &fixture.state, due) {
             Ok(plan) => plan,
             Err(error) => panic!("casting completion-race planning failed: {error:?}"),
         };

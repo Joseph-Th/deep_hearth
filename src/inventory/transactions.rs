@@ -12,11 +12,16 @@ use crate::material::{
     MaterialLotSpec, MaterialPhase, MaterialPhaseStateError, validate_material_phase_state,
 };
 use crate::registry::Registries;
+use crate::structural::StructuralCommitError;
 
 use super::state::{
     ConsumedMaterialTrace, InventoryState, MaterialLotId, MaterialLotProfile,
     MaterialLotProvenance, MaterialLotRecord, StockpileId, StockpileRecord,
     StockpileStorageProfile,
+};
+use super::{
+    StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedStockpileStructuralLoad,
+    validate_stockpile_stored_mass_changes,
 };
 
 #[cfg(test)]
@@ -110,7 +115,7 @@ pub(crate) fn validate_stockpile_storage(
         return Err(StockpileStorageError::UnknownForm { form: form_id });
     };
     let profile = record.storage_profile();
-    if !profile.allows_phase(form.phase()) {
+    if !profile.can_store_phase(form.phase()) {
         return Err(StockpileStorageError::PhaseNotAccepted {
             stockpile,
             phase: form.phase(),
@@ -499,6 +504,8 @@ pub enum DepositError {
     },
     LotIdExhausted,
     RevisionExhausted,
+    StructuralLoad(StockpileStructuralLoadError),
+    StructuralCommit(StructuralCommitError),
 }
 
 impl Display for DepositError {
@@ -535,6 +542,16 @@ impl Display for DepositError {
                 formatter.write_str("material lot identifier space is exhausted")
             }
             Self::RevisionExhausted => formatter.write_str("inventory revision space is exhausted"),
+            Self::StructuralLoad(error) => {
+                write!(
+                    formatter,
+                    "deposit cannot update stored-matter support load: {error}"
+                )
+            }
+            Self::StructuralCommit(error) => write!(
+                formatter,
+                "deposit could not commit stored-matter structural load: {error}"
+            ),
         }
     }
 }
@@ -543,6 +560,8 @@ impl Error for DepositError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Storage(error) => Some(error),
+            Self::StructuralLoad(error) => Some(error),
+            Self::StructuralCommit(error) => Some(error),
             Self::UnknownStockpile { .. }
             | Self::UnknownMaterial { .. }
             | Self::UnknownForm { .. }
@@ -719,6 +738,7 @@ pub enum TransferError {
     },
     LotIdExhausted,
     RevisionExhausted,
+    StructuralLoad(StockpileStructuralLoadError),
 }
 
 impl Display for TransferError {
@@ -767,6 +787,12 @@ impl Display for TransferError {
                 formatter.write_str("material lot identifier space is exhausted")
             }
             Self::RevisionExhausted => formatter.write_str("inventory revision space is exhausted"),
+            Self::StructuralLoad(error) => {
+                write!(
+                    formatter,
+                    "transfer cannot update stored-matter support load: {error}"
+                )
+            }
         }
     }
 }
@@ -775,6 +801,7 @@ impl Error for TransferError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Storage(error) => Some(error),
+            Self::StructuralLoad(error) => Some(error),
             Self::UnknownStockpile { .. }
             | Self::UnknownMaterial { .. }
             | Self::UnknownForm { .. }
@@ -789,9 +816,10 @@ impl Error for TransferError {
 }
 
 /// Failure when a previously validated transfer is committed after inventory has changed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TransferCommitError {
     StaleInventoryRevision { expected: u64, actual: u64 },
+    Structure(StructuralCommitError),
 }
 
 impl Display for TransferCommitError {
@@ -801,11 +829,22 @@ impl Display for TransferCommitError {
                 formatter,
                 "validated transfer expected inventory revision {expected} but current revision is {actual}"
             ),
+            Self::Structure(error) => write!(
+                formatter,
+                "validated transfer could not commit stored-matter structural load: {error}"
+            ),
         }
     }
 }
 
-impl Error for TransferCommitError {}
+impl Error for TransferCommitError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Structure(error) => Some(error),
+            Self::StaleInventoryRevision { .. } => None,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct LotSlice {
@@ -826,6 +865,7 @@ pub struct ValidatedTransferBulk {
     slices: Vec<LotSlice>,
     split_lot_id: Option<MaterialLotId>,
     next_lot_id_after: Option<u64>,
+    structural: Option<ValidatedStockpileStructuralLoad>,
 }
 
 impl ValidatedTransferBulk {
@@ -841,19 +881,27 @@ impl ValidatedTransferBulk {
             slices,
             split_lot_id,
             next_lot_id_after,
+            structural,
         } = self;
 
         if source == destination {
             return Ok(());
         }
 
-        let inventories = state.inventory_state_mut();
-        if inventories.revision != expected_revision {
+        let actual_inventory_revision = state.inventory_state().revision();
+        if actual_inventory_revision != expected_revision {
             return Err(TransferCommitError::StaleInventoryRevision {
                 expected: expected_revision,
-                actual: inventories.revision,
+                actual: actual_inventory_revision,
             });
         }
+        if let Some(structural) = structural {
+            structural
+                .commit(state)
+                .map_err(TransferCommitError::Structure)?;
+        }
+
+        let inventories = state.inventory_state_mut();
 
         apply_aggregate_withdraw(inventories, source, commodity, mass);
         apply_aggregate_deposit(inventories, destination, commodity, mass);
@@ -920,6 +968,7 @@ pub fn add_stockpile_with_storage_profile(
         id,
         capacity,
         storage_profile,
+        supported_by: None,
         stored_mass: Mass::ZERO,
         reserved_inbound: Mass::ZERO,
         lot_ids: std::collections::BTreeSet::new(),
@@ -1184,6 +1233,21 @@ pub(crate) fn deposit_composed_lot_for_test(
         return Err(DepositError::RevisionExhausted);
     };
     let created_at = state.tick();
+    let stored_after = record
+        .stored_mass()
+        .checked_add(mass)
+        .ok_or(DepositError::MassOverflow { stockpile })?;
+    let structural = validate_stockpile_stored_mass_changes(
+        registries,
+        state,
+        [StockpileStoredMassChange::new(stockpile, stored_after)],
+    )
+    .map_err(DepositError::StructuralLoad)?;
+    if let Some(structural) = structural {
+        structural
+            .commit(state)
+            .map_err(DepositError::StructuralCommit)?;
+    }
 
     let inventories = state.inventory_state_mut();
     apply_insert_lot(
@@ -1258,6 +1322,7 @@ pub fn validate_transfer_bulk(
             slices: Vec::new(),
             split_lot_id: None,
             next_lot_id_after: None,
+            structural: None,
         });
     }
 
@@ -1303,6 +1368,32 @@ pub fn validate_transfer_bulk(
     } else {
         (None, None)
     };
+    let source_after =
+        source_record
+            .stored_mass()
+            .checked_sub(mass)
+            .ok_or(TransferError::InsufficientMass {
+                stockpile: source,
+                commodity,
+                available: source_record.stored_mass(),
+                requested: mass,
+            })?;
+    let destination_after =
+        destination_record
+            .stored_mass()
+            .checked_add(mass)
+            .ok_or(TransferError::MassOverflow {
+                stockpile: destination,
+            })?;
+    let structural = validate_stockpile_stored_mass_changes(
+        registries,
+        state,
+        [
+            StockpileStoredMassChange::new(source, source_after),
+            StockpileStoredMassChange::new(destination, destination_after),
+        ],
+    )
+    .map_err(TransferError::StructuralLoad)?;
 
     Ok(ValidatedTransferBulk {
         expected_revision: inventories.revision,
@@ -1314,6 +1405,7 @@ pub fn validate_transfer_bulk(
         slices,
         split_lot_id,
         next_lot_id_after,
+        structural,
     })
 }
 
@@ -1380,7 +1472,7 @@ fn select_input_lot_slices(
                 lot_id.value()
             ),
         };
-        if lot.commodity() != input.commodity() || !input.matches_composition(lot.composition()) {
+        if lot.commodity() != input.commodity() || !input.is_satisfied_by(lot.composition()) {
             continue;
         }
 

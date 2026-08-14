@@ -417,7 +417,7 @@ pub fn assess_geological_knowledge(
                 id.value()
             ),
         };
-        if !record.region().intersects(region) {
+        if !record.region().has_intersection(region) {
             continue;
         }
         let overlap = match record.region().intersection(region) {

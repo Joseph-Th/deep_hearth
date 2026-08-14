@@ -184,7 +184,7 @@ impl VoxelBounds {
     }
 
     #[must_use]
-    pub const fn contains(self, coord: VoxelCoord) -> bool {
+    pub const fn has_voxel(self, coord: VoxelCoord) -> bool {
         coord.x >= self.min.x
             && coord.x < self.max_exclusive.x
             && coord.y >= self.min.y
@@ -195,7 +195,7 @@ impl VoxelBounds {
 
     /// Reports whether two nonempty half-open bounds share at least one voxel.
     #[must_use]
-    pub const fn intersects(self, other: Self) -> bool {
+    pub const fn has_intersection(self, other: Self) -> bool {
         self.min.x < other.max_exclusive.x
             && other.min.x < self.max_exclusive.x
             && self.min.y < other.max_exclusive.y
@@ -278,9 +278,9 @@ mod tests {
             Err(error) => panic!("bounds fixture failed: {error}"),
         };
 
-        assert!(bounds.contains(VoxelCoord::new(-2, 10, 5)));
-        assert!(bounds.contains(VoxelCoord::new(2, 11, 8)));
-        assert!(!bounds.contains(VoxelCoord::new(3, 11, 8)));
+        assert!(bounds.has_voxel(VoxelCoord::new(-2, 10, 5)));
+        assert!(bounds.has_voxel(VoxelCoord::new(2, 11, 8)));
+        assert!(!bounds.has_voxel(VoxelCoord::new(3, 11, 8)));
         assert_eq!(bounds.voxel_count(), Some(40));
     }
 
@@ -300,14 +300,14 @@ mod tests {
             Err(error) => panic!("touching intersection fixture failed: {error}"),
         };
 
-        assert!(left.intersects(overlapping));
-        assert!(overlapping.intersects(left));
+        assert!(left.has_intersection(overlapping));
+        assert!(overlapping.has_intersection(left));
         assert_eq!(
             left.intersection(overlapping),
             VoxelBounds::new(VoxelCoord::new(3, 1, 1), VoxelCoord::new(4, 2, 2)).ok()
         );
-        assert!(!left.intersects(touching));
-        assert!(!touching.intersects(left));
+        assert!(!left.has_intersection(touching));
+        assert!(!touching.has_intersection(left));
         assert_eq!(left.intersection(touching), None);
     }
 

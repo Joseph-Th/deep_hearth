@@ -48,7 +48,10 @@ pub use structural_execution::{
 };
 
 pub(crate) use state::validate_loaded_structure;
-pub(crate) use structural_execution::validate_set_owned_structural_load;
+pub(crate) use structural_execution::{
+    ValidatedStructuralLoadBatch, validate_set_owned_structural_load,
+    validate_set_owned_structural_loads,
+};
 
 #[cfg(test)]
 pub(crate) use construction_execution::materialize_structural_element_for_test;

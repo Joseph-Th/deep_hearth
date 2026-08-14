@@ -75,7 +75,8 @@ indexes; callers receive read-only views and canonical systems retain mutation a
 
 - `InventoryState` owns stockpiles, persistent material lots, generated stockpile/lot IDs, derived
   commodity totals, cached stored mass, inbound reservations, persisted phase/temperature containment
-  profiles, and an owner revision.
+  profiles, optional structural support assignments, the synchronized support-to-stockpile reverse
+  index, and an owner revision.
 - `EnergyState` owns finite energy stores, generated store IDs, and an owner revision. Store behavior
   is defined by immutable carrier, capacity, and independent input/output power envelopes.
 - `FluidState` owns finite homogeneous fluid stores, generated store IDs, exact volume and
@@ -106,11 +107,12 @@ callbacks, event handlers, record methods, or engine lifecycle hooks.
 ## 7. Persistence
 
 The core defines a versioned semantic save envelope while deliberately leaving byte encoding and
-storage to adapters. The current save schema is version 22. Authored identity/physics compatibility
+storage to adapters. The current save schema is version 23. Authored identity/physics compatibility
 is tracked separately by `RegistrySchemaVersion`; the built-in registry schema is currently version
-10. Core gravity, material phase/fusion semantics, fluid definitions, and directional energy-store
-semantics are part of that immutable registry contract because changing them can alter persisted
-physical consequences even when authored IDs are unchanged.
+11. Core gravity, material phase/fusion semantics, physical form identities, fluid definitions,
+directional energy-store semantics, and operation-specific resolver identities are part of that
+immutable registry contract because changing them can alter persisted physical consequences even
+when authored IDs are unchanged.
 
 `SaveMetadata` can be decoded without decoding the current `AppState` shape. A future adapter can
 therefore inspect an old schema first and route it to a version-specific DTO and explicit migration.
@@ -127,10 +129,13 @@ A current-schema load must:
 
 Persistence tests cover deterministic continuation, mixed composition, independent RNG continuation,
 tampered RNG roots, tampered in-process consumed mass, stable immediate JSON reserialization,
-stockpile phase/temperature containment, fluid-store references and conservation state, structural
-embodied-mass/self-weight/phase agreement, equipment structural support/load agreement, directional
-energy source/sink ownership, and operation-specific sensible-heating/melting/casting replay from
-committed physical traces.
+stockpile phase/temperature containment, stockpile structural support/index/load agreement,
+fluid-store references and conservation state, structural embodied-mass/self-weight/phase agreement,
+equipment structural support/load agreement, directional energy source/sink ownership, and
+operation-specific sensible-heating/melting/casting replay from committed physical traces.
+Comminution jobs are likewise recomputed from exact consumed-material, equipment, and energy traces,
+including authored form transition, mass-specific work, carrier, condition-sensitive throughput,
+power-limited duration, and post-operation wear.
 
 Filesystem layout, compression, atomic writes, cloud storage, and released-save migration
 implementations remain adapter work.
@@ -194,6 +199,8 @@ units:
 - `ElectricalResistance`: microohms (`u64`);
 - `Volume`: microliters (`u64`);
 - `AggregateVolume`: world-scale microliters (`u128`);
+- `MassSpecificEnergy`: nanojoules per milligram (`u64`);
+- `MassFlow`: milligrams per second (`u64`);
 - `VolumetricFlow`: microliters per second (`u64`).
 
 Arithmetic that can exceed authoritative storage is checked. Floating point is not used by the
@@ -202,10 +209,10 @@ implemented authoritative physical calculations.
 ## 12. Materials and Physical Forms
 
 Materials are immutable definitions with typed IDs and grouped density, thermal, mechanical, and
-electrical properties. Physical forms such as log, lump, ore, concentrate, ingot, and molten matter
-have typed `FormId` definitions and an explicit `MaterialPhase`. `CommodityKey` combines one material
-and one form for coarse indexing. Thermal definitions may author an exact solid/liquid fusion point
-and latent heat.
+electrical properties. Physical forms such as log, lump, ore, crushed material, concentrate, ingot,
+and molten matter have typed `FormId` definitions and an explicit `MaterialPhase`. `CommodityKey`
+combines one material and one form for coarse indexing. Thermal definitions may author an exact
+solid/liquid fusion point and latent heat.
 
 `MaterialComposition` is a canonical normalized mass-fraction profile. Components are sorted by
 material ID, use integer parts per million, and total exactly 1,000,000 ppm. Duplicate materials,
@@ -231,9 +238,19 @@ temperature, normalized composition), and a creation provenance range.
 
 Stockpiles maintain derived deterministic indexes/caches for lot IDs, per-commodity mass, total
 stored mass, capacity, reserved inbound mass, and a persisted containment profile declaring accepted
-material phases plus maximum material temperature. `validate_transfer_bulk` plus the consumed
-`ValidatedTransferBulk::commit` performs revision-bound two-stockpile movement. Partial transfers
-split lots in stable ID order without averaging physical properties away. Newly created compatible
+material phases plus maximum material temperature. A stockpile may also own one optional structural
+support assignment. `InventoryState` maintains the synchronized support-to-stockpile reverse index;
+`StructuralLoadKind::StoredMatter` is derived from the aggregate stored mass of all stockpiles on a
+support, converted to force once under registry-authored gravity. Aggregating mass before conversion
+avoids per-container rounding creating artificial weight. Reserved inbound capacity is space, not
+matter, and therefore contributes no structural load until physical output becomes authoritative.
+
+`validate_transfer_bulk` plus the consumed `ValidatedTransferBulk::commit` performs revision-bound
+two-stockpile movement. If either stockpile is structurally supported, transfer validation computes
+both final stored masses and analyzes the complete final stored-matter load arrangement under one
+structural revision before matter moves. The transaction remains bound to that structural revision
+even when aggregate mass-to-force rounding leaves the numeric load unchanged. Partial transfers split
+lots in stable ID order without averaging physical properties away. Newly created compatible
 fragments can coalesce into the lowest-ID compatible destination lot. Every canonical ingress and
 production-output reservation rechecks destination containment.
 
@@ -258,12 +275,14 @@ terrain voxel storage, prospecting visibility, or mining geometry. Overlapping g
 therefore not prohibited by this foundation; a future geological model may use overlapping records
 for distinct structures or mineralization rather than forcing a premature one-record-per-voxel rule.
 
-Geological extraction is a revision-bound two-owner transaction. An opaque `ExtractionResolution`
+Geological extraction is a revision-bound cross-owner transaction. An opaque `ExtractionResolution`
 must already exist before validation, so this foundation does not expose free instant mining. The
 transaction checks finite remaining mass and destination capacity, binds geology and inventory
-revisions, then moves the exact mass, composition, form, temperature, and provenance into a material
-lot atomically. Inventory exposes only a crate-private validated ingress primitive for explicit
-source owners, preserving the existing prohibition on arbitrary gameplay matter insertion.
+revisions, and also binds structure when the destination stockpile is supported. It then moves the
+exact mass, composition, form, temperature, and provenance into a material lot while applying the
+destination's final stored-matter load atomically. Inventory exposes only a crate-private validated
+ingress primitive for explicit source owners, preserving the existing prohibition on arbitrary
+gameplay matter insertion.
 
 Explicit modeled-energy accounting includes supported material sensible plus latent thermal energy
 still owned by geological deposits, structural members, inventory, and in-process matter, together
@@ -311,8 +330,14 @@ Capability references and physical value kinds are validated when registries are
 specific operation plus optional finite energy/equipment outcomes owned by that operation. It has no
 public arbitrary constructor. Physical resolvers must produce the plan before the canonical start
 transaction can accept it. Implemented thermal resolvers cover phase-aware sensible heating,
-pure-material melting, and pure-material casting; alloying, chemical smelting, tooling, labor, and
-skill remain separate future resolvers.
+pure-material melting, and pure-material casting. The ore-processing foundation additionally resolves
+selected-batch comminution: a crusher/grinder changes an authored solid form while preserving each
+distinct input trace's mass, composition, and temperature, derives duration from condition-sensitive
+`MassFlow`, enforces maximum batch mass, and requires exact authored `MassSpecificEnergy` from a
+finite source of the required carrier. Authoritative duration is the slower of equipment throughput
+and source output power, so weak power infrastructure reduces throughput and increases active-tick
+wear. Separation, recovery, chemical smelting, alloying, tooling, labor, and skill remain separate
+future resolvers.
 
 Production is closed-mass in the implemented core: resolved output mass must equal authored input
 mass. Slag, tailings, wastewater, gas, and similar losses must therefore be explicit material streams
@@ -328,16 +353,31 @@ jobs validate these traces and operation-specific physics rather than trusting m
 Destination output capacity is reserved at start. Completion uses a deterministic due-tick plan and
 converts reserved capacity into actual output lots before removing the job/index entry.
 
+Supported stockpile weight follows authoritative matter ownership rather than reservations. Starting
+a job removes the consumed input mass from its source stockpile's derived `StoredMatter` load when the
+job becomes the matter owner. In-flight matter is not simultaneously counted as stockpile weight.
+When jobs complete, all output mass arriving at the same destination tick is aggregated first and one
+final support-load plan is analyzed before output ingress, so simultaneous completions cannot produce
+order-dependent structural results. Starting new work requires any supported destination stockpile to
+have an active support. Once output capacity is durably reserved, however, a later support collapse
+does not invalidate the already-owned in-flight matter: completion may deposit that reserved output
+onto the failed debris and records its resulting `StoredMatter` load. This avoids an otherwise
+unrecoverable occupied-job state while preserving the rule that failed supports accept no new inbound
+work.
+
 The general built-in gameplay production registry remains intentionally sparse until physical
-authorization systems exist for each operation. Test registries exercise the implemented thermal
-resolvers without turning them into unrestricted recipe shortcuts.
+authorization systems exist for each operation. Test registries exercise the implemented thermal and
+comminution resolvers without turning them into unrestricted recipe shortcuts. In particular, the
+built-in comminution registry remains empty until concrete crusher/grinder and finite power-source
+content can authorize real work in the world. The resolver itself already rejects absent,
+insufficient, or wrong-carrier energy rather than granting free processing.
 
 ## 16. Capabilities, Maintenance, Energy, Flow, and Mechanical Power
 
 Capabilities are typed physical requirements rather than generic progression levels. Current value
-kinds include presence, mass, temperature, energy, pressure, force, power, torque, angular speed,
-electrical quantities, volume/flow, and equipment condition. Each requirement states `AtLeast` or
-`AtMost` threshold semantics. `CapabilityProfile` owns deterministic nominal/static values, while
+kinds include presence, mass, mass flow, temperature, energy, pressure, force, power, torque, angular
+speed, electrical quantities, volume/flow, and equipment condition. Each requirement states `AtLeast`
+or `AtMost` threshold semantics. `CapabilityProfile` owns deterministic nominal/static values, while
 `CapabilitySource` lets runtime-adjusted providers satisfy the same evaluator without materializing
 temporary maps. The built-in capability registry remains empty until concrete gameplay providers are
 authored.
@@ -415,22 +455,53 @@ inventory into persisted structural embodiment and requires the embodied form to
 `StructuralLoadKind::SelfWeight` is then derived from the committed aggregate mass under
 registry-authored gravity. Self-weight is a structure-owned load channel and is rejected by the
 public generic load mutation API, preventing callers from forging or erasing the member's own weight.
-Exhaustive load validation recomputes embodied trace mass, phase, and self-weight independently.
+If the construction source stockpile is structurally supported, its final stored-matter load is
+resolved before the material leaves inventory. Exhaustive load validation recomputes embodied trace
+mass, phase, and self-weight independently.
 
 Direct generic removal is rejected for any member that still owns matter. An opaque
 `StructuralDeconstructionResolution` instead validates a destination stockpile and prepares both a
 structural removal and exact trace-preserving inventory ingress. Commit rechecks both owner revisions,
 removes the member through normal structural cascade analysis, then restores every embodied trace to
-inventory without changing its physical profile or provenance. Failed debris follows the same
-conservation boundary. Future dismantling and demolition resolvers may produce explicit salvage,
-debris, or waste streams, but they must balance the member's committed mass rather than deleting it.
+inventory without changing its physical profile or provenance. If the recovery destination is
+supported, member removal and the destination's final stored-matter load are analyzed together in one
+structural overlay and committed under one revision, avoiding an artificial order-dependent
+intermediate structure. Failed debris follows the same conservation boundary. Future dismantling and
+demolition resolvers may produce explicit salvage, debris, or waste streams, but they must balance the
+member's committed mass rather than deleting it.
 
 Construction and deconstruction tests verify cross-owner stale-token atomicity, exact matter and
 modeled sensible-energy conservation, direct-deletion prevention, mixed-composition rejection under
 the current strength model, persistence corruption rejection, and a deterministic 1,000-cycle
 inventory-to-structure-to-inventory soak.
 
-## 18. Equipment Structural Support
+## 18. Stockpile Structural Support
+
+Stockpile records own an optional `StructuralElementId` support assignment, while `InventoryState`
+maintains the synchronized support-to-stockpile reverse index. Mount/unmount is a revision-bound
+inventory/structure transaction. Mounting requires an active structural target and writes only the
+inventory-owned `StructuralLoadKind::StoredMatter` contribution. All stockpile masses assigned to one
+support are aggregated before gravity conversion. The generic structural-load API rejects direct
+`StoredMatter` writes, preserving inventory as the sole source of truth.
+
+Adding stored matter can crack or collapse a support through normal structural analysis. A support
+cannot be removed while any stockpile still references it. Failed debris can be unloaded so cleanup
+does not require resurrecting the member; unloading removes the derived load but does not clear crack
+or failure state. Failed supports reject newly initiated inbound matter. Output already reserved by a
+production job while the support was valid may complete after a later collapse because the job owns
+that matter and the occupied stockpile cannot be relocated mid-operation. Stockpiles participating as
+a production source or destination cannot be moved to a different support while that job is active.
+
+Every canonical operation that changes stockpile stored mass participates in the same ownership
+invariant: bulk transfer, production start/completion, geological extraction, structural
+construction/deconstruction, and test/bootstrap material seeding. Cross-owner tokens bind structural
+revisions whenever supported matter is involved, including zero-force-delta changes where conservative
+rounding leaves the stored contribution unchanged. Multi-stockpile or simultaneous-output changes use
+one batch load plan so no transient ordering can fabricate or omit weight. Save validation audits both
+support-index directions and independently recomputes each structural member's required stored-matter
+load.
+
+## 19. Equipment Structural Support
 
 Equipment records own an optional `StructuralElementId` support assignment, while `EquipmentState`
 maintains the synchronized reverse index used for support-local aggregation and removal checks. A
@@ -460,7 +531,7 @@ duration, and output snapshot; interrupting or partially recovering such work af
 failure remains deferred until production has an explicit interruption/cancellation owner rather than
 silently destroying committed resources.
 
-## 19. Cross-Subsystem Runtime Invariants and Boundaries
+## 20. Cross-Subsystem Runtime Invariants and Boundaries
 
 `validate_loaded_state(registries, state)` validates local owners plus cross-system relationships,
 including registry references, lot provenance and phase state, generated ID cursors, due-index
@@ -469,9 +540,11 @@ job lifecycle, consumed-input references, energy source/sink ownership, and in-p
 conservation, geological deposit references/lifecycle/provenance/solid phase, geological observation
 references/order/provenance and both directions of the material evidence index, structural embodied
 trace mass/material/composition/provenance/solid phase and self-weight agreement, equipment support
-references, and mounted-equipment structural-load agreement. Operation-specific thermal audits
-recompute sensible heating, melting, casting, condition-sensitive equipment outcomes, and released
-heat from persisted physical traces so an in-flight job's contract remains reproducible after load.
+references and mounted-equipment structural-load agreement, stockpile support references and both
+directions of the inventory support index, and independently derived stored-matter structural-load
+agreement. Operation-specific thermal audits recompute sensible heating, melting, casting,
+condition-sensitive equipment outcomes, and released heat from persisted physical traces so an
+in-flight job's contract remains reproducible after load.
 
 The foundation intentionally leaves unresolved choices unresolved. Deferred areas include chunk
 storage/streaming, renderer/ECS/physics/networking, regional geological generation, physical

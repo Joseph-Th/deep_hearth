@@ -24,23 +24,11 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Energy, Mass, Temperature};
-use crate::core::time::TickSpan;
 use crate::inventory::MaterialLotRecord;
-use crate::maintenance::{CONDITION_PARTS_PER_MILLION, Condition, decide_wear};
 use crate::material::{
     CommodityKey, CompositionError, FormId, MaterialComposition, MaterialId, MaterialPhase,
     MaterialPhaseStateError, MaterialRegistry, validate_material_phase_state,
 };
-
-pub(super) fn condition_after_active_ticks(
-    wear_ppm_per_active_tick: u32,
-    before: Condition,
-    duration: TickSpan,
-) -> Condition {
-    let total_wear = u128::from(wear_ppm_per_active_tick) * u128::from(duration.value());
-    let bounded_wear = std::cmp::min(total_wear, u128::from(CONDITION_PARTS_PER_MILLION)) as u32;
-    decide_wear(before, bounded_wear).after()
-}
 
 /// Direction of sensible heat transfer relative to the material lot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

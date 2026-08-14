@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 22;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 23;
 
 /// Minimal version metadata that adapters decode before choosing a concrete save payload decoder.
 ///
@@ -172,8 +172,8 @@ mod tests {
         validate_mount_equipment,
     };
     use crate::inventory::{
-        MaterialLotSelection, add_stockpile, deposit_bulk_for_test, deposit_composed_lot_for_test,
-        deposit_lot_for_test,
+        InventoryValidationError, MaterialLotSelection, add_stockpile, deposit_bulk_for_test,
+        deposit_composed_lot_for_test, deposit_lot_for_test, validate_mount_stockpile,
     };
     use crate::maintenance::{Condition, MaintenanceThresholds};
     use crate::material::{
@@ -380,7 +380,7 @@ mod tests {
         state: &mut AppState,
         x: i64,
         y: i64,
-        grounded: bool,
+        is_grounded: bool,
     ) -> StructuralElementId {
         let element = match add_structural_element(
             registries,
@@ -392,7 +392,7 @@ mod tests {
                 crate::core::quantity::Length::from_micrometers(1),
                 Area::from_square_millimeters(1_000),
             ),
-            grounded,
+            is_grounded,
         ) {
             Ok(element) => element,
             Err(error) => panic!("structural persistence element fixture failed: {error}"),
@@ -561,7 +561,8 @@ mod tests {
                     "next_stockpile_id": 1,
                     "next_lot_id": 1,
                     "stockpiles": {},
-                    "lots": {}
+                    "lots": {},
+                    "stockpiles_by_support": {}
                 },
                 "production": {"revision": 0, "next_job_id": 1, "jobs": {}, "due_jobs": {}}
             }
@@ -850,14 +851,14 @@ mod tests {
     }
 
     #[test]
-    fn current_save_rejects_prior_registry_schema_after_directional_energy_semantics_are_added() {
+    fn current_save_rejects_prior_registry_schema_after_authored_physics_change() {
         let registries = build_registries();
         let state = AppState::new(WorldSeed::new(0x5700_0005));
         let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
             Ok(encoded) => encoded,
             Err(error) => panic!("registry compatibility save serialization failed: {error}"),
         };
-        encoded["registry_schema_version"] = serde_json::json!(9_u32);
+        encoded["registry_schema_version"] = serde_json::json!(10_u32);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("registry compatibility save failed decode: {error}"),
@@ -866,9 +867,163 @@ mod tests {
         assert_eq!(
             decoded.into_state(&registries),
             Err(LoadError::RegistrySchemaMismatch {
-                found: RegistrySchemaVersion::new(9),
-                supported: RegistrySchemaVersion::new(10),
+                found: RegistrySchemaVersion::new(10),
+                supported: RegistrySchemaVersion::new(11),
             })
+        );
+    }
+
+    #[test]
+    fn current_save_rejects_prior_semantic_schema_after_stockpile_support_ownership() {
+        let registries = build_registries();
+        let state = AppState::new(WorldSeed::new(0x5700_0020));
+        let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("stockpile-support schema fixture failed serialization: {error}"),
+        };
+        encoded["schema_version"] = serde_json::json!(22_u32);
+        let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
+            Ok(decoded) => decoded,
+            Err(error) => panic!("stockpile-support schema fixture failed decode: {error}"),
+        };
+
+        assert_eq!(
+            decoded.into_state(&registries),
+            Err(LoadError::UnsupportedSchemaVersion {
+                found: 22,
+                supported: 23,
+            })
+        );
+    }
+
+    #[test]
+    fn supported_stockpile_round_trip_preserves_reverse_index_and_derived_load() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5700_0021));
+        let support = make_test_structural_element(&registries, &mut state, 0, 0, true);
+        activate_test_structural_element(&registries, &mut state, support);
+        let stockpile = match add_stockpile(&mut state, Mass::from_milligrams(1_000)) {
+            Ok(stockpile) => stockpile,
+            Err(error) => panic!("supported persistence stockpile failed: {error}"),
+        };
+        if let Err(error) = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            stockpile,
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            Mass::from_milligrams(1_000),
+            Temperature::from_millikelvin(293_150),
+        ) {
+            panic!("supported persistence material failed: {error}");
+        }
+        let mount = match validate_mount_stockpile(&registries, &state, stockpile, support) {
+            Ok(mount) => mount,
+            Err(error) => panic!("supported persistence mount failed: {error}"),
+        };
+        if let Err(error) = mount.commit(&mut state) {
+            panic!("supported persistence mount commit failed: {error}");
+        }
+        let expected_load = state
+            .structures()
+            .get_element(support)
+            .map(|record| record.load(StructuralLoadKind::StoredMatter));
+
+        let encoded = match serde_json::to_vec(&SaveEnvelope::new(&registries, &state)) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("supported stockpile save serialization failed: {error}"),
+        };
+        let decoded: LoadedSaveEnvelope = match serde_json::from_slice(&encoded) {
+            Ok(decoded) => decoded,
+            Err(error) => panic!("supported stockpile save decode failed: {error}"),
+        };
+        let loaded = match decoded.into_state(&registries) {
+            Ok(loaded) => loaded,
+            Err(error) => panic!("supported stockpile save validation failed: {error}"),
+        };
+
+        assert_eq!(loaded, state);
+        assert_eq!(
+            loaded
+                .inventory()
+                .get_stockpile(stockpile)
+                .and_then(|record| record.supported_by()),
+            Some(support)
+        );
+        assert_eq!(
+            loaded
+                .structures()
+                .get_element(support)
+                .map(|record| record.load(StructuralLoadKind::StoredMatter)),
+            expected_load
+        );
+    }
+
+    #[test]
+    fn tampered_stockpile_support_index_and_stored_matter_load_are_rejected_on_load() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5700_0022));
+        let support = make_test_structural_element(&registries, &mut state, 0, 0, true);
+        activate_test_structural_element(&registries, &mut state, support);
+        let stockpile = match add_stockpile(&mut state, Mass::from_milligrams(1_000)) {
+            Ok(stockpile) => stockpile,
+            Err(error) => panic!("support corruption stockpile failed: {error}"),
+        };
+        if let Err(error) = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            stockpile,
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            Mass::from_milligrams(1_000),
+            Temperature::from_millikelvin(293_150),
+        ) {
+            panic!("support corruption material failed: {error}");
+        }
+        let mount = match validate_mount_stockpile(&registries, &state, stockpile, support) {
+            Ok(mount) => mount,
+            Err(error) => panic!("support corruption mount failed: {error}"),
+        };
+        if let Err(error) = mount.commit(&mut state) {
+            panic!("support corruption mount commit failed: {error}");
+        }
+
+        let mut missing_index = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("support-index tamper serialization failed: {error}"),
+        };
+        missing_index["state"]["inventory"]["stockpiles_by_support"] = serde_json::json!({});
+        let missing_index: LoadedSaveEnvelope = match serde_json::from_value(missing_index) {
+            Ok(decoded) => decoded,
+            Err(error) => panic!("support-index tamper failed decode: {error}"),
+        };
+        assert_eq!(
+            missing_index.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Inventory(
+                InventoryValidationError::MissingSupportIndex {
+                    stockpile,
+                    element: support,
+                }
+            )))
+        );
+
+        let mut wrong_load = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("stored-matter tamper serialization failed: {error}"),
+        };
+        wrong_load["state"]["structures"]["elements"][support.value().to_string()]["loads"]["StoredMatter"] =
+            serde_json::json!(999_u128);
+        let wrong_load: LoadedSaveEnvelope = match serde_json::from_value(wrong_load) {
+            Ok(decoded) => decoded,
+            Err(error) => panic!("stored-matter tamper failed decode: {error}"),
+        };
+        assert_eq!(
+            wrong_load.into_state(&registries),
+            Err(LoadError::InvalidState(
+                StateValidationError::StoredMatterStructuralLoadMismatch {
+                    element: support,
+                    stored: Force::from_millinewtons(999),
+                    expected: Force::from_millinewtons(10),
+                }
+            ))
         );
     }
 

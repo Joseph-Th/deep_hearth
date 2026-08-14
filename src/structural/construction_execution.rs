@@ -10,8 +10,10 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::{AggregateMass, Force, Mass, Volume};
 use crate::core::state::AppState;
 use crate::inventory::{
-    ConsumedMaterialTrace, MaterialEgressError, StockpileId, ValidatedMaterialEgress,
+    ConsumedMaterialTrace, MaterialEgressError, StockpileId, StockpileStoredMassChange,
+    StockpileStructuralLoadError, ValidatedMaterialEgress, ValidatedStockpileStructuralLoad,
     apply_material_egress, validate_material_egress_from_selection,
+    validate_stockpile_stored_mass_changes,
 };
 #[cfg(test)]
 use crate::inventory::{
@@ -21,6 +23,7 @@ use crate::inventory::{
 use crate::material::{FormId, MaterialComposition, MaterialId, MaterialPhase};
 use crate::registry::Registries;
 
+use super::StructuralCommitError;
 use super::geometry::{
     StructuralGeometryError, calculate_prismatic_material_mass_ceiling,
     calculate_prismatic_volume_ceiling,
@@ -226,6 +229,7 @@ pub enum StructuralConstructionError {
     SelfWeightOverflow {
         element: StructuralElementId,
     },
+    StructuralLoad(StockpileStructuralLoadError),
 }
 
 impl Display for StructuralConstructionError {
@@ -308,6 +312,10 @@ impl Display for StructuralConstructionError {
                 "structural element {} construction mass exceeds self-weight force range",
                 element.value()
             ),
+            Self::StructuralLoad(error) => write!(
+                formatter,
+                "construction cannot update source stockpile stored-matter load: {error}"
+            ),
         }
     }
 }
@@ -316,17 +324,30 @@ impl Error for StructuralConstructionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Geometry { error, .. } => Some(error),
-            _ => None,
+            Self::StructuralLoad(error) => Some(error),
+            Self::UnknownElement { .. }
+            | Self::ElementNotPlanned { .. }
+            | Self::AlreadyMaterialized { .. }
+            | Self::MaterialMismatch { .. }
+            | Self::UnsupportedComposition { .. }
+            | Self::UnknownMaterialForm { .. }
+            | Self::UnsupportedPhase { .. }
+            | Self::MaterialQuantityMismatch { .. }
+            | Self::InventorySelectionStale { .. }
+            | Self::InventoryRevisionExhausted
+            | Self::StructureRevisionExhausted
+            | Self::SelfWeightOverflow { .. } => None,
         }
     }
 }
 
 /// A validated construction transfer can no longer commit because an owning subsystem changed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StructuralConstructionCommitError {
     StaleStructureRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     StateChanged { element: StructuralElementId },
+    Structure(StructuralCommitError),
 }
 
 impl Display for StructuralConstructionCommitError {
@@ -345,11 +366,24 @@ impl Display for StructuralConstructionCommitError {
                 "structural element {} changed before construction commit",
                 element.value()
             ),
+            Self::Structure(error) => write!(
+                formatter,
+                "construction could not commit source stockpile stored-matter load: {error}"
+            ),
         }
     }
 }
 
-impl Error for StructuralConstructionCommitError {}
+impl Error for StructuralConstructionCommitError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Structure(error) => Some(error),
+            Self::StaleStructureRevision { .. }
+            | Self::StaleInventoryRevision { .. }
+            | Self::StateChanged { .. } => None,
+        }
+    }
+}
 
 /// Consumed proof that exact inventory matter can become one member's embodied matter atomically.
 #[must_use]
@@ -362,6 +396,7 @@ pub struct ValidatedStructuralConstruction {
     mass: Mass,
     self_weight: Force,
     egress: ValidatedMaterialEgress,
+    stockpile_load: Option<ValidatedStockpileStructuralLoad>,
 }
 
 impl ValidatedStructuralConstruction {
@@ -401,7 +436,21 @@ impl ValidatedStructuralConstruction {
                 element: self.element,
             });
         }
+        if let Some(stockpile_load) = &self.stockpile_load {
+            let expected = stockpile_load.expected_revision();
+            if expected != self.expected_structure_revision {
+                return Err(StructuralConstructionCommitError::StaleStructureRevision {
+                    expected,
+                    actual: self.expected_structure_revision,
+                });
+            }
+        }
 
+        if let Some(stockpile_load) = self.stockpile_load {
+            stockpile_load
+                .commit(state)
+                .map_err(StructuralConstructionCommitError::Structure)?;
+        }
         apply_material_egress(state.inventory_state_mut(), self.egress);
         let structures = state.structure_state_mut();
         let record = match structures.elements.get_mut(&self.element) {
@@ -500,11 +549,35 @@ pub fn validate_structural_construction(
             StructuralConstructionError::InventoryRevisionExhausted
         }
     })?;
-    let expected_structure_revision = state.structures().revision();
-    let next_structure_revision = expected_structure_revision
-        .checked_add(1)
-        .ok_or(StructuralConstructionError::StructureRevisionExhausted)?;
     debug_assert_eq!(egress.total_consumed(), required_mass);
+    let source = resolution.selection.source();
+    let source_record = state.inventory().get_stockpile(source).ok_or(
+        StructuralConstructionError::StructuralLoad(
+            StockpileStructuralLoadError::UnknownStockpile { stockpile: source },
+        ),
+    )?;
+    let source_after = source_record
+        .stored_mass()
+        .checked_sub(required_mass)
+        .ok_or(StructuralConstructionError::MaterialQuantityMismatch {
+            element,
+            required: required_mass,
+            selected: source_record.stored_mass(),
+        })?;
+    let stockpile_load = validate_stockpile_stored_mass_changes(
+        registries,
+        state,
+        [StockpileStoredMassChange::new(source, source_after)],
+    )
+    .map_err(StructuralConstructionError::StructuralLoad)?;
+    let expected_structure_revision = state.structures().revision();
+    let revision_steps = 1_u64
+        + stockpile_load
+            .as_ref()
+            .map_or(0, ValidatedStockpileStructuralLoad::revision_delta);
+    let next_structure_revision = expected_structure_revision
+        .checked_add(revision_steps)
+        .ok_or(StructuralConstructionError::StructureRevisionExhausted)?;
     let self_weight = calculate_aggregate_weight_force_ceiling(
         AggregateMass::from_mass(required_mass),
         registries.core().gravity(),
@@ -518,6 +591,7 @@ pub fn validate_structural_construction(
         mass: egress.total_consumed(),
         self_weight,
         egress,
+        stockpile_load,
     })
 }
 
@@ -578,13 +652,13 @@ mod tests {
         FORM_LOG, FORM_MOLTEN, MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_WOOD,
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
     };
-    use crate::core::quantity::{Area, Energy, Length};
+    use crate::core::quantity::{Area, Energy, Force, Length};
     use crate::core::state::validate_loaded_state;
     use crate::core::time::WorldSeed;
     use crate::energy::{ExplicitEnergyAccountingError, calculate_explicit_energy_accounting};
     use crate::inventory::{
         StockpileStorageProfile, add_stockpile, add_stockpile_with_storage_profile,
-        deposit_composed_lot_for_test, deposit_lot_for_test,
+        deposit_composed_lot_for_test, deposit_lot_for_test, validate_mount_stockpile,
     };
     use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
     use crate::matter::calculate_matter_accounting;
@@ -818,6 +892,34 @@ mod tests {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5C00_0002));
         let element = member(&registries, &mut state, Mass::from_milligrams(2_000_000));
+        let support_bounds =
+            match VoxelBounds::new(VoxelCoord::new(10, 0, 0), VoxelCoord::new(11, 1, 1)) {
+                Ok(bounds) => bounds,
+                Err(error) => panic!("construction storage support bounds failed: {error}"),
+            };
+        let support = match add_structural_element(
+            &registries,
+            &mut state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            crate::structural::make_test_structural_geometry(
+                support_bounds,
+                Length::from_micrometers(1),
+                Area::from_square_millimeters(1_000),
+            ),
+            true,
+        ) {
+            Ok(support) => support,
+            Err(error) => panic!("construction storage support failed: {error}"),
+        };
+        materialize_structural_element_for_test(&registries, &mut state, support, FORM_LOG);
+        let activation = match validate_activate_structural_element(&registries, &state, support) {
+            Ok(activation) => activation,
+            Err(error) => panic!("construction storage support activation failed: {error}"),
+        };
+        if let Err(error) = activation.commit(&mut state) {
+            panic!("construction storage support activation commit failed: {error}");
+        }
         let source = match add_stockpile(&mut state, Mass::from_milligrams(2_000_000)) {
             Ok(source) => source,
             Err(error) => panic!("construction source failed: {error}"),
@@ -833,6 +935,13 @@ mod tests {
             Ok(lot) => lot,
             Err(error) => panic!("construction material failed: {error}"),
         };
+        let mount = match validate_mount_stockpile(&registries, &state, source, support) {
+            Ok(mount) => mount,
+            Err(error) => panic!("construction source mount failed: {error}"),
+        };
+        if let Err(error) = mount.commit(&mut state) {
+            panic!("construction source mount commit failed: {error}");
+        }
         let initial = match calculate_matter_accounting(&state) {
             Ok(accounting) => accounting.total(),
             Err(error) => panic!("construction initial matter accounting failed: {error}"),
@@ -871,6 +980,13 @@ mod tests {
                 .get_stockpile(source)
                 .map(|stockpile| stockpile.stored_mass()),
             Some(Mass::ZERO)
+        );
+        assert_eq!(
+            state
+                .structures()
+                .get_element(support)
+                .map(|record| record.load(StructuralLoadKind::StoredMatter)),
+            Some(Force::ZERO)
         );
         let final_total = match calculate_matter_accounting(&state) {
             Ok(accounting) => accounting.total(),

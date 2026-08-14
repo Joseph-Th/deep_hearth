@@ -19,7 +19,7 @@ use crate::equipment::{
     EquipmentId, EquipmentProviderError, resolve_equipment_capability, resolve_equipment_provider,
 };
 use crate::inventory::{MaterialLotSelection, StockpileId};
-use crate::maintenance::Condition;
+use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
 use crate::material::{MaterialLotSpec, MaterialLotSpecError, MaterialPhase, MaterialRegistry};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessInputPolicy, ProcessResolution, ProcessResolutionError,
@@ -33,10 +33,7 @@ use super::casting_execution::{
 use super::melting_execution::{
     MeltingJobValidationError, MeltingProcessDefinition, validate_loaded_melting_job,
 };
-use super::{
-    HeatDirection, PhaseSensibleHeatError, calculate_phase_sensible_heat,
-    condition_after_active_ticks,
-};
+use super::{HeatDirection, PhaseSensibleHeatError, calculate_phase_sensible_heat};
 
 /// Immutable declaration that one process is resolved as ideal sensible heating.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -175,6 +172,12 @@ impl ThermalRegistry {
     #[must_use]
     pub fn get_casting(&self, process: ProcessId) -> Option<CastingProcessDefinition> {
         self.casting.get(&process).copied()
+    }
+
+    pub(crate) fn has_process(&self, process: ProcessId) -> bool {
+        self.sensible_heating.contains_key(&process)
+            || self.melting.contains_key(&process)
+            || self.casting.contains_key(&process)
     }
 
     pub(crate) fn validate_references(
@@ -648,7 +651,7 @@ pub fn resolve_sensible_heating_process(
         registries.core().ticks_per_second(),
     )
     .map_err(SensibleHeatingResolutionError::Duration)?;
-    let equipment_condition_after = condition_after_active_ticks(
+    let equipment_condition_after = calculate_condition_after_active_ticks(
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
         duration,
@@ -1110,7 +1113,7 @@ pub(crate) fn validate_loaded_thermal_job(
             required: required_duration,
         });
     }
-    let required_condition_after = condition_after_active_ticks(
+    let required_condition_after = calculate_condition_after_active_ticks(
         thermal_definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
         required_duration,
@@ -3075,7 +3078,7 @@ mod tests {
             Some(record) => record.completes_at(),
             None => panic!("completion-race job disappeared before due planning"),
         };
-        let plan = match decide_due_completions(&state, due) {
+        let plan = match decide_due_completions(&registries, &state, due) {
             Ok(plan) => plan,
             Err(error) => panic!("completion-race due planning failed: {error:?}"),
         };

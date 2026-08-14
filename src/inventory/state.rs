@@ -12,6 +12,7 @@ use crate::material::{
     CommodityKey, CompositionError, FormId, MaterialComposition, MaterialPhase,
     MaterialPhaseStateError, MaterialRegistry, validate_material_phase_state,
 };
+use crate::structural::StructuralElementId;
 
 /// Persistent identifier for a runtime stockpile record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -37,21 +38,23 @@ impl StockpileId {
 /// admit liquid matter up to an authored thermal limit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StockpileStorageProfile {
-    allow_solid: bool,
-    allow_liquid: bool,
+    #[serde(rename = "allow_solid")]
+    can_store_solid: bool,
+    #[serde(rename = "allow_liquid")]
+    can_store_liquid: bool,
     maximum_temperature: Temperature,
 }
 
 impl StockpileStorageProfile {
     /// Builds a validated material-containment envelope.
     pub fn new(
-        allow_solid: bool,
-        allow_liquid: bool,
+        can_store_solid: bool,
+        can_store_liquid: bool,
         maximum_temperature: Temperature,
     ) -> Result<Self, StockpileStorageProfileError> {
         let profile = Self {
-            allow_solid,
-            allow_liquid,
+            can_store_solid,
+            can_store_liquid,
             maximum_temperature,
         };
         profile.validate()?;
@@ -62,17 +65,17 @@ impl StockpileStorageProfile {
     #[must_use]
     pub const fn solid_only() -> Self {
         Self {
-            allow_solid: true,
-            allow_liquid: false,
+            can_store_solid: true,
+            can_store_liquid: false,
             maximum_temperature: Temperature::from_millikelvin(u32::MAX),
         }
     }
 
     #[must_use]
-    pub const fn allows_phase(self, phase: MaterialPhase) -> bool {
+    pub const fn can_store_phase(self, phase: MaterialPhase) -> bool {
         match phase {
-            MaterialPhase::Solid => self.allow_solid,
-            MaterialPhase::Liquid => self.allow_liquid,
+            MaterialPhase::Solid => self.can_store_solid,
+            MaterialPhase::Liquid => self.can_store_liquid,
         }
     }
 
@@ -82,7 +85,7 @@ impl StockpileStorageProfile {
     }
 
     pub(crate) fn validate(self) -> Result<(), StockpileStorageProfileError> {
-        if !self.allow_solid && !self.allow_liquid {
+        if !self.can_store_solid && !self.can_store_liquid {
             return Err(StockpileStorageProfileError::NoAcceptedPhase);
         }
         if self.maximum_temperature.millikelvin() == 0 {
@@ -269,6 +272,7 @@ pub struct StockpileRecord {
     pub(super) id: StockpileId,
     pub(super) capacity: Mass,
     pub(super) storage_profile: StockpileStorageProfile,
+    pub(super) supported_by: Option<StructuralElementId>,
     pub(super) stored_mass: Mass,
     pub(super) reserved_inbound: Mass,
     pub(super) lot_ids: BTreeSet<MaterialLotId>,
@@ -289,6 +293,12 @@ impl StockpileRecord {
     #[must_use]
     pub const fn storage_profile(&self) -> StockpileStorageProfile {
         self.storage_profile
+    }
+
+    /// Returns the structural member currently carrying this stockpile's stored matter, if assigned.
+    #[must_use]
+    pub const fn supported_by(&self) -> Option<StructuralElementId> {
+        self.supported_by
     }
 
     #[must_use]
@@ -326,6 +336,7 @@ pub struct InventoryState {
     pub(super) next_lot_id: u64,
     pub(super) stockpiles: BTreeMap<StockpileId, StockpileRecord>,
     pub(super) lots: BTreeMap<MaterialLotId, MaterialLotRecord>,
+    pub(super) stockpiles_by_support: BTreeMap<StructuralElementId, BTreeSet<StockpileId>>,
 }
 
 impl InventoryState {
@@ -337,6 +348,7 @@ impl InventoryState {
             next_lot_id: 1,
             stockpiles: BTreeMap::new(),
             lots: BTreeMap::new(),
+            stockpiles_by_support: BTreeMap::new(),
         }
     }
 
@@ -368,6 +380,99 @@ impl InventoryState {
     /// Iterates all material lots deterministically by stable runtime ID.
     pub fn lots(&self) -> impl Iterator<Item = &MaterialLotRecord> {
         self.lots.values()
+    }
+
+    /// Iterates stockpiles assigned to one structural support in stable stockpile-ID order.
+    pub(crate) fn supported_stockpiles(
+        &self,
+        support: StructuralElementId,
+    ) -> impl Iterator<Item = StockpileId> + '_ {
+        self.stockpiles_by_support
+            .get(&support)
+            .into_iter()
+            .flat_map(|stockpiles| stockpiles.iter().copied())
+    }
+
+    pub(super) fn apply_support_change(
+        &mut self,
+        stockpile: StockpileId,
+        before: Option<StructuralElementId>,
+        after: Option<StructuralElementId>,
+        next_revision: u64,
+    ) {
+        if let Some(before) = before {
+            let remove_entry = {
+                let indexed = match self.stockpiles_by_support.get_mut(&before) {
+                    Some(indexed) => indexed,
+                    None => panic!(
+                        "runtime invariant broken: inventory support index missing element {} for stockpile {}",
+                        before.value(),
+                        stockpile.value()
+                    ),
+                };
+                assert!(
+                    indexed.remove(&stockpile),
+                    "runtime invariant broken: inventory support index element {} missing stockpile {}",
+                    before.value(),
+                    stockpile.value()
+                );
+                indexed.is_empty()
+            };
+            if remove_entry {
+                self.stockpiles_by_support.remove(&before);
+            }
+        }
+        if let Some(after) = after {
+            let inserted = self
+                .stockpiles_by_support
+                .entry(after)
+                .or_default()
+                .insert(stockpile);
+            assert!(
+                inserted,
+                "runtime invariant broken: inventory support index element {} already contains stockpile {}",
+                after.value(),
+                stockpile.value()
+            );
+        }
+        let record = match self.stockpiles.get_mut(&stockpile) {
+            Some(record) => record,
+            None => panic!(
+                "runtime invariant broken: stockpile {} disappeared during support update",
+                stockpile.value()
+            ),
+        };
+        debug_assert_eq!(record.supported_by, before);
+        record.supported_by = after;
+        self.revision = next_revision;
+    }
+
+    pub(crate) fn has_valid_support_index(&self) -> bool {
+        let records_match_index =
+            self.stockpiles
+                .values()
+                .all(|record| match record.supported_by {
+                    Some(support) => self
+                        .stockpiles_by_support
+                        .get(&support)
+                        .is_some_and(|stockpiles| stockpiles.contains(&record.id)),
+                    None => true,
+                });
+        let index_matches_records =
+            self.stockpiles_by_support
+                .iter()
+                .all(|(support, stockpiles)| {
+                    support.value() != 0
+                        && !stockpiles.is_empty()
+                        && stockpiles.iter().all(|id| {
+                            id.value() != 0
+                                && self
+                                    .stockpiles
+                                    .get(id)
+                                    .is_some_and(|record| record.supported_by == Some(*support))
+                        })
+                });
+        records_match_index && index_matches_records
     }
 }
 
@@ -473,6 +578,26 @@ pub enum InventoryValidationError {
     },
     MassOverflow {
         stockpile: StockpileId,
+    },
+    ZeroSupportElementId {
+        stockpile: StockpileId,
+    },
+    ZeroIndexedSupportElementId,
+    EmptySupportIndex {
+        element: StructuralElementId,
+    },
+    MissingSupportIndex {
+        stockpile: StockpileId,
+        element: StructuralElementId,
+    },
+    UnknownIndexedStockpile {
+        stockpile: StockpileId,
+        element: StructuralElementId,
+    },
+    SupportIndexMismatch {
+        stockpile: StockpileId,
+        indexed: StructuralElementId,
+        actual: Option<StructuralElementId>,
     },
 }
 
@@ -650,6 +775,41 @@ impl Display for InventoryValidationError {
                 "stockpile {} mass accounting overflows",
                 stockpile.value()
             ),
+            Self::ZeroSupportElementId { stockpile } => write!(
+                formatter,
+                "stockpile {} references zero structural support id",
+                stockpile.value()
+            ),
+            Self::ZeroIndexedSupportElementId => {
+                formatter.write_str("inventory support index contains zero structural element id")
+            }
+            Self::EmptySupportIndex { element } => write!(
+                formatter,
+                "inventory support index element {} contains no stockpiles",
+                element.value()
+            ),
+            Self::MissingSupportIndex { stockpile, element } => write!(
+                formatter,
+                "stockpile {} references structural support {} but is absent from its reverse index",
+                stockpile.value(),
+                element.value()
+            ),
+            Self::UnknownIndexedStockpile { stockpile, element } => write!(
+                formatter,
+                "inventory support index element {} references missing stockpile {}",
+                element.value(),
+                stockpile.value()
+            ),
+            Self::SupportIndexMismatch {
+                stockpile,
+                indexed,
+                actual,
+            } => write!(
+                formatter,
+                "inventory support index assigns stockpile {} to element {} but record support is {actual:?}",
+                stockpile.value(),
+                indexed.value()
+            ),
         }
     }
 }
@@ -748,7 +908,7 @@ pub(crate) fn validate_loaded_inventory(
                 form: form_id,
             });
         };
-        if !owner.storage_profile.allows_phase(form.phase()) {
+        if !owner.storage_profile.can_store_phase(form.phase()) {
             return Err(InventoryValidationError::LotPhaseNotAccepted {
                 lot: *key,
                 stockpile: lot.stockpile,
@@ -806,6 +966,21 @@ pub(crate) fn validate_loaded_inventory(
         }
         if record.capacity.is_zero() {
             return Err(InventoryValidationError::ZeroCapacity { stockpile: *key });
+        }
+        if let Some(support) = record.supported_by {
+            if support.value() == 0 {
+                return Err(InventoryValidationError::ZeroSupportElementId { stockpile: *key });
+            }
+            if !state
+                .stockpiles_by_support
+                .get(&support)
+                .is_some_and(|stockpiles| stockpiles.contains(key))
+            {
+                return Err(InventoryValidationError::MissingSupportIndex {
+                    stockpile: *key,
+                    element: support,
+                });
+            }
         }
 
         for lot_id in &record.lot_ids {
@@ -875,6 +1050,29 @@ pub(crate) fn validate_loaded_inventory(
             .ok_or(InventoryValidationError::MassOverflow { stockpile: *key })?;
         if committed > record.capacity {
             return Err(InventoryValidationError::CapacityExceeded { stockpile: *key });
+        }
+    }
+    for (element, stockpiles) in &state.stockpiles_by_support {
+        if element.value() == 0 {
+            return Err(InventoryValidationError::ZeroIndexedSupportElementId);
+        }
+        if stockpiles.is_empty() {
+            return Err(InventoryValidationError::EmptySupportIndex { element: *element });
+        }
+        for stockpile in stockpiles {
+            let Some(record) = state.stockpiles.get(stockpile) else {
+                return Err(InventoryValidationError::UnknownIndexedStockpile {
+                    stockpile: *stockpile,
+                    element: *element,
+                });
+            };
+            if record.supported_by != Some(*element) {
+                return Err(InventoryValidationError::SupportIndexMismatch {
+                    stockpile: *stockpile,
+                    indexed: *element,
+                    actual: record.supported_by,
+                });
+            }
         }
     }
     debug_assert!(calculated_by_stockpile.is_empty());

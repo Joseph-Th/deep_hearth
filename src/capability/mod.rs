@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{
     AngularSpeed, Area, ElectricCurrent, ElectricPotential, ElectricalResistance, Energy, Force,
-    Mass, Power, Pressure, Temperature, Torque, Volume, VolumetricFlow,
+    Mass, MassFlow, Power, Pressure, Temperature, Torque, Volume, VolumetricFlow,
 };
 use crate::maintenance::Condition;
 
@@ -50,6 +50,7 @@ pub enum CapabilityValueKind {
     ElectricCurrent,
     ElectricalResistance,
     Volume,
+    MassFlow,
     VolumetricFlow,
     Condition,
 }
@@ -71,6 +72,7 @@ pub enum CapabilityValue {
     ElectricCurrent(ElectricCurrent),
     ElectricalResistance(ElectricalResistance),
     Volume(Volume),
+    MassFlow(MassFlow),
     VolumetricFlow(VolumetricFlow),
     Condition(Condition),
 }
@@ -93,6 +95,7 @@ impl CapabilityValue {
             Self::ElectricCurrent(_) => CapabilityValueKind::ElectricCurrent,
             Self::ElectricalResistance(_) => CapabilityValueKind::ElectricalResistance,
             Self::Volume(_) => CapabilityValueKind::Volume,
+            Self::MassFlow(_) => CapabilityValueKind::MassFlow,
             Self::VolumetricFlow(_) => CapabilityValueKind::VolumetricFlow,
             Self::Condition(_) => CapabilityValueKind::Condition,
         }
@@ -114,6 +117,7 @@ impl CapabilityValue {
             Self::ElectricCurrent(value) => u128::from(value.microamperes()),
             Self::ElectricalResistance(value) => u128::from(value.microohms()),
             Self::Volume(value) => u128::from(value.microliters()),
+            Self::MassFlow(value) => u128::from(value.milligrams_per_second()),
             Self::VolumetricFlow(value) => u128::from(value.microliters_per_second()),
             Self::Condition(value) => u128::from(value.parts_per_million()),
         }
@@ -221,6 +225,10 @@ pub(crate) fn interpolate_capability_value(
             .ok()
             .map(Volume::from_microliters)
             .map(CapabilityValue::Volume),
+        CapabilityValue::MassFlow(_) => u64::try_from(magnitude)
+            .ok()
+            .map(MassFlow::from_milligrams_per_second)
+            .map(CapabilityValue::MassFlow),
         CapabilityValue::VolumetricFlow(_) => u64::try_from(magnitude)
             .ok()
             .map(VolumetricFlow::from_microliters_per_second)
@@ -686,6 +694,25 @@ mod tests {
         assert_eq!(
             CapabilityValue::AngularSpeed(AngularSpeed::from_microradians_per_second(12)).kind(),
             CapabilityValueKind::AngularSpeed
+        );
+    }
+
+    #[test]
+    fn material_throughput_is_a_distinct_typed_capability() {
+        assert_eq!(
+            CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(25)).kind(),
+            CapabilityValueKind::MassFlow
+        );
+        assert_eq!(
+            interpolate_capability_value(
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(10)),
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(30)),
+                1,
+                2,
+            ),
+            Some(CapabilityValue::MassFlow(
+                MassFlow::from_milligrams_per_second(20)
+            ))
         );
     }
 }
