@@ -1,6 +1,7 @@
 //! Ore/material preparation definitions and scalar throughput physics; sibling execution code resolves exact selected batches.
 
 mod comminution_execution;
+mod screening_execution;
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -8,11 +9,12 @@ use std::fmt::{Display, Formatter};
 use std::num::NonZeroU16;
 
 use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
-use crate::core::quantity::{Mass, MassFlow, MassSpecificEnergy};
+use crate::core::quantity::{Length, Mass, MassFlow, MassSpecificEnergy};
 use crate::core::time::TickSpan;
 use crate::energy::EnergyCarrier;
 use crate::material::{
-    FormId, MaterialPhase, MaterialRegistry, ParticleSizeRange, ParticleSizeStatePolicy,
+    FormId, MaterialPhase, MaterialRegistry, ParticleSizeDistribution, ParticleSizeRange,
+    ParticleSizeStatePolicy,
 };
 use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
 
@@ -24,14 +26,140 @@ pub use comminution_execution::{
 
 pub(crate) use comminution_execution::validate_loaded_comminution_job;
 
+pub use screening_execution::{
+    ResolvedScreening, ScreeningBatchError, ScreeningBottleneck, ScreeningJobValidationError,
+    ScreeningRequest, ScreeningResolutionError, resolve_screening_process,
+};
+
+pub(crate) use screening_execution::validate_loaded_screening_job;
+
 /// Immutable declaration that one selected-batch process reduces solid material to a finer form.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ComminutionProcessDefinition {
     process: ProcessId,
     input_form: FormId,
     output_form: FormId,
-    output_particle_size: ParticleSizeRange,
+    output_particle_size: ParticleSizeDistribution,
     operating: ComminutionOperatingProfile,
+}
+
+/// Immutable declaration that one selected-batch process classifies particulate material by size.
+///
+/// The aperture is an exact classification boundary. Runtime resolution succeeds only when every
+/// selected particle-size class lies wholly on one side of that boundary, so screening never
+/// invents a mass fraction for an unresolved class.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScreeningProcessDefinition {
+    process: ProcessId,
+    input_form: FormId,
+    output_form: FormId,
+    aperture: Length,
+    operating: ScreeningOperatingProfile,
+}
+
+/// Immutable equipment/work envelope used to resolve one screening process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScreeningOperatingProfile {
+    mass_flow_capability: CapabilityId,
+    max_batch_mass_capability: CapabilityId,
+    energy_carrier: EnergyCarrier,
+    specific_energy: MassSpecificEnergy,
+    condition_wear_ppm_per_active_tick: u32,
+}
+
+impl ScreeningOperatingProfile {
+    #[must_use]
+    pub const fn new(
+        mass_flow_capability: CapabilityId,
+        max_batch_mass_capability: CapabilityId,
+        energy_carrier: EnergyCarrier,
+        specific_energy: MassSpecificEnergy,
+        condition_wear_ppm_per_active_tick: u32,
+    ) -> Self {
+        assert!(
+            !specific_energy.is_zero(),
+            "screening mass-specific energy must be nonzero"
+        );
+        Self {
+            mass_flow_capability,
+            max_batch_mass_capability,
+            energy_carrier,
+            specific_energy,
+            condition_wear_ppm_per_active_tick,
+        }
+    }
+}
+
+impl ScreeningProcessDefinition {
+    /// Stable output stream identity for material at or below the authored aperture.
+    pub const UNDERSIZE_STREAM: crate::production::ProcessOutputStreamId =
+        crate::production::ProcessOutputStreamId::new(1);
+    /// Stable output stream identity for material strictly above the authored aperture.
+    pub const OVERSIZE_STREAM: crate::production::ProcessOutputStreamId =
+        crate::production::ProcessOutputStreamId::new(2);
+
+    #[must_use]
+    pub const fn new(
+        process: ProcessId,
+        input_form: FormId,
+        output_form: FormId,
+        aperture: Length,
+        operating: ScreeningOperatingProfile,
+    ) -> Self {
+        assert!(!aperture.is_zero(), "screening aperture must be nonzero");
+        Self {
+            process,
+            input_form,
+            output_form,
+            aperture,
+            operating,
+        }
+    }
+
+    #[must_use]
+    pub const fn process(self) -> ProcessId {
+        self.process
+    }
+
+    #[must_use]
+    pub const fn input_form(self) -> FormId {
+        self.input_form
+    }
+
+    #[must_use]
+    pub const fn output_form(self) -> FormId {
+        self.output_form
+    }
+
+    #[must_use]
+    pub const fn aperture(self) -> Length {
+        self.aperture
+    }
+
+    #[must_use]
+    pub const fn mass_flow_capability(self) -> CapabilityId {
+        self.operating.mass_flow_capability
+    }
+
+    #[must_use]
+    pub const fn max_batch_mass_capability(self) -> CapabilityId {
+        self.operating.max_batch_mass_capability
+    }
+
+    #[must_use]
+    pub const fn energy_carrier(self) -> EnergyCarrier {
+        self.operating.energy_carrier
+    }
+
+    #[must_use]
+    pub const fn specific_energy(self) -> MassSpecificEnergy {
+        self.operating.specific_energy
+    }
+
+    #[must_use]
+    pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
+        self.operating.condition_wear_ppm_per_active_tick
+    }
 }
 
 /// Immutable equipment/work envelope used to resolve one comminution process.
@@ -69,64 +197,73 @@ impl ComminutionOperatingProfile {
 
 impl ComminutionProcessDefinition {
     #[must_use]
-    pub const fn new(
+    pub fn new<P>(
         process: ProcessId,
         input_form: FormId,
         output_form: FormId,
-        output_particle_size: ParticleSizeRange,
+        output_particle_size: P,
         operating: ComminutionOperatingProfile,
-    ) -> Self {
+    ) -> Self
+    where
+        P: Into<ParticleSizeDistribution>,
+    {
         Self {
             process,
             input_form,
             output_form,
-            output_particle_size,
+            output_particle_size: output_particle_size.into(),
             operating,
         }
     }
 
     #[must_use]
-    pub const fn process(self) -> ProcessId {
+    pub const fn process(&self) -> ProcessId {
         self.process
     }
 
     #[must_use]
-    pub const fn input_form(self) -> FormId {
+    pub const fn input_form(&self) -> FormId {
         self.input_form
     }
 
     #[must_use]
-    pub const fn output_form(self) -> FormId {
+    pub const fn output_form(&self) -> FormId {
         self.output_form
     }
 
     #[must_use]
-    pub const fn output_particle_size(self) -> ParticleSizeRange {
-        self.output_particle_size
+    pub fn output_particle_size(&self) -> ParticleSizeRange {
+        self.output_particle_size.envelope()
+    }
+
+    /// Returns the authored weighted size classes produced by this comminution operation.
+    #[must_use]
+    pub const fn output_particle_size_distribution(&self) -> &ParticleSizeDistribution {
+        &self.output_particle_size
     }
 
     #[must_use]
-    pub const fn mass_flow_capability(self) -> CapabilityId {
+    pub const fn mass_flow_capability(&self) -> CapabilityId {
         self.operating.mass_flow_capability
     }
 
     #[must_use]
-    pub const fn max_batch_mass_capability(self) -> CapabilityId {
+    pub const fn max_batch_mass_capability(&self) -> CapabilityId {
         self.operating.max_batch_mass_capability
     }
 
     #[must_use]
-    pub const fn energy_carrier(self) -> EnergyCarrier {
+    pub const fn energy_carrier(&self) -> EnergyCarrier {
         self.operating.energy_carrier
     }
 
     #[must_use]
-    pub const fn specific_energy(self) -> MassSpecificEnergy {
+    pub const fn specific_energy(&self) -> MassSpecificEnergy {
         self.operating.specific_energy
     }
 
     #[must_use]
-    pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
+    pub const fn condition_wear_ppm_per_active_tick(&self) -> u32 {
         self.operating.condition_wear_ppm_per_active_tick
     }
 }
@@ -135,12 +272,20 @@ impl ComminutionProcessDefinition {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OreProcessingRegistry {
     comminution: BTreeMap<ProcessId, ComminutionProcessDefinition>,
+    screening: BTreeMap<ProcessId, ScreeningProcessDefinition>,
 }
 
 impl OreProcessingRegistry {
     pub(crate) fn new(definitions: impl IntoIterator<Item = ComminutionProcessDefinition>) -> Self {
+        Self::new_with_screening(definitions, std::iter::empty())
+    }
+
+    pub(crate) fn new_with_screening(
+        comminution_definitions: impl IntoIterator<Item = ComminutionProcessDefinition>,
+        screening_definitions: impl IntoIterator<Item = ScreeningProcessDefinition>,
+    ) -> Self {
         let mut comminution = BTreeMap::new();
-        for definition in definitions {
+        for definition in comminution_definitions {
             let process = definition.process();
             assert!(
                 comminution.insert(process, definition).is_none(),
@@ -148,16 +293,41 @@ impl OreProcessingRegistry {
                 process.value()
             );
         }
-        Self { comminution }
+        let mut screening = BTreeMap::new();
+        for definition in screening_definitions {
+            let process = definition.process();
+            assert!(
+                !comminution.contains_key(&process),
+                "process {} cannot own both comminution and screening semantics",
+                process.value()
+            );
+            assert!(
+                screening.insert(process, definition).is_none(),
+                "duplicate screening definition for process {}",
+                process.value()
+            );
+        }
+        Self {
+            comminution,
+            screening,
+        }
     }
 
     #[must_use]
-    pub fn get_comminution(&self, process: ProcessId) -> Option<ComminutionProcessDefinition> {
-        self.comminution.get(&process).copied()
+    pub fn get_comminution(&self, process: ProcessId) -> Option<&ComminutionProcessDefinition> {
+        self.comminution.get(&process)
+    }
+
+    #[must_use]
+    pub fn get_screening(&self, process: ProcessId) -> Option<ScreeningProcessDefinition> {
+        self.screening.get(&process).copied()
     }
 
     pub(crate) fn process_ids(&self) -> impl Iterator<Item = ProcessId> + '_ {
-        self.comminution.keys().copied()
+        self.comminution
+            .keys()
+            .chain(self.screening.keys())
+            .copied()
     }
 
     pub(crate) fn validate_references(
@@ -166,7 +336,7 @@ impl OreProcessingRegistry {
         capabilities: &CapabilityRegistry,
         materials: &MaterialRegistry,
     ) {
-        for definition in self.comminution.values().copied() {
+        for definition in self.comminution.values() {
             let process = match production.get_process(definition.process()) {
                 Some(process) => process,
                 None => panic!(
@@ -239,6 +409,76 @@ impl OreProcessingRegistry {
                 definition.process().value(),
                 definition.output_form().value()
             );
+        }
+        for definition in self.screening.values().copied() {
+            let process = match production.get_process(definition.process()) {
+                Some(process) => process,
+                None => panic!(
+                    "screening definition references missing process {}",
+                    definition.process().value()
+                ),
+            };
+            assert!(
+                matches!(process.input_policy(), ProcessInputPolicy::SelectedBatch),
+                "screening process {} must use selected-batch input policy",
+                definition.process().value()
+            );
+            let rate = capabilities
+                .get_capability(definition.mass_flow_capability())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "screening process {} references missing mass-flow capability {}",
+                        definition.process().value(),
+                        definition.mass_flow_capability().value()
+                    )
+                });
+            assert_eq!(
+                rate.kind(),
+                CapabilityValueKind::MassFlow,
+                "screening process {} throughput capability must be MassFlow",
+                definition.process().value()
+            );
+            let maximum = capabilities
+                .get_capability(definition.max_batch_mass_capability())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "screening process {} references missing maximum-batch capability {}",
+                        definition.process().value(),
+                        definition.max_batch_mass_capability().value()
+                    )
+                });
+            assert_eq!(
+                maximum.kind(),
+                CapabilityValueKind::Mass,
+                "screening process {} maximum-batch capability must be Mass",
+                definition.process().value()
+            );
+            for (form, role) in [
+                (definition.input_form(), "input"),
+                (definition.output_form(), "output"),
+            ] {
+                let authored = materials.get_form(form).unwrap_or_else(|| {
+                    panic!(
+                        "screening process {} references missing {role} form {}",
+                        definition.process().value(),
+                        form.value()
+                    )
+                });
+                assert_eq!(
+                    authored.phase(),
+                    MaterialPhase::Solid,
+                    "screening process {} {role} form {} must be solid",
+                    definition.process().value(),
+                    form.value()
+                );
+                assert_eq!(
+                    authored.particle_size_policy(),
+                    ParticleSizeStatePolicy::Required,
+                    "screening process {} {role} form {} must require particle-size state",
+                    definition.process().value(),
+                    form.value()
+                );
+            }
         }
     }
 }

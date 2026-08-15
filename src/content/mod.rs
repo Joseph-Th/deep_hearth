@@ -24,7 +24,9 @@ use crate::equipment::{EquipmentDefinition, EquipmentRegistry};
 #[cfg(test)]
 use crate::fluid::{FluidDefinition, FluidRegistry};
 #[cfg(test)]
-use crate::ore_processing::{ComminutionProcessDefinition, OreProcessingRegistry};
+use crate::ore_processing::{
+    ComminutionProcessDefinition, OreProcessingRegistry, ScreeningProcessDefinition,
+};
 #[cfg(test)]
 use crate::production::{ProcessDefinition, ProductionRegistry};
 #[cfg(test)]
@@ -36,6 +38,40 @@ use crate::thermal::{
 #[cfg(test)]
 fn empty_energy_registry() -> EnergyRegistry {
     EnergyRegistry::new(std::iter::empty())
+}
+
+#[cfg(test)]
+pub(crate) fn make_test_registries_with_screening(
+    capability_definitions: Vec<CapabilityDefinition>,
+    equipment_definition: EquipmentDefinition,
+    energy_definition: EnergyStoreDefinition,
+    process: ProcessDefinition,
+    screening_definition: ScreeningProcessDefinition,
+) -> Registries {
+    let mut capabilities = CapabilityRegistry::new();
+    for capability in capability_definitions {
+        capabilities.register_capability(capability);
+    }
+    let mut production = ProductionRegistry::new();
+    production.register_process_for_test(process);
+    Registries::new(
+        REGISTRY_SCHEMA_VERSION,
+        build_core_definitions(),
+        RegistryDomains {
+            energy: EnergyRegistry::new([energy_definition]),
+            fluid: fluid::build_fluid_registry(),
+            capabilities,
+            equipment: EquipmentRegistry::new([equipment_definition]),
+            structural: structural::build_structural_registry(),
+            materials: materials::build_material_registry(),
+            ore_processing: OreProcessingRegistry::new_with_screening(
+                std::iter::empty(),
+                [screening_definition],
+            ),
+            thermal: empty_thermal_registry(),
+            production,
+        },
+    )
 }
 
 #[cfg(test)]

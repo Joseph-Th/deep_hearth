@@ -5,8 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Energy;
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
-use crate::production::ProductionJobId;
+use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 
 use super::{EnergyCarrier, EnergyStoreId, EnergyStoreRecord};
@@ -87,12 +86,12 @@ pub enum EnergyTransferError {
     SourceBusy {
         store: EnergyStoreId,
         job: ProductionJobId,
-        completes_at: SimulationTick,
+        release: ProductionOccupancyRelease,
     },
     DestinationBusy {
         store: EnergyStoreId,
         job: ProductionJobId,
-        completes_at: SimulationTick,
+        release: ProductionOccupancyRelease,
     },
     InsufficientSourceEnergy {
         store: EnergyStoreId,
@@ -158,24 +157,22 @@ impl Display for EnergyTransferError {
             Self::SourceBusy {
                 store,
                 job,
-                completes_at,
+                release,
             } => write!(
                 formatter,
-                "source energy store {} is reserved by production job {} until tick {}",
+                "source energy store {} is reserved by production job {} {release}",
                 store.value(),
-                job.value(),
-                completes_at.value()
+                job.value()
             ),
             Self::DestinationBusy {
                 store,
                 job,
-                completes_at,
+                release,
             } => write!(
                 formatter,
-                "destination energy store {} is reserved by production job {} until tick {}",
+                "destination energy store {} is reserved by production job {} {release}",
                 store.value(),
-                job.value(),
-                completes_at.value()
+                job.value()
             ),
             Self::InsufficientSourceEnergy {
                 store,
@@ -278,18 +275,18 @@ pub fn validate_energy_transfer(
             destination: destination_definition.carrier(),
         });
     }
-    if let Some((job, completes_at)) = get_energy_store_occupant(state, source) {
+    if let Some((job, release)) = get_energy_store_occupant(state, source) {
         return Err(EnergyTransferError::SourceBusy {
             store: source,
             job,
-            completes_at,
+            release,
         });
     }
-    if let Some((job, completes_at)) = get_energy_store_occupant(state, destination) {
+    if let Some((job, release)) = get_energy_store_occupant(state, destination) {
         return Err(EnergyTransferError::DestinationBusy {
             store: destination,
             job,
-            completes_at,
+            release,
         });
     }
     if source_record.stored() < energy {
@@ -340,7 +337,7 @@ pub fn validate_energy_transfer(
 fn get_energy_store_occupant(
     state: &AppState,
     store: EnergyStoreId,
-) -> Option<(ProductionJobId, SimulationTick)> {
+) -> Option<(ProductionJobId, ProductionOccupancyRelease)> {
     let job_id = state.production().get_energy_occupant(store)?;
     let job = match state.production().get_job(job_id) {
         Some(job) => job,
@@ -349,7 +346,7 @@ fn get_energy_store_occupant(
             job_id.value()
         ),
     };
-    Some((job_id, job.completes_at()))
+    Some((job_id, job.occupancy_release()))
 }
 
 /// Failure when a validated energy transfer no longer matches its exact owner snapshots.

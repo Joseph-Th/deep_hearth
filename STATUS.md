@@ -20,9 +20,11 @@
   reach but not exceed its authored fusion boundary; liquid matter must remain at or above it. Mixed
   liquid compositions are refused until real alloy/solution phase diagrams exist rather than being
   assigned an invented weighted melting point.
-- Persistent material lots with mass, temperature, composition, optional validated particle-size
-  bounds, ownership, and provenance ranges. Particle-size state is part of lot fungibility rather
-  than a detached ore-processing annotation.
+- Persistent material lots with mass, temperature, composition, optional validated weighted
+  particle-size distributions, ownership, and provenance ranges. Particle-size classes have
+  canonical non-overlapping diameter bounds and relative mass weights; a single class preserves the
+  conservative meaning of an unresolved size envelope without inventing an internal yield curve.
+  Particle-size state is part of lot fungibility rather than a detached ore-processing annotation.
 - Capacity-aware stockpiles with derived commodity totals, cached mass, inbound reservations,
   revision-bound atomic transfers, deterministic splitting, compatible-fragment coalescing, and a
   persisted material-containment envelope for accepted solid/liquid phases and maximum temperature.
@@ -72,8 +74,9 @@
   snapshots, revision-bound start tokens, and due-tick indexing. Physical resolvers consume the same
   exact lot selection they inspected rather than reselecting equivalent-looking matter at commit.
 - Typed authored capability requirements with physical value kinds and registry-reference validation.
-  Built-in capability and production registries remain intentionally empty until real providers and
-  physical resolvers exist.
+  Canonical crusher and foundry content uses the same capability and production registries as runtime
+  resolution; additional process content remains gated on corresponding physical providers and
+  resolvers.
 - Continuous equipment `Condition`, authored maintenance warning/critical bands, and pure wear plans
   without disposable durability semantics.
 - Persistent maintainable equipment records with immutable physical mass and capability-provider
@@ -201,27 +204,39 @@
 - Selected-batch comminution is the first ore-processing resolver. It accepts exact solid lot slices,
   requires authored equipment throughput, maximum batch mass, energy carrier, and exact
   mass-specific work, then reserves that work from a finite energy source. Each comminution
-  definition authors a validated output particle-diameter envelope. Coarse untracked feed may acquire
-  its first explicit size state, while already-particulate feed must strictly reduce maximum diameter
-  without coarsening represented fines. Input and output forms may therefore be identical for real
-  grinding distinctions. Mass, normalized composition, and temperature remain exact. Runtime
-  equipment condition can derate throughput, while finite source output power can independently
-  bottleneck the operation; authoritative duration uses the slower limit and therefore drives
-  active-tick wear. Resolved comminution now exposes the independent throughput- and energy-limited
-  durations, a typed current bottleneck, and exact condition-before/condition-after projections, so
-  diagnostics and future player-facing adapters can explain both why an operation takes as long as it
-  does and what that operating choice will do to the machine without reimplementing resolver physics.
-  Persisted jobs recompute output form and particle bounds, exact work energy, carrier, power-limited
-  duration, and wear from their committed traces. A canonical workshop jaw crusher, small and large
-  finite mechanical drives, and ore-crushing process are now authored in the same built-in registry
-  path used by runtime gameplay and the agent harness.
+  definition authors a validated weighted particle-size distribution. Coarse untracked feed may
+  acquire its first explicit size state, while already-particulate feed must strictly reduce the
+  distribution envelope without coarsening represented fines. Input and output forms may therefore
+  be identical for real grinding distinctions. Mass, normalized composition, and temperature remain
+  exact. Runtime equipment condition can derate throughput, while finite source output power can
+  independently bottleneck the operation; authoritative duration uses the slower limit and therefore
+  drives active-tick wear. Resolved comminution exposes independent throughput- and energy-limited
+  durations, a typed current bottleneck, and exact condition-before/condition-after projections.
+  Persisted jobs recompute the exact authored particle distribution, work energy, carrier,
+  power-limited duration, and wear from their committed traces. The canonical jaw crusher remains a
+  single unresolved 500-10000 um class rather than fabricating a within-envelope mass curve without
+  authored data. A workshop jaw crusher, small and large finite mechanical drives, and ore-crushing
+  process are authored in the same built-in registry path used by runtime gameplay and the agent
+  harness.
+- Selected-batch dry screening is a reusable ore-processing resolver with an exact authored aperture,
+  typed undersize/oversize output streams, runtime equipment throughput and maximum-batch limits,
+  finite work energy, power-limited duration, and active-tick wear. Screening aggregates identical
+  physical input profiles before converting class weights to whole-milligram stream masses so lot
+  fragmentation cannot change yield. A class wholly at or below the aperture is undersize and a
+  class wholly above it is oversize; an aperture intersecting an unresolved class is rejected rather
+  than assigned an invented split. A weighted class partition that would require fractional
+  milligrams is also rejected at the current mass resolution rather than silently reclassifying the
+  remainder into the wrong stream. Persisted screening jobs recompute stream identities, exact
+  outputs, energy, duration, and equipment condition. No built-in screen machine/process is
+  registered yet because a real gameplay provider and its operating constraints still need to be
+  authored.
 - Production output ownership is stream-based rather than destination-global. Resolvers assign typed
   operation-local stream IDs, resolution canonicalizes stream order by ID, and durable jobs preserve
   each physically inseparable stream's identity, exact lot specifications, and routed destination.
   Start validation binds routes by stream ID, validates every destination, aggregates inbound capacity
   reservations per stockpile under one inventory revision, and completion deposits every stream from
-  one deterministic plan. Current sensible-heating, melt/cast, and comminution resolvers remain
-  explicitly single-stream and reject incompatible persisted multi-stream jobs.
+  one deterministic plan. Sensible-heating, melt/cast, and comminution resolvers remain explicitly
+  single-stream; screening owns stable undersize and oversize streams.
 - Ore-processing and thermal resolver registries have exclusive process ownership, preventing one
   process ID from silently acquiring two incompatible physical interpretations.
 - Selected-batch sensible heating derives required energy from each selected lot's actual mass,
@@ -250,8 +265,18 @@
   active jobs, and released heat retained by in-flight phase-change work. Geological extraction,
   structural construction/deconstruction, sensible heating, pure-material melting, and casting all
   preserve the modeled total across ownership changes.
+- Support-dependent production can suspend rather than complete magically when its equipment loses an
+  active structural support. A suspended job keeps consumed matter and energy as authoritative
+  work-in-process, grants no output or completion wear, leaves simulation time free to advance, and
+  retains the exact remaining active process time. Structural equipment movement is the narrow
+  recovery exception to normal job occupancy, allowing the machine to be relocated while the job
+  still owns it; once active support is restored, the canonical tick pipeline reschedules completion
+  from the exact remaining active time. The immutable active process duration remains the physics and
+  wear-audit contract even when wall-clock completion moves because of downtime. Other occupied
+  resources remain exclusive and report an explicit `AwaitingResume` release horizon rather than a
+  stale pre-failure due tick.
 - Canonical top-level tick pipeline with cheap per-tick invariants and exhaustive save/load audits.
-- Persistence semantic schema 27 and authored registry compatibility schema 14 with metadata
+- Persistence semantic schema 29 and authored registry compatibility schema 14 with metadata
   preflight, registry-aware state validation, structural topology/damage audits, energy/equipment
   ownership validation, directional energy-source/sink reservation, occupancy-index and capacity
   audits, embodied
@@ -259,10 +284,18 @@
   equipment-support/load agreement audits, stockpile-support/index/stored-matter-load agreement
   audits, fluid-support/index/density-derived-load agreement audits, exclusive-resource double-book
   detection,
-  particle-size policy/state audits, typed production-stream identity/routing and per-destination
-  reservation audits, operation-specific sensible-heating/melting/casting and comminution
-  recomputation including exact output particle bounds, post-operation condition outcomes and
-  released heat, stable in-flight conservation snapshots, and deterministic continuation tests.
+  particle-size distribution policy/state audits, typed production-stream identity/routing and
+  per-destination reservation audits, operation-specific sensible-heating/melting/casting,
+  comminution, and screening recomputation including exact output particle classes and stream
+  partitioning, post-operation condition outcomes and released heat, stable in-flight conservation
+  snapshots, production active-duration/suspension scheduling, due-index exclusion while suspended,
+  suspension-provider identity, and deterministic continuation tests. Suspended-job round trips
+  preserve work-in-process exactly; adversarial saves that reinsert a suspended job into the due
+  index, forge its paused due tick, or claim more remaining work than the operation's active duration
+  are rejected. Suspension timestamps later than the authoritative clock and empty production
+  due-index buckets are also rejected as noncanonical state. The cheap per-tick invariant suite
+  verifies running/suspended job scheduling and suspension time against the authoritative clock and
+  due index.
 - Chunk-independent 64-bit voxel coordinates and validated spatial bounds without choosing chunk
   dimensions or streaming policy.
 - Deterministic 10,000-tick mixed-system soak with repeated production/transfers, varying structural
@@ -313,26 +346,38 @@
   maintaining shadow equipment/process definitions. Canonical built-in content includes the jaw
   crusher, electric furnace, cooled casting mold, two mechanical drive envelopes, electrical buffer,
   thermal sink, ore crushing, pure-copper melting, and pure-copper casting used by the harness. Normal
-  runs combine four deterministic coverage seeds with one time-derived printed exploratory seed; a
-  `DEEP_HEARTH_GAMEPLAY_SEEDS` override accepts exact decimal or hex seed lists for replay or wider
-  sweeps. Starting conditions vary ore grade, batch size, crusher condition, two competing structural
-  bays, existing bay load, later environmental load, finite high-power reserve, and foundry batch
-  mass. The harness no longer injects seed-selected operating personalities. Siting compares actual
-  structural stage/utilization, power selection compares finite reserve, throughput/energy duration,
-  and projected condition, and critical-condition work is refused rather than relying on an arbitrary
-  cautious-policy flag. Environmental load is applied to the bay actually selected: some deterministic
-  scenarios continue unchanged, some relocate proactively from a strained bay, and some collapse the
-  active bay, verify production is blocked, then recover by canonically unloading and remounting the
-  crusher while leaving failed structural damage persistent. High-power mechanical energy is scarce
-  by construction, making short active time compete against reserve preservation; once exhausted the
-  workshop falls back to slower power and can eventually stop before critical wear. Output explicitly
-  distinguishes crushed mixed ore's missing concentration/smelting bridge from the separate existing
-  pure-copper foundry path, and prints a compact experience summary so harness quality regressions are
-  visible. Matter, equipment, initial energy, and structural bays remain explicit setup fixtures until
-  their physical acquisition/construction authorizers exist; experienced post-setup mutations use
-  canonical runtime transactions. Isolated unit-test registry builders no longer inherit unrelated
-  canonical gameplay content as that content expands.
-- Current debug validation suite: 322 passing tests with `cargo check` silent and
+  runs combine five deterministic qualitative-coverage seeds with one time-derived printed exploratory
+  seed; a `DEEP_HEARTH_GAMEPLAY_SEEDS` override accepts exact decimal or hex seed lists for replay or
+  wider sweeps. Starting conditions vary ore grade, batch size, crusher condition, two competing
+  structural bays, existing bay load, an exact event tick, an imperfect deterministic regional-snow
+  forecast, and finite mechanical work reserves. Actual snow magnitude is revealed only when the event
+  occurs and is applied to both workshop bays rather than following the selected machine. A 100-seed
+  calibration sweep spans ordinary and severe conditions rather than making catastrophe the default:
+  19 selected bays remained stable, 60 became strained, 8 cracked, and 13 failed. The low-power drive
+  is seeded with exactly enough work for the planned order, while the high-power drive remains an
+  optional scarce reserve rather than a hidden completion requirement. The harness no longer injects
+  seed-selected operating personalities. Siting compares forecast-adjusted structural margin while
+  retaining current margin as a tiebreaker; power selection compares reserve, throughput/energy
+  duration, projected condition, the approaching event, and whether a forecasted regional outage makes
+  productive time before the event unusually valuable. Critical-condition work is refused rather than
+  relying on an arbitrary cautious-policy flag, and lack of usable stored work is reported separately
+  from a maintenance stop. Weather can arrive during production. If the active support merely strains,
+  the committed job can finish and the player may then relocate; if the support fails, the production
+  job suspends with exact remaining active time and conserved work-in-process. Recovery can relocate
+  the occupied machine and resume that work, or leave it visibly stranded when no surviving bay can
+  carry the crusher. Failed structural damage remains persistent either way. Output exposes forecast
+  versus actual load, remaining work reserve, condition band, support state, completed work before the
+  event, suspended/stranded work-in-process, contained copper floor, and crushed ore particle-size
+  classes rather than reducing experience coverage to booleans. Ore grade therefore has an honest
+  conserved-value effect even though it cannot yet change a downstream processing choice. The harness
+  explicitly identifies the unresolved single-class screening boundary and missing concentration/
+  smelting bridge. Pure-copper melt/cast is exercised once as a separately labeled downstream
+  capability probe, not repeated per scenario or presented as a continuous ore-to-metal loop. Matter,
+  equipment, initial energy, and structural bays remain explicit setup fixtures until their physical
+  acquisition/construction authorizers exist; experienced post-setup mutations use canonical runtime
+  transactions. Isolated unit-test registry builders no longer inherit unrelated canonical gameplay
+  content as that content expands.
+- Current debug validation suite: 331 passing tests with `cargo check` silent and
   Clippy warnings denied.
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
   as variants evolve instead of relying on review to catch silent fallback behavior.
@@ -374,14 +419,15 @@
   structural load contributions. Structural self-weight, supported inventory matter, mounted
   equipment weight, and supported fluid weight now write their own aggregate contributions
   canonically; the remaining owners remain deferred.
-- Additional production resolvers beyond sensible heating, pure-material melt/cast, and conservative
-  comminution, including screening mass partition, particle-size distributions needed when a screen
-  cut intersects a lot's current diameter envelope, concrete grinding equipment/process content,
-  washing, gravity/flotation separation, explicit recovery/tailings physics, chemical
-  smelting/reduction, alloying, forging/working, machining/tool wear, labor/skill, chemistry, and
-  environmental constraints. Typed multi-stream ownership and routing now support future physical
-  separation outputs, but diameter bounds deliberately do not fabricate a size distribution or
-  screening yield. The canonical crush/pure-melt/pure-cast processes are registered; additional
+- Additional production resolvers and gameplay content beyond sensible heating, pure-material
+  melt/cast, conservative comminution, and the reusable dry-screening resolver, including built-in
+  screen equipment/process content, non-ideal screening efficiency/blinding/wet-feed effects,
+  concrete grinding equipment/process content, washing, gravity/flotation separation, explicit
+  recovery/tailings physics, chemical smelting/reduction, alloying, forging/working, machining/tool
+  wear, labor/skill, chemistry, and environmental constraints. Weighted particle-size classes and
+  typed multi-stream ownership now support exact conservative classification where the authored
+  aperture lies between resolved classes, but the simulation still refuses to invent a split through
+  an unresolved class. The canonical crush/pure-melt/pure-cast processes are registered; additional
   gameplay processes remain unregistered until their corresponding physical gates exist.
 - Persistent mechanical-power networks and shaft/belt layout, rotational inertia/flywheels, slip and
   clutch state, steam/boilers, electrical networks, transformers, protection, and distribution

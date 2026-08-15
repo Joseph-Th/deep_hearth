@@ -4,11 +4,11 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::state::{AppState, apply_clock_advance, validate_invariants};
-use crate::core::time::SimulationTick;
+use crate::core::time::{SimulationTick, TickSpan};
 use crate::inventory::{StockpileId, StockpileStructuralLoadError};
 use crate::production::{
-    CompletionCommitError, CompletionPlanError, ProcessCompletion, apply_completion_plan,
-    decide_due_completions,
+    CompletionApplication, CompletionCommitError, CompletionPlanError, ProcessCompletion,
+    ProductionAvailabilityChange, ProductionJobId, apply_completion_plan, decide_due_completions,
 };
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
@@ -17,6 +17,7 @@ use crate::structural::StructuralCommitError;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TickOutcome {
     tick: SimulationTick,
+    production_availability_changes: Vec<ProductionAvailabilityChange>,
     production_completions: Vec<ProcessCompletion>,
 }
 
@@ -25,6 +26,13 @@ impl TickOutcome {
     #[must_use]
     pub const fn tick(&self) -> SimulationTick {
         self.tick
+    }
+
+    /// Returns production jobs suspended or resumed because provider availability changed during
+    /// this tick. The changes are ordered by stable job ID.
+    #[must_use]
+    pub fn production_availability_changes(&self) -> &[ProductionAvailabilityChange] {
+        &self.production_availability_changes
     }
 
     /// Returns process jobs whose outputs became authoritative during this tick.
@@ -49,6 +57,12 @@ pub enum TickError {
     EquipmentRevisionExhausted,
     /// Energy storage cannot advance its persisted revision for completed energy release.
     EnergyRevisionExhausted,
+    /// A suspended operation cannot schedule its remaining active time within the world clock.
+    ProductionResumeTickOverflow {
+        job: ProductionJobId,
+        current: SimulationTick,
+        remaining: TickSpan,
+    },
     /// Due output mass cannot be aggregated in its destination stockpile.
     DestinationMassOverflow { stockpile: StockpileId },
     /// Due output weight cannot be resolved against its structural support.
@@ -77,6 +91,17 @@ impl Display for TickError {
                     current.value()
                 )
             }
+            Self::ProductionResumeTickOverflow {
+                job,
+                current,
+                remaining,
+            } => write!(
+                formatter,
+                "production job {} cannot resume {} active ticks from simulation tick {}",
+                job.value(),
+                remaining.value(),
+                current.value()
+            ),
             Self::MaterialLotIdExhausted => {
                 formatter.write_str("material lot identifier space is exhausted")
             }
@@ -144,6 +169,7 @@ impl Error for TickError {
             | Self::ProductionRevisionExhausted
             | Self::EquipmentRevisionExhausted
             | Self::EnergyRevisionExhausted
+            | Self::ProductionResumeTickOverflow { .. }
             | Self::DestinationMassOverflow { .. }
             | Self::StaleInventoryRevision { .. }
             | Self::StaleProductionRevision { .. }
@@ -177,35 +203,47 @@ pub fn advance_tick(
             CompletionPlanError::ProductionRevision => TickError::ProductionRevisionExhausted,
             CompletionPlanError::EquipmentRevision => TickError::EquipmentRevisionExhausted,
             CompletionPlanError::EnergyRevision => TickError::EnergyRevisionExhausted,
+            CompletionPlanError::ResumeTickOverflow {
+                job,
+                current,
+                remaining,
+            } => TickError::ProductionResumeTickOverflow {
+                job,
+                current,
+                remaining,
+            },
             CompletionPlanError::DestinationMassOverflow { stockpile } => {
                 TickError::DestinationMassOverflow { stockpile }
             }
             CompletionPlanError::StructuralLoad(error) => TickError::StructuralLoad(error),
         })?;
-    let production_completions =
-        apply_completion_plan(state, completion_plan).map_err(|error| match error {
-            CompletionCommitError::InventoryStale { expected, actual } => {
-                TickError::StaleInventoryRevision { expected, actual }
-            }
-            CompletionCommitError::ProductionRevisionChanged { expected, actual } => {
-                TickError::StaleProductionRevision { expected, actual }
-            }
-            CompletionCommitError::EquipmentRevisionConflict { expected, actual } => {
-                TickError::StaleEquipmentRevision { expected, actual }
-            }
-            CompletionCommitError::EnergyRevisionConflict { expected, actual } => {
-                TickError::StaleEnergyRevision { expected, actual }
-            }
-            CompletionCommitError::StructureRevisionConflict { expected, actual } => {
-                TickError::StaleStructureRevision { expected, actual }
-            }
-            CompletionCommitError::Structure(error) => TickError::Structure(error),
-        })?;
+    let CompletionApplication {
+        completions: production_completions,
+        availability_changes: production_availability_changes,
+    } = apply_completion_plan(state, completion_plan).map_err(|error| match error {
+        CompletionCommitError::InventoryStale { expected, actual } => {
+            TickError::StaleInventoryRevision { expected, actual }
+        }
+        CompletionCommitError::ProductionRevisionChanged { expected, actual } => {
+            TickError::StaleProductionRevision { expected, actual }
+        }
+        CompletionCommitError::EquipmentRevisionConflict { expected, actual } => {
+            TickError::StaleEquipmentRevision { expected, actual }
+        }
+        CompletionCommitError::EnergyRevisionConflict { expected, actual } => {
+            TickError::StaleEnergyRevision { expected, actual }
+        }
+        CompletionCommitError::StructureRevisionConflict { expected, actual } => {
+            TickError::StaleStructureRevision { expected, actual }
+        }
+        CompletionCommitError::Structure(error) => TickError::Structure(error),
+    })?;
     apply_clock_advance(state, next_tick);
 
     validate_invariants(registries, state);
     Ok(TickOutcome {
         tick: next_tick,
+        production_availability_changes,
         production_completions,
     })
 }

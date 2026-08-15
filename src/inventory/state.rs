@@ -10,8 +10,8 @@ use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::SimulationTick;
 use crate::material::{
     CommodityKey, CompositionError, FormId, MaterialComposition, MaterialPhase,
-    MaterialPhaseStateError, MaterialRegistry, ParticleSizeRange, ParticleSizeStateError,
-    validate_material_particle_size_state, validate_material_phase_state,
+    MaterialPhaseStateError, MaterialRegistry, ParticleSizeDistribution, ParticleSizeRange,
+    ParticleSizeStateError, validate_material_particle_size_state, validate_material_phase_state,
 };
 use crate::structural::StructuralElementId;
 
@@ -172,7 +172,7 @@ pub struct MaterialLotProfile {
     pub(super) commodity: CommodityKey,
     pub(super) temperature: Temperature,
     pub(super) composition: MaterialComposition,
-    pub(super) particle_size: Option<ParticleSizeRange>,
+    pub(super) particle_size: Option<ParticleSizeDistribution>,
 }
 
 impl MaterialLotProfile {
@@ -192,8 +192,16 @@ impl MaterialLotProfile {
     }
 
     #[must_use]
-    pub const fn particle_size(&self) -> Option<ParticleSizeRange> {
+    pub fn particle_size(&self) -> Option<ParticleSizeRange> {
         self.particle_size
+            .as_ref()
+            .map(ParticleSizeDistribution::envelope)
+    }
+
+    /// Returns the authoritative weighted particulate profile, if present.
+    #[must_use]
+    pub const fn particle_size_distribution(&self) -> Option<&ParticleSizeDistribution> {
+        self.particle_size.as_ref()
     }
 }
 
@@ -262,8 +270,14 @@ impl MaterialLotRecord {
     }
 
     #[must_use]
-    pub const fn particle_size(&self) -> Option<ParticleSizeRange> {
-        self.profile.particle_size
+    pub fn particle_size(&self) -> Option<ParticleSizeRange> {
+        self.profile.particle_size()
+    }
+
+    /// Returns the authoritative weighted particulate profile, if present.
+    #[must_use]
+    pub const fn particle_size_distribution(&self) -> Option<&ParticleSizeDistribution> {
+        self.profile.particle_size_distribution()
     }
 
     #[must_use]
@@ -909,10 +923,14 @@ pub(crate) fn validate_loaded_inventory(
             lot.temperature(),
         )
         .map_err(|error| InventoryValidationError::InvalidLotPhaseState { lot: *key, error })?;
-        validate_material_particle_size_state(materials, lot.commodity(), lot.particle_size())
-            .map_err(
-                |error| InventoryValidationError::InvalidLotParticleSizeState { lot: *key, error },
-            )?;
+        validate_material_particle_size_state(
+            materials,
+            lot.commodity(),
+            lot.particle_size_distribution(),
+        )
+        .map_err(
+            |error| InventoryValidationError::InvalidLotParticleSizeState { lot: *key, error },
+        )?;
         if lot.latest_created_at() < lot.created_at() {
             return Err(InventoryValidationError::InvalidLotProvenanceRange {
                 lot: *key,

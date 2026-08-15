@@ -5,9 +5,8 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
 use crate::maintenance::{Condition, ConditionPlan, decide_wear};
-use crate::production::ProductionJobId;
+use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 
 use super::definitions::EquipmentDefinitionId;
@@ -112,7 +111,7 @@ pub enum EquipmentConditionPlanError {
     EquipmentBusy {
         equipment: EquipmentId,
         job: ProductionJobId,
-        completes_at: SimulationTick,
+        release: ProductionOccupancyRelease,
     },
     RevisionExhausted,
 }
@@ -126,13 +125,12 @@ impl Display for EquipmentConditionPlanError {
             Self::EquipmentBusy {
                 equipment,
                 job,
-                completes_at,
+                release,
             } => write!(
                 formatter,
-                "equipment {} is occupied by production job {} until tick {}",
+                "equipment {} is occupied by production job {} {release}",
                 equipment.value(),
-                job.value(),
-                completes_at.value()
+                job.value()
             ),
             Self::RevisionExhausted => formatter.write_str("equipment revision space is exhausted"),
         }
@@ -157,7 +155,7 @@ fn decide_condition_change(
         return Err(EquipmentConditionPlanError::EquipmentBusy {
             equipment,
             job: job.id(),
-            completes_at: job.completes_at(),
+            release: job.occupancy_release(),
         });
     }
     let next_revision = equipment_state
@@ -201,7 +199,7 @@ pub enum EquipmentConditionCommitError {
     EquipmentBusy {
         equipment: EquipmentId,
         job: ProductionJobId,
-        completes_at: SimulationTick,
+        release: ProductionOccupancyRelease,
     },
 }
 
@@ -229,13 +227,12 @@ impl Display for EquipmentConditionCommitError {
             Self::EquipmentBusy {
                 equipment,
                 job,
-                completes_at,
+                release,
             } => write!(
                 formatter,
-                "equipment {} became occupied by production job {} until tick {} before condition commit",
+                "equipment {} became occupied by production job {} {release} before condition commit",
                 equipment.value(),
-                job.value(),
-                completes_at.value()
+                job.value()
             ),
         }
     }
@@ -262,7 +259,7 @@ pub fn apply_equipment_condition_plan(
         return Err(EquipmentConditionCommitError::EquipmentBusy {
             equipment: plan.equipment,
             job: job.id(),
-            completes_at: job.completes_at(),
+            release: job.occupancy_release(),
         });
     }
 

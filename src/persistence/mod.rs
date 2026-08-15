@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 27;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 29;
 
 /// Minimal version metadata that adapters decode before choosing a concrete save payload decoder.
 ///
@@ -590,6 +590,26 @@ mod tests {
                 found: 999,
                 supported: CURRENT_SAVE_SCHEMA_VERSION,
             })
+        );
+    }
+
+    #[test]
+    fn empty_production_due_index_bucket_is_rejected_on_load() {
+        let registries = build_registries();
+        let state = AppState::new(WorldSeed::new(0x5700_0020));
+        let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| panic!("empty due-index tamper serialization failed: {error}"));
+        encoded["state"]["production"]["due_jobs"]["7"] = serde_json::json!([]);
+        let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+            .unwrap_or_else(|error| panic!("empty due-index tamper decode failed: {error}"));
+
+        assert_eq!(
+            decoded.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Production(
+                ProductionValidationError::EmptyDueIndex {
+                    due: crate::core::time::SimulationTick::new(7),
+                }
+            )))
         );
     }
 
@@ -1636,19 +1656,8 @@ mod tests {
                 Ok(encoded) => encoded,
                 Err(error) => panic!("heating duration tamper serialization failed: {error}"),
             };
-        let original_due = match state.production().get_job(job) {
-            Some(record) => record.completes_at().value(),
-            None => panic!("heating job disappeared before duration tamper"),
-        };
-        let tampered_due = original_due + 1;
-        tampered_duration["state"]["production"]["jobs"][job.value().to_string()]["completes_at"] =
-            serde_json::json!(tampered_due);
-        let due_jobs = match tampered_duration["state"]["production"]["due_jobs"].as_object_mut() {
-            Some(due_jobs) => due_jobs,
-            None => panic!("heating duration tamper due-job index is not an object"),
-        };
-        due_jobs.remove(&original_due.to_string());
-        due_jobs.insert(tampered_due.to_string(), serde_json::json!([job.value()]));
+        tampered_duration["state"]["production"]["jobs"][job.value().to_string()]["active_duration"] =
+            serde_json::json!(duration.value() + 1);
         let tampered_duration: LoadedSaveEnvelope = match serde_json::from_value(tampered_duration)
         {
             Ok(decoded) => decoded,

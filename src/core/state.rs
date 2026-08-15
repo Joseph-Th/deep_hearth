@@ -28,7 +28,10 @@ use crate::maintenance::Condition;
 use crate::material::{
     CommodityKey, MaterialId, ParticleSizeStateError, validate_material_particle_size_state,
 };
-use crate::ore_processing::{ComminutionJobValidationError, validate_loaded_comminution_job};
+use crate::ore_processing::{
+    ComminutionJobValidationError, ScreeningJobValidationError, validate_loaded_comminution_job,
+    validate_loaded_screening_job,
+};
 use crate::production::{
     ProcessId, ProductionJobId, ProductionState, ProductionValidationError, sum_lot_spec_mass,
     validate_loaded_production,
@@ -384,11 +387,17 @@ pub enum StateValidationError {
     },
     FluidStructuralLoad(FluidStructuralLoadError),
     ComminutionJob(ComminutionJobValidationError),
+    ScreeningJob(ScreeningJobValidationError),
     ThermalJob(ThermalJobValidationError),
     JobAlreadyDue {
         job: ProductionJobId,
         current: SimulationTick,
         due: SimulationTick,
+    },
+    JobSuspendedInFuture {
+        job: ProductionJobId,
+        current: SimulationTick,
+        suspended_at: SimulationTick,
     },
     ReservedMassOverflow {
         stockpile: StockpileId,
@@ -748,12 +757,26 @@ impl Display for StateValidationError {
             Self::ComminutionJob(error) => {
                 write!(formatter, "invalid comminution production job: {error}")
             }
+            Self::ScreeningJob(error) => {
+                write!(formatter, "invalid screening production job: {error}")
+            }
             Self::ThermalJob(error) => write!(formatter, "invalid thermal production job: {error}"),
             Self::JobAlreadyDue { job, current, due } => write!(
                 formatter,
                 "production job {} is due at tick {} but current tick is {}",
                 job.value(),
                 due.value(),
+                current.value()
+            ),
+            Self::JobSuspendedInFuture {
+                job,
+                current,
+                suspended_at,
+            } => write!(
+                formatter,
+                "production job {} claims suspension at tick {} after current tick {}",
+                job.value(),
+                suspended_at.value(),
                 current.value()
             ),
             Self::ReservedMassOverflow { stockpile } => write!(
@@ -813,6 +836,7 @@ impl Error for StateValidationError {
             Self::Inventory(error) => Some(error),
             Self::Production(error) => Some(error),
             Self::ComminutionJob(error) => Some(error),
+            Self::ScreeningJob(error) => Some(error),
             Self::ThermalJob(error) => Some(error),
             Self::JobOutputStorage { error, .. } => Some(error),
             Self::InvalidJobConsumedParticleSizeState { error, .. } => Some(error),
@@ -853,6 +877,7 @@ impl Error for StateValidationError {
             | Self::UnknownFluidSupport { .. }
             | Self::FluidSupportedByPlannedElement { .. }
             | Self::JobAlreadyDue { .. }
+            | Self::JobSuspendedInFuture { .. }
             | Self::ReservedMassOverflow { .. }
             | Self::UnknownJobOutputCommodity { .. }
             | Self::UnknownJobOutputCompositionMaterial { .. }
@@ -1215,8 +1240,18 @@ pub fn validate_loaded_state(
         }
         validate_loaded_comminution_job(registries, job)
             .map_err(StateValidationError::ComminutionJob)?;
+        validate_loaded_screening_job(registries, job)
+            .map_err(StateValidationError::ScreeningJob)?;
         validate_loaded_thermal_job(registries, job).map_err(StateValidationError::ThermalJob)?;
-        if job.completes_at() <= state.tick() {
+        if let Some(suspension) = job.suspension() {
+            if suspension.suspended_at() > state.tick() {
+                return Err(StateValidationError::JobSuspendedInFuture {
+                    job: job.id(),
+                    current: state.tick(),
+                    suspended_at: suspension.suspended_at(),
+                });
+            }
+        } else if job.completes_at() <= state.tick() {
             return Err(StateValidationError::JobAlreadyDue {
                 job: job.id(),
                 current: state.tick(),
@@ -1249,7 +1284,7 @@ pub fn validate_loaded_state(
             validate_material_particle_size_state(
                 registries.materials(),
                 commodity,
-                trace.profile().particle_size(),
+                trace.profile().particle_size_distribution(),
             )
             .map_err(|error| {
                 StateValidationError::InvalidJobConsumedParticleSizeState {
@@ -1293,7 +1328,7 @@ pub fn validate_loaded_state(
                     output.commodity(),
                     output.composition(),
                     output.temperature(),
-                    output.particle_size(),
+                    output.particle_size_distribution(),
                 )
                 .map_err(|error| StateValidationError::JobOutputStorage {
                     job: job.id(),
@@ -1393,6 +1428,17 @@ pub fn validate_invariants(_registries: &Registries, state: &AppState) {
     debug_assert!(
         state.production.has_valid_equipment_condition_outcomes(),
         "Runtime Invariant 6 (Lifecycle Validity): equipment-backed jobs must carry non-improving post-operation condition outcomes"
+    );
+    debug_assert!(
+        state.production.has_valid_schedule_index(),
+        "Runtime Invariants 3/6/12 (Index Completeness, Lifecycle Validity, Derived Data Consistency): production due-index and suspension scheduling must match active job records"
+    );
+    debug_assert!(
+        state.production.jobs().all(|job| {
+            job.suspension()
+                .is_none_or(|suspension| suspension.suspended_at() <= state.tick())
+        }),
+        "Runtime Invariant 6 (Lifecycle Validity): production suspension timestamps must not be later than the authoritative clock"
     );
     debug_assert!(
         state.production.has_unique_energy_reservations(),

@@ -7,8 +7,9 @@ mod state;
 
 pub use definitions::{ProcessDefinition, ProcessId, ProcessInputPolicy, ProductionRegistry};
 pub use production_execution::{
-    ProcessCompletion, ProcessOutputRoute, StartProcessCommitError, StartProcessError,
-    ValidatedStartProcess, validate_start_process, validate_start_process_routed,
+    ProcessCompletion, ProcessOutputRoute, ProductionAvailabilityChange, StartProcessCommitError,
+    StartProcessError, ValidatedStartProcess, validate_start_process,
+    validate_start_process_routed,
 };
 pub use resolution::{
     ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
@@ -16,12 +17,13 @@ pub use resolution::{
     validate_selected_process_inputs,
 };
 pub use state::{
-    ProductionJobId, ProductionJobRecord, ProductionOutputStream, ProductionState,
-    ProductionValidationError,
+    ProductionJobId, ProductionJobRecord, ProductionOccupancyRelease, ProductionOutputStream,
+    ProductionState, ProductionSuspension, ProductionSuspensionReason, ProductionValidationError,
 };
 
 pub(crate) use production_execution::{
-    CompletionCommitError, CompletionPlanError, apply_completion_plan, decide_due_completions,
+    CompletionApplication, CompletionCommitError, CompletionPlanError, apply_completion_plan,
+    decide_due_completions,
 };
 pub(crate) use resolution::sum_lot_spec_mass;
 pub(crate) use state::validate_loaded_production;

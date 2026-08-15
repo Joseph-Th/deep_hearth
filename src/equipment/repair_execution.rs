@@ -11,7 +11,6 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
 use crate::inventory::{
     ConsumptionSelection, MaterialRelocationCommitError, MaterialRelocationError, StockpileId,
     StockpileStorageError, StockpileStructuralLoadError, ValidatedMaterialRelocation,
@@ -23,7 +22,7 @@ use crate::inventory::{
     validate_explicit_consumption_selection,
 };
 use crate::maintenance::Condition;
-use crate::production::ProductionJobId;
+use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
@@ -135,7 +134,7 @@ pub enum EquipmentRepairError {
     EquipmentBusy {
         equipment: EquipmentId,
         job: ProductionJobId,
-        completes_at: SimulationTick,
+        release: ProductionOccupancyRelease,
     },
     ConditionNotImproved {
         equipment: EquipmentId,
@@ -291,13 +290,12 @@ impl Display for EquipmentRepairError {
             Self::EquipmentBusy {
                 equipment,
                 job,
-                completes_at,
+                release,
             } => write!(
                 formatter,
-                "equipment {} is occupied by production job {} until tick {} and cannot be repaired",
+                "equipment {} is occupied by production job {} {release} and cannot be repaired",
                 equipment.value(),
-                job.value(),
-                completes_at.value()
+                job.value()
             ),
             Self::ConditionNotImproved {
                 equipment,
@@ -354,7 +352,7 @@ pub enum EquipmentRepairCommitError {
     EquipmentBusy {
         equipment: EquipmentId,
         job: ProductionJobId,
-        completes_at: SimulationTick,
+        release: ProductionOccupancyRelease,
     },
     StaleInventoryRevision {
         expected: u64,
@@ -389,13 +387,12 @@ impl Display for EquipmentRepairCommitError {
             Self::EquipmentBusy {
                 equipment,
                 job,
-                completes_at,
+                release,
             } => write!(
                 formatter,
-                "equipment {} became occupied by production job {} until tick {} before repair commit",
+                "equipment {} became occupied by production job {} {release} before repair commit",
                 equipment.value(),
-                job.value(),
-                completes_at.value()
+                job.value()
             ),
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
@@ -495,11 +492,11 @@ impl ValidatedEquipmentRepair {
                 actual: record.condition(),
             });
         }
-        if let Some((job, completes_at)) = equipment_occupancy(state, self.equipment) {
+        if let Some((job, release)) = equipment_occupancy(state, self.equipment) {
             return Err(EquipmentRepairCommitError::EquipmentBusy {
                 equipment: self.equipment,
                 job,
-                completes_at,
+                release,
             });
         }
 
@@ -581,11 +578,11 @@ fn map_material_commit_error(error: MaterialRelocationCommitError) -> EquipmentR
 fn equipment_occupancy(
     state: &AppState,
     equipment: EquipmentId,
-) -> Option<(ProductionJobId, SimulationTick)> {
+) -> Option<(ProductionJobId, ProductionOccupancyRelease)> {
     state.production().jobs().find_map(|job| {
         job.equipment_provider()
             .is_some_and(|provider| provider.equipment() == equipment)
-            .then_some((job.id(), job.completes_at()))
+            .then_some((job.id(), job.occupancy_release()))
     })
 }
 
@@ -625,11 +622,11 @@ pub fn validate_equipment_repair(
             definition: record.definition(),
         });
     }
-    if let Some((job, completes_at)) = equipment_occupancy(state, equipment) {
+    if let Some((job, release)) = equipment_occupancy(state, equipment) {
         return Err(EquipmentRepairError::EquipmentBusy {
             equipment,
             job,
-            completes_at,
+            release,
         });
     }
     let condition_before = resolution.condition_before;
@@ -1614,7 +1611,7 @@ mod tests {
         let expected_error = EquipmentRepairCommitError::EquipmentBusy {
             equipment,
             job,
-            completes_at: job_record.completes_at(),
+            release: job_record.occupancy_release(),
         };
         let maintenance_mass_before = state
             .inventory()

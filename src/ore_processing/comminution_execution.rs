@@ -116,7 +116,7 @@ impl Error for ComminutionBatchError {
 }
 
 fn resolve_comminution_outputs(
-    definition: ComminutionProcessDefinition,
+    definition: &ComminutionProcessDefinition,
     traces: &[ConsumedMaterialTrace],
 ) -> Result<Vec<MaterialLotSpec>, ComminutionBatchError> {
     if traces.is_empty() {
@@ -165,7 +165,7 @@ fn resolve_comminution_outputs(
                 mass,
                 temperature,
                 composition,
-                definition.output_particle_size(),
+                definition.output_particle_size_distribution().clone(),
             )
             .map_err(ComminutionBatchError::Output)
         })
@@ -352,12 +352,12 @@ impl ResolvedComminution {
 
 /// Resolves exact crushing/grinding behavior from selected solid matter and runtime equipment.
 ///
-/// Comminution assigns an authored particle-size envelope while preserving each distinct
-/// composition and temperature. Particulate inputs must be strictly reduced without coarsening
-/// their represented fines; untracked coarse inputs establish their first explicit size state.
-/// It does not purify ore or invent yield bonuses. Exact mass-specific work is reserved from a finite
-/// energy source, while operation duration is the slower of equipment throughput and source power.
-/// Concrete gameplay processes remain unregistered until real world equipment/power content exists.
+/// Comminution assigns an authored weighted particle-size distribution while preserving each
+/// distinct composition and temperature. Particulate inputs must be strictly reduced at the
+/// distribution envelope without coarsening represented fines; untracked coarse inputs establish
+/// their first explicit size state. It does not purify ore or invent yield bonuses. Exact
+/// mass-specific work is reserved from a finite energy source, while operation duration is the
+/// slower of equipment throughput and source power.
 pub fn resolve_comminution_process(
     registries: &Registries,
     state: &AppState,
@@ -779,7 +779,7 @@ pub(crate) fn validate_loaded_comminution_job(
         error,
     })?;
     let required_duration = std::cmp::max(throughput_duration, energy_duration);
-    let stored_duration = job.completes_at().value() - job.started_at().value();
+    let stored_duration = job.active_duration().value();
     if stored_duration != required_duration.value() {
         return Err(ComminutionJobValidationError::DurationMismatch {
             job: job.id(),
@@ -1447,7 +1447,8 @@ mod tests {
                 }
             };
         tampered_particle_size["state"]["production"]["jobs"][job.value().to_string()]["output_streams"]
-            [0]["outputs"][0]["particle_size"]["maximum_diameter"] = serde_json::json!(5_000_u64);
+            [0]["outputs"][0]["particle_size"]["classes"][0]["range"]["maximum_diameter"] =
+            serde_json::json!(5_000_u64);
         let tampered_particle_size: LoadedSaveEnvelope =
             match serde_json::from_value(tampered_particle_size) {
                 Ok(decoded) => decoded,

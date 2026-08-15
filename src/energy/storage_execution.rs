@@ -7,8 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Energy, Power};
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
-use crate::production::ProductionJobId;
+use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 
 use super::definitions::{EnergyCarrier, EnergyStoreDefinitionId};
@@ -17,7 +16,7 @@ use super::state::{EnergyState, EnergyStoreId, EnergyStoreRecord};
 fn get_energy_store_occupant(
     state: &AppState,
     store: EnergyStoreId,
-) -> Option<(ProductionJobId, SimulationTick)> {
+) -> Option<(ProductionJobId, ProductionOccupancyRelease)> {
     let job_id = state.production().get_energy_occupant(store)?;
     let job = match state.production().get_job(job_id) {
         Some(job) => job,
@@ -26,7 +25,7 @@ fn get_energy_store_occupant(
             job_id.value()
         ),
     };
-    Some((job_id, job.completes_at()))
+    Some((job_id, job.occupancy_release()))
 }
 
 /// Failure while allocating an authoritative finite energy store.
@@ -201,7 +200,7 @@ pub enum EnergySupplyError {
     StoreBusy {
         store: EnergyStoreId,
         job: ProductionJobId,
-        completes_at: SimulationTick,
+        release: ProductionOccupancyRelease,
     },
 }
 
@@ -237,13 +236,12 @@ impl Display for EnergySupplyError {
             Self::StoreBusy {
                 store,
                 job,
-                completes_at,
+                release,
             } => write!(
                 formatter,
-                "energy store {} is reserved by production job {} until tick {}",
+                "energy store {} is reserved by production job {} {release}",
                 store.value(),
-                job.value(),
-                completes_at.value()
+                job.value()
             ),
         }
     }
@@ -273,11 +271,11 @@ pub fn validate_energy_supply(
     if definition.max_output_power().is_zero() {
         return Err(EnergySupplyError::NoOutputPower { store });
     }
-    if let Some((job, completes_at)) = get_energy_store_occupant(state, store) {
+    if let Some((job, release)) = get_energy_store_occupant(state, store) {
         return Err(EnergySupplyError::StoreBusy {
             store,
             job,
-            completes_at,
+            release,
         });
     }
     if record.stored() < requested {
@@ -368,7 +366,7 @@ pub enum EnergySinkError {
     StoreBusy {
         store: EnergyStoreId,
         job: ProductionJobId,
-        completes_at: SimulationTick,
+        release: ProductionOccupancyRelease,
     },
     CapacityOverflow {
         store: EnergyStoreId,
@@ -402,13 +400,12 @@ impl Display for EnergySinkError {
             Self::StoreBusy {
                 store,
                 job,
-                completes_at,
+                release,
             } => write!(
                 formatter,
-                "energy store {} is reserved by production job {} until tick {}",
+                "energy store {} is reserved by production job {} {release}",
                 store.value(),
-                job.value(),
-                completes_at.value()
+                job.value()
             ),
             Self::CapacityOverflow { store } => write!(
                 formatter,
@@ -456,11 +453,11 @@ pub fn validate_energy_sink(
     if definition.max_input_power().is_zero() {
         return Err(EnergySinkError::NoInputPower { store });
     }
-    if let Some((job, completes_at)) = get_energy_store_occupant(state, store) {
+    if let Some((job, release)) = get_energy_store_occupant(state, store) {
         return Err(EnergySinkError::StoreBusy {
             store,
             job,
-            completes_at,
+            release,
         });
     }
     let after = record

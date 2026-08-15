@@ -6,8 +6,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{AggregateMass, Force, Mass};
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
-use crate::production::ProductionJobId;
+use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 use crate::structural::{
     StructuralAnalysis, StructuralCommitError, StructuralElementId, StructuralLifecycle,
@@ -382,7 +381,7 @@ pub enum StockpileSupportError {
     StockpileBusy {
         stockpile: StockpileId,
         job: ProductionJobId,
-        completes_at: SimulationTick,
+        release: ProductionOccupancyRelease,
     },
     InventoryRevisionExhausted,
     Load(StockpileStructuralLoadError),
@@ -413,13 +412,12 @@ impl Display for StockpileSupportError {
             Self::StockpileBusy {
                 stockpile,
                 job,
-                completes_at,
+                release,
             } => write!(
                 formatter,
-                "stockpile {} participates in production job {} until tick {} and cannot be moved",
+                "stockpile {} participates in production job {} {release} and cannot be moved",
                 stockpile.value(),
-                job.value(),
-                completes_at.value()
+                job.value()
             ),
             Self::InventoryRevisionExhausted => {
                 formatter.write_str("inventory revision space is exhausted")
@@ -461,7 +459,7 @@ pub enum StockpileSupportCommitError {
     StockpileBusy {
         stockpile: StockpileId,
         job: ProductionJobId,
-        completes_at: SimulationTick,
+        release: ProductionOccupancyRelease,
     },
     Structure(StructuralCommitError),
 }
@@ -490,13 +488,12 @@ impl Display for StockpileSupportCommitError {
             Self::StockpileBusy {
                 stockpile,
                 job,
-                completes_at,
+                release,
             } => write!(
                 formatter,
-                "stockpile {} became occupied by production job {} until tick {} before support commit",
+                "stockpile {} became occupied by production job {} {release} before support commit",
                 stockpile.value(),
-                job.value(),
-                completes_at.value()
+                job.value()
             ),
             Self::Structure(error) => write!(
                 formatter,
@@ -569,11 +566,11 @@ impl ValidatedStockpileSupportChange {
                 actual: record.supported_by(),
             });
         }
-        if let Some((job, completes_at)) = stockpile_occupancy(state, self.stockpile) {
+        if let Some((job, release)) = stockpile_occupancy(state, self.stockpile) {
             return Err(StockpileSupportCommitError::StockpileBusy {
                 stockpile: self.stockpile,
                 job,
-                completes_at,
+                release,
             });
         }
 
@@ -594,10 +591,10 @@ impl ValidatedStockpileSupportChange {
 fn stockpile_occupancy(
     state: &AppState,
     stockpile: StockpileId,
-) -> Option<(ProductionJobId, SimulationTick)> {
+) -> Option<(ProductionJobId, ProductionOccupancyRelease)> {
     state.production().jobs().find_map(|job| {
         job.involves_stockpile(stockpile)
-            .then_some((job.id(), job.completes_at()))
+            .then_some((job.id(), job.occupancy_release()))
     })
 }
 
@@ -613,11 +610,11 @@ fn validate_not_busy(
     state: &AppState,
     stockpile: StockpileId,
 ) -> Result<(), StockpileSupportError> {
-    if let Some((job, completes_at)) = stockpile_occupancy(state, stockpile) {
+    if let Some((job, release)) = stockpile_occupancy(state, stockpile) {
         return Err(StockpileSupportError::StockpileBusy {
             stockpile,
             job,
-            completes_at,
+            release,
         });
     }
     Ok(())

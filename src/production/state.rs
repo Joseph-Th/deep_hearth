@@ -7,9 +7,9 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Mass;
-use crate::core::time::SimulationTick;
+use crate::core::time::{SimulationTick, TickSpan};
 use crate::energy::{ConsumedEnergyTrace, EnergyStoreId, ReleasedEnergyTrace};
-use crate::equipment::EquipmentOperationTrace;
+use crate::equipment::{EquipmentId, EquipmentOperationTrace};
 use crate::inventory::{ConsumedMaterialTrace, StockpileId};
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, CompositionError, MaterialId, MaterialLotSpec};
@@ -23,6 +23,73 @@ pub struct ProductionOutputStream {
     pub(super) id: ProcessOutputStreamId,
     pub(super) destination: StockpileId,
     pub(super) outputs: Vec<MaterialLotSpec>,
+}
+
+/// Why an in-flight production job is currently unable to accumulate active process time.
+///
+/// Suspension never manufactures a failure product. The production job remains the authoritative
+/// owner of its consumed matter and energy until its physical provider becomes usable again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProductionSuspensionReason {
+    EquipmentSupportUnavailable { equipment: EquipmentId },
+}
+
+/// When an occupied resource can become available to unrelated work.
+///
+/// Running jobs have a scheduled wall-clock release. Suspended jobs deliberately do not expose their
+/// stale pre-suspension completion tick as a promise: release depends on physical recovery and resume.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProductionOccupancyRelease {
+    Scheduled(SimulationTick),
+    AwaitingResume,
+}
+
+impl Display for ProductionOccupancyRelease {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Scheduled(tick) => write!(formatter, "until tick {}", tick.value()),
+            Self::AwaitingResume => {
+                formatter.write_str("while its production job is suspended awaiting recovery")
+            }
+        }
+    }
+}
+
+/// Durable pause state for one production job whose active-time clock is not currently advancing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProductionSuspension {
+    suspended_at: SimulationTick,
+    remaining_active_time: TickSpan,
+    reason: ProductionSuspensionReason,
+}
+
+impl ProductionSuspension {
+    pub(super) const fn new(
+        suspended_at: SimulationTick,
+        remaining_active_time: TickSpan,
+        reason: ProductionSuspensionReason,
+    ) -> Self {
+        Self {
+            suspended_at,
+            remaining_active_time,
+            reason,
+        }
+    }
+
+    #[must_use]
+    pub const fn suspended_at(self) -> SimulationTick {
+        self.suspended_at
+    }
+
+    #[must_use]
+    pub const fn remaining_active_time(self) -> TickSpan {
+        self.remaining_active_time
+    }
+
+    #[must_use]
+    pub const fn reason(self) -> ProductionSuspensionReason {
+        self.reason
+    }
 }
 
 impl ProductionOutputStream {
@@ -67,11 +134,14 @@ pub struct ProductionJobRecord {
     pub(super) source: StockpileId,
     pub(super) started_at: SimulationTick,
     pub(super) completes_at: SimulationTick,
+    pub(super) active_duration: TickSpan,
+    pub(super) suspension: Option<ProductionSuspension>,
     pub(super) consumed_mass: Mass,
     pub(super) consumed_inputs: Vec<ConsumedMaterialTrace>,
     pub(super) consumed_energy: Option<ConsumedEnergyTrace>,
     pub(super) released_energy: Option<ReleasedEnergyTrace>,
     pub(super) equipment_provider: Option<EquipmentOperationTrace>,
+    pub(super) equipment_requires_active_support: bool,
     pub(super) equipment_condition_after: Option<Condition>,
     pub(super) output_streams: Vec<ProductionOutputStream>,
 }
@@ -102,6 +172,35 @@ impl ProductionJobRecord {
         self.completes_at
     }
 
+    /// Returns the authored/resolved amount of active process time required by this operation.
+    /// Wall-clock suspension never changes this physics contract.
+    #[must_use]
+    pub const fn active_duration(&self) -> TickSpan {
+        self.active_duration
+    }
+
+    /// Returns the current suspension state, if this job is retaining work-in-process while paused.
+    #[must_use]
+    pub const fn suspension(&self) -> Option<ProductionSuspension> {
+        self.suspension
+    }
+
+    #[must_use]
+    pub const fn is_suspended(&self) -> bool {
+        self.suspension.is_some()
+    }
+
+    /// Returns the externally meaningful release horizon for resources exclusively owned by this
+    /// job. A suspended operation has no scheduled release until it resumes.
+    #[must_use]
+    pub const fn occupancy_release(&self) -> ProductionOccupancyRelease {
+        if self.suspension.is_some() {
+            ProductionOccupancyRelease::AwaitingResume
+        } else {
+            ProductionOccupancyRelease::Scheduled(self.completes_at)
+        }
+    }
+
     #[must_use]
     pub const fn consumed_mass(&self) -> Mass {
         self.consumed_mass
@@ -128,6 +227,13 @@ impl ProductionJobRecord {
     #[must_use]
     pub const fn equipment_provider(&self) -> Option<EquipmentOperationTrace> {
         self.equipment_provider
+    }
+
+    /// Whether this operation was authorized only while its equipment had an active structural
+    /// support. Unsupported/free-standing providers do not acquire this requirement implicitly.
+    #[must_use]
+    pub const fn equipment_requires_active_support(&self) -> bool {
+        self.equipment_requires_active_support
     }
 
     /// Returns the persisted post-operation condition for the occupied equipment provider.
@@ -197,6 +303,61 @@ impl ProductionState {
                 (None, None) => true,
                 (Some(_), None) | (None, Some(_)) => false,
             }
+        })
+    }
+
+    pub(crate) fn has_valid_schedule_index(&self) -> bool {
+        if self.due_jobs.values().any(BTreeSet::is_empty) {
+            return false;
+        }
+        for (id, job) in &self.jobs {
+            if job.completes_at <= job.started_at || job.active_duration.value() == 0 {
+                return false;
+            }
+            if job.equipment_requires_active_support && job.equipment_provider.is_none() {
+                return false;
+            }
+            match job.suspension {
+                Some(suspension) => {
+                    if !job.equipment_requires_active_support
+                        || suspension.remaining_active_time().value() == 0
+                        || suspension.remaining_active_time().value() > job.active_duration.value()
+                        || suspension.suspended_at() < job.started_at
+                        || suspension
+                            .suspended_at()
+                            .checked_add_span(suspension.remaining_active_time())
+                            != Some(job.completes_at)
+                    {
+                        return false;
+                    }
+                    match (suspension.reason(), job.equipment_provider) {
+                        (
+                            ProductionSuspensionReason::EquipmentSupportUnavailable { equipment },
+                            Some(provider),
+                        ) if equipment == provider.equipment() => {}
+                        (
+                            ProductionSuspensionReason::EquipmentSupportUnavailable { .. },
+                            Some(_) | None,
+                        ) => return false,
+                    }
+                }
+                None => {
+                    if !self
+                        .due_jobs
+                        .get(&job.completes_at)
+                        .is_some_and(|ids| ids.contains(id))
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+        self.due_jobs.iter().all(|(due, ids)| {
+            ids.iter().all(|id| {
+                self.jobs
+                    .get(id)
+                    .is_some_and(|job| job.suspension.is_none() && job.completes_at == *due)
+            })
         })
     }
 
@@ -379,6 +540,41 @@ pub enum ProductionValidationError {
     CompletionNotAfterStart {
         job: ProductionJobId,
     },
+    ZeroActiveDuration {
+        job: ProductionJobId,
+    },
+    RequiredSupportWithoutEquipment {
+        job: ProductionJobId,
+    },
+    SuspensionWithoutRequiredSupport {
+        job: ProductionJobId,
+    },
+    ZeroSuspensionRemaining {
+        job: ProductionJobId,
+    },
+    SuspensionBeforeStart {
+        job: ProductionJobId,
+        started_at: SimulationTick,
+        suspended_at: SimulationTick,
+    },
+    SuspensionRemainingExceedsActiveDuration {
+        job: ProductionJobId,
+        remaining: TickSpan,
+        active_duration: TickSpan,
+    },
+    SuspensionScheduleOverflow {
+        job: ProductionJobId,
+    },
+    SuspensionScheduleMismatch {
+        job: ProductionJobId,
+        expected_due: SimulationTick,
+        actual_due: SimulationTick,
+    },
+    SuspensionEquipmentMismatch {
+        job: ProductionJobId,
+        expected: EquipmentId,
+        reason: EquipmentId,
+    },
     NoOutputs {
         job: ProductionJobId,
     },
@@ -485,6 +681,13 @@ pub enum ProductionValidationError {
         job: ProductionJobId,
         due: SimulationTick,
     },
+    SuspendedJobInDueIndex {
+        job: ProductionJobId,
+        due: SimulationTick,
+    },
+    EmptyDueIndex {
+        due: SimulationTick,
+    },
     EnergyOccupancyIndexMismatch {
         store: EnergyStoreId,
         indexed: Option<ProductionJobId>,
@@ -512,6 +715,75 @@ impl Display for ProductionValidationError {
                 formatter,
                 "production job {} does not complete after its start tick",
                 job.value()
+            ),
+            Self::ZeroActiveDuration { job } => write!(
+                formatter,
+                "production job {} has zero required active duration",
+                job.value()
+            ),
+            Self::RequiredSupportWithoutEquipment { job } => write!(
+                formatter,
+                "production job {} requires active equipment support but has no equipment provider",
+                job.value()
+            ),
+            Self::SuspensionWithoutRequiredSupport { job } => write!(
+                formatter,
+                "production job {} is suspended for equipment support without an active-support requirement",
+                job.value()
+            ),
+            Self::ZeroSuspensionRemaining { job } => write!(
+                formatter,
+                "production job {} suspension retains zero active time",
+                job.value()
+            ),
+            Self::SuspensionBeforeStart {
+                job,
+                started_at,
+                suspended_at,
+            } => write!(
+                formatter,
+                "production job {} claims suspension at tick {} before its start tick {}",
+                job.value(),
+                suspended_at.value(),
+                started_at.value()
+            ),
+            Self::SuspensionRemainingExceedsActiveDuration {
+                job,
+                remaining,
+                active_duration,
+            } => write!(
+                formatter,
+                "production job {} suspension retains {} active ticks but the operation requires only {} active ticks total",
+                job.value(),
+                remaining.value(),
+                active_duration.value()
+            ),
+            Self::SuspensionScheduleOverflow { job } => write!(
+                formatter,
+                "production job {} suspension schedule exceeds simulation tick range",
+                job.value()
+            ),
+            Self::SuspensionScheduleMismatch {
+                job,
+                expected_due,
+                actual_due,
+            } => write!(
+                formatter,
+                "production job {} suspended schedule implies due tick {} but stores due tick {}",
+                job.value(),
+                expected_due.value(),
+                actual_due.value()
+            ),
+            Self::SuspensionEquipmentMismatch {
+                job,
+                expected,
+                reason,
+            } => write!(
+                formatter,
+                "production job {} suspension references equipment {} but provider is {}",
+                job.value(),
+                reason.value(),
+                expected.value()
             ),
             Self::NoOutputs { job } => write!(
                 formatter,
@@ -702,6 +974,17 @@ impl Display for ProductionValidationError {
                 due.value(),
                 job.value()
             ),
+            Self::SuspendedJobInDueIndex { job, due } => write!(
+                formatter,
+                "suspended production job {} remains indexed for completion at tick {}",
+                job.value(),
+                due.value()
+            ),
+            Self::EmptyDueIndex { due } => write!(
+                formatter,
+                "production due index contains an empty bucket at tick {}",
+                due.value()
+            ),
             Self::EnergyOccupancyIndexMismatch {
                 store,
                 indexed,
@@ -746,6 +1029,70 @@ pub(crate) fn validate_loaded_production(
         }
         if job.completes_at <= job.started_at {
             return Err(ProductionValidationError::CompletionNotAfterStart { job: *id });
+        }
+        if job.active_duration.value() == 0 {
+            return Err(ProductionValidationError::ZeroActiveDuration { job: *id });
+        }
+        if job.equipment_requires_active_support && job.equipment_provider.is_none() {
+            return Err(ProductionValidationError::RequiredSupportWithoutEquipment { job: *id });
+        }
+        if let Some(suspension) = job.suspension {
+            if !job.equipment_requires_active_support {
+                return Err(
+                    ProductionValidationError::SuspensionWithoutRequiredSupport { job: *id },
+                );
+            }
+            if suspension.remaining_active_time().value() == 0 {
+                return Err(ProductionValidationError::ZeroSuspensionRemaining { job: *id });
+            }
+            if suspension.suspended_at() < job.started_at {
+                return Err(ProductionValidationError::SuspensionBeforeStart {
+                    job: *id,
+                    started_at: job.started_at,
+                    suspended_at: suspension.suspended_at(),
+                });
+            }
+            if suspension.remaining_active_time().value() > job.active_duration.value() {
+                return Err(
+                    ProductionValidationError::SuspensionRemainingExceedsActiveDuration {
+                        job: *id,
+                        remaining: suspension.remaining_active_time(),
+                        active_duration: job.active_duration,
+                    },
+                );
+            }
+            let expected_due = suspension
+                .suspended_at()
+                .checked_add_span(suspension.remaining_active_time())
+                .ok_or(ProductionValidationError::SuspensionScheduleOverflow { job: *id })?;
+            if expected_due != job.completes_at {
+                return Err(ProductionValidationError::SuspensionScheduleMismatch {
+                    job: *id,
+                    expected_due,
+                    actual_due: job.completes_at,
+                });
+            }
+            match suspension.reason() {
+                ProductionSuspensionReason::EquipmentSupportUnavailable { equipment } => {
+                    let expected = match job.equipment_provider {
+                        Some(provider) => provider.equipment(),
+                        None => {
+                            return Err(
+                                ProductionValidationError::RequiredSupportWithoutEquipment {
+                                    job: *id,
+                                },
+                            );
+                        }
+                    };
+                    if equipment != expected {
+                        return Err(ProductionValidationError::SuspensionEquipmentMismatch {
+                            job: *id,
+                            expected,
+                            reason: equipment,
+                        });
+                    }
+                }
+            }
         }
         if job.output_streams.is_empty() {
             return Err(ProductionValidationError::NoOutputs { job: *id });
@@ -915,7 +1262,13 @@ pub(crate) fn validate_loaded_production(
             .due_jobs
             .get(&job.completes_at)
             .is_some_and(|ids| ids.contains(id));
-        if !is_indexed {
+        if job.suspension.is_some() && is_indexed {
+            return Err(ProductionValidationError::SuspendedJobInDueIndex {
+                job: *id,
+                due: job.completes_at,
+            });
+        }
+        if job.suspension.is_none() && !is_indexed {
             return Err(ProductionValidationError::MissingDueIndex {
                 job: *id,
                 due: job.completes_at,
@@ -924,6 +1277,9 @@ pub(crate) fn validate_loaded_production(
     }
 
     for (due, ids) in &state.due_jobs {
+        if ids.is_empty() {
+            return Err(ProductionValidationError::EmptyDueIndex { due: *due });
+        }
         for id in ids {
             let Some(job) = state.jobs.get(id) else {
                 return Err(ProductionValidationError::UnexpectedDueIndex {
@@ -931,6 +1287,12 @@ pub(crate) fn validate_loaded_production(
                     due: *due,
                 });
             };
+            if job.suspension.is_some() {
+                return Err(ProductionValidationError::SuspendedJobInDueIndex {
+                    job: *id,
+                    due: *due,
+                });
+            }
             if job.completes_at != *due {
                 return Err(ProductionValidationError::UnexpectedDueIndex {
                     job: *id,

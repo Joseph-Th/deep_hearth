@@ -398,9 +398,11 @@ fn equipment_occupancy(
     equipment: EquipmentId,
 ) -> Option<(ProductionJobId, SimulationTick)> {
     state.production().jobs().find_map(|job| {
-        job.equipment_provider()
-            .is_some_and(|provider| provider.equipment() == equipment)
-            .then_some((job.id(), job.completes_at()))
+        (!job.is_suspended()
+            && job
+                .equipment_provider()
+                .is_some_and(|provider| provider.equipment() == equipment))
+        .then_some((job.id(), job.completes_at()))
     })
 }
 

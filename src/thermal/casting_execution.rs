@@ -975,7 +975,7 @@ pub(super) fn validate_loaded_casting_job(
         job: job.id(),
         error,
     })?;
-    let stored_duration = TickSpan::new(job.completes_at().value() - job.started_at().value());
+    let stored_duration = job.active_duration();
     if stored_duration != required_duration {
         return Err(CastingJobValidationError::DurationMismatch {
             job: job.id(),
@@ -1523,11 +1523,11 @@ mod tests {
             Err(EnergySinkError::StoreBusy {
                 store: fixture.ids.heat_sink,
                 job,
-                completes_at: fixture
+                release: fixture
                     .state
                     .production()
                     .get_job(job)
-                    .map(ProductionJobRecord::completes_at)
+                    .map(ProductionJobRecord::occupancy_release)
                     .unwrap_or_else(|| panic!("casting job disappeared")),
             })
         );

@@ -628,7 +628,7 @@ pub fn resolve_sensible_heating_process(
         let key = (
             profile.commodity(),
             profile.composition().clone(),
-            profile.particle_size(),
+            profile.particle_size_distribution().cloned(),
         );
         let current = output_masses.get(&key).copied().unwrap_or(Mass::ZERO);
         let combined = current
@@ -1102,7 +1102,7 @@ pub(crate) fn validate_loaded_thermal_job(
         let key = (
             profile.commodity(),
             profile.composition().clone(),
-            profile.particle_size(),
+            profile.particle_size_distribution().cloned(),
         );
         let current = output_masses.get(&key).copied().unwrap_or(Mass::ZERO);
         output_masses.insert(
@@ -1129,7 +1129,7 @@ pub(crate) fn validate_loaded_thermal_job(
         job: job.id(),
         error,
     })?;
-    let stored_duration = TickSpan::new(job.completes_at().value() - job.started_at().value());
+    let stored_duration = job.active_duration();
     if stored_duration != required_duration {
         return Err(ThermalJobValidationError::DurationMismatch {
             job: job.id(),
@@ -1191,7 +1191,7 @@ mod tests {
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION, make_test_registries_with_sensible_heating,
     };
     use crate::core::quantity::{Area, Force, Mass, Power};
-    use crate::core::state::validate_loaded_state;
+    use crate::core::state::{StateValidationError, validate_loaded_state};
     use crate::core::time::{SimulationTick, WorldSeed};
     use crate::energy::{
         EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store,
@@ -1201,18 +1201,21 @@ mod tests {
         CapabilityConditionCurve, CapabilityConditionPoint, EquipmentConditionCommitError,
         EquipmentConditionPlanError, EquipmentDefinition, EquipmentDefinitionId,
         EquipmentSupportCommitError, add_equipment, apply_equipment_condition_plan,
-        decide_equipment_wear, validate_mount_equipment,
+        decide_equipment_wear, validate_mount_equipment, validate_unmount_equipment,
     };
     use crate::inventory::{
-        StockpileStorageProfile, add_stockpile, add_stockpile_with_storage_profile,
-        deposit_lot_for_test,
+        StockpileStorageProfile, StockpileSupportError, add_stockpile,
+        add_stockpile_with_storage_profile, deposit_lot_for_test, validate_mount_stockpile,
     };
     use crate::maintenance::{Condition, MaintenanceThresholds};
     use crate::material::{CommodityKey, MaterialComposition};
     use crate::matter::calculate_matter_accounting;
+    use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
     use crate::production::{
-        CompletionCommitError, ProcessDefinition, StartProcessCommitError, StartProcessError,
-        apply_completion_plan, decide_due_completions, validate_start_process,
+        CompletionCommitError, ProcessDefinition, ProductionAvailabilityChange,
+        ProductionOccupancyRelease, ProductionSuspensionReason, ProductionValidationError,
+        StartProcessCommitError, StartProcessError, apply_completion_plan, decide_due_completions,
+        validate_start_process,
     };
     use crate::simulation::advance_tick;
     use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -2688,6 +2691,263 @@ mod tests {
     }
 
     #[test]
+    fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
+        let (registries, mut state, source, destination, equipment, energy_store) =
+            make_loaded_fixture(EnergyCarrier::Electrical);
+        let failed_support = add_active_support(&registries, &mut state, 0);
+        let recovery_support = add_active_support(&registries, &mut state, 2);
+        validate_mount_equipment(&registries, &state, equipment, failed_support)
+            .unwrap_or_else(|error| panic!("suspension fixture mount failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("suspension fixture mount commit failed: {error}"));
+
+        let resolved = resolve_test_sensible_heating_process(
+            &registries,
+            &state,
+            PROCESS,
+            source,
+            equipment,
+            energy_store,
+            Temperature::from_millikelvin(303_000),
+        )
+        .unwrap_or_else(|error| panic!("suspension fixture resolution failed: {error}"));
+        let active_duration = resolved.process_resolution().duration();
+        assert!(active_duration.value() > 2);
+        let start = validate_start_process(
+            &registries,
+            &state,
+            resolved.process_resolution(),
+            source,
+            destination,
+        )
+        .unwrap_or_else(|error| panic!("suspension fixture start failed: {error}"));
+        let job = start
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("suspension fixture start commit failed: {error}"));
+        let original_due = state
+            .production()
+            .get_job(job)
+            .map(|record| record.completes_at())
+            .unwrap_or_else(|| panic!("suspension fixture job disappeared"));
+
+        advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("suspension fixture first active tick failed: {error}"));
+        let suspended_at = state.tick();
+        fail_support(&registries, &mut state, failed_support);
+        let expected_remaining = TickSpan::new(original_due.value() - suspended_at.value());
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("suspension transition tick failed: {error}"));
+        assert_eq!(
+            outcome.production_availability_changes(),
+            &[ProductionAvailabilityChange::Suspended {
+                job,
+                reason: ProductionSuspensionReason::EquipmentSupportUnavailable { equipment },
+                suspended_at,
+                remaining_active_time: expected_remaining,
+            }]
+        );
+        let suspension = state
+            .production()
+            .get_job(job)
+            .and_then(|record| record.suspension())
+            .unwrap_or_else(|| panic!("collapsed supported job did not suspend"));
+        assert_eq!(suspension.remaining_active_time(), expected_remaining);
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(destination)
+                .map(|stockpile| stockpile.stored_mass()),
+            Some(Mass::ZERO)
+        );
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(equipment)
+                .map(|record| record.condition()),
+            Some(Condition::PRISTINE)
+        );
+        assert_eq!(
+            decide_equipment_wear(&state, equipment, 1),
+            Err(EquipmentConditionPlanError::EquipmentBusy {
+                equipment,
+                job,
+                release: ProductionOccupancyRelease::AwaitingResume,
+            })
+        );
+        assert_eq!(
+            validate_energy_supply(
+                &registries,
+                &state,
+                energy_store,
+                Energy::from_nanojoules(1),
+            ),
+            Err(EnergySupplyError::StoreBusy {
+                store: energy_store,
+                job,
+                release: ProductionOccupancyRelease::AwaitingResume,
+            })
+        );
+        assert_eq!(
+            validate_mount_stockpile(&registries, &state, source, recovery_support),
+            Err(StockpileSupportError::StockpileBusy {
+                stockpile: source,
+                job,
+                release: ProductionOccupancyRelease::AwaitingResume,
+            })
+        );
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+        let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| panic!("suspended heating save failed: {error}"));
+        let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+            .unwrap_or_else(|error| panic!("suspended heating save decode failed: {error}"));
+        let loaded = decoded
+            .into_state(&registries)
+            .unwrap_or_else(|error| panic!("suspended heating save validation failed: {error}"));
+        assert_eq!(loaded, state);
+
+        let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| {
+                panic!("suspended heating tamper serialization failed: {error}")
+            });
+        tampered["state"]["production"]["due_jobs"][original_due.value().to_string()] =
+            serde_json::json!([job.value()]);
+        let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+            .unwrap_or_else(|error| panic!("suspended heating tamper decode failed: {error}"));
+        assert_eq!(
+            tampered.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Production(
+                ProductionValidationError::SuspendedJobInDueIndex {
+                    job,
+                    due: original_due,
+                }
+            )))
+        );
+
+        let tampered_due = SimulationTick::new(original_due.value() + 1);
+        let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| {
+                panic!("suspended schedule tamper serialization failed: {error}")
+            });
+        tampered["state"]["production"]["jobs"][job.value().to_string()]["completes_at"] =
+            serde_json::json!(tampered_due.value());
+        let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+            .unwrap_or_else(|error| panic!("suspended schedule tamper decode failed: {error}"));
+        assert_eq!(
+            tampered.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Production(
+                ProductionValidationError::SuspensionScheduleMismatch {
+                    job,
+                    expected_due: original_due,
+                    actual_due: tampered_due,
+                }
+            )))
+        );
+
+        let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| {
+                panic!("suspended remaining-time tamper serialization failed: {error}")
+            });
+        let excessive_remaining = TickSpan::new(active_duration.value() + 1);
+        tampered["state"]["production"]["jobs"][job.value().to_string()]["suspension"]["remaining_active_time"] =
+            serde_json::json!(excessive_remaining.value());
+        let tampered: LoadedSaveEnvelope =
+            serde_json::from_value(tampered).unwrap_or_else(|error| {
+                panic!("suspended remaining-time tamper decode failed: {error}")
+            });
+        assert_eq!(
+            tampered.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Production(
+                ProductionValidationError::SuspensionRemainingExceedsActiveDuration {
+                    job,
+                    remaining: excessive_remaining,
+                    active_duration,
+                }
+            )))
+        );
+
+        let future_suspended_at = SimulationTick::new(state.tick().value() + 1);
+        let future_due = future_suspended_at
+            .checked_add_span(expected_remaining)
+            .unwrap_or_else(|| panic!("future-suspension tamper due tick overflowed"));
+        let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| {
+                panic!("future-suspension tamper serialization failed: {error}")
+            });
+        tampered["state"]["production"]["jobs"][job.value().to_string()]["suspension"]["suspended_at"] =
+            serde_json::json!(future_suspended_at.value());
+        tampered["state"]["production"]["jobs"][job.value().to_string()]["completes_at"] =
+            serde_json::json!(future_due.value());
+        let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+            .unwrap_or_else(|error| panic!("future-suspension tamper decode failed: {error}"));
+        assert_eq!(
+            tampered.into_state(&registries),
+            Err(LoadError::InvalidState(
+                StateValidationError::JobSuspendedInFuture {
+                    job,
+                    current: state.tick(),
+                    suspended_at: future_suspended_at,
+                }
+            ))
+        );
+        state = loaded;
+
+        validate_unmount_equipment(&registries, &state, equipment)
+            .unwrap_or_else(|error| panic!("suspended equipment unmount failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("suspended equipment unmount commit failed: {error}"));
+        validate_mount_equipment(&registries, &state, equipment, recovery_support)
+            .unwrap_or_else(|error| panic!("suspended equipment remount failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("suspended equipment remount commit failed: {error}"));
+
+        let resumed_at = state.tick();
+        let resumed_due = resumed_at
+            .checked_add_span(expected_remaining)
+            .unwrap_or_else(|| panic!("suspension fixture resumed due tick overflowed"));
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("resume transition tick failed: {error}"));
+        assert_eq!(
+            outcome.production_availability_changes(),
+            &[ProductionAvailabilityChange::Resumed {
+                job,
+                reason: ProductionSuspensionReason::EquipmentSupportUnavailable { equipment },
+                resumed_at,
+                scheduled_completion: resumed_due,
+            }]
+        );
+        assert_eq!(
+            state.production().get_job(job).map(|record| (
+                record.active_duration(),
+                record.completes_at(),
+                record.suspension()
+            )),
+            Some((active_duration, resumed_due, None))
+        );
+
+        while state.production().get_job(job).is_some() {
+            advance_tick(&registries, &mut state)
+                .unwrap_or_else(|error| panic!("resumed heating completion failed: {error}"));
+        }
+        assert_eq!(state.tick(), resumed_due);
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(destination)
+                .map(|stockpile| stockpile.stored_mass()),
+            Some(Mass::from_milligrams(10))
+        );
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(equipment)
+                .map(|record| record.condition()),
+            Some(condition(997_000))
+        );
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+
+    #[test]
     fn resolved_heating_becomes_stale_when_support_changes_before_start_validation() {
         let (registries, mut state, source, destination, equipment, energy_store) =
             make_loaded_fixture(EnergyCarrier::Electrical);
@@ -2827,7 +3087,7 @@ mod tests {
             Err(EquipmentConditionCommitError::EquipmentBusy {
                 equipment,
                 job,
-                completes_at,
+                release: ProductionOccupancyRelease::Scheduled(completes_at),
             })
         );
         assert_eq!(state, before_wear);
@@ -2930,7 +3190,7 @@ mod tests {
             Err(crate::production::StartProcessError::EquipmentBusy {
                 equipment,
                 job: first_job,
-                completes_at,
+                release: ProductionOccupancyRelease::Scheduled(completes_at),
             })
         );
         assert_eq!(
@@ -2938,7 +3198,7 @@ mod tests {
             Err(EquipmentConditionPlanError::EquipmentBusy {
                 equipment,
                 job: first_job,
-                completes_at,
+                release: ProductionOccupancyRelease::Scheduled(completes_at),
             })
         );
 
@@ -3043,7 +3303,7 @@ mod tests {
                 EnergySupplyError::StoreBusy {
                     store: energy_store,
                     job: first_job,
-                    completes_at,
+                    release: ProductionOccupancyRelease::Scheduled(completes_at),
                 }
             ))
         );

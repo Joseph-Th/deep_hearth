@@ -9,7 +9,7 @@ use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::material::{
     CommodityKey, CompositionError, FormId, MaterialComposition, MaterialId, MaterialInputSpec,
-    MaterialLotSpec, MaterialPhase, MaterialPhaseStateError, ParticleSizeRange,
+    MaterialLotSpec, MaterialPhase, MaterialPhaseStateError, ParticleSizeDistribution,
     ParticleSizeStateError, validate_material_particle_size_state, validate_material_phase_state,
 };
 use crate::registry::Registries;
@@ -114,7 +114,7 @@ pub(crate) fn validate_stockpile_storage(
     commodity: CommodityKey,
     composition: &MaterialComposition,
     temperature: Temperature,
-    particle_size: Option<ParticleSizeRange>,
+    particle_size: Option<&ParticleSizeDistribution>,
 ) -> Result<(), StockpileStorageError> {
     validate_material_phase_state(registries.materials(), commodity, composition, temperature)
         .map_err(StockpileStorageError::InvalidMaterialPhaseState)?;
@@ -589,7 +589,7 @@ pub(crate) fn validate_material_batch_ingress(
             profile.commodity(),
             profile.composition(),
             profile.temperature(),
-            profile.particle_size(),
+            profile.particle_size_distribution(),
         )
         .map_err(MaterialBatchIngressError::Storage)?;
         let provenance = trace.provenance();
@@ -1269,7 +1269,7 @@ pub(crate) fn validate_material_ingress(
         output.commodity(),
         output.composition(),
         output.temperature(),
-        output.particle_size(),
+        output.particle_size_distribution(),
     )
     .map_err(MaterialIngressError::Storage)?;
     let committed = destination_record
@@ -1347,7 +1347,7 @@ pub(crate) fn apply_material_ingress(
                 commodity: output.commodity(),
                 temperature: output.temperature(),
                 composition: output.composition().clone(),
-                particle_size: output.particle_size(),
+                particle_size: output.particle_size_distribution().cloned(),
             },
             provenance: MaterialLotProvenance {
                 earliest_created_at: created_at,
@@ -1441,7 +1441,7 @@ pub(crate) fn deposit_lot_spec_for_test(
     let mass = specification.mass();
     let temperature = specification.temperature();
     let composition = specification.composition().clone();
-    let particle_size = specification.particle_size();
+    let particle_size = specification.particle_size_distribution().cloned();
     validate_commodity(registries, commodity).map_err(|error| match error {
         CommodityReferenceError::UnknownMaterial { material } => {
             DepositError::UnknownMaterial { material }
@@ -1459,7 +1459,7 @@ pub(crate) fn deposit_lot_spec_for_test(
         commodity,
         &composition,
         temperature,
-        particle_size,
+        particle_size.as_ref(),
     )
     .map_err(DepositError::Storage)?;
     let committed = record
@@ -1596,7 +1596,7 @@ pub fn validate_transfer_bulk(
             lot.commodity(),
             lot.composition(),
             lot.temperature(),
-            lot.particle_size(),
+            lot.particle_size_distribution(),
         )
         .map_err(TransferError::Storage)?;
     }
@@ -2124,7 +2124,7 @@ pub(crate) fn validate_material_relocation_from_selection(
             trace.profile().commodity(),
             trace.profile().composition(),
             trace.profile().temperature(),
-            trace.profile().particle_size(),
+            trace.profile().particle_size_distribution(),
         )
         .map_err(MaterialRelocationError::DestinationStorage)?;
     }
@@ -2368,7 +2368,7 @@ pub(crate) fn apply_reserved_deposit(
                     commodity: output.commodity(),
                     temperature: output.temperature(),
                     composition: output.composition().clone(),
-                    particle_size: output.particle_size(),
+                    particle_size: output.particle_size_distribution().cloned(),
                 },
                 provenance: MaterialLotProvenance {
                     earliest_created_at: created_at,

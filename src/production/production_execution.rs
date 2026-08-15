@@ -6,7 +6,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
+use crate::core::time::{SimulationTick, TickSpan};
 use crate::energy::{
     EnergyCommitError, EnergyConsumptionReservation, EnergyIngressReservation,
     EnergyIngressReservationError, EnergyReservationError, ReleasedEnergyTrace,
@@ -33,13 +33,43 @@ use super::definitions::ProcessId;
 use super::resolution::{
     ProcessOutputStreamId, ProcessResolution, sum_lot_spec_mass, sum_output_stream_mass,
 };
-use super::state::{ProductionJobId, ProductionJobRecord, ProductionOutputStream};
+use super::state::{
+    ProductionJobId, ProductionJobRecord, ProductionOccupancyRelease, ProductionOutputStream,
+    ProductionSuspension, ProductionSuspensionReason,
+};
 
 /// Explicit route assigning one resolved physical stream to one stockpile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProcessOutputRoute {
     stream: ProcessOutputStreamId,
     destination: StockpileId,
+}
+
+/// Observable active-time scheduling change caused by a production provider becoming unavailable or
+/// usable again. Work-in-process remains owned by the same job across both transitions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProductionAvailabilityChange {
+    Suspended {
+        job: ProductionJobId,
+        reason: ProductionSuspensionReason,
+        suspended_at: SimulationTick,
+        remaining_active_time: TickSpan,
+    },
+    Resumed {
+        job: ProductionJobId,
+        reason: ProductionSuspensionReason,
+        resumed_at: SimulationTick,
+        scheduled_completion: SimulationTick,
+    },
+}
+
+impl ProductionAvailabilityChange {
+    #[must_use]
+    pub const fn job(self) -> ProductionJobId {
+        match self {
+            Self::Suspended { job, .. } | Self::Resumed { job, .. } => job,
+        }
+    }
 }
 
 impl ProcessOutputRoute {
@@ -142,7 +172,7 @@ pub enum StartProcessError {
     EnergyStoreBusy {
         store: crate::energy::EnergyStoreId,
         job: ProductionJobId,
-        completes_at: SimulationTick,
+        release: ProductionOccupancyRelease,
     },
     ResolvedEquipmentMissing {
         equipment: EquipmentId,
@@ -170,7 +200,7 @@ pub enum StartProcessError {
     EquipmentBusy {
         equipment: EquipmentId,
         job: ProductionJobId,
-        completes_at: SimulationTick,
+        release: ProductionOccupancyRelease,
     },
     StructuralLoad(StockpileStructuralLoadError),
 }
@@ -324,13 +354,12 @@ impl Display for StartProcessError {
             Self::EnergyStoreBusy {
                 store,
                 job,
-                completes_at,
+                release,
             } => write!(
                 formatter,
-                "energy store {} is occupied by production job {} until tick {}",
+                "energy store {} is occupied by production job {} {release}",
                 store.value(),
-                job.value(),
-                completes_at.value()
+                job.value()
             ),
             Self::ResolvedEquipmentMissing { equipment } => write!(
                 formatter,
@@ -375,13 +404,12 @@ impl Display for StartProcessError {
             Self::EquipmentBusy {
                 equipment,
                 job,
-                completes_at,
+                release,
             } => write!(
                 formatter,
-                "equipment {} is occupied by production job {} until tick {}",
+                "equipment {} is occupied by production job {} {release}",
                 equipment.value(),
-                job.value(),
-                completes_at.value()
+                job.value()
             ),
             Self::StructuralLoad(error) => {
                 write!(
@@ -752,7 +780,7 @@ pub fn validate_start_process_routed(
                 output.commodity(),
                 output.composition(),
                 output.temperature(),
-                output.particle_size(),
+                output.particle_size_distribution(),
             )
             .map_err(StartProcessError::DestinationStorage)?;
         }
@@ -857,7 +885,7 @@ pub fn validate_start_process_routed(
             return Err(StartProcessError::EnergyStoreBusy {
                 store,
                 job: job_id,
-                completes_at: job.completes_at(),
+                release: job.occupancy_release(),
             });
         }
     }
@@ -932,7 +960,7 @@ pub fn validate_start_process_routed(
                 return Err(StartProcessError::EquipmentBusy {
                     equipment: trace.equipment(),
                     job: job.id(),
-                    completes_at: job.completes_at(),
+                    release: job.occupancy_release(),
                 });
             }
             Some(trace)
@@ -961,11 +989,15 @@ pub fn validate_start_process_routed(
             source,
             started_at: current,
             completes_at,
+            active_duration: resolution.duration(),
+            suspension: None,
             consumed_mass: input_mass,
             consumed_inputs,
             consumed_energy,
             released_energy,
             equipment_provider,
+            equipment_requires_active_support: equipment_use
+                .is_some_and(|selection| selection.support().is_some()),
             equipment_condition_after: resolution.equipment_condition_after(),
             output_streams,
         },
@@ -1082,7 +1114,9 @@ pub(crate) struct CompletionPlan {
     next_equipment_revision: u64,
     expected_energy_revision: u64,
     next_energy_revision: u64,
+    expected_structure_revision: u64,
     next_lot_id_after: u64,
+    availability_changes: Vec<ProductionAvailabilityChange>,
     entries: Vec<CompletionPlanEntry>,
     equipment_outcomes: Vec<EquipmentOperationConditionOutcome>,
     released_energy_outcomes: Vec<ReleasedEnergyTrace>,
@@ -1112,8 +1146,21 @@ pub(crate) enum CompletionPlanError {
     ProductionRevision,
     EquipmentRevision,
     EnergyRevision,
-    DestinationMassOverflow { stockpile: StockpileId },
+    ResumeTickOverflow {
+        job: ProductionJobId,
+        current: SimulationTick,
+        remaining: TickSpan,
+    },
+    DestinationMassOverflow {
+        stockpile: StockpileId,
+    },
     StructuralLoad(StockpileStructuralLoadError),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CompletionApplication {
+    pub(crate) completions: Vec<ProcessCompletion>,
+    pub(crate) availability_changes: Vec<ProductionAvailabilityChange>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1126,7 +1173,99 @@ pub(crate) enum CompletionCommitError {
     Structure(StructuralCommitError),
 }
 
-/// Decides all jobs due on one exact tick without mutating production, inventory, or equipment.
+fn equipment_has_required_active_support(state: &AppState, job: &ProductionJobRecord) -> bool {
+    if !job.equipment_requires_active_support() {
+        return true;
+    }
+    let provider = match job.equipment_provider() {
+        Some(provider) => provider,
+        None => panic!(
+            "runtime invariant broken: support-dependent production job {} has no equipment provider",
+            job.id().value()
+        ),
+    };
+    let equipment = match state.equipment().get_equipment(provider.equipment()) {
+        Some(record) => record,
+        None => panic!(
+            "runtime invariant broken: production job {} references missing equipment {}",
+            job.id().value(),
+            provider.equipment().value()
+        ),
+    };
+    equipment.supported_by().is_some_and(|element| {
+        state
+            .structures()
+            .get_element(element)
+            .is_some_and(|support| support.lifecycle() == StructuralLifecycle::Active)
+    })
+}
+
+fn decide_availability_changes(
+    state: &AppState,
+) -> Result<Vec<ProductionAvailabilityChange>, CompletionPlanError> {
+    let current = state.tick();
+    let mut changes = Vec::new();
+    for job in state.production().jobs() {
+        if !job.equipment_requires_active_support() {
+            continue;
+        }
+        let provider = match job.equipment_provider() {
+            Some(provider) => provider,
+            None => panic!(
+                "runtime invariant broken: support-dependent production job {} has no equipment provider",
+                job.id().value()
+            ),
+        };
+        let support_active = equipment_has_required_active_support(state, job);
+        match job.suspension() {
+            None if !support_active => {
+                let remaining = job
+                    .completes_at()
+                    .value()
+                    .checked_sub(current.value())
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "runtime invariant broken: running production job {} is already overdue",
+                            job.id().value()
+                        )
+                    });
+                assert!(
+                    remaining != 0,
+                    "runtime invariant broken: running job cannot suspend with zero active time"
+                );
+                changes.push(ProductionAvailabilityChange::Suspended {
+                    job: job.id(),
+                    reason: ProductionSuspensionReason::EquipmentSupportUnavailable {
+                        equipment: provider.equipment(),
+                    },
+                    suspended_at: current,
+                    remaining_active_time: TickSpan::new(remaining),
+                });
+            }
+            Some(suspension) if support_active => {
+                let remaining = suspension.remaining_active_time();
+                let Some(scheduled_completion) = current.checked_add_span(remaining) else {
+                    return Err(CompletionPlanError::ResumeTickOverflow {
+                        job: job.id(),
+                        current,
+                        remaining,
+                    });
+                };
+                changes.push(ProductionAvailabilityChange::Resumed {
+                    job: job.id(),
+                    reason: suspension.reason(),
+                    resumed_at: current,
+                    scheduled_completion,
+                });
+            }
+            None | Some(_) => {}
+        }
+    }
+    Ok(changes)
+}
+
+/// Decides provider availability transitions and all jobs due on one exact tick without mutating
+/// production, inventory, equipment, energy, or structure.
 pub(crate) fn decide_due_completions(
     registries: &Registries,
     state: &AppState,
@@ -1136,37 +1275,50 @@ pub(crate) fn decide_due_completions(
     let expected_production_revision = state.production_state().revision();
     let expected_equipment_revision = state.equipment_state().revision();
     let expected_energy_revision = state.energy_state().revision();
-    let Some(due_ids) = state.production_state().due_jobs.get(&tick) else {
-        return Ok(CompletionPlan {
-            tick,
-            expected_inventory_revision,
-            next_inventory_revision: expected_inventory_revision,
-            expected_production_revision,
-            next_production_revision: expected_production_revision,
-            expected_equipment_revision,
-            next_equipment_revision: expected_equipment_revision,
-            expected_energy_revision,
-            next_energy_revision: expected_energy_revision,
-            next_lot_id_after: next_material_lot_id(state.inventory_state()),
-            entries: Vec::new(),
-            equipment_outcomes: Vec::new(),
-            released_energy_outcomes: Vec::new(),
-            structural_load: None,
-        });
-    };
+    let expected_structure_revision = state.structures().revision();
+    let availability_changes = decide_availability_changes(state)?;
+    let mut due_ids = state
+        .production_state()
+        .due_jobs
+        .get(&tick)
+        .cloned()
+        .unwrap_or_default();
+    for change in &availability_changes {
+        match *change {
+            ProductionAvailabilityChange::Suspended { job, .. } => {
+                due_ids.remove(&job);
+            }
+            ProductionAvailabilityChange::Resumed {
+                job,
+                scheduled_completion,
+                ..
+            } if scheduled_completion == tick => {
+                due_ids.insert(job);
+            }
+            ProductionAvailabilityChange::Resumed { .. } => {}
+        }
+    }
 
-    let next_inventory_revision = expected_inventory_revision
-        .checked_add(1)
-        .ok_or(CompletionPlanError::InventoryRevision)?;
-    let next_production_revision = expected_production_revision
-        .checked_add(1)
-        .ok_or(CompletionPlanError::ProductionRevision)?;
+    let next_inventory_revision = if due_ids.is_empty() {
+        expected_inventory_revision
+    } else {
+        expected_inventory_revision
+            .checked_add(1)
+            .ok_or(CompletionPlanError::InventoryRevision)?
+    };
+    let next_production_revision = if due_ids.is_empty() && availability_changes.is_empty() {
+        expected_production_revision
+    } else {
+        expected_production_revision
+            .checked_add(1)
+            .ok_or(CompletionPlanError::ProductionRevision)?
+    };
     let mut next_lot_id = next_material_lot_id(state.inventory_state());
     let mut entries = Vec::with_capacity(due_ids.len());
     let mut equipment_outcomes = Vec::new();
     let mut released_energy_outcomes = Vec::new();
     let mut deposited_mass_by_destination = BTreeMap::<StockpileId, Mass>::new();
-    for job_id in due_ids {
+    for job_id in &due_ids {
         let job = match state.production_state().jobs.get(job_id) {
             Some(job) => job,
             None => panic!(
@@ -1281,8 +1433,12 @@ pub(crate) fn decide_due_completions(
             stored_after,
         ));
     }
-    let structural_load = validate_stockpile_stored_mass_changes(registries, state, mass_changes)
-        .map_err(CompletionPlanError::StructuralLoad)?;
+    let structural_load = if mass_changes.is_empty() {
+        None
+    } else {
+        validate_stockpile_stored_mass_changes(registries, state, mass_changes)
+            .map_err(CompletionPlanError::StructuralLoad)?
+    };
 
     Ok(CompletionPlan {
         tick,
@@ -1294,7 +1450,9 @@ pub(crate) fn decide_due_completions(
         next_equipment_revision,
         expected_energy_revision,
         next_energy_revision,
+        expected_structure_revision,
         next_lot_id_after: next_lot_id,
+        availability_changes,
         entries,
         equipment_outcomes,
         released_energy_outcomes,
@@ -1306,7 +1464,7 @@ pub(crate) fn decide_due_completions(
 pub(crate) fn apply_completion_plan(
     state: &mut AppState,
     plan: CompletionPlan,
-) -> Result<Vec<ProcessCompletion>, CompletionCommitError> {
+) -> Result<CompletionApplication, CompletionCommitError> {
     let CompletionPlan {
         tick,
         expected_inventory_revision,
@@ -1317,7 +1475,9 @@ pub(crate) fn apply_completion_plan(
         next_equipment_revision,
         expected_energy_revision,
         next_energy_revision,
+        expected_structure_revision,
         next_lot_id_after,
+        availability_changes,
         entries,
         equipment_outcomes,
         released_energy_outcomes,
@@ -1340,7 +1500,7 @@ pub(crate) fn apply_completion_plan(
             });
         }
     }
-    if !equipment_outcomes.is_empty() {
+    if !equipment_outcomes.is_empty() || !availability_changes.is_empty() {
         let actual_equipment_revision = state.equipment_state().revision();
         if actual_equipment_revision != expected_equipment_revision {
             return Err(CompletionCommitError::EquipmentRevisionConflict {
@@ -1356,8 +1516,7 @@ pub(crate) fn apply_completion_plan(
             actual: actual_production_revision,
         });
     }
-    if let Some(structural_load) = &structural_load {
-        let expected_structure_revision = structural_load.expected_revision();
+    if structural_load.is_some() || !availability_changes.is_empty() {
         let actual_structure_revision = state.structures().revision();
         if actual_structure_revision != expected_structure_revision {
             return Err(CompletionCommitError::StructureRevisionConflict {
@@ -1367,9 +1526,97 @@ pub(crate) fn apply_completion_plan(
         }
     }
     if let Some(structural_load) = structural_load {
+        debug_assert_eq!(
+            structural_load.expected_revision(),
+            expected_structure_revision
+        );
         structural_load
             .commit(state)
             .map_err(CompletionCommitError::Structure)?;
+    }
+
+    for change in &availability_changes {
+        match *change {
+            ProductionAvailabilityChange::Suspended {
+                job,
+                reason,
+                suspended_at,
+                remaining_active_time,
+            } => {
+                let due = match state.production().get_job(job) {
+                    Some(record) => record.completes_at(),
+                    None => panic!(
+                        "runtime invariant broken: production job {} disappeared before suspension",
+                        job.value()
+                    ),
+                };
+                let production = state.production_state_mut();
+                let remove_due_entry = {
+                    let due_jobs = match production.due_jobs.get_mut(&due) {
+                        Some(due_jobs) => due_jobs,
+                        None => panic!(
+                            "runtime invariant broken: running job {} has no due-index entry",
+                            job.value()
+                        ),
+                    };
+                    assert!(
+                        due_jobs.remove(&job),
+                        "runtime invariant broken: due index missing running job {}",
+                        job.value()
+                    );
+                    due_jobs.is_empty()
+                };
+                if remove_due_entry {
+                    production.due_jobs.remove(&due);
+                }
+                let record = match production.jobs.get_mut(&job) {
+                    Some(record) => record,
+                    None => panic!(
+                        "runtime invariant broken: production job {} disappeared during suspension",
+                        job.value()
+                    ),
+                };
+                assert!(
+                    record.suspension.is_none(),
+                    "runtime invariant broken: already-suspended job received another suspension"
+                );
+                record.suspension = Some(ProductionSuspension::new(
+                    suspended_at,
+                    remaining_active_time,
+                    reason,
+                ));
+            }
+            ProductionAvailabilityChange::Resumed {
+                job,
+                scheduled_completion,
+                ..
+            } => {
+                let production = state.production_state_mut();
+                let record = match production.jobs.get_mut(&job) {
+                    Some(record) => record,
+                    None => panic!(
+                        "runtime invariant broken: production job {} disappeared before resume",
+                        job.value()
+                    ),
+                };
+                assert!(
+                    record.suspension.is_some(),
+                    "runtime invariant broken: running job received a resume transition"
+                );
+                record.completes_at = scheduled_completion;
+                record.suspension = None;
+                let inserted = production
+                    .due_jobs
+                    .entry(scheduled_completion)
+                    .or_default()
+                    .insert(job);
+                assert!(
+                    inserted,
+                    "runtime invariant broken: resumed job {} already exists in due index",
+                    job.value()
+                );
+            }
+        }
     }
 
     let mut completions = Vec::with_capacity(entries.len());
@@ -1432,9 +1679,14 @@ pub(crate) fn apply_completion_plan(
             next_lot_id_after,
             next_inventory_revision,
         );
+    }
+    if !completions.is_empty() || !availability_changes.is_empty() {
         state.production_state_mut().revision = next_production_revision;
     }
-    Ok(completions)
+    Ok(CompletionApplication {
+        completions,
+        availability_changes,
+    })
 }
 
 #[cfg(test)]
