@@ -185,6 +185,25 @@ strategy that preserves index identity. Texture definitions are immutable presen
 are not persisted by the headless simulation, so changing their color or detail does not alter the
 registry compatibility schema used to validate authoritative saves.
 
+Renderer-neutral WGSL definitions live in the immutable shader registry. Libraries and executable
+programs have typed IDs and validated acyclic library-only dependencies. Startup assembly walks those
+dependencies in stable order, emits each source module once, and bakes executable programs into a
+dense ID lookup for an adapter to compile and cache. The registry carries entry-point names,
+premultiplied-alpha/depth/color-target pipeline requirements, compute workgroup sizes, and explicit
+worst-case work budgets. Shader source is presentation content and does not enter `AppState` or the
+save compatibility schema.
+
+The built-in suite joins the indexed texture path to a linear HDR lighting path: one 16x16 tiled
+compute pass deterministically retains at most 32 point lights per tile from at most 512 stable-ordered
+candidates; surfaces add palette-ramp lighting, ambient occlusion, four-tap sun shadows, warm block
+light, local lights, and height fog. Separate bounded programs provide an alpha-aware shadow pass,
+three-wave analytic water with depth-based absorption/refraction and foam, three-layer procedural
+billboard smoke, a procedural cloud/star sky, four-read half-resolution bloom, and ACES-fit display
+mapping. Depth reconstruction uses WGSL's 0-to-1 clip convention. The exact frame order, resource
+formats, vertex layouts, uniform semantics, and binding contract are documented in
+`assets/shaders/README.md`; the renderer backend still owns resource allocation, synchronization,
+draw ordering, and platform pipeline creation.
+
 ## 9. Performance Policy
 
 Performance begins with ownership and access patterns rather than premature micro-optimization.
@@ -212,6 +231,13 @@ Performance begins with ownership and access patterns rather than premature micr
   carrying only a texture-array layer and palette row. Indexed tiles cost one byte per texel, custom
   mip levels remain indexed, repeated patterns and palette assignments are deduplicated independently,
   and shared ramps occupy one small RGBA lookup table.
+- Shader hot paths carry declared work ceilings enforced at registry construction. Built-ins cap a
+  surface at seven texture reads and 32 tile-local lights, procedural effects at three fixed noise
+  layers, bloom at four half-resolution reads, and post processing at five reads. Stable light
+  compaction avoids nondeterministic atomic allocation, smoke rejects empty billboard pixels before
+  procedural noise, and indoor/unlit surface fragments skip shadow taps. The unique shipped WGSL
+  source suite has a tested 48 KiB maximum. Naga is a test-only dependency, so shader validation adds
+  no graphics library or runtime weight to the shipping crate.
 - Spatial/chunk architecture must be justified by workload measurements before selection.
 
 ## 10. Validation Policy

@@ -12,6 +12,7 @@ use crate::fluid::FluidRegistry;
 use crate::material::MaterialRegistry;
 use crate::ore_processing::OreProcessingRegistry;
 use crate::production::ProductionRegistry;
+use crate::shader::ShaderRegistry;
 use crate::structural::StructuralRegistry;
 use crate::texture::TextureRegistry;
 use crate::thermal::ThermalRegistry;
@@ -80,6 +81,7 @@ pub struct Registries {
     thermal: ThermalRegistry,
     production: ProductionRegistry,
     textures: TextureRegistry,
+    shaders: ShaderRegistry,
 }
 
 /// Domain registry bundle used to assemble the immutable root without a wide positional API.
@@ -94,6 +96,7 @@ pub(crate) struct RegistryDomains {
     pub(crate) thermal: ThermalRegistry,
     pub(crate) production: ProductionRegistry,
     pub(crate) textures: TextureRegistry,
+    pub(crate) shaders: ShaderRegistry,
 }
 
 impl Registries {
@@ -140,6 +143,7 @@ impl Registries {
             thermal: domains.thermal,
             production: domains.production,
             textures: domains.textures,
+            shaders: domains.shaders,
         }
     }
 
@@ -213,5 +217,11 @@ impl Registries {
     #[must_use]
     pub const fn textures(&self) -> &TextureRegistry {
         &self.textures
+    }
+
+    /// Returns immutable WGSL libraries and executable shader definitions.
+    #[must_use]
+    pub const fn shaders(&self) -> &ShaderRegistry {
+        &self.shaders
     }
 }

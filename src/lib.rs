@@ -19,6 +19,7 @@ pub mod ore_processing;
 pub mod persistence;
 pub mod production;
 pub mod registry;
+pub mod shader;
 pub mod simulation;
 pub mod spatial;
 pub mod structural;

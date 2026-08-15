@@ -10,7 +10,11 @@ The renderer-neutral visual foundation provides hue-shaped palette ramps, one-by
 tiles, explicit block-face and object material-slot appearances, and a deterministic startup bake
 into deduplicated texture-array layers with discrete mipmaps. A future graphics adapter can upload
 the baked `R8_UINT` texels and compact lookup tables without adding image-decoding or graphics
-dependencies to the simulation core.
+dependencies to the simulation core. A matching bounded WGSL suite adds palette-aware HDR surfaces,
+stable 16x16 tiled point lights, soft directional shadows, analytic water, procedural billboard
+smoke, a cloud-and-star sky, half-resolution bloom, ACES-fit tone mapping, and fog. Shader libraries
+assemble deterministically at startup, and every executable declares an auditable ceiling for texture
+reads, noise layers, lights, and loop iterations.
 
 The implemented foundation includes persisted independent RNG streams, exact integer engineering
 quantities, composition-aware and phase-aware material lots, temperature/phase-constrained storage,

@@ -9,6 +9,7 @@ mod gameplay_harness;
 mod materials;
 mod ore_processing;
 mod processes;
+mod shaders;
 mod structural;
 mod textures;
 mod thermal;
@@ -31,6 +32,8 @@ use crate::ore_processing::{
 #[cfg(test)]
 use crate::production::{ProcessDefinition, ProductionRegistry};
 #[cfg(test)]
+use crate::shader::ShaderRegistry;
+#[cfg(test)]
 use crate::texture::TextureRegistry;
 #[cfg(test)]
 use crate::thermal::{
@@ -46,6 +49,11 @@ fn empty_energy_registry() -> EnergyRegistry {
 #[cfg(test)]
 fn empty_texture_registry() -> TextureRegistry {
     TextureRegistry::empty()
+}
+
+#[cfg(test)]
+fn empty_shader_registry() -> ShaderRegistry {
+    ShaderRegistry::empty()
 }
 
 #[cfg(test)]
@@ -79,6 +87,7 @@ pub(crate) fn make_test_registries_with_screening(
             thermal: empty_thermal_registry(),
             production,
             textures: empty_texture_registry(),
+            shaders: empty_shader_registry(),
         },
     )
 }
@@ -108,6 +117,10 @@ pub use materials::{
 pub use processes::{
     PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
     PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
+};
+pub use shaders::{
+    SHADER_BLOOM, SHADER_LIGHT_CULL, SHADER_POST_PROCESS, SHADER_SHADOW, SHADER_SKY, SHADER_SMOKE,
+    SHADER_SURFACE, SHADER_WATER,
 };
 pub use structural::{STRUCTURAL_PROFILE_AXIAL_COMPRESSION, STRUCTURAL_PROFILE_AXIAL_TENSION};
 pub use textures::{
@@ -150,6 +163,7 @@ pub fn build_registries() -> Registries {
             thermal: thermal::build_thermal_registry(),
             production: processes::build_production_registry(),
             textures: textures::build_texture_registry(),
+            shaders: shaders::build_shader_registry(),
         },
     )
 }
@@ -175,6 +189,7 @@ pub(crate) fn make_test_registries_with_equipment(
             thermal: empty_thermal_registry(),
             production: ProductionRegistry::new(),
             textures: empty_texture_registry(),
+            shaders: empty_shader_registry(),
         },
     )
 }
@@ -197,6 +212,7 @@ pub(crate) fn make_test_registries_with_process(process: ProcessDefinition) -> R
             thermal: empty_thermal_registry(),
             production,
             textures: empty_texture_registry(),
+            shaders: empty_shader_registry(),
         },
     )
 }
@@ -226,6 +242,7 @@ pub(crate) fn make_test_registries_with_energy_stores(
             thermal: empty_thermal_registry(),
             production: ProductionRegistry::new(),
             textures: empty_texture_registry(),
+            shaders: empty_shader_registry(),
         },
     )
 }
@@ -251,6 +268,7 @@ pub(crate) fn make_test_registries_with_energy_stores_and_process(
             thermal: empty_thermal_registry(),
             production,
             textures: empty_texture_registry(),
+            shaders: empty_shader_registry(),
         },
     )
 }
@@ -287,6 +305,7 @@ pub(crate) fn make_test_registries_with_sensible_heating(
             ),
             production,
             textures: empty_texture_registry(),
+            shaders: empty_shader_registry(),
         },
     )
 }
@@ -323,6 +342,7 @@ pub(crate) fn make_test_registries_with_melting(
             ),
             production,
             textures: empty_texture_registry(),
+            shaders: empty_shader_registry(),
         },
     )
 }
@@ -359,6 +379,7 @@ pub(crate) fn make_test_registries_with_casting(
             ),
             production,
             textures: empty_texture_registry(),
+            shaders: empty_shader_registry(),
         },
     )
 }
@@ -379,6 +400,7 @@ pub(crate) fn make_test_registries_with_fluids(definitions: Vec<FluidDefinition>
             thermal: empty_thermal_registry(),
             production: ProductionRegistry::new(),
             textures: empty_texture_registry(),
+            shaders: empty_shader_registry(),
         },
     )
 }
@@ -411,6 +433,7 @@ pub(crate) fn make_test_registries_with_comminution(
             thermal: empty_thermal_registry(),
             production,
             textures: empty_texture_registry(),
+            shaders: empty_shader_registry(),
         },
     )
 }
@@ -645,6 +668,7 @@ mod tests {
                 thermal: empty_thermal_registry(),
                 production,
                 textures: empty_texture_registry(),
+                shaders: empty_shader_registry(),
             },
         );
 
@@ -738,6 +762,7 @@ mod tests {
                     thermal,
                     production,
                     textures: empty_texture_registry(),
+                    shaders: empty_shader_registry(),
                 },
             )
         });

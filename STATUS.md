@@ -321,6 +321,18 @@
   workshop metal, refractory brick, and cutout screen mesh. The complete built-in indexed upload,
   including palette lookup tables, remains below half the bytes of its equivalent deduplicated RGBA
   texel mip chain.
+- Renderer-neutral immutable WGSL registry with typed IDs, validated acyclic shared-library graphs,
+  deterministic dependency assembly, dense startup program lookup, explicit render/compute entry
+  points, fixed-function blend/depth/color-target requirements, portable workgroup limits, and
+  audited per-invocation work budgets. Eight built-in programs cover indexed HDR surfaces, stable
+  16x16 tiled point-light culling, alpha-aware directional shadows, three-wave depth-aware water,
+  three-layer procedural soft-particle smoke, a procedural cloud/star sky, four-read half-resolution
+  bloom, and ACES-fit post processing with grading, vignette, and dither. Surface lighting combines
+  palette shade selection, ambient occlusion, warm block light, up to 32 local lights, four-tap sun
+  shadows, and height fog. Overflowing light tiles retain the first 32 stable-ordered overlaps without
+  atomic allocation flicker. The unique WGSL suite is held below 48 KiB and every assembled program
+  is parsed and semantically validated by test-only Naga, leaving the shipping crate free of a
+  graphics dependency.
 - Deterministic 10,000-tick mixed-system soak with repeated production/transfers, varying structural
   snow load on a persistently cracked supported deck, full-state replay equality, periodic exhaustive
   audits, matter-conservation checks, and lot-fragmentation ceiling.
@@ -414,7 +426,7 @@
   acquisition/construction authorizers exist; experienced post-setup mutations use canonical runtime
   transactions. Isolated unit-test registry builders no longer inherit unrelated canonical gameplay
   content as that content expands.
-- Current debug validation suite: 344 passing tests with `cargo check` silent and
+- Current debug validation suite: 354 passing tests with `cargo check` silent and
   Clippy warnings denied.
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
   as variants evolve instead of relying on review to catch silent fallback behavior.
@@ -425,9 +437,9 @@
 ## Deliberately Deferred
 
 - Renderer backend, window/input, audio, UI, engine/ECS selection, physics implementation,
-  networking, and general threading architecture. The compact renderer-neutral texture upload
-  contract is implemented, but no graphics API, shader language, mesh format, or lighting model is
-  selected.
+  networking, and general threading architecture. Compact texture upload and bounded WGSL lighting
+  contracts are implemented, but no graphics API backend, mesh/chunk format, GPU resource-lifetime
+  policy, pipeline-cache implementation, or device-specific quality tier is selected.
 - Concrete voxel/chunk storage, world generation, spatial indexes, chunk dimensions, and streaming.
 - Regional geological generation algorithms and host-rock relationships, voxel-level terrain matter
   ownership, and physical prospecting resolvers for surface evidence, panning, sampling, drilling,
