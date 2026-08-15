@@ -2,6 +2,16 @@
 
 Read before changing code. Current work is in STATUS.md.
 
+## Portfolio standard
+
+This repository follows [`../STANDARDS.md`](../STANDARDS.md). The applicable profiles are Universal, Stateful Application, and Deterministic System.
+
+`STANDARDS.md` supplies portfolio defaults; this file owns Deep Hearth's repository-local coding law. `STATUS.md` owns current implemented scope, `TECHNICAL_DESIGN.md` owns project-specific technical design where referenced, and `GAME_DESIGN.md` owns product intent. If current authorities, tests, and implementation conflict, treat the conflict as a defect to reconcile rather than choosing whichever description is convenient.
+
+Before implementation, a cold agent must be able to identify current scope, authoritative owner, canonical operation, persistence/observation boundary when applicable, narrowest proving test, and completion gate. If that route is not discoverable, improve the owning documentation as part of the change.
+
+When multiple agents may be active in this workspace, read [`../COORDINATION.md`](../COORDINATION.md) and the live [`../COORDINATION_STATUS.md`](../COORDINATION_STATUS.md) before the first consequential write. Coordination claims reserve active write scope only; they do not override Deep Hearth's coding law, current status, technical design, or game-design authority.
+
 ## Coding Design Law
 
 A deterministic, explicit, maintainable codebase in Rust.
