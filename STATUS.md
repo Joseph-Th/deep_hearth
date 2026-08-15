@@ -311,28 +311,32 @@
 - Chunk-independent 64-bit voxel coordinates and validated spatial bounds without choosing chunk
   dimensions or streaming policy.
 - Renderer-neutral immutable texture registry with hue-shift-capable 16-shade palette ramps,
-  one-byte 16x16 indexed texels, strict opaque/cutout/blend validation, explicit six-face block
+  one-byte 32x32 indexed texels, strict opaque/cutout/blend validation, explicit six-face block
   appearances, ordered object material-slot appearances, and validated material-form/equipment
   bindings. The deterministic startup baker produces stable dense texture descriptors, independently
   deduplicates indexed patterns and palette rows for cheap recolors, and generates discrete
-  16/8/4/2/1 mip chains without averaging palette indices. Block faces and object material slots are
+  32/16/8/4/2/1 mip chains without averaging palette indices. Block faces and object material slots are
   prebaked to draw descriptors so hot meshing does not revisit authored maps. Built-in visual content
-  covers timber, charcoal, copper ore and crushed ore, hammered and molten copper, porous slag,
-  workshop metal, refractory brick, and cutout screen mesh. The complete built-in indexed upload,
-  including palette lookup tables, remains below half the bytes of its equivalent deduplicated RGBA
-  texel mip chain.
+  uses multi-scale structure rather than uniform speckle: timber grain, knots and growth-ring cracks;
+  charcoal fractures; copper veins; beveled panels and rivets; slag pores; molten flow and crust;
+  aggregate clasts; worn-metal scratches and rust; sooted brick inclusions; and beveled cutout mesh.
+  The complete built-in indexed upload, including all six mip levels and palette lookup tables, stays
+  within 16 KiB and below half the bytes of its equivalent deduplicated RGBA texel mip chain.
 - Renderer-neutral immutable WGSL registry with typed IDs, validated acyclic shared-library graphs,
   deterministic dependency assembly, dense startup program lookup, explicit render/compute entry
   points, fixed-function blend/depth/color-target requirements, portable workgroup limits, and
-  audited per-invocation work budgets. Eight built-in programs cover indexed HDR surfaces, stable
-  16x16 tiled point-light culling, alpha-aware directional shadows, three-wave depth-aware water,
-  three-layer procedural soft-particle smoke, a procedural cloud/star sky, four-read half-resolution
-  bloom, and ACES-fit post processing with grading, vignette, and dither. Surface lighting combines
-  palette shade selection, ambient occlusion, warm block light, up to 32 local lights, four-tap sun
-  shadows, and height fog. Overflowing light tiles retain the first 32 stable-ordered overlaps without
-  atomic allocation flicker. The unique WGSL suite is held below 48 KiB and every assembled program
-  is parsed and semantically validated by test-only Naga, leaving the shipping crate free of a
-  graphics dependency.
+  audited per-invocation work budgets. Nine built-in programs cover indexed HDR surfaces, stable
+  16x16 tiled point-light culling, separate zero-sample opaque and alpha-aware cutout directional
+  shadows, three-wave depth-aware water, three-layer procedural soft-particle smoke, a procedural
+  cloud/star sky, four-read half-resolution bloom, and ACES-fit post processing with grading,
+  vignette, and dither. The cutout shadow path shares the surface path's injected texture dimensions,
+  discrete mip selection, and mesh UV/key locations; baked alpha mode selects the appropriate shadow
+  pipeline without per-fragment branching. Surface lighting combines palette shade selection,
+  ambient occlusion, warm block light, up to 32 local lights, four-tap sun shadows, and height fog.
+  A logarithmic workgroup prefix scan compacts light candidates; overflowing tiles retain the first
+  32 stable-ordered overlaps without atomic allocation flicker. The unique WGSL suite is held below
+  48 KiB and every assembled program is parsed and semantically validated by test-only Naga, leaving
+  the shipping crate free of a graphics dependency.
 - Deterministic 10,000-tick mixed-system soak with repeated production/transfers, varying structural
   snow load on a persistently cracked supported deck, full-state replay equality, periodic exhaustive
   audits, matter-conservation checks, and lot-fragmentation ceiling.
@@ -426,7 +430,7 @@
   acquisition/construction authorizers exist; experienced post-setup mutations use canonical runtime
   transactions. Isolated unit-test registry builders no longer inherit unrelated canonical gameplay
   content as that content expands.
-- Current debug validation suite: 354 passing tests with `cargo check` silent and
+- Current debug validation suite: 357 passing tests with `cargo check` silent and
   Clippy warnings denied.
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
   as variants evolve instead of relying on review to catch silent fallback behavior.

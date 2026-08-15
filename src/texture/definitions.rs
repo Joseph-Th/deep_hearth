@@ -9,8 +9,9 @@ use crate::material::{CommodityKey, MaterialRegistry};
 
 pub const PALETTE_RAMP_COLOR_COUNT: usize = 16;
 pub const TEXTURE_PALETTE_SLOT_COUNT: usize = 16;
-pub const TEXTURE_SIDE: usize = 16;
+pub const TEXTURE_SIDE: usize = 32;
 pub const TEXTURE_TEXEL_COUNT: usize = TEXTURE_SIDE * TEXTURE_SIDE;
+pub const TEXTURE_MIP_LEVEL_COUNT: usize = TEXTURE_SIDE.ilog2() as usize + 1;
 pub const BLOCK_FACE_COUNT: usize = 6;
 
 const MAX_PALETTE_RAMP_ID: u16 = 4_095;
@@ -365,7 +366,7 @@ pub enum TextureAlphaMode {
     Blend,
 }
 
-/// Immutable 16x16 authored indexed texture and its local palette assignment.
+/// Immutable 32x32 authored indexed texture and its local palette assignment.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TextureDefinition {
     id: TextureId,

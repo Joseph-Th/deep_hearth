@@ -75,27 +75,40 @@ fn light_cull_cs(
     workgroupBarrier();
 
     let tile_index = tile.y * light_cull_frame.viewport_tiles.z + tile.x;
-    var lane_output_offset = 0u;
-    var previous_lane = 0u;
+    var scan_stride = 1u;
     loop {
-        if (previous_lane >= local_index || lane_output_offset >= DH_CULL_MAX_LIGHTS_PER_TILE) {
+        if (scan_stride >= DH_CULL_WORKGROUP_SIZE) {
             break;
         }
-        lane_output_offset += cull_lane_counts[previous_lane];
-        previous_lane += 1u;
+        let scan_index = (local_index + 1u) * scan_stride * 2u - 1u;
+        if (scan_index < DH_CULL_WORKGROUP_SIZE) {
+            cull_lane_counts[scan_index] += cull_lane_counts[scan_index - scan_stride];
+        }
+        workgroupBarrier();
+        scan_stride *= 2u;
     }
     if (local_index == 0u) {
-        var total_count = 0u;
-        var lane = 0u;
-        loop {
-            if (lane >= DH_CULL_WORKGROUP_SIZE || total_count >= DH_CULL_MAX_LIGHTS_PER_TILE) {
-                break;
-            }
-            total_count += cull_lane_counts[lane];
-            lane += 1u;
-        }
+        let total_count = cull_lane_counts[DH_CULL_WORKGROUP_SIZE - 1u];
         cull_tile_light_counts[tile_index] = min(total_count, DH_CULL_MAX_LIGHTS_PER_TILE);
+        cull_lane_counts[DH_CULL_WORKGROUP_SIZE - 1u] = 0u;
     }
+    workgroupBarrier();
+
+    var down_stride = DH_CULL_WORKGROUP_SIZE / 2u;
+    loop {
+        let scan_index = (local_index + 1u) * down_stride * 2u - 1u;
+        if (scan_index < DH_CULL_WORKGROUP_SIZE) {
+            let left_count = cull_lane_counts[scan_index - down_stride];
+            cull_lane_counts[scan_index - down_stride] = cull_lane_counts[scan_index];
+            cull_lane_counts[scan_index] += left_count;
+        }
+        workgroupBarrier();
+        if (down_stride == 1u) {
+            break;
+        }
+        down_stride /= 2u;
+    }
+    let lane_output_offset = cull_lane_counts[local_index];
     var lane_selected_index = 0u;
     loop {
         let output_index = lane_output_offset + lane_selected_index;

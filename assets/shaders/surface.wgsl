@@ -61,15 +61,8 @@ fn surface_vs(input: SurfaceVertexInput) -> SurfaceVertexOutput {
 fn surface_palette_sample(uv: vec2<f32>, texture_key: u32, shade_delta: i32) -> vec4<f32> {
     let layer = i32(texture_key & 0xffffu);
     let palette_row = i32(texture_key >> 16u);
-    let texel_scale = uv * 16.0;
-    let footprint = max(length(dpdx(texel_scale)), length(dpdy(texel_scale)));
-    let mip_level = i32(clamp(floor(log2(max(footprint, 1.0))), 0.0, 4.0));
-    let mip_side = 16u >> u32(mip_level);
-    let wrapped_uv = fract(uv);
-    let texel_coordinate = min(
-        vec2<i32>(wrapped_uv * f32(mip_side)),
-        vec2<i32>(i32(mip_side) - 1),
-    );
+    let mip_level = dh_indexed_texture_mip_level(uv);
+    let texel_coordinate = dh_indexed_texture_coordinate(uv, mip_level);
     let packed = textureLoad(
         surface_indexed_textures,
         texel_coordinate,

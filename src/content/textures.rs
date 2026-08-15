@@ -440,204 +440,315 @@ fn hash_2d(seed: u32, x: usize, y: usize) -> u32 {
     value ^ (value >> 16)
 }
 
-fn base_noise_pattern(seed: u32, base_shade: u8, amplitude: u8) -> [PackedTexel; 256] {
+type TexturePattern = [PackedTexel; TEXTURE_TEXEL_COUNT];
+
+fn layered_shade(base: u8, amplitude: u8, seed: u32, x: usize, y: usize) -> u8 {
+    let broad_amplitude = amplitude.div_ceil(2);
+    let medium_amplitude = amplitude / 2;
+    let broad = varied_shade(base, broad_amplitude, hash_2d(seed, x / 8, y / 8));
+    let medium = varied_shade(
+        broad,
+        medium_amplitude,
+        hash_2d(seed ^ 0x63d8_35a7, x / 3, y / 3),
+    );
+    let fine = hash_2d(seed ^ 0xb529_7a4d, x, y);
+    if amplitude != 0 && fine.is_multiple_of(7) {
+        varied_shade(medium, 1, fine >> 8)
+    } else {
+        medium
+    }
+}
+
+fn base_noise_pattern(seed: u32, base_shade: u8, amplitude: u8) -> TexturePattern {
     std::array::from_fn(|index| {
         let x = index % TEXTURE_SIDE;
         let y = index / TEXTURE_SIDE;
-        packed(0, varied_shade(base_shade, amplitude, hash_2d(seed, x, y)))
+        packed(0, layered_shade(base_shade, amplitude, seed, x, y))
     })
 }
 
-fn wood_side_pattern() -> [PackedTexel; 256] {
-    let mut texels = base_noise_pattern(0x7e11_4a2d, 8, 1);
+fn squared_distance(x: usize, y: usize, center_x: usize, center_y: usize) -> usize {
+    let dx = x.abs_diff(center_x);
+    let dy = y.abs_diff(center_y);
+    dx * dx + dy * dy
+}
+
+fn wood_side_pattern() -> TexturePattern {
+    let mut texels = base_noise_pattern(0x7e11_4a2d, 9, 2);
     for y in 0..TEXTURE_SIDE {
         for x in 0..TEXTURE_SIDE {
             let hash = hash_2d(0x293a_51c7, x, y);
-            let grain = (x + usize::from((hash_2d(91, x, 0) & 3) as u8)) % 6;
+            let grain_offset = usize::from((hash_2d(91, 0, y / 3) & 3) as u8);
+            let grain = (x + grain_offset) % 7;
             let index = y * TEXTURE_SIDE + x;
             if grain == 0 {
                 texels[index] = packed(0, varied_shade(5, 1, hash));
+            } else if grain == 1 && hash.is_multiple_of(3) {
+                texels[index] = packed(0, varied_shade(7, 1, hash >> 5));
             }
-            let knot_x = x.abs_diff(11);
-            let knot_y = y.abs_diff(7);
-            let knot_radius = knot_x * knot_x + knot_y * knot_y;
-            if knot_radius == 1 || knot_radius == 4 || (knot_radius == 5 && hash & 1 == 0) {
-                texels[index] = packed(1, varied_shade(7, 1, hash));
+            for (center_x, center_y) in [(9, 10), (24, 23)] {
+                let dx = x.abs_diff(center_x);
+                let dy = y.abs_diff(center_y);
+                let elliptical_distance = dx * dx + dy * dy * 2;
+                if (8..=18).contains(&elliptical_distance) {
+                    texels[index] = packed(1, varied_shade(7, 1, hash));
+                } else if elliptical_distance <= 3 {
+                    texels[index] = packed(1, varied_shade(4, 1, hash));
+                } else if dy <= 1 && dx <= 6 && hash & 1 == 0 {
+                    texels[index] = packed(0, varied_shade(6, 1, hash));
+                }
             }
         }
     }
-    texels[0] = packed(0, 8);
-    texels[1] = packed(1, 7);
     texels
 }
 
-fn wood_end_pattern() -> [PackedTexel; 256] {
+fn wood_end_pattern() -> TexturePattern {
     let mut texels = [packed(0, 8); TEXTURE_TEXEL_COUNT];
     for y in 0..TEXTURE_SIDE {
         for x in 0..TEXTURE_SIDE {
-            let dx = x as i32 * 2 - 15;
-            let dy = y as i32 * 2 - 15;
-            let radius = ((dx * dx + dy * dy) as u32 + hash_2d(17, x, y) % 13) / 18;
+            let dx = x as i32 * 2 - 31;
+            let dy = y as i32 * 2 - 31;
+            let radius = ((dx * dx + dy * dy) as u32).isqrt();
+            let wobble = hash_2d(17, x / 3, y / 3) % 5;
+            let ring_position = (radius + wobble) % 8;
+            let radial_crack = radius > 13
+                && ((dx > 0 && (dy - dx / 3).abs() <= 1) || (dy > 0 && (dx + dy / 2).abs() <= 1));
             let index = y * TEXTURE_SIDE + x;
-            texels[index] = if radius.is_multiple_of(4) {
-                packed(1, 6 + (radius % 3) as u8)
+            texels[index] = if radius > 30 {
+                packed(1, varied_shade(6, 2, hash_2d(0xa84d_2193, x, y)))
+            } else if radial_crack {
+                packed(1, 3)
+            } else if ring_position <= 1 {
+                packed(1, 7 + (radius % 3) as u8)
             } else {
-                packed(0, 7 + (radius % 4) as u8)
+                packed(0, layered_shade(9, 2, 0xd733_91a5, x, y))
             };
         }
     }
     texels
 }
 
-fn charcoal_pattern() -> [PackedTexel; 256] {
+fn charcoal_pattern() -> TexturePattern {
     let mut texels = base_noise_pattern(0x3bca_0197, 6, 3);
     for y in 0..TEXTURE_SIDE {
         for x in 0..TEXTURE_SIDE {
-            let hash = hash_2d(0x9021_bef3, x / 2, y / 2);
+            let cell_hash = hash_2d(0x9021_bef3, x / 5, y / 5);
+            let fine = hash_2d(0xe241_97b5, x, y);
             let index = y * TEXTURE_SIDE + x;
-            if hash.is_multiple_of(19) || (x + y * 3).is_multiple_of(23) {
-                texels[index] = packed(1, varied_shade(7, 2, hash));
-            } else if (x + y + usize::from((hash & 3) as u8)).is_multiple_of(9) {
-                texels[index] = packed(0, 2);
+            let fracture = (x + y * 3 + usize::from((cell_hash & 7) as u8)).is_multiple_of(17)
+                || (x * 3 + y + usize::from(((cell_hash >> 4) & 7) as u8)).is_multiple_of(23);
+            if fracture {
+                texels[index] = packed(0, varied_shade(2, 1, fine));
+            } else if cell_hash.is_multiple_of(11) && fine.is_multiple_of(5) {
+                texels[index] = packed(1, varied_shade(8, 2, fine));
+            } else if fine.is_multiple_of(41) {
+                texels[index] = packed(1, 5);
             }
         }
     }
-    texels[0] = packed(0, 5);
-    texels[1] = packed(1, 8);
     texels
 }
 
-fn ore_pattern() -> [PackedTexel; 256] {
-    let mut texels = base_noise_pattern(0x16ac_48d2, 7, 2);
+fn ore_pattern() -> TexturePattern {
+    let mut texels = base_noise_pattern(0x16ac_48d2, 7, 3);
     for y in 0..TEXTURE_SIDE {
         for x in 0..TEXTURE_SIDE {
-            let coarse = hash_2d(0x991d_2883, x / 2, y / 2);
+            let coarse = hash_2d(0x991d_2883, x / 4, y / 4);
             let fine = hash_2d(0x1b87_3593, x, y);
-            if coarse.is_multiple_of(7)
-                || (x + y * 2 + usize::from((coarse & 3) as u8)).is_multiple_of(17)
+            let vein_offset = usize::from((hash_2d(0x51a7_3c19, 0, y / 3) & 7) as u8);
+            let vein = (x + y * 2 + vein_offset) % 19;
+            let branch_offset = usize::from((hash_2d(0x6a21_b94f, x / 4, 0) & 7) as u8);
+            let branch = (x * 2 + (TEXTURE_SIDE - 1 - y) * 3 + branch_offset) % 31;
+            let mineral_patch = coarse.is_multiple_of(9)
+                && (x % 4 == 1 || x % 4 == 2)
+                && (y % 4 == 1 || y % 4 == 2);
+            let index = y * TEXTURE_SIDE + x;
+            if (vein <= 1 && !fine.is_multiple_of(11))
+                || (branch == 0 && !coarse.is_multiple_of(3))
+                || mineral_patch
             {
-                texels[y * TEXTURE_SIDE + x] = packed(1, varied_shade(8, 3, fine));
+                texels[index] = packed(1, varied_shade(9, 3, fine));
+            } else if vein == 2 && fine.is_multiple_of(3) {
+                texels[index] = packed(1, varied_shade(6, 1, fine));
+            } else if fine.is_multiple_of(53) {
+                texels[index] = packed(0, 3);
             }
         }
     }
-    texels[0] = packed(0, 7);
-    texels[1] = packed(1, 9);
     texels
 }
 
-fn panel_pattern() -> [PackedTexel; 256] {
-    let mut texels = base_noise_pattern(0xa7b3_3141, 8, 1);
+fn panel_pattern() -> TexturePattern {
+    let mut texels = base_noise_pattern(0xa7b3_3141, 8, 2);
     for y in 0..TEXTURE_SIDE {
         for x in 0..TEXTURE_SIDE {
             let index = y * TEXTURE_SIDE + x;
-            let edge = x == 0 || y == 0 || x == TEXTURE_SIDE - 1 || y == TEXTURE_SIDE - 1;
-            if edge {
-                texels[index] = packed(0, if x == 0 || y == 0 { 5 } else { 11 });
+            if x <= 1 || y <= 1 {
+                texels[index] = packed(0, if x == 0 || y == 0 { 4 } else { 6 });
+            } else if x >= TEXTURE_SIDE - 2 || y >= TEXTURE_SIDE - 2 {
+                texels[index] = packed(
+                    0,
+                    if x == TEXTURE_SIDE - 1 || y == TEXTURE_SIDE - 1 {
+                        12
+                    } else {
+                        10
+                    },
+                );
             }
-            if matches!((x, y), (2, 2) | (13, 2) | (2, 13) | (13, 13)) {
-                texels[index] = packed(1, 9);
+            for (rivet_x, rivet_y) in [(4, 4), (27, 4), (4, 27), (27, 27)] {
+                let distance = squared_distance(x, y, rivet_x, rivet_y);
+                if distance == 0 {
+                    texels[index] = packed(1, 12);
+                } else if distance <= 2 {
+                    texels[index] = packed(1, 7);
+                }
             }
-            if (x == 6 || x == 7) && (4..12).contains(&y) && hash_2d(71, x, y).is_multiple_of(5) {
-                texels[index] = packed(1, 6);
+            if x == 15 || x == 16 {
+                texels[index] = packed(0, if x == 15 { 5 } else { 10 });
+            }
+            let scratch = x > 4
+                && x < 27
+                && (x + y * 5 + usize::from((hash_2d(71, x / 4, y / 4) & 7) as u8))
+                    .is_multiple_of(29);
+            if scratch {
+                texels[index] = packed(1, varied_shade(6, 2, hash_2d(71, x, y)));
             }
         }
     }
     texels
 }
 
-fn slag_pattern() -> [PackedTexel; 256] {
+fn slag_pattern() -> TexturePattern {
     let mut texels = base_noise_pattern(0x52d8_b779, 7, 3);
     for y in 0..TEXTURE_SIDE {
         for x in 0..TEXTURE_SIDE {
             let hash = hash_2d(0x19b5_0a63, x, y);
-            if hash.is_multiple_of(13) || hash.is_multiple_of(29) {
-                texels[y * TEXTURE_SIDE + x] = packed(1, varied_shade(3, 2, hash));
-            } else if hash.is_multiple_of(17) {
-                texels[y * TEXTURE_SIDE + x] = packed(0, 12);
+            let index = y * TEXTURE_SIDE + x;
+            let mut pore_distance = usize::MAX;
+            for (pore_x, pore_y) in [(5, 7), (14, 4), (25, 9), (9, 22), (22, 26), (29, 18)] {
+                pore_distance = pore_distance.min(squared_distance(x, y, pore_x, pore_y));
+            }
+            if pore_distance <= 2 {
+                texels[index] = packed(1, varied_shade(2, 1, hash));
+            } else if pore_distance <= 5 {
+                texels[index] = packed(0, varied_shade(12, 1, hash));
+            } else if hash.is_multiple_of(47) {
+                texels[index] = packed(1, varied_shade(4, 1, hash));
             }
         }
     }
-    texels[0] = packed(0, 7);
-    texels[1] = packed(1, 3);
     texels
 }
 
-fn molten_pattern() -> [PackedTexel; 256] {
+fn molten_pattern() -> TexturePattern {
     let mut texels = base_noise_pattern(0x628f_c921, 9, 2);
     for y in 0..TEXTURE_SIDE {
         for x in 0..TEXTURE_SIDE {
-            let wave = (x + y * 2 + usize::from((hash_2d(83, x / 3, y) & 3) as u8)) % 11;
+            let flow_offset = usize::from((hash_2d(83, 0, y / 3) & 7) as u8);
+            let wave = (x + y * 2 + flow_offset) % 15;
+            let island = hash_2d(0x91aa_6721, x / 4, y / 4);
+            let fine = hash_2d(0xf837_4b15, x, y);
             let index = y * TEXTURE_SIDE + x;
             if wave <= 1 {
                 texels[index] = packed(0, 13 + wave as u8);
-            } else if hash_2d(0x91aa_6721, x, y).is_multiple_of(23) {
-                texels[index] = packed(1, 4);
+            } else if wave == 2 {
+                texels[index] = packed(0, varied_shade(11, 1, fine));
+            } else if island.is_multiple_of(13) && x % 4 != 0 && y % 4 != 0 {
+                texels[index] = packed(1, varied_shade(4, 2, fine));
+            } else if fine.is_multiple_of(61) {
+                texels[index] = packed(0, 15);
             }
         }
     }
-    texels[0] = packed(0, 10);
-    texels[1] = packed(1, 4);
     texels
 }
 
-fn aggregate_pattern() -> [PackedTexel; 256] {
+fn aggregate_pattern() -> TexturePattern {
     let mut texels = base_noise_pattern(0xb741_c38d, 6, 3);
     for y in 0..TEXTURE_SIDE {
         for x in 0..TEXTURE_SIDE {
-            let coarse = hash_2d(0x2424_9911, x / 2, y / 2);
+            let cell_x = x / 4;
+            let cell_y = y / 4;
+            let coarse = hash_2d(0x2424_9911, cell_x, cell_y);
             let fine = hash_2d(0x837a_1705, x, y);
-            if coarse.is_multiple_of(5) && fine & 3 != 0 {
-                texels[y * TEXTURE_SIDE + x] = packed(1, varied_shade(7, 3, fine));
+            let local_x = x % 4;
+            let local_y = y % 4;
+            let edge = local_x == 0 || local_y == 0;
+            let index = y * TEXTURE_SIDE + x;
+            if coarse.is_multiple_of(4) && !edge {
+                texels[index] = packed(1, varied_shade(8, 3, coarse ^ fine));
+            } else if edge {
+                texels[index] = packed(0, varied_shade(3, 1, fine));
+            } else {
+                texels[index] = packed(0, varied_shade(7, 2, coarse));
             }
         }
     }
-    texels[0] = packed(0, 6);
-    texels[1] = packed(1, 7);
     texels
 }
 
-fn working_metal_pattern() -> [PackedTexel; 256] {
+fn working_metal_pattern() -> TexturePattern {
     let mut texels = base_noise_pattern(0x22ce_7419, 7, 2);
     for y in 0..TEXTURE_SIDE {
         for x in 0..TEXTURE_SIDE {
             let hash = hash_2d(0x78a5_18d3, x, y);
+            let patch = hash_2d(0xc161_5a27, x / 5, y / 5);
             let index = y * TEXTURE_SIDE + x;
-            if (x + y * 3 + usize::from((hash & 7) as u8)).is_multiple_of(19) {
-                texels[index] = packed(0, 13);
-            } else if hash.is_multiple_of(31) {
-                texels[index] = packed(1, 7);
+            let bright_scratch = (x * 5 + y + usize::from((patch & 7) as u8)).is_multiple_of(37);
+            let dark_scratch =
+                (x + y * 7 + usize::from(((patch >> 3) & 7) as u8)).is_multiple_of(43);
+            if bright_scratch {
+                texels[index] = packed(0, varied_shade(13, 1, hash));
+            } else if dark_scratch {
+                texels[index] = packed(0, varied_shade(3, 1, hash));
+            } else if patch.is_multiple_of(9) && hash.is_multiple_of(3) {
+                texels[index] = packed(1, varied_shade(7, 3, hash));
+            } else if hash.is_multiple_of(67) {
+                texels[index] = packed(1, 4);
             }
         }
     }
-    texels[0] = packed(0, 7);
-    texels[1] = packed(1, 7);
     texels
 }
 
-fn refractory_pattern() -> [PackedTexel; 256] {
+fn refractory_pattern() -> TexturePattern {
     let mut texels = base_noise_pattern(0xd12b_6059, 8, 2);
     for y in 0..TEXTURE_SIDE {
-        let row_offset = if (y / 4).is_multiple_of(2) { 0 } else { 4 };
+        let row_offset = if (y / 8).is_multiple_of(2) { 0 } else { 8 };
         for x in 0..TEXTURE_SIDE {
-            let is_mortar = y.is_multiple_of(4) || (x + row_offset).is_multiple_of(8);
+            let is_mortar = y.is_multiple_of(8) || (x + row_offset).is_multiple_of(16);
+            let hash = hash_2d(0x29d9_1e17, x, y);
+            let index = y * TEXTURE_SIDE + x;
             if is_mortar {
-                texels[y * TEXTURE_SIDE + x] = packed(1, 5);
-            } else if hash_2d(0x29d9_1e17, x, y).is_multiple_of(17) {
-                texels[y * TEXTURE_SIDE + x] = packed(1, 8);
+                texels[index] = packed(1, varied_shade(5, 1, hash));
+            } else if y % 8 <= 2 && hash.is_multiple_of(5) {
+                texels[index] = packed(1, varied_shade(7, 2, hash));
+            } else if hash.is_multiple_of(31) {
+                texels[index] = packed(0, 12);
             }
         }
     }
-    texels[0] = packed(0, 8);
-    texels[1] = packed(1, 5);
     texels
 }
 
-fn screen_pattern() -> [PackedTexel; 256] {
+fn screen_pattern() -> TexturePattern {
     std::array::from_fn(|index| {
         let x = index % TEXTURE_SIDE;
         let y = index / TEXTURE_SIDE;
-        if x.is_multiple_of(4) || y.is_multiple_of(4) {
-            packed(1, varied_shade(8, 3, hash_2d(0x8841_329b, x, y)))
+        let wire_x = x % 8;
+        let wire_y = y % 8;
+        if wire_x <= 1 || wire_y <= 1 {
+            let base = if wire_x == 0 || wire_y == 0 { 6 } else { 11 };
+            let intersection = wire_x <= 1 && wire_y <= 1;
+            packed(
+                1,
+                varied_shade(
+                    if intersection { 13 } else { base },
+                    1,
+                    hash_2d(0x8841_329b, x, y),
+                ),
+            )
         } else {
             packed(0, 0)
         }
@@ -649,34 +760,57 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::*;
+    use crate::texture::TEXTURE_MIP_LEVEL_COUNT;
+
+    const BUILT_IN_TEXTURES: [TextureId; 12] = [
+        TEXTURE_WOOD_SIDE,
+        TEXTURE_WOOD_END,
+        TEXTURE_CHARCOAL,
+        TEXTURE_COPPER_ORE,
+        TEXTURE_COPPER_HAMMERED,
+        TEXTURE_SLAG,
+        TEXTURE_MOLTEN_COPPER,
+        TEXTURE_CRUSHED_ORE,
+        TEXTURE_MACHINE_PANEL,
+        TEXTURE_WORKING_METAL,
+        TEXTURE_REFRACTORY,
+        TEXTURE_SCREEN_MESH,
+    ];
 
     #[test]
     fn built_in_tiles_have_palette_detail_without_rgba_duplication() {
         let registry = build_texture_registry();
-        for texture in [
-            TEXTURE_WOOD_SIDE,
-            TEXTURE_WOOD_END,
-            TEXTURE_CHARCOAL,
-            TEXTURE_COPPER_ORE,
-            TEXTURE_COPPER_HAMMERED,
-            TEXTURE_SLAG,
-            TEXTURE_MOLTEN_COPPER,
-            TEXTURE_CRUSHED_ORE,
-            TEXTURE_MACHINE_PANEL,
-            TEXTURE_WORKING_METAL,
-            TEXTURE_REFRACTORY,
-            TEXTURE_SCREEN_MESH,
-        ] {
+        assert_eq!(TEXTURE_SIDE, 32);
+        assert_eq!(TEXTURE_MIP_LEVEL_COUNT, 6);
+        assert_eq!(TEXTURE_SIDE >> (TEXTURE_MIP_LEVEL_COUNT - 1), 1);
+        for texture in BUILT_IN_TEXTURES {
             let definition = match registry.get_texture(texture) {
                 Some(definition) => definition,
                 None => panic!("missing built-in texture {}", texture.value()),
             };
             let unique: BTreeSet<_> = definition.texels().iter().copied().collect();
             assert!(
-                unique.len() >= 5,
+                unique.len() >= 8,
                 "texture {} lacks authored shade detail",
                 texture.value()
             );
+            for region_y in 0..4 {
+                for region_x in 0..4 {
+                    let mut local_detail = BTreeSet::new();
+                    for y in region_y * 8..region_y * 8 + 8 {
+                        for x in region_x * 8..region_x * 8 + 8 {
+                            local_detail.insert(definition.texels()[y * TEXTURE_SIDE + x]);
+                        }
+                    }
+                    assert!(
+                        local_detail.len() >= 3,
+                        "texture {} lacks local detail in region {},{}",
+                        texture.value(),
+                        region_x,
+                        region_y
+                    );
+                }
+            }
         }
     }
 
@@ -689,11 +823,58 @@ mod tests {
         assert_eq!(first, second);
         assert!(first.pattern_layer_count() < 12);
         assert!(first.total_gpu_bytes() * 2 < first.expanded_rgba_texel_bytes());
+        assert!(first.total_gpu_bytes() <= 16 * 1_024);
+        let indexed_texels_per_layer = (0..TEXTURE_MIP_LEVEL_COUNT)
+            .map(|level| {
+                let side = TEXTURE_SIDE >> level;
+                side * side
+            })
+            .sum::<usize>();
         assert_eq!(
             first.indexed_texel_bytes(),
-            usize::from(first.pattern_layer_count()) * (256 + 64 + 16 + 4 + 1)
+            usize::from(first.pattern_layer_count()) * indexed_texels_per_layer
         );
-        assert_eq!(first.mip_levels().len(), 5);
+        assert_eq!(first.mip_levels().len(), TEXTURE_MIP_LEVEL_COUNT);
+        for (level, mip) in first.mip_levels().iter().enumerate() {
+            assert_eq!(usize::from(mip.side()), TEXTURE_SIDE >> level);
+        }
+        for texture in BUILT_IN_TEXTURES {
+            let descriptor = match first.get_descriptor(texture) {
+                Some(descriptor) => descriptor,
+                None => panic!("missing baked texture descriptor {}", texture.value()),
+            };
+            let expected_alpha_mode = if texture == TEXTURE_SCREEN_MESH {
+                TextureAlphaMode::Cutout
+            } else {
+                TextureAlphaMode::Opaque
+            };
+            assert_eq!(descriptor.alpha_mode(), expected_alpha_mode);
+            for (mip_level, minimum_detail) in [(1, 5), (2, 3)] {
+                let mip = &first.mip_levels()[mip_level];
+                let mut detail = BTreeSet::new();
+                for y in 0..mip.side() {
+                    for x in 0..mip.side() {
+                        let texel = match mip.get_texel(descriptor.layer(), x, y) {
+                            Some(texel) => texel,
+                            None => panic!(
+                                "texture {} mip {} sample {},{} did not resolve",
+                                texture.value(),
+                                mip_level,
+                                x,
+                                y
+                            ),
+                        };
+                        detail.insert(texel);
+                    }
+                }
+                assert!(
+                    detail.len() >= minimum_detail,
+                    "texture {} loses detail by mip {}",
+                    texture.value(),
+                    mip_level
+                );
+            }
+        }
         assert_eq!(
             first
                 .get_descriptor(TEXTURE_COPPER_HAMMERED)
@@ -703,8 +884,8 @@ mod tests {
                 .map(|descriptor| descriptor.layer())
         );
         assert_ne!(
-            first.sample(TEXTURE_COPPER_HAMMERED, 0, 8, 8),
-            first.sample(TEXTURE_MACHINE_PANEL, 0, 8, 8)
+            first.sample(TEXTURE_COPPER_HAMMERED, 0, 16, 16),
+            first.sample(TEXTURE_MACHINE_PANEL, 0, 16, 16)
         );
     }
 }

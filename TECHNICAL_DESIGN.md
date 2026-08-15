@@ -156,7 +156,7 @@ without selecting chunk dimensions, storage encoding, ECS layout, or streaming p
 Chunk shape, renderer, input, physics engine, threading, and networking remain deliberately
 unselected. Domain records must not assume an ECS, scene graph, renderer object, or chunk layout.
 
-Renderer-neutral visual definitions live in the immutable texture registry. A texture is a 16x16
+Renderer-neutral visual definitions live in the immutable texture registry. A texture is a 32x32
 tile of one-byte indexed texels: the high nibble selects one of at most 16 texture-local palette
 ramps and the low nibble selects one of 16 authored shades. Four hue/luminance anchors expand into a
 complete ramp during registry construction, so shadows and highlights may shift hue without storing
@@ -165,7 +165,7 @@ mesh material slots explicitly. Commodity and equipment bindings resolve those a
 placing renderer objects or mutable visual state in `AppState`.
 
 `TextureRegistry::bake_texture_array()` is the adapter boundary. It sorts authored IDs, deduplicates
-indexed patterns independently from palette rows, produces a complete 16/8/4/2/1 discrete mip chain,
+indexed patterns independently from palette rows, produces a complete 32/16/8/4/2/1 discrete mip chain,
 and returns dense `TextureId`, block-appearance, and object-appearance lookups. Every texture draw
 descriptor contains a pattern layer and palette-row pair packed into one shader-facing `u32`; block
 faces and object material slots are already resolved to those descriptors before meshing. Mips choose
@@ -185,6 +185,13 @@ strategy that preserves index identity. Texture definitions are immutable presen
 are not persisted by the headless simulation, so changing their color or detail does not alter the
 registry compatibility schema used to validate authoritative saves.
 
+`TEXTURE_SIDE` and `TEXTURE_MIP_LEVEL_COUNT` are the single source of truth for both baking and WGSL
+sampling. The shader content builder injects those Rust-owned values into the common shader library;
+surface and alpha-aware shadow passes therefore use the exact uploaded base size and maximum mip
+without independently authored constants. Moving from 16x16 to 32x32 quadruples base texels but not
+texture fetches per fragment. Built-in pattern and palette-row deduplication keeps the complete six-
+level indexed upload and lookup tables within 16 KiB.
+
 Renderer-neutral WGSL definitions live in the immutable shader registry. Libraries and executable
 programs have typed IDs and validated acyclic library-only dependencies. Startup assembly walks those
 dependencies in stable order, emits each source module once, and bakes executable programs into a
@@ -196,12 +203,14 @@ save compatibility schema.
 The built-in suite joins the indexed texture path to a linear HDR lighting path: one 16x16 tiled
 compute pass deterministically retains at most 32 point lights per tile from at most 512 stable-ordered
 candidates; surfaces add palette-ramp lighting, ambient occlusion, four-tap sun shadows, warm block
-light, local lights, and height fog. Separate bounded programs provide an alpha-aware shadow pass,
-three-wave analytic water with depth-based absorption/refraction and foam, three-layer procedural
-billboard smoke, a procedural cloud/star sky, four-read half-resolution bloom, and ACES-fit display
-mapping. Depth reconstruction uses WGSL's 0-to-1 clip convention. The exact frame order, resource
-formats, vertex layouts, uniform semantics, and binding contract are documented in
-`assets/shaders/README.md`; the renderer backend still owns resource allocation, synchronization,
+light, local lights, and height fog. Directional shadows use two bounded pipelines selected from each
+baked descriptor's alpha mode: opaque casters use a vertex-only, zero-sample depth program, while
+cutout casters share surface UV/key locations and the indexed mip sampler for accurate silhouettes.
+Separate programs provide three-wave analytic water with depth-based absorption/refraction and foam,
+three-layer procedural billboard smoke, a procedural cloud/star sky, four-read half-resolution bloom,
+and ACES-fit display mapping. Depth reconstruction uses WGSL's 0-to-1 clip convention. The exact
+frame order, resource formats, vertex layouts, uniform semantics, and binding contract are documented
+in `assets/shaders/README.md`; the renderer backend still owns resource allocation, synchronization,
 draw ordering, and platform pipeline creation.
 
 ## 9. Performance Policy
@@ -233,11 +242,12 @@ Performance begins with ownership and access patterns rather than premature micr
   and shared ramps occupy one small RGBA lookup table.
 - Shader hot paths carry declared work ceilings enforced at registry construction. Built-ins cap a
   surface at seven texture reads and 32 tile-local lights, procedural effects at three fixed noise
-  layers, bloom at four half-resolution reads, and post processing at five reads. Stable light
-  compaction avoids nondeterministic atomic allocation, smoke rejects empty billboard pixels before
-  procedural noise, and indoor/unlit surface fragments skip shadow taps. The unique shipped WGSL
-  source suite has a tested 48 KiB maximum. Naga is a test-only dependency, so shader validation adds
-  no graphics library or runtime weight to the shipping crate.
+  layers, cutout shadows at three indexed reads, opaque shadows at zero reads, bloom at four
+  half-resolution reads, and post processing at five reads. A logarithmic workgroup prefix scan
+  compacts lights without nondeterministic atomic allocation, smoke rejects empty billboard pixels
+  before procedural noise, and indoor/unlit surface fragments skip shadow taps. The unique shipped
+  WGSL source suite has a tested 48 KiB maximum. Naga is a test-only dependency, so shader validation
+  adds no graphics library or runtime weight to the shipping crate.
 - Spatial/chunk architecture must be justified by workload measurements before selection.
 
 ## 10. Validation Policy

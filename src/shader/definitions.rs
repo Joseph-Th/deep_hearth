@@ -55,11 +55,11 @@ pub enum ShaderColorTarget {
     Display,
 }
 
-/// Authored vertex and fragment entry-point identifiers for one render program.
+/// Authored vertex and optional fragment entry-point identifiers for one render program.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenderEntryPoints {
     vertex: String,
-    fragment: String,
+    fragment: Option<String>,
 }
 
 impl RenderEntryPoints {
@@ -75,7 +75,23 @@ impl RenderEntryPoints {
             !fragment.trim().is_empty(),
             "render fragment entry point must not be empty"
         );
-        Self { vertex, fragment }
+        Self {
+            vertex,
+            fragment: Some(fragment),
+        }
+    }
+
+    #[must_use]
+    pub fn new_vertex_only(vertex: impl Into<String>) -> Self {
+        let vertex = vertex.into();
+        assert!(
+            !vertex.trim().is_empty(),
+            "render vertex entry point must not be empty"
+        );
+        Self {
+            vertex,
+            fragment: None,
+        }
     }
 
     #[must_use]
@@ -84,8 +100,8 @@ impl RenderEntryPoints {
     }
 
     #[must_use]
-    pub fn fragment(&self) -> &str {
-        &self.fragment
+    pub fn fragment(&self) -> Option<&str> {
+        self.fragment.as_deref()
     }
 }
 
@@ -306,6 +322,13 @@ impl ShaderDefinition {
         pipeline: RenderPipelineProfile,
         work_budget: ShaderWorkBudget,
     ) -> Self {
+        match pipeline.color_target() {
+            ShaderColorTarget::None => {}
+            ShaderColorTarget::LinearHdr | ShaderColorTarget::Display => assert!(
+                entry_points.fragment().is_some(),
+                "a color render pipeline requires a fragment entry point"
+            ),
+        }
         Self::new(
             id,
             name,
@@ -542,6 +565,27 @@ mod tests {
                 ShaderBlendMode::PremultipliedAlpha,
                 ShaderDepthMode::ReadWrite,
                 ShaderColorTarget::None,
+            )
+        });
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn color_pipeline_rejects_a_missing_fragment_entry_point() {
+        let result = std::panic::catch_unwind(|| {
+            ShaderDefinition::new_render(
+                ShaderId::new(1),
+                "invalid color pipeline",
+                Vec::new(),
+                "@vertex fn vertex_only() -> @builtin(position) vec4<f32> { return vec4<f32>(); }",
+                RenderEntryPoints::new_vertex_only("vertex_only"),
+                RenderPipelineProfile::new(
+                    ShaderBlendMode::Opaque,
+                    ShaderDepthMode::ReadWrite,
+                    ShaderColorTarget::LinearHdr,
+                ),
+                ShaderWorkBudget::new(0, 0, 0, 0),
             )
         });
 

@@ -477,7 +477,10 @@ fn resolve_mip_texel(samples: [PackedTexel; 4]) -> PackedTexel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::texture::{PaletteRampDefinition, PaletteRampId, TextureDefinition, TexturePalette};
+    use crate::texture::{
+        PaletteRampDefinition, PaletteRampId, TEXTURE_MIP_LEVEL_COUNT, TextureDefinition,
+        TexturePalette,
+    };
 
     const RAMP_A: PaletteRampId = PaletteRampId::new(1);
     const RAMP_B: PaletteRampId = PaletteRampId::new(2);
@@ -528,8 +531,8 @@ mod tests {
 
         assert_eq!(baked.pattern_layer_count(), 1);
         assert_eq!(baked.palette_row_count(), 2);
-        assert_eq!(baked.mip_levels().len(), 5);
-        assert_eq!(baked.mip_levels()[4].side(), 1);
+        assert_eq!(baked.mip_levels().len(), TEXTURE_MIP_LEVEL_COUNT);
+        assert_eq!(baked.mip_levels()[TEXTURE_MIP_LEVEL_COUNT - 1].side(), 1);
         assert_eq!(
             baked
                 .get_descriptor(TextureId::new(1))

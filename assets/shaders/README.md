@@ -7,7 +7,8 @@ order. Naga parsing and validation run in tests only; the shipping crate has no 
 
 ## Frame Order
 
-1. Render `SHADER_SHADOW` into a directional-light depth texture. This pass has no color target.
+1. Render opaque casters with `SHADER_SHADOW` and cutout casters with `SHADER_SHADOW_CUTOUT` into a
+   directional-light depth texture. Both pipelines have no color target.
 2. Render `SHADER_SKY` into the linear HDR target without depth writes.
 3. Dispatch `SHADER_LIGHT_CULL` once per 16x16 screen tile.
 4. Render opaque and cutout geometry with `SHADER_SURFACE` into linear HDR plus depth.
@@ -32,7 +33,7 @@ shadow comparison sampler also clamps to edge and uses less-equal comparison.
 
 ## Compact Surface Resources
 
-The surface and shadow programs consume the texture baker without transcoding:
+The surface and cutout-shadow programs consume the texture baker without transcoding:
 
 | Binding resource | GPU representation |
 |---|---|
@@ -42,8 +43,13 @@ The surface and shadow programs consume the texture baker without transcoding:
 | mesh texture key | low 16 bits: array layer; high 16 bits: palette row |
 
 Index data is always fetched with `textureLoad`; never linearly filter palette indices. Surface
-derivatives select one of the authored 16/8/4/2/1 discrete mips. Lighting adjusts the low-nibble
+derivatives select one of the authored 32/16/8/4/2/1 discrete mips. Lighting adjusts the low-nibble
 shade before the global ramp lookup, preserving hue-shaped shadows and highlights.
+The Rust texture contract injects the base side and maximum mip into the common WGSL library, and the
+surface and cutout-shadow programs share those values rather than maintaining duplicate constants.
+Route baked `Opaque` descriptors through `SHADER_SHADOW`, baked `Cutout` descriptors through
+`SHADER_SHADOW_CUTOUT`, and require an explicit adapter policy before blend-mode geometry casts a
+shadow. This keeps alpha classification outside fragment invocations.
 
 Surface vertex locations are:
 
@@ -55,9 +61,10 @@ Surface vertex locations are:
 | 3 | packed texture key `u32` |
 | 4 | linear tint `vec4<f32>` |
 
-The shadow pass needs only world position, UV, and packed texture key at locations 0, 1, and 2. It
-samples palette alpha so cutout geometry casts accurate silhouettes while opaque content follows the
-same path.
+The opaque shadow pass reads only world position at location 0 and performs no fragment work or
+texture sampling. The cutout shadow pass uses world position at location 0, the same UV/light value
+at location 1, and the same packed texture key at location 3 as the surface pass. It samples palette
+alpha so cutout geometry casts accurate silhouettes without a separate shadow-mesh layout.
 
 ## Tiled Lighting
 
@@ -68,9 +75,9 @@ entries per tile.
 
 The adapter must order the point-light buffer deterministically by visual priority and a stable light
 ID. The culler considers at most 512 lights and retains the first 32 overlapping lights in that
-stable order. Compaction is parallel but does not use allocation-order atomics, so overflowing tiles
-do not flicker between different light subsets. `SurfaceFrame.light_grid.x` is tile columns and `.z`
-is the valid point-light count.
+stable order. A logarithmic workgroup prefix scan compacts lane results without allocation-order
+atomics, so overflowing tiles do not flicker between different light subsets.
+`SurfaceFrame.light_grid.x` is tile columns and `.z` is the valid point-light count.
 
 ## Effect Inputs
 
@@ -95,13 +102,14 @@ is the valid point-light count.
 | Program | Texture reads | Noise layers | Local lights | Largest loop |
 |---|---:|---:|---:|---:|
 | surface | 7 | 0 | 32 | 32 |
-| light cull | 0 | 0 | 0 | 64 |
+| light cull | 0 | 0 | 0 | 8 |
 | water | 2 | 1 | 0 | 0 |
 | smoke | 1 | 3 | 0 | 0 |
 | sky | 0 | 3 | 0 | 0 |
 | bloom | 4 | 0 | 0 | 0 |
 | post process | 5 | 0 | 0 | 0 |
-| shadow | 3 | 0 | 0 | 0 |
+| opaque shadow | 0 | 0 | 0 | 0 |
+| cutout shadow | 3 | 0 | 0 | 0 |
 
 These are explicit worst-case invocation budgets, not measured timing. Keep the same boundaries when
 tuning an effect, then profile the real adapter on target GPUs before increasing them.
