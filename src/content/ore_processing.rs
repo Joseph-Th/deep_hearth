@@ -2,14 +2,31 @@
 
 use crate::core::quantity::{Length, MassSpecificEnergy};
 use crate::energy::EnergyCarrier;
-use crate::material::ParticleSizeRange;
+use crate::material::{ParticleSizeClass, ParticleSizeDistribution, ParticleSizeRange};
 use crate::ore_processing::{
     ComminutionOperatingProfile, ComminutionProcessDefinition, OreProcessingRegistry,
+    ScreeningOperatingProfile, ScreeningProcessDefinition,
 };
 
-use super::capabilities::{CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW};
+use super::capabilities::{
+    CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW, CAPABILITY_GRINDER_BATCH,
+    CAPABILITY_GRINDER_FLOW, CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW,
+};
 use super::materials::{FORM_CRUSHED, FORM_ORE};
-use super::processes::PROCESS_CRUSH_ORE;
+use super::processes::{
+    PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE,
+    PROCESS_SCREEN_CRUSHED_ORE,
+};
+
+fn particle_size_class(minimum_micrometers: u64, maximum_micrometers: u64) -> ParticleSizeClass {
+    let range = ParticleSizeRange::new(
+        Length::from_micrometers(minimum_micrometers),
+        Length::from_micrometers(maximum_micrometers),
+    )
+    .unwrap_or_else(|error| panic!("built-in particle-size class is invalid: {error}"));
+    ParticleSizeClass::new(range, 1)
+        .unwrap_or_else(|error| panic!("built-in particle-size weight is invalid: {error}"))
+}
 
 pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
     let particle_size = match ParticleSizeRange::new(
@@ -19,17 +36,73 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
         Ok(range) => range,
         Err(error) => panic!("built-in crushed particle range is invalid: {error}"),
     };
-    OreProcessingRegistry::new([ComminutionProcessDefinition::new(
-        PROCESS_CRUSH_ORE,
-        FORM_ORE,
-        FORM_CRUSHED,
-        particle_size,
-        ComminutionOperatingProfile::new(
-            CAPABILITY_CRUSHER_FLOW,
-            CAPABILITY_CRUSHER_BATCH,
-            EnergyCarrier::Mechanical,
-            MassSpecificEnergy::from_nanojoules_per_milligram(1_000),
-            5_000,
-        ),
-    )])
+    let ground_particle_size = ParticleSizeDistribution::new(vec![
+        particle_size_class(500, 2_000),
+        particle_size_class(2_001, 4_000),
+    ])
+    .unwrap_or_else(|error| panic!("built-in ground particle distribution is invalid: {error}"));
+    let screen_oversize_range = ParticleSizeRange::new(
+        Length::from_micrometers(2_001),
+        Length::from_micrometers(4_000),
+    )
+    .unwrap_or_else(|error| panic!("built-in screen oversize range is invalid: {error}"));
+    let fine_particle_size = ParticleSizeDistribution::new(vec![particle_size_class(500, 2_000)])
+        .unwrap_or_else(|error| panic!("built-in fine particle distribution is invalid: {error}"));
+    OreProcessingRegistry::new_with_screening(
+        [
+            ComminutionProcessDefinition::new(
+                PROCESS_CRUSH_ORE,
+                FORM_ORE,
+                FORM_CRUSHED,
+                particle_size,
+                ComminutionOperatingProfile::new(
+                    CAPABILITY_CRUSHER_FLOW,
+                    CAPABILITY_CRUSHER_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(1_000),
+                    5_000,
+                ),
+            ),
+            ComminutionProcessDefinition::new(
+                PROCESS_GRIND_CRUSHED_ORE,
+                FORM_CRUSHED,
+                FORM_CRUSHED,
+                ground_particle_size,
+                ComminutionOperatingProfile::new(
+                    CAPABILITY_GRINDER_FLOW,
+                    CAPABILITY_GRINDER_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(3_000),
+                    3_000,
+                ),
+            ),
+            ComminutionProcessDefinition::new_with_input_particle_size_range(
+                PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+                FORM_CRUSHED,
+                FORM_CRUSHED,
+                screen_oversize_range,
+                fine_particle_size,
+                ComminutionOperatingProfile::new(
+                    CAPABILITY_GRINDER_FLOW,
+                    CAPABILITY_GRINDER_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(4_000),
+                    4_000,
+                ),
+            ),
+        ],
+        [ScreeningProcessDefinition::new(
+            PROCESS_SCREEN_CRUSHED_ORE,
+            FORM_CRUSHED,
+            FORM_CRUSHED,
+            Length::from_micrometers(2_000),
+            ScreeningOperatingProfile::new(
+                CAPABILITY_SCREEN_FLOW,
+                CAPABILITY_SCREEN_BATCH,
+                EnergyCarrier::Mechanical,
+                MassSpecificEnergy::from_nanojoules_per_milligram(100),
+                1_000,
+            ),
+        )],
+    )
 }

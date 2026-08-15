@@ -109,9 +109,9 @@ callbacks, event handlers, record methods, or engine lifecycle hooks.
 ## 7. Persistence
 
 The core defines a versioned semantic save envelope while deliberately leaving byte encoding and
-storage to adapters. The current save schema is version 27. Authored identity/physics compatibility
+storage to adapters. The current save schema is version 29. Authored identity/physics compatibility
 is tracked separately by `RegistrySchemaVersion`; the built-in registry schema is currently version
-14. Core gravity, material phase/fusion semantics, physical form and particle-state policies, fluid
+17. Core gravity, material phase/fusion semantics, physical form and particle-state policies, fluid
 identity/density definitions, directional energy-store semantics, and operation-specific resolver
 identities are part of that immutable registry contract because changing them can alter persisted
 physical consequences even when authored IDs are unchanged.
@@ -137,10 +137,12 @@ embodied-mass/self-weight/phase agreement, equipment structural support/load agr
 energy source/sink ownership plus production energy-occupancy-index agreement, and
 operation-specific sensible-heating/melting/casting replay from committed physical traces.
 Comminution jobs are likewise recomputed from exact consumed-material, equipment, and energy traces,
-including authored form transition and particle-size envelope, mass-specific work, carrier,
-condition-sensitive throughput, power-limited duration, and post-operation wear. Current-schema lot,
+including authored form transition, admissible feed-size envelope, particle-size distribution,
+mass-specific work, carrier, condition-sensitive throughput, power-limited duration, and
+post-operation wear. Current-schema lot,
 output, and consumed-trace validation also rejects particle-size state that disagrees with the
-authored form policy.
+authored form policy. Screening jobs independently recompute their aperture partition, typed stream
+identities, exact output distributions, finite work, duration, and condition outcome.
 
 Filesystem layout, compression, atomic writes, cloud storage, and released-save migration
 implementations remain adapter work.
@@ -225,11 +227,15 @@ and molten matter have typed `FormId` definitions, an explicit `MaterialPhase`, 
 particle-size-state policy. `CommodityKey` combines one material and one form for coarse indexing.
 Thermal definitions may author an exact solid/liquid fusion point and latent heat.
 
-`ParticleSizeRange` stores a validated nonzero minimum and maximum particle diameter using typed
-`Length`. It is intentionally a compact authoritative envelope rather than a fabricated particle-size
-distribution. Forms marked as requiring particulate state must carry a range; forms marked untracked
-must not. A screen cut that lies inside a range therefore cannot infer oversize/undersize mass until
-a future resolver has a real distribution or another physically justified partition model.
+`ParticleSizeRange` stores validated nonzero minimum and maximum particle diameters using typed
+`Length`. `ParticleSizeDistribution` stores one or more nonoverlapping resolved size classes with
+canonical relative mass weights. Class weights are reduced to one canonical ratio, and a one-class
+distribution is the conservative representation of an unresolved size envelope: it records bounds
+without pretending to know how mass is distributed inside them. Forms marked as requiring
+particulate state must carry a distribution; forms marked untracked must not. Screening may partition
+only classes lying wholly on one side of the authored aperture. A cut through an unresolved class or
+a weighted partition that is not exactly representable at the current whole-milligram mass resolution
+is rejected instead of fabricating a yield.
 
 `MaterialComposition` is a canonical normalized mass-fraction profile. Components are sorted by
 material ID, use integer parts per million, and total exactly 1,000,000 ppm. Duplicate materials,
@@ -251,9 +257,9 @@ architecture content, not the complete gameplay catalog.
 
 Material lots are the authoritative stored-matter representation. Each `MaterialLotRecord` owns a
 persistent lot ID, stockpile owner, exact mass, a `MaterialLotProfile` (commodity, absolute
-temperature, normalized composition, and optional form-governed particle-size range), and a creation
-provenance range. Lot coalescing compares the complete profile, so different particle-size envelopes
-cannot be averaged away by inventory compaction.
+temperature, normalized composition, and optional form-governed weighted particle-size distribution),
+and a creation provenance range. Lot coalescing compares the complete profile, so different
+particle-size distributions cannot be averaged away by inventory compaction.
 
 Stockpiles maintain derived deterministic indexes/caches for lot IDs, per-commodity mass, total
 stored mass, capacity, reserved inbound mass, and a persisted containment profile declaring accepted
@@ -367,11 +373,22 @@ condition-sensitive `MassFlow`, enforces maximum batch mass, and requires exact 
 `MassSpecificEnergy` from a finite source of the required carrier. Coarse untracked input can establish
 its first explicit envelope. Already-particulate input must reduce maximum diameter without increasing
 minimum diameter, so a grinder can perform a same-form `crushed -> crushed` transition without
-inventing a second material form merely to encode fineness. Authoritative duration is the slower of
+inventing a second material form merely to encode fineness. A comminution definition may additionally
+author an admissible particulate feed envelope. Every selected input trace must lie wholly inside that
+range before the output reduction is evaluated, and the registry requires constrained processes to
+use particulate input forms and to admit at least the authored reducing output relationship. This
+models mill operating/feed limits as physical process semantics instead of hard-coded machine IDs or
+technology tiers. Authoritative duration is the slower of
 equipment throughput and source output power, so weak power infrastructure reduces throughput and
-increases active-tick wear. Screening remains separate because diameter bounds alone cannot determine
-a mass fraction when a screen cut intersects the envelope. Separation, recovery, chemical smelting,
-alloying, tooling, labor, and skill remain separate future resolvers.
+increases active-tick wear. The canonical jaw crusher establishes one conservative 500-10000 um class.
+A separate grinding mill uses distinct typed capabilities to reduce that same-form material to two
+equal-weight classes, 500-2000 um and 2001-4000 um. Screening remains a separate resolver because it
+may classify only size classes wholly on one side of its aperture; direct crusher output therefore
+fails the 2 mm screen while grinder output can be partitioned exactly. A constrained fine-grinding
+pass accepts only the resulting 2001-4000 um oversize stream and reduces it to 500-2000 um. Routing
+that output back into the undersize stockpile therefore gives a closed preparation circuit in which
+only oversize pays the additional energy and wear. Separation by composition, recovery, chemical
+smelting, alloying, tooling, labor, and skill remain separate future resolvers.
 
 `ResolvedComminution` exposes the exact observed equipment condition and predicted post-operation
 condition alongside throughput-limited duration, energy-limited duration, required work energy,
@@ -408,12 +425,19 @@ work.
 
 The general built-in gameplay production registry remains intentionally sparse until physical
 authorization systems exist for each operation. Canonical content currently registers the jaw
-crusher's ore-comminution process plus the pure-copper melt/cast path because concrete equipment and
-finite energy owners exist for those operations. Test registries continue to exercise additional
-resolver boundaries without turning them into unrestricted recipe shortcuts. Comminution rejects
-absent, insufficient, or wrong-carrier energy rather than granting free processing, and no separation
-or smelting process is registered until a physical resolver can justify its mass partition and
-chemistry.
+crusher's ore-comminution process, a same-form grinding process, a 2 mm dry-screening process, and the
+selective oversize fine-grinding pass plus the pure-copper melt/cast path because concrete equipment
+and finite energy owners exist for those operations. Crusher, grinder, and screen each have distinct
+typed throughput/batch capabilities, condition-sensitive throughput, active-tick wear, and exact
+mechanical work requirements. The chain does not fabricate concentration: crushing preserves one
+unresolved class, grinding authors a finer
+resolved size distribution, screening changes only size-class ownership, and the constrained regrind
+returns only coarse material to the fine profile while preserving material composition and
+temperature. Test registries continue to exercise additional resolver boundaries
+without turning them into unrestricted recipe shortcuts. Comminution and screening reject absent,
+insufficient, or wrong-carrier energy rather than granting free processing, and no concentration,
+chemical separation, or smelting process is registered until a physical resolver can justify its mass
+partition and chemistry.
 
 ## 16. Capabilities, Maintenance, Energy, Flow, and Mechanical Power
 
@@ -422,8 +446,8 @@ kinds include presence, mass, mass flow, temperature, energy, pressure, force, p
 speed, electrical quantities, volume/flow, and equipment condition. Each requirement states `AtLeast`
 or `AtMost` threshold semantics. `CapabilityProfile` owns deterministic nominal/static values, while
 `CapabilitySource` lets runtime-adjusted providers satisfy the same evaluator without materializing
-temporary maps. The built-in capability registry remains empty until concrete gameplay providers are
-authored.
+temporary maps. The built-in capability registry contains only capabilities backed by canonical
+workshop equipment and physical resolvers; unrelated future capability families remain unauthored.
 
 Maintenance uses normalized `Condition` with authored warning and critical thresholds. Equipment
 definitions may additionally author piecewise-linear response curves for individual typed

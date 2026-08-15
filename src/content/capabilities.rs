@@ -10,6 +10,10 @@ pub(crate) const CAPABILITY_HEATING_POWER: CapabilityId = CapabilityId::new(3);
 pub(crate) const CAPABILITY_COOLING_POWER: CapabilityId = CapabilityId::new(4);
 pub(crate) const CAPABILITY_THERMAL_MAX_TEMPERATURE: CapabilityId = CapabilityId::new(5);
 pub(crate) const CAPABILITY_THERMAL_BATCH: CapabilityId = CapabilityId::new(6);
+pub(crate) const CAPABILITY_SCREEN_FLOW: CapabilityId = CapabilityId::new(7);
+pub(crate) const CAPABILITY_SCREEN_BATCH: CapabilityId = CapabilityId::new(8);
+pub(crate) const CAPABILITY_GRINDER_FLOW: CapabilityId = CapabilityId::new(9);
+pub(crate) const CAPABILITY_GRINDER_BATCH: CapabilityId = CapabilityId::new(10);
 
 pub(crate) fn build_capability_registry() -> CapabilityRegistry {
     let mut registry = CapabilityRegistry::new();
@@ -42,6 +46,26 @@ pub(crate) fn build_capability_registry() -> CapabilityRegistry {
         CapabilityDefinition::new(
             CAPABILITY_THERMAL_BATCH,
             "thermal equipment maximum batch mass",
+            CapabilityValueKind::Mass,
+        ),
+        CapabilityDefinition::new(
+            CAPABILITY_SCREEN_FLOW,
+            "screen material throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        CapabilityDefinition::new(
+            CAPABILITY_SCREEN_BATCH,
+            "screen maximum batch mass",
+            CapabilityValueKind::Mass,
+        ),
+        CapabilityDefinition::new(
+            CAPABILITY_GRINDER_FLOW,
+            "grinder material throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        CapabilityDefinition::new(
+            CAPABILITY_GRINDER_BATCH,
+            "grinder maximum batch mass",
             CapabilityValueKind::Mass,
         ),
     ] {

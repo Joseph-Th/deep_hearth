@@ -889,7 +889,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("registry compatibility save serialization failed: {error}"),
         };
-        encoded["registry_schema_version"] = serde_json::json!(13_u32);
+        encoded["registry_schema_version"] = serde_json::json!(16_u32);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("registry compatibility save failed decode: {error}"),
@@ -898,8 +898,8 @@ mod tests {
         assert_eq!(
             decoded.into_state(&registries),
             Err(LoadError::RegistrySchemaMismatch {
-                found: RegistrySchemaVersion::new(13),
-                supported: RegistrySchemaVersion::new(14),
+                found: RegistrySchemaVersion::new(16),
+                supported: RegistrySchemaVersion::new(17),
             })
         );
     }

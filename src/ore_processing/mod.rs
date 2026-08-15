@@ -39,6 +39,7 @@ pub struct ComminutionProcessDefinition {
     process: ProcessId,
     input_form: FormId,
     output_form: FormId,
+    input_particle_size_range: Option<ParticleSizeRange>,
     output_particle_size: ParticleSizeDistribution,
     operating: ComminutionOperatingProfile,
 }
@@ -211,6 +212,34 @@ impl ComminutionProcessDefinition {
             process,
             input_form,
             output_form,
+            input_particle_size_range: None,
+            output_particle_size: output_particle_size.into(),
+            operating,
+        }
+    }
+
+    /// Authors a comminution operation that accepts only particulate feed whose complete envelope
+    /// lies inside `input_particle_size_range`.
+    ///
+    /// This is an equipment/process operating constraint, not a recipe unlock. It lets physically
+    /// distinct mill passes reject feed that is too coarse or too fine for the authored operation.
+    #[must_use]
+    pub fn new_with_input_particle_size_range<P>(
+        process: ProcessId,
+        input_form: FormId,
+        output_form: FormId,
+        input_particle_size_range: ParticleSizeRange,
+        output_particle_size: P,
+        operating: ComminutionOperatingProfile,
+    ) -> Self
+    where
+        P: Into<ParticleSizeDistribution>,
+    {
+        Self {
+            process,
+            input_form,
+            output_form,
+            input_particle_size_range: Some(input_particle_size_range),
             output_particle_size: output_particle_size.into(),
             operating,
         }
@@ -229,6 +258,12 @@ impl ComminutionProcessDefinition {
     #[must_use]
     pub const fn output_form(&self) -> FormId {
         self.output_form
+    }
+
+    /// Returns the authored admissible particulate feed envelope, when the operation has one.
+    #[must_use]
+    pub const fn input_particle_size_range(&self) -> Option<ParticleSizeRange> {
+        self.input_particle_size_range
     }
 
     #[must_use]
@@ -276,6 +311,7 @@ pub struct OreProcessingRegistry {
 }
 
 impl OreProcessingRegistry {
+    #[cfg(test)]
     pub(crate) fn new(definitions: impl IntoIterator<Item = ComminutionProcessDefinition>) -> Self {
         Self::new_with_screening(definitions, std::iter::empty())
     }
@@ -409,6 +445,30 @@ impl OreProcessingRegistry {
                 definition.process().value(),
                 definition.output_form().value()
             );
+            if let Some(input_range) = definition.input_particle_size_range() {
+                let input_form = match materials.get_form(definition.input_form()) {
+                    Some(input_form) => input_form,
+                    None => unreachable!("comminution input form was resolved above"),
+                };
+                assert_eq!(
+                    input_form.particle_size_policy(),
+                    ParticleSizeStatePolicy::Required,
+                    "comminution process {} with a feed-size range requires particulate input form {}",
+                    definition.process().value(),
+                    definition.input_form().value()
+                );
+                let output_range = definition.output_particle_size();
+                assert!(
+                    output_range.minimum_diameter() <= input_range.minimum_diameter()
+                        && output_range.maximum_diameter() < input_range.maximum_diameter(),
+                    "comminution process {} feed-size range {}..={} um cannot admit a strictly reducing output {}..={} um",
+                    definition.process().value(),
+                    input_range.minimum_diameter().micrometers(),
+                    input_range.maximum_diameter().micrometers(),
+                    output_range.minimum_diameter().micrometers(),
+                    output_range.maximum_diameter().micrometers()
+                );
+            }
         }
         for definition in self.screening.values().copied() {
             let process = match production.get_process(definition.process()) {

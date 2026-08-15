@@ -68,6 +68,13 @@ pub enum ComminutionBatchError {
         expected: FormId,
         found: FormId,
     },
+    MissingInputParticleSize {
+        required: ParticleSizeRange,
+    },
+    InputParticleSizeOutsideOperatingRange {
+        required: ParticleSizeRange,
+        found: ParticleSizeRange,
+    },
     ParticleSizeNotReduced {
         input: ParticleSizeRange,
         output: ParticleSizeRange,
@@ -85,6 +92,20 @@ impl Display for ComminutionBatchError {
                 "comminution batch requires input form {} but selected form {}",
                 expected.value(),
                 found.value()
+            ),
+            Self::MissingInputParticleSize { required } => write!(
+                formatter,
+                "comminution feed must resolve particle sizes inside {}..={} um",
+                required.minimum_diameter().micrometers(),
+                required.maximum_diameter().micrometers()
+            ),
+            Self::InputParticleSizeOutsideOperatingRange { required, found } => write!(
+                formatter,
+                "comminution feed {}..={} um lies outside authored operating range {}..={} um",
+                found.minimum_diameter().micrometers(),
+                found.maximum_diameter().micrometers(),
+                required.minimum_diameter().micrometers(),
+                required.maximum_diameter().micrometers()
             ),
             Self::ParticleSizeNotReduced { input, output } => write!(
                 formatter,
@@ -109,6 +130,8 @@ impl Error for ComminutionBatchError {
             Self::Output(error) => Some(error),
             Self::EmptyInput
             | Self::InputFormMismatch { .. }
+            | Self::MissingInputParticleSize { .. }
+            | Self::InputParticleSizeOutsideOperatingRange { .. }
             | Self::ParticleSizeNotReduced { .. }
             | Self::MassOverflow => None,
         }
@@ -132,6 +155,21 @@ fn resolve_comminution_outputs(
                 expected: definition.input_form(),
                 found: input_form,
             });
+        }
+        if let Some(required) = definition.input_particle_size_range() {
+            let found = profile
+                .particle_size()
+                .ok_or(ComminutionBatchError::MissingInputParticleSize { required })?;
+            if found.minimum_diameter() < required.minimum_diameter()
+                || found.maximum_diameter() > required.maximum_diameter()
+            {
+                return Err(
+                    ComminutionBatchError::InputParticleSizeOutsideOperatingRange {
+                        required,
+                        found,
+                    },
+                );
+            }
         }
         if let Some(input_particle_size) = profile.particle_size() {
             let output_particle_size = definition.output_particle_size();
@@ -354,8 +392,9 @@ impl ResolvedComminution {
 ///
 /// Comminution assigns an authored weighted particle-size distribution while preserving each
 /// distinct composition and temperature. Particulate inputs must be strictly reduced at the
-/// distribution envelope without coarsening represented fines; untracked coarse inputs establish
-/// their first explicit size state. It does not purify ore or invent yield bonuses. Exact
+/// distribution envelope without coarsening represented fines, and constrained operations require
+/// every selected feed envelope to lie inside their authored operating range. Untracked coarse inputs
+/// establish their first explicit size state. It does not purify ore or invent yield bonuses. Exact
 /// mass-specific work is reserved from a finite energy source, while operation duration is the
 /// slower of equipment throughput and source power.
 pub fn resolve_comminution_process(
@@ -863,6 +902,16 @@ mod tests {
         }
     }
 
+    fn selective_feed_particle_size() -> ParticleSizeRange {
+        match ParticleSizeRange::new(
+            Length::from_micrometers(5_001),
+            Length::from_micrometers(20_000),
+        ) {
+            Ok(range) => range,
+            Err(error) => panic!("selective grinding feed-size fixture failed: {error}"),
+        }
+    }
+
     fn condition(parts_per_million: u32) -> Condition {
         match Condition::new(parts_per_million) {
             Ok(condition) => condition,
@@ -981,10 +1030,11 @@ mod tests {
         let registries = make_registries_with_definition(
             EnergyCarrier::Mechanical,
             Power::from_microwatts(100),
-            ComminutionProcessDefinition::new(
+            ComminutionProcessDefinition::new_with_input_particle_size_range(
                 PROCESS,
                 FORM_CRUSHED,
                 FORM_CRUSHED,
+                crushed_particle_size(),
                 ground_particle_size(),
                 ComminutionOperatingProfile::new(
                     MASS_FLOW_CAPABILITY,
@@ -996,6 +1046,13 @@ mod tests {
             ),
         );
         let mut state = AppState::new(WorldSeed::new(0x9700_0006));
+        assert_eq!(
+            registries
+                .ore_processing()
+                .get_comminution(PROCESS)
+                .and_then(ComminutionProcessDefinition::input_particle_size_range),
+            Some(crushed_particle_size())
+        );
         let source = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
             Ok(source) => source,
             Err(error) => panic!("grinding source fixture failed: {error}"),
@@ -1049,6 +1106,173 @@ mod tests {
             CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED)
         );
         assert_eq!(outputs[0].particle_size(), Some(ground_particle_size()));
+    }
+
+    #[test]
+    fn constrained_comminution_rejects_out_of_range_feed_without_mutation() {
+        let required = selective_feed_particle_size();
+        let found = crushed_particle_size();
+        let registries = make_registries_with_definition(
+            EnergyCarrier::Mechanical,
+            Power::from_microwatts(100),
+            ComminutionProcessDefinition::new_with_input_particle_size_range(
+                PROCESS,
+                FORM_CRUSHED,
+                FORM_CRUSHED,
+                required,
+                ground_particle_size(),
+                ComminutionOperatingProfile::new(
+                    MASS_FLOW_CAPABILITY,
+                    MAX_BATCH_MASS_CAPABILITY,
+                    EnergyCarrier::Mechanical,
+                    SPECIFIC_WORK,
+                    1_000,
+                ),
+            ),
+        );
+        let mut state = AppState::new(WorldSeed::new(0x9700_0007));
+        let source = add_stockpile(&mut state, Mass::from_milligrams(100))
+            .unwrap_or_else(|error| panic!("constrained grinding source failed: {error}"));
+        let input = MaterialLotSpec::with_composition_and_particle_size(
+            CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+            Mass::from_milligrams(20),
+            INPUT_TEMPERATURE,
+            mixed_ore_composition(),
+            found,
+        )
+        .unwrap_or_else(|error| panic!("constrained grinding input failed: {error}"));
+        let lot = deposit_lot_spec_for_test(&registries, &mut state, source, input)
+            .unwrap_or_else(|error| panic!("constrained grinding lot seed failed: {error}"));
+        let equipment = add_equipment(&registries, &mut state, CRUSHER, Condition::PRISTINE)
+            .unwrap_or_else(|error| panic!("constrained grinding equipment failed: {error}"));
+        let energy_store = add_energy_store_with_initial_for_test(
+            &registries,
+            &mut state,
+            ENERGY_STORE_DEFINITION,
+            Energy::from_nanojoules(1_000_000),
+        )
+        .unwrap_or_else(|error| panic!("constrained grinding energy failed: {error}"));
+        let before = state.clone();
+
+        match resolve_comminution_process(
+            &registries,
+            &state,
+            ComminutionRequest::new(
+                PROCESS,
+                source,
+                &[MaterialLotSelection::new(lot, Mass::from_milligrams(20))],
+                equipment,
+                energy_store,
+            ),
+        ) {
+            Err(ComminutionResolutionError::Batch(
+                ComminutionBatchError::InputParticleSizeOutsideOperatingRange {
+                    required: actual_required,
+                    found: actual_found,
+                },
+            )) => {
+                assert_eq!(actual_required, required);
+                assert_eq!(actual_found, found);
+            }
+            other => panic!("out-of-range constrained grinding returned {other:?}"),
+        }
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn constrained_comminution_persistence_rejects_forged_feed_size_trace() {
+        let required = selective_feed_particle_size();
+        let registries = make_registries_with_definition(
+            EnergyCarrier::Mechanical,
+            Power::from_microwatts(100),
+            ComminutionProcessDefinition::new_with_input_particle_size_range(
+                PROCESS,
+                FORM_CRUSHED,
+                FORM_CRUSHED,
+                required,
+                ground_particle_size(),
+                ComminutionOperatingProfile::new(
+                    MASS_FLOW_CAPABILITY,
+                    MAX_BATCH_MASS_CAPABILITY,
+                    EnergyCarrier::Mechanical,
+                    SPECIFIC_WORK,
+                    1_000,
+                ),
+            ),
+        );
+        let mut state = AppState::new(WorldSeed::new(0x9700_0008));
+        let source = add_stockpile(&mut state, Mass::from_milligrams(100))
+            .unwrap_or_else(|error| panic!("constrained persistence source failed: {error}"));
+        let destination = add_stockpile(&mut state, Mass::from_milligrams(100))
+            .unwrap_or_else(|error| panic!("constrained persistence destination failed: {error}"));
+        let input = MaterialLotSpec::with_composition_and_particle_size(
+            CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+            Mass::from_milligrams(20),
+            INPUT_TEMPERATURE,
+            mixed_ore_composition(),
+            required,
+        )
+        .unwrap_or_else(|error| panic!("constrained persistence input failed: {error}"));
+        let lot = deposit_lot_spec_for_test(&registries, &mut state, source, input)
+            .unwrap_or_else(|error| panic!("constrained persistence lot seed failed: {error}"));
+        let equipment = add_equipment(&registries, &mut state, CRUSHER, Condition::PRISTINE)
+            .unwrap_or_else(|error| panic!("constrained persistence equipment failed: {error}"));
+        let energy_store = add_energy_store_with_initial_for_test(
+            &registries,
+            &mut state,
+            ENERGY_STORE_DEFINITION,
+            Energy::from_nanojoules(1_000_000),
+        )
+        .unwrap_or_else(|error| panic!("constrained persistence energy failed: {error}"));
+        let resolved = resolve_comminution_process(
+            &registries,
+            &state,
+            ComminutionRequest::new(
+                PROCESS,
+                source,
+                &[MaterialLotSelection::new(lot, Mass::from_milligrams(20))],
+                equipment,
+                energy_store,
+            ),
+        )
+        .unwrap_or_else(|error| panic!("constrained persistence resolution failed: {error}"));
+        let job = validate_start_process(
+            &registries,
+            &state,
+            resolved.process_resolution(),
+            source,
+            destination,
+        )
+        .unwrap_or_else(|error| panic!("constrained persistence start failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("constrained persistence commit failed: {error}"));
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+        let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| {
+                panic!("constrained persistence serialization failed: {error}")
+            });
+        tampered["state"]["production"]["jobs"][job.value().to_string()]["consumed_inputs"][0]["profile"]
+            ["particle_size"]["classes"][0]["range"]["minimum_diameter"] = serde_json::json!(1_u64);
+        let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+            .unwrap_or_else(|error| panic!("constrained persistence decode failed: {error}"));
+        let forged = ParticleSizeRange::new(
+            Length::from_micrometers(1),
+            Length::from_micrometers(20_000),
+        )
+        .unwrap_or_else(|error| panic!("forged feed-size fixture failed: {error}"));
+        assert_eq!(
+            tampered.into_state(&registries),
+            Err(LoadError::InvalidState(
+                StateValidationError::ComminutionJob(ComminutionJobValidationError::Batch {
+                    job,
+                    error: ComminutionBatchError::InputParticleSizeOutsideOperatingRange {
+                        required,
+                        found: forged,
+                    },
+                })
+            ))
+        );
     }
 
     struct Fixture {

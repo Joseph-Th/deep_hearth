@@ -13,8 +13,10 @@ with conservation-bound extraction, persistent prospecting evidence and uncertai
 maps, typed capability requirements, maintenance condition, condition-sensitive equipment,
 conserved structural construction/deconstruction with real self-weight, inventory and equipment weight
 coupled into structural failure, directional finite energy stores, finite homogeneous fluid storage,
-exact electrical/flow/rotational scalar mechanics, selected-batch comminution with finite work energy
-and condition-sensitive throughput, and physical thermal production for sensible heating,
+exact electrical/flow/rotational scalar mechanics, selected-batch crushing and same-form grinding with
+finite work energy and condition-sensitive throughput, exact multi-stream dry screening with finite
+work and conservative particle-class partitioning, feed-size-constrained selective regrinding, and
+physical thermal production for sensible heating,
 pure-material melting, and casting with explicit latent heat and finite heat sinks. Versioned
 persistence revalidates cross-owner conservation and operation-specific physics, and deterministic
 soak coverage exercises the major ownership paths. Physical survey/mining authorization, alloy phase

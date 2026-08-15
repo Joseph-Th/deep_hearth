@@ -215,9 +215,14 @@
   Persisted jobs recompute the exact authored particle distribution, work energy, carrier,
   power-limited duration, and wear from their committed traces. The canonical jaw crusher remains a
   single unresolved 500-10000 um class rather than fabricating a within-envelope mass curve without
-  authored data. A workshop jaw crusher, small and large finite mechanical drives, and ore-crushing
-  process are authored in the same built-in registry path used by runtime gameplay and the agent
-  harness.
+  authored data. Canonical content now also includes a separate grinding mill and same-form grinding
+  process with its own typed throughput/batch capabilities. Grinding reduces that crusher envelope to
+  two explicit equal-weight classes, 500-2000 um and 2001-4000 um, while preserving mass,
+  composition, temperature, and form. The grinder therefore adds physically useful particle-size
+  information without pretending to concentrate ore or relabel the material. Comminution definitions
+  may also author an admissible particulate feed envelope. Runtime resolution and persistence replay
+  both reject selected feed outside that operating range, allowing physically distinct mill passes to
+  be represented without hard-coding equipment IDs or introducing arbitrary process unlocks.
 - Selected-batch dry screening is a reusable ore-processing resolver with an exact authored aperture,
   typed undersize/oversize output streams, runtime equipment throughput and maximum-batch limits,
   finite work energy, power-limited duration, and active-tick wear. Screening aggregates identical
@@ -227,9 +232,15 @@
   than assigned an invented split. A weighted class partition that would require fractional
   milligrams is also rejected at the current mass resolution rather than silently reclassifying the
   remainder into the wrong stream. Persisted screening jobs recompute stream identities, exact
-  outputs, energy, duration, and equipment condition. No built-in screen machine/process is
-  registered yet because a real gameplay provider and its operating constraints still need to be
-  authored.
+  outputs, energy, duration, and equipment condition. Canonical content now registers a workshop dry
+  screen and a 2 mm dry-screening process with separate throughput and batch capabilities, finite
+  mechanical work, condition-sensitive throughput, and active-tick wear. Direct crusher-to-screen
+  processing still fails because the jaw crusher emits one unresolved 0.5-10 mm class. The canonical
+  grinding mill is now the physical bridge: its 0.5-2 mm and 2.001-4 mm classes lie wholly on opposite
+  sides of the screen aperture, allowing exact routed undersize/oversize ownership. A second
+  fine-grinding operation accepts only the 2.001-4 mm screen oversize and reduces it to the same
+  0.5-2 mm profile as the undersize stream. This creates a selective closed-loop preparation circuit:
+  already-fine material avoids the extra grinding work and wear while oversize can be recycled.
 - Production output ownership is stream-based rather than destination-global. Resolvers assign typed
   operation-local stream IDs, resolution canonicalizes stream order by ID, and durable jobs preserve
   each physically inseparable stream's identity, exact lot specifications, and routed destination.
@@ -276,7 +287,7 @@
   resources remain exclusive and report an explicit `AwaitingResume` release horizon rather than a
   stale pre-failure due tick.
 - Canonical top-level tick pipeline with cheap per-tick invariants and exhaustive save/load audits.
-- Persistence semantic schema 29 and authored registry compatibility schema 14 with metadata
+- Persistence semantic schema 29 and authored registry compatibility schema 17 with metadata
   preflight, registry-aware state validation, structural topology/damage audits, energy/equipment
   ownership validation, directional energy-source/sink reservation, occupancy-index and capacity
   audits, embodied
@@ -286,8 +297,9 @@
   detection,
   particle-size distribution policy/state audits, typed production-stream identity/routing and
   per-destination reservation audits, operation-specific sensible-heating/melting/casting,
-  comminution, and screening recomputation including exact output particle classes and stream
-  partitioning, post-operation condition outcomes and released heat, stable in-flight conservation
+  comminution, and screening recomputation including admissible comminution feed envelopes, exact
+  output particle classes and stream partitioning, post-operation condition outcomes and released
+  heat, stable in-flight conservation
   snapshots, production active-duration/suspension scheduling, due-index exclusion while suspended,
   suspension-provider identity, and deterministic continuation tests. Suspended-job round trips
   preserve work-in-process exactly; adversarial saves that reinsert a suspended job into the due
@@ -339,13 +351,19 @@
   batch through condition-sensitive equipment, with periodic exhaustive persistence audits, exact
   matter conservation, exact finite work-energy depletion, bounded lot coalescing, accumulated
   equipment wear, and replay-identical final state.
+- Deterministic 300-operation dry-screening soak repeatedly partitions one finite resolved
+  mixed-composition particulate batch into routed undersize/oversize streams, with an in-flight
+  save/load continuation, periodic exhaustive audits, exact matter conservation, exact finite work
+  depletion, accumulated equipment wear, bounded output-lot coalescing, and replay-identical final
+  state.
 - Deterministic 1,000-transfer supported-stockpile soak repeatedly moves one finite material lot
   between separately supported stockpiles, updating both derived structural loads on every transfer,
   with periodic exhaustive audits and replay-identical final state.
 - The headless copper-workshop gameplay harness consumes `build_registries()` directly rather than
   maintaining shadow equipment/process definitions. Canonical built-in content includes the jaw
-  crusher, electric furnace, cooled casting mold, two mechanical drive envelopes, electrical buffer,
-  thermal sink, ore crushing, pure-copper melting, and pure-copper casting used by the harness. Normal
+  crusher, grinding mill, dry screen, electric furnace, cooled casting mold, two mechanical drive
+  envelopes, electrical buffer, thermal sink, ore crushing, same-form grinding, exact dry screening,
+  pure-copper melting, and pure-copper casting used by the harness. Normal
   runs combine five deterministic qualitative-coverage seeds with one time-derived printed exploratory
   seed; a `DEEP_HEARTH_GAMEPLAY_SEEDS` override accepts exact decimal or hex seed lists for replay or
   wider sweeps. Starting conditions vary ore grade, batch size, crusher condition, two competing
@@ -370,14 +388,22 @@
   event, suspended/stranded work-in-process, contained copper floor, and crushed ore particle-size
   classes rather than reducing experience coverage to booleans. Ore grade therefore has an honest
   conserved-value effect even though it cannot yet change a downstream processing choice. The harness
-  explicitly identifies the unresolved single-class screening boundary and missing concentration/
-  smelting bridge. Pure-copper melt/cast is exercised once as a separately labeled downstream
+  explicitly identifies the unresolved direct crusher-to-screen boundary and missing concentration/
+  smelting bridge. A separate ore-preparation capability probe runs one actual mixed-ore batch through
+  canonical crushing, verifies direct screening is rejected and the selective fine-grind pass rejects
+  unscreened crusher feed, then grinds the crusher output into explicit size classes and screens those
+  classes into routed 5 mg/5 mg streams. Only the 5 mg oversize stream pays for the fine regrind, and
+  its compatible output coalesces into the existing undersize lot so the final 10 mg batch is entirely
+  within the 0.5-2 mm profile. The probe uses exactly the finite mechanical work budget and checks
+  stage-by-stage persistence invariants, equipment wear, composition preservation, bounded lot
+  fragmentation, and whole-chain matter conservation. Pure-copper melt/cast is exercised once as a
+  separately labeled downstream
   capability probe, not repeated per scenario or presented as a continuous ore-to-metal loop. Matter,
   equipment, initial energy, and structural bays remain explicit setup fixtures until their physical
   acquisition/construction authorizers exist; experienced post-setup mutations use canonical runtime
   transactions. Isolated unit-test registry builders no longer inherit unrelated canonical gameplay
   content as that content expands.
-- Current debug validation suite: 331 passing tests with `cargo check` silent and
+- Current debug validation suite: 334 passing tests with `cargo check` silent and
   Clippy warnings denied.
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
   as variants evolve instead of relying on review to catch silent fallback behavior.
@@ -401,7 +427,8 @@
   alloy/solution phase diagrams, combustion, fuel networks, and emissions. Pure-material solid/liquid
   fusion and finite explicit thermal sinks are modeled; an implicit environment is deliberately not
   used as an infinite heat source or sink.
-- Broader equipment/tool/worker content beyond the canonical crusher, furnace, and casting mold;
+- Broader equipment/tool/worker content beyond the canonical crusher, grinding mill, dry screen,
+  furnace, and casting mold;
   richer voxel/container equipment placement beyond a
   structural support owner, physical spare-part suitability, repair tools/labor/duration, replacement
   and waste transformations, discrete capability-disable policies, and authored gameplay-specific
@@ -420,15 +447,15 @@
   equipment weight, and supported fluid weight now write their own aggregate contributions
   canonically; the remaining owners remain deferred.
 - Additional production resolvers and gameplay content beyond sensible heating, pure-material
-  melt/cast, conservative comminution, and the reusable dry-screening resolver, including built-in
-  screen equipment/process content, non-ideal screening efficiency/blinding/wet-feed effects,
-  concrete grinding equipment/process content, washing, gravity/flotation separation, explicit
+  melt/cast, conservative crushing/grinding, and canonical dry screening, including non-ideal
+  screening efficiency/blinding/wet-feed effects, richer mill media/loading physics, washing,
+  gravity/flotation separation, explicit
   recovery/tailings physics, chemical smelting/reduction, alloying, forging/working, machining/tool
   wear, labor/skill, chemistry, and environmental constraints. Weighted particle-size classes and
   typed multi-stream ownership now support exact conservative classification where the authored
   aperture lies between resolved classes, but the simulation still refuses to invent a split through
-  an unresolved class. The canonical crush/pure-melt/pure-cast processes are registered; additional
-  gameplay processes remain unregistered until their corresponding physical gates exist.
+  an unresolved class. The canonical crush/grind/screen/pure-melt/pure-cast processes are registered;
+  additional gameplay processes remain unregistered until their corresponding physical gates exist.
 - Persistent mechanical-power networks and shaft/belt layout, rotational inertia/flywheels, slip and
   clutch state, steam/boilers, electrical networks, transformers, protection, and distribution
   topology, plus conserved primary energy-generation paths for finite stores. Directional finite

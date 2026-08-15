@@ -29,13 +29,15 @@ use crate::inventory::{
 };
 use crate::maintenance::{Condition, MaintenanceBand};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
+use crate::matter::calculate_matter_accounting;
 use crate::ore_processing::{
-    ComminutionBottleneck, ComminutionRequest, ComminutionResolutionError, ResolvedComminution,
-    resolve_comminution_process,
+    ComminutionBatchError, ComminutionBottleneck, ComminutionRequest, ComminutionResolutionError,
+    ResolvedComminution, ScreeningBatchError, ScreeningProcessDefinition, ScreeningRequest,
+    ScreeningResolutionError, resolve_comminution_process, resolve_screening_process,
 };
 use crate::production::{
-    ProductionAvailabilityChange, ProductionJobId, ProductionSuspensionReason,
-    validate_start_process,
+    ProcessOutputRoute, ProductionAvailabilityChange, ProductionJobId, ProductionSuspensionReason,
+    validate_start_process, validate_start_process_routed,
 };
 use crate::registry::Registries;
 use crate::simulation::advance_tick;
@@ -55,8 +57,14 @@ use super::energy::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
     ENERGY_THERMAL_SINK,
 };
-use super::equipment::{EQUIPMENT_CASTING_MOLD, EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_JAW_CRUSHER};
-use super::processes::{PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_MELT_PURE_COPPER};
+use super::equipment::{
+    EQUIPMENT_CASTING_MOLD, EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE,
+    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER,
+};
+use super::processes::{
+    PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+    PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
+};
 use super::{
     FORM_INGOT, FORM_LOG, FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_WOOD,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
@@ -146,6 +154,20 @@ struct FoundryIds {
     mold: EquipmentId,
     electrical_buffer: EnergyStoreId,
     heat_sink: EnergyStoreId,
+}
+
+#[derive(Clone, Copy)]
+struct OrePreparationProbeIds {
+    ore_source: StockpileId,
+    crushed_storage: StockpileId,
+    ground_storage: StockpileId,
+    undersize_storage: StockpileId,
+    oversize_storage: StockpileId,
+    ore_lot: MaterialLotId,
+    crusher: EquipmentId,
+    grinder: EquipmentId,
+    screen: EquipmentId,
+    drive: EnergyStoreId,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -322,6 +344,8 @@ fn mixed_ore_composition(copper_ppm: u32) -> MaterialComposition {
 fn assert_canonical_gameplay_content(registries: &Registries) {
     for equipment in [
         EQUIPMENT_JAW_CRUSHER,
+        EQUIPMENT_GRINDING_MILL,
+        EQUIPMENT_DRY_SCREEN,
         EQUIPMENT_ELECTRIC_FURNACE,
         EQUIPMENT_CASTING_MOLD,
     ] {
@@ -345,6 +369,9 @@ fn assert_canonical_gameplay_content(registries: &Registries) {
     }
     for process in [
         PROCESS_CRUSH_ORE,
+        PROCESS_GRIND_CRUSHED_ORE,
+        PROCESS_SCREEN_CRUSHED_ORE,
+        PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
         PROCESS_MELT_PURE_COPPER,
         PROCESS_CAST_PURE_COPPER,
     ] {
@@ -358,6 +385,24 @@ fn assert_canonical_gameplay_content(registries: &Registries) {
         registries
             .ore_processing()
             .get_comminution(PROCESS_CRUSH_ORE)
+            .is_some()
+    );
+    assert!(
+        registries
+            .ore_processing()
+            .get_comminution(PROCESS_GRIND_CRUSHED_ORE)
+            .is_some()
+    );
+    assert!(
+        registries
+            .ore_processing()
+            .get_comminution(PROCESS_FINE_GRIND_SCREEN_OVERSIZE)
+            .is_some()
+    );
+    assert!(
+        registries
+            .ore_processing()
+            .get_screening(PROCESS_SCREEN_CRUSHED_ORE)
             .is_some()
     );
     assert!(
@@ -518,6 +563,109 @@ fn setup_foundry_probe(registries: &Registries, mass: Mass) -> (AppState, Foundr
             mold,
             electrical_buffer,
             heat_sink,
+        },
+    )
+}
+
+fn setup_ore_preparation_probe(registries: &Registries) -> (AppState, OrePreparationProbeIds) {
+    let mut state = AppState::new(WorldSeed::new(0xD33F_0A11));
+    let batch_mass = Mass::from_milligrams(10);
+    let ore_source = add_stockpile(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("ore preparation source failed: {error}"));
+    let crushed_storage = add_stockpile(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("ore preparation crushed storage failed: {error}"));
+    let ground_storage = add_stockpile(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("ore preparation ground storage failed: {error}"));
+    let undersize_storage = add_stockpile(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("ore preparation undersize storage failed: {error}"));
+    let oversize_storage = add_stockpile(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("ore preparation oversize storage failed: {error}"));
+    let ore_lot = deposit_composed_lot_for_test(
+        registries,
+        &mut state,
+        ore_source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+        batch_mass,
+        ROOM_TEMPERATURE,
+        mixed_ore_composition(500_000),
+    )
+    .unwrap_or_else(|error| panic!("ore preparation material seed failed: {error}"));
+    let crusher = add_equipment(
+        registries,
+        &mut state,
+        EQUIPMENT_JAW_CRUSHER,
+        Condition::PRISTINE,
+    )
+    .unwrap_or_else(|error| panic!("ore preparation crusher failed: {error}"));
+    let grinder = add_equipment(
+        registries,
+        &mut state,
+        EQUIPMENT_GRINDING_MILL,
+        Condition::PRISTINE,
+    )
+    .unwrap_or_else(|error| panic!("ore preparation grinder failed: {error}"));
+    let screen = add_equipment(
+        registries,
+        &mut state,
+        EQUIPMENT_DRY_SCREEN,
+        Condition::PRISTINE,
+    )
+    .unwrap_or_else(|error| panic!("ore preparation screen failed: {error}"));
+    let crusher_definition = registries
+        .ore_processing()
+        .get_comminution(PROCESS_CRUSH_ORE)
+        .unwrap_or_else(|| panic!("canonical crusher definition disappeared"));
+    let grinder_definition = registries
+        .ore_processing()
+        .get_comminution(PROCESS_GRIND_CRUSHED_ORE)
+        .unwrap_or_else(|| panic!("canonical grinder definition disappeared"));
+    let screen_definition = registries
+        .ore_processing()
+        .get_screening(PROCESS_SCREEN_CRUSHED_ORE)
+        .unwrap_or_else(|| panic!("canonical screen definition disappeared"));
+    let fine_grind_definition = registries
+        .ore_processing()
+        .get_comminution(PROCESS_FINE_GRIND_SCREEN_OVERSIZE)
+        .unwrap_or_else(|| panic!("canonical fine-grind definition disappeared"));
+    let oversize_mass = Mass::from_milligrams(5);
+    let required_work =
+        calculate_mass_specific_energy(batch_mass, crusher_definition.specific_energy())
+            .checked_add(calculate_mass_specific_energy(
+                batch_mass,
+                grinder_definition.specific_energy(),
+            ))
+            .and_then(|work| {
+                work.checked_add(calculate_mass_specific_energy(
+                    batch_mass,
+                    screen_definition.specific_energy(),
+                ))
+            })
+            .and_then(|work| {
+                work.checked_add(calculate_mass_specific_energy(
+                    oversize_mass,
+                    fine_grind_definition.specific_energy(),
+                ))
+            })
+            .unwrap_or_else(|| panic!("ore preparation work budget overflowed"));
+    let drive = seed_energy_store_exact(
+        registries,
+        &mut state,
+        ENERGY_MECHANICAL_LARGE_DRIVE,
+        required_work,
+    );
+    (
+        state,
+        OrePreparationProbeIds {
+            ore_source,
+            crushed_storage,
+            ground_storage,
+            undersize_storage,
+            oversize_storage,
+            ore_lot,
+            crusher,
+            grinder,
+            screen,
+            drive,
         },
     )
 }
@@ -1692,6 +1840,329 @@ fn run_foundry_capability_probe(registries: &Registries) -> bool {
         .is_some_and(|stockpile| stockpile.stored_mass() == mass)
 }
 
+fn run_ore_preparation_capability_probe(registries: &Registries) -> bool {
+    let (mut state, ids) = setup_ore_preparation_probe(registries);
+    let batch_mass = Mass::from_milligrams(10);
+    let initial_matter = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("ore preparation initial matter accounting failed: {error}"))
+        .total();
+    let initial_energy = state
+        .energy()
+        .get_store(ids.drive)
+        .map(|store| store.stored())
+        .unwrap_or_else(|| panic!("ore preparation drive disappeared"));
+
+    println!(
+        "\nORE PREPARATION CAPABILITY PROBE: canonical crushing, grinding, and dry screening share finite mechanical work and preserve mixed-ore matter without claiming concentration"
+    );
+    let crush_selection = [MaterialLotSelection::new(ids.ore_lot, batch_mass)];
+    let crushed = resolve_comminution_process(
+        registries,
+        &state,
+        ComminutionRequest::new(
+            PROCESS_CRUSH_ORE,
+            ids.ore_source,
+            &crush_selection,
+            ids.crusher,
+            ids.drive,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("canonical crushing probe resolution failed: {error}"));
+    let crush_duration = crushed.process_resolution().duration();
+    println!(
+        "  crush: energy={}nJ rate={}mg/s duration={}t bottleneck={:?}",
+        crushed.required_energy().nanojoules(),
+        crushed.processing_rate().milligrams_per_second(),
+        crush_duration.value(),
+        crushed.bottleneck(),
+    );
+    let crush_energy = crushed.required_energy();
+    let crusher_condition = crushed.condition_after();
+    validate_start_process(
+        registries,
+        &state,
+        crushed.process_resolution(),
+        ids.ore_source,
+        ids.crushed_storage,
+    )
+    .unwrap_or_else(|error| panic!("ore preparation crushing start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("ore preparation crushing commit failed: {error}"));
+    finish_operation(registries, &mut state, crush_duration);
+    assert_eq!(validate_loaded_state(registries, &state), Ok(()));
+
+    let crushed_lot = stockpile_first_lot(&state, ids.crushed_storage);
+    let crushed_distribution = state
+        .inventory()
+        .get_lot(crushed_lot)
+        .and_then(|lot| lot.particle_size_distribution())
+        .unwrap_or_else(|| panic!("canonical crushing output lost particle-size state"));
+    let crusher_output_is_conservative = crushed_distribution.classes().len() == 1;
+    let direct_screen_selection = [MaterialLotSelection::new(crushed_lot, batch_mass)];
+    let direct_screen = resolve_screening_process(
+        registries,
+        &state,
+        ScreeningRequest::new(
+            PROCESS_SCREEN_CRUSHED_ORE,
+            ids.crushed_storage,
+            &direct_screen_selection,
+            ids.screen,
+            ids.drive,
+        ),
+    );
+    let grinder_is_required = matches!(
+        direct_screen,
+        Err(ScreeningResolutionError::Batch(
+            ScreeningBatchError::UnresolvedParticleClass { .. }
+        ))
+    );
+    let direct_fine_grind = resolve_comminution_process(
+        registries,
+        &state,
+        ComminutionRequest::new(
+            PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+            ids.crushed_storage,
+            &direct_screen_selection,
+            ids.grinder,
+            ids.drive,
+        ),
+    );
+    let fine_grind_requires_screen_oversize = matches!(
+        direct_fine_grind,
+        Err(ComminutionResolutionError::Batch(
+            ComminutionBatchError::InputParticleSizeOutsideOperatingRange { .. }
+        ))
+    );
+
+    let grind_selection = [MaterialLotSelection::new(crushed_lot, batch_mass)];
+    let ground = resolve_comminution_process(
+        registries,
+        &state,
+        ComminutionRequest::new(
+            PROCESS_GRIND_CRUSHED_ORE,
+            ids.crushed_storage,
+            &grind_selection,
+            ids.grinder,
+            ids.drive,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("canonical grinding probe resolution failed: {error}"));
+    let grind_duration = ground.process_resolution().duration();
+    println!(
+        "  grind: energy={}nJ rate={}mg/s duration={}t bottleneck={:?}",
+        ground.required_energy().nanojoules(),
+        ground.processing_rate().milligrams_per_second(),
+        grind_duration.value(),
+        ground.bottleneck(),
+    );
+    let grind_energy = ground.required_energy();
+    let grinder_condition = ground.condition_after();
+    validate_start_process(
+        registries,
+        &state,
+        ground.process_resolution(),
+        ids.crushed_storage,
+        ids.ground_storage,
+    )
+    .unwrap_or_else(|error| panic!("ore preparation grinding start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("ore preparation grinding commit failed: {error}"));
+    finish_operation(registries, &mut state, grind_duration);
+    assert_eq!(validate_loaded_state(registries, &state), Ok(()));
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(ids.grinder)
+            .map(|equipment| equipment.condition()),
+        Some(grinder_condition)
+    );
+
+    let ground_lot = stockpile_first_lot(&state, ids.ground_storage);
+    let ground_distribution = state
+        .inventory()
+        .get_lot(ground_lot)
+        .and_then(|lot| lot.particle_size_distribution())
+        .unwrap_or_else(|| panic!("canonical grinding output lost particle-size state"));
+    let ground_classes = ground_distribution.classes();
+    let grinding_resolved_screen_cut = ground_classes.len() == 2
+        && ground_classes[0].range().maximum_diameter() == Length::from_micrometers(2_000)
+        && ground_classes[1].range().minimum_diameter() == Length::from_micrometers(2_001);
+
+    let screen_selection = [MaterialLotSelection::new(ground_lot, batch_mass)];
+    let screened = resolve_screening_process(
+        registries,
+        &state,
+        ScreeningRequest::new(
+            PROCESS_SCREEN_CRUSHED_ORE,
+            ids.ground_storage,
+            &screen_selection,
+            ids.screen,
+            ids.drive,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("canonical screening probe resolution failed: {error}"));
+    let screen_duration = screened.process_resolution().duration();
+    println!(
+        "  screen: undersize={}mg oversize={}mg energy={}nJ rate={}mg/s duration={}t bottleneck={:?}",
+        screened.undersize_mass().milligrams(),
+        screened.oversize_mass().milligrams(),
+        screened.required_energy().nanojoules(),
+        screened.processing_rate().milligrams_per_second(),
+        screen_duration.value(),
+        screened.bottleneck(),
+    );
+    let screen_energy = screened.required_energy();
+    let screen_condition = screened.condition_after();
+    validate_start_process_routed(
+        registries,
+        &state,
+        screened.process_resolution(),
+        ids.ground_storage,
+        &[
+            ProcessOutputRoute::new(
+                ScreeningProcessDefinition::UNDERSIZE_STREAM,
+                ids.undersize_storage,
+            ),
+            ProcessOutputRoute::new(
+                ScreeningProcessDefinition::OVERSIZE_STREAM,
+                ids.oversize_storage,
+            ),
+        ],
+    )
+    .unwrap_or_else(|error| panic!("ore preparation screening start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("ore preparation screening commit failed: {error}"));
+    finish_operation(registries, &mut state, screen_duration);
+    assert_eq!(validate_loaded_state(registries, &state), Ok(()));
+
+    let oversize_lot = stockpile_first_lot(&state, ids.oversize_storage);
+    let oversize_before_regrind = state
+        .inventory()
+        .get_lot(oversize_lot)
+        .unwrap_or_else(|| panic!("ore preparation oversize lot disappeared"));
+    let oversize_profile_is_preserved = oversize_before_regrind.composition()
+        == &mixed_ore_composition(500_000)
+        && oversize_before_regrind
+            .particle_size()
+            .is_some_and(|range| {
+                range.minimum_diameter() == Length::from_micrometers(2_001)
+                    && range.maximum_diameter() == Length::from_micrometers(4_000)
+            });
+    let fine_selection = [MaterialLotSelection::new(
+        oversize_lot,
+        Mass::from_milligrams(5),
+    )];
+    let fine_ground = resolve_comminution_process(
+        registries,
+        &state,
+        ComminutionRequest::new(
+            PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+            ids.oversize_storage,
+            &fine_selection,
+            ids.grinder,
+            ids.drive,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("canonical fine-grinding probe resolution failed: {error}"));
+    let fine_duration = fine_ground.process_resolution().duration();
+    println!(
+        "  regrind oversize: mass=5mg energy={}nJ rate={}mg/s duration={}t bottleneck={:?}",
+        fine_ground.required_energy().nanojoules(),
+        fine_ground.processing_rate().milligrams_per_second(),
+        fine_duration.value(),
+        fine_ground.bottleneck(),
+    );
+    let fine_energy = fine_ground.required_energy();
+    let final_grinder_projection = fine_ground.condition_after();
+    validate_start_process(
+        registries,
+        &state,
+        fine_ground.process_resolution(),
+        ids.oversize_storage,
+        ids.undersize_storage,
+    )
+    .unwrap_or_else(|error| panic!("ore preparation fine-grinding start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("ore preparation fine-grinding commit failed: {error}"));
+    finish_operation(registries, &mut state, fine_duration);
+    assert_eq!(validate_loaded_state(registries, &state), Ok(()));
+
+    let final_matter = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("ore preparation final matter accounting failed: {error}"))
+        .total();
+    let final_energy = state
+        .energy()
+        .get_store(ids.drive)
+        .map(|store| store.stored())
+        .unwrap_or_else(|| panic!("ore preparation drive disappeared after completion"));
+    let final_crusher_condition = state
+        .equipment()
+        .get_equipment(ids.crusher)
+        .map(|equipment| equipment.condition())
+        .unwrap_or_else(|| panic!("ore preparation crusher disappeared after completion"));
+    let final_grinder_condition = state
+        .equipment()
+        .get_equipment(ids.grinder)
+        .map(|equipment| equipment.condition())
+        .unwrap_or_else(|| panic!("ore preparation grinder disappeared after completion"));
+    let final_screen_condition = state
+        .equipment()
+        .get_equipment(ids.screen)
+        .map(|equipment| equipment.condition())
+        .unwrap_or_else(|| panic!("ore preparation screen disappeared after completion"));
+    let undersize_mass = state
+        .inventory()
+        .get_stockpile(ids.undersize_storage)
+        .map(|stockpile| stockpile.stored_mass())
+        .unwrap_or_else(|| panic!("ore preparation undersize storage disappeared"));
+    let oversize_mass = state
+        .inventory()
+        .get_stockpile(ids.oversize_storage)
+        .map(|stockpile| stockpile.stored_mass())
+        .unwrap_or_else(|| panic!("ore preparation oversize storage disappeared"));
+    let output_composition = mixed_ore_composition(500_000);
+    let undersize_lot = stockpile_first_lot(&state, ids.undersize_storage);
+    let composition_preserved = state
+        .inventory()
+        .get_lot(undersize_lot)
+        .is_some_and(|lot| lot.composition() == &output_composition);
+    let final_distribution_is_fine = state
+        .inventory()
+        .get_lot(undersize_lot)
+        .and_then(|lot| lot.particle_size())
+        .is_some_and(|range| {
+            range.minimum_diameter() == Length::from_micrometers(500)
+                && range.maximum_diameter() == Length::from_micrometers(2_000)
+        });
+    let final_undersize_lot_count = state
+        .inventory()
+        .get_stockpile(ids.undersize_storage)
+        .map(|stockpile| stockpile.lot_ids().count())
+        .unwrap_or_else(|| panic!("ore preparation undersize storage disappeared"));
+    let consumed_energy = crush_energy
+        .checked_add(grind_energy)
+        .and_then(|energy| energy.checked_add(screen_energy))
+        .and_then(|energy| energy.checked_add(fine_energy))
+        .unwrap_or_else(|| panic!("ore preparation consumed energy overflowed"));
+
+    final_matter == initial_matter
+        && initial_energy.checked_sub(consumed_energy) == Some(final_energy)
+        && final_energy == Energy::ZERO
+        && final_crusher_condition == crusher_condition
+        && final_grinder_condition == final_grinder_projection
+        && final_screen_condition == screen_condition
+        && crusher_output_is_conservative
+        && grinder_is_required
+        && fine_grind_requires_screen_oversize
+        && grinding_resolved_screen_cut
+        && oversize_profile_is_preserved
+        && composition_preserved
+        && final_distribution_is_fine
+        && final_undersize_lot_count == 1
+        && undersize_mass == Mass::from_milligrams(10)
+        && oversize_mass == Mass::ZERO
+}
+
 #[test]
 fn gameplay_harness_agent_experience_matrix() {
     let registries = build_registries();
@@ -1709,7 +2180,7 @@ fn gameplay_harness_agent_experience_matrix() {
         "WORKSHOP FANTASY: turn a constrained, failure-prone physical workshop into reliable production by reading structural margin, power reserve, machine condition, material state, and an approaching environmental load."
     );
     println!(
-        "LOOP SCOPE: the scenario matrix experiences forecast-aware siting under imperfect load estimates, comminution, finite stored work, power-versus-time tradeoffs, wear, exact-tick regional weather, persistent structural damage, production suspension, and recovery. Geological acquisition and construction authorization remain outside this workshop setup; the separate foundry probe validates existing downstream capability without pretending the mixed-ore chain is complete."
+        "LOOP SCOPE: the scenario matrix experiences forecast-aware siting under imperfect load estimates, comminution, finite stored work, power-versus-time tradeoffs, wear, exact-tick regional weather, persistent structural damage, production suspension, and recovery. Geological acquisition and construction authorization remain outside this workshop setup; separate ore-preparation and foundry probes validate existing downstream capabilities without pretending the mixed-ore chain is complete."
     );
 
     let reports: Vec<_> = seeds
@@ -1730,9 +2201,10 @@ fn gameplay_harness_agent_experience_matrix() {
         .iter()
         .map(|report| u32::from(report.batches_before_disturbance))
         .sum();
+    let ore_preparation_probe = run_ore_preparation_capability_probe(&registries);
     let foundry_probe = run_foundry_capability_probe(&registries);
     println!(
-        "\nEXPERIENCE SUMMARY: batches={completed_batches}/{target_batches} pre_disturbance_batches={batches_before_disturbance} compact_choices={} reinforced_choices={} forecast_siting_changes={} structural_consequences={} damage_debt={} relocations={} blocked_by_failure={} structural_stops={} production_suspensions={} stranded_wip={} recovered_wip={} forecast_power_choices={} small_drive={} large_drive={} large_exhausted={} energy_bottlenecks={} throughput_bottlenecks={} maintenance_warnings={} maintenance_stops={} energy_stops={} ore_frontier={} foundry_probe={foundry_probe}",
+        "\nEXPERIENCE SUMMARY: batches={completed_batches}/{target_batches} pre_disturbance_batches={batches_before_disturbance} compact_choices={} reinforced_choices={} forecast_siting_changes={} structural_consequences={} damage_debt={} relocations={} blocked_by_failure={} structural_stops={} production_suspensions={} stranded_wip={} recovered_wip={} forecast_power_choices={} small_drive={} large_drive={} large_exhausted={} energy_bottlenecks={} throughput_bottlenecks={} maintenance_warnings={} maintenance_stops={} energy_stops={} ore_frontier={} ore_preparation_probe={ore_preparation_probe} foundry_probe={foundry_probe}",
         reports
             .iter()
             .filter(|report| report.chose_compact_support)
@@ -1819,6 +2291,7 @@ fn gameplay_harness_agent_experience_matrix() {
     assert!(reports.iter().all(|report| report.completed_batches > 0));
     assert!(reports.iter().all(|report| report.disturbance_applied));
     assert!(reports.iter().all(|report| report.ore_frontier_visible));
+    assert!(ore_preparation_probe);
     assert!(foundry_probe);
     if enforce_coverage_matrix {
         assert!(reports.iter().any(|report| report.structural_consequence));

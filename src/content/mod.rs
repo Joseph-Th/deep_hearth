@@ -88,17 +88,23 @@ pub use energy::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
     ENERGY_THERMAL_SINK,
 };
-pub use equipment::{EQUIPMENT_CASTING_MOLD, EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_JAW_CRUSHER};
+pub use equipment::{
+    EQUIPMENT_CASTING_MOLD, EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE,
+    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER,
+};
 pub use materials::{
     FORM_CONCENTRATE, FORM_CRUSHED, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE,
     MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_WOOD,
 };
-pub use processes::{PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_MELT_PURE_COPPER};
+pub use processes::{
+    PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+    PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
+};
 pub use structural::{STRUCTURAL_PROFILE_AXIAL_COMPRESSION, STRUCTURAL_PROFILE_AXIAL_TENSION};
 
 const DEFAULT_TICKS_PER_SECOND: u16 = 20;
 const DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED: u64 = 9_806_650;
-const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(14);
+const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(17);
 
 fn build_core_definitions() -> CoreDefinitions {
     CoreDefinitions::new(
@@ -421,6 +427,8 @@ mod tests {
             EQUIPMENT_JAW_CRUSHER,
             EQUIPMENT_ELECTRIC_FURNACE,
             EQUIPMENT_CASTING_MOLD,
+            EQUIPMENT_DRY_SCREEN,
+            EQUIPMENT_GRINDING_MILL,
         ] {
             assert!(registries.equipment().get_equipment(equipment).is_some());
         }
@@ -436,6 +444,9 @@ mod tests {
             PROCESS_CRUSH_ORE,
             PROCESS_MELT_PURE_COPPER,
             PROCESS_CAST_PURE_COPPER,
+            PROCESS_SCREEN_CRUSHED_ORE,
+            PROCESS_GRIND_CRUSHED_ORE,
+            PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
         ] {
             assert!(registries.production().get_process(process).is_some());
         }
@@ -443,6 +454,24 @@ mod tests {
             registries
                 .ore_processing()
                 .get_comminution(PROCESS_CRUSH_ORE)
+                .is_some()
+        );
+        assert!(
+            registries
+                .ore_processing()
+                .get_comminution(PROCESS_GRIND_CRUSHED_ORE)
+                .is_some()
+        );
+        assert!(
+            registries
+                .ore_processing()
+                .get_comminution(PROCESS_FINE_GRIND_SCREEN_OVERSIZE)
+                .is_some()
+        );
+        assert!(
+            registries
+                .ore_processing()
+                .get_screening(PROCESS_SCREEN_CRUSHED_ORE)
                 .is_some()
         );
         assert!(

@@ -10,12 +10,16 @@ use crate::maintenance::{Condition, MaintenanceThresholds};
 
 use super::capabilities::{
     CAPABILITY_COOLING_POWER, CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW,
-    CAPABILITY_HEATING_POWER, CAPABILITY_THERMAL_BATCH, CAPABILITY_THERMAL_MAX_TEMPERATURE,
+    CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW, CAPABILITY_HEATING_POWER,
+    CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW, CAPABILITY_THERMAL_BATCH,
+    CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
 
 pub const EQUIPMENT_JAW_CRUSHER: EquipmentDefinitionId = EquipmentDefinitionId::new(1);
 pub const EQUIPMENT_ELECTRIC_FURNACE: EquipmentDefinitionId = EquipmentDefinitionId::new(2);
 pub const EQUIPMENT_CASTING_MOLD: EquipmentDefinitionId = EquipmentDefinitionId::new(3);
+pub const EQUIPMENT_DRY_SCREEN: EquipmentDefinitionId = EquipmentDefinitionId::new(4);
+pub const EQUIPMENT_GRINDING_MILL: EquipmentDefinitionId = EquipmentDefinitionId::new(5);
 
 fn condition(parts_per_million: u32) -> Condition {
     match Condition::new(parts_per_million) {
@@ -51,6 +55,32 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             CapabilityConditionPoint::new(
                 condition(600_000),
                 CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(20)),
+            ),
+        ],
+    );
+    let grinder_curve = CapabilityConditionCurve::new(
+        CAPABILITY_GRINDER_FLOW,
+        vec![
+            CapabilityConditionPoint::new(
+                Condition::FAILED,
+                CapabilityValue::MassFlow(MassFlow::ZERO),
+            ),
+            CapabilityConditionPoint::new(
+                condition(600_000),
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(10)),
+            ),
+        ],
+    );
+    let screen_curve = CapabilityConditionCurve::new(
+        CAPABILITY_SCREEN_FLOW,
+        vec![
+            CapabilityConditionPoint::new(
+                Condition::FAILED,
+                CapabilityValue::MassFlow(MassFlow::ZERO),
+            ),
+            CapabilityConditionPoint::new(
+                condition(600_000),
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(40)),
             ),
         ],
     );
@@ -111,6 +141,40 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 ),
             ]),
             thresholds(),
+        ),
+        EquipmentDefinition::new_with_capability_condition_curves(
+            EQUIPMENT_DRY_SCREEN,
+            "workshop dry screen",
+            Mass::from_milligrams(1_200_000_000),
+            profile([
+                (
+                    CAPABILITY_SCREEN_FLOW,
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(80)),
+                ),
+                (
+                    CAPABILITY_SCREEN_BATCH,
+                    CapabilityValue::Mass(Mass::from_milligrams(20)),
+                ),
+            ]),
+            thresholds(),
+            vec![screen_curve],
+        ),
+        EquipmentDefinition::new_with_capability_condition_curves(
+            EQUIPMENT_GRINDING_MILL,
+            "workshop grinding mill",
+            Mass::from_milligrams(2_400_000_000),
+            profile([
+                (
+                    CAPABILITY_GRINDER_FLOW,
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(20)),
+                ),
+                (
+                    CAPABILITY_GRINDER_BATCH,
+                    CapabilityValue::Mass(Mass::from_milligrams(20)),
+                ),
+            ]),
+            thresholds(),
+            vec![grinder_curve],
         ),
     ])
 }
