@@ -391,8 +391,9 @@
   crusher, grinding mill, dry screen, electric furnace, cooled casting mold, two mechanical drive
   envelopes, electrical buffer, thermal sink, ore crushing, same-form grinding, exact dry screening,
   pure-copper melting, and pure-copper casting used by the harness. Normal
-  runs combine five deterministic qualitative-coverage seeds with one time-derived printed exploratory
-  seed; a `DEEP_HEARTH_GAMEPLAY_SEEDS` override accepts exact decimal or hex seed lists for replay or
+  runs combine five deterministic qualitative-coverage seeds with one fixed printed exploratory seed;
+  `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED` overrides that exploratory seed with an exact decimal or
+  hex seed, and `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex seed lists for replay or
   wider sweeps. Starting conditions vary ore grade, batch size, crusher condition, two competing
   structural bays, existing bay load, an exact event tick, an imperfect deterministic regional-snow
   forecast, and finite mechanical work reserves. Actual snow magnitude is revealed only when the event
@@ -430,7 +431,7 @@
   acquisition/construction authorizers exist; experienced post-setup mutations use canonical runtime
   transactions. Isolated unit-test registry builders no longer inherit unrelated canonical gameplay
   content as that content expands.
-- Current debug validation suite: 357 passing tests with `cargo check` silent and
+- Current debug validation suite passes with `cargo check` silent and
   Clippy warnings denied.
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
   as variants evolve instead of relying on review to catch silent fallback behavior.

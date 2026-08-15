@@ -2,15 +2,15 @@
 //!
 //! The harness deliberately varies physical initial conditions and lets a small operational policy
 //! react only to observed state and resolver projections. Normal runs combine a deterministic
-//! experience-coverage matrix with one time-derived exploratory seed that is printed for replay.
-//! Forecast event timing is exact but load magnitude is only an estimate; deterministic actual
-//! regional snow is revealed on the event tick, including during in-flight production. Faster
-//! machinery can therefore change how much work is secured before an uncertain environment changes.
-//! `DEEP_HEARTH_GAMEPLAY_SEEDS` replaces that set with an exact comma-separated decimal or `0x`
-//! hexadecimal seed list.
+//! experience-coverage matrix with one fixed exploratory seed that is printed for replay.
+//! `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED` replaces that exploratory seed with an exact decimal or
+//! `0x` hexadecimal seed for additional uncurated coverage. Forecast event timing is exact but load
+//! magnitude is only an estimate; deterministic actual regional snow is revealed on the event tick,
+//! including during in-flight production. Faster machinery can therefore change how much work is
+//! secured before an uncertain environment changes. `DEEP_HEARTH_GAMEPLAY_SEEDS` replaces the whole
+//! matrix with an exact comma-separated decimal or `0x` hexadecimal seed list.
 
 use std::env;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
@@ -246,12 +246,25 @@ fn parse_seed(raw: &str) -> Option<u64> {
     }
 }
 
+/// Fixed default for the extra uncurated exploratory probe. A constant so the normal harness run
+/// is reproducible; override with `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED` for extra coverage.
+const DEFAULT_EXPLORATORY_SEED: u64 = 0xD33D_1A5E_BEEF_5EED;
+
+fn resolve_exploratory_seed(raw: Option<&str>) -> u64 {
+    match raw {
+        Some(text) => parse_seed(text).unwrap_or_else(|| {
+            panic!("DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED contained no valid decimal or hexadecimal seed")
+        }),
+        None => DEFAULT_EXPLORATORY_SEED,
+    }
+}
+
 fn exploratory_seed() -> u64 {
-    let elapsed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    mix64((elapsed as u64) ^ ((elapsed >> 64) as u64) ^ u64::from(std::process::id()))
+    resolve_exploratory_seed(
+        env::var("DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED")
+            .ok()
+            .as_deref(),
+    )
 }
 
 fn scenario_seeds() -> (Vec<u64>, bool) {
@@ -265,7 +278,9 @@ fn scenario_seeds() -> (Vec<u64>, bool) {
     }
     // Stable coverage seeds exercise: regional structural outage, maintenance stop, forecast-driven
     // siting, successful relocation after forecast error, and relocation without prior support
-    // failure. The exploratory seed then probes one additional uncurated combination every run.
+    // failure. The exploratory seed then probes one additional uncurated combination. It is a fixed
+    // constant by default so the run is reproducible, overridable via
+    // `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED` for extra coverage.
     let mut seeds = vec![1, 4, 13, 41, 61];
     seeds.push(exploratory_seed());
     (seeds, true)
@@ -2336,5 +2351,41 @@ fn gameplay_harness_agent_experience_matrix() {
                 .iter()
                 .any(|report| report.completed_batches < report.target_batches)
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DEFAULT_EXPLORATORY_SEED, parse_seed, resolve_exploratory_seed};
+
+    #[test]
+    fn parse_seed_accepts_decimal_and_hexadecimal() {
+        assert_eq!(parse_seed("  42  "), Some(42));
+        assert_eq!(parse_seed("0x2A"), Some(42));
+        assert_eq!(parse_seed("0X2a"), Some(42));
+        assert_eq!(parse_seed("18446744073709551615"), Some(u64::MAX));
+        assert_eq!(parse_seed("0xFFFFFFFFFFFFFFFF"), Some(u64::MAX));
+        assert_eq!(parse_seed(""), None);
+        assert_eq!(parse_seed("not-a-seed"), None);
+        assert_eq!(parse_seed("0x"), None);
+    }
+
+    #[test]
+    fn exploratory_seed_uses_fixed_default_without_override() {
+        assert_eq!(resolve_exploratory_seed(None), DEFAULT_EXPLORATORY_SEED);
+    }
+
+    #[test]
+    fn exploratory_seed_accepts_explicit_override() {
+        assert_eq!(resolve_exploratory_seed(Some("0xBAD")), 0xBAD);
+        assert_eq!(resolve_exploratory_seed(Some("2997")), 2997);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED contained no valid decimal or hexadecimal seed"
+    )]
+    fn exploratory_seed_rejects_invalid_override() {
+        resolve_exploratory_seed(Some("nope"));
     }
 }

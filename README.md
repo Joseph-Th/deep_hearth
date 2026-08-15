@@ -35,12 +35,17 @@ soak coverage exercises the major ownership paths. Physical survey/mining author
 diagrams and chemical smelting, environmental heat transport, fluid networks, richer construction,
 and later labor/ecology/settlement systems remain unavailable until their real physical owners exist.
 
-Read these documents before changing the project:
+## Documentation authority
 
-- `GAME_DESIGN.md` defines gameplay intent and progression.
-- `AGENTS.md` defines coding and architecture law.
-- `TECHNICAL_DESIGN.md` records implemented technical architecture and deliberate boundaries.
-- `STATUS.md` records current implementation status and deferred work.
+Read these documents before changing the project. Each question has one owning document.
+
+| Question | Authority |
+| --- | --- |
+| What is this project and how do I run it? | `README.md` |
+| What coding and architecture law must contributors follow? | `AGENTS.md` |
+| What is the implemented technical architecture and its deliberate boundaries? | `TECHNICAL_DESIGN.md` |
+| What is currently implemented and what is deliberately deferred? | `STATUS.md` |
+| What gameplay intent and progression is intended? | `GAME_DESIGN.md` |
 
 Required development validation:
 
