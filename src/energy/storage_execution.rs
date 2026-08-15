@@ -14,6 +14,21 @@ use crate::registry::Registries;
 use super::definitions::{EnergyCarrier, EnergyStoreDefinitionId};
 use super::state::{EnergyState, EnergyStoreId, EnergyStoreRecord};
 
+fn get_energy_store_occupant(
+    state: &AppState,
+    store: EnergyStoreId,
+) -> Option<(ProductionJobId, SimulationTick)> {
+    let job_id = state.production().get_energy_occupant(store)?;
+    let job = match state.production().get_job(job_id) {
+        Some(job) => job,
+        None => panic!(
+            "runtime invariant broken: energy occupancy index references missing production job {}",
+            job_id.value()
+        ),
+    };
+    Some((job_id, job.completes_at()))
+}
+
 /// Failure while allocating an authoritative finite energy store.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AddEnergyStoreError {
@@ -258,17 +273,11 @@ pub fn validate_energy_supply(
     if definition.max_output_power().is_zero() {
         return Err(EnergySupplyError::NoOutputPower { store });
     }
-    if let Some(job) = state.production().jobs().find(|job| {
-        job.consumed_energy()
-            .is_some_and(|trace| trace.source() == store)
-            || job
-                .released_energy()
-                .is_some_and(|trace| trace.destination() == store)
-    }) {
+    if let Some((job, completes_at)) = get_energy_store_occupant(state, store) {
         return Err(EnergySupplyError::StoreBusy {
             store,
-            job: job.id(),
-            completes_at: job.completes_at(),
+            job,
+            completes_at,
         });
     }
     if record.stored() < requested {
@@ -447,17 +456,11 @@ pub fn validate_energy_sink(
     if definition.max_input_power().is_zero() {
         return Err(EnergySinkError::NoInputPower { store });
     }
-    if let Some(job) = state.production().jobs().find(|job| {
-        job.consumed_energy()
-            .is_some_and(|trace| trace.source() == store)
-            || job
-                .released_energy()
-                .is_some_and(|trace| trace.destination() == store)
-    }) {
+    if let Some((job, completes_at)) = get_energy_store_occupant(state, store) {
         return Err(EnergySinkError::StoreBusy {
             store,
-            job: job.id(),
-            completes_at: job.completes_at(),
+            job,
+            completes_at,
         });
     }
     let after = record

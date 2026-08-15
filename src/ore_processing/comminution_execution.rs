@@ -281,6 +281,8 @@ pub enum ComminutionBottleneck {
 pub struct ResolvedComminution {
     resolution: ProcessResolution,
     equipment: EquipmentId,
+    condition_before: Condition,
+    condition_after: Condition,
     processing_rate: MassFlow,
     required_energy: Energy,
     available_power: Power,
@@ -296,6 +298,18 @@ impl ResolvedComminution {
     #[must_use]
     pub const fn equipment(&self) -> EquipmentId {
         self.equipment
+    }
+
+    /// Equipment condition observed when this operation was resolved.
+    #[must_use]
+    pub const fn condition_before(&self) -> Condition {
+        self.condition_before
+    }
+
+    /// Predicted equipment condition after the resolved active duration completes.
+    #[must_use]
+    pub const fn condition_after(&self) -> Condition {
+        self.condition_after
     }
 
     #[must_use]
@@ -443,6 +457,8 @@ pub fn resolve_comminution_process(
     Ok(ResolvedComminution {
         resolution,
         equipment,
+        condition_before: provider.condition(),
+        condition_after,
         processing_rate,
         required_energy,
         available_power,
@@ -1151,6 +1167,8 @@ mod tests {
         );
         assert_eq!(resolved.required_energy(), Energy::from_nanojoules(2_000));
         assert_eq!(resolved.available_power(), Power::from_microwatts(100));
+        assert_eq!(resolved.condition_before(), condition(500_000));
+        assert_eq!(resolved.condition_after(), condition(496_000));
         assert_eq!(resolved.process_resolution().duration(), TickSpan::new(4));
         assert_eq!(resolved.process_resolution().outputs().len(), 1);
         let output = &resolved.process_resolution().outputs()[0];
@@ -1233,6 +1251,8 @@ mod tests {
         );
         assert_eq!(resolved.required_energy(), Energy::from_nanojoules(2_000));
         assert_eq!(resolved.available_power(), Power::from_microwatts(1));
+        assert_eq!(resolved.condition_before(), Condition::PRISTINE);
+        assert_eq!(resolved.condition_after(), condition(960_000));
         assert_eq!(resolved.process_resolution().duration(), TickSpan::new(40));
         assert_eq!(
             resolved.process_resolution().equipment_condition_after(),

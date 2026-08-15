@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
-use crate::energy::{ConsumedEnergyTrace, ReleasedEnergyTrace};
+use crate::energy::{ConsumedEnergyTrace, EnergyStoreId, ReleasedEnergyTrace};
 use crate::equipment::EquipmentOperationTrace;
 use crate::inventory::{ConsumedMaterialTrace, StockpileId};
 use crate::maintenance::Condition;
@@ -167,6 +167,7 @@ pub struct ProductionState {
     pub(super) next_job_id: u64,
     pub(super) jobs: BTreeMap<ProductionJobId, ProductionJobRecord>,
     pub(super) due_jobs: BTreeMap<SimulationTick, BTreeSet<ProductionJobId>>,
+    energy_occupancy: BTreeMap<EnergyStoreId, ProductionJobId>,
 }
 
 impl ProductionState {
@@ -177,6 +178,7 @@ impl ProductionState {
             next_job_id: 1,
             jobs: BTreeMap::new(),
             due_jobs: BTreeMap::new(),
+            energy_occupancy: BTreeMap::new(),
         }
     }
 
@@ -199,20 +201,53 @@ impl ProductionState {
     }
 
     pub(crate) fn has_unique_energy_reservations(&self) -> bool {
-        let mut occupied = BTreeSet::new();
+        self.expected_energy_occupancy().is_some()
+    }
+
+    pub(crate) fn has_valid_energy_occupancy_index(&self) -> bool {
+        self.expected_energy_occupancy()
+            .is_some_and(|expected| expected == self.energy_occupancy)
+    }
+
+    fn expected_energy_occupancy(&self) -> Option<BTreeMap<EnergyStoreId, ProductionJobId>> {
+        let mut occupied = BTreeMap::new();
         for job in self.jobs.values() {
             if let Some(trace) = job.consumed_energy
-                && !occupied.insert(trace.source())
+                && occupied.insert(trace.source(), job.id).is_some()
             {
-                return false;
+                return None;
             }
             if let Some(trace) = job.released_energy
-                && !occupied.insert(trace.destination())
+                && occupied.insert(trace.destination(), job.id).is_some()
             {
-                return false;
+                return None;
             }
         }
-        true
+        Some(occupied)
+    }
+
+    fn energy_occupancy_mismatch(
+        &self,
+    ) -> Option<(
+        EnergyStoreId,
+        Option<ProductionJobId>,
+        Option<ProductionJobId>,
+    )> {
+        let expected = self.expected_energy_occupancy()?;
+        let stores = self
+            .energy_occupancy
+            .keys()
+            .chain(expected.keys())
+            .copied()
+            .collect::<BTreeSet<_>>();
+        for store in stores {
+            let indexed = self.energy_occupancy.get(&store).copied();
+            let expected = expected.get(&store).copied();
+            if indexed != expected {
+                return Some((store, indexed, expected));
+            }
+        }
+        None
     }
 
     pub(crate) fn earliest_due_tick(&self) -> Option<SimulationTick> {
@@ -230,6 +265,12 @@ impl ProductionState {
         self.jobs.values()
     }
 
+    /// Returns the active production job that exclusively reserves one finite energy store.
+    #[must_use]
+    pub(crate) fn get_energy_occupant(&self, store: EnergyStoreId) -> Option<ProductionJobId> {
+        self.energy_occupancy.get(&store).copied()
+    }
+
     pub(super) fn insert_job(
         &mut self,
         job: ProductionJobRecord,
@@ -238,6 +279,23 @@ impl ProductionState {
     ) {
         let id = job.id;
         let completes_at = job.completes_at;
+        let consumed_energy_store = job.consumed_energy.map(|trace| trace.source());
+        let released_energy_store = job.released_energy.map(|trace| trace.destination());
+        if let (Some(consumed), Some(released)) = (consumed_energy_store, released_energy_store) {
+            assert_ne!(
+                consumed, released,
+                "validated production job cannot reserve one energy store as both source and sink"
+            );
+        }
+        for store in consumed_energy_store
+            .into_iter()
+            .chain(released_energy_store)
+        {
+            assert!(
+                !self.energy_occupancy.contains_key(&store),
+                "validated production job cannot replace an existing energy-store reservation"
+            );
+        }
         let replaced = self.jobs.insert(id, job);
         assert!(
             replaced.is_none(),
@@ -248,6 +306,13 @@ impl ProductionState {
             inserted,
             "production due index must not contain duplicate job IDs"
         );
+        for store in consumed_energy_store
+            .into_iter()
+            .chain(released_energy_store)
+        {
+            let previous = self.energy_occupancy.insert(store, id);
+            debug_assert!(previous.is_none());
+        }
         self.next_job_id = next_job_id;
         self.revision = next_revision;
     }
@@ -274,6 +339,20 @@ impl ProductionState {
         );
         if due_set.is_empty() {
             self.due_jobs.remove(&job.completes_at);
+        }
+        for store in job
+            .consumed_energy
+            .map(|trace| trace.source())
+            .into_iter()
+            .chain(job.released_energy.map(|trace| trace.destination()))
+        {
+            let removed = self.energy_occupancy.remove(&store);
+            assert_eq!(
+                removed,
+                Some(id),
+                "runtime invariant broken: energy occupancy index disagrees with production job {}",
+                id.value()
+            );
         }
         job
     }
@@ -405,6 +484,11 @@ pub enum ProductionValidationError {
     UnexpectedDueIndex {
         job: ProductionJobId,
         due: SimulationTick,
+    },
+    EnergyOccupancyIndexMismatch {
+        store: EnergyStoreId,
+        indexed: Option<ProductionJobId>,
+        expected: Option<ProductionJobId>,
     },
 }
 
@@ -617,6 +701,17 @@ impl Display for ProductionValidationError {
                 "due index tick {} references inconsistent production job {}",
                 due.value(),
                 job.value()
+            ),
+            Self::EnergyOccupancyIndexMismatch {
+                store,
+                indexed,
+                expected,
+            } => write!(
+                formatter,
+                "energy occupancy index for store {} records job {:?} but active jobs require {:?}",
+                store.value(),
+                indexed.map(ProductionJobId::value),
+                expected.map(ProductionJobId::value)
             ),
         }
     }
@@ -843,6 +938,13 @@ pub(crate) fn validate_loaded_production(
                 });
             }
         }
+    }
+    if let Some((store, indexed, expected)) = state.energy_occupancy_mismatch() {
+        return Err(ProductionValidationError::EnergyOccupancyIndexMismatch {
+            store,
+            indexed,
+            expected,
+        });
     }
     Ok(())
 }

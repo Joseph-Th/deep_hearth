@@ -112,10 +112,19 @@
   consumed- and released-energy provenance, and registry-aware persistence validation. Public runtime
   allocation creates empty stores only; arbitrary energy seeding remains test/bootstrap-only until a
   conserved generation owner exists. Source-only, sink-only, and bidirectional stores are explicit.
-  Active jobs reserve every participating source or sink exclusively. Released process heat remains
-  owned by the in-flight job and enters its finite sink only when completion becomes authoritative;
-  stale sink revisions reject completion atomically before material output, wear, job removal, or
-  energy mutation.
+  Active jobs reserve every participating source or sink exclusively through a synchronized
+  `EnergyStoreId`-to-job occupancy index, replacing repeated active-job scans with deterministic keyed
+  lookup while exhaustive load validation reconstructs and checks the index. Released process heat
+  remains owned by the in-flight job and enters its finite sink only when completion becomes
+  authoritative; stale sink revisions reject completion atomically before material output, wear, job
+  removal, or energy mutation.
+- Atomic same-carrier finite-energy relocation now has an opaque physical-resolution boundary. The
+  energy owner validates distinct endpoints, directional input/output capability, carrier equality,
+  production occupancy, exact source quantity, destination capacity, and revision availability, then
+  commits equal subtraction/addition under one energy revision after rechecking both energy and
+  production owner revisions plus endpoint snapshots. No public resolution constructor exists, so
+  storage cannot authorize pathless transfer, implicit carrier conversion, losses, or generation;
+  future network owners must resolve those physical questions first.
 - Persistent structural members with typed material/profile references, grouped immutable geometry,
   explicit physical length independent of voxel bounds, cross-section, planned/active/failed
   lifecycle, exact embodied material traces and mass, persistent cracking, and synchronized
@@ -199,8 +208,9 @@
   equipment condition can derate throughput, while finite source output power can independently
   bottleneck the operation; authoritative duration uses the slower limit and therefore drives
   active-tick wear. Resolved comminution now exposes the independent throughput- and energy-limited
-  durations plus a typed current bottleneck, so diagnostics and future player-facing adapters can
-  explain why an operation takes as long as it does without reimplementing resolver physics.
+  durations, a typed current bottleneck, and exact condition-before/condition-after projections, so
+  diagnostics and future player-facing adapters can explain both why an operation takes as long as it
+  does and what that operating choice will do to the machine without reimplementing resolver physics.
   Persisted jobs recompute output form and particle bounds, exact work energy, carrier, power-limited
   duration, and wear from their committed traces. A canonical workshop jaw crusher, small and large
   finite mechanical drives, and ore-crushing process are now authored in the same built-in registry
@@ -241,9 +251,10 @@
   structural construction/deconstruction, sensible heating, pure-material melting, and casting all
   preserve the modeled total across ownership changes.
 - Canonical top-level tick pipeline with cheap per-tick invariants and exhaustive save/load audits.
-- Persistence semantic schema 26 and authored registry compatibility schema 14 with metadata
+- Persistence semantic schema 27 and authored registry compatibility schema 14 with metadata
   preflight, registry-aware state validation, structural topology/damage audits, energy/equipment
-  ownership validation, directional energy-source/sink reservation and capacity audits, embodied
+  ownership validation, directional energy-source/sink reservation, occupancy-index and capacity
+  audits, embodied
   structural matter/self-weight/phase audits, geometry/density-to-mass recomputation,
   equipment-support/load agreement audits, stockpile-support/index/stored-matter-load agreement
   audits, fluid-support/index/density-derived-load agreement audits, exclusive-resource double-book
@@ -270,6 +281,9 @@
   batch between inventory and active structures whose geometry resolves to that exact density-based
   quantity, with periodic exhaustive audits, matter and modeled sensible-energy conservation, and
   replay-identical final state.
+- Deterministic 2,000-transfer finite-energy soak repeatedly relocates one conserved same-carrier
+  energy total between stores, with periodic exhaustive state audits, exact energy conservation, and
+  replay-identical final state.
 - Deterministic 2,000-transfer fluid-storage soak repeatedly moves one finite homogeneous fluid volume
   through multiple stores, with periodic exhaustive state audits, aggregate-volume conservation, and
   replay-identical final state.
@@ -295,23 +309,30 @@
 - Deterministic 1,000-transfer supported-stockpile soak repeatedly moves one finite material lot
   between separately supported stockpiles, updating both derived structural loads on every transfer,
   with periodic exhaustive audits and replay-identical final state.
-- The agent-facing copper-workshop gameplay harness consumes `build_registries()` directly rather
-  than maintaining shadow equipment/process definitions. Canonical built-in content now includes the
-  jaw crusher, electric furnace, cooled casting mold, two mechanical drive envelopes, electrical
-  buffer, thermal sink, ore crushing, pure-copper melting, and pure-copper casting used by the
-  harness. Normal harness runs combine a deterministic coverage matrix with one time-derived,
-  printed exploratory seed, so repeated cold-agent runs encounter fresh state while any failure is
-  exactly replayable. Ore grade, batch size, initial equipment condition, support geometry, secondary
-  structural load, operating policy, and thermal batch mass all vary by seed. A
-  `DEEP_HEARTH_GAMEPLAY_SEEDS` override accepts exact decimal or hex seed lists for deterministic
-  replay or wider exploratory sweeps without weakening per-scenario physical assertions. Decisions are
-  state-reactive: support choice uses structural analysis, the alternate failure branch adapts to
-  immediate versus later collapse, power choice compares currently resolved durations, and cautious
-  variants stop additional crushing at a maintenance warning. Scenario matter and initial stored
-  energy remain explicit setup fixtures until acquisition and generation resolvers exist; all
-  post-setup mutations use canonical runtime transactions. Isolated unit-test registry builders no
-  longer inherit unrelated canonical gameplay content as that content expands.
-- Current debug validation suite: 316 passing tests with `cargo check` silent and
+- The headless copper-workshop gameplay harness consumes `build_registries()` directly rather than
+  maintaining shadow equipment/process definitions. Canonical built-in content includes the jaw
+  crusher, electric furnace, cooled casting mold, two mechanical drive envelopes, electrical buffer,
+  thermal sink, ore crushing, pure-copper melting, and pure-copper casting used by the harness. Normal
+  runs combine four deterministic coverage seeds with one time-derived printed exploratory seed; a
+  `DEEP_HEARTH_GAMEPLAY_SEEDS` override accepts exact decimal or hex seed lists for replay or wider
+  sweeps. Starting conditions vary ore grade, batch size, crusher condition, two competing structural
+  bays, existing bay load, later environmental load, finite high-power reserve, and foundry batch
+  mass. The harness no longer injects seed-selected operating personalities. Siting compares actual
+  structural stage/utilization, power selection compares finite reserve, throughput/energy duration,
+  and projected condition, and critical-condition work is refused rather than relying on an arbitrary
+  cautious-policy flag. Environmental load is applied to the bay actually selected: some deterministic
+  scenarios continue unchanged, some relocate proactively from a strained bay, and some collapse the
+  active bay, verify production is blocked, then recover by canonically unloading and remounting the
+  crusher while leaving failed structural damage persistent. High-power mechanical energy is scarce
+  by construction, making short active time compete against reserve preservation; once exhausted the
+  workshop falls back to slower power and can eventually stop before critical wear. Output explicitly
+  distinguishes crushed mixed ore's missing concentration/smelting bridge from the separate existing
+  pure-copper foundry path, and prints a compact experience summary so harness quality regressions are
+  visible. Matter, equipment, initial energy, and structural bays remain explicit setup fixtures until
+  their physical acquisition/construction authorizers exist; experienced post-setup mutations use
+  canonical runtime transactions. Isolated unit-test registry builders no longer inherit unrelated
+  canonical gameplay content as that content expands.
+- Current debug validation suite: 322 passing tests with `cargo check` silent and
   Clippy warnings denied.
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
   as variants evolve instead of relying on review to catch silent fallback behavior.
@@ -365,8 +386,9 @@
 - Persistent mechanical-power networks and shaft/belt layout, rotational inertia/flywheels, slip and
   clutch state, steam/boilers, electrical networks, transformers, protection, and distribution
   topology, plus conserved primary energy-generation paths for finite stores. Directional finite
-  input/output transfer and process-released-heat sinks now exist, but no free charging/generation API
-  is exposed.
+  input/output envelopes, process-released-heat sinks, and an opaque conserved same-carrier storage
+  relocation boundary now exist, but no topology resolver can construct that transfer and no free
+  charging/generation API is exposed.
 - Pressure/gravity-resolved hydrology topology, terrain/surface/groundwater ownership, precipitation
   and runoff, pumps, irrigation, sanitation, wastewater, contamination/water-quality mixtures,
   temperature/pressure-dependent fluid properties, and a phase-aware bridge between conserved

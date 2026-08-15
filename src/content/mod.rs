@@ -142,11 +142,18 @@ pub(crate) fn make_test_registries_with_process(process: ProcessDefinition) -> R
 pub(crate) fn make_test_registries_with_energy_store(
     definition: EnergyStoreDefinition,
 ) -> Registries {
+    make_test_registries_with_energy_stores(vec![definition])
+}
+
+#[cfg(test)]
+pub(crate) fn make_test_registries_with_energy_stores(
+    definitions: Vec<EnergyStoreDefinition>,
+) -> Registries {
     Registries::new(
         REGISTRY_SCHEMA_VERSION,
         build_core_definitions(),
         RegistryDomains {
-            energy: EnergyRegistry::new([definition]),
+            energy: EnergyRegistry::new(definitions),
             fluid: fluid::build_fluid_registry(),
             capabilities: CapabilityRegistry::new(),
             equipment: empty_equipment_registry(),
@@ -155,6 +162,30 @@ pub(crate) fn make_test_registries_with_energy_store(
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: empty_thermal_registry(),
             production: ProductionRegistry::new(),
+        },
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn make_test_registries_with_energy_stores_and_process(
+    definitions: Vec<EnergyStoreDefinition>,
+    process: ProcessDefinition,
+) -> Registries {
+    let mut production = ProductionRegistry::new();
+    production.register_process_for_test(process);
+    Registries::new(
+        REGISTRY_SCHEMA_VERSION,
+        build_core_definitions(),
+        RegistryDomains {
+            energy: EnergyRegistry::new(definitions),
+            fluid: fluid::build_fluid_registry(),
+            capabilities: CapabilityRegistry::new(),
+            equipment: empty_equipment_registry(),
+            structural: structural::build_structural_registry(),
+            materials: materials::build_material_registry(),
+            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
+            thermal: empty_thermal_registry(),
+            production,
         },
     )
 }

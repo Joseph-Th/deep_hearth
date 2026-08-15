@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 26;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 27;
 
 /// Minimal version metadata that adapters decode before choosing a concrete save payload decoder.
 ///
@@ -569,7 +569,13 @@ mod tests {
                     "lots": {},
                     "stockpiles_by_support": {}
                 },
-                "production": {"revision": 0, "next_job_id": 1, "jobs": {}, "due_jobs": {}}
+                "production": {
+                    "revision": 0,
+                    "next_job_id": 1,
+                    "jobs": {},
+                    "due_jobs": {},
+                    "energy_occupancy": {}
+                }
             }
         }"#;
         let registries = build_registries();
@@ -1555,6 +1561,29 @@ mod tests {
                     authored: EnergyCarrier::Electrical,
                 }
             ))
+        );
+
+        let mut tampered_energy_occupancy =
+            match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+                Ok(encoded) => encoded,
+                Err(error) => panic!("energy occupancy tamper serialization failed: {error}"),
+            };
+        tampered_energy_occupancy["state"]["production"]["energy_occupancy"] =
+            serde_json::json!({});
+        let tampered_energy_occupancy: LoadedSaveEnvelope =
+            match serde_json::from_value(tampered_energy_occupancy) {
+                Ok(decoded) => decoded,
+                Err(error) => panic!("energy occupancy tamper failed decode: {error}"),
+            };
+        assert_eq!(
+            tampered_energy_occupancy.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Production(
+                ProductionValidationError::EnergyOccupancyIndexMismatch {
+                    store: energy_store,
+                    indexed: None,
+                    expected: Some(job),
+                }
+            )))
         );
 
         let mut tampered_condition_outcome =

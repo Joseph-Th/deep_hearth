@@ -92,7 +92,8 @@ indexes; callers receive read-only views and canonical systems retain mutation a
 - `GeologicalKnowledgeState` owns acquired observations, generated observation IDs, immutable spatial
   evidence records, a synchronized material-to-observation index, and an owner revision. It does not
   own or reference exact deposit identities.
-- `ProductionState` owns active jobs, generated job IDs, a due-tick index, and an owner revision.
+- `ProductionState` owns active jobs, generated job IDs, a due-tick index, a synchronized
+  energy-store-to-job occupancy index, and an owner revision.
 - Validated transaction tokens bind to the exact owner revisions they checked, preventing stale
   commits after intervening mutation.
 
@@ -108,9 +109,9 @@ callbacks, event handlers, record methods, or engine lifecycle hooks.
 ## 7. Persistence
 
 The core defines a versioned semantic save envelope while deliberately leaving byte encoding and
-storage to adapters. The current save schema is version 25. Authored identity/physics compatibility
+storage to adapters. The current save schema is version 27. Authored identity/physics compatibility
 is tracked separately by `RegistrySchemaVersion`; the built-in registry schema is currently version
-13. Core gravity, material phase/fusion semantics, physical form and particle-state policies, fluid
+14. Core gravity, material phase/fusion semantics, physical form and particle-state policies, fluid
 identity/density definitions, directional energy-store semantics, and operation-specific resolver
 identities are part of that immutable registry contract because changing them can alter persisted
 physical consequences even when authored IDs are unchanged.
@@ -133,7 +134,7 @@ tampered RNG roots, tampered in-process consumed mass, stable immediate JSON res
 stockpile phase/temperature containment, stockpile structural support/index/load agreement,
 fluid-store references/conservation plus support/index/density-derived-load agreement, structural
 embodied-mass/self-weight/phase agreement, equipment structural support/load agreement, directional
-energy source/sink ownership, and
+energy source/sink ownership plus production energy-occupancy-index agreement, and
 operation-specific sensible-heating/melting/casting replay from committed physical traces.
 Comminution jobs are likewise recomputed from exact consumed-material, equipment, and energy traces,
 including authored form transition and particle-size envelope, mass-specific work, carrier,
@@ -163,6 +164,9 @@ Performance begins with ownership and access patterns rather than premature micr
   check rather than a per-tick invariant.
 - Production uses `BTreeMap<SimulationTick, BTreeSet<ProductionJobId>>` so due work does not require
   scanning all active jobs.
+- Production keeps a synchronized `EnergyStoreId -> ProductionJobId` occupancy index so repeated
+  finite-energy availability checks do not scan all active jobs. Exhaustive validation reconstructs
+  the expected index from durable job traces and rejects disagreement.
 - Stockpiles maintain cheap derived mass/commodity caches and update them atomically with lot state.
 - Fluid stores index support membership bidirectionally, so transfer-time structural recomputation
   visits only stores sharing affected supports rather than scanning all hydraulic storage.
@@ -369,6 +373,13 @@ increases active-tick wear. Screening remains separate because diameter bounds a
 a mass fraction when a screen cut intersects the envelope. Separation, recovery, chemical smelting,
 alloying, tooling, labor, and skill remain separate future resolvers.
 
+`ResolvedComminution` exposes the exact observed equipment condition and predicted post-operation
+condition alongside throughput-limited duration, energy-limited duration, required work energy,
+available power, effective processing rate, and typed bottleneck. Player-facing decision layers can
+therefore compare slower resource-conserving operation against faster lower-wear operation from the
+same authoritative resolution that will later be committed, rather than duplicating wear or duration
+math in an adapter.
+
 Production is closed-mass in the implemented core: resolved output mass must equal authored input
 mass. Slag, tailings, wastewater, gas, and similar losses must therefore be explicit material streams
 instead of hidden yield loss.
@@ -396,11 +407,13 @@ unrecoverable occupied-job state while preserving the rule that failed supports 
 work.
 
 The general built-in gameplay production registry remains intentionally sparse until physical
-authorization systems exist for each operation. Test registries exercise the implemented thermal and
-comminution resolvers without turning them into unrestricted recipe shortcuts. In particular, the
-built-in comminution registry remains empty until concrete crusher/grinder and finite power-source
-content can authorize real work in the world. The resolver itself already rejects absent,
-insufficient, or wrong-carrier energy rather than granting free processing.
+authorization systems exist for each operation. Canonical content currently registers the jaw
+crusher's ore-comminution process plus the pure-copper melt/cast path because concrete equipment and
+finite energy owners exist for those operations. Test registries continue to exercise additional
+resolver boundaries without turning them into unrestricted recipe shortcuts. Comminution rejects
+absent, insufficient, or wrong-carrier energy rather than granting free processing, and no separation
+or smelting process is registered until a physical resolver can justify its mass partition and
+chemistry.
 
 ## 16. Capabilities, Maintenance, Energy, Flow, and Mechanical Power
 
@@ -457,9 +470,20 @@ Finite energy stores are persistent runtime owners with immutable carrier/capaci
 independent maximum input/output power. Runtime allocation creates empty capacity only. A validated
 energy supply reserves one store's output capability for an active production job; a validated
 energy sink similarly reserves input capacity. An active job cannot simultaneously share a source or
-sink with another job. Released process energy is applied only during authoritative completion after
-all participating owner revisions have been rechecked, so a stale energy mutation cannot partially
-solidify material, wear equipment, remove a job, or deposit heat.
+sink with another job. `ProductionState` maintains that exclusivity in a synchronized keyed occupancy
+index used by hot-path energy validation. Released process energy is applied only during authoritative
+completion after all participating owner revisions have been rechecked, so a stale energy mutation
+cannot partially solidify material, wear equipment, remove a job, or deposit heat.
+
+Store-to-store relocation has a separate atomic storage boundary for an already physically resolved
+same-carrier transfer. `EnergyTransferResolution` deliberately has no public constructor. Validation
+requires distinct stores, source output capability, destination input capability, identical carriers,
+unreserved endpoints, sufficient source energy, finite destination capacity, and an available energy
+revision. The consumed commit token binds both the energy and production owner revisions plus exact
+endpoint energy snapshots, then subtracts and adds the identical quantity under one energy revision.
+This boundary does not choose a path, integrate transfer power over time, convert carriers, model
+losses, or generate energy. Those decisions remain responsibilities of future electrical, mechanical,
+thermal-distribution, and generation owners.
 
 Finite fluid storage is a separate conservation boundary. `FluidDefinition` binds an authored fluid
 identity to an underlying material identity and a nonzero constant bulk density in kilograms per

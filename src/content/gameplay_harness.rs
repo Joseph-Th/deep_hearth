@@ -1,9 +1,10 @@
-//! Agent-facing gameplay harness over the same canonical content registries used by the game.
+//! Headless workshop gameplay harness over the same canonical content registries used by the game.
 //!
-//! The harness deliberately varies initial conditions and lets a small policy react to observed
-//! state. Normal runs combine a deterministic coverage matrix with one time-derived exploratory seed
-//! that is printed for replay. `DEEP_HEARTH_GAMEPLAY_SEEDS` replaces that set with an exact
-//! comma-separated decimal or `0x` hexadecimal seed list.
+//! The harness deliberately varies physical initial conditions and lets a small operational policy
+//! react only to observed state and resolver projections. Normal runs combine a deterministic
+//! experience-coverage matrix with one time-derived exploratory seed that is printed for replay.
+//! `DEEP_HEARTH_GAMEPLAY_SEEDS` replaces that set with an exact comma-separated decimal or `0x`
+//! hexadecimal seed list.
 
 use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -11,9 +12,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
 use crate::core::time::{TickSpan, WorldSeed};
-use crate::energy::{EnergyStoreId, add_energy_store, add_energy_store_with_initial_for_test};
+use crate::energy::{
+    EnergyStoreId, EnergySupplyError, add_energy_store, add_energy_store_with_initial_for_test,
+    calculate_mass_specific_energy,
+};
 use crate::equipment::{
     EquipmentId, EquipmentProviderError, add_equipment, validate_mount_equipment,
+    validate_unmount_equipment,
 };
 use crate::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, add_stockpile,
@@ -22,7 +27,7 @@ use crate::inventory::{
 use crate::maintenance::{Condition, MaintenanceBand};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::ore_processing::{
-    ComminutionBottleneck, ComminutionRequest, ComminutionResolutionError,
+    ComminutionBottleneck, ComminutionRequest, ComminutionResolutionError, ResolvedComminution,
     resolve_comminution_process,
 };
 use crate::production::validate_start_process;
@@ -59,12 +64,13 @@ struct ScenarioVariation {
     batch_mass: Mass,
     thermal_mass: Mass,
     initial_crusher_condition: Condition,
-    risky_support_area: Area,
-    safe_support_area: Area,
-    secondary_load: Force,
+    compact_support_area: Area,
+    reinforced_support_area: Area,
+    reinforced_background_load: Force,
+    disturbance_load: Force,
     planned_batches: u8,
-    bootstrap_with_small_drive: bool,
-    cautious_maintenance: bool,
+    disturbance_after_batch: u8,
+    large_drive_batch_budget: u8,
 }
 
 impl ScenarioVariation {
@@ -75,19 +81,25 @@ impl ScenarioVariation {
         let d = mix64(c);
         let e = mix64(d);
         let f = mix64(e);
-        let risky_area = 900_u64 + a % 301;
+        let g = mix64(f);
+        let h = mix64(g);
+        let compact_area = 1_450_u64 + a % 351;
+        let reinforced_area = compact_area + 300 + b % 351;
         Self {
             seed,
             ore_copper_ppm: 450_000 + (b % 300_001) as u32,
             batch_mass: Mass::from_milligrams(8 + c % 13),
             thermal_mass: Mass::from_milligrams(6 + d % 7),
-            initial_crusher_condition: condition(720_000 + (e % 280_001) as u32),
-            risky_support_area: Area::from_square_millimeters(risky_area),
-            safe_support_area: Area::from_square_millimeters(risky_area * 2),
-            secondary_load: Force::from_millinewtons(u128::from(750_000 + f % 4_250_001)),
-            planned_batches: 3 + (a % 3) as u8,
-            bootstrap_with_small_drive: b & 1 == 0,
-            cautious_maintenance: c & 1 == 0,
+            initial_crusher_condition: condition(650_000 + (e % 330_001) as u32),
+            compact_support_area: Area::from_square_millimeters(compact_area),
+            reinforced_support_area: Area::from_square_millimeters(reinforced_area),
+            reinforced_background_load: Force::from_millinewtons(u128::from(
+                4_000_000 + f % 12_000_001,
+            )),
+            disturbance_load: Force::from_millinewtons(u128::from(3_000_000 + g % 45_000_001)),
+            planned_batches: 4 + (a % 3) as u8,
+            disturbance_after_batch: 1 + (g % 2) as u8,
+            large_drive_batch_budget: 1 + (h % 3) as u8,
         }
     }
 }
@@ -108,17 +120,28 @@ struct WorkshopIds {
     large_drive: EnergyStoreId,
     electrical_buffer: EnergyStoreId,
     heat_sink: EnergyStoreId,
+    compact_support: StructuralElementId,
+    reinforced_support: StructuralElementId,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
 struct ScenarioReport {
     structural_consequence: bool,
+    structural_damage_debt: bool,
     support_failure_blocked_production: bool,
+    support_relocation: bool,
+    chose_compact_support: bool,
+    used_small_drive: bool,
+    used_large_drive: bool,
+    large_drive_exhausted: bool,
     energy_bottleneck: bool,
     throughput_bottleneck: bool,
     maintenance_warning: bool,
-    mixed_ore_gate: bool,
-    completed_metal_cycle: bool,
+    maintenance_stop: bool,
+    ore_frontier_visible: bool,
+    completed_foundry_cycle: bool,
+    completed_batches: u8,
+    target_batches: u8,
 }
 
 fn mix64(mut value: u64) -> u64 {
@@ -126,6 +149,16 @@ fn mix64(mut value: u64) -> u64 {
     value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     value ^ (value >> 31)
+}
+
+fn seed_energy_store_exact(
+    registries: &Registries,
+    state: &mut AppState,
+    definition: crate::energy::EnergyStoreDefinitionId,
+    amount: Energy,
+) -> EnergyStoreId {
+    add_energy_store_with_initial_for_test(registries, state, definition, amount)
+        .unwrap_or_else(|error| panic!("gameplay harness exact energy seed failed: {error}"))
 }
 
 fn condition(parts_per_million: u32) -> Condition {
@@ -360,10 +393,40 @@ fn setup_workshop(
     .unwrap_or_else(|error| panic!("gameplay harness mold allocation failed: {error}"));
 
     let small_drive = seed_energy_store(registries, &mut state, ENERGY_MECHANICAL_SMALL_DRIVE, 1);
-    let large_drive = seed_energy_store(registries, &mut state, ENERGY_MECHANICAL_LARGE_DRIVE, 1);
     let electrical_buffer = seed_energy_store(registries, &mut state, ENERGY_ELECTRICAL_BUFFER, 2);
     let heat_sink = add_energy_store(registries, &mut state, ENERGY_THERMAL_SINK)
         .unwrap_or_else(|error| panic!("gameplay harness thermal sink allocation failed: {error}"));
+
+    let compact_support = active_support(registries, &mut state, 0, variation.compact_support_area);
+    let reinforced_support =
+        active_support(registries, &mut state, 2, variation.reinforced_support_area);
+    let occupied_bay = validate_set_structural_load(
+        registries,
+        &state,
+        reinforced_support,
+        StructuralLoadKind::Permanent,
+        variation.reinforced_background_load,
+    )
+    .unwrap_or_else(|error| panic!("gameplay harness background support load failed: {error}"));
+    occupied_bay.commit(&mut state).unwrap_or_else(|error| {
+        panic!("gameplay harness background support load commit failed: {error}")
+    });
+
+    let comminution = registries
+        .ore_processing()
+        .get_comminution(PROCESS_CRUSH_ORE)
+        .unwrap_or_else(|| panic!("canonical crusher process definition disappeared"));
+    let batch_energy =
+        calculate_mass_specific_energy(variation.batch_mass, comminution.specific_energy());
+    let large_drive_energy = Energy::from_nanojoules(
+        batch_energy.nanojoules() * u128::from(variation.large_drive_batch_budget),
+    );
+    let large_drive = seed_energy_store_exact(
+        registries,
+        &mut state,
+        ENERGY_MECHANICAL_LARGE_DRIVE,
+        large_drive_energy,
+    );
 
     (
         state,
@@ -382,6 +445,8 @@ fn setup_workshop(
             large_drive,
             electrical_buffer,
             heat_sink,
+            compact_support,
+            reinforced_support,
         },
     )
 }
@@ -411,15 +476,36 @@ fn stockpile_first_lot(state: &AppState, stockpile: StockpileId) -> MaterialLotI
         .unwrap_or_else(|| panic!("gameplay harness expected output lot is missing"))
 }
 
-fn crush_duration_for(
+struct CrushOption {
+    name: &'static str,
+    store: EnergyStoreId,
+    stored_before: Energy,
+    resolved: ResolvedComminution,
+}
+
+fn maintenance_band_rank(band: MaintenanceBand) -> u8 {
+    match band {
+        MaintenanceBand::Normal => 0,
+        MaintenanceBand::Warning => 1,
+        MaintenanceBand::Critical => 2,
+    }
+}
+
+fn resolve_crush_option(
     registries: &Registries,
     state: &AppState,
     ids: WorkshopIds,
     mass: Mass,
-    energy: EnergyStoreId,
-) -> TickSpan {
+    name: &'static str,
+    store: EnergyStoreId,
+) -> Option<CrushOption> {
+    let stored_before = state
+        .energy()
+        .get_store(store)
+        .map(|record| record.stored())
+        .unwrap_or_else(|| panic!("gameplay harness {name} drive disappeared"));
     let selection = [MaterialLotSelection::new(ids.ore_lot, mass)];
-    resolve_comminution_process(
+    match resolve_comminution_process(
         registries,
         state,
         ComminutionRequest::new(
@@ -427,12 +513,87 @@ fn crush_duration_for(
             ids.ore_source,
             &selection,
             ids.crusher,
-            energy,
+            store,
         ),
-    )
-    .unwrap_or_else(|error| panic!("gameplay harness crusher option resolution failed: {error}"))
-    .process_resolution()
-    .duration()
+    ) {
+        Ok(resolved) => Some(CrushOption {
+            name,
+            store,
+            stored_before,
+            resolved,
+        }),
+        Err(ComminutionResolutionError::Energy(EnergySupplyError::InsufficientEnergy {
+            available,
+            requested,
+            ..
+        })) => {
+            println!(
+                "  power option {name}: unavailable, stored={}nJ required={}nJ",
+                available.nanojoules(),
+                requested.nanojoules()
+            );
+            None
+        }
+        Err(error) => panic!("gameplay harness {name} drive resolution failed: {error}"),
+    }
+}
+
+fn print_crush_option(option: &CrushOption, thresholds: crate::maintenance::MaintenanceThresholds) {
+    let stored_after = option
+        .stored_before
+        .checked_sub(option.resolved.required_energy())
+        .unwrap_or_else(|| panic!("validated crush option overdraws its energy store"));
+    println!(
+        "  power option {}: duration={}t bottleneck={:?} energy={}nJ reserve={}nJ->{}nJ wear={}ppm->{}ppm ({:?})",
+        option.name,
+        option.resolved.process_resolution().duration().value(),
+        option.resolved.bottleneck(),
+        option.resolved.required_energy().nanojoules(),
+        option.stored_before.nanojoules(),
+        stored_after.nanojoules(),
+        option.resolved.condition_before().parts_per_million(),
+        option.resolved.condition_after().parts_per_million(),
+        thresholds.classify(option.resolved.condition_after()),
+    );
+}
+
+fn choose_crush_option(
+    small: Option<CrushOption>,
+    large: Option<CrushOption>,
+    thresholds: crate::maintenance::MaintenanceThresholds,
+) -> Option<(CrushOption, &'static str)> {
+    match (small, large) {
+        (None, None) => None,
+        (Some(option), None) | (None, Some(option)) => {
+            if thresholds.classify(option.resolved.condition_after()) == MaintenanceBand::Critical {
+                None
+            } else {
+                Some((option, "only viable energy source"))
+            }
+        }
+        (Some(small), Some(large)) => {
+            let current_band = thresholds.classify(small.resolved.condition_before());
+            let small_after = thresholds.classify(small.resolved.condition_after());
+            let large_after = thresholds.classify(large.resolved.condition_after());
+            if small_after == MaintenanceBand::Critical && large_after != MaintenanceBand::Critical
+            {
+                Some((large, "high power avoids critical machine condition"))
+            } else if current_band != MaintenanceBand::Normal
+                || maintenance_band_rank(small_after) > maintenance_band_rank(current_band)
+            {
+                if large_after == MaintenanceBand::Critical {
+                    None
+                } else {
+                    Some((large, "high power limits active-time wear"))
+                }
+            } else {
+                Some((
+                    small,
+                    "preserve scarce high-power reserve while condition is healthy",
+                ))
+            }
+        }
+    }
 }
 
 fn crush_batch(
@@ -440,44 +601,28 @@ fn crush_batch(
     state: &mut AppState,
     ids: WorkshopIds,
     mass: Mass,
-    energy: EnergyStoreId,
+    option: CrushOption,
     batch_index: u8,
 ) -> ComminutionBottleneck {
-    let selection = [MaterialLotSelection::new(ids.ore_lot, mass)];
-    let resolved = resolve_comminution_process(
-        registries,
-        state,
-        ComminutionRequest::new(
-            PROCESS_CRUSH_ORE,
-            ids.ore_source,
-            &selection,
-            ids.crusher,
-            energy,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("gameplay harness crushing resolution failed: {error}"));
-    let condition_before = state
-        .equipment()
-        .get_equipment(ids.crusher)
-        .map(|record| record.condition())
-        .unwrap_or_else(|| panic!("gameplay harness crusher disappeared"));
     println!(
-        "  crush#{batch_index}: mass={}mg condition={}ppm rate={}mg/s power={}uW duration={}t constraints=[throughput:{}t energy:{}t] bottleneck={:?}",
+        "  crush#{batch_index}: drive={} mass={}mg rate={}mg/s power={}uW duration={}t constraints=[throughput:{}t energy:{}t] condition={}ppm->{}ppm bottleneck={:?}",
+        option.name,
         mass.milligrams(),
-        condition_before.parts_per_million(),
-        resolved.processing_rate().milligrams_per_second(),
-        resolved.available_power().whole_microwatts(),
-        resolved.process_resolution().duration().value(),
-        resolved.throughput_duration().value(),
-        resolved.energy_duration().value(),
-        resolved.bottleneck(),
+        option.resolved.processing_rate().milligrams_per_second(),
+        option.resolved.available_power().whole_microwatts(),
+        option.resolved.process_resolution().duration().value(),
+        option.resolved.throughput_duration().value(),
+        option.resolved.energy_duration().value(),
+        option.resolved.condition_before().parts_per_million(),
+        option.resolved.condition_after().parts_per_million(),
+        option.resolved.bottleneck(),
     );
-    let duration = resolved.process_resolution().duration();
-    let bottleneck = resolved.bottleneck();
+    let duration = option.resolved.process_resolution().duration();
+    let bottleneck = option.resolved.bottleneck();
     let start = validate_start_process(
         registries,
         state,
-        resolved.process_resolution(),
+        option.resolved.process_resolution(),
         ids.ore_source,
         ids.crushed_storage,
     )
@@ -489,101 +634,102 @@ fn crush_batch(
     bottleneck
 }
 
-fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> ScenarioReport {
-    let (mut state, ids) = setup_workshop(registries, variation);
-    let mut report = ScenarioReport::default();
-    println!(
-        "\nSCENARIO seed=0x{:016X} ore={}ppm Cu batch={}mg crusher={}ppm batches={} bootstrap_small={} cautious_maintenance={}",
-        variation.seed,
-        variation.ore_copper_ppm,
-        variation.batch_mass.milligrams(),
-        variation.initial_crusher_condition.parts_per_million(),
-        variation.planned_batches,
-        variation.bootstrap_with_small_drive,
-        variation.cautious_maintenance,
-    );
-
-    let risky_support = active_support(registries, &mut state, 0, variation.risky_support_area);
-    let safe_support = active_support(registries, &mut state, 2, variation.safe_support_area);
-    let risky_mount = validate_mount_equipment(registries, &state, ids.crusher, risky_support)
-        .unwrap_or_else(|error| panic!("risky mount prediction failed: {error}"));
-    let safe_mount = validate_mount_equipment(registries, &state, ids.crusher, safe_support)
-        .unwrap_or_else(|error| panic!("safe mount prediction failed: {error}"));
-    let risky_assessment = risky_mount
-        .structural_analysis()
+fn structural_assessment(
+    analysis: &crate::structural::StructuralAnalysis,
+    element: StructuralElementId,
+) -> crate::structural::StructuralAssessment {
+    analysis
         .assessments()
         .iter()
-        .find(|assessment| assessment.element() == risky_support)
+        .find(|assessment| assessment.element() == element)
         .copied()
-        .unwrap_or_else(|| panic!("risky support assessment missing"));
-    let safe_assessment = safe_mount
-        .structural_analysis()
-        .assessments()
-        .iter()
-        .find(|assessment| assessment.element() == safe_support)
-        .copied()
-        .unwrap_or_else(|| panic!("safe support assessment missing"));
-    assert!(
-        (
-            stage_rank(safe_assessment.stage()),
-            safe_assessment.utilization_ppm()
-        ) < (
-            stage_rank(risky_assessment.stage()),
-            risky_assessment.utilization_ppm()
-        ),
-        "authored doubled support stopped being the safer crusher mount"
-    );
-    println!(
-        "  support choice: risky={:?}/{}ppm safe={:?}/{}ppm -> agent selects safer support",
-        risky_assessment.stage(),
-        risky_assessment.utilization_ppm(),
-        safe_assessment.stage(),
-        safe_assessment.utilization_ppm(),
-    );
+        .unwrap_or_else(|| panic!("gameplay harness structural assessment missing"))
+}
 
-    let mut consequence_branch = state.clone();
-    risky_mount
-        .commit(&mut consequence_branch)
-        .unwrap_or_else(|error| panic!("risky branch mount failed: {error}"));
-    if risky_assessment.stage() == StructuralStage::Failed {
-        report.structural_consequence = true;
-        println!("  alternate branch: crusher weight alone fails the risky support");
-    } else {
-        let secondary = validate_set_structural_load(
-            registries,
-            &consequence_branch,
-            risky_support,
-            StructuralLoadKind::Snow,
-            variation.secondary_load,
-        )
-        .unwrap_or_else(|error| panic!("secondary-load branch failed: {error}"));
-        let after_secondary = secondary
-            .analysis()
-            .assessments()
-            .iter()
-            .find(|assessment| assessment.element() == risky_support)
-            .copied()
-            .unwrap_or_else(|| panic!("secondary-load assessment missing"));
-        report.structural_consequence = after_secondary.stage() != risky_assessment.stage();
-        println!(
-            "  alternate branch: +{}mN environmental load changes {:?} -> {:?}",
-            variation.secondary_load.millinewtons(),
-            risky_assessment.stage(),
-            after_secondary.stage(),
-        );
-        secondary
-            .commit(&mut consequence_branch)
-            .unwrap_or_else(|error| panic!("secondary-load commit failed: {error}"));
-    }
-    if consequence_branch
+fn relocate_crusher(
+    registries: &Registries,
+    state: &mut AppState,
+    ids: WorkshopIds,
+    current_support: &mut StructuralElementId,
+    alternate_support: &mut StructuralElementId,
+    report: &mut ScenarioReport,
+) {
+    let abandoned_support = *current_support;
+    validate_unmount_equipment(registries, state, ids.crusher)
+        .unwrap_or_else(|error| panic!("crusher recovery unmount failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("crusher recovery unmount commit failed: {error}"));
+    let remount = validate_mount_equipment(registries, state, ids.crusher, *alternate_support)
+        .unwrap_or_else(|error| panic!("crusher recovery remount failed: {error}"));
+    let assessment = structural_assessment(remount.structural_analysis(), *alternate_support);
+    assert_ne!(
+        assessment.stage(),
+        StructuralStage::Failed,
+        "alternate workshop support must permit recovery"
+    );
+    remount
+        .commit(state)
+        .unwrap_or_else(|error| panic!("crusher recovery remount commit failed: {error}"));
+    println!(
+        "  recovery: relocated crusher to alternate support -> {:?}/{}ppm utilization",
+        assessment.stage(),
+        assessment.utilization_ppm()
+    );
+    let abandoned = state
         .structures()
-        .get_element(risky_support)
-        .is_some_and(|record| record.lifecycle() == StructuralLifecycle::Failed)
-    {
+        .get_element(abandoned_support)
+        .unwrap_or_else(|| panic!("abandoned workshop support disappeared during recovery"));
+    if abandoned.lifecycle() == StructuralLifecycle::Failed || abandoned.is_cracked() {
+        report.structural_damage_debt = true;
+        println!(
+            "  recovery debt: previous bay remains {:?} cracked={} after relocation; restoring production did not repair the structure",
+            abandoned.lifecycle(),
+            abandoned.is_cracked(),
+        );
+    } else {
+        println!(
+            "  recovery note: previous bay retains {}mN disturbance load after relocation",
+            abandoned.load(StructuralLoadKind::Snow).millinewtons(),
+        );
+    }
+    std::mem::swap(current_support, alternate_support);
+    report.support_relocation = true;
+}
+
+fn apply_disturbance_and_adapt(
+    registries: &Registries,
+    state: &mut AppState,
+    ids: WorkshopIds,
+    variation: ScenarioVariation,
+    current_support: &mut StructuralElementId,
+    alternate_support: &mut StructuralElementId,
+    report: &mut ScenarioReport,
+) {
+    let disturbance = validate_set_structural_load(
+        registries,
+        state,
+        *current_support,
+        StructuralLoadKind::Snow,
+        variation.disturbance_load,
+    )
+    .unwrap_or_else(|error| panic!("workshop disturbance validation failed: {error}"));
+    let after = structural_assessment(disturbance.analysis(), *current_support);
+    report.structural_consequence = after.stage() != StructuralStage::Stable;
+    println!(
+        "  disturbance: +{}mN on active bay -> {:?}/{}ppm utilization",
+        variation.disturbance_load.millinewtons(),
+        after.stage(),
+        after.utilization_ppm()
+    );
+    disturbance
+        .commit(state)
+        .unwrap_or_else(|error| panic!("workshop disturbance commit failed: {error}"));
+
+    if after.stage() == StructuralStage::Failed {
         let selection = [MaterialLotSelection::new(ids.ore_lot, variation.batch_mass)];
         let blocked = resolve_comminution_process(
             registries,
-            &consequence_branch,
+            state,
             ComminutionRequest::new(
                 PROCESS_CRUSH_ORE,
                 ids.ore_source,
@@ -599,14 +745,126 @@ fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> Scenar
             ))
         );
         println!(
-            "  alternate branch: failed support blocks crusher={}",
+            "  consequence: failed support blocks production={}",
             report.support_failure_blocked_production
         );
+        relocate_crusher(
+            registries,
+            state,
+            ids,
+            current_support,
+            alternate_support,
+            report,
+        );
+        return;
     }
 
-    safe_mount
+    if after.stage() == StructuralStage::Cracking || after.stage() == StructuralStage::Strained {
+        let mut preview = state.clone();
+        validate_unmount_equipment(registries, &preview, ids.crusher)
+            .unwrap_or_else(|error| panic!("crusher relocation preview unmount failed: {error}"))
+            .commit(&mut preview)
+            .unwrap_or_else(|error| panic!("crusher relocation preview commit failed: {error}"));
+        let alternate =
+            validate_mount_equipment(registries, &preview, ids.crusher, *alternate_support)
+                .unwrap_or_else(|error| panic!("crusher relocation preview mount failed: {error}"));
+        let alternate_assessment =
+            structural_assessment(alternate.structural_analysis(), *alternate_support);
+        if (
+            stage_rank(alternate_assessment.stage()),
+            alternate_assessment.utilization_ppm(),
+        ) < (stage_rank(after.stage()), after.utilization_ppm())
+        {
+            println!(
+                "  decision: alternate bay is safer at {:?}/{}ppm; relocate before failure",
+                alternate_assessment.stage(),
+                alternate_assessment.utilization_ppm()
+            );
+            relocate_crusher(
+                registries,
+                state,
+                ids,
+                current_support,
+                alternate_support,
+                report,
+            );
+        } else {
+            println!("  decision: remain on current support; alternate bay is not safer");
+        }
+    }
+}
+
+fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> ScenarioReport {
+    let (mut state, ids) = setup_workshop(registries, variation);
+    let mut report = ScenarioReport {
+        target_batches: variation.planned_batches,
+        ..ScenarioReport::default()
+    };
+    println!(
+        "\nSCENARIO seed=0x{:016X} ore={}ppm Cu batch={}mg crusher={}ppm target_batches={} disturbance_after={} large_drive_budget={} batch(es)",
+        variation.seed,
+        variation.ore_copper_ppm,
+        variation.batch_mass.milligrams(),
+        variation.initial_crusher_condition.parts_per_million(),
+        variation.planned_batches,
+        variation.disturbance_after_batch,
+        variation.large_drive_batch_budget,
+    );
+
+    let compact_mount =
+        validate_mount_equipment(registries, &state, ids.crusher, ids.compact_support)
+            .unwrap_or_else(|error| panic!("compact bay mount prediction failed: {error}"));
+    let reinforced_mount =
+        validate_mount_equipment(registries, &state, ids.crusher, ids.reinforced_support)
+            .unwrap_or_else(|error| panic!("reinforced bay mount prediction failed: {error}"));
+    let compact_assessment =
+        structural_assessment(compact_mount.structural_analysis(), ids.compact_support);
+    let reinforced_assessment = structural_assessment(
+        reinforced_mount.structural_analysis(),
+        ids.reinforced_support,
+    );
+    println!(
+        "  support options: compact={:?}/{}ppm reinforced={:?}/{}ppm (reinforced existing load={}mN)",
+        compact_assessment.stage(),
+        compact_assessment.utilization_ppm(),
+        reinforced_assessment.stage(),
+        reinforced_assessment.utilization_ppm(),
+        variation.reinforced_background_load.millinewtons(),
+    );
+    let compact_is_better = (
+        stage_rank(compact_assessment.stage()),
+        compact_assessment.utilization_ppm(),
+    ) < (
+        stage_rank(reinforced_assessment.stage()),
+        reinforced_assessment.utilization_ppm(),
+    );
+    let (mut current_support, mut alternate_support, selected_mount, support_name) =
+        if compact_is_better {
+            report.chose_compact_support = true;
+            (
+                ids.compact_support,
+                ids.reinforced_support,
+                compact_mount,
+                "compact clear bay",
+            )
+        } else {
+            (
+                ids.reinforced_support,
+                ids.compact_support,
+                reinforced_mount,
+                "reinforced occupied bay",
+            )
+        };
+    let selected_assessment = if compact_is_better {
+        compact_assessment
+    } else {
+        reinforced_assessment
+    };
+    assert_ne!(selected_assessment.stage(), StructuralStage::Failed);
+    println!("  decision: mount crusher on {support_name}");
+    selected_mount
         .commit(&mut state)
-        .unwrap_or_else(|error| panic!("safe crusher mount failed: {error}"));
+        .unwrap_or_else(|error| panic!("selected crusher mount failed: {error}"));
 
     let thresholds = registries
         .equipment()
@@ -626,53 +884,65 @@ fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> Scenar
                 "  maintenance: condition={}ppm band={band:?}",
                 current_condition.parts_per_million()
             );
-            if variation.cautious_maintenance && batch_index > 0 {
-                println!(
-                    "  policy: cautious agent stops additional crushing at maintenance warning"
-                );
-                break;
-            }
+        }
+        if band == MaintenanceBand::Critical {
+            report.maintenance_stop = true;
+            println!("  decision: stop crushing; machine is already in critical condition");
+            println!(
+                "  maintenance frontier: no free condition reset is available; service requires a physically resolved resource/tool/labor path"
+            );
+            break;
         }
 
-        let small_duration = crush_duration_for(
+        let small = resolve_crush_option(
             registries,
             &state,
             ids,
             variation.batch_mass,
+            "small",
             ids.small_drive,
         );
-        let large_duration = crush_duration_for(
+        let large = resolve_crush_option(
             registries,
             &state,
             ids,
             variation.batch_mass,
+            "large",
             ids.large_drive,
         );
-        let selected_drive = if batch_index == 0 && variation.bootstrap_with_small_drive {
-            ids.small_drive
-        } else if large_duration < small_duration {
-            ids.large_drive
+        if let Some(option) = &small {
+            print_crush_option(option, thresholds);
+        }
+        if let Some(option) = &large {
+            print_crush_option(option, thresholds);
         } else {
-            ids.small_drive
+            report.large_drive_exhausted = true;
+        }
+        let Some((selected, reason)) = choose_crush_option(small, large, thresholds) else {
+            report.maintenance_stop = true;
+            println!(
+                "  decision: stop crushing; remaining power choices would enter critical condition or no source can supply the batch"
+            );
+            println!(
+                "  maintenance frontier: no free condition reset is available; service requires a physically resolved resource/tool/labor path"
+            );
+            break;
         };
-        println!(
-            "  power choice: small={}t large={}t selected={}",
-            small_duration.value(),
-            large_duration.value(),
-            if selected_drive == ids.small_drive {
-                "small"
-            } else {
-                "large"
-            }
-        );
+        println!("  decision: use {} drive because {reason}", selected.name);
+        if selected.store == ids.small_drive {
+            report.used_small_drive = true;
+        } else if selected.store == ids.large_drive {
+            report.used_large_drive = true;
+        }
         let bottleneck = crush_batch(
             registries,
             &mut state,
             ids,
             variation.batch_mass,
-            selected_drive,
+            selected,
             batch_index + 1,
         );
+        report.completed_batches += 1;
         match bottleneck {
             ComminutionBottleneck::Throughput => report.throughput_bottleneck = true,
             ComminutionBottleneck::EnergyDelivery => report.energy_bottleneck = true,
@@ -680,6 +950,17 @@ fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> Scenar
                 report.energy_bottleneck = true;
                 report.throughput_bottleneck = true;
             }
+        }
+        if batch_index + 1 == variation.disturbance_after_batch {
+            apply_disturbance_and_adapt(
+                registries,
+                &mut state,
+                ids,
+                variation,
+                &mut current_support,
+                &mut alternate_support,
+                &mut report,
+            );
         }
     }
     let final_condition = state
@@ -718,17 +999,18 @@ fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> Scenar
             ids.electrical_buffer,
         ),
     );
-    report.mixed_ore_gate = matches!(
+    report.ore_frontier_visible = matches!(
         blocked_melt,
         Err(MeltingResolutionError::Batch(
             MeltingBatchError::ImpureInput { .. }
         ))
     );
     println!(
-        "  metallurgy gate: mixed crushed ore rejected={}",
-        report.mixed_ore_gate
+        "  process frontier: crushed mixed ore cannot enter pure-copper melting={} (concentration/smelting remains the missing bridge)",
+        report.ore_frontier_visible
     );
 
+    println!("  downstream foundry: exercise existing pure-copper feedstock through melt and cast");
     let pure_selection = [MaterialLotSelection::new(
         ids.pure_copper_lot,
         variation.thermal_mass,
@@ -800,21 +1082,30 @@ fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> Scenar
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("casting commit failed: {error}"));
     finish_operation(registries, &mut state, cast_duration);
-    report.completed_metal_cycle = state
+    report.completed_foundry_cycle = state
         .inventory()
         .get_stockpile(ids.cast_storage)
         .is_some_and(|stockpile| stockpile.stored_mass() == variation.thermal_mass);
 
     assert_eq!(validate_loaded_state(registries, &state), Ok(()));
     println!(
-        "  report: structural_change={} support_block={} energy_limit={} throughput_limit={} maintenance={} mixed_gate={} metal_cycle={}",
+        "  report: batches={}/{} structural_change={} damage_debt={} support_block={} relocation={} small_drive={} large_drive={} large_exhausted={} energy_limit={} throughput_limit={} maintenance_warning={} maintenance_stop={} ore_frontier={} foundry_cycle={} ticks={}",
+        report.completed_batches,
+        variation.planned_batches,
         report.structural_consequence,
+        report.structural_damage_debt,
         report.support_failure_blocked_production,
+        report.support_relocation,
+        report.used_small_drive,
+        report.used_large_drive,
+        report.large_drive_exhausted,
         report.energy_bottleneck,
         report.throughput_bottleneck,
         report.maintenance_warning,
-        report.mixed_ore_gate,
-        report.completed_metal_cycle,
+        report.maintenance_stop,
+        report.ore_frontier_visible,
+        report.completed_foundry_cycle,
+        state.tick().value(),
     );
     report
 }
@@ -825,12 +1116,15 @@ fn gameplay_harness_agent_experience_matrix() {
     assert_canonical_gameplay_content(&registries);
     let (seeds, enforce_coverage_matrix) = scenario_seeds();
     println!(
-        "\n=== DEEP HEARTH AGENT GAMEPLAY HARNESS: {} scenario(s), registry schema {} ===",
+        "\n=== DEEP HEARTH WORKSHOP GAMEPLAY HARNESS: {} scenario(s), registry schema {} ===",
         seeds.len(),
         registries.schema_version().value(),
     );
     println!(
-        "SETUP BOUNDARY: scenario matter and initial stored energy are seeded starting conditions; all decisions and mutations after setup use canonical game registries and runtime transactions."
+        "SETUP BOUNDARY: matter, equipment, finite energy, structural bays, and the reinforced bay's baseline load are starting conditions; every experienced decision and mutation after setup uses canonical runtime transactions."
+    );
+    println!(
+        "LOOP SCOPE: the harness experiences workshop siting, comminution, finite power, wear, environmental structural stress, and recovery. Geological acquisition and construction authorization are outside this workshop setup; crushed mixed ore currently reaches an explicit concentration/smelting frontier before the separate pure-copper foundry path."
     );
 
     let reports: Vec<_> = seeds
@@ -839,17 +1133,113 @@ fn gameplay_harness_agent_experience_matrix() {
         .map(|variation| run_scenario(&registries, variation))
         .collect();
 
-    assert!(reports.iter().all(|report| report.mixed_ore_gate));
-    assert!(reports.iter().all(|report| report.completed_metal_cycle));
+    let completed_batches: u32 = reports
+        .iter()
+        .map(|report| u32::from(report.completed_batches))
+        .sum();
+    let target_batches: u32 = reports
+        .iter()
+        .map(|report| u32::from(report.target_batches))
+        .sum();
+    println!(
+        "\nEXPERIENCE SUMMARY: batches={completed_batches}/{target_batches} compact_choices={} reinforced_choices={} disruptions={} damage_debt={} relocations={} blocked_by_failure={} small_drive={} large_drive={} large_exhausted={} energy_bottlenecks={} throughput_bottlenecks={} maintenance_warnings={} maintenance_stops={} ore_frontier={} foundry_cycles={}",
+        reports
+            .iter()
+            .filter(|report| report.chose_compact_support)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| !report.chose_compact_support)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.structural_consequence)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.structural_damage_debt)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.support_relocation)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.support_failure_blocked_production)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.used_small_drive)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.used_large_drive)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.large_drive_exhausted)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.energy_bottleneck)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.throughput_bottleneck)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.maintenance_warning)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.maintenance_stop)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.ore_frontier_visible)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.completed_foundry_cycle)
+            .count(),
+    );
+
+    assert!(reports.iter().all(|report| report.completed_batches > 0));
+    assert!(reports.iter().all(|report| report.ore_frontier_visible));
+    assert!(reports.iter().all(|report| report.completed_foundry_cycle));
     if enforce_coverage_matrix {
         assert!(reports.iter().any(|report| report.structural_consequence));
+        assert!(reports.iter().any(|report| !report.structural_consequence));
+        assert!(reports.iter().any(|report| report.structural_damage_debt));
         assert!(
             reports
                 .iter()
                 .any(|report| report.support_failure_blocked_production)
         );
+        assert!(reports.iter().any(|report| report.support_relocation));
+        assert!(reports.iter().any(|report| !report.support_relocation));
+        assert!(reports.iter().any(|report| {
+            report.support_relocation && !report.support_failure_blocked_production
+        }));
+        assert!(reports.iter().any(|report| report.chose_compact_support));
+        assert!(reports.iter().any(|report| !report.chose_compact_support));
+        assert!(reports.iter().any(|report| report.used_small_drive));
+        assert!(reports.iter().any(|report| report.used_large_drive));
+        assert!(reports.iter().any(|report| report.large_drive_exhausted));
         assert!(reports.iter().any(|report| report.energy_bottleneck));
         assert!(reports.iter().any(|report| report.throughput_bottleneck));
         assert!(reports.iter().any(|report| report.maintenance_warning));
+        assert!(reports.iter().any(|report| report.maintenance_stop));
+        assert!(
+            reports
+                .iter()
+                .any(|report| report.completed_batches == report.target_batches)
+        );
+        assert!(
+            reports
+                .iter()
+                .any(|report| report.completed_batches < report.target_batches)
+        );
     }
 }

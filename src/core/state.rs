@@ -1399,6 +1399,10 @@ pub fn validate_invariants(_registries: &Registries, state: &AppState) {
         "Runtime Invariant 5 (Ownership Exclusivity): active production jobs must not share finite energy sources or sinks"
     );
     debug_assert!(
+        state.production.has_valid_energy_occupancy_index(),
+        "Runtime Invariant 12 (Derived Data Consistency): production energy occupancy index must match active job reservations"
+    );
+    debug_assert!(
         state
             .production
             .earliest_due_tick()

@@ -846,16 +846,17 @@ pub fn validate_start_process_routed(
         .into_iter()
         .chain(released_energy.map(|trace| trace.destination()))
     {
-        if let Some(job) = state.production().jobs().find(|job| {
-            job.consumed_energy()
-                .is_some_and(|trace| trace.source() == store)
-                || job
-                    .released_energy()
-                    .is_some_and(|trace| trace.destination() == store)
-        }) {
+        if let Some(job_id) = state.production().get_energy_occupant(store) {
+            let job = match state.production().get_job(job_id) {
+                Some(job) => job,
+                None => panic!(
+                    "runtime invariant broken: energy occupancy index references missing production job {}",
+                    job_id.value()
+                ),
+            };
             return Err(StartProcessError::EnergyStoreBusy {
                 store,
-                job: job.id(),
+                job: job_id,
                 completes_at: job.completes_at(),
             });
         }

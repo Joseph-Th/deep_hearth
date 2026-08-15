@@ -4,6 +4,7 @@ mod accounting;
 mod definitions;
 mod state;
 mod storage_execution;
+mod transfer_execution;
 
 pub use accounting::{
     ExplicitEnergyAccounting, ExplicitEnergyAccountingError, calculate_explicit_energy_accounting,
@@ -17,6 +18,10 @@ pub use storage_execution::{
     AddEnergyStoreError, ConsumedEnergyTrace, EnergySinkError, EnergySupplyError,
     ReleasedEnergyTrace, ValidatedEnergySink, ValidatedEnergySupply, add_energy_store,
     validate_energy_sink, validate_energy_supply,
+};
+pub use transfer_execution::{
+    EnergyTransferCommitError, EnergyTransferError, EnergyTransferOutcome,
+    EnergyTransferResolution, ValidatedEnergyTransfer, validate_energy_transfer,
 };
 
 #[cfg(test)]
