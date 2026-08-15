@@ -156,6 +156,35 @@ without selecting chunk dimensions, storage encoding, ECS layout, or streaming p
 Chunk shape, renderer, input, physics engine, threading, and networking remain deliberately
 unselected. Domain records must not assume an ECS, scene graph, renderer object, or chunk layout.
 
+Renderer-neutral visual definitions live in the immutable texture registry. A texture is a 16x16
+tile of one-byte indexed texels: the high nibble selects one of at most 16 texture-local palette
+ramps and the low nibble selects one of 16 authored shades. Four hue/luminance anchors expand into a
+complete ramp during registry construction, so shadows and highlights may shift hue without storing
+RGBA per texel. Block appearances map all six cube faces explicitly. Object appearances map ordered
+mesh material slots explicitly. Commodity and equipment bindings resolve those appearances without
+placing renderer objects or mutable visual state in `AppState`.
+
+`TextureRegistry::bake_texture_array()` is the adapter boundary. It sorts authored IDs, deduplicates
+indexed patterns independently from palette rows, produces a complete 16/8/4/2/1 discrete mip chain,
+and returns dense `TextureId`, block-appearance, and object-appearance lookups. Every texture draw
+descriptor contains a pattern layer and palette-row pair packed into one shader-facing `u32`; block
+faces and object material slots are already resolved to those descriptors before meshing. Mips choose
+the majority local ramp with stable slot-order tie-breaking, then average only that ramp's shade
+positions; palette indices are never numerically blended. The upload contract is:
+
+```text
+slot     = indexed_texel >> 4
+shade    = clamp((indexed_texel & 15) + lighting_delta, 0, 15)
+ramp_id  = palette_rows[palette_row * 16 + slot]
+rgba     = palette_colors[ramp_id * 16 + shade]
+```
+
+Indexed mip levels require integer `R8_UINT` storage and nearest/point sampling. Linear filtering of
+the index texture is invalid; filtering, if desired, occurs after palette resolution in an adapter
+strategy that preserves index identity. Texture definitions are immutable presentation content and
+are not persisted by the headless simulation, so changing their color or detail does not alter the
+registry compatibility schema used to validate authoritative saves.
+
 ## 9. Performance Policy
 
 Performance begins with ownership and access patterns rather than premature micro-optimization.
@@ -178,6 +207,11 @@ Performance begins with ownership and access patterns rather than premature micr
   growth while established lot IDs remain stable.
 - Save/load validation is exhaustive, but the base tick executes only cheap invariants. Periodic
   exhaustive audits in soak tests preserve corruption coverage without making every tick O(world).
+- Texture mesh construction resolves stable texture, block-appearance, and object-appearance IDs
+  through bounded dense lookups. Block faces and object material slots are prebaked draw descriptors
+  carrying only a texture-array layer and palette row. Indexed tiles cost one byte per texel, custom
+  mip levels remain indexed, repeated patterns and palette assignments are deduplicated independently,
+  and shared ramps occupy one small RGBA lookup table.
 - Spatial/chunk architecture must be justified by workload measurements before selection.
 
 ## 10. Validation Policy

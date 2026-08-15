@@ -10,6 +10,7 @@ mod materials;
 mod ore_processing;
 mod processes;
 mod structural;
+mod textures;
 mod thermal;
 
 use crate::core::quantity::Acceleration;
@@ -30,6 +31,8 @@ use crate::ore_processing::{
 #[cfg(test)]
 use crate::production::{ProcessDefinition, ProductionRegistry};
 #[cfg(test)]
+use crate::texture::TextureRegistry;
+#[cfg(test)]
 use crate::thermal::{
     CastingProcessDefinition, MeltingProcessDefinition, SensibleHeatingProcessDefinition,
     ThermalRegistry,
@@ -38,6 +41,11 @@ use crate::thermal::{
 #[cfg(test)]
 fn empty_energy_registry() -> EnergyRegistry {
     EnergyRegistry::new(std::iter::empty())
+}
+
+#[cfg(test)]
+fn empty_texture_registry() -> TextureRegistry {
+    TextureRegistry::empty()
 }
 
 #[cfg(test)]
@@ -70,6 +78,7 @@ pub(crate) fn make_test_registries_with_screening(
             ),
             thermal: empty_thermal_registry(),
             production,
+            textures: empty_texture_registry(),
         },
     )
 }
@@ -101,6 +110,15 @@ pub use processes::{
     PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
 };
 pub use structural::{STRUCTURAL_PROFILE_AXIAL_COMPRESSION, STRUCTURAL_PROFILE_AXIAL_TENSION};
+pub use textures::{
+    BLOCK_CHARCOAL, BLOCK_COPPER, BLOCK_COPPER_ORE, BLOCK_SLAG, BLOCK_TIMBER, OBJECT_CASTING_MOLD,
+    OBJECT_CHARCOAL, OBJECT_COPPER_INGOT, OBJECT_COPPER_ORE, OBJECT_CRUSHED_ORE, OBJECT_DRY_SCREEN,
+    OBJECT_ELECTRIC_FURNACE, OBJECT_GRINDING_MILL, OBJECT_JAW_CRUSHER, OBJECT_LOG,
+    OBJECT_MOLTEN_COPPER, OBJECT_SLAG, TEXTURE_CHARCOAL, TEXTURE_COPPER_HAMMERED,
+    TEXTURE_COPPER_ORE, TEXTURE_CRUSHED_ORE, TEXTURE_MACHINE_PANEL, TEXTURE_MOLTEN_COPPER,
+    TEXTURE_REFRACTORY, TEXTURE_SCREEN_MESH, TEXTURE_SLAG, TEXTURE_WOOD_END, TEXTURE_WOOD_SIDE,
+    TEXTURE_WORKING_METAL,
+};
 
 const DEFAULT_TICKS_PER_SECOND: u16 = 20;
 const DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED: u64 = 9_806_650;
@@ -131,6 +149,7 @@ pub fn build_registries() -> Registries {
             ore_processing: ore_processing::build_ore_processing_registry(),
             thermal: thermal::build_thermal_registry(),
             production: processes::build_production_registry(),
+            textures: textures::build_texture_registry(),
         },
     )
 }
@@ -155,6 +174,7 @@ pub(crate) fn make_test_registries_with_equipment(
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: empty_thermal_registry(),
             production: ProductionRegistry::new(),
+            textures: empty_texture_registry(),
         },
     )
 }
@@ -176,6 +196,7 @@ pub(crate) fn make_test_registries_with_process(process: ProcessDefinition) -> R
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: empty_thermal_registry(),
             production,
+            textures: empty_texture_registry(),
         },
     )
 }
@@ -204,6 +225,7 @@ pub(crate) fn make_test_registries_with_energy_stores(
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: empty_thermal_registry(),
             production: ProductionRegistry::new(),
+            textures: empty_texture_registry(),
         },
     )
 }
@@ -228,6 +250,7 @@ pub(crate) fn make_test_registries_with_energy_stores_and_process(
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: empty_thermal_registry(),
             production,
+            textures: empty_texture_registry(),
         },
     )
 }
@@ -263,6 +286,7 @@ pub(crate) fn make_test_registries_with_sensible_heating(
                 std::iter::empty(),
             ),
             production,
+            textures: empty_texture_registry(),
         },
     )
 }
@@ -298,6 +322,7 @@ pub(crate) fn make_test_registries_with_melting(
                 std::iter::empty(),
             ),
             production,
+            textures: empty_texture_registry(),
         },
     )
 }
@@ -333,6 +358,7 @@ pub(crate) fn make_test_registries_with_casting(
                 [thermal_definition],
             ),
             production,
+            textures: empty_texture_registry(),
         },
     )
 }
@@ -352,6 +378,7 @@ pub(crate) fn make_test_registries_with_fluids(definitions: Vec<FluidDefinition>
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: empty_thermal_registry(),
             production: ProductionRegistry::new(),
+            textures: empty_texture_registry(),
         },
     )
 }
@@ -383,6 +410,7 @@ pub(crate) fn make_test_registries_with_comminution(
             ore_processing: OreProcessingRegistry::new([comminution_definition]),
             thermal: empty_thermal_registry(),
             production,
+            textures: empty_texture_registry(),
         },
     )
 }
@@ -489,6 +517,97 @@ mod tests {
     }
 
     #[test]
+    fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
+        let registries = build_registries();
+        let textures = registries.textures();
+        let baked = textures.bake_texture_array();
+
+        for (commodity, block, object) in [
+            (
+                CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+                Some(BLOCK_TIMBER),
+                OBJECT_LOG,
+            ),
+            (
+                CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+                Some(BLOCK_CHARCOAL),
+                OBJECT_CHARCOAL,
+            ),
+            (
+                CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+                Some(BLOCK_COPPER_ORE),
+                OBJECT_COPPER_ORE,
+            ),
+            (
+                CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+                None,
+                OBJECT_CRUSHED_ORE,
+            ),
+            (
+                CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+                Some(BLOCK_COPPER),
+                OBJECT_COPPER_INGOT,
+            ),
+            (
+                CommodityKey::new(MATERIAL_SLAG, FORM_LUMP),
+                Some(BLOCK_SLAG),
+                OBJECT_SLAG,
+            ),
+        ] {
+            let binding = match textures.get_commodity_appearance(commodity) {
+                Some(binding) => binding,
+                None => panic!("missing commodity appearance {}", commodity.value()),
+            };
+            assert_eq!(binding.block(), block);
+            assert_eq!(binding.object(), Some(object));
+            if let Some(block) = block {
+                let baked_block = match baked.get_block(block) {
+                    Some(block) => block,
+                    None => panic!("missing baked block appearance {}", block.value()),
+                };
+                let authored_block = match textures.get_block(block) {
+                    Some(block) => block,
+                    None => panic!("missing authored block appearance {}", block.value()),
+                };
+                let top_texture = authored_block.texture(crate::texture::CubeFace::Top);
+                assert_eq!(
+                    baked_block.texture(crate::texture::CubeFace::Top),
+                    match baked.get_descriptor(top_texture) {
+                        Some(descriptor) => descriptor,
+                        None => panic!("missing baked texture {}", top_texture.value()),
+                    }
+                );
+            }
+        }
+
+        for (equipment, object) in [
+            (EQUIPMENT_JAW_CRUSHER, OBJECT_JAW_CRUSHER),
+            (EQUIPMENT_ELECTRIC_FURNACE, OBJECT_ELECTRIC_FURNACE),
+            (EQUIPMENT_CASTING_MOLD, OBJECT_CASTING_MOLD),
+            (EQUIPMENT_DRY_SCREEN, OBJECT_DRY_SCREEN),
+            (EQUIPMENT_GRINDING_MILL, OBJECT_GRINDING_MILL),
+        ] {
+            let binding = match textures.get_equipment_appearance(equipment) {
+                Some(binding) => binding,
+                None => panic!("missing equipment appearance {}", equipment.value()),
+            };
+            assert_eq!(binding.object(), object);
+            let appearance = match textures.get_object(object) {
+                Some(appearance) => appearance,
+                None => panic!("missing object appearance {}", object.value()),
+            };
+            for texture in appearance.textures() {
+                assert!(baked.get_descriptor(*texture).is_some());
+            }
+            let baked_object = match baked.get_object(object) {
+                Some(appearance) => appearance,
+                None => panic!("missing baked object appearance {}", object.value()),
+            };
+            assert_eq!(baked_object.textures().len(), appearance.textures().len());
+        }
+    }
+
+    #[test]
     fn process_capability_references_are_validated_during_registry_assembly() {
         let mut capabilities = CapabilityRegistry::new();
         capabilities.register_capability(CapabilityDefinition::new(
@@ -525,6 +644,7 @@ mod tests {
                 ore_processing: OreProcessingRegistry::new(std::iter::empty()),
                 thermal: empty_thermal_registry(),
                 production,
+                textures: empty_texture_registry(),
             },
         );
 
@@ -617,6 +737,7 @@ mod tests {
                     ore_processing,
                     thermal,
                     production,
+                    textures: empty_texture_registry(),
                 },
             )
         });

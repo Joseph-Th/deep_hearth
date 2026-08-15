@@ -13,6 +13,7 @@ use crate::material::MaterialRegistry;
 use crate::ore_processing::OreProcessingRegistry;
 use crate::production::ProductionRegistry;
 use crate::structural::StructuralRegistry;
+use crate::texture::TextureRegistry;
 use crate::thermal::ThermalRegistry;
 
 /// Compatibility version for stable authored registry identities and cross-reference semantics.
@@ -78,6 +79,7 @@ pub struct Registries {
     ore_processing: OreProcessingRegistry,
     thermal: ThermalRegistry,
     production: ProductionRegistry,
+    textures: TextureRegistry,
 }
 
 /// Domain registry bundle used to assemble the immutable root without a wide positional API.
@@ -91,6 +93,7 @@ pub(crate) struct RegistryDomains {
     pub(crate) ore_processing: OreProcessingRegistry,
     pub(crate) thermal: ThermalRegistry,
     pub(crate) production: ProductionRegistry,
+    pub(crate) textures: TextureRegistry,
 }
 
 impl Registries {
@@ -114,6 +117,9 @@ impl Registries {
             &domains.capabilities,
             &domains.materials,
         );
+        domains
+            .textures
+            .validate_references(&domains.materials, &domains.equipment);
         for process in domains.ore_processing.process_ids() {
             assert!(
                 !domains.thermal.has_process(process),
@@ -133,6 +139,7 @@ impl Registries {
             ore_processing: domains.ore_processing,
             thermal: domains.thermal,
             production: domains.production,
+            textures: domains.textures,
         }
     }
 
@@ -200,5 +207,11 @@ impl Registries {
     #[must_use]
     pub const fn production(&self) -> &ProductionRegistry {
         &self.production
+    }
+
+    /// Returns immutable palette, texture, and block/object appearance definitions.
+    #[must_use]
+    pub const fn textures(&self) -> &TextureRegistry {
+        &self.textures
     }
 }

@@ -22,6 +22,7 @@ pub mod registry;
 pub mod simulation;
 pub mod spatial;
 pub mod structural;
+pub mod texture;
 pub mod thermal;
 
 pub use content::build_registries;

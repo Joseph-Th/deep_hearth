@@ -6,6 +6,12 @@ The repository currently focuses on a headless Rust simulation core. Rendering, 
 networking, platform integration, and save-file storage are adapters around that core rather than
 owners of gameplay state or rules.
 
+The renderer-neutral visual foundation provides hue-shaped palette ramps, one-byte indexed 16x16
+tiles, explicit block-face and object material-slot appearances, and a deterministic startup bake
+into deduplicated texture-array layers with discrete mipmaps. A future graphics adapter can upload
+the baked `R8_UINT` texels and compact lookup tables without adding image-decoding or graphics
+dependencies to the simulation core.
+
 The implemented foundation includes persisted independent RNG streams, exact integer engineering
 quantities, composition-aware and phase-aware material lots, temperature/phase-constrained storage,
 atomic inventory transactions, closed-mass durable production, finite geological matter ownership

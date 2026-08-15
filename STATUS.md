@@ -310,6 +310,17 @@
   due index.
 - Chunk-independent 64-bit voxel coordinates and validated spatial bounds without choosing chunk
   dimensions or streaming policy.
+- Renderer-neutral immutable texture registry with hue-shift-capable 16-shade palette ramps,
+  one-byte 16x16 indexed texels, strict opaque/cutout/blend validation, explicit six-face block
+  appearances, ordered object material-slot appearances, and validated material-form/equipment
+  bindings. The deterministic startup baker produces stable dense texture descriptors, independently
+  deduplicates indexed patterns and palette rows for cheap recolors, and generates discrete
+  16/8/4/2/1 mip chains without averaging palette indices. Block faces and object material slots are
+  prebaked to draw descriptors so hot meshing does not revisit authored maps. Built-in visual content
+  covers timber, charcoal, copper ore and crushed ore, hammered and molten copper, porous slag,
+  workshop metal, refractory brick, and cutout screen mesh. The complete built-in indexed upload,
+  including palette lookup tables, remains below half the bytes of its equivalent deduplicated RGBA
+  texel mip chain.
 - Deterministic 10,000-tick mixed-system soak with repeated production/transfers, varying structural
   snow load on a persistently cracked supported deck, full-state replay equality, periodic exhaustive
   audits, matter-conservation checks, and lot-fragmentation ceiling.
@@ -403,7 +414,7 @@
   acquisition/construction authorizers exist; experienced post-setup mutations use canonical runtime
   transactions. Isolated unit-test registry builders no longer inherit unrelated canonical gameplay
   content as that content expands.
-- Current debug validation suite: 334 passing tests with `cargo check` silent and
+- Current debug validation suite: 344 passing tests with `cargo check` silent and
   Clippy warnings denied.
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
   as variants evolve instead of relying on review to catch silent fallback behavior.
@@ -413,8 +424,10 @@
 
 ## Deliberately Deferred
 
-- Renderer, input, audio, UI, engine/ECS selection, physics implementation, networking, and general
-  threading architecture.
+- Renderer backend, window/input, audio, UI, engine/ECS selection, physics implementation,
+  networking, and general threading architecture. The compact renderer-neutral texture upload
+  contract is implemented, but no graphics API, shader language, mesh format, or lighting model is
+  selected.
 - Concrete voxel/chunk storage, world generation, spatial indexes, chunk dimensions, and streaming.
 - Regional geological generation algorithms and host-rock relationships, voxel-level terrain matter
   ownership, and physical prospecting resolvers for surface evidence, panning, sampling, drilling,
