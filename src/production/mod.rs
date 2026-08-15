@@ -7,14 +7,18 @@ mod state;
 
 pub use definitions::{ProcessDefinition, ProcessId, ProcessInputPolicy, ProductionRegistry};
 pub use production_execution::{
-    ProcessCompletion, StartProcessCommitError, StartProcessError, ValidatedStartProcess,
-    validate_start_process,
+    ProcessCompletion, ProcessOutputRoute, StartProcessCommitError, StartProcessError,
+    ValidatedStartProcess, validate_start_process, validate_start_process_routed,
 };
 pub use resolution::{
-    ProcessInputError, ProcessResolution, ProcessResolutionError, ValidatedProcessInputs,
-    validate_process_inputs, validate_selected_process_inputs,
+    ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
+    ProcessResolutionError, ValidatedProcessInputs, validate_process_inputs,
+    validate_selected_process_inputs,
 };
-pub use state::{ProductionJobId, ProductionJobRecord, ProductionState, ProductionValidationError};
+pub use state::{
+    ProductionJobId, ProductionJobRecord, ProductionOutputStream, ProductionState,
+    ProductionValidationError,
+};
 
 pub(crate) use production_execution::{
     CompletionCommitError, CompletionPlanError, apply_completion_plan, decide_due_completions,
@@ -23,4 +27,6 @@ pub(crate) use resolution::sum_lot_spec_mass;
 pub(crate) use state::validate_loaded_production;
 
 #[cfg(test)]
-pub(crate) use resolution::make_test_process_resolution;
+pub(crate) use resolution::{
+    make_test_process_resolution, make_test_process_resolution_with_streams,
+};

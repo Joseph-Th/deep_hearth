@@ -117,10 +117,12 @@ pub fn calculate_matter_accounting(
 
     let mut in_process = AggregateMass::ZERO;
     for job in state.production().jobs() {
-        for output in job.outputs() {
-            in_process = in_process
-                .checked_add(AggregateMass::from_mass(output.mass()))
-                .ok_or(MatterAccountingError::InProcessMassOverflow)?;
+        for stream in job.output_streams() {
+            for output in stream.outputs() {
+                in_process = in_process
+                    .checked_add(AggregateMass::from_mass(output.mass()))
+                    .ok_or(MatterAccountingError::InProcessMassOverflow)?;
+            }
         }
     }
 

@@ -596,7 +596,7 @@ fn stockpile_occupancy(
     stockpile: StockpileId,
 ) -> Option<(ProductionJobId, SimulationTick)> {
     state.production().jobs().find_map(|job| {
-        (job.source() == stockpile || job.destination() == stockpile)
+        job.involves_stockpile(stockpile)
             .then_some((job.id(), job.completes_at()))
     })
 }

@@ -4,6 +4,8 @@ mod capabilities;
 mod energy;
 mod equipment;
 mod fluid;
+#[cfg(test)]
+mod gameplay_harness;
 mod materials;
 mod ore_processing;
 mod processes;
@@ -31,15 +33,36 @@ use crate::thermal::{
     ThermalRegistry,
 };
 
+#[cfg(test)]
+fn empty_energy_registry() -> EnergyRegistry {
+    EnergyRegistry::new(std::iter::empty())
+}
+
+#[cfg(test)]
+fn empty_equipment_registry() -> EquipmentRegistry {
+    EquipmentRegistry::new(std::iter::empty())
+}
+
+#[cfg(test)]
+fn empty_thermal_registry() -> ThermalRegistry {
+    ThermalRegistry::new(std::iter::empty(), std::iter::empty(), std::iter::empty())
+}
+
+pub use energy::{
+    ENERGY_ELECTRICAL_BUFFER, ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
+    ENERGY_THERMAL_SINK,
+};
+pub use equipment::{EQUIPMENT_CASTING_MOLD, EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_JAW_CRUSHER};
 pub use materials::{
     FORM_CONCENTRATE, FORM_CRUSHED, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE,
     MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_WOOD,
 };
+pub use processes::{PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_MELT_PURE_COPPER};
 pub use structural::{STRUCTURAL_PROFILE_AXIAL_COMPRESSION, STRUCTURAL_PROFILE_AXIAL_TENSION};
 
 const DEFAULT_TICKS_PER_SECOND: u16 = 20;
 const DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED: u64 = 9_806_650;
-const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(13);
+const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(14);
 
 fn build_core_definitions() -> CoreDefinitions {
     CoreDefinitions::new(
@@ -81,14 +104,14 @@ pub(crate) fn make_test_registries_with_equipment(
         REGISTRY_SCHEMA_VERSION,
         build_core_definitions(),
         RegistryDomains {
-            energy: energy::build_energy_registry(),
+            energy: empty_energy_registry(),
             fluid: fluid::build_fluid_registry(),
             capabilities,
             equipment: EquipmentRegistry::new([equipment_definition]),
             structural: structural::build_structural_registry(),
             materials: materials::build_material_registry(),
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
-            thermal: thermal::build_thermal_registry(),
+            thermal: empty_thermal_registry(),
             production: ProductionRegistry::new(),
         },
     )
@@ -102,14 +125,14 @@ pub(crate) fn make_test_registries_with_process(process: ProcessDefinition) -> R
         REGISTRY_SCHEMA_VERSION,
         build_core_definitions(),
         RegistryDomains {
-            energy: energy::build_energy_registry(),
+            energy: empty_energy_registry(),
             fluid: fluid::build_fluid_registry(),
-            capabilities: capabilities::build_capability_registry(),
-            equipment: equipment::build_equipment_registry(),
+            capabilities: CapabilityRegistry::new(),
+            equipment: empty_equipment_registry(),
             structural: structural::build_structural_registry(),
             materials: materials::build_material_registry(),
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
-            thermal: thermal::build_thermal_registry(),
+            thermal: empty_thermal_registry(),
             production,
         },
     )
@@ -125,12 +148,12 @@ pub(crate) fn make_test_registries_with_energy_store(
         RegistryDomains {
             energy: EnergyRegistry::new([definition]),
             fluid: fluid::build_fluid_registry(),
-            capabilities: capabilities::build_capability_registry(),
-            equipment: equipment::build_equipment_registry(),
+            capabilities: CapabilityRegistry::new(),
+            equipment: empty_equipment_registry(),
             structural: structural::build_structural_registry(),
             materials: materials::build_material_registry(),
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
-            thermal: thermal::build_thermal_registry(),
+            thermal: empty_thermal_registry(),
             production: ProductionRegistry::new(),
         },
     )
@@ -247,15 +270,15 @@ pub(crate) fn make_test_registries_with_fluids(definitions: Vec<FluidDefinition>
         REGISTRY_SCHEMA_VERSION,
         build_core_definitions(),
         RegistryDomains {
-            energy: energy::build_energy_registry(),
+            energy: empty_energy_registry(),
             fluid: FluidRegistry::new(definitions),
-            capabilities: capabilities::build_capability_registry(),
-            equipment: equipment::build_equipment_registry(),
+            capabilities: CapabilityRegistry::new(),
+            equipment: empty_equipment_registry(),
             structural: structural::build_structural_registry(),
             materials: materials::build_material_registry(),
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
-            thermal: thermal::build_thermal_registry(),
-            production: processes::build_production_registry(),
+            thermal: empty_thermal_registry(),
+            production: ProductionRegistry::new(),
         },
     )
 }
@@ -285,7 +308,7 @@ pub(crate) fn make_test_registries_with_comminution(
             structural: structural::build_structural_registry(),
             materials: materials::build_material_registry(),
             ore_processing: OreProcessingRegistry::new([comminution_definition]),
-            thermal: thermal::build_thermal_registry(),
+            thermal: empty_thermal_registry(),
             production,
         },
     )
@@ -324,6 +347,52 @@ mod tests {
     }
 
     #[test]
+    fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
+        let registries = build_registries();
+
+        for equipment in [
+            EQUIPMENT_JAW_CRUSHER,
+            EQUIPMENT_ELECTRIC_FURNACE,
+            EQUIPMENT_CASTING_MOLD,
+        ] {
+            assert!(registries.equipment().get_equipment(equipment).is_some());
+        }
+        for energy in [
+            ENERGY_MECHANICAL_SMALL_DRIVE,
+            ENERGY_MECHANICAL_LARGE_DRIVE,
+            ENERGY_ELECTRICAL_BUFFER,
+            ENERGY_THERMAL_SINK,
+        ] {
+            assert!(registries.energy().get_store(energy).is_some());
+        }
+        for process in [
+            PROCESS_CRUSH_ORE,
+            PROCESS_MELT_PURE_COPPER,
+            PROCESS_CAST_PURE_COPPER,
+        ] {
+            assert!(registries.production().get_process(process).is_some());
+        }
+        assert!(
+            registries
+                .ore_processing()
+                .get_comminution(PROCESS_CRUSH_ORE)
+                .is_some()
+        );
+        assert!(
+            registries
+                .thermal()
+                .get_melting(PROCESS_MELT_PURE_COPPER)
+                .is_some()
+        );
+        assert!(
+            registries
+                .thermal()
+                .get_casting(PROCESS_CAST_PURE_COPPER)
+                .is_some()
+        );
+    }
+
+    #[test]
     fn process_capability_references_are_validated_during_registry_assembly() {
         let mut capabilities = CapabilityRegistry::new();
         capabilities.register_capability(CapabilityDefinition::new(
@@ -351,14 +420,14 @@ mod tests {
             REGISTRY_SCHEMA_VERSION,
             build_core_definitions(),
             RegistryDomains {
-                energy: energy::build_energy_registry(),
+                energy: empty_energy_registry(),
                 fluid: fluid::build_fluid_registry(),
                 capabilities,
-                equipment: equipment::build_equipment_registry(),
+                equipment: empty_equipment_registry(),
                 structural: structural::build_structural_registry(),
                 materials: materials::build_material_registry(),
                 ore_processing: OreProcessingRegistry::new(std::iter::empty()),
-                thermal: thermal::build_thermal_registry(),
+                thermal: empty_thermal_registry(),
                 production,
             },
         );
@@ -443,10 +512,10 @@ mod tests {
                 REGISTRY_SCHEMA_VERSION,
                 build_core_definitions(),
                 RegistryDomains {
-                    energy: energy::build_energy_registry(),
+                    energy: empty_energy_registry(),
                     fluid: fluid::build_fluid_registry(),
                     capabilities,
-                    equipment: equipment::build_equipment_registry(),
+                    equipment: empty_equipment_registry(),
                     structural: structural::build_structural_registry(),
                     materials: materials::build_material_registry(),
                     ore_processing,

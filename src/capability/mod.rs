@@ -289,7 +289,6 @@ impl CapabilityRegistry {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn register_capability(&mut self, definition: CapabilityDefinition) {
         let id = definition.id();
         assert!(

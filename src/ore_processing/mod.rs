@@ -17,8 +17,9 @@ use crate::material::{
 use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
 
 pub use comminution_execution::{
-    ComminutionBatchError, ComminutionJobValidationError, ComminutionRequest,
-    ComminutionResolutionError, ResolvedComminution, resolve_comminution_process,
+    ComminutionBatchError, ComminutionBottleneck, ComminutionJobValidationError,
+    ComminutionRequest, ComminutionResolutionError, ResolvedComminution,
+    resolve_comminution_process,
 };
 
 pub(crate) use comminution_execution::validate_loaded_comminution_job;

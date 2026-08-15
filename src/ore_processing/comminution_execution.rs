@@ -7,6 +7,7 @@ use std::fmt::{Display, Formatter};
 use crate::capability::{CapabilityEvaluationError, CapabilityValue, evaluate_capabilities};
 use crate::core::quantity::{Energy, Mass, MassFlow, Power, Temperature};
 use crate::core::state::AppState;
+use crate::core::time::TickSpan;
 use crate::energy::{
     EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerDurationError,
     calculate_mass_specific_energy, calculate_power_duration_ceiling, validate_energy_supply,
@@ -21,8 +22,8 @@ use crate::material::{
     ParticleSizeRange,
 };
 use crate::production::{
-    ProcessId, ProcessInputError, ProcessResolution, ProcessResolutionError, ProductionJobId,
-    ProductionJobRecord, validate_selected_process_inputs,
+    ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
+    ProcessResolutionError, ProductionJobId, ProductionJobRecord, validate_selected_process_inputs,
 };
 use crate::registry::Registries;
 
@@ -266,6 +267,14 @@ impl Error for ComminutionResolutionError {
     }
 }
 
+/// Authoritative rate constraint that determines one resolved comminution duration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ComminutionBottleneck {
+    Throughput,
+    EnergyDelivery,
+    Balanced,
+}
+
 /// Fully resolved comminution operation ready for the canonical production start transaction.
 #[must_use]
 #[derive(Debug)]
@@ -275,6 +284,8 @@ pub struct ResolvedComminution {
     processing_rate: MassFlow,
     required_energy: Energy,
     available_power: Power,
+    throughput_duration: TickSpan,
+    energy_duration: TickSpan,
 }
 
 impl ResolvedComminution {
@@ -300,6 +311,28 @@ impl ResolvedComminution {
     #[must_use]
     pub const fn available_power(&self) -> Power {
         self.available_power
+    }
+
+    /// Duration imposed by condition-adjusted equipment material throughput alone.
+    #[must_use]
+    pub const fn throughput_duration(&self) -> TickSpan {
+        self.throughput_duration
+    }
+
+    /// Duration imposed by the selected finite energy source's delivery power alone.
+    #[must_use]
+    pub const fn energy_duration(&self) -> TickSpan {
+        self.energy_duration
+    }
+
+    /// Reports which physical rate constraint currently determines authoritative duration.
+    #[must_use]
+    pub fn bottleneck(&self) -> ComminutionBottleneck {
+        match self.throughput_duration.cmp(&self.energy_duration) {
+            std::cmp::Ordering::Greater => ComminutionBottleneck::Throughput,
+            std::cmp::Ordering::Less => ComminutionBottleneck::EnergyDelivery,
+            std::cmp::Ordering::Equal => ComminutionBottleneck::Balanced,
+        }
     }
 }
 
@@ -397,7 +430,10 @@ pub fn resolve_comminution_process(
     let resolution = inputs
         .resolve_with_energy_and_equipment(
             duration,
-            outputs,
+            vec![ProcessOutputStream::new(
+                ProcessOutputStreamId::PRIMARY,
+                outputs,
+            )],
             energy_supply,
             equipment_use,
             condition_after,
@@ -410,6 +446,8 @@ pub fn resolve_comminution_process(
         processing_rate,
         required_energy,
         available_power,
+        throughput_duration,
+        energy_duration,
     })
 }
 
@@ -684,7 +722,10 @@ pub(crate) fn validate_loaded_comminution_job(
                 error,
             }
         })?;
-    if required_outputs.as_slice() != job.outputs() {
+    let Some(output_stream) = job.single_output_stream() else {
+        return Err(ComminutionJobValidationError::OutputMismatch { job: job.id() });
+    };
+    if required_outputs.as_slice() != output_stream.outputs() {
         return Err(ComminutionJobValidationError::OutputMismatch { job: job.id() });
     }
     if consumed_energy.carrier() != definition.energy_carrier() {
@@ -1362,7 +1403,8 @@ mod tests {
                 Ok(encoded) => encoded,
                 Err(error) => panic!("comminution tamper serialization failed: {error}"),
             };
-        tampered["state"]["production"]["jobs"][job.value().to_string()]["outputs"][0]["commodity"] =
+        tampered["state"]["production"]["jobs"][job.value().to_string()]["output_streams"][0]["outputs"]
+            [0]["commodity"] =
             serde_json::json!(CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE).value());
         let tampered: LoadedSaveEnvelope = match serde_json::from_value(tampered) {
             Ok(decoded) => decoded,
@@ -1384,8 +1426,8 @@ mod tests {
                     panic!("comminution particle-size tamper serialization failed: {error}")
                 }
             };
-        tampered_particle_size["state"]["production"]["jobs"][job.value().to_string()]["outputs"]
-            [0]["particle_size"]["maximum_diameter"] = serde_json::json!(5_000_u64);
+        tampered_particle_size["state"]["production"]["jobs"][job.value().to_string()]["output_streams"]
+            [0]["outputs"][0]["particle_size"]["maximum_diameter"] = serde_json::json!(5_000_u64);
         let tampered_particle_size: LoadedSaveEnvelope =
             match serde_json::from_value(tampered_particle_size) {
                 Ok(decoded) => decoded,

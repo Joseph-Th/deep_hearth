@@ -23,8 +23,8 @@ use crate::material::{
     MaterialPhase, MaterialRegistry,
 };
 use crate::production::{
-    ProcessId, ProcessInputError, ProcessResolution, ProcessResolutionError, ProductionJobId,
-    ProductionJobRecord, validate_selected_process_inputs,
+    ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
+    ProcessResolutionError, ProductionJobId, ProductionJobRecord, validate_selected_process_inputs,
 };
 use crate::registry::Registries;
 
@@ -620,7 +620,10 @@ pub fn resolve_casting_process(
     let resolution = inputs
         .resolve_with_equipment_and_energy_release(
             duration,
-            vec![batch.output],
+            vec![ProcessOutputStream::new(
+                ProcessOutputStreamId::PRIMARY,
+                vec![batch.output],
+            )],
             energy_sink,
             equipment_use,
             equipment_condition_after,
@@ -997,7 +1000,10 @@ pub(super) fn validate_loaded_casting_job(
             },
         );
     }
-    if job.outputs() != [batch.output] {
+    let Some(output_stream) = job.single_output_stream() else {
+        return Err(CastingJobValidationError::OutputMismatch { job: job.id() });
+    };
+    if output_stream.outputs() != [batch.output] {
         return Err(CastingJobValidationError::OutputMismatch { job: job.id() });
     }
     Ok(())

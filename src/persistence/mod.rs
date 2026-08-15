@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 25;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 26;
 
 /// Minimal version metadata that adapters decode before choosing a concrete save payload decoder.
 ///
@@ -863,7 +863,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("registry compatibility save serialization failed: {error}"),
         };
-        encoded["registry_schema_version"] = serde_json::json!(12_u32);
+        encoded["registry_schema_version"] = serde_json::json!(13_u32);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("registry compatibility save failed decode: {error}"),
@@ -872,31 +872,31 @@ mod tests {
         assert_eq!(
             decoded.into_state(&registries),
             Err(LoadError::RegistrySchemaMismatch {
-                found: RegistrySchemaVersion::new(12),
-                supported: RegistrySchemaVersion::new(13),
+                found: RegistrySchemaVersion::new(13),
+                supported: RegistrySchemaVersion::new(14),
             })
         );
     }
 
     #[test]
-    fn current_save_rejects_prior_semantic_schema_before_fluid_support_state() {
+    fn current_save_rejects_prior_semantic_schema_before_output_stream_routing() {
         let registries = build_registries();
         let state = AppState::new(WorldSeed::new(0x5700_0020));
         let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
             Ok(encoded) => encoded,
-            Err(error) => panic!("fluid-support schema fixture failed serialization: {error}"),
+            Err(error) => panic!("output-stream schema fixture failed serialization: {error}"),
         };
-        encoded["schema_version"] = serde_json::json!(24_u32);
+        encoded["schema_version"] = serde_json::json!(25_u32);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
-            Err(error) => panic!("fluid-support schema fixture failed decode: {error}"),
+            Err(error) => panic!("output-stream schema fixture failed decode: {error}"),
         };
 
         assert_eq!(
             decoded.into_state(&registries),
             Err(LoadError::UnsupportedSchemaVersion {
-                found: 24,
-                supported: 25,
+                found: 25,
+                supported: CURRENT_SAVE_SCHEMA_VERSION,
             })
         );
     }
@@ -1641,7 +1641,8 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("heating output tamper serialization failed: {error}"),
         };
-        tampered_output["state"]["production"]["jobs"][job.value().to_string()]["outputs"][0]["commodity"] =
+        tampered_output["state"]["production"]["jobs"][job.value().to_string()]["output_streams"]
+            [0]["outputs"][0]["commodity"] =
             serde_json::json!(CommodityKey::new(MATERIAL_WOOD, FORM_LUMP).value());
         let tampered_output: LoadedSaveEnvelope = match serde_json::from_value(tampered_output) {
             Ok(decoded) => decoded,

@@ -22,8 +22,9 @@ use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
 use crate::material::{MaterialLotSpec, MaterialLotSpecError, MaterialPhase, MaterialRegistry};
 use crate::production::{
-    ProcessId, ProcessInputError, ProcessInputPolicy, ProcessResolution, ProcessResolutionError,
-    ProductionJobId, ProductionJobRecord, ProductionRegistry, validate_selected_process_inputs,
+    ProcessId, ProcessInputError, ProcessInputPolicy, ProcessOutputStream, ProcessOutputStreamId,
+    ProcessResolution, ProcessResolutionError, ProductionJobId, ProductionJobRecord,
+    ProductionRegistry, validate_selected_process_inputs,
 };
 use crate::registry::Registries;
 
@@ -679,7 +680,10 @@ pub fn resolve_sensible_heating_process(
     let resolution = inputs
         .resolve_with_energy_and_equipment(
             duration,
-            outputs,
+            vec![ProcessOutputStream::new(
+                ProcessOutputStreamId::PRIMARY,
+                outputs,
+            )],
             energy_supply,
             equipment_use,
             equipment_condition_after,
@@ -1004,11 +1008,14 @@ pub(crate) fn validate_loaded_thermal_job(
             provided: consumed_energy.carrier(),
         });
     }
-    let Some(first_output) = job.outputs().first() else {
+    let Some(output_stream) = job.single_output_stream() else {
+        return Err(ThermalJobValidationError::OutputMismatch { job: job.id() });
+    };
+    let Some(first_output) = output_stream.outputs().first() else {
         return Err(ThermalJobValidationError::OutputMismatch { job: job.id() });
     };
     let target = first_output.temperature();
-    if job
+    if output_stream
         .outputs()
         .iter()
         .any(|output| output.temperature() != target)
@@ -1167,7 +1174,7 @@ pub(crate) fn validate_loaded_thermal_job(
         expected_outputs.push(output);
     }
     expected_outputs.sort();
-    let mut actual_outputs = job.outputs().to_vec();
+    let mut actual_outputs = output_stream.outputs().to_vec();
     actual_outputs.sort();
     if actual_outputs != expected_outputs {
         return Err(ThermalJobValidationError::OutputMismatch { job: job.id() });

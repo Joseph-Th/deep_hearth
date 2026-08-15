@@ -23,8 +23,8 @@ use crate::material::{
     MaterialPhase, MaterialRegistry,
 };
 use crate::production::{
-    ProcessId, ProcessInputError, ProcessResolution, ProcessResolutionError, ProductionJobId,
-    ProductionJobRecord, validate_selected_process_inputs,
+    ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
+    ProcessResolutionError, ProductionJobId, ProductionJobRecord, validate_selected_process_inputs,
 };
 use crate::registry::Registries;
 
@@ -158,14 +158,15 @@ impl Display for MeltingBatchError {
             ),
             Self::ImpureInput { commodity } => write!(
                 formatter,
-                "melting input commodity {} is compositionally mixed; alloy phase diagrams are not modeled",
-                commodity.value()
+                "melting input material {} in form {} is compositionally mixed; alloy phase diagrams are not modeled",
+                commodity.material().value(),
+                commodity.form().value()
             ),
             Self::PureMaterialDoesNotMatchCommodity { commodity, pure } => write!(
                 formatter,
-                "melting input commodity {} hosts material {} but its pure composition is material {}",
-                commodity.value(),
+                "melting input material {} in form {} claims pure material {} instead",
                 commodity.material().value(),
+                commodity.form().value(),
                 pure.value()
             ),
             Self::MixedMaterials { expected, found } => write!(
@@ -617,7 +618,10 @@ pub fn resolve_melting_process(
     let resolution = inputs
         .resolve_with_energy_and_equipment(
             duration,
-            vec![batch.output],
+            vec![ProcessOutputStream::new(
+                ProcessOutputStreamId::PRIMARY,
+                vec![batch.output],
+            )],
             energy_supply,
             equipment_use,
             equipment_condition_after,
@@ -982,7 +986,10 @@ pub(super) fn validate_loaded_melting_job(
             },
         );
     }
-    if job.outputs() != [batch.output] {
+    let Some(output_stream) = job.single_output_stream() else {
+        return Err(MeltingJobValidationError::OutputMismatch { job: job.id() });
+    };
+    if output_stream.outputs() != [batch.output] {
         return Err(MeltingJobValidationError::OutputMismatch { job: job.id() });
     }
     Ok(())

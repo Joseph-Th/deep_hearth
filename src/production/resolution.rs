@@ -4,6 +4,8 @@ use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use serde::{Deserialize, Serialize};
+
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
@@ -21,6 +23,57 @@ use crate::material::{CommodityKey, CompositionError, MaterialId, MaterialLotSpe
 use crate::registry::Registries;
 
 use super::definitions::{ProcessId, ProcessInputPolicy};
+
+/// Operation-local identity for one physically distinct output stream.
+///
+/// IDs are stable within a resolved process family and persisted with in-flight jobs so routing is
+/// never dependent on vector position.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct ProcessOutputStreamId(u16);
+
+impl ProcessOutputStreamId {
+    pub const PRIMARY: Self = Self(1);
+
+    #[must_use]
+    pub const fn new(value: u16) -> Self {
+        assert!(value != 0, "process output stream id must be nonzero");
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn value(self) -> u16 {
+        self.0
+    }
+}
+
+/// One physically inseparable material stream produced by a resolved operation.
+///
+/// A stream may contain multiple homogeneous lot specifications, but routing is assigned to the
+/// stream as a whole. This prevents logistics code from inventing a separation that the physical
+/// resolver did not perform.
+#[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcessOutputStream {
+    id: ProcessOutputStreamId,
+    outputs: Vec<MaterialLotSpec>,
+}
+
+impl ProcessOutputStream {
+    pub(crate) fn new(id: ProcessOutputStreamId, outputs: Vec<MaterialLotSpec>) -> Self {
+        Self { id, outputs }
+    }
+
+    #[must_use]
+    pub const fn id(&self) -> ProcessOutputStreamId {
+        self.id
+    }
+
+    /// Returns the homogeneous lots that jointly make up this inseparable stream.
+    #[must_use]
+    pub fn outputs(&self) -> &[MaterialLotSpec] {
+        &self.outputs
+    }
+}
 
 /// Failure while binding one authored process to the exact source matter a resolver will inspect.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -184,20 +237,30 @@ impl ValidatedProcessInputs {
         duration: TickSpan,
         outputs: Vec<MaterialLotSpec>,
     ) -> Result<ProcessResolution, ProcessResolutionError> {
-        self.resolve_inner(duration, outputs, None, None, None, None)
+        self.resolve_inner(
+            duration,
+            vec![ProcessOutputStream::new(
+                ProcessOutputStreamId::PRIMARY,
+                outputs,
+            )],
+            None,
+            None,
+            None,
+            None,
+        )
     }
 
     pub(crate) fn resolve_with_energy_and_equipment(
         self,
         duration: TickSpan,
-        outputs: Vec<MaterialLotSpec>,
+        output_streams: Vec<ProcessOutputStream>,
         energy_supply: ValidatedEnergySupply,
         equipment_use: ValidatedEquipmentUse,
         equipment_condition_after: Condition,
     ) -> Result<ProcessResolution, ProcessResolutionError> {
         self.resolve_inner(
             duration,
-            outputs,
+            output_streams,
             Some(energy_supply),
             None,
             Some(equipment_use),
@@ -208,14 +271,14 @@ impl ValidatedProcessInputs {
     pub(crate) fn resolve_with_equipment_and_energy_release(
         self,
         duration: TickSpan,
-        outputs: Vec<MaterialLotSpec>,
+        output_streams: Vec<ProcessOutputStream>,
         energy_sink: ValidatedEnergySink,
         equipment_use: ValidatedEquipmentUse,
         equipment_condition_after: Condition,
     ) -> Result<ProcessResolution, ProcessResolutionError> {
         self.resolve_inner(
             duration,
-            outputs,
+            output_streams,
             None,
             Some(energy_sink),
             Some(equipment_use),
@@ -226,7 +289,7 @@ impl ValidatedProcessInputs {
     fn resolve_inner(
         self,
         duration: TickSpan,
-        mut outputs: Vec<MaterialLotSpec>,
+        mut output_streams: Vec<ProcessOutputStream>,
         energy_supply: Option<ValidatedEnergySupply>,
         energy_sink: Option<ValidatedEnergySink>,
         equipment_use: Option<ValidatedEquipmentUse>,
@@ -235,12 +298,25 @@ impl ValidatedProcessInputs {
         if duration.is_zero() {
             return Err(ProcessResolutionError::ZeroDuration);
         }
-        if outputs.is_empty() {
+        if output_streams.is_empty() {
             return Err(ProcessResolutionError::NoOutputs);
         }
-        outputs.sort();
-        validate_outputs(&outputs)?;
-        if sum_lot_spec_mass(&outputs).is_none() {
+        let mut stream_ids = BTreeSet::new();
+        for stream in &mut output_streams {
+            if stream.id.value() == 0 {
+                return Err(ProcessResolutionError::ZeroOutputStreamId);
+            }
+            if !stream_ids.insert(stream.id) {
+                return Err(ProcessResolutionError::DuplicateOutputStreamId { stream: stream.id });
+            }
+            if stream.outputs.is_empty() {
+                return Err(ProcessResolutionError::EmptyOutputStream);
+            }
+            stream.outputs.sort();
+            validate_outputs(&stream.outputs)?;
+        }
+        output_streams.sort_by_key(|stream| stream.id);
+        if sum_output_stream_mass(&output_streams).is_none() {
             return Err(ProcessResolutionError::OutputMassOverflow);
         }
         match (equipment_use, equipment_condition_after) {
@@ -269,8 +345,31 @@ impl ValidatedProcessInputs {
             equipment_use,
             equipment_condition_after,
             duration,
-            outputs,
+            output_streams,
         })
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn make_test_process_resolution_with_streams(
+    inputs: ValidatedProcessInputs,
+    duration_ticks: u64,
+    output_streams: Vec<(ProcessOutputStreamId, Vec<MaterialLotSpec>)>,
+) -> ProcessResolution {
+    let output_streams = output_streams
+        .into_iter()
+        .map(|(id, outputs)| ProcessOutputStream::new(id, outputs))
+        .collect();
+    match inputs.resolve_inner(
+        TickSpan::new(duration_ticks),
+        output_streams,
+        None,
+        None,
+        None,
+        None,
+    ) {
+        Ok(resolution) => resolution,
+        Err(error) => panic!("multi-stream test process resolution fixture failed: {error}"),
     }
 }
 
@@ -373,6 +472,11 @@ pub fn validate_selected_process_inputs(
 pub enum ProcessResolutionError {
     ZeroDuration,
     NoOutputs,
+    ZeroOutputStreamId,
+    DuplicateOutputStreamId {
+        stream: ProcessOutputStreamId,
+    },
+    EmptyOutputStream,
     ZeroOutputMass {
         commodity: CommodityKey,
     },
@@ -401,6 +505,17 @@ impl Display for ProcessResolutionError {
         match self {
             Self::ZeroDuration => formatter.write_str("resolved process duration must be nonzero"),
             Self::NoOutputs => formatter.write_str("resolved process must own output matter"),
+            Self::ZeroOutputStreamId => {
+                formatter.write_str("resolved process output stream id must be nonzero")
+            }
+            Self::DuplicateOutputStreamId { stream } => write!(
+                formatter,
+                "resolved process contains duplicate output stream id {}",
+                stream.value()
+            ),
+            Self::EmptyOutputStream => {
+                formatter.write_str("resolved process output stream must own material")
+            }
             Self::ZeroOutputMass { commodity } => write!(
                 formatter,
                 "resolved output material {} form {} has zero mass",
@@ -451,6 +566,9 @@ impl Error for ProcessResolutionError {
             Self::InvalidOutputComposition { error, .. } => Some(error),
             Self::ZeroDuration
             | Self::NoOutputs
+            | Self::ZeroOutputStreamId
+            | Self::DuplicateOutputStreamId { .. }
+            | Self::EmptyOutputStream
             | Self::ZeroOutputMass { .. }
             | Self::OutputCompositionMissingHost { .. }
             | Self::DuplicateOutputSpecification { .. }
@@ -476,7 +594,7 @@ pub struct ProcessResolution {
     equipment_use: Option<ValidatedEquipmentUse>,
     equipment_condition_after: Option<Condition>,
     duration: TickSpan,
-    outputs: Vec<MaterialLotSpec>,
+    output_streams: Vec<ProcessOutputStream>,
 }
 
 impl ProcessResolution {
@@ -529,9 +647,25 @@ impl ProcessResolution {
         self.duration
     }
 
+    pub fn output_streams(&self) -> &[ProcessOutputStream] {
+        &self.output_streams
+    }
+
+    /// Returns the sole stream for processes whose physics guarantees exactly one output stream.
     #[must_use]
-    pub fn outputs(&self) -> &[MaterialLotSpec] {
-        &self.outputs
+    pub fn single_output_stream(&self) -> Option<&ProcessOutputStream> {
+        let [stream] = self.output_streams.as_slice() else {
+            return None;
+        };
+        Some(stream)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn outputs(&self) -> &[MaterialLotSpec] {
+        match self.single_output_stream() {
+            Some(stream) => stream.outputs(),
+            None => panic!("single-stream test helper used with multi-stream process resolution"),
+        }
     }
 
     pub(crate) const fn selection(&self) -> &ConsumptionSelection {
@@ -574,6 +708,14 @@ fn validate_outputs(outputs: &[MaterialLotSpec]) -> Result<(), ProcessResolution
 
 pub(crate) fn sum_lot_spec_mass(entries: &[MaterialLotSpec]) -> Option<Mass> {
     super::definitions::sum_lot_spec_mass(entries)
+}
+
+pub(crate) fn sum_output_stream_mass(entries: &[ProcessOutputStream]) -> Option<Mass> {
+    let mut total = Mass::ZERO;
+    for stream in entries {
+        total = total.checked_add(sum_lot_spec_mass(stream.outputs())?)?;
+    }
+    Some(total)
 }
 
 #[cfg(test)]

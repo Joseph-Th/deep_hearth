@@ -15,6 +15,32 @@ use crate::maintenance::Condition;
 use crate::material::{CommodityKey, CompositionError, MaterialId, MaterialLotSpec};
 
 use super::definitions::ProcessId;
+use super::resolution::ProcessOutputStreamId;
+
+/// Durable routing for one physically inseparable resolved output stream.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProductionOutputStream {
+    pub(super) id: ProcessOutputStreamId,
+    pub(super) destination: StockpileId,
+    pub(super) outputs: Vec<MaterialLotSpec>,
+}
+
+impl ProductionOutputStream {
+    #[must_use]
+    pub const fn id(&self) -> ProcessOutputStreamId {
+        self.id
+    }
+
+    #[must_use]
+    pub const fn destination(&self) -> StockpileId {
+        self.destination
+    }
+
+    #[must_use]
+    pub fn outputs(&self) -> &[MaterialLotSpec] {
+        &self.outputs
+    }
+}
 
 /// Persistent monotonically allocated production job identifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -39,7 +65,6 @@ pub struct ProductionJobRecord {
     pub(super) id: ProductionJobId,
     pub(super) process: ProcessId,
     pub(super) source: StockpileId,
-    pub(super) destination: StockpileId,
     pub(super) started_at: SimulationTick,
     pub(super) completes_at: SimulationTick,
     pub(super) consumed_mass: Mass,
@@ -48,7 +73,7 @@ pub struct ProductionJobRecord {
     pub(super) released_energy: Option<ReleasedEnergyTrace>,
     pub(super) equipment_provider: Option<EquipmentOperationTrace>,
     pub(super) equipment_condition_after: Option<Condition>,
-    pub(super) outputs: Vec<MaterialLotSpec>,
+    pub(super) output_streams: Vec<ProductionOutputStream>,
 }
 
 impl ProductionJobRecord {
@@ -65,11 +90,6 @@ impl ProductionJobRecord {
     #[must_use]
     pub const fn source(&self) -> StockpileId {
         self.source
-    }
-
-    #[must_use]
-    pub const fn destination(&self) -> StockpileId {
-        self.destination
     }
 
     #[must_use]
@@ -116,10 +136,27 @@ impl ProductionJobRecord {
         self.equipment_condition_after
     }
 
-    /// Returns the exact committed output lots promised when this job was started.
+    /// Returns exact material streams and their committed destinations.
     #[must_use]
-    pub fn outputs(&self) -> &[MaterialLotSpec] {
-        &self.outputs
+    pub fn output_streams(&self) -> &[ProductionOutputStream] {
+        &self.output_streams
+    }
+
+    /// Returns the sole durable stream for process families that require single-stream output.
+    #[must_use]
+    pub fn single_output_stream(&self) -> Option<&ProductionOutputStream> {
+        let [stream] = self.output_streams.as_slice() else {
+            return None;
+        };
+        Some(stream)
+    }
+
+    pub(crate) fn involves_stockpile(&self, stockpile: StockpileId) -> bool {
+        self.source == stockpile
+            || self
+                .output_streams
+                .iter()
+                .any(|stream| stream.destination == stockpile)
     }
 }
 
@@ -266,6 +303,19 @@ pub enum ProductionValidationError {
     NoOutputs {
         job: ProductionJobId,
     },
+    ZeroOutputStreamId {
+        job: ProductionJobId,
+    },
+    DuplicateOutputStreamId {
+        job: ProductionJobId,
+        stream: ProcessOutputStreamId,
+    },
+    NonCanonicalOutputStreamOrder {
+        job: ProductionJobId,
+    },
+    EmptyOutputStream {
+        job: ProductionJobId,
+    },
     NoConsumedInputs {
         job: ProductionJobId,
     },
@@ -336,6 +386,10 @@ pub enum ProductionValidationError {
     DuplicateOutputSpecification {
         job: ProductionJobId,
     },
+    NonCanonicalOutputOrder {
+        job: ProductionJobId,
+        stream: ProcessOutputStreamId,
+    },
     OutputMassOverflow {
         job: ProductionJobId,
     },
@@ -378,6 +432,27 @@ impl Display for ProductionValidationError {
             Self::NoOutputs { job } => write!(
                 formatter,
                 "production job {} owns no in-process output matter",
+                job.value()
+            ),
+            Self::ZeroOutputStreamId { job } => write!(
+                formatter,
+                "production job {} contains a zero output stream id",
+                job.value()
+            ),
+            Self::DuplicateOutputStreamId { job, stream } => write!(
+                formatter,
+                "production job {} contains duplicate output stream id {}",
+                job.value(),
+                stream.value()
+            ),
+            Self::NonCanonicalOutputStreamOrder { job } => write!(
+                formatter,
+                "production job {} output streams are not in canonical stream-id order",
+                job.value()
+            ),
+            Self::EmptyOutputStream { job } => write!(
+                formatter,
+                "production job {} contains an empty output stream",
                 job.value()
             ),
             Self::NoConsumedInputs { job } => write!(
@@ -509,6 +584,12 @@ impl Display for ProductionValidationError {
                 "production job {} contains duplicate resolved output lot specifications",
                 job.value()
             ),
+            Self::NonCanonicalOutputOrder { job, stream } => write!(
+                formatter,
+                "production job {} output stream {} lot specifications are not in canonical order",
+                job.value(),
+                stream.value()
+            ),
             Self::OutputMassMismatch {
                 job,
                 output,
@@ -571,7 +652,7 @@ pub(crate) fn validate_loaded_production(
         if job.completes_at <= job.started_at {
             return Err(ProductionValidationError::CompletionNotAfterStart { job: *id });
         }
-        if job.outputs.is_empty() {
+        if job.output_streams.is_empty() {
             return Err(ProductionValidationError::NoOutputs { job: *id });
         }
         if job.consumed_inputs.is_empty() {
@@ -665,38 +746,68 @@ pub(crate) fn validate_loaded_production(
             }
             (None, None) => {}
         }
-        let mut seen_outputs = BTreeSet::new();
         let mut output_mass = Mass::ZERO;
-        for output in &job.outputs {
-            if output.mass().is_zero() {
-                return Err(ProductionValidationError::ZeroOutputMass {
+        let mut output_stream_ids = BTreeSet::new();
+        let mut previous_stream_id = None;
+        for stream in &job.output_streams {
+            if stream.id.value() == 0 {
+                return Err(ProductionValidationError::ZeroOutputStreamId { job: *id });
+            }
+            if !output_stream_ids.insert(stream.id) {
+                return Err(ProductionValidationError::DuplicateOutputStreamId {
                     job: *id,
-                    commodity: output.commodity(),
+                    stream: stream.id,
                 });
             }
-            output.composition().validate().map_err(|error| {
-                ProductionValidationError::InvalidOutputComposition {
-                    job: *id,
-                    commodity: output.commodity(),
-                    error,
+            if previous_stream_id.is_some_and(|previous| previous > stream.id) {
+                return Err(ProductionValidationError::NonCanonicalOutputStreamOrder { job: *id });
+            }
+            previous_stream_id = Some(stream.id);
+            if stream.outputs.is_empty() {
+                return Err(ProductionValidationError::EmptyOutputStream { job: *id });
+            }
+            let mut seen_outputs = BTreeSet::new();
+            let mut previous_output = None;
+            for output in &stream.outputs {
+                if output.mass().is_zero() {
+                    return Err(ProductionValidationError::ZeroOutputMass {
+                        job: *id,
+                        commodity: output.commodity(),
+                    });
                 }
-            })?;
-            if output
-                .composition()
-                .parts_per_million(output.commodity().material())
-                == 0
-            {
-                return Err(ProductionValidationError::OutputCompositionMissingHost {
-                    job: *id,
-                    host: output.commodity().material(),
-                });
+                output.composition().validate().map_err(|error| {
+                    ProductionValidationError::InvalidOutputComposition {
+                        job: *id,
+                        commodity: output.commodity(),
+                        error,
+                    }
+                })?;
+                if output
+                    .composition()
+                    .parts_per_million(output.commodity().material())
+                    == 0
+                {
+                    return Err(ProductionValidationError::OutputCompositionMissingHost {
+                        job: *id,
+                        host: output.commodity().material(),
+                    });
+                }
+                if !seen_outputs.insert(output.clone()) {
+                    return Err(ProductionValidationError::DuplicateOutputSpecification {
+                        job: *id,
+                    });
+                }
+                if previous_output.is_some_and(|previous: &MaterialLotSpec| previous > output) {
+                    return Err(ProductionValidationError::NonCanonicalOutputOrder {
+                        job: *id,
+                        stream: stream.id,
+                    });
+                }
+                previous_output = Some(output);
+                output_mass = output_mass
+                    .checked_add(output.mass())
+                    .ok_or(ProductionValidationError::OutputMassOverflow { job: *id })?;
             }
-            if !seen_outputs.insert(output.clone()) {
-                return Err(ProductionValidationError::DuplicateOutputSpecification { job: *id });
-            }
-            output_mass = output_mass
-                .checked_add(output.mass())
-                .ok_or(ProductionValidationError::OutputMassOverflow { job: *id })?;
         }
         if output_mass != job.consumed_mass {
             return Err(ProductionValidationError::OutputMassMismatch {

@@ -1897,11 +1897,10 @@ pub(crate) struct ConsumptionReservation {
     expected_revision: u64,
     next_revision: u64,
     source: StockpileId,
-    destination: StockpileId,
     inputs: Vec<MaterialInputSpec>,
     lot_slices: Vec<LotSlice>,
     consumed_inputs: Vec<ConsumedMaterialTrace>,
-    inbound_mass: Mass,
+    inbound_by_destination: BTreeMap<StockpileId, Mass>,
 }
 
 /// Deterministic read-only material selection for physical process resolution.
@@ -2223,9 +2222,8 @@ pub(crate) fn validate_material_relocation_from_selection(
 
 pub(crate) fn validate_consumption_reservation_from_selection(
     state: &InventoryState,
-    destination: StockpileId,
     selection: ConsumptionSelection,
-    inbound_mass: Mass,
+    inbound_by_destination: BTreeMap<StockpileId, Mass>,
 ) -> Result<ConsumptionReservation, ReservationError> {
     let ConsumptionSelection {
         expected_revision,
@@ -2241,51 +2239,52 @@ pub(crate) fn validate_consumption_reservation_from_selection(
             actual: state.revision,
         });
     }
-    let Some(destination_record) = state.get_stockpile(destination) else {
-        return Err(ReservationError::UnknownStockpile {
-            stockpile: destination,
-        });
-    };
     let Some(next_revision) = state.revision.checked_add(1) else {
         return Err(ReservationError::RevisionExhausted);
     };
 
-    let destination_stored_after_consumption = if source == destination {
-        destination_record
-            .stored_mass
-            .checked_sub(total_consumed)
-            .ok_or(ReservationError::MassOverflow { stockpile: source })?
-    } else {
-        destination_record.stored_mass
-    };
-    let committed_after_consumption = destination_stored_after_consumption
-        .checked_add(destination_record.reserved_inbound)
-        .ok_or(ReservationError::MassOverflow {
-            stockpile: destination,
-        })?;
-    let after_reservation = committed_after_consumption
-        .checked_add(inbound_mass)
-        .ok_or(ReservationError::MassOverflow {
-            stockpile: destination,
-        })?;
-    if after_reservation > destination_record.capacity {
-        return Err(ReservationError::CapacityExceeded {
-            stockpile: destination,
-            capacity: destination_record.capacity,
-            committed_after_consumption,
-            requested_inbound: inbound_mass,
-        });
+    for (destination, inbound_mass) in &inbound_by_destination {
+        let Some(destination_record) = state.get_stockpile(*destination) else {
+            return Err(ReservationError::UnknownStockpile {
+                stockpile: *destination,
+            });
+        };
+        let destination_stored_after_consumption = if source == *destination {
+            destination_record
+                .stored_mass
+                .checked_sub(total_consumed)
+                .ok_or(ReservationError::MassOverflow { stockpile: source })?
+        } else {
+            destination_record.stored_mass
+        };
+        let committed_after_consumption = destination_stored_after_consumption
+            .checked_add(destination_record.reserved_inbound)
+            .ok_or(ReservationError::MassOverflow {
+                stockpile: *destination,
+            })?;
+        let after_reservation = committed_after_consumption
+            .checked_add(*inbound_mass)
+            .ok_or(ReservationError::MassOverflow {
+                stockpile: *destination,
+            })?;
+        if after_reservation > destination_record.capacity {
+            return Err(ReservationError::CapacityExceeded {
+                stockpile: *destination,
+                capacity: destination_record.capacity,
+                committed_after_consumption,
+                requested_inbound: *inbound_mass,
+            });
+        }
     }
 
     Ok(ConsumptionReservation {
         expected_revision,
         next_revision,
         source,
-        destination,
         inputs,
         lot_slices,
         consumed_inputs,
-        inbound_mass,
+        inbound_by_destination,
     })
 }
 
@@ -2297,11 +2296,10 @@ pub(crate) fn apply_consumption_reservation(
         expected_revision,
         next_revision,
         source,
-        destination,
         inputs,
         lot_slices,
         consumed_inputs: _consumed_inputs,
-        inbound_mass,
+        inbound_by_destination,
     } = reservation;
 
     if state.revision != expected_revision {
@@ -2318,17 +2316,19 @@ pub(crate) fn apply_consumption_reservation(
         apply_consume_lot_slice(state, slice);
     }
 
-    let destination_record = get_stockpile_mut_or_panic(state, destination);
-    destination_record.reserved_inbound = match destination_record
-        .reserved_inbound
-        .checked_add(inbound_mass)
-    {
-        Some(value) => value,
-        None => panic!(
-            "validated reservation overflowed stockpile {} inbound mass",
-            destination.value()
-        ),
-    };
+    for (destination, inbound_mass) in inbound_by_destination {
+        let destination_record = get_stockpile_mut_or_panic(state, destination);
+        destination_record.reserved_inbound = match destination_record
+            .reserved_inbound
+            .checked_add(inbound_mass)
+        {
+            Some(value) => value,
+            None => panic!(
+                "validated reservation overflowed stockpile {} inbound mass",
+                destination.value()
+            ),
+        };
+    }
     state.revision = next_revision;
     Ok(())
 }

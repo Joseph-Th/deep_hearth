@@ -1,6 +1,6 @@
 //! Production validation, scheduling, completion planning, and atomic application for the sibling state owner.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -30,8 +30,37 @@ use crate::registry::Registries;
 use crate::structural::{StructuralCommitError, StructuralElementId, StructuralLifecycle};
 
 use super::definitions::ProcessId;
-use super::resolution::{ProcessResolution, sum_lot_spec_mass};
-use super::state::{ProductionJobId, ProductionJobRecord};
+use super::resolution::{
+    ProcessOutputStreamId, ProcessResolution, sum_lot_spec_mass, sum_output_stream_mass,
+};
+use super::state::{ProductionJobId, ProductionJobRecord, ProductionOutputStream};
+
+/// Explicit route assigning one resolved physical stream to one stockpile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProcessOutputRoute {
+    stream: ProcessOutputStreamId,
+    destination: StockpileId,
+}
+
+impl ProcessOutputRoute {
+    #[must_use]
+    pub const fn new(stream: ProcessOutputStreamId, destination: StockpileId) -> Self {
+        Self {
+            stream,
+            destination,
+        }
+    }
+
+    #[must_use]
+    pub const fn stream(self) -> ProcessOutputStreamId {
+        self.stream
+    }
+
+    #[must_use]
+    pub const fn destination(self) -> StockpileId {
+        self.destination
+    }
+}
 
 /// Failure while validating the start of one durable material-processing job.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,6 +79,19 @@ pub enum StartProcessError {
     },
     UnknownStockpile {
         stockpile: StockpileId,
+    },
+    OutputRouteCountMismatch {
+        streams: usize,
+        routes: usize,
+    },
+    DuplicateOutputRoute {
+        stream: ProcessOutputStreamId,
+    },
+    UnknownOutputRoute {
+        stream: ProcessOutputStreamId,
+    },
+    MissingOutputRoute {
+        stream: ProcessOutputStreamId,
     },
     DestinationStorage(StockpileStorageError),
     CapacityExceeded {
@@ -161,6 +203,25 @@ impl Display for StartProcessError {
             Self::UnknownStockpile { stockpile } => {
                 write!(formatter, "unknown stockpile id {}", stockpile.value())
             }
+            Self::OutputRouteCountMismatch { streams, routes } => write!(
+                formatter,
+                "resolved process has {streams} output streams but start supplied {routes} routes"
+            ),
+            Self::DuplicateOutputRoute { stream } => write!(
+                formatter,
+                "process start supplies output stream {} more than once",
+                stream.value()
+            ),
+            Self::UnknownOutputRoute { stream } => write!(
+                formatter,
+                "process start routes unknown output stream {}",
+                stream.value()
+            ),
+            Self::MissingOutputRoute { stream } => write!(
+                formatter,
+                "process start does not route output stream {}",
+                stream.value()
+            ),
             Self::DestinationStorage(error) => {
                 write!(
                     formatter,
@@ -342,6 +403,10 @@ impl Error for StartProcessError {
             | Self::UnknownOutputForm { .. }
             | Self::UnknownOutputCompositionMaterial { .. }
             | Self::UnknownStockpile { .. }
+            | Self::OutputRouteCountMismatch { .. }
+            | Self::DuplicateOutputRoute { .. }
+            | Self::UnknownOutputRoute { .. }
+            | Self::MissingOutputRoute { .. }
             | Self::CapacityExceeded { .. }
             | Self::MassOverflow { .. }
             | Self::MatterBalanceMismatch { .. }
@@ -568,6 +633,32 @@ pub fn validate_start_process(
     source: StockpileId,
     destination: StockpileId,
 ) -> Result<ValidatedStartProcess, StartProcessError> {
+    let Some(stream) = resolution.single_output_stream() else {
+        return Err(StartProcessError::OutputRouteCountMismatch {
+            streams: resolution.output_streams().len(),
+            routes: 1,
+        });
+    };
+    validate_start_process_routed(
+        registries,
+        state,
+        resolution,
+        source,
+        &[ProcessOutputRoute::new(stream.id(), destination)],
+    )
+}
+
+/// Validates a resolved process while assigning one destination to each inseparable output stream.
+///
+/// Routes bind typed stream identities rather than relying on vector position. Multiple streams may
+/// intentionally share one stockpile; their capacity reservation is aggregated atomically.
+pub fn validate_start_process_routed(
+    registries: &Registries,
+    state: &AppState,
+    resolution: &ProcessResolution,
+    source: StockpileId,
+    routes: &[ProcessOutputRoute],
+) -> Result<ValidatedStartProcess, StartProcessError> {
     let process = resolution.process();
     if source != resolution.source() {
         return Err(StartProcessError::ResolutionSourceMismatch {
@@ -578,59 +669,125 @@ pub fn validate_start_process(
     if registries.production().get_process(process).is_none() {
         return Err(StartProcessError::UnknownProcess { process });
     }
+    if routes.len() != resolution.output_streams().len() {
+        return Err(StartProcessError::OutputRouteCountMismatch {
+            streams: resolution.output_streams().len(),
+            routes: routes.len(),
+        });
+    }
+    let stream_ids = resolution
+        .output_streams()
+        .iter()
+        .map(|stream| stream.id())
+        .collect::<BTreeSet<_>>();
+    let mut destinations_by_stream = BTreeMap::new();
+    for route in routes {
+        if !stream_ids.contains(&route.stream()) {
+            return Err(StartProcessError::UnknownOutputRoute {
+                stream: route.stream(),
+            });
+        }
+        if destinations_by_stream
+            .insert(route.stream(), route.destination())
+            .is_some()
+        {
+            return Err(StartProcessError::DuplicateOutputRoute {
+                stream: route.stream(),
+            });
+        }
+    }
 
-    for output in resolution.outputs() {
-        if registries
-            .materials()
-            .get_material(output.commodity().material())
-            .is_none()
-        {
-            return Err(StartProcessError::UnknownOutputMaterial {
-                material: output.commodity().material(),
-            });
-        }
-        if registries
-            .materials()
-            .get_form(output.commodity().form())
-            .is_none()
-        {
-            return Err(StartProcessError::UnknownOutputForm {
-                form: output.commodity().form(),
-            });
-        }
-        for component in output.composition().components() {
+    for stream in resolution.output_streams() {
+        for output in stream.outputs() {
             if registries
                 .materials()
-                .get_material(component.material())
+                .get_material(output.commodity().material())
                 .is_none()
             {
-                return Err(StartProcessError::UnknownOutputCompositionMaterial {
-                    material: component.material(),
+                return Err(StartProcessError::UnknownOutputMaterial {
+                    material: output.commodity().material(),
                 });
+            }
+            if registries
+                .materials()
+                .get_form(output.commodity().form())
+                .is_none()
+            {
+                return Err(StartProcessError::UnknownOutputForm {
+                    form: output.commodity().form(),
+                });
+            }
+            for component in output.composition().components() {
+                if registries
+                    .materials()
+                    .get_material(component.material())
+                    .is_none()
+                {
+                    return Err(StartProcessError::UnknownOutputCompositionMaterial {
+                        material: component.material(),
+                    });
+                }
             }
         }
     }
 
-    let Some(destination_record) = state.inventory().get_stockpile(destination) else {
-        return Err(StartProcessError::UnknownStockpile {
-            stockpile: destination,
-        });
-    };
-    for output in resolution.outputs() {
-        validate_stockpile_storage(
-            registries,
-            destination_record,
+    let mut inbound_by_destination = BTreeMap::<StockpileId, Mass>::new();
+    let mut output_streams = Vec::with_capacity(resolution.output_streams().len());
+    for stream in resolution.output_streams() {
+        let destination = destinations_by_stream.get(&stream.id()).copied().ok_or(
+            StartProcessError::MissingOutputRoute {
+                stream: stream.id(),
+            },
+        )?;
+        let Some(destination_record) = state.inventory().get_stockpile(destination) else {
+            return Err(StartProcessError::UnknownStockpile {
+                stockpile: destination,
+            });
+        };
+        for output in stream.outputs() {
+            validate_stockpile_storage(
+                registries,
+                destination_record,
+                destination,
+                output.commodity(),
+                output.composition(),
+                output.temperature(),
+                output.particle_size(),
+            )
+            .map_err(StartProcessError::DestinationStorage)?;
+        }
+        let stream_mass = match sum_lot_spec_mass(stream.outputs()) {
+            Some(mass) => mass,
+            None => panic!("resolved process stream mass overflowed after resolution validation"),
+        };
+        let current = inbound_by_destination
+            .get(&destination)
+            .copied()
+            .unwrap_or(Mass::ZERO);
+        let inbound = current
+            .checked_add(stream_mass)
+            .ok_or(StartProcessError::MassOverflow {
+                stockpile: destination,
+            })?;
+        inbound_by_destination.insert(destination, inbound);
+        output_streams.push(ProductionOutputStream {
+            id: stream.id(),
             destination,
-            output.commodity(),
-            output.composition(),
-            output.temperature(),
-            output.particle_size(),
-        )
-        .map_err(StartProcessError::DestinationStorage)?;
+            outputs: stream.outputs().to_vec(),
+        });
     }
-    let destination_structure_revision =
-        validate_stockpile_support_for_new_inbound(state, destination)
-            .map_err(StartProcessError::StructuralLoad)?;
+    let mut destination_structure_revision = None;
+    for destination in inbound_by_destination.keys().copied() {
+        if let Some(revision) = validate_stockpile_support_for_new_inbound(state, destination)
+            .map_err(StartProcessError::StructuralLoad)?
+        {
+            if let Some(existing) = destination_structure_revision {
+                debug_assert_eq!(existing, revision);
+            } else {
+                destination_structure_revision = Some(revision);
+            }
+        }
+    }
 
     let current = state.tick();
     let Some(completes_at) = current.checked_add_span(resolution.duration()) else {
@@ -650,7 +807,7 @@ pub fn validate_start_process(
         return Err(StartProcessError::ProductionRevisionExhausted);
     };
 
-    let output_mass = match sum_lot_spec_mass(resolution.outputs()) {
+    let output_mass = match sum_output_stream_mass(resolution.output_streams()) {
         Some(mass) => mass,
         None => panic!("resolved process output mass overflowed after resolution validation"),
     };
@@ -663,9 +820,8 @@ pub fn validate_start_process(
     }
     let reservation = validate_consumption_reservation_from_selection(
         state.inventory_state(),
-        destination,
         resolution.selection().clone(),
-        output_mass,
+        inbound_by_destination,
     )
     .map_err(map_reservation_error)?;
     let consumed_inputs = reservation.consumed_inputs().to_vec();
@@ -802,7 +958,6 @@ pub fn validate_start_process(
             id: job_id,
             process,
             source,
-            destination,
             started_at: current,
             completes_at,
             consumed_mass: input_mass,
@@ -811,7 +966,7 @@ pub fn validate_start_process(
             released_energy,
             equipment_provider,
             equipment_condition_after: resolution.equipment_condition_after(),
-            outputs: resolution.outputs().to_vec(),
+            output_streams,
         },
         next_job_id: next_after,
         expected_production_revision,
@@ -891,27 +1046,27 @@ fn map_reservation_error(error: ReservationError) -> StartProcessError {
 }
 
 /// Observable completion emitted by one simulation tick after authoritative output is committed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProcessCompletion {
     job: ProductionJobId,
     process: ProcessId,
-    destination: StockpileId,
+    routes: Vec<ProcessOutputRoute>,
 }
 
 impl ProcessCompletion {
     #[must_use]
-    pub const fn job(self) -> ProductionJobId {
+    pub const fn job(&self) -> ProductionJobId {
         self.job
     }
 
     #[must_use]
-    pub const fn process(self) -> ProcessId {
+    pub const fn process(&self) -> ProcessId {
         self.process
     }
 
     #[must_use]
-    pub const fn destination(self) -> StockpileId {
-        self.destination
+    pub fn routes(&self) -> &[ProcessOutputRoute] {
+        &self.routes
     }
 }
 
@@ -937,6 +1092,12 @@ pub(crate) struct CompletionPlan {
 struct CompletionPlanEntry {
     job: ProductionJobId,
     process: ProcessId,
+    output_streams: Vec<CompletionOutputStreamPlan>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CompletionOutputStreamPlan {
+    id: ProcessOutputStreamId,
     destination: StockpileId,
     outputs: Vec<MaterialLotSpec>,
     output_lot_ids: Vec<MaterialLotId>,
@@ -1012,38 +1173,45 @@ pub(crate) fn decide_due_completions(
                 job_id.value()
             ),
         };
-        let reserved_mass = match sum_lot_spec_mass(job.outputs()) {
-            Some(mass) => mass,
-            None => panic!(
-                "runtime invariant broken: production job {} output mass overflows",
-                job_id.value()
-            ),
-        };
-        let mut output_lot_ids = Vec::with_capacity(job.outputs().len());
-        for _ in job.outputs() {
-            output_lot_ids.push(MaterialLotId::new(next_lot_id));
-            next_lot_id = next_lot_id
-                .checked_add(1)
-                .ok_or(CompletionPlanError::MaterialLotIds)?;
+        let mut output_streams = Vec::with_capacity(job.output_streams().len());
+        for stream in job.output_streams() {
+            let reserved_mass = match sum_lot_spec_mass(stream.outputs()) {
+                Some(mass) => mass,
+                None => panic!(
+                    "runtime invariant broken: production job {} output stream mass overflows",
+                    job_id.value()
+                ),
+            };
+            let mut output_lot_ids = Vec::with_capacity(stream.outputs().len());
+            for _ in stream.outputs() {
+                output_lot_ids.push(MaterialLotId::new(next_lot_id));
+                next_lot_id = next_lot_id
+                    .checked_add(1)
+                    .ok_or(CompletionPlanError::MaterialLotIds)?;
+            }
+            output_streams.push(CompletionOutputStreamPlan {
+                id: stream.id(),
+                destination: stream.destination(),
+                outputs: stream.outputs().to_vec(),
+                output_lot_ids,
+                reserved_mass,
+            });
+            let current = deposited_mass_by_destination
+                .get(&stream.destination())
+                .copied()
+                .unwrap_or(Mass::ZERO);
+            let next = current.checked_add(reserved_mass).ok_or(
+                CompletionPlanError::DestinationMassOverflow {
+                    stockpile: stream.destination(),
+                },
+            )?;
+            deposited_mass_by_destination.insert(stream.destination(), next);
         }
         entries.push(CompletionPlanEntry {
             job: *job_id,
             process: job.process(),
-            destination: job.destination(),
-            outputs: job.outputs().to_vec(),
-            output_lot_ids,
-            reserved_mass,
+            output_streams,
         });
-        let current = deposited_mass_by_destination
-            .get(&job.destination())
-            .copied()
-            .unwrap_or(Mass::ZERO);
-        let next = current.checked_add(reserved_mass).ok_or(
-            CompletionPlanError::DestinationMassOverflow {
-                stockpile: job.destination(),
-            },
-        )?;
-        deposited_mass_by_destination.insert(job.destination(), next);
         if let (Some(provider), Some(after)) =
             (job.equipment_provider(), job.equipment_condition_after())
             && after != provider.condition()
@@ -1208,29 +1376,36 @@ pub(crate) fn apply_completion_plan(
         let CompletionPlanEntry {
             job,
             process,
-            destination,
-            outputs,
-            output_lot_ids,
-            reserved_mass,
+            output_streams,
         } = entry;
-
-        apply_reserved_deposit(
-            state.inventory_state_mut(),
-            destination,
-            &outputs,
-            &output_lot_ids,
-            reserved_mass,
-            tick,
-        );
+        let routes = output_streams
+            .iter()
+            .map(|stream| ProcessOutputRoute::new(stream.id, stream.destination))
+            .collect::<Vec<_>>();
+        for stream in &output_streams {
+            apply_reserved_deposit(
+                state.inventory_state_mut(),
+                stream.destination,
+                &stream.outputs,
+                &stream.output_lot_ids,
+                stream.reserved_mass,
+                tick,
+            );
+        }
         let removed = state.production_state_mut().remove_job(job);
         debug_assert_eq!(removed.process(), process);
-        debug_assert_eq!(removed.destination(), destination);
-        debug_assert_eq!(removed.outputs(), outputs);
+        debug_assert_eq!(removed.output_streams().len(), output_streams.len());
+        for (removed_stream, planned_stream) in removed.output_streams().iter().zip(&output_streams)
+        {
+            debug_assert_eq!(removed_stream.id(), planned_stream.id);
+            debug_assert_eq!(removed_stream.destination(), planned_stream.destination);
+            debug_assert_eq!(removed_stream.outputs(), planned_stream.outputs);
+        }
 
         completions.push(ProcessCompletion {
             job,
             process,
-            destination,
+            routes,
         });
     }
 
@@ -1269,14 +1444,18 @@ mod tests {
         MATERIAL_SLAG, MATERIAL_WOOD, make_test_registries_with_process,
     };
     use crate::core::quantity::{Mass, Temperature};
+    use crate::core::state::{StateValidationError, validate_loaded_state};
     use crate::core::time::WorldSeed;
     use crate::inventory::{add_stockpile, deposit_bulk_for_test, deposit_composed_lot_for_test};
     use crate::material::{
         CommodityKey, CompositionComponent, CompositionConstraint, MaterialComposition,
         MaterialInputSpec, MaterialLotSpec,
     };
+    use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
     use crate::production::{
-        ProcessDefinition, ProcessInputError, make_test_process_resolution, validate_process_inputs,
+        ProcessDefinition, ProcessInputError, ProductionValidationError,
+        make_test_process_resolution, make_test_process_resolution_with_streams,
+        validate_process_inputs,
     };
     use crate::simulation::advance_tick;
 
@@ -1330,6 +1509,40 @@ mod tests {
                 Mass::from_milligrams(10),
             )],
             Vec::new(),
+        )
+    }
+
+    fn make_test_multi_stream_resolution(
+        registries: &Registries,
+        state: &AppState,
+        source: StockpileId,
+        duration_ticks: u64,
+    ) -> ProcessResolution {
+        let inputs = match validate_process_inputs(registries, state, TEST_PROCESS, source) {
+            Ok(inputs) => inputs,
+            Err(error) => panic!("multi-stream input binding failed: {error}"),
+        };
+        make_test_process_resolution_with_streams(
+            inputs,
+            duration_ticks,
+            vec![
+                (
+                    ProcessOutputStreamId::new(20),
+                    vec![MaterialLotSpec::new(
+                        slag_lump(),
+                        Mass::from_milligrams(4),
+                        Temperature::from_millikelvin(600_000),
+                    )],
+                ),
+                (
+                    ProcessOutputStreamId::new(10),
+                    vec![MaterialLotSpec::new(
+                        charcoal_lump(),
+                        Mass::from_milligrams(6),
+                        Temperature::from_millikelvin(600_000),
+                    )],
+                ),
+            ],
         )
     }
 
@@ -1483,6 +1696,204 @@ mod tests {
             Temperature::from_millikelvin(600_000)
         );
         assert_eq!(output_lot.created_at(), SimulationTick::new(3));
+    }
+
+    #[test]
+    fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
+        let registries = make_test_registries();
+        let mut state = AppState::new(WorldSeed::new(10_001));
+        let source = add_test_stockpile(&mut state, 20);
+        let charcoal_destination = add_test_stockpile(&mut state, 10);
+        let slag_destination = add_test_stockpile(&mut state, 10);
+        deposit_test_wood(&registries, &mut state, source, 10);
+        let resolution = make_test_multi_stream_resolution(&registries, &state, source, 1);
+        assert_eq!(
+            resolution
+                .output_streams()
+                .iter()
+                .map(|stream| stream.id())
+                .collect::<Vec<_>>(),
+            vec![
+                ProcessOutputStreamId::new(10),
+                ProcessOutputStreamId::new(20)
+            ]
+        );
+
+        let token = match validate_start_process_routed(
+            &registries,
+            &state,
+            &resolution,
+            source,
+            &[
+                ProcessOutputRoute::new(ProcessOutputStreamId::new(20), slag_destination),
+                ProcessOutputRoute::new(ProcessOutputStreamId::new(10), charcoal_destination),
+            ],
+        ) {
+            Ok(token) => token,
+            Err(error) => panic!("multi-stream process validation failed: {error}"),
+        };
+        let job = commit_process_for_test(token, &mut state);
+
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(charcoal_destination)
+                .map(|record| record.reserved_inbound()),
+            Some(Mass::from_milligrams(6))
+        );
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(slag_destination)
+                .map(|record| record.reserved_inbound()),
+            Some(Mass::from_milligrams(4))
+        );
+        let stored_routes = match state.production().get_job(job) {
+            Some(record) => record
+                .output_streams()
+                .iter()
+                .map(|stream| (stream.id(), stream.destination()))
+                .collect::<Vec<_>>(),
+            None => panic!("multi-stream job disappeared after start"),
+        };
+        assert_eq!(
+            stored_routes,
+            vec![
+                (ProcessOutputStreamId::new(10), charcoal_destination),
+                (ProcessOutputStreamId::new(20), slag_destination),
+            ]
+        );
+        if let Err(error) = validate_loaded_state(&registries, &state) {
+            panic!("multi-stream running state failed validation: {error}");
+        }
+        let encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("multi-stream save serialization failed: {error}"),
+        };
+        let mut noncanonical = encoded.clone();
+        let streams = match noncanonical["state"]["production"]["jobs"]
+            [job.value().to_string()]["output_streams"]
+            .as_array_mut()
+        {
+            Some(streams) => streams,
+            None => panic!("multi-stream save omitted production output streams"),
+        };
+        streams.reverse();
+        let noncanonical: LoadedSaveEnvelope = match serde_json::from_value(noncanonical) {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                panic!("noncanonical multi-stream save failed structural decode: {error}")
+            }
+        };
+        assert_eq!(
+            noncanonical.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Production(
+                ProductionValidationError::NonCanonicalOutputStreamOrder { job }
+            )))
+        );
+
+        let loaded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
+            Ok(loaded) => loaded,
+            Err(error) => panic!("multi-stream save deserialization failed: {error}"),
+        };
+        let restored = match loaded.into_state(&registries) {
+            Ok(restored) => restored,
+            Err(error) => panic!("multi-stream save validation failed: {error}"),
+        };
+        assert_eq!(restored, state);
+
+        let outcome = match advance_tick(&registries, &mut state) {
+            Ok(outcome) => outcome,
+            Err(error) => panic!("multi-stream completion tick failed: {error}"),
+        };
+        assert_eq!(outcome.production_completions().len(), 1);
+        assert_eq!(outcome.production_completions()[0].job(), job);
+        assert_eq!(
+            outcome.production_completions()[0].routes(),
+            [
+                ProcessOutputRoute::new(ProcessOutputStreamId::new(10), charcoal_destination,),
+                ProcessOutputRoute::new(ProcessOutputStreamId::new(20), slag_destination),
+            ]
+        );
+        let charcoal_record = match state.inventory().get_stockpile(charcoal_destination) {
+            Some(record) => record,
+            None => panic!("charcoal destination disappeared"),
+        };
+        assert_eq!(charcoal_record.reserved_inbound(), Mass::ZERO);
+        assert_eq!(
+            charcoal_record.get_mass(charcoal_lump()),
+            Mass::from_milligrams(6)
+        );
+        let slag_record = match state.inventory().get_stockpile(slag_destination) {
+            Some(record) => record,
+            None => panic!("slag destination disappeared"),
+        };
+        assert_eq!(slag_record.reserved_inbound(), Mass::ZERO);
+        assert_eq!(slag_record.get_mass(slag_lump()), Mass::from_milligrams(4));
+    }
+
+    #[test]
+    fn duplicate_output_route_is_rejected_atomically() {
+        let registries = make_test_registries();
+        let mut state = AppState::new(WorldSeed::new(10_002));
+        let source = add_test_stockpile(&mut state, 20);
+        let first_destination = add_test_stockpile(&mut state, 10);
+        let second_destination = add_test_stockpile(&mut state, 10);
+        deposit_test_wood(&registries, &mut state, source, 10);
+        let resolution = make_test_multi_stream_resolution(&registries, &state, source, 1);
+        let before = state.clone();
+
+        let result = validate_start_process_routed(
+            &registries,
+            &state,
+            &resolution,
+            source,
+            &[
+                ProcessOutputRoute::new(ProcessOutputStreamId::new(10), first_destination),
+                ProcessOutputRoute::new(ProcessOutputStreamId::new(10), second_destination),
+            ],
+        );
+
+        assert_eq!(
+            result,
+            Err(StartProcessError::DuplicateOutputRoute {
+                stream: ProcessOutputStreamId::new(10),
+            })
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn shared_destination_capacity_is_checked_against_aggregate_stream_mass() {
+        let registries = make_test_registries();
+        let mut state = AppState::new(WorldSeed::new(10_003));
+        let source = add_test_stockpile(&mut state, 20);
+        let destination = add_test_stockpile(&mut state, 9);
+        deposit_test_wood(&registries, &mut state, source, 10);
+        let resolution = make_test_multi_stream_resolution(&registries, &state, source, 1);
+        let before = state.clone();
+
+        let result = validate_start_process_routed(
+            &registries,
+            &state,
+            &resolution,
+            source,
+            &[
+                ProcessOutputRoute::new(ProcessOutputStreamId::new(10), destination),
+                ProcessOutputRoute::new(ProcessOutputStreamId::new(20), destination),
+            ],
+        );
+
+        assert_eq!(
+            result,
+            Err(StartProcessError::CapacityExceeded {
+                stockpile: destination,
+                capacity: Mass::from_milligrams(9),
+                committed_after_consumption: Mass::ZERO,
+                requested_inbound: Mass::from_milligrams(10),
+            })
+        );
+        assert_eq!(state, before);
     }
 
     #[test]

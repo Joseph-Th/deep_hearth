@@ -198,9 +198,20 @@
   grinding distinctions. Mass, normalized composition, and temperature remain exact. Runtime
   equipment condition can derate throughput, while finite source output power can independently
   bottleneck the operation; authoritative duration uses the slower limit and therefore drives
-  active-tick wear. Persisted jobs recompute output form and particle bounds, exact work energy,
-  carrier, power-limited duration, and wear from their committed traces. No built-in crushing or
-  grinding process is registered until concrete equipment and finite power-source content exists.
+  active-tick wear. Resolved comminution now exposes the independent throughput- and energy-limited
+  durations plus a typed current bottleneck, so diagnostics and future player-facing adapters can
+  explain why an operation takes as long as it does without reimplementing resolver physics.
+  Persisted jobs recompute output form and particle bounds, exact work energy, carrier, power-limited
+  duration, and wear from their committed traces. A canonical workshop jaw crusher, small and large
+  finite mechanical drives, and ore-crushing process are now authored in the same built-in registry
+  path used by runtime gameplay and the agent harness.
+- Production output ownership is stream-based rather than destination-global. Resolvers assign typed
+  operation-local stream IDs, resolution canonicalizes stream order by ID, and durable jobs preserve
+  each physically inseparable stream's identity, exact lot specifications, and routed destination.
+  Start validation binds routes by stream ID, validates every destination, aggregates inbound capacity
+  reservations per stockpile under one inventory revision, and completion deposits every stream from
+  one deterministic plan. Current sensible-heating, melt/cast, and comminution resolvers remain
+  explicitly single-stream and reject incompatible persisted multi-stream jobs.
 - Ore-processing and thermal resolver registries have exclusive process ownership, preventing one
   process ID from silently acquiring two incompatible physical interpretations.
 - Selected-batch sensible heating derives required energy from each selected lot's actual mass,
@@ -230,16 +241,17 @@
   structural construction/deconstruction, sensible heating, pure-material melting, and casting all
   preserve the modeled total across ownership changes.
 - Canonical top-level tick pipeline with cheap per-tick invariants and exhaustive save/load audits.
-- Persistence semantic schema 25 and authored registry compatibility schema 13 with metadata
+- Persistence semantic schema 26 and authored registry compatibility schema 14 with metadata
   preflight, registry-aware state validation, structural topology/damage audits, energy/equipment
   ownership validation, directional energy-source/sink reservation and capacity audits, embodied
   structural matter/self-weight/phase audits, geometry/density-to-mass recomputation,
   equipment-support/load agreement audits, stockpile-support/index/stored-matter-load agreement
   audits, fluid-support/index/density-derived-load agreement audits, exclusive-resource double-book
   detection,
-  particle-size policy/state audits, operation-specific sensible-heating/melting/casting and
-  comminution recomputation including exact output particle bounds, post-operation condition outcomes
-  and released heat, stable in-flight conservation snapshots, and deterministic continuation tests.
+  particle-size policy/state audits, typed production-stream identity/routing and per-destination
+  reservation audits, operation-specific sensible-heating/melting/casting and comminution
+  recomputation including exact output particle bounds, post-operation condition outcomes and
+  released heat, stable in-flight conservation snapshots, and deterministic continuation tests.
 - Chunk-independent 64-bit voxel coordinates and validated spatial bounds without choosing chunk
   dimensions or streaming policy.
 - Deterministic 10,000-tick mixed-system soak with repeated production/transfers, varying structural
@@ -283,7 +295,23 @@
 - Deterministic 1,000-transfer supported-stockpile soak repeatedly moves one finite material lot
   between separately supported stockpiles, updating both derived structural loads on every transfer,
   with periodic exhaustive audits and replay-identical final state.
-- Current debug validation suite: 311 passing tests with `cargo check` silent and
+- The agent-facing copper-workshop gameplay harness consumes `build_registries()` directly rather
+  than maintaining shadow equipment/process definitions. Canonical built-in content now includes the
+  jaw crusher, electric furnace, cooled casting mold, two mechanical drive envelopes, electrical
+  buffer, thermal sink, ore crushing, pure-copper melting, and pure-copper casting used by the
+  harness. Normal harness runs combine a deterministic coverage matrix with one time-derived,
+  printed exploratory seed, so repeated cold-agent runs encounter fresh state while any failure is
+  exactly replayable. Ore grade, batch size, initial equipment condition, support geometry, secondary
+  structural load, operating policy, and thermal batch mass all vary by seed. A
+  `DEEP_HEARTH_GAMEPLAY_SEEDS` override accepts exact decimal or hex seed lists for deterministic
+  replay or wider exploratory sweeps without weakening per-scenario physical assertions. Decisions are
+  state-reactive: support choice uses structural analysis, the alternate failure branch adapts to
+  immediate versus later collapse, power choice compares currently resolved durations, and cautious
+  variants stop additional crushing at a maintenance warning. Scenario matter and initial stored
+  energy remain explicit setup fixtures until acquisition and generation resolvers exist; all
+  post-setup mutations use canonical runtime transactions. Isolated unit-test registry builders no
+  longer inherit unrelated canonical gameplay content as that content expands.
+- Current debug validation suite: 316 passing tests with `cargo check` silent and
   Clippy warnings denied.
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
   as variants evolve instead of relying on review to catch silent fallback behavior.
@@ -307,7 +335,8 @@
   alloy/solution phase diagrams, combustion, fuel networks, and emissions. Pure-material solid/liquid
   fusion and finite explicit thermal sinks are modeled; an implicit environment is deliberately not
   used as an infinite heat source or sink.
-- Concrete equipment/tool/worker content, richer voxel/container equipment placement beyond a
+- Broader equipment/tool/worker content beyond the canonical crusher, furnace, and casting mold;
+  richer voxel/container equipment placement beyond a
   structural support owner, physical spare-part suitability, repair tools/labor/duration, replacement
   and waste transformations, discrete capability-disable policies, and authored gameplay-specific
   degradation curves. Exact maintenance matter is now required and conserved by the canonical repair
@@ -326,13 +355,13 @@
   canonically; the remaining owners remain deferred.
 - Additional production resolvers beyond sensible heating, pure-material melt/cast, and conservative
   comminution, including screening mass partition, particle-size distributions needed when a screen
-  cut intersects a lot's current diameter envelope, multi-destination material-stream ownership for
-  simultaneous oversize/undersize outputs, concrete grinding equipment/process content, washing,
-  gravity/flotation separation, explicit recovery/tailings physics, chemical smelting/reduction,
-  alloying, forging/working, machining/tool wear, labor/skill, chemistry, and environmental
-  constraints. Diameter bounds deliberately do not fabricate a size distribution or screening yield,
-  and the current one-destination production owner is not stretched into a fake separation API.
-  Gameplay processes remain unregistered until their corresponding physical gates exist.
+  cut intersects a lot's current diameter envelope, concrete grinding equipment/process content,
+  washing, gravity/flotation separation, explicit recovery/tailings physics, chemical
+  smelting/reduction, alloying, forging/working, machining/tool wear, labor/skill, chemistry, and
+  environmental constraints. Typed multi-stream ownership and routing now support future physical
+  separation outputs, but diameter bounds deliberately do not fabricate a size distribution or
+  screening yield. The canonical crush/pure-melt/pure-cast processes are registered; additional
+  gameplay processes remain unregistered until their corresponding physical gates exist.
 - Persistent mechanical-power networks and shaft/belt layout, rotational inertia/flywheels, slip and
   clutch state, steam/boilers, electrical networks, transformers, protection, and distribution
   topology, plus conserved primary energy-generation paths for finite stores. Directional finite

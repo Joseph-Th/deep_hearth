@@ -1089,12 +1089,6 @@ pub fn validate_loaded_state(
                 stockpile: job.source(),
             });
         }
-        let Some(destination_record) = state.inventory.get_stockpile(job.destination()) else {
-            return Err(StateValidationError::UnknownJobDestination {
-                job: job.id(),
-                stockpile: job.destination(),
-            });
-        };
         if let Some(trace) = job.consumed_energy() {
             let Some(store) = state.energy.get_store(trace.source()) else {
                 return Err(StateValidationError::UnknownJobEnergySource {
@@ -1265,52 +1259,60 @@ pub fn validate_loaded_state(
             })?;
         }
 
-        for output in job.outputs() {
-            if !registries.materials().has_commodity(output.commodity()) {
-                return Err(StateValidationError::UnknownJobOutputCommodity {
+        for stream in job.output_streams() {
+            let destination = stream.destination();
+            let Some(destination_record) = state.inventory.get_stockpile(destination) else {
+                return Err(StateValidationError::UnknownJobDestination {
                     job: job.id(),
-                    commodity: output.commodity(),
+                    stockpile: destination,
                 });
-            }
-            for component in output.composition().components() {
-                if registries
-                    .materials()
-                    .get_material(component.material())
-                    .is_none()
-                {
-                    return Err(StateValidationError::UnknownJobOutputCompositionMaterial {
+            };
+            for output in stream.outputs() {
+                if !registries.materials().has_commodity(output.commodity()) {
+                    return Err(StateValidationError::UnknownJobOutputCommodity {
                         job: job.id(),
-                        material: component.material(),
+                        commodity: output.commodity(),
                     });
                 }
-            }
-            validate_stockpile_storage(
-                registries,
-                destination_record,
-                job.destination(),
-                output.commodity(),
-                output.composition(),
-                output.temperature(),
-                output.particle_size(),
-            )
-            .map_err(|error| StateValidationError::JobOutputStorage {
-                job: job.id(),
-                error,
-            })?;
-        }
-        let output_mass = sum_lot_spec_mass(job.outputs())
-            .ok_or(StateValidationError::JobOutputMassOverflow { job: job.id() })?;
-        let current = expected_reservations
-            .get(&job.destination())
-            .copied()
-            .unwrap_or(Mass::ZERO);
-        let expected =
-            current
-                .checked_add(output_mass)
-                .ok_or(StateValidationError::ReservedMassOverflow {
-                    stockpile: job.destination(),
+                for component in output.composition().components() {
+                    if registries
+                        .materials()
+                        .get_material(component.material())
+                        .is_none()
+                    {
+                        return Err(StateValidationError::UnknownJobOutputCompositionMaterial {
+                            job: job.id(),
+                            material: component.material(),
+                        });
+                    }
+                }
+                validate_stockpile_storage(
+                    registries,
+                    destination_record,
+                    destination,
+                    output.commodity(),
+                    output.composition(),
+                    output.temperature(),
+                    output.particle_size(),
+                )
+                .map_err(|error| StateValidationError::JobOutputStorage {
+                    job: job.id(),
+                    error,
                 })?;
-        expected_reservations.insert(job.destination(), expected);
+            }
+            let output_mass = sum_lot_spec_mass(stream.outputs())
+                .ok_or(StateValidationError::JobOutputMassOverflow { job: job.id() })?;
+            let current = expected_reservations
+                .get(&destination)
+                .copied()
+                .unwrap_or(Mass::ZERO);
+            let expected = current.checked_add(output_mass).ok_or(
+                StateValidationError::ReservedMassOverflow {
+                    stockpile: destination,
+                },
+            )?;
+            expected_reservations.insert(destination, expected);
+        }
     }
 
     for stockpile in state.inventory.stockpiles() {
