@@ -68,7 +68,11 @@ acquired geological knowledge, inventory, and production. New subsystems add exp
 rather than turning `AppState` into a bag of unrelated maps.
 
 Runtime records use typed persistent IDs. Each subsystem owns its record collections and synchronized
-indexes; callers receive read-only views and canonical systems retain mutation access.
+indexes; callers receive read-only views and canonical systems retain mutation access. State owner
+modules keep records, indexes, and owner mutation primitives together while descendant
+`state/validation.rs` modules perform exhaustive persistence audits against those private fields. This
+keeps load validation close to the owner without widening mutation visibility or mixing audit code
+into the runtime state surface.
 
 - `InventoryState` owns stockpiles, persistent material lots, generated stockpile/lot IDs, derived
   commodity totals, cached stored mass, inbound reservations, persisted phase/temperature containment
@@ -102,7 +106,10 @@ precondition before mutation. Multi-resource mutations use consumed validated to
 read broad state but write a narrow result use decide/apply pairs.
 
 Top-level tick order remains visible in one function. Subsystems do not hide gameplay mutations in
-callbacks, event handlers, record methods, or engine lifecycle hooks.
+callbacks, event handlers, record methods, or engine lifecycle hooks. Production execution keeps one
+public facade while separating process-start admission from in-flight availability/completion work.
+Thermal process execution similarly separates immutable resolver registration, sensible-heating
+runtime resolution, and persisted-job replay validation behind one subsystem facade.
 
 ## 7. Persistence
 

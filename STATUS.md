@@ -444,6 +444,11 @@
   acquisition/construction authorizers exist; experienced post-setup mutations use canonical runtime
   transactions. Isolated unit-test registry builders no longer inherit unrelated canonical gameplay
   content as that content expands.
+- Runtime state owners keep records, synchronized indexes, and owner mutation primitives in their
+  state modules while descendant validation modules own exhaustive persistence audits without widening
+  private mutation access. Production execution is organized behind one canonical facade with separate
+  start-admission and in-flight completion modules; thermal process code likewise separates immutable
+  resolver registration, sensible-heating resolution, and persistence replay validation.
 - Current debug validation suite passes with `cargo check` silent and
   Clippy warnings denied.
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
