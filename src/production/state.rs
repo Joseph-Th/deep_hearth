@@ -1,4 +1,4 @@
-//! Durable production jobs and due-tick index; sibling execution code owns every mutation.
+//! Durable production jobs and synchronized scheduling/resource indexes; sibling execution code owns every mutation.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
@@ -256,17 +256,9 @@ impl ProductionJobRecord {
         };
         Some(stream)
     }
-
-    pub(crate) fn involves_stockpile(&self, stockpile: StockpileId) -> bool {
-        self.source == stockpile
-            || self
-                .output_streams
-                .iter()
-                .any(|stream| stream.destination == stockpile)
-    }
 }
 
-/// Runtime owner for active process jobs and the deterministic due-tick index.
+/// Runtime owner for active process jobs and deterministic scheduling/resource indexes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProductionState {
     pub(super) revision: u64,
@@ -274,6 +266,8 @@ pub struct ProductionState {
     pub(super) jobs: BTreeMap<ProductionJobId, ProductionJobRecord>,
     pub(super) due_jobs: BTreeMap<SimulationTick, BTreeSet<ProductionJobId>>,
     energy_occupancy: BTreeMap<EnergyStoreId, ProductionJobId>,
+    equipment_occupancy: BTreeMap<EquipmentId, ProductionJobId>,
+    stockpile_occupancy: BTreeMap<StockpileId, BTreeSet<ProductionJobId>>,
 }
 
 impl ProductionState {
@@ -285,6 +279,8 @@ impl ProductionState {
             jobs: BTreeMap::new(),
             due_jobs: BTreeMap::new(),
             energy_occupancy: BTreeMap::new(),
+            equipment_occupancy: BTreeMap::new(),
+            stockpile_occupancy: BTreeMap::new(),
         }
     }
 
@@ -366,6 +362,15 @@ impl ProductionState {
             .is_some_and(|expected| expected == self.energy_occupancy)
     }
 
+    pub(crate) fn has_valid_equipment_occupancy_index(&self) -> bool {
+        self.expected_equipment_occupancy()
+            .is_some_and(|expected| expected == self.equipment_occupancy)
+    }
+
+    pub(crate) fn has_valid_stockpile_occupancy_index(&self) -> bool {
+        self.expected_stockpile_occupancy() == self.stockpile_occupancy
+    }
+
     fn expected_energy_occupancy(&self) -> Option<BTreeMap<EnergyStoreId, ProductionJobId>> {
         let mut occupied = BTreeMap::new();
         for job in self.jobs.values() {
@@ -407,6 +412,68 @@ impl ProductionState {
         None
     }
 
+    fn expected_equipment_occupancy(&self) -> Option<BTreeMap<EquipmentId, ProductionJobId>> {
+        let mut occupied = BTreeMap::new();
+        for job in self.jobs.values() {
+            if let Some(provider) = job.equipment_provider
+                && occupied.insert(provider.equipment(), job.id).is_some()
+            {
+                return None;
+            }
+        }
+        Some(occupied)
+    }
+
+    fn equipment_occupancy_mismatch(
+        &self,
+    ) -> Option<(
+        EquipmentId,
+        Option<ProductionJobId>,
+        Option<ProductionJobId>,
+    )> {
+        let expected = self.expected_equipment_occupancy()?;
+        let equipment_ids = self
+            .equipment_occupancy
+            .keys()
+            .chain(expected.keys())
+            .copied()
+            .collect::<BTreeSet<_>>();
+        for equipment in equipment_ids {
+            let indexed = self.equipment_occupancy.get(&equipment).copied();
+            let expected = expected.get(&equipment).copied();
+            if indexed != expected {
+                return Some((equipment, indexed, expected));
+            }
+        }
+        None
+    }
+
+    fn expected_stockpile_occupancy(&self) -> BTreeMap<StockpileId, BTreeSet<ProductionJobId>> {
+        let mut occupied = BTreeMap::<StockpileId, BTreeSet<ProductionJobId>>::new();
+        for job in self.jobs.values() {
+            let stockpiles = std::iter::once(job.source)
+                .chain(job.output_streams.iter().map(|stream| stream.destination))
+                .collect::<BTreeSet<_>>();
+            for stockpile in stockpiles {
+                occupied.entry(stockpile).or_default().insert(job.id);
+            }
+        }
+        occupied
+    }
+
+    fn stockpile_occupancy_mismatch(&self) -> Option<StockpileId> {
+        let expected = self.expected_stockpile_occupancy();
+        let stockpiles = self
+            .stockpile_occupancy
+            .keys()
+            .chain(expected.keys())
+            .copied()
+            .collect::<BTreeSet<_>>();
+        stockpiles
+            .into_iter()
+            .find(|stockpile| self.stockpile_occupancy.get(stockpile) != expected.get(stockpile))
+    }
+
     pub(crate) fn earliest_due_tick(&self) -> Option<SimulationTick> {
         self.due_jobs.keys().next().copied()
     }
@@ -428,6 +495,29 @@ impl ProductionState {
         self.energy_occupancy.get(&store).copied()
     }
 
+    /// Returns the active production job that exclusively occupies one equipment instance.
+    #[must_use]
+    pub(crate) fn get_equipment_occupant(
+        &self,
+        equipment: EquipmentId,
+    ) -> Option<&ProductionJobRecord> {
+        self.equipment_occupancy
+            .get(&equipment)
+            .and_then(|job| self.jobs.get(job))
+    }
+
+    /// Returns the lowest-ID active production job involving one stockpile, if any.
+    #[must_use]
+    pub(crate) fn get_stockpile_occupant(
+        &self,
+        stockpile: StockpileId,
+    ) -> Option<&ProductionJobRecord> {
+        self.stockpile_occupancy
+            .get(&stockpile)
+            .and_then(BTreeSet::first)
+            .and_then(|job| self.jobs.get(job))
+    }
+
     pub(super) fn insert_job(
         &mut self,
         job: ProductionJobRecord,
@@ -438,6 +528,10 @@ impl ProductionState {
         let completes_at = job.completes_at;
         let consumed_energy_store = job.consumed_energy.map(|trace| trace.source());
         let released_energy_store = job.released_energy.map(|trace| trace.destination());
+        let equipment = job.equipment_provider.map(|provider| provider.equipment());
+        let stockpiles = std::iter::once(job.source)
+            .chain(job.output_streams.iter().map(|stream| stream.destination))
+            .collect::<BTreeSet<_>>();
         if let (Some(consumed), Some(released)) = (consumed_energy_store, released_energy_store) {
             assert_ne!(
                 consumed, released,
@@ -451,6 +545,12 @@ impl ProductionState {
             assert!(
                 !self.energy_occupancy.contains_key(&store),
                 "validated production job cannot replace an existing energy-store reservation"
+            );
+        }
+        if let Some(equipment) = equipment {
+            assert!(
+                !self.equipment_occupancy.contains_key(&equipment),
+                "validated production job cannot replace an existing equipment reservation"
             );
         }
         let replaced = self.jobs.insert(id, job);
@@ -469,6 +569,18 @@ impl ProductionState {
         {
             let previous = self.energy_occupancy.insert(store, id);
             debug_assert!(previous.is_none());
+        }
+        if let Some(equipment) = equipment {
+            let previous = self.equipment_occupancy.insert(equipment, id);
+            debug_assert!(previous.is_none());
+        }
+        for stockpile in stockpiles {
+            let inserted = self
+                .stockpile_occupancy
+                .entry(stockpile)
+                .or_default()
+                .insert(id);
+            debug_assert!(inserted);
         }
         self.next_job_id = next_job_id;
         self.revision = next_revision;
@@ -510,6 +622,38 @@ impl ProductionState {
                 "runtime invariant broken: energy occupancy index disagrees with production job {}",
                 id.value()
             );
+        }
+        if let Some(provider) = job.equipment_provider {
+            let removed = self.equipment_occupancy.remove(&provider.equipment());
+            assert_eq!(
+                removed,
+                Some(id),
+                "runtime invariant broken: equipment occupancy index disagrees with production job {}",
+                id.value()
+            );
+        }
+        let stockpiles = std::iter::once(job.source)
+            .chain(job.output_streams.iter().map(|stream| stream.destination))
+            .collect::<BTreeSet<_>>();
+        for stockpile in stockpiles {
+            let remove_bucket = {
+                let occupants = match self.stockpile_occupancy.get_mut(&stockpile) {
+                    Some(occupants) => occupants,
+                    None => panic!(
+                        "runtime invariant broken: stockpile occupancy index missing production job {}",
+                        id.value()
+                    ),
+                };
+                assert!(
+                    occupants.remove(&id),
+                    "runtime invariant broken: stockpile occupancy index disagrees with production job {}",
+                    id.value()
+                );
+                occupants.is_empty()
+            };
+            if remove_bucket {
+                self.stockpile_occupancy.remove(&stockpile);
+            }
         }
         job
     }
@@ -688,6 +832,14 @@ pub enum ProductionValidationError {
         store: EnergyStoreId,
         indexed: Option<ProductionJobId>,
         expected: Option<ProductionJobId>,
+    },
+    EquipmentOccupancyIndexMismatch {
+        equipment: EquipmentId,
+        indexed: Option<ProductionJobId>,
+        expected: Option<ProductionJobId>,
+    },
+    StockpileOccupancyIndexMismatch {
+        stockpile: StockpileId,
     },
 }
 
@@ -991,6 +1143,22 @@ impl Display for ProductionValidationError {
                 store.value(),
                 indexed.map(ProductionJobId::value),
                 expected.map(ProductionJobId::value)
+            ),
+            Self::EquipmentOccupancyIndexMismatch {
+                equipment,
+                indexed,
+                expected,
+            } => write!(
+                formatter,
+                "equipment occupancy index for equipment {} records job {:?} but active jobs require {:?}",
+                equipment.value(),
+                indexed.map(ProductionJobId::value),
+                expected.map(ProductionJobId::value)
+            ),
+            Self::StockpileOccupancyIndexMismatch { stockpile } => write!(
+                formatter,
+                "stockpile occupancy index for stockpile {} disagrees with active production jobs",
+                stockpile.value()
             ),
         }
     }
@@ -1303,6 +1471,16 @@ pub(crate) fn validate_loaded_production(
             indexed,
             expected,
         });
+    }
+    if let Some((equipment, indexed, expected)) = state.equipment_occupancy_mismatch() {
+        return Err(ProductionValidationError::EquipmentOccupancyIndexMismatch {
+            equipment,
+            indexed,
+            expected,
+        });
+    }
+    if let Some(stockpile) = state.stockpile_occupancy_mismatch() {
+        return Err(ProductionValidationError::StockpileOccupancyIndexMismatch { stockpile });
     }
     Ok(())
 }

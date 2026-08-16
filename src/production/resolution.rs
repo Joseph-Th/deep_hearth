@@ -386,24 +386,26 @@ pub fn validate_process_inputs(
     let ProcessInputPolicy::Fixed { inputs, .. } = definition.input_policy() else {
         return Err(ProcessInputError::ExplicitSelectionRequired { process });
     };
-    let selection = validate_consumption_selection(state.inventory_state(), source, inputs)
-        .map_err(|error| match error {
-            ConsumptionSelectionError::UnknownStockpile { stockpile } => {
-                ProcessInputError::UnknownStockpile { stockpile }
-            }
-            ConsumptionSelectionError::InsufficientMass {
-                stockpile,
-                commodity,
-                available,
-                requested,
-            } => ProcessInputError::InsufficientMass {
-                stockpile,
-                commodity,
-                available,
-                requested,
-            },
-            ConsumptionSelectionError::MassOverflow { stockpile } => {
-                ProcessInputError::MassOverflow { stockpile }
+    let selection =
+        validate_consumption_selection(state.inventory(), source, inputs).map_err(|error| {
+            match error {
+                ConsumptionSelectionError::UnknownStockpile { stockpile } => {
+                    ProcessInputError::UnknownStockpile { stockpile }
+                }
+                ConsumptionSelectionError::InsufficientMass {
+                    stockpile,
+                    commodity,
+                    available,
+                    requested,
+                } => ProcessInputError::InsufficientMass {
+                    stockpile,
+                    commodity,
+                    available,
+                    requested,
+                },
+                ConsumptionSelectionError::MassOverflow { stockpile } => {
+                    ProcessInputError::MassOverflow { stockpile }
+                }
             }
         })?;
     Ok(ValidatedProcessInputs { process, selection })
@@ -424,46 +426,43 @@ pub fn validate_selected_process_inputs(
     if !matches!(definition.input_policy(), ProcessInputPolicy::SelectedBatch) {
         return Err(ProcessInputError::FixedInputsRequired { process });
     }
-    let selection =
-        validate_explicit_consumption_selection(state.inventory_state(), source, selections)
-            .map_err(|error| match error {
-                ExplicitConsumptionSelectionError::UnknownStockpile { stockpile } => {
-                    ProcessInputError::UnknownStockpile { stockpile }
-                }
-                ExplicitConsumptionSelectionError::EmptySelection => {
-                    ProcessInputError::EmptySelection
-                }
-                ExplicitConsumptionSelectionError::ZeroMass { lot } => {
-                    ProcessInputError::ZeroSelectedMass { lot }
-                }
-                ExplicitConsumptionSelectionError::DuplicateLot { lot } => {
-                    ProcessInputError::DuplicateSelectedLot { lot }
-                }
-                ExplicitConsumptionSelectionError::UnknownLot { lot } => {
-                    ProcessInputError::UnknownSelectedLot { lot }
-                }
-                ExplicitConsumptionSelectionError::LotOwnedElsewhere {
-                    lot,
-                    requested_source,
-                    actual_source,
-                } => ProcessInputError::SelectedLotOwnedElsewhere {
-                    lot,
-                    requested_source,
-                    actual_source,
-                },
-                ExplicitConsumptionSelectionError::InsufficientLotMass {
-                    lot,
-                    available,
-                    requested,
-                } => ProcessInputError::InsufficientSelectedLotMass {
-                    lot,
-                    available,
-                    requested,
-                },
-                ExplicitConsumptionSelectionError::MassOverflow { stockpile } => {
-                    ProcessInputError::MassOverflow { stockpile }
-                }
-            })?;
+    let selection = validate_explicit_consumption_selection(state.inventory(), source, selections)
+        .map_err(|error| match error {
+            ExplicitConsumptionSelectionError::UnknownStockpile { stockpile } => {
+                ProcessInputError::UnknownStockpile { stockpile }
+            }
+            ExplicitConsumptionSelectionError::EmptySelection => ProcessInputError::EmptySelection,
+            ExplicitConsumptionSelectionError::ZeroMass { lot } => {
+                ProcessInputError::ZeroSelectedMass { lot }
+            }
+            ExplicitConsumptionSelectionError::DuplicateLot { lot } => {
+                ProcessInputError::DuplicateSelectedLot { lot }
+            }
+            ExplicitConsumptionSelectionError::UnknownLot { lot } => {
+                ProcessInputError::UnknownSelectedLot { lot }
+            }
+            ExplicitConsumptionSelectionError::LotOwnedElsewhere {
+                lot,
+                requested_source,
+                actual_source,
+            } => ProcessInputError::SelectedLotOwnedElsewhere {
+                lot,
+                requested_source,
+                actual_source,
+            },
+            ExplicitConsumptionSelectionError::InsufficientLotMass {
+                lot,
+                available,
+                requested,
+            } => ProcessInputError::InsufficientSelectedLotMass {
+                lot,
+                available,
+                requested,
+            },
+            ExplicitConsumptionSelectionError::MassOverflow { stockpile } => {
+                ProcessInputError::MassOverflow { stockpile }
+            }
+        })?;
     Ok(ValidatedProcessInputs { process, selection })
 }
 

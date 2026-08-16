@@ -547,7 +547,7 @@ impl ValidatedStockpileSupportChange {
         self,
         state: &mut AppState,
     ) -> Result<StockpileSupportOutcome, StockpileSupportCommitError> {
-        let actual_revision = state.inventory_state().revision();
+        let actual_revision = state.inventory().revision();
         if actual_revision != self.expected_inventory_revision {
             return Err(StockpileSupportCommitError::StaleInventoryRevision {
                 expected: self.expected_inventory_revision,
@@ -566,11 +566,11 @@ impl ValidatedStockpileSupportChange {
                 actual: record.supported_by(),
             });
         }
-        if let Some((job, release)) = stockpile_occupancy(state, self.stockpile) {
+        if let Some(job) = state.production().get_stockpile_occupant(self.stockpile) {
             return Err(StockpileSupportCommitError::StockpileBusy {
                 stockpile: self.stockpile,
-                job,
-                release,
+                job: job.id(),
+                release: job.occupancy_release(),
             });
         }
 
@@ -588,18 +588,8 @@ impl ValidatedStockpileSupportChange {
     }
 }
 
-fn stockpile_occupancy(
-    state: &AppState,
-    stockpile: StockpileId,
-) -> Option<(ProductionJobId, ProductionOccupancyRelease)> {
-    state.production().jobs().find_map(|job| {
-        job.involves_stockpile(stockpile)
-            .then_some((job.id(), job.occupancy_release()))
-    })
-}
-
 fn next_inventory_revision(state: &AppState) -> Result<(u64, u64), StockpileSupportError> {
-    let current = state.inventory_state().revision();
+    let current = state.inventory().revision();
     let next = current
         .checked_add(1)
         .ok_or(StockpileSupportError::InventoryRevisionExhausted)?;
@@ -610,11 +600,11 @@ fn validate_not_busy(
     state: &AppState,
     stockpile: StockpileId,
 ) -> Result<(), StockpileSupportError> {
-    if let Some((job, release)) = stockpile_occupancy(state, stockpile) {
+    if let Some(job) = state.production().get_stockpile_occupant(stockpile) {
         return Err(StockpileSupportError::StockpileBusy {
             stockpile,
-            job,
-            release,
+            job: job.id(),
+            release: job.occupancy_release(),
         });
     }
     Ok(())

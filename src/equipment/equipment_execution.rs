@@ -47,7 +47,7 @@ pub fn add_equipment(
         return Err(AddEquipmentError::UnknownDefinition { definition });
     }
 
-    let equipment_state = state.equipment_state();
+    let equipment_state = state.equipment();
     let id = EquipmentId::new(equipment_state.next_equipment_id);
     let next_equipment_id = equipment_state
         .next_equipment_id
@@ -144,14 +144,11 @@ fn decide_condition_change(
     equipment: EquipmentId,
     decide: impl FnOnce(Condition) -> ConditionPlan,
 ) -> Result<EquipmentConditionPlan, EquipmentConditionPlanError> {
-    let equipment_state = state.equipment_state();
+    let equipment_state = state.equipment();
     let Some(record) = equipment_state.get_equipment(equipment) else {
         return Err(EquipmentConditionPlanError::UnknownEquipment { equipment });
     };
-    if let Some(job) = state.production().jobs().find(|job| {
-        job.equipment_provider()
-            .is_some_and(|provider| provider.equipment() == equipment)
-    }) {
+    if let Some(job) = state.production().get_equipment_occupant(equipment) {
         return Err(EquipmentConditionPlanError::EquipmentBusy {
             equipment,
             job: job.id(),
@@ -252,10 +249,7 @@ pub fn apply_equipment_condition_plan(
             actual: actual_revision,
         });
     }
-    if let Some(job) = state.production().jobs().find(|job| {
-        job.equipment_provider()
-            .is_some_and(|provider| provider.equipment() == plan.equipment)
-    }) {
+    if let Some(job) = state.production().get_equipment_occupant(plan.equipment) {
         return Err(EquipmentConditionCommitError::EquipmentBusy {
             equipment: plan.equipment,
             job: job.id(),

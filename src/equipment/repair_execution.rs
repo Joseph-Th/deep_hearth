@@ -98,9 +98,8 @@ pub(crate) fn bind_equipment_repair_for_test(
         .equipment()
         .get_equipment(equipment)
         .ok_or(EquipmentRepairBindingError::UnknownEquipment { equipment })?;
-    let material =
-        validate_explicit_consumption_selection(state.inventory_state(), source, selections)
-            .map_err(EquipmentRepairBindingError::Inventory)?;
+    let material = validate_explicit_consumption_selection(state.inventory(), source, selections)
+        .map_err(EquipmentRepairBindingError::Inventory)?;
     Ok(EquipmentRepairResolution {
         equipment,
         expected_equipment_revision: state.equipment().revision(),
@@ -492,11 +491,11 @@ impl ValidatedEquipmentRepair {
                 actual: record.condition(),
             });
         }
-        if let Some((job, release)) = equipment_occupancy(state, self.equipment) {
+        if let Some(job) = state.production().get_equipment_occupant(self.equipment) {
             return Err(EquipmentRepairCommitError::EquipmentBusy {
                 equipment: self.equipment,
-                job,
-                release,
+                job: job.id(),
+                release: job.occupancy_release(),
             });
         }
 
@@ -575,17 +574,6 @@ fn map_material_commit_error(error: MaterialRelocationCommitError) -> EquipmentR
     }
 }
 
-fn equipment_occupancy(
-    state: &AppState,
-    equipment: EquipmentId,
-) -> Option<(ProductionJobId, ProductionOccupancyRelease)> {
-    state.production().jobs().find_map(|job| {
-        job.equipment_provider()
-            .is_some_and(|provider| provider.equipment() == equipment)
-            .then_some((job.id(), job.occupancy_release()))
-    })
-}
-
 /// Validates one already-resolved, resource-backed equipment repair without mutating any owner.
 pub fn validate_equipment_repair(
     registries: &Registries,
@@ -622,11 +610,11 @@ pub fn validate_equipment_repair(
             definition: record.definition(),
         });
     }
-    if let Some((job, release)) = equipment_occupancy(state, equipment) {
+    if let Some(job) = state.production().get_equipment_occupant(equipment) {
         return Err(EquipmentRepairError::EquipmentBusy {
             equipment,
-            job,
-            release,
+            job: job.id(),
+            release: job.occupancy_release(),
         });
     }
     let condition_before = resolution.condition_before;

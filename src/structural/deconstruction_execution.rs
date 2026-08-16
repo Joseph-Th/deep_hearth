@@ -269,7 +269,7 @@ impl ValidatedStructuralDeconstruction {
         self,
         state: &mut AppState,
     ) -> Result<StructuralDeconstructionOutcome, StructuralDeconstructionCommitError> {
-        let actual_inventory_revision = state.inventory_state().revision();
+        let actual_inventory_revision = state.inventory().revision();
         if actual_inventory_revision != self.ingress.expected_revision() {
             return Err(
                 StructuralDeconstructionCommitError::StaleInventoryRevision {
@@ -307,7 +307,7 @@ pub fn validate_structural_deconstruction(
     }
     let ingress = validate_material_batch_ingress(
         registries,
-        state.inventory_state(),
+        state.inventory(),
         resolution.destination,
         record.embodied_material(),
         state.tick(),

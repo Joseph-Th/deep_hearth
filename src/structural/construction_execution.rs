@@ -176,9 +176,8 @@ pub(crate) fn bind_structural_construction_selection(
     source: StockpileId,
     selections: &[MaterialLotSelection],
 ) -> Result<StructuralConstructionResolution, StructuralConstructionBindingError> {
-    let selection =
-        validate_explicit_consumption_selection(state.inventory_state(), source, selections)
-            .map_err(StructuralConstructionBindingError::Inventory)?;
+    let selection = validate_explicit_consumption_selection(state.inventory(), source, selections)
+        .map_err(StructuralConstructionBindingError::Inventory)?;
     Ok(StructuralConstructionResolution { element, selection })
 }
 
@@ -432,7 +431,7 @@ impl ValidatedStructuralConstruction {
                 actual: actual_structure_revision,
             });
         }
-        let actual_inventory_revision = state.inventory_state().revision();
+        let actual_inventory_revision = state.inventory().revision();
         if actual_inventory_revision != self.egress.expected_revision() {
             return Err(StructuralConstructionCommitError::StaleInventoryRevision {
                 expected: self.egress.expected_revision(),
@@ -556,18 +555,16 @@ pub fn validate_structural_construction(
         });
     }
 
-    let egress = validate_material_egress_from_selection(
-        state.inventory_state(),
-        resolution.selection.clone(),
-    )
-    .map_err(|error| match error {
-        MaterialEgressError::StaleSelection { expected, actual } => {
-            StructuralConstructionError::InventorySelectionStale { expected, actual }
-        }
-        MaterialEgressError::RevisionExhausted => {
-            StructuralConstructionError::InventoryRevisionExhausted
-        }
-    })?;
+    let egress =
+        validate_material_egress_from_selection(state.inventory(), resolution.selection.clone())
+            .map_err(|error| match error {
+                MaterialEgressError::StaleSelection { expected, actual } => {
+                    StructuralConstructionError::InventorySelectionStale { expected, actual }
+                }
+                MaterialEgressError::RevisionExhausted => {
+                    StructuralConstructionError::InventoryRevisionExhausted
+                }
+            })?;
     debug_assert_eq!(egress.total_consumed(), required_mass);
     let source = resolution.selection.source();
     let source_record = state.inventory().get_stockpile(source).ok_or(

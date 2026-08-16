@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 29;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 30;
 
 /// Borrowed versioned save payload suitable for any Serde encoding adapter.
 #[derive(Debug, Serialize)]
@@ -543,7 +543,9 @@ mod tests {
                     "next_job_id": 1,
                     "jobs": {},
                     "due_jobs": {},
-                    "energy_occupancy": {}
+                    "energy_occupancy": {},
+                    "equipment_occupancy": {},
+                    "stockpile_occupancy": {}
                 }
             }
         }"#;
@@ -1554,6 +1556,48 @@ mod tests {
             )))
         );
 
+        let mut tampered_equipment_occupancy =
+            match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+                Ok(encoded) => encoded,
+                Err(error) => panic!("equipment occupancy tamper serialization failed: {error}"),
+            };
+        tampered_equipment_occupancy["state"]["production"]["equipment_occupancy"] =
+            serde_json::json!({});
+        let tampered_equipment_occupancy: LoadedSaveEnvelope =
+            match serde_json::from_value(tampered_equipment_occupancy) {
+                Ok(decoded) => decoded,
+                Err(error) => panic!("equipment occupancy tamper failed decode: {error}"),
+            };
+        assert_eq!(
+            tampered_equipment_occupancy.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Production(
+                ProductionValidationError::EquipmentOccupancyIndexMismatch {
+                    equipment,
+                    indexed: None,
+                    expected: Some(job),
+                }
+            )))
+        );
+
+        let mut tampered_stockpile_occupancy =
+            match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+                Ok(encoded) => encoded,
+                Err(error) => panic!("stockpile occupancy tamper serialization failed: {error}"),
+            };
+        tampered_stockpile_occupancy["state"]["production"]["stockpile_occupancy"] =
+            serde_json::json!({});
+        let tampered_stockpile_occupancy: LoadedSaveEnvelope =
+            match serde_json::from_value(tampered_stockpile_occupancy) {
+                Ok(decoded) => decoded,
+                Err(error) => panic!("stockpile occupancy tamper failed decode: {error}"),
+            };
+        assert_eq!(
+            tampered_stockpile_occupancy.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Production(
+                ProductionValidationError::StockpileOccupancyIndexMismatch { stockpile: source }
+            )))
+        );
+
         let mut tampered_condition_outcome =
             match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
                 Ok(encoded) => encoded,
@@ -1680,6 +1724,10 @@ mod tests {
         };
         double_booked["state"]["production"]["due_jobs"][due.clone()] =
             serde_json::json!([job.value(), second_job]);
+        double_booked["state"]["production"]["stockpile_occupancy"][source.value().to_string()] =
+            serde_json::json!([job.value(), second_job]);
+        double_booked["state"]["production"]["stockpile_occupancy"]
+            [destination.value().to_string()] = serde_json::json!([job.value(), second_job]);
         let double_booked: LoadedSaveEnvelope = match serde_json::from_value(double_booked) {
             Ok(decoded) => decoded,
             Err(error) => panic!("heating double-book tamper failed decode: {error}"),
@@ -1710,6 +1758,11 @@ mod tests {
         equipment_double_booked["state"]["production"]["next_job_id"] =
             serde_json::json!(second_equipment_job + 1);
         equipment_double_booked["state"]["production"]["due_jobs"][due] =
+            serde_json::json!([job.value(), second_equipment_job]);
+        equipment_double_booked["state"]["production"]["stockpile_occupancy"]
+            [source.value().to_string()] = serde_json::json!([job.value(), second_equipment_job]);
+        equipment_double_booked["state"]["production"]["stockpile_occupancy"]
+            [destination.value().to_string()] =
             serde_json::json!([job.value(), second_equipment_job]);
         let equipment_double_booked: LoadedSaveEnvelope =
             match serde_json::from_value(equipment_double_booked) {

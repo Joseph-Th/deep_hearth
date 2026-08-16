@@ -88,7 +88,7 @@ fn allocate_energy_store(
             capacity: authored.capacity(),
         });
     }
-    let energy = state.energy_state();
+    let energy = state.energy();
     let id = EnergyStoreId::new(energy.next_store_id);
     let next_store_id = energy
         .next_store_id
@@ -785,11 +785,10 @@ mod tests {
             Err(error) => panic!("energy supply validation failed: {error}"),
         };
         assert_eq!(supply.max_output_power(), Power::from_microwatts(25));
-        let reservation =
-            match validate_energy_consumption_reservation(state.energy_state(), supply) {
-                Ok(reservation) => reservation,
-                Err(error) => panic!("energy reservation failed: {error:?}"),
-            };
+        let reservation = match validate_energy_consumption_reservation(state.energy(), supply) {
+            Ok(reservation) => reservation,
+            Err(error) => panic!("energy reservation failed: {error:?}"),
+        };
         let trace =
             match apply_energy_consumption_reservation(state.energy_state_mut(), reservation) {
                 Ok(trace) => trace,
@@ -839,7 +838,7 @@ mod tests {
         let before = state.clone();
 
         assert_eq!(
-            validate_energy_consumption_reservation(state.energy_state(), supply),
+            validate_energy_consumption_reservation(state.energy(), supply),
             Err(EnergyReservationError::StaleSelection {
                 expected,
                 actual: expected + 1,
@@ -947,7 +946,7 @@ mod tests {
             panic!("independent sink mutation failed: {error}");
         }
         assert_eq!(
-            validate_energy_ingress_reservation(&registries, state.energy_state(), sink),
+            validate_energy_ingress_reservation(&registries, state.energy(), sink),
             Err(EnergyIngressReservationError::StaleSelection {
                 expected,
                 actual: expected + 1,

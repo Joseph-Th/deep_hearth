@@ -552,7 +552,7 @@ impl ValidatedStartProcess {
         } = self;
         let job_id = job.id();
 
-        let actual_production_revision = state.production_state().revision();
+        let actual_production_revision = state.production().revision();
         if actual_production_revision != expected_production_revision {
             return Err(StartProcessCommitError::StaleProductionRevision {
                 expected: expected_production_revision,
@@ -561,7 +561,7 @@ impl ValidatedStartProcess {
         }
         if let Some(energy) = energy_ingress_reservation {
             let expected_energy_revision = energy.expected_revision();
-            let actual_energy_revision = state.energy_state().revision();
+            let actual_energy_revision = state.energy().revision();
             if actual_energy_revision != expected_energy_revision {
                 return Err(StartProcessCommitError::StaleEnergyRevision {
                     expected: expected_energy_revision,
@@ -570,7 +570,7 @@ impl ValidatedStartProcess {
             }
         }
         let expected_inventory_revision = reservation.expected_revision();
-        let actual_inventory_revision = state.inventory_state().revision();
+        let actual_inventory_revision = state.inventory().revision();
         if actual_inventory_revision != expected_inventory_revision {
             return Err(StartProcessCommitError::StaleInventoryRevision {
                 expected: expected_inventory_revision,
@@ -579,7 +579,7 @@ impl ValidatedStartProcess {
         }
         if let Some(energy) = energy_reservation {
             let expected_energy_revision = energy.expected_revision();
-            let actual_energy_revision = state.energy_state().revision();
+            let actual_energy_revision = state.energy().revision();
             if actual_energy_revision != expected_energy_revision {
                 return Err(StartProcessCommitError::StaleEnergyRevision {
                     expected: expected_energy_revision,
@@ -589,7 +589,7 @@ impl ValidatedStartProcess {
         }
         if let Some(equipment) = equipment_use {
             let expected_equipment_revision = equipment.expected_equipment_revision();
-            let actual_equipment_revision = state.equipment_state().revision();
+            let actual_equipment_revision = state.equipment().revision();
             if actual_equipment_revision != expected_equipment_revision {
                 return Err(StartProcessCommitError::StaleEquipmentRevision {
                     expected: expected_equipment_revision,
@@ -825,12 +825,12 @@ pub fn validate_start_process_routed(
         });
     };
 
-    let next_job_value = state.production_state().next_job_id;
+    let next_job_value = state.production().next_job_id;
     let Some(next_after) = next_job_value.checked_add(1) else {
         return Err(StartProcessError::JobIdExhausted);
     };
     let job_id = ProductionJobId::new(next_job_value);
-    let expected_production_revision = state.production_state().revision();
+    let expected_production_revision = state.production().revision();
     let Some(next_production_revision) = expected_production_revision.checked_add(1) else {
         return Err(StartProcessError::ProductionRevisionExhausted);
     };
@@ -847,7 +847,7 @@ pub fn validate_start_process_routed(
         });
     }
     let reservation = validate_consumption_reservation_from_selection(
-        state.inventory_state(),
+        state.inventory(),
         resolution.selection().clone(),
         inbound_by_destination,
     )
@@ -855,7 +855,7 @@ pub fn validate_start_process_routed(
     let consumed_inputs = reservation.consumed_inputs().to_vec();
     let energy_reservation = match resolution.energy_supply() {
         Some(selection) => Some(
-            validate_energy_consumption_reservation(state.energy_state(), selection)
+            validate_energy_consumption_reservation(state.energy(), selection)
                 .map_err(map_energy_reservation_error)?,
         ),
         None => None,
@@ -863,7 +863,7 @@ pub fn validate_start_process_routed(
     let consumed_energy = energy_reservation.map(EnergyConsumptionReservation::trace);
     let energy_ingress_reservation = match resolution.energy_sink() {
         Some(selection) => Some(
-            validate_energy_ingress_reservation(registries, state.energy_state(), selection)
+            validate_energy_ingress_reservation(registries, state.energy(), selection)
                 .map_err(map_energy_ingress_reservation_error)?,
         ),
         None => None,
@@ -953,10 +953,7 @@ pub fn validate_start_process_routed(
                     });
                 }
             }
-            if let Some(job) = state.production().jobs().find(|job| {
-                job.equipment_provider()
-                    .is_some_and(|provider| provider.equipment() == trace.equipment())
-            }) {
+            if let Some(job) = state.production().get_equipment_occupant(trace.equipment()) {
                 return Err(StartProcessError::EquipmentBusy {
                     equipment: trace.equipment(),
                     job: job.id(),
@@ -1271,14 +1268,14 @@ pub(crate) fn decide_due_completions(
     state: &AppState,
     tick: SimulationTick,
 ) -> Result<CompletionPlan, CompletionPlanError> {
-    let expected_inventory_revision = state.inventory_state().revision();
-    let expected_production_revision = state.production_state().revision();
-    let expected_equipment_revision = state.equipment_state().revision();
-    let expected_energy_revision = state.energy_state().revision();
+    let expected_inventory_revision = state.inventory().revision();
+    let expected_production_revision = state.production().revision();
+    let expected_equipment_revision = state.equipment().revision();
+    let expected_energy_revision = state.energy().revision();
     let expected_structure_revision = state.structures().revision();
     let availability_changes = decide_availability_changes(state)?;
     let mut due_ids = state
-        .production_state()
+        .production()
         .due_jobs
         .get(&tick)
         .cloned()
@@ -1313,13 +1310,13 @@ pub(crate) fn decide_due_completions(
             .checked_add(1)
             .ok_or(CompletionPlanError::ProductionRevision)?
     };
-    let mut next_lot_id = next_material_lot_id(state.inventory_state());
+    let mut next_lot_id = next_material_lot_id(state.inventory());
     let mut entries = Vec::with_capacity(due_ids.len());
     let mut equipment_outcomes = Vec::new();
     let mut released_energy_outcomes = Vec::new();
     let mut deposited_mass_by_destination = BTreeMap::<StockpileId, Mass>::new();
     for job_id in &due_ids {
-        let job = match state.production_state().jobs.get(job_id) {
+        let job = match state.production().jobs.get(job_id) {
             Some(job) => job,
             None => panic!(
                 "runtime invariant broken: due index references missing production job {}",
@@ -1484,7 +1481,7 @@ pub(crate) fn apply_completion_plan(
         structural_load,
     } = plan;
 
-    let actual_inventory_revision = state.inventory_state().revision();
+    let actual_inventory_revision = state.inventory().revision();
     if actual_inventory_revision != expected_inventory_revision {
         return Err(CompletionCommitError::InventoryStale {
             expected: expected_inventory_revision,
@@ -1492,7 +1489,7 @@ pub(crate) fn apply_completion_plan(
         });
     }
     if !released_energy_outcomes.is_empty() {
-        let actual_energy_revision = state.energy_state().revision();
+        let actual_energy_revision = state.energy().revision();
         if actual_energy_revision != expected_energy_revision {
             return Err(CompletionCommitError::EnergyRevisionConflict {
                 expected: expected_energy_revision,
@@ -1501,7 +1498,7 @@ pub(crate) fn apply_completion_plan(
         }
     }
     if !equipment_outcomes.is_empty() || !availability_changes.is_empty() {
-        let actual_equipment_revision = state.equipment_state().revision();
+        let actual_equipment_revision = state.equipment().revision();
         if actual_equipment_revision != expected_equipment_revision {
             return Err(CompletionCommitError::EquipmentRevisionConflict {
                 expected: expected_equipment_revision,
@@ -1509,7 +1506,7 @@ pub(crate) fn apply_completion_plan(
             });
         }
     }
-    let actual_production_revision = state.production_state().revision();
+    let actual_production_revision = state.production().revision();
     if actual_production_revision != expected_production_revision {
         return Err(CompletionCommitError::ProductionRevisionChanged {
             expected: expected_production_revision,

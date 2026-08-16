@@ -524,7 +524,7 @@ impl ValidatedGeologicalExtraction {
             });
         }
         let expected_inventory_revision = self.ingress.expected_revision();
-        let actual_inventory_revision = state.inventory_state().revision();
+        let actual_inventory_revision = state.inventory().revision();
         if actual_inventory_revision != expected_inventory_revision {
             return Err(GeologicalExtractionCommitError::StaleInventoryRevision {
                 expected: expected_inventory_revision,
@@ -609,7 +609,7 @@ pub fn validate_geological_extraction(
     .map_err(GeologicalExtractionError::InvalidOutput)?;
     let ingress = validate_material_ingress(
         registries,
-        state.inventory_state(),
+        state.inventory(),
         destination,
         output,
         state.tick(),

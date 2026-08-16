@@ -31,10 +31,10 @@ impl EnergyStoreId {
 /// Authoritative changing state for one finite energy store.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnergyStoreRecord {
-    pub(crate) id: EnergyStoreId,
-    pub(crate) definition: EnergyStoreDefinitionId,
-    pub(crate) stored: Energy,
-    pub(crate) created_at: SimulationTick,
+    pub(super) id: EnergyStoreId,
+    pub(super) definition: EnergyStoreDefinitionId,
+    pub(super) stored: Energy,
+    pub(super) created_at: SimulationTick,
 }
 
 impl EnergyStoreRecord {
@@ -62,9 +62,9 @@ impl EnergyStoreRecord {
 /// Persistent owner for finite energy stores and their monotonic identity/revision cursors.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnergyState {
-    pub(crate) revision: u64,
-    pub(crate) next_store_id: u64,
-    pub(crate) records: BTreeMap<EnergyStoreId, EnergyStoreRecord>,
+    pub(super) revision: u64,
+    pub(super) next_store_id: u64,
+    pub(super) records: BTreeMap<EnergyStoreId, EnergyStoreRecord>,
 }
 
 impl EnergyState {

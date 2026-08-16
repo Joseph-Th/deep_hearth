@@ -87,7 +87,7 @@ pub fn add_structural_element(
     geometry
         .validate()
         .map_err(AddStructuralElementError::Geometry)?;
-    let structures = state.structure_state();
+    let structures = state.structures();
     let id = StructuralElementId::new(structures.next_element_id);
     let next_element_id = structures
         .next_element_id
@@ -812,7 +812,7 @@ fn build_plan(
     let next_revision = expected_revision
         .checked_add(1)
         .ok_or(StructuralMutationError::RevisionExhausted)?;
-    validate_operation_commit_state(state.structure_state(), operation).map_err(
+    validate_operation_commit_state(state.structures(), operation).map_err(
         |error| match error {
             StructuralCommitError::StaleRevision { .. } => {
                 StructuralMutationError::RevisionExhausted
@@ -863,7 +863,7 @@ fn build_plan(
     let analysis = analyze_structure_components_with_overlay(
         registries.structural(),
         registries.materials(),
-        state.structure_state(),
+        state.structures(),
         overlay,
         &seeds,
     )
@@ -906,7 +906,7 @@ pub fn validate_link_support(
     {
         return Err(StructuralMutationError::DuplicateSupport { element, support });
     }
-    if state.structure_state().has_path(support, element) {
+    if state.structures().has_path(support, element) {
         return Err(StructuralMutationError::SupportCycle { element, support });
     }
     build_plan(
@@ -1038,7 +1038,7 @@ pub(crate) fn validate_remove_structural_element_with_owned_loads(
     let analysis = analyze_structure_components_with_overlay(
         registries.structural(),
         registries.materials(),
-        state.structure_state(),
+        state.structures(),
         overlay,
         &seeds,
     )
@@ -1176,7 +1176,7 @@ pub(crate) fn validate_set_owned_structural_loads(
     let analysis = analyze_structure_components_with_overlay(
         registries.structural(),
         registries.materials(),
-        state.structure_state(),
+        state.structures(),
         overlay,
         &seeds,
     )

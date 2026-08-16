@@ -77,7 +77,7 @@ fn allocate_fluid_store(
             });
         }
     }
-    let fluid = state.fluid_state();
+    let fluid = state.fluid();
     let id = FluidStoreId::new(fluid.next_store_id);
     let next_store_id = fluid
         .next_store_id
@@ -581,7 +581,7 @@ impl ValidatedFluidTransfer {
             volume,
         } = resolution;
         {
-            let fluid = state.fluid_state();
+            let fluid = state.fluid();
             if fluid.revision != expected_revision {
                 return Err(FluidTransferCommitError::StaleRevision {
                     expected: expected_revision,

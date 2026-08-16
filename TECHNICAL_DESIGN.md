@@ -92,8 +92,9 @@ indexes; callers receive read-only views and canonical systems retain mutation a
 - `GeologicalKnowledgeState` owns acquired observations, generated observation IDs, immutable spatial
   evidence records, a synchronized material-to-observation index, and an owner revision. It does not
   own or reference exact deposit identities.
-- `ProductionState` owns active jobs, generated job IDs, a due-tick index, a synchronized
-  energy-store-to-job occupancy index, and an owner revision.
+- `ProductionState` owns active jobs, generated job IDs, a due-tick index, synchronized exclusive
+  energy-store-to-job and equipment-to-job occupancy indexes, a stockpile-to-job-set occupancy index,
+  and an owner revision.
 - Validated transaction tokens bind to the exact owner revisions they checked, preventing stale
   commits after intervening mutation.
 
@@ -223,9 +224,12 @@ Performance begins with ownership and access patterns rather than premature micr
   check rather than a per-tick invariant.
 - Production uses `BTreeMap<SimulationTick, BTreeSet<ProductionJobId>>` so due work does not require
   scanning all active jobs.
-- Production keeps a synchronized `EnergyStoreId -> ProductionJobId` occupancy index so repeated
-  finite-energy availability checks do not scan all active jobs. Exhaustive validation reconstructs
-  the expected index from durable job traces and rejects disagreement.
+- Production keeps synchronized `EnergyStoreId -> ProductionJobId` and
+  `EquipmentId -> ProductionJobId` occupancy indexes plus a
+  `StockpileId -> BTreeSet<ProductionJobId>` index. Repeated finite-energy, equipment, and stockpile
+  availability checks therefore use deterministic keyed lookup instead of scanning all active jobs.
+  Exhaustive validation reconstructs every expected index from durable job traces and rejects
+  disagreement.
 - Stockpiles maintain cheap derived mass/commodity caches and update them atomically with lot state.
 - Fluid stores index support membership bidirectionally, so transfer-time structural recomputation
   visits only stores sharing affected supports rather than scanning all hydraulic storage.

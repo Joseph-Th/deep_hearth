@@ -549,7 +549,7 @@ mod tests {
         let before = state.clone();
 
         let selection = validate_explicit_consumption_selection(
-            state.inventory_state(),
+            state.inventory(),
             source,
             &[MaterialLotSelection::new(lot, Mass::from_milligrams(7))],
         )
@@ -589,15 +589,11 @@ mod tests {
         let slice = MaterialLotSelection::new(lot, Mass::from_milligrams(5));
 
         assert_eq!(
-            validate_explicit_consumption_selection(
-                state.inventory_state(),
-                source,
-                &[slice, slice],
-            ),
+            validate_explicit_consumption_selection(state.inventory(), source, &[slice, slice],),
             Err(ExplicitConsumptionSelectionError::DuplicateLot { lot })
         );
         assert_eq!(
-            validate_explicit_consumption_selection(state.inventory_state(), other, &[slice]),
+            validate_explicit_consumption_selection(state.inventory(), other, &[slice]),
             Err(ExplicitConsumptionSelectionError::LotOwnedElsewhere {
                 lot,
                 requested_source: other,

@@ -116,10 +116,6 @@ impl AppState {
         &self.energy
     }
 
-    pub(crate) const fn energy_state(&self) -> &EnergyState {
-        &self.energy
-    }
-
     pub(crate) fn energy_state_mut(&mut self) -> &mut EnergyState {
         &mut self.energy
     }
@@ -127,10 +123,6 @@ impl AppState {
     /// Returns read-only authoritative finite fluid state.
     #[must_use]
     pub const fn fluid(&self) -> &FluidState {
-        &self.fluid
-    }
-
-    pub(crate) const fn fluid_state(&self) -> &FluidState {
         &self.fluid
     }
 
@@ -144,10 +136,6 @@ impl AppState {
         &self.equipment
     }
 
-    pub(crate) const fn equipment_state(&self) -> &EquipmentState {
-        &self.equipment
-    }
-
     pub(crate) fn equipment_state_mut(&mut self) -> &mut EquipmentState {
         &mut self.equipment
     }
@@ -155,10 +143,6 @@ impl AppState {
     /// Returns read-only authoritative structural state.
     #[must_use]
     pub const fn structures(&self) -> &StructureState {
-        &self.structures
-    }
-
-    pub(crate) const fn structure_state(&self) -> &StructureState {
         &self.structures
     }
 
@@ -195,10 +179,6 @@ impl AppState {
         &self.inventory
     }
 
-    pub(crate) const fn inventory_state(&self) -> &InventoryState {
-        &self.inventory
-    }
-
     pub(crate) fn inventory_state_mut(&mut self) -> &mut InventoryState {
         &mut self.inventory
     }
@@ -206,10 +186,6 @@ impl AppState {
     /// Returns read-only authoritative production scheduling state.
     #[must_use]
     pub const fn production(&self) -> &ProductionState {
-        &self.production
-    }
-
-    pub(crate) const fn production_state(&self) -> &ProductionState {
         &self.production
     }
 
@@ -1443,6 +1419,14 @@ pub fn validate_invariants(_registries: &Registries, state: &AppState) {
     debug_assert!(
         state.production.has_valid_energy_occupancy_index(),
         "Runtime Invariants 5/12 (Ownership Exclusivity, Derived Data Consistency): production energy occupancy index must contain exactly one owner for each active job reservation"
+    );
+    debug_assert!(
+        state.production.has_valid_equipment_occupancy_index(),
+        "Runtime Invariants 5/12 (Ownership Exclusivity, Derived Data Consistency): production equipment occupancy index must contain exactly one owner for each active equipment reservation"
+    );
+    debug_assert!(
+        state.production.has_valid_stockpile_occupancy_index(),
+        "Runtime Invariant 12 (Derived Data Consistency): production stockpile occupancy index must match every active job source and destination"
     );
     debug_assert!(
         state

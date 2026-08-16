@@ -173,7 +173,7 @@ impl ValidatedMaterialRelocation {
     }
 
     pub(crate) fn commit(self, state: &mut AppState) -> Result<(), MaterialRelocationCommitError> {
-        let actual = state.inventory_state().revision();
+        let actual = state.inventory().revision();
         if actual != self.expected_revision {
             return Err(MaterialRelocationCommitError::StaleInventoryRevision {
                 expected: self.expected_revision,
@@ -1030,7 +1030,7 @@ impl ValidatedTransferBulk {
             structural,
         } = self;
 
-        let actual_inventory_revision = state.inventory_state().revision();
+        let actual_inventory_revision = state.inventory().revision();
         if actual_inventory_revision != expected_revision {
             return Err(TransferCommitError::StaleInventoryRevision {
                 expected: expected_revision,
@@ -1357,7 +1357,7 @@ pub(crate) fn deposit_lot_spec_for_test(
         }
         CommodityReferenceError::UnknownForm { form } => DepositError::UnknownForm { form },
     })?;
-    let inventories = state.inventory_state();
+    let inventories = state.inventory();
     let Some(record) = inventories.get_stockpile(stockpile) else {
         return Err(DepositError::UnknownStockpile { stockpile });
     };
@@ -1457,7 +1457,7 @@ pub fn validate_transfer_bulk(
         return Err(TransferError::ZeroMass);
     }
 
-    let inventories = state.inventory_state();
+    let inventories = state.inventory();
     let Some(source_record) = inventories.get_stockpile(source) else {
         return Err(TransferError::UnknownStockpile { stockpile: source });
     };
@@ -1647,7 +1647,7 @@ pub(crate) fn validate_material_relocation_from_selection(
         consumed_inputs,
         total_consumed,
     } = selection;
-    let inventories = state.inventory_state();
+    let inventories = state.inventory();
     if inventories.revision != expected_revision {
         return Err(MaterialRelocationError::StaleSelection {
             expected: expected_revision,
@@ -2612,7 +2612,7 @@ mod tests {
             wood_log(),
             Mass::from_milligrams(10),
         )];
-        let selection = validate_consumption_selection(state.inventory_state(), source, &inputs)
+        let selection = validate_consumption_selection(state.inventory(), source, &inputs)
             .unwrap_or_else(|error| panic!("selection failed: {error:?}"));
         assert_eq!(
             selection.total_consumed(),
@@ -2622,7 +2622,7 @@ mod tests {
         let mut inbound_by_destination = BTreeMap::new();
         inbound_by_destination.insert(destination, Mass::from_milligrams(10));
         let reservation = validate_consumption_reservation_from_selection(
-            state.inventory_state(),
+            state.inventory(),
             selection,
             inbound_by_destination,
         )
@@ -2654,7 +2654,7 @@ mod tests {
             Mass::from_milligrams(10),
             Temperature::from_millikelvin(500_000),
         );
-        let lot_id = next_material_lot_id(state.inventory_state());
+        let lot_id = next_material_lot_id(state.inventory());
         let created_at = state.tick();
         apply_reserved_deposit(
             state.inventory_state_mut(),
@@ -2664,7 +2664,7 @@ mod tests {
             Mass::from_milligrams(10),
             created_at,
         );
-        let current_revision = state.inventory_state().revision();
+        let current_revision = state.inventory().revision();
         apply_lot_cursor_and_revision(state.inventory_state_mut(), lot_id + 1, current_revision);
         assert_lot_aggregate_agreement(&registries, &state, "after reserved deposit");
         assert_eq!(
@@ -2721,9 +2721,9 @@ mod tests {
             .total();
 
         let inputs = vec![MaterialInputSpec::new(wood_log(), Mass::from_milligrams(7))];
-        let selection = validate_consumption_selection(state.inventory_state(), source, &inputs)
+        let selection = validate_consumption_selection(state.inventory(), source, &inputs)
             .unwrap_or_else(|error| panic!("selection failed: {error:?}"));
-        let egress = validate_material_egress_from_selection(state.inventory_state(), selection)
+        let egress = validate_material_egress_from_selection(state.inventory(), selection)
             .unwrap_or_else(|error| panic!("egress failed: {error:?}"));
         assert_eq!(egress.total_consumed(), Mass::from_milligrams(7));
         let traces = egress.consumed_inputs().to_vec();
@@ -2741,7 +2741,7 @@ mod tests {
 
         let ingress = validate_material_batch_ingress(
             &registries,
-            state.inventory_state(),
+            state.inventory(),
             destination,
             &traces,
             state.tick(),
@@ -2794,7 +2794,7 @@ mod tests {
             .total();
 
         let inputs = vec![MaterialInputSpec::new(wood_log(), Mass::from_milligrams(6))];
-        let selection = validate_consumption_selection(state.inventory_state(), source, &inputs)
+        let selection = validate_consumption_selection(state.inventory(), source, &inputs)
             .unwrap_or_else(|error| panic!("selection failed: {error:?}"));
         let relocation = validate_material_relocation_from_selection(
             &registries,
@@ -2890,7 +2890,7 @@ mod tests {
                 1 => {
                     let inputs = vec![MaterialInputSpec::new(wood_log(), requested)];
                     if let Ok(selection) =
-                        validate_consumption_selection(state.inventory_state(), source, &inputs)
+                        validate_consumption_selection(state.inventory(), source, &inputs)
                         && let Ok(relocation) = validate_material_relocation_from_selection(
                             &registries,
                             &state,
@@ -2907,20 +2907,18 @@ mod tests {
                 2 => {
                     let inputs = vec![MaterialInputSpec::new(wood_log(), requested)];
                     if let Ok(selection) =
-                        validate_consumption_selection(state.inventory_state(), source, &inputs)
+                        validate_consumption_selection(state.inventory(), source, &inputs)
                     {
-                        let egress = validate_material_egress_from_selection(
-                            state.inventory_state(),
-                            selection,
-                        )
-                        .unwrap_or_else(|error| {
-                            panic!("random egress validation failed: {error:?}")
-                        });
+                        let egress =
+                            validate_material_egress_from_selection(state.inventory(), selection)
+                                .unwrap_or_else(|error| {
+                                    panic!("random egress validation failed: {error:?}")
+                                });
                         let traces = egress.consumed_inputs().to_vec();
                         apply_material_egress(state.inventory_state_mut(), egress);
                         let ingress = validate_material_batch_ingress(
                             &registries,
-                            state.inventory_state(),
+                            state.inventory(),
                             destination,
                             &traces,
                             state.tick(),

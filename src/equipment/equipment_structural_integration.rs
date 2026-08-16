@@ -282,11 +282,15 @@ impl ValidatedEquipmentSupportChange {
                 actual: record.supported_by(),
             });
         }
-        if let Some((job, completes_at)) = equipment_occupancy(state, self.equipment) {
+        if let Some(job) = state
+            .production()
+            .get_equipment_occupant(self.equipment)
+            .filter(|job| !job.is_suspended())
+        {
             return Err(EquipmentSupportCommitError::EquipmentBusy {
                 equipment: self.equipment,
-                job,
-                completes_at,
+                job: job.id(),
+                completes_at: job.completes_at(),
             });
         }
 
@@ -383,27 +387,18 @@ fn validate_not_busy(
     state: &AppState,
     equipment: EquipmentId,
 ) -> Result<(), EquipmentSupportError> {
-    if let Some((job, completes_at)) = equipment_occupancy(state, equipment) {
+    if let Some(job) = state
+        .production()
+        .get_equipment_occupant(equipment)
+        .filter(|job| !job.is_suspended())
+    {
         return Err(EquipmentSupportError::EquipmentBusy {
             equipment,
-            job,
-            completes_at,
+            job: job.id(),
+            completes_at: job.completes_at(),
         });
     }
     Ok(())
-}
-
-fn equipment_occupancy(
-    state: &AppState,
-    equipment: EquipmentId,
-) -> Option<(ProductionJobId, SimulationTick)> {
-    state.production().jobs().find_map(|job| {
-        (!job.is_suspended()
-            && job
-                .equipment_provider()
-                .is_some_and(|provider| provider.equipment() == equipment))
-        .then_some((job.id(), job.completes_at()))
-    })
 }
 
 fn next_equipment_revision(state: &AppState) -> Result<(u64, u64), EquipmentSupportError> {

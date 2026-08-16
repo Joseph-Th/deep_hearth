@@ -73,8 +73,10 @@
   requested area.
 - Closed-mass timed production with explicit fixed-feed versus selected-batch input policies,
   deterministic exact-lot binding, durable consumed-input traces, operation-specific resolved output
-  snapshots, revision-bound start tokens, and due-tick indexing. Physical resolvers consume the same
-  exact lot selection they inspected rather than reselecting equivalent-looking matter at commit.
+  snapshots, revision-bound start tokens, due-tick indexing, exclusive equipment occupancy indexing,
+  and deterministic stockpile-to-job occupancy indexing. Repeated equipment and stockpile busy checks
+  use keyed lookups rather than scanning every active job. Physical resolvers consume the same exact
+  lot selection they inspected rather than reselecting equivalent-looking matter at commit.
 - Typed authored capability requirements with physical value kinds and registry-reference validation.
   Canonical crusher and foundry content uses the same capability and production registries as runtime
   resolution; additional process content remains gated on corresponding physical providers and
@@ -289,11 +291,11 @@
   resources remain exclusive and report an explicit `AwaitingResume` release horizon rather than a
   stale pre-failure due tick.
 - Canonical top-level tick pipeline with cheap per-tick invariants and exhaustive save/load audits.
-- Persistence semantic schema 29 and authored registry compatibility schema 17 with current-schema-only
+- Persistence semantic schema 30 and authored registry compatibility schema 17 with current-schema-only
   loading, registry-aware state validation, structural topology/damage audits, energy/equipment
-  ownership validation, directional energy-source/sink reservation, occupancy-index and capacity
-  audits, embodied
-  structural matter/self-weight/phase audits, geometry/density-to-mass recomputation,
+  ownership validation, directional energy-source/sink reservation, production
+  energy/equipment/stockpile occupancy and capacity audits, embodied structural
+  matter/self-weight/phase audits, geometry/density-to-mass recomputation,
   equipment-support/load agreement audits, stockpile-support/index/stored-matter-load agreement
   audits, fluid-support/index/density-derived-load agreement audits, exclusive-resource double-book
   detection,
