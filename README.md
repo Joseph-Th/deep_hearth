@@ -29,7 +29,7 @@ exact electrical/flow/rotational scalar mechanics, selected-batch crushing and s
 finite work energy and condition-sensitive throughput, exact multi-stream dry screening with finite
 work and conservative particle-class partitioning, feed-size-constrained selective regrinding, and
 physical thermal production for sensible heating,
-pure-material melting, and casting with explicit latent heat and finite heat sinks. Versioned
+pure-material melting, and casting with explicit latent heat and finite heat sinks. Current-schema
 persistence revalidates cross-owner conservation and operation-specific physics, and deterministic
 soak coverage exercises the major ownership paths. Physical survey/mining authorization, alloy phase
 diagrams and chemical smelting, environmental heat transport, fluid networks, richer construction,

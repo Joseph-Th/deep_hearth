@@ -1,4 +1,4 @@
-//! Versioned persistence envelope and decoded-state validation, independent of storage and encoding.
+//! Current-schema persistence envelope and decoded-state validation, independent of storage and encoding.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -10,38 +10,6 @@ use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
 pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 29;
-
-/// Minimal version metadata that adapters decode before choosing a concrete save payload decoder.
-///
-/// Serde ignores unknown fields by default, so this type can be decoded from a full envelope even
-/// when that envelope's `state` field belongs to an older schema that the current `AppState` can no
-/// longer deserialize directly.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-pub struct SaveMetadata {
-    schema_version: u32,
-    registry_schema_version: RegistrySchemaVersion,
-}
-
-impl SaveMetadata {
-    #[must_use]
-    pub const fn schema_version(self) -> u32 {
-        self.schema_version
-    }
-
-    #[must_use]
-    pub const fn registry_schema_version(self) -> RegistrySchemaVersion {
-        self.registry_schema_version
-    }
-
-    /// Checks whether this metadata can be decoded directly by the current payload type.
-    pub fn validate_current(self, registries: &Registries) -> Result<(), LoadError> {
-        validate_versions(
-            self.schema_version,
-            self.registry_schema_version,
-            registries,
-        )
-    }
-}
 
 /// Borrowed versioned save payload suitable for any Serde encoding adapter.
 #[derive(Debug, Serialize)]
@@ -110,7 +78,7 @@ fn validate_versions(
 /// Semantic persistence failure after bytes have already been decoded by an adapter.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LoadError {
-    /// The save requires an explicit migration or a different build.
+    /// The save was produced for a semantic schema this build does not support.
     UnsupportedSchemaVersion { found: u32, supported: u32 },
     /// Stable authored registry identities are not compatible with this build.
     RegistrySchemaMismatch {
@@ -1438,30 +1406,6 @@ mod tests {
                     definition: unknown_definition,
                 }
             )))
-        );
-    }
-
-    #[test]
-    fn metadata_preflight_identifies_legacy_payload_without_decoding_current_state() {
-        let encoded = br#"{
-            "schema_version": 3,
-            "registry_schema_version": 1,
-            "state": "intentionally not the current AppState shape"
-        }"#;
-        let metadata: SaveMetadata = match serde_json::from_slice(encoded) {
-            Ok(metadata) => metadata,
-            Err(error) => panic!("metadata preflight failed to decode: {error}"),
-        };
-        let registries = build_registries();
-
-        assert_eq!(metadata.schema_version(), 3);
-        assert_eq!(metadata.registry_schema_version().value(), 1);
-        assert_eq!(
-            metadata.validate_current(&registries),
-            Err(LoadError::UnsupportedSchemaVersion {
-                found: 3,
-                supported: CURRENT_SAVE_SCHEMA_VERSION,
-            })
         );
     }
 

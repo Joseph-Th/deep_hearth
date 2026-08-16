@@ -289,8 +289,8 @@
   resources remain exclusive and report an explicit `AwaitingResume` release horizon rather than a
   stale pre-failure due tick.
 - Canonical top-level tick pipeline with cheap per-tick invariants and exhaustive save/load audits.
-- Persistence semantic schema 29 and authored registry compatibility schema 17 with metadata
-  preflight, registry-aware state validation, structural topology/damage audits, energy/equipment
+- Persistence semantic schema 29 and authored registry compatibility schema 17 with current-schema-only
+  loading, registry-aware state validation, structural topology/damage audits, energy/equipment
   ownership validation, directional energy-source/sink reservation, occupancy-index and capacity
   audits, embodied
   structural matter/self-weight/phase audits, geometry/density-to-mass recomputation,
@@ -502,8 +502,8 @@
   shortcut.
 - Agriculture, soil processes, ecology, genetics, creatures, workers, settlements, logistics, trade,
   economy, migration, and other gameplay systems.
-- Save-file encoding/storage, compression, atomic filesystem writes, cloud storage, and released-save
-  migration implementations.
+- Save-file encoding/storage, compression, atomic filesystem writes, and cloud storage. Historical
+  save-schema migration is intentionally unsupported rather than deferred.
 - Spatial/world performance benchmarks required before final chunk and streaming architecture.
 
 ## Foundation Direction

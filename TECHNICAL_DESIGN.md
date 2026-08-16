@@ -108,7 +108,7 @@ callbacks, event handlers, record methods, or engine lifecycle hooks.
 
 ## 7. Persistence
 
-The core defines a versioned semantic save envelope while deliberately leaving byte encoding and
+The core defines a current-schema semantic save envelope while deliberately leaving byte encoding and
 storage to adapters. The current save schema is version 29. Authored identity/physics compatibility
 is tracked separately by `RegistrySchemaVersion`; the built-in registry schema is currently version
 17. Core gravity, material phase/fusion semantics, physical form and particle-state policies, fluid
@@ -116,10 +116,10 @@ identity/density definitions, directional energy-store semantics, and operation-
 identities are part of that immutable registry contract because changing them can alter persisted
 physical consequences even when authored IDs are unchanged.
 
-`SaveMetadata` can be decoded without decoding the current `AppState` shape. A future adapter can
-therefore inspect an old schema first and route it to a version-specific DTO and explicit migration.
-Do not deserialize arbitrary legacy payloads directly into the newest state and inspect the version
-afterward.
+Persistence is deliberately current-schema-only. `LoadedSaveEnvelope` represents the one payload
+shape this build supports, and `into_state` rejects any save-schema or registry-schema mismatch before
+returning runtime state. Historical save DTOs, migration paths, compatibility shims, and legacy
+decoders are intentionally not retained.
 
 A current-schema load must:
 
@@ -144,8 +144,8 @@ output, and consumed-trace validation also rejects particle-size state that disa
 authored form policy. Screening jobs independently recompute their aperture partition, typed stream
 identities, exact output distributions, finite work, duration, and condition outcome.
 
-Filesystem layout, compression, atomic writes, cloud storage, and released-save migration
-implementations remain adapter work.
+Filesystem layout, compression, atomic writes, and cloud storage remain adapter work. Historical
+save-schema migration is intentionally unsupported.
 
 ## 8. World, Spatial, and Engine Architecture
 
@@ -744,7 +744,7 @@ phase diagrams, combustion/emissions, chemical smelting/reduction, forging/machi
 equipment/tool/worker capability providers, persistent mechanical networks/inertia/slip,
 steam/boilers, electrical topology/transformers/protection, pressure/gravity-resolved hydrology and
 fluid networks, agriculture, ecology/genetics, creatures/workers, settlements/logistics/trade, and
-released save-file migrations/storage adapters.
+save-file storage adapters. Historical save-schema migration remains intentionally unsupported.
 
 New systems must integrate through owned records, immutable definitions, typed IDs/quantities,
 canonical mutations, dedicated errors, persistence semantics, invariant coverage, and behavioral
