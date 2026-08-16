@@ -17,11 +17,15 @@ use crate::material::{MaterialComposition, MaterialPhase};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
+#[cfg(test)]
+use super::reserved_ingress::{
+    ReservedDepositRequest, apply_reserved_deposits, decide_reserved_deposits,
+};
 use super::selection::ConsumptionSelection;
 #[cfg(test)]
 use super::selection::{
-    apply_consumption_reservation, apply_reserved_deposit,
-    validate_consumption_reservation_from_selection, validate_consumption_selection,
+    apply_consumption_reservation, validate_consumption_reservation_from_selection,
+    validate_consumption_selection,
 };
 #[cfg(test)]
 use super::state::apply_insert_lot;
@@ -622,6 +626,7 @@ pub(crate) fn apply_material_batch_ingress(
 impl Error for AddStockpileError {}
 
 /// Failure while depositing matter from an explicit source into a stockpile.
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DepositError {
     UnknownStockpile {
@@ -650,6 +655,7 @@ pub enum DepositError {
     StructuralCommit(StructuralCommitError),
 }
 
+#[cfg(test)]
 impl Display for DepositError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -698,6 +704,7 @@ impl Display for DepositError {
     }
 }
 
+#[cfg(test)]
 impl Error for DepositError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
@@ -1765,18 +1772,6 @@ pub(crate) fn validate_material_relocation_from_selection(
     })
 }
 
-pub(crate) fn next_material_lot_id(state: &InventoryState) -> u64 {
-    state.next_lot_id()
-}
-
-pub(crate) fn apply_lot_cursor_and_revision(
-    state: &mut InventoryState,
-    next_lot_id: u64,
-    next_revision: u64,
-) {
-    state.apply_lot_cursor_and_revision(next_lot_id, next_revision);
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CommodityReferenceError {
     UnknownMaterial { material: MaterialId },
@@ -2648,18 +2643,18 @@ mod tests {
             Mass::from_milligrams(10),
             Temperature::from_millikelvin(500_000),
         );
-        let lot_id = next_material_lot_id(state.inventory());
         let created_at = state.tick();
-        apply_reserved_deposit(
-            state.inventory_state_mut(),
-            destination,
-            &[output],
-            &[MaterialLotId::new(lot_id)],
-            Mass::from_milligrams(10),
+        let deposit_plan = decide_reserved_deposits(
+            state.inventory(),
             created_at,
-        );
-        let current_revision = state.inventory().revision();
-        apply_lot_cursor_and_revision(state.inventory_state_mut(), lot_id + 1, current_revision);
+            vec![ReservedDepositRequest::new(
+                destination,
+                vec![output],
+                Mass::from_milligrams(10),
+            )],
+        )
+        .unwrap_or_else(|error| panic!("reserved deposit planning failed: {error:?}"));
+        apply_reserved_deposits(state.inventory_state_mut(), deposit_plan);
         assert_lot_aggregate_agreement(&registries, &state, "after reserved deposit");
         assert_eq!(
             state

@@ -3,14 +3,11 @@
 use std::collections::BTreeMap;
 
 use crate::core::quantity::Mass;
-use crate::core::time::SimulationTick;
-use crate::material::{CommodityKey, MaterialInputSpec, MaterialLotSpec};
+use crate::material::{CommodityKey, MaterialInputSpec};
 
 use super::state::{
-    ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, MaterialLotProfile,
-    MaterialLotProvenance, MaterialLotRecord, StockpileId, StockpileRecord,
-    apply_aggregate_withdraw, apply_consume_lot_slice, apply_insert_or_merge_new_lot,
-    get_stockpile_mut_or_panic,
+    ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, StockpileId, StockpileRecord,
+    apply_aggregate_withdraw, apply_consume_lot_slice, get_stockpile_mut_or_panic,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -413,52 +410,6 @@ pub(crate) fn apply_consumption_reservation(
     }
     state.apply_revision(next_revision);
     Ok(())
-}
-
-pub(crate) fn apply_reserved_deposit(
-    state: &mut InventoryState,
-    destination: StockpileId,
-    outputs: &[MaterialLotSpec],
-    lot_ids: &[MaterialLotId],
-    reserved_mass: Mass,
-    created_at: SimulationTick,
-) {
-    assert_eq!(
-        outputs.len(),
-        lot_ids.len(),
-        "completion plan must allocate exactly one ID per output lot"
-    );
-    {
-        let record = get_stockpile_mut_or_panic(state, destination);
-        record.reserved_inbound = match record.reserved_inbound.checked_sub(reserved_mass) {
-            Some(value) => value,
-            None => panic!(
-                "reserved output mass underflow in stockpile {}",
-                destination.value()
-            ),
-        };
-    }
-
-    for (output, lot_id) in outputs.iter().zip(lot_ids) {
-        apply_insert_or_merge_new_lot(
-            state,
-            MaterialLotRecord {
-                id: *lot_id,
-                stockpile: destination,
-                mass: output.mass(),
-                profile: MaterialLotProfile {
-                    commodity: output.commodity(),
-                    temperature: output.temperature(),
-                    composition: output.composition().clone(),
-                    particle_size: output.particle_size_distribution().cloned(),
-                },
-                provenance: MaterialLotProvenance {
-                    earliest_created_at: created_at,
-                    latest_created_at: created_at,
-                },
-            },
-        );
-    }
 }
 
 fn select_input_lot_slices(

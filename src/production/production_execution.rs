@@ -15,14 +15,14 @@ use crate::energy::{
 };
 use crate::equipment::{EquipmentId, EquipmentOperationConditionOutcome, ValidatedEquipmentUse};
 use crate::inventory::{
-    ConsumptionReservation, MaterialLotId, ReservationCommitError, ReservationError, StockpileId,
-    StockpileStorageError, StockpileStoredMassChange, StockpileStructuralLoadError,
-    ValidatedStockpileStructuralLoad, apply_consumption_reservation, apply_lot_cursor_and_revision,
-    apply_reserved_deposit, next_material_lot_id, validate_consumption_reservation_from_selection,
-    validate_stockpile_storage, validate_stockpile_stored_mass_changes,
-    validate_stockpile_support_for_new_inbound,
+    ConsumptionReservation, ReservationCommitError, ReservationError, ReservedDepositPlan,
+    ReservedDepositPlanError, ReservedDepositRequest, StockpileId, StockpileStorageError,
+    StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedStockpileStructuralLoad,
+    apply_consumption_reservation, apply_reserved_deposits, decide_reserved_deposits,
+    validate_consumption_reservation_from_selection, validate_stockpile_storage,
+    validate_stockpile_stored_mass_changes, validate_stockpile_support_for_new_inbound,
 };
-use crate::material::{FormId, MaterialId, MaterialLotSpec};
+use crate::material::{FormId, MaterialId};
 use crate::registry::Registries;
 use crate::structural::{StructuralCommitError, StructuralElementId, StructuralLifecycle};
 

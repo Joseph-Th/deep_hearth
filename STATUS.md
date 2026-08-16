@@ -54,6 +54,9 @@
   production completions use one deterministic batch structural plan, so results do not depend on an
   intermediate mutation order. Supported operations bind the structural revision even when aggregate
   force rounds to the same value. Reserved inbound capacity remains space and does not create weight.
+  Production completion hands already-reserved output streams to an inventory-owned batch plan that
+  allocates material-lot IDs, releases reservations, inserts/coalesces lots, and advances the inventory
+  cursor/revision together; production no longer reads or writes inventory ID bookkeeping directly.
 - Persistent finite geological deposits with chunk-independent bounds, exact initial/remaining mass,
   material form, normalized composition, temperature, generation provenance, depletion lifecycle,
   generated IDs, owner revision, and exhaustive registry/state validation. Authoritative deposit

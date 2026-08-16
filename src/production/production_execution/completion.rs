@@ -56,9 +56,8 @@ impl ProcessCompletion {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CompletionPlan {
-    tick: SimulationTick,
     revisions: CompletionRevisionPlan,
-    next_lot_id_after: u64,
+    inventory_deposits: ReservedDepositPlan,
     availability_changes: Vec<ProductionAvailabilityChange>,
     entries: Vec<CompletionPlanEntry>,
     equipment_outcomes: Vec<EquipmentOperationConditionOutcome>,
@@ -68,8 +67,6 @@ pub(crate) struct CompletionPlan {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct CompletionRevisionPlan {
-    expected_inventory_revision: u64,
-    next_inventory_revision: u64,
     expected_production_revision: u64,
     next_production_revision: u64,
     expected_equipment_revision: u64,
@@ -90,9 +87,6 @@ struct CompletionPlanEntry {
 struct CompletionOutputStreamPlan {
     id: ProcessOutputStreamId,
     destination: StockpileId,
-    outputs: Vec<MaterialLotSpec>,
-    output_lot_ids: Vec<MaterialLotId>,
-    reserved_mass: Mass,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -236,7 +230,6 @@ pub(crate) fn decide_due_completions(
     state: &AppState,
     tick: SimulationTick,
 ) -> Result<CompletionPlan, CompletionPlanError> {
-    let expected_inventory_revision = state.inventory().revision();
     let expected_production_revision = state.production().revision();
     let expected_equipment_revision = state.equipment().revision();
     let expected_energy_revision = state.energy().revision();
@@ -259,13 +252,6 @@ pub(crate) fn decide_due_completions(
         }
     }
 
-    let next_inventory_revision = if due_ids.is_empty() {
-        expected_inventory_revision
-    } else {
-        expected_inventory_revision
-            .checked_add(1)
-            .ok_or(CompletionPlanError::InventoryRevision)?
-    };
     let next_production_revision = if due_ids.is_empty() && availability_changes.is_empty() {
         expected_production_revision
     } else {
@@ -273,8 +259,8 @@ pub(crate) fn decide_due_completions(
             .checked_add(1)
             .ok_or(CompletionPlanError::ProductionRevision)?
     };
-    let mut next_lot_id = next_material_lot_id(state.inventory());
     let mut entries = Vec::with_capacity(due_ids.len());
+    let mut reserved_deposit_requests = Vec::new();
     let mut equipment_outcomes = Vec::new();
     let mut released_energy_outcomes = Vec::new();
     let mut deposited_mass_by_destination = BTreeMap::<StockpileId, Mass>::new();
@@ -295,20 +281,15 @@ pub(crate) fn decide_due_completions(
                     job_id.value()
                 ),
             };
-            let mut output_lot_ids = Vec::with_capacity(stream.outputs().len());
-            for _ in stream.outputs() {
-                output_lot_ids.push(MaterialLotId::new(next_lot_id));
-                next_lot_id = next_lot_id
-                    .checked_add(1)
-                    .ok_or(CompletionPlanError::MaterialLotIds)?;
-            }
             output_streams.push(CompletionOutputStreamPlan {
                 id: stream.id(),
                 destination: stream.destination(),
-                outputs: stream.outputs().to_vec(),
-                output_lot_ids,
-                reserved_mass,
             });
+            reserved_deposit_requests.push(ReservedDepositRequest::new(
+                stream.destination(),
+                stream.outputs().to_vec(),
+                reserved_mass,
+            ));
             let current = deposited_mass_by_destination
                 .get(&stream.destination())
                 .copied()
@@ -399,12 +380,18 @@ pub(crate) fn decide_due_completions(
         validate_stockpile_stored_mass_changes(registries, state, mass_changes)
             .map_err(CompletionPlanError::StructuralLoad)?
     };
+    let inventory_deposits = decide_reserved_deposits(
+        state.inventory(),
+        tick,
+        reserved_deposit_requests,
+    )
+    .map_err(|error| match error {
+        ReservedDepositPlanError::LotIdExhausted => CompletionPlanError::MaterialLotIds,
+        ReservedDepositPlanError::RevisionExhausted => CompletionPlanError::InventoryRevision,
+    })?;
 
     Ok(CompletionPlan {
-        tick,
         revisions: CompletionRevisionPlan {
-            expected_inventory_revision,
-            next_inventory_revision,
             expected_production_revision,
             next_production_revision,
             expected_equipment_revision,
@@ -413,7 +400,7 @@ pub(crate) fn decide_due_completions(
             next_energy_revision,
             expected_structure_revision,
         },
-        next_lot_id_after: next_lot_id,
+        inventory_deposits,
         availability_changes,
         entries,
         equipment_outcomes,
@@ -428,11 +415,8 @@ pub(crate) fn apply_completion_plan(
     plan: CompletionPlan,
 ) -> Result<CompletionApplication, CompletionCommitError> {
     let CompletionPlan {
-        tick,
         revisions:
             CompletionRevisionPlan {
-                expected_inventory_revision,
-                next_inventory_revision,
                 expected_production_revision,
                 next_production_revision,
                 expected_equipment_revision,
@@ -441,7 +425,7 @@ pub(crate) fn apply_completion_plan(
                 next_energy_revision,
                 expected_structure_revision,
             },
-        next_lot_id_after,
+        inventory_deposits,
         availability_changes,
         entries,
         equipment_outcomes,
@@ -449,6 +433,7 @@ pub(crate) fn apply_completion_plan(
         structural_load,
     } = plan;
 
+    let expected_inventory_revision = inventory_deposits.expected_revision();
     let actual_inventory_revision = state.inventory().revision();
     if actual_inventory_revision != expected_inventory_revision {
         return Err(CompletionCommitError::InventoryStale {
@@ -527,6 +512,8 @@ pub(crate) fn apply_completion_plan(
         }
     }
 
+    apply_reserved_deposits(state.inventory_state_mut(), inventory_deposits);
+
     let mut completions = Vec::with_capacity(entries.len());
     for entry in entries {
         let CompletionPlanEntry {
@@ -538,16 +525,6 @@ pub(crate) fn apply_completion_plan(
             .iter()
             .map(|stream| ProcessOutputRoute::new(stream.id, stream.destination))
             .collect::<Vec<_>>();
-        for stream in &output_streams {
-            apply_reserved_deposit(
-                state.inventory_state_mut(),
-                stream.destination,
-                &stream.outputs,
-                &stream.output_lot_ids,
-                stream.reserved_mass,
-                tick,
-            );
-        }
         let removed = state.production_state_mut().remove_job(job);
         debug_assert_eq!(removed.process(), process);
         debug_assert_eq!(removed.output_streams().len(), output_streams.len());
@@ -555,7 +532,6 @@ pub(crate) fn apply_completion_plan(
         {
             debug_assert_eq!(removed_stream.id(), planned_stream.id);
             debug_assert_eq!(removed_stream.destination(), planned_stream.destination);
-            debug_assert_eq!(removed_stream.outputs(), planned_stream.outputs);
         }
 
         completions.push(ProcessCompletion {
@@ -583,11 +559,6 @@ pub(crate) fn apply_completion_plan(
                 &released_energy_outcomes,
             );
         }
-        apply_lot_cursor_and_revision(
-            state.inventory_state_mut(),
-            next_lot_id_after,
-            next_inventory_revision,
-        );
     }
     if !completions.is_empty() || !availability_changes.is_empty() {
         state

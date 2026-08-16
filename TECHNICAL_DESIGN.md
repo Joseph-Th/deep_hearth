@@ -351,6 +351,10 @@ support assignment. `InventoryState` maintains the synchronized support-to-stock
 support, converted to force once under registry-authored gravity. Aggregating mass before conversion
 avoids per-container rounding creating artificial weight. Reserved inbound capacity is space, not
 matter, and therefore contributes no structural load until physical output becomes authoritative.
+When reserved production output completes, `reserved_ingress` owns deterministic lot-ID allocation,
+reservation release, lot insertion/coalescing, and the single inventory cursor/revision advance as one
+plan/apply boundary. Production keeps job scheduling and routing but does not manipulate inventory ID
+cursors or revision bookkeeping.
 
 `validate_transfer_bulk` plus the consumed `ValidatedTransferBulk::commit` performs revision-bound
 movement between distinct stockpiles. A same-stockpile request is rejected as an invalid transfer;
