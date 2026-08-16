@@ -1652,8 +1652,8 @@ mod tests {
                 Ok(encoded) => encoded,
                 Err(error) => panic!("casting tamper serialization failed: {error}"),
             };
-        tampered["state"]["production"]["jobs"][job.value().to_string()]["released_energy"]["energy"] =
-            serde_json::json!(1_u64);
+        tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["resources"]
+            ["released_energy"]["energy"] = serde_json::json!(1_u64);
         let tampered: LoadedSaveEnvelope = match serde_json::from_value(tampered) {
             Ok(decoded) => decoded,
             Err(error) => panic!("casting tampered save failed decode: {error}"),

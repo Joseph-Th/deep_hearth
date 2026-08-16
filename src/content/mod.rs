@@ -15,7 +15,9 @@ mod textures;
 mod thermal;
 
 use crate::core::quantity::Acceleration;
-use crate::registry::{CoreDefinitions, Registries, RegistryDomains, RegistrySchemaVersion};
+use crate::registry::{
+    CoreDefinitions, Registries, RegistryDomains, RegistryPresentation, RegistrySchemaVersion,
+};
 
 #[cfg(test)]
 use crate::capability::{CapabilityDefinition, CapabilityRegistry};
@@ -86,8 +88,10 @@ pub(crate) fn make_test_registries_with_screening(
             ),
             thermal: empty_thermal_registry(),
             production,
-            textures: empty_texture_registry(),
-            shaders: empty_shader_registry(),
+            presentation: RegistryPresentation {
+                textures: empty_texture_registry(),
+                shaders: empty_shader_registry(),
+            },
         },
     )
 }
@@ -162,8 +166,10 @@ pub fn build_registries() -> Registries {
             ore_processing: ore_processing::build_ore_processing_registry(),
             thermal: thermal::build_thermal_registry(),
             production: processes::build_production_registry(),
-            textures: textures::build_texture_registry(),
-            shaders: shaders::build_shader_registry(),
+            presentation: RegistryPresentation {
+                textures: textures::build_texture_registry(),
+                shaders: shaders::build_shader_registry(),
+            },
         },
     )
 }
@@ -188,8 +194,10 @@ pub(crate) fn make_test_registries_with_equipment(
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: empty_thermal_registry(),
             production: ProductionRegistry::new(),
-            textures: empty_texture_registry(),
-            shaders: empty_shader_registry(),
+            presentation: RegistryPresentation {
+                textures: empty_texture_registry(),
+                shaders: empty_shader_registry(),
+            },
         },
     )
 }
@@ -211,8 +219,10 @@ pub(crate) fn make_test_registries_with_process(process: ProcessDefinition) -> R
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: empty_thermal_registry(),
             production,
-            textures: empty_texture_registry(),
-            shaders: empty_shader_registry(),
+            presentation: RegistryPresentation {
+                textures: empty_texture_registry(),
+                shaders: empty_shader_registry(),
+            },
         },
     )
 }
@@ -241,8 +251,10 @@ pub(crate) fn make_test_registries_with_energy_stores(
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: empty_thermal_registry(),
             production: ProductionRegistry::new(),
-            textures: empty_texture_registry(),
-            shaders: empty_shader_registry(),
+            presentation: RegistryPresentation {
+                textures: empty_texture_registry(),
+                shaders: empty_shader_registry(),
+            },
         },
     )
 }
@@ -267,8 +279,10 @@ pub(crate) fn make_test_registries_with_energy_stores_and_process(
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: empty_thermal_registry(),
             production,
-            textures: empty_texture_registry(),
-            shaders: empty_shader_registry(),
+            presentation: RegistryPresentation {
+                textures: empty_texture_registry(),
+                shaders: empty_shader_registry(),
+            },
         },
     )
 }
@@ -304,8 +318,10 @@ pub(crate) fn make_test_registries_with_sensible_heating(
                 std::iter::empty(),
             ),
             production,
-            textures: empty_texture_registry(),
-            shaders: empty_shader_registry(),
+            presentation: RegistryPresentation {
+                textures: empty_texture_registry(),
+                shaders: empty_shader_registry(),
+            },
         },
     )
 }
@@ -341,8 +357,10 @@ pub(crate) fn make_test_registries_with_melting(
                 std::iter::empty(),
             ),
             production,
-            textures: empty_texture_registry(),
-            shaders: empty_shader_registry(),
+            presentation: RegistryPresentation {
+                textures: empty_texture_registry(),
+                shaders: empty_shader_registry(),
+            },
         },
     )
 }
@@ -378,8 +396,10 @@ pub(crate) fn make_test_registries_with_casting(
                 [thermal_definition],
             ),
             production,
-            textures: empty_texture_registry(),
-            shaders: empty_shader_registry(),
+            presentation: RegistryPresentation {
+                textures: empty_texture_registry(),
+                shaders: empty_shader_registry(),
+            },
         },
     )
 }
@@ -399,8 +419,10 @@ pub(crate) fn make_test_registries_with_fluids(definitions: Vec<FluidDefinition>
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: empty_thermal_registry(),
             production: ProductionRegistry::new(),
-            textures: empty_texture_registry(),
-            shaders: empty_shader_registry(),
+            presentation: RegistryPresentation {
+                textures: empty_texture_registry(),
+                shaders: empty_shader_registry(),
+            },
         },
     )
 }
@@ -432,8 +454,10 @@ pub(crate) fn make_test_registries_with_comminution(
             ore_processing: OreProcessingRegistry::new([comminution_definition]),
             thermal: empty_thermal_registry(),
             production,
-            textures: empty_texture_registry(),
-            shaders: empty_shader_registry(),
+            presentation: RegistryPresentation {
+                textures: empty_texture_registry(),
+                shaders: empty_shader_registry(),
+            },
         },
     )
 }
@@ -667,8 +691,10 @@ mod tests {
                 ore_processing: OreProcessingRegistry::new(std::iter::empty()),
                 thermal: empty_thermal_registry(),
                 production,
-                textures: empty_texture_registry(),
-                shaders: empty_shader_registry(),
+                presentation: RegistryPresentation {
+                    textures: empty_texture_registry(),
+                    shaders: empty_shader_registry(),
+                },
             },
         );
 
@@ -761,8 +787,10 @@ mod tests {
                     ore_processing,
                     thermal,
                     production,
-                    textures: empty_texture_registry(),
-                    shaders: empty_shader_registry(),
+                    presentation: RegistryPresentation {
+                        textures: empty_texture_registry(),
+                        shaders: empty_shader_registry(),
+                    },
                 },
             )
         });

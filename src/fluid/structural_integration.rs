@@ -1175,7 +1175,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("fluid support-index tamper serialization failed: {error}"),
         };
-        missing_index["state"]["fluid"]["stores_by_support"] = serde_json::json!({});
+        missing_index["state"]["systems"]["fluid"]["stores_by_support"] = serde_json::json!({});
         let missing_index: LoadedSaveEnvelope = match serde_json::from_value(missing_index) {
             Ok(decoded) => decoded,
             Err(error) => panic!("fluid support-index tamper failed decode: {error}"),
@@ -1199,8 +1199,8 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("fluid load tamper serialization failed: {error}"),
         };
-        wrong_load["state"]["structures"]["elements"][support.value().to_string()]["loads"]["Fluid"] =
-            serde_json::json!(wrong.millinewtons());
+        wrong_load["state"]["systems"]["structures"]["elements"][support.value().to_string()]["loads"]
+            ["Fluid"] = serde_json::json!(wrong.millinewtons());
         let wrong_load: LoadedSaveEnvelope = match serde_json::from_value(wrong_load) {
             Ok(decoded) => decoded,
             Err(error) => panic!("fluid load tamper failed decode: {error}"),

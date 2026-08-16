@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 30;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 31;
 
 /// Borrowed versioned save payload suitable for any Serde encoding adapter.
 #[derive(Debug, Serialize)]
@@ -199,7 +199,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("structural liquid-embodiment save serialization failed: {error}"),
         };
-        encoded["state"]["structures"]["elements"][member.value().to_string()]["embodied_material"]
+        encoded["state"]["systems"]["structures"]["elements"][member.value().to_string()]["embodied_material"]
             [0]["profile"]["commodity"] = serde_json::json!(molten_wood.value());
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
@@ -503,7 +503,8 @@ mod tests {
                         }
                     }
                 },
-                "energy": {"revision": 0, "next_store_id": 1, "records": {}},
+                "systems": {
+                    "energy": {"revision": 0, "next_store_id": 1, "records": {}},
                 "fluid": {
                     "revision": 0,
                     "next_store_id": 1,
@@ -547,6 +548,7 @@ mod tests {
                     "equipment_occupancy": {},
                     "stockpile_occupancy": {}
                 }
+                }
             }
         }"#;
         let registries = build_registries();
@@ -570,7 +572,7 @@ mod tests {
         let state = AppState::new(WorldSeed::new(0x5700_0020));
         let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
             .unwrap_or_else(|error| panic!("empty due-index tamper serialization failed: {error}"));
-        encoded["state"]["production"]["due_jobs"]["7"] = serde_json::json!([]);
+        encoded["state"]["systems"]["production"]["due_jobs"]["7"] = serde_json::json!([]);
         let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
             .unwrap_or_else(|error| panic!("empty due-index tamper decode failed: {error}"));
 
@@ -660,7 +662,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("structural embodied-mass save serialization failed: {error}"),
         };
-        encoded["state"]["structures"]["elements"][member.value().to_string()]["embodied_mass"] =
+        encoded["state"]["systems"]["structures"]["elements"][member.value().to_string()]["embodied_mass"] =
             serde_json::json!(2_u64);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
@@ -688,8 +690,8 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("structural length save serialization failed: {error}"),
         };
-        encoded["state"]["structures"]["elements"][member.value().to_string()]["configuration"]["geometry"]
-            ["length"] = serde_json::json!(2_u64);
+        encoded["state"]["systems"]["structures"]["elements"][member.value().to_string()]["configuration"]
+            ["geometry"]["length"] = serde_json::json!(2_u64);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("tampered structural length save failed decode: {error}"),
@@ -716,8 +718,8 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("structural self-weight save serialization failed: {error}"),
         };
-        encoded["state"]["structures"]["elements"][member.value().to_string()]["loads"]["SelfWeight"] =
-            serde_json::json!(2_u128);
+        encoded["state"]["systems"]["structures"]["elements"][member.value().to_string()]["loads"]
+            ["SelfWeight"] = serde_json::json!(2_u128);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("tampered structural self-weight save failed decode: {error}"),
@@ -744,7 +746,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("planned structural damage save serialization failed: {error}"),
         };
-        encoded["state"]["structures"]["elements"][member.value().to_string()]["cracked"] =
+        encoded["state"]["systems"]["structures"]["elements"][member.value().to_string()]["cracked"] =
             serde_json::json!(true);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
@@ -770,8 +772,8 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("structural reverse-index save serialization failed: {error}"),
         };
-        encoded["state"]["structures"]["dependents_by_support"][foundation.value().to_string()] =
-            serde_json::json!([]);
+        encoded["state"]["systems"]["structures"]["dependents_by_support"]
+            [foundation.value().to_string()] = serde_json::json!([]);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("tampered structural reverse-index save failed decode: {error}"),
@@ -799,10 +801,10 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("structural cycle save serialization failed: {error}"),
         };
-        encoded["state"]["structures"]["supports_by_element"][second.value().to_string()] =
-            serde_json::json!([first.value()]);
-        encoded["state"]["structures"]["dependents_by_support"][first.value().to_string()] =
-            serde_json::json!([second.value()]);
+        encoded["state"]["systems"]["structures"]["supports_by_element"]
+            [second.value().to_string()] = serde_json::json!([first.value()]);
+        encoded["state"]["systems"]["structures"]["dependents_by_support"]
+            [first.value().to_string()] = serde_json::json!([second.value()]);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("tampered structural cycle save failed decode: {error}"),
@@ -829,8 +831,8 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("structural overload save serialization failed: {error}"),
         };
-        encoded["state"]["structures"]["elements"][column.value().to_string()]["loads"]["Snow"] =
-            serde_json::json!(50_000_000_u64);
+        encoded["state"]["systems"]["structures"]["elements"][column.value().to_string()]["loads"]
+            ["Snow"] = serde_json::json!(50_000_000_u64);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("tampered structural overload save failed decode: {error}"),
@@ -994,7 +996,8 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("support-index tamper serialization failed: {error}"),
         };
-        missing_index["state"]["inventory"]["stockpiles_by_support"] = serde_json::json!({});
+        missing_index["state"]["systems"]["inventory"]["stockpiles_by_support"] =
+            serde_json::json!({});
         let missing_index: LoadedSaveEnvelope = match serde_json::from_value(missing_index) {
             Ok(decoded) => decoded,
             Err(error) => panic!("support-index tamper failed decode: {error}"),
@@ -1013,8 +1016,8 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("stored-matter tamper serialization failed: {error}"),
         };
-        wrong_load["state"]["structures"]["elements"][support.value().to_string()]["loads"]["StoredMatter"] =
-            serde_json::json!(999_u128);
+        wrong_load["state"]["systems"]["structures"]["elements"][support.value().to_string()]["loads"]
+            ["StoredMatter"] = serde_json::json!(999_u128);
         let wrong_load: LoadedSaveEnvelope = match serde_json::from_value(wrong_load) {
             Ok(decoded) => decoded,
             Err(error) => panic!("stored-matter tamper failed decode: {error}"),
@@ -1152,11 +1155,11 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("missing-support save serialization failed: {error}"),
         };
-        encoded["state"]["equipment"]["records"][equipment.value().to_string()]["supported_by"] =
+        encoded["state"]["systems"]["equipment"]["records"][equipment.value().to_string()]["supported_by"] =
             serde_json::json!(missing.value());
-        encoded["state"]["equipment"]["equipment_by_support"] = serde_json::json!({});
-        encoded["state"]["equipment"]["equipment_by_support"][missing.value().to_string()] =
-            serde_json::json!([equipment.value()]);
+        encoded["state"]["systems"]["equipment"]["equipment_by_support"] = serde_json::json!({});
+        encoded["state"]["systems"]["equipment"]["equipment_by_support"]
+            [missing.value().to_string()] = serde_json::json!([equipment.value()]);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("missing-support tampered save failed decode: {error}"),
@@ -1199,7 +1202,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("reverse-index save serialization failed: {error}"),
         };
-        encoded["state"]["equipment"]["equipment_by_support"] = serde_json::json!({});
+        encoded["state"]["systems"]["equipment"]["equipment_by_support"] = serde_json::json!({});
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("reverse-index tampered save failed decode: {error}"),
@@ -1247,8 +1250,8 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("load-tamper save serialization failed: {error}"),
         };
-        encoded["state"]["structures"]["elements"][support.value().to_string()]["loads"]["Equipment"] =
-            serde_json::json!(stored.millinewtons());
+        encoded["state"]["systems"]["structures"]["elements"][support.value().to_string()]["loads"]
+            ["Equipment"] = serde_json::json!(stored.millinewtons());
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("load-tamper save failed decode: {error}"),
@@ -1284,7 +1287,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("energy save serialization failed: {error}"),
         };
-        encoded["state"]["energy"]["records"][store.value().to_string()]["definition"] =
+        encoded["state"]["systems"]["energy"]["records"][store.value().to_string()]["definition"] =
             serde_json::json!(unknown.value());
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
@@ -1319,7 +1322,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("energy save serialization failed: {error}"),
         };
-        encoded["state"]["energy"]["records"][store.value().to_string()]["stored"] =
+        encoded["state"]["systems"]["energy"]["records"][store.value().to_string()]["stored"] =
             serde_json::json!(1_000_001_u64);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
@@ -1393,7 +1396,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("equipment save serialization failed: {error}"),
         };
-        encoded["state"]["equipment"]["records"][equipment.value().to_string()]["definition"] =
+        encoded["state"]["systems"]["equipment"]["records"][equipment.value().to_string()]["definition"] =
             serde_json::json!(unknown_definition.value());
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
@@ -1516,8 +1519,8 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("heating provenance tamper serialization failed: {error}"),
         };
-        tampered["state"]["production"]["jobs"][job.value().to_string()]["consumed_energy"]["carrier"] =
-            serde_json::json!("Thermal");
+        tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["resources"]
+            ["consumed_energy"]["carrier"] = serde_json::json!("Thermal");
         let tampered: LoadedSaveEnvelope = match serde_json::from_value(tampered) {
             Ok(decoded) => decoded,
             Err(error) => panic!("heating provenance tamper failed decode: {error}"),
@@ -1538,7 +1541,7 @@ mod tests {
                 Ok(encoded) => encoded,
                 Err(error) => panic!("energy occupancy tamper serialization failed: {error}"),
             };
-        tampered_energy_occupancy["state"]["production"]["energy_occupancy"] =
+        tampered_energy_occupancy["state"]["systems"]["production"]["energy_occupancy"] =
             serde_json::json!({});
         let tampered_energy_occupancy: LoadedSaveEnvelope =
             match serde_json::from_value(tampered_energy_occupancy) {
@@ -1561,7 +1564,7 @@ mod tests {
                 Ok(encoded) => encoded,
                 Err(error) => panic!("equipment occupancy tamper serialization failed: {error}"),
             };
-        tampered_equipment_occupancy["state"]["production"]["equipment_occupancy"] =
+        tampered_equipment_occupancy["state"]["systems"]["production"]["equipment_occupancy"] =
             serde_json::json!({});
         let tampered_equipment_occupancy: LoadedSaveEnvelope =
             match serde_json::from_value(tampered_equipment_occupancy) {
@@ -1584,7 +1587,7 @@ mod tests {
                 Ok(encoded) => encoded,
                 Err(error) => panic!("stockpile occupancy tamper serialization failed: {error}"),
             };
-        tampered_stockpile_occupancy["state"]["production"]["stockpile_occupancy"] =
+        tampered_stockpile_occupancy["state"]["systems"]["production"]["stockpile_occupancy"] =
             serde_json::json!({});
         let tampered_stockpile_occupancy: LoadedSaveEnvelope =
             match serde_json::from_value(tampered_stockpile_occupancy) {
@@ -1603,7 +1606,8 @@ mod tests {
                 Ok(encoded) => encoded,
                 Err(error) => panic!("heating wear tamper serialization failed: {error}"),
             };
-        tampered_condition_outcome["state"]["production"]["jobs"][job.value().to_string()]["equipment_condition_after"] =
+        tampered_condition_outcome["state"]["systems"]["production"]["jobs"]
+            [job.value().to_string()]["equipment"]["condition_after"] =
             serde_json::json!(999_999_u32);
         let tampered_condition_outcome: LoadedSaveEnvelope =
             match serde_json::from_value(tampered_condition_outcome) {
@@ -1626,8 +1630,8 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("heating energy tamper serialization failed: {error}"),
         };
-        tampered_energy["state"]["production"]["jobs"][job.value().to_string()]["consumed_energy"]
-            ["energy"] = serde_json::json!(1_u64);
+        tampered_energy["state"]["systems"]["production"]["jobs"][job.value().to_string()]["resources"]
+            ["consumed_energy"]["energy"] = serde_json::json!(1_u64);
         let tampered_energy: LoadedSaveEnvelope = match serde_json::from_value(tampered_energy) {
             Ok(decoded) => decoded,
             Err(error) => panic!("heating energy tamper failed decode: {error}"),
@@ -1648,8 +1652,8 @@ mod tests {
                 Ok(encoded) => encoded,
                 Err(error) => panic!("heating duration tamper serialization failed: {error}"),
             };
-        tampered_duration["state"]["production"]["jobs"][job.value().to_string()]["active_duration"] =
-            serde_json::json!(duration.value() + 1);
+        tampered_duration["state"]["systems"]["production"]["jobs"][job.value().to_string()]["schedule"]
+            ["active_duration"] = serde_json::json!(duration.value() + 1);
         let tampered_duration: LoadedSaveEnvelope = match serde_json::from_value(tampered_duration)
         {
             Ok(decoded) => decoded,
@@ -1671,7 +1675,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("heating output tamper serialization failed: {error}"),
         };
-        tampered_output["state"]["production"]["jobs"][job.value().to_string()]["output_streams"]
+        tampered_output["state"]["systems"]["production"]["jobs"][job.value().to_string()]["output_streams"]
             [0]["outputs"][0]["commodity"] =
             serde_json::json!(CommodityKey::new(MATERIAL_WOOD, FORM_LUMP).value());
         let tampered_output: LoadedSaveEnvelope = match serde_json::from_value(tampered_output) {
@@ -1690,8 +1694,8 @@ mod tests {
                 Ok(encoded) => encoded,
                 Err(error) => panic!("heating equipment tamper serialization failed: {error}"),
             };
-        tampered_equipment["state"]["production"]["jobs"][job.value().to_string()]["equipment_provider"]
-            ["condition"] = serde_json::json!(999_999_u32);
+        tampered_equipment["state"]["systems"]["production"]["jobs"][job.value().to_string()]["equipment"]
+            ["provider"]["condition"] = serde_json::json!(999_999_u32);
         let tampered_equipment: LoadedSaveEnvelope =
             match serde_json::from_value(tampered_equipment) {
                 Ok(decoded) => decoded,
@@ -1713,20 +1717,23 @@ mod tests {
             Err(error) => panic!("heating double-book tamper serialization failed: {error}"),
         };
         let second_job = job.value() + 1;
-        let mut duplicated =
-            double_booked["state"]["production"]["jobs"][job.value().to_string()].clone();
-        duplicated["id"] = serde_json::json!(second_job);
-        double_booked["state"]["production"]["jobs"][second_job.to_string()] = duplicated;
-        double_booked["state"]["production"]["next_job_id"] = serde_json::json!(second_job + 1);
+        let mut duplicated = double_booked["state"]["systems"]["production"]["jobs"]
+            [job.value().to_string()]
+        .clone();
+        duplicated["identity"]["id"] = serde_json::json!(second_job);
+        double_booked["state"]["systems"]["production"]["jobs"][second_job.to_string()] =
+            duplicated;
+        double_booked["state"]["systems"]["production"]["next_job_id"] =
+            serde_json::json!(second_job + 1);
         let due = match state.production().get_job(job) {
             Some(record) => record.completes_at().value().to_string(),
             None => panic!("heating job disappeared before double-book tamper"),
         };
-        double_booked["state"]["production"]["due_jobs"][due.clone()] =
+        double_booked["state"]["systems"]["production"]["due_jobs"][due.clone()] =
             serde_json::json!([job.value(), second_job]);
-        double_booked["state"]["production"]["stockpile_occupancy"][source.value().to_string()] =
-            serde_json::json!([job.value(), second_job]);
-        double_booked["state"]["production"]["stockpile_occupancy"]
+        double_booked["state"]["systems"]["production"]["stockpile_occupancy"]
+            [source.value().to_string()] = serde_json::json!([job.value(), second_job]);
+        double_booked["state"]["systems"]["production"]["stockpile_occupancy"]
             [destination.value().to_string()] = serde_json::json!([job.value(), second_job]);
         let double_booked: LoadedSaveEnvelope = match serde_json::from_value(double_booked) {
             Ok(decoded) => decoded,
@@ -1750,18 +1757,20 @@ mod tests {
             };
         let second_equipment_job = job.value() + 1;
         let mut duplicated_equipment =
-            equipment_double_booked["state"]["production"]["jobs"][job.value().to_string()].clone();
-        duplicated_equipment["id"] = serde_json::json!(second_equipment_job);
-        duplicated_equipment["consumed_energy"] = serde_json::Value::Null;
-        equipment_double_booked["state"]["production"]["jobs"][second_equipment_job.to_string()] =
-            duplicated_equipment;
-        equipment_double_booked["state"]["production"]["next_job_id"] =
+            equipment_double_booked["state"]["systems"]["production"]["jobs"]
+                [job.value().to_string()]
+            .clone();
+        duplicated_equipment["identity"]["id"] = serde_json::json!(second_equipment_job);
+        duplicated_equipment["resources"]["consumed_energy"] = serde_json::Value::Null;
+        equipment_double_booked["state"]["systems"]["production"]["jobs"]
+            [second_equipment_job.to_string()] = duplicated_equipment;
+        equipment_double_booked["state"]["systems"]["production"]["next_job_id"] =
             serde_json::json!(second_equipment_job + 1);
-        equipment_double_booked["state"]["production"]["due_jobs"][due] =
+        equipment_double_booked["state"]["systems"]["production"]["due_jobs"][due] =
             serde_json::json!([job.value(), second_equipment_job]);
-        equipment_double_booked["state"]["production"]["stockpile_occupancy"]
+        equipment_double_booked["state"]["systems"]["production"]["stockpile_occupancy"]
             [source.value().to_string()] = serde_json::json!([job.value(), second_equipment_job]);
-        equipment_double_booked["state"]["production"]["stockpile_occupancy"]
+        equipment_double_booked["state"]["systems"]["production"]["stockpile_occupancy"]
             [destination.value().to_string()] =
             serde_json::json!([job.value(), second_equipment_job]);
         let equipment_double_booked: LoadedSaveEnvelope =
@@ -2017,7 +2026,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("save serialization failed: {error}"),
         };
-        encoded["state"]["production"]["jobs"][job.value().to_string()]["consumed_mass"] =
+        encoded["state"]["systems"]["production"]["jobs"][job.value().to_string()]["resources"]["consumed_mass"] =
             serde_json::json!(9);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
@@ -2135,7 +2144,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("serialization failed: {error}"),
         };
-        encoded["state"]["inventory"]["lots"][lot.value().to_string()]["profile"]["composition"]
+        encoded["state"]["systems"]["inventory"]["lots"][lot.value().to_string()]["profile"]["composition"]
             ["components"] = serde_json::json!([
             {"material": MATERIAL_WOOD.value(), "parts_per_million": 900_000_u32},
             {"material": unknown.value(), "parts_per_million": 100_000_u32},

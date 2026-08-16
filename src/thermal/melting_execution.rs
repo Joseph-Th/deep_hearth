@@ -1575,8 +1575,8 @@ mod tests {
                 Ok(encoded) => encoded,
                 Err(error) => panic!("melting energy tamper serialization failed: {error}"),
             };
-        tampered_energy["state"]["production"]["jobs"][job.value().to_string()]["consumed_energy"]
-            ["energy"] = serde_json::json!(1_u64);
+        tampered_energy["state"]["systems"]["production"]["jobs"][job.value().to_string()]["resources"]
+            ["consumed_energy"]["energy"] = serde_json::json!(1_u64);
         let tampered_energy: LoadedSaveEnvelope = match serde_json::from_value(tampered_energy) {
             Ok(decoded) => decoded,
             Err(error) => panic!("melting energy tamper failed decode: {error}"),
@@ -1598,10 +1598,10 @@ mod tests {
                 Err(error) => panic!("melting destination tamper serialization failed: {error}"),
             };
         let destination = fixture.ids.destination.value().to_string();
-        invalid_destination["state"]["inventory"]["stockpiles"][destination.clone()]["storage_profile"]
+        invalid_destination["state"]["systems"]["inventory"]["stockpiles"][destination.clone()]["storage_profile"]
             ["allow_liquid"] = serde_json::json!(false);
-        invalid_destination["state"]["inventory"]["stockpiles"][destination]["storage_profile"]["allow_solid"] =
-            serde_json::json!(true);
+        invalid_destination["state"]["systems"]["inventory"]["stockpiles"][destination]["storage_profile"]
+            ["allow_solid"] = serde_json::json!(true);
         let invalid_destination: LoadedSaveEnvelope =
             match serde_json::from_value(invalid_destination) {
                 Ok(decoded) => decoded,

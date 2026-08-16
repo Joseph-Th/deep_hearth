@@ -71,20 +71,11 @@ impl CoreDefinitions {
 pub struct Registries {
     schema_version: RegistrySchemaVersion,
     core: CoreDefinitions,
-    energy: EnergyRegistry,
-    fluid: FluidRegistry,
-    capabilities: CapabilityRegistry,
-    equipment: EquipmentRegistry,
-    structural: StructuralRegistry,
-    materials: MaterialRegistry,
-    ore_processing: OreProcessingRegistry,
-    thermal: ThermalRegistry,
-    production: ProductionRegistry,
-    textures: TextureRegistry,
-    shaders: ShaderRegistry,
+    domains: RegistryDomains,
 }
 
 /// Domain registry bundle used to assemble the immutable root without a wide positional API.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RegistryDomains {
     pub(crate) energy: EnergyRegistry,
     pub(crate) fluid: FluidRegistry,
@@ -95,6 +86,11 @@ pub(crate) struct RegistryDomains {
     pub(crate) ore_processing: OreProcessingRegistry,
     pub(crate) thermal: ThermalRegistry,
     pub(crate) production: ProductionRegistry,
+    pub(crate) presentation: RegistryPresentation,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RegistryPresentation {
     pub(crate) textures: TextureRegistry,
     pub(crate) shaders: ShaderRegistry,
 }
@@ -121,6 +117,7 @@ impl Registries {
             &domains.materials,
         );
         domains
+            .presentation
             .textures
             .validate_references(&domains.materials, &domains.equipment);
         for process in domains.ore_processing.process_ids() {
@@ -133,17 +130,7 @@ impl Registries {
         Self {
             schema_version,
             core,
-            energy: domains.energy,
-            fluid: domains.fluid,
-            capabilities: domains.capabilities,
-            equipment: domains.equipment,
-            structural: domains.structural,
-            materials: domains.materials,
-            ore_processing: domains.ore_processing,
-            thermal: domains.thermal,
-            production: domains.production,
-            textures: domains.textures,
-            shaders: domains.shaders,
+            domains,
         }
     }
 
@@ -162,66 +149,66 @@ impl Registries {
     /// Returns immutable finite-energy store definitions.
     #[must_use]
     pub const fn energy(&self) -> &EnergyRegistry {
-        &self.energy
+        &self.domains.energy
     }
 
     /// Returns immutable authored fluid identities.
     #[must_use]
     pub const fn fluid(&self) -> &FluidRegistry {
-        &self.fluid
+        &self.domains.fluid
     }
 
     /// Returns immutable authored physical/tool/equipment capability definitions.
     #[must_use]
     pub const fn capabilities(&self) -> &CapabilityRegistry {
-        &self.capabilities
+        &self.domains.capabilities
     }
 
     /// Returns immutable maintainable equipment definitions.
     #[must_use]
     pub const fn equipment(&self) -> &EquipmentRegistry {
-        &self.equipment
+        &self.domains.equipment
     }
 
     /// Returns immutable structural load-response profiles.
     #[must_use]
     pub const fn structural(&self) -> &StructuralRegistry {
-        &self.structural
+        &self.domains.structural
     }
 
     /// Returns immutable material and physical-form definitions.
     #[must_use]
     pub const fn materials(&self) -> &MaterialRegistry {
-        &self.materials
+        &self.domains.materials
     }
 
     /// Returns immutable physical ore/material-preparation resolver definitions.
     #[must_use]
     pub const fn ore_processing(&self) -> &OreProcessingRegistry {
-        &self.ore_processing
+        &self.domains.ore_processing
     }
 
     /// Returns immutable physical thermal-process resolution semantics.
     #[must_use]
     pub const fn thermal(&self) -> &ThermalRegistry {
-        &self.thermal
+        &self.domains.thermal
     }
 
     /// Returns immutable material-transformation definitions.
     #[must_use]
     pub const fn production(&self) -> &ProductionRegistry {
-        &self.production
+        &self.domains.production
     }
 
     /// Returns immutable palette, texture, and block/object appearance definitions.
     #[must_use]
     pub const fn textures(&self) -> &TextureRegistry {
-        &self.textures
+        &self.domains.presentation.textures
     }
 
     /// Returns immutable WGSL libraries and executable shader definitions.
     #[must_use]
     pub const fn shaders(&self) -> &ShaderRegistry {
-        &self.shaders
+        &self.domains.presentation.shaders
     }
 }

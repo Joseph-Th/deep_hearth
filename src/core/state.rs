@@ -53,6 +53,11 @@ pub struct AppState {
     world_seed: WorldSeed,
     clock: ClockState,
     random: RandomState,
+    systems: SystemState,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct SystemState {
     energy: EnergyState,
     fluid: FluidState,
     equipment: EquipmentState,
@@ -78,14 +83,16 @@ impl AppState {
                 tick: SimulationTick::ZERO,
             },
             random: RandomState::new(world_seed),
-            energy: EnergyState::new(),
-            fluid: FluidState::new(),
-            equipment: EquipmentState::new(),
-            structures: StructureState::new(),
-            geology: GeologyState::new(),
-            geological_knowledge: GeologicalKnowledgeState::new(),
-            inventory: InventoryState::new(),
-            production: ProductionState::new(),
+            systems: SystemState {
+                energy: EnergyState::new(),
+                fluid: FluidState::new(),
+                equipment: EquipmentState::new(),
+                structures: StructureState::new(),
+                geology: GeologyState::new(),
+                geological_knowledge: GeologicalKnowledgeState::new(),
+                inventory: InventoryState::new(),
+                production: ProductionState::new(),
+            },
         }
     }
 
@@ -113,41 +120,41 @@ impl AppState {
     /// Returns read-only authoritative finite-energy state.
     #[must_use]
     pub const fn energy(&self) -> &EnergyState {
-        &self.energy
+        &self.systems.energy
     }
 
     pub(crate) fn energy_state_mut(&mut self) -> &mut EnergyState {
-        &mut self.energy
+        &mut self.systems.energy
     }
 
     /// Returns read-only authoritative finite fluid state.
     #[must_use]
     pub const fn fluid(&self) -> &FluidState {
-        &self.fluid
+        &self.systems.fluid
     }
 
     pub(crate) fn fluid_state_mut(&mut self) -> &mut FluidState {
-        &mut self.fluid
+        &mut self.systems.fluid
     }
 
     /// Returns read-only authoritative equipment state.
     #[must_use]
     pub const fn equipment(&self) -> &EquipmentState {
-        &self.equipment
+        &self.systems.equipment
     }
 
     pub(crate) fn equipment_state_mut(&mut self) -> &mut EquipmentState {
-        &mut self.equipment
+        &mut self.systems.equipment
     }
 
     /// Returns read-only authoritative structural state.
     #[must_use]
     pub const fn structures(&self) -> &StructureState {
-        &self.structures
+        &self.systems.structures
     }
 
     pub(crate) fn structure_state_mut(&mut self) -> &mut StructureState {
-        &mut self.structures
+        &mut self.systems.structures
     }
 
     /// Returns authoritative geological truth to owning core systems only.
@@ -156,41 +163,41 @@ impl AppState {
     /// deposit records directly.
     #[must_use]
     pub(crate) const fn geology(&self) -> &GeologyState {
-        &self.geology
+        &self.systems.geology
     }
 
     pub(crate) fn geology_state_mut(&mut self) -> &mut GeologyState {
-        &mut self.geology
+        &mut self.systems.geology
     }
 
     /// Returns acquired geological evidence without exposing it as authoritative world truth.
     #[must_use]
     pub const fn geological_knowledge(&self) -> &GeologicalKnowledgeState {
-        &self.geological_knowledge
+        &self.systems.geological_knowledge
     }
 
     pub(crate) fn geological_knowledge_state_mut(&mut self) -> &mut GeologicalKnowledgeState {
-        &mut self.geological_knowledge
+        &mut self.systems.geological_knowledge
     }
 
     /// Returns read-only authoritative stockpile state.
     #[must_use]
     pub const fn inventory(&self) -> &InventoryState {
-        &self.inventory
+        &self.systems.inventory
     }
 
     pub(crate) fn inventory_state_mut(&mut self) -> &mut InventoryState {
-        &mut self.inventory
+        &mut self.systems.inventory
     }
 
     /// Returns read-only authoritative production scheduling state.
     #[must_use]
     pub const fn production(&self) -> &ProductionState {
-        &self.production
+        &self.systems.production
     }
 
     pub(crate) fn production_state_mut(&mut self) -> &mut ProductionState {
-        &mut self.production
+        &mut self.systems.production
     }
 }
 
@@ -877,29 +884,33 @@ pub fn validate_loaded_state(
         });
     }
 
-    validate_loaded_energy(registries.energy(), &state.energy, state.tick())
+    validate_loaded_energy(registries.energy(), &state.systems.energy, state.tick())
         .map_err(StateValidationError::Energy)?;
-    validate_loaded_fluid(registries.fluid(), &state.fluid, state.tick())
+    validate_loaded_fluid(registries.fluid(), &state.systems.fluid, state.tick())
         .map_err(StateValidationError::Fluid)?;
-    validate_loaded_equipment(registries.equipment(), &state.equipment, state.tick())
-        .map_err(StateValidationError::Equipment)?;
+    validate_loaded_equipment(
+        registries.equipment(),
+        &state.systems.equipment,
+        state.tick(),
+    )
+    .map_err(StateValidationError::Equipment)?;
     validate_loaded_structure(
         registries.structural(),
         registries.materials(),
-        &state.structures,
+        &state.systems.structures,
         state.tick(),
         registries.core().gravity(),
     )
     .map_err(StateValidationError::Structure)?;
-    validate_loaded_inventory(registries.materials(), &state.inventory)
+    validate_loaded_inventory(registries.materials(), &state.systems.inventory)
         .map_err(StateValidationError::Inventory)?;
 
     let mut mounted_mass_by_element = BTreeMap::<StructuralElementId, AggregateMass>::new();
-    for equipment in state.equipment.equipment() {
+    for equipment in state.systems.equipment.equipment() {
         let Some(element) = equipment.supported_by() else {
             continue;
         };
-        let Some(structural) = state.structures.get_element(element) else {
+        let Some(structural) = state.systems.structures.get_element(element) else {
             return Err(StateValidationError::UnknownEquipmentSupport {
                 equipment: equipment.id(),
                 element,
@@ -928,7 +939,7 @@ pub fn validate_loaded_state(
             .ok_or(StateValidationError::MountedEquipmentMassOverflow { element })?;
         mounted_mass_by_element.insert(element, next);
     }
-    for structural in state.structures.elements() {
+    for structural in state.systems.structures.elements() {
         let element = structural.id();
         let mass = mounted_mass_by_element
             .get(&element)
@@ -947,11 +958,11 @@ pub fn validate_loaded_state(
     }
 
     let mut stored_mass_by_element = BTreeMap::<StructuralElementId, AggregateMass>::new();
-    for stockpile in state.inventory.stockpiles() {
+    for stockpile in state.systems.inventory.stockpiles() {
         let Some(element) = stockpile.supported_by() else {
             continue;
         };
-        let Some(structural) = state.structures.get_element(element) else {
+        let Some(structural) = state.systems.structures.get_element(element) else {
             return Err(StateValidationError::UnknownStockpileSupport {
                 stockpile: stockpile.id(),
                 element,
@@ -972,7 +983,7 @@ pub fn validate_loaded_state(
             .ok_or(StateValidationError::StoredMatterMassOverflow { element })?;
         stored_mass_by_element.insert(element, next);
     }
-    for structural in state.structures.elements() {
+    for structural in state.systems.structures.elements() {
         let element = structural.id();
         let mass = stored_mass_by_element
             .get(&element)
@@ -990,11 +1001,11 @@ pub fn validate_loaded_state(
         }
     }
 
-    for store in state.fluid.stores() {
+    for store in state.systems.fluid.stores() {
         let Some(element) = store.supported_by() else {
             continue;
         };
-        let Some(structural) = state.structures.get_element(element) else {
+        let Some(structural) = state.systems.structures.get_element(element) else {
             return Err(StateValidationError::UnknownFluidSupport {
                 store: store.id(),
                 element,
@@ -1007,7 +1018,7 @@ pub fn validate_loaded_state(
             });
         }
     }
-    for structural in state.structures.elements() {
+    for structural in state.systems.structures.elements() {
         validate_existing_fluid_load(registries, state, structural.id())
             .map_err(StateValidationError::FluidStructuralLoad)?;
     }
@@ -1015,23 +1026,24 @@ pub fn validate_loaded_state(
     let structural_analysis = analyze_structure(
         registries.structural(),
         registries.materials(),
-        &state.structures,
+        &state.systems.structures,
     )
     .map_err(StateValidationError::StructureAnalysis)?;
     if let Some(event) = structural_analysis.damage_events().first().copied() {
         return Err(StateValidationError::UnresolvedStructuralDamage { event });
     }
-    validate_loaded_geology(registries.materials(), &state.geology, state.tick())
+    validate_loaded_geology(registries.materials(), &state.systems.geology, state.tick())
         .map_err(StateValidationError::Geology)?;
     validate_loaded_geological_knowledge(
         registries.materials(),
-        &state.geological_knowledge,
+        &state.systems.geological_knowledge,
         state.tick(),
     )
     .map_err(StateValidationError::GeologicalKnowledge)?;
-    validate_loaded_production(&state.production).map_err(StateValidationError::Production)?;
+    validate_loaded_production(&state.systems.production)
+        .map_err(StateValidationError::Production)?;
 
-    for stockpile in state.inventory.stockpiles() {
+    for stockpile in state.systems.inventory.stockpiles() {
         for (commodity, _) in stockpile.contents() {
             if !registries.materials().has_commodity(commodity) {
                 return Err(StateValidationError::UnknownStoredCommodity {
@@ -1041,7 +1053,7 @@ pub fn validate_loaded_state(
             }
         }
     }
-    for lot in state.inventory.lots() {
+    for lot in state.systems.inventory.lots() {
         if lot.created_at() > state.tick() {
             return Err(StateValidationError::LotCreatedInFuture {
                 lot: lot.id(),
@@ -1073,21 +1085,26 @@ pub fn validate_loaded_state(
     let mut expected_reservations = BTreeMap::<StockpileId, Mass>::new();
     let mut occupied_energy = BTreeMap::<crate::energy::EnergyStoreId, ProductionJobId>::new();
     let mut occupied_equipment = BTreeMap::<EquipmentId, ProductionJobId>::new();
-    for job in state.production.jobs() {
+    for job in state.systems.production.jobs() {
         if registries.production().get_process(job.process()).is_none() {
             return Err(StateValidationError::UnknownJobProcess {
                 job: job.id(),
                 process: job.process(),
             });
         }
-        if state.inventory.get_stockpile(job.source()).is_none() {
+        if state
+            .systems
+            .inventory
+            .get_stockpile(job.source())
+            .is_none()
+        {
             return Err(StateValidationError::UnknownJobSource {
                 job: job.id(),
                 stockpile: job.source(),
             });
         }
         if let Some(trace) = job.consumed_energy() {
-            let Some(store) = state.energy.get_store(trace.source()) else {
+            let Some(store) = state.systems.energy.get_store(trace.source()) else {
                 return Err(StateValidationError::UnknownJobEnergySource {
                     job: job.id(),
                     store: trace.source(),
@@ -1124,7 +1141,7 @@ pub fn validate_loaded_state(
             }
         }
         if let Some(trace) = job.released_energy() {
-            let Some(store) = state.energy.get_store(trace.destination()) else {
+            let Some(store) = state.systems.energy.get_store(trace.destination()) else {
                 return Err(StateValidationError::UnknownJobEnergySink {
                     job: job.id(),
                     store: trace.destination(),
@@ -1182,7 +1199,7 @@ pub fn validate_loaded_state(
             }
         }
         if let Some(provider) = job.equipment_provider() {
-            let Some(record) = state.equipment.get_equipment(provider.equipment()) else {
+            let Some(record) = state.systems.equipment.get_equipment(provider.equipment()) else {
                 return Err(StateValidationError::UnknownJobEquipment {
                     job: job.id(),
                     equipment: provider.equipment(),
@@ -1268,7 +1285,8 @@ pub fn validate_loaded_state(
 
         for stream in job.output_streams() {
             let destination = stream.destination();
-            let Some(destination_record) = state.inventory.get_stockpile(destination) else {
+            let Some(destination_record) = state.systems.inventory.get_stockpile(destination)
+            else {
                 return Err(StateValidationError::UnknownJobDestination {
                     job: job.id(),
                     stockpile: destination,
@@ -1322,7 +1340,7 @@ pub fn validate_loaded_state(
         }
     }
 
-    for stockpile in state.inventory.stockpiles() {
+    for stockpile in state.systems.inventory.stockpiles() {
         let expected = expected_reservations
             .get(&stockpile.id())
             .copied()
@@ -1346,86 +1364,96 @@ pub fn validate_invariants(_registries: &Registries, state: &AppState) {
         "Runtime Invariant 11 (Serialization Completeness): core RNG stream must remain valid"
     );
     debug_assert!(
-        state.energy.has_valid_id_cursor(),
+        state.systems.energy.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): energy store ID cursor must remain valid"
     );
     debug_assert!(
-        state.fluid.has_valid_id_cursor(),
+        state.systems.fluid.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): fluid store ID cursor must remain valid"
     );
     debug_assert!(
-        state.fluid.has_valid_records(),
+        state.systems.fluid.has_valid_records(),
         "Runtime Invariant 6 (Lifecycle Validity): fluid stores must have nonzero capacity and canonical nonempty contents"
     );
     debug_assert!(
-        state.fluid.has_valid_support_index(),
+        state.systems.fluid.has_valid_support_index(),
         "Runtime Invariant 12 (Derived Data Consistency): fluid support reverse index must match store support ownership"
     );
     debug_assert!(
-        state.equipment.has_valid_id_cursor(),
+        state.systems.equipment.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): equipment ID cursor must remain valid"
     );
     debug_assert!(
-        state.equipment.has_valid_support_index(),
+        state.systems.equipment.has_valid_support_index(),
         "Runtime Invariant 12 (Derived Data Consistency): equipment support reverse index must match support ownership"
     );
     debug_assert!(
-        state.structures.has_valid_id_cursor(),
+        state.systems.structures.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): structural ID cursor must remain valid"
     );
     debug_assert!(
-        state.structures.has_valid_geometry(),
+        state.systems.structures.has_valid_geometry(),
         "Runtime Invariant 6 (Lifecycle Validity): structural geometry must remain physically valid"
     );
     debug_assert!(
-        state.geology.has_valid_id_cursor(),
+        state.systems.geology.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): geological deposit ID cursor must remain valid"
     );
     debug_assert!(
-        state.geological_knowledge.has_valid_id_cursor(),
+        state.systems.geological_knowledge.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): geological observation ID cursor must remain valid"
     );
     debug_assert!(
-        state.inventory.has_valid_id_cursors(),
+        state.systems.inventory.has_valid_id_cursors(),
         "Runtime Invariant 8 (No Lost Runtime State): inventory ID cursors must remain nonzero"
     );
     debug_assert!(
-        state.inventory.has_valid_support_index(),
+        state.systems.inventory.has_valid_support_index(),
         "Runtime Invariant 12 (Derived Data Consistency): inventory support reverse index must match stockpile support ownership"
     );
     debug_assert!(
-        state.production.has_valid_id_cursor(),
+        state.systems.production.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): production ID cursor must remain nonzero"
     );
     debug_assert!(
-        state.production.has_valid_equipment_condition_outcomes(),
+        state
+            .systems
+            .production
+            .has_valid_equipment_condition_outcomes(),
         "Runtime Invariant 6 (Lifecycle Validity): equipment-backed jobs must carry non-improving post-operation condition outcomes"
     );
     debug_assert!(
-        state.production.has_valid_schedule_index(),
+        state.systems.production.has_valid_schedule_index(),
         "Runtime Invariants 3/6/12 (Index Completeness, Lifecycle Validity, Derived Data Consistency): production due-index and suspension scheduling must match active job records"
     );
     debug_assert!(
-        state.production.jobs().all(|job| {
+        state.systems.production.jobs().all(|job| {
             job.suspension()
                 .is_none_or(|suspension| suspension.suspended_at() <= state.tick())
         }),
         "Runtime Invariant 6 (Lifecycle Validity): production suspension timestamps must not be later than the authoritative clock"
     );
     debug_assert!(
-        state.production.has_valid_energy_occupancy_index(),
+        state.systems.production.has_valid_energy_occupancy_index(),
         "Runtime Invariants 5/12 (Ownership Exclusivity, Derived Data Consistency): production energy occupancy index must contain exactly one owner for each active job reservation"
     );
     debug_assert!(
-        state.production.has_valid_equipment_occupancy_index(),
+        state
+            .systems
+            .production
+            .has_valid_equipment_occupancy_index(),
         "Runtime Invariants 5/12 (Ownership Exclusivity, Derived Data Consistency): production equipment occupancy index must contain exactly one owner for each active equipment reservation"
     );
     debug_assert!(
-        state.production.has_valid_stockpile_occupancy_index(),
+        state
+            .systems
+            .production
+            .has_valid_stockpile_occupancy_index(),
         "Runtime Invariant 12 (Derived Data Consistency): production stockpile occupancy index must match every active job source and destination"
     );
     debug_assert!(
         state
+            .systems
             .production
             .earliest_due_tick()
             .is_none_or(|due| due > state.tick()),

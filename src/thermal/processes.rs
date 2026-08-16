@@ -2806,7 +2806,7 @@ mod tests {
             .unwrap_or_else(|error| {
                 panic!("suspended heating tamper serialization failed: {error}")
             });
-        tampered["state"]["production"]["due_jobs"][original_due.value().to_string()] =
+        tampered["state"]["systems"]["production"]["due_jobs"][original_due.value().to_string()] =
             serde_json::json!([job.value()]);
         let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
             .unwrap_or_else(|error| panic!("suspended heating tamper decode failed: {error}"));
@@ -2825,7 +2825,7 @@ mod tests {
             .unwrap_or_else(|error| {
                 panic!("suspended schedule tamper serialization failed: {error}")
             });
-        tampered["state"]["production"]["jobs"][job.value().to_string()]["completes_at"] =
+        tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["schedule"]["completes_at"] =
             serde_json::json!(tampered_due.value());
         let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
             .unwrap_or_else(|error| panic!("suspended schedule tamper decode failed: {error}"));
@@ -2845,8 +2845,8 @@ mod tests {
                 panic!("suspended remaining-time tamper serialization failed: {error}")
             });
         let excessive_remaining = TickSpan::new(active_duration.value() + 1);
-        tampered["state"]["production"]["jobs"][job.value().to_string()]["suspension"]["remaining_active_time"] =
-            serde_json::json!(excessive_remaining.value());
+        tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["schedule"]["suspension"]
+            ["remaining_active_time"] = serde_json::json!(excessive_remaining.value());
         let tampered: LoadedSaveEnvelope =
             serde_json::from_value(tampered).unwrap_or_else(|error| {
                 panic!("suspended remaining-time tamper decode failed: {error}")
@@ -2870,9 +2870,9 @@ mod tests {
             .unwrap_or_else(|error| {
                 panic!("future-suspension tamper serialization failed: {error}")
             });
-        tampered["state"]["production"]["jobs"][job.value().to_string()]["suspension"]["suspended_at"] =
-            serde_json::json!(future_suspended_at.value());
-        tampered["state"]["production"]["jobs"][job.value().to_string()]["completes_at"] =
+        tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["schedule"]["suspension"]
+            ["suspended_at"] = serde_json::json!(future_suspended_at.value());
+        tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["schedule"]["completes_at"] =
             serde_json::json!(future_due.value());
         let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
             .unwrap_or_else(|error| panic!("future-suspension tamper decode failed: {error}"));

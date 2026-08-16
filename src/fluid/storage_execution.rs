@@ -910,7 +910,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("fluid validation save serialization failed: {error}"),
         };
-        encoded["state"]["fluid"]["records"][store.value().to_string()]["contents"]["fluid"] =
+        encoded["state"]["systems"]["fluid"]["records"][store.value().to_string()]["contents"]["fluid"] =
             serde_json::json!(unknown.value());
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,

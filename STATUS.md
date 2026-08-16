@@ -9,6 +9,12 @@
 - Consequential production, inventory, structural, equipment, energy, fluid, geology, and geological
   knowledge backing collections are private to their state owners. Synchronized indexes change only
   through owner methods that update each related collection in one mutation boundary.
+- Wide runtime and coordination records are grouped by ownership concern rather than accumulating
+  flat field lists: root runtime systems, production-job identity/schedule/resources/equipment,
+  registry presentation domains, screening resolution constraints, completion revision contracts,
+  and gameplay-harness inputs/reports each have explicit nested profiles. The resulting persistent
+  layout is save schema 31 and remains current-schema-only; no historical layout shim or migration is
+  retained.
 - Explicit authoritative integer quantities for mass, aggregate mass, temperature, energy,
   pressure, area, length, acceleration, force, power, torque, angular speed, voltage, current,
   resistance, volume, aggregate volume, and volumetric flow.

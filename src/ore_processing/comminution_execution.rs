@@ -1252,8 +1252,9 @@ mod tests {
             .unwrap_or_else(|error| {
                 panic!("constrained persistence serialization failed: {error}")
             });
-        tampered["state"]["production"]["jobs"][job.value().to_string()]["consumed_inputs"][0]["profile"]
-            ["particle_size"]["classes"][0]["range"]["minimum_diameter"] = serde_json::json!(1_u64);
+        tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["resources"]
+            ["consumed_inputs"][0]["profile"]["particle_size"]["classes"][0]["range"]["minimum_diameter"] =
+            serde_json::json!(1_u64);
         let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
             .unwrap_or_else(|error| panic!("constrained persistence decode failed: {error}"));
         let forged = ParticleSizeRange::new(
@@ -1648,8 +1649,8 @@ mod tests {
                 Ok(encoded) => encoded,
                 Err(error) => panic!("comminution tamper serialization failed: {error}"),
             };
-        tampered["state"]["production"]["jobs"][job.value().to_string()]["output_streams"][0]["outputs"]
-            [0]["commodity"] =
+        tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["output_streams"]
+            [0]["outputs"][0]["commodity"] =
             serde_json::json!(CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE).value());
         let tampered: LoadedSaveEnvelope = match serde_json::from_value(tampered) {
             Ok(decoded) => decoded,
@@ -1671,8 +1672,8 @@ mod tests {
                     panic!("comminution particle-size tamper serialization failed: {error}")
                 }
             };
-        tampered_particle_size["state"]["production"]["jobs"][job.value().to_string()]["output_streams"]
-            [0]["outputs"][0]["particle_size"]["classes"][0]["range"]["maximum_diameter"] =
+        tampered_particle_size["state"]["systems"]["production"]["jobs"][job.value().to_string()]
+            ["output_streams"][0]["outputs"][0]["particle_size"]["classes"][0]["range"]["maximum_diameter"] =
             serde_json::json!(5_000_u64);
         let tampered_particle_size: LoadedSaveEnvelope =
             match serde_json::from_value(tampered_particle_size) {
@@ -1693,8 +1694,8 @@ mod tests {
                 Ok(encoded) => encoded,
                 Err(error) => panic!("comminution energy tamper serialization failed: {error}"),
             };
-        tampered_energy["state"]["production"]["jobs"][job.value().to_string()]["consumed_energy"]
-            ["energy"] = serde_json::json!(1_u64);
+        tampered_energy["state"]["systems"]["production"]["jobs"][job.value().to_string()]["resources"]
+            ["consumed_energy"]["energy"] = serde_json::json!(1_u64);
         let tampered_energy: LoadedSaveEnvelope = match serde_json::from_value(tampered_energy) {
             Ok(decoded) => decoded,
             Err(error) => panic!("comminution energy tamper failed decode: {error}"),

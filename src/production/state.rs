@@ -129,117 +129,137 @@ impl ProductionJobId {
 /// Durable running material transformation with capacity reserved until completion.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProductionJobRecord {
+    pub(super) identity: ProductionJobIdentity,
+    pub(super) schedule: ProductionJobSchedule,
+    pub(super) resources: ProductionJobResources,
+    pub(super) equipment: ProductionJobEquipment,
+    pub(super) output_streams: Vec<ProductionOutputStream>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct ProductionJobIdentity {
     pub(super) id: ProductionJobId,
     pub(super) process: ProcessId,
     pub(super) source: StockpileId,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct ProductionJobSchedule {
     pub(super) started_at: SimulationTick,
     pub(super) completes_at: SimulationTick,
     pub(super) active_duration: TickSpan,
     pub(super) suspension: Option<ProductionSuspension>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct ProductionJobResources {
     pub(super) consumed_mass: Mass,
     pub(super) consumed_inputs: Vec<ConsumedMaterialTrace>,
     pub(super) consumed_energy: Option<ConsumedEnergyTrace>,
     pub(super) released_energy: Option<ReleasedEnergyTrace>,
-    pub(super) equipment_provider: Option<EquipmentOperationTrace>,
-    pub(super) equipment_requires_active_support: bool,
-    pub(super) equipment_condition_after: Option<Condition>,
-    pub(super) output_streams: Vec<ProductionOutputStream>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct ProductionJobEquipment {
+    pub(super) provider: Option<EquipmentOperationTrace>,
+    pub(super) requires_active_support: bool,
+    pub(super) condition_after: Option<Condition>,
 }
 
 impl ProductionJobRecord {
     #[must_use]
     pub const fn id(&self) -> ProductionJobId {
-        self.id
+        self.identity.id
     }
 
     #[must_use]
     pub const fn process(&self) -> ProcessId {
-        self.process
+        self.identity.process
     }
 
     #[must_use]
     pub const fn source(&self) -> StockpileId {
-        self.source
+        self.identity.source
     }
 
     #[must_use]
     pub const fn started_at(&self) -> SimulationTick {
-        self.started_at
+        self.schedule.started_at
     }
 
     #[must_use]
     pub const fn completes_at(&self) -> SimulationTick {
-        self.completes_at
+        self.schedule.completes_at
     }
 
     /// Returns the authored/resolved amount of active process time required by this operation.
     /// Wall-clock suspension never changes this physics contract.
     #[must_use]
     pub const fn active_duration(&self) -> TickSpan {
-        self.active_duration
+        self.schedule.active_duration
     }
 
     /// Returns the current suspension state, if this job is retaining work-in-process while paused.
     #[must_use]
     pub const fn suspension(&self) -> Option<ProductionSuspension> {
-        self.suspension
+        self.schedule.suspension
     }
 
     #[must_use]
     pub const fn is_suspended(&self) -> bool {
-        self.suspension.is_some()
+        self.schedule.suspension.is_some()
     }
 
     /// Returns the externally meaningful release horizon for resources exclusively owned by this
     /// job. A suspended operation has no scheduled release until it resumes.
     #[must_use]
     pub const fn occupancy_release(&self) -> ProductionOccupancyRelease {
-        if self.suspension.is_some() {
+        if self.schedule.suspension.is_some() {
             ProductionOccupancyRelease::AwaitingResume
         } else {
-            ProductionOccupancyRelease::Scheduled(self.completes_at)
+            ProductionOccupancyRelease::Scheduled(self.schedule.completes_at)
         }
     }
 
     #[must_use]
     pub const fn consumed_mass(&self) -> Mass {
-        self.consumed_mass
+        self.resources.consumed_mass
     }
 
     #[must_use]
     pub fn consumed_inputs(&self) -> &[ConsumedMaterialTrace] {
-        &self.consumed_inputs
+        &self.resources.consumed_inputs
     }
 
     /// Returns the finite energy moved into this in-flight operation at start, if any.
     #[must_use]
     pub const fn consumed_energy(&self) -> Option<ConsumedEnergyTrace> {
-        self.consumed_energy
+        self.resources.consumed_energy
     }
 
     /// Returns exact energy released from process inputs and awaiting sink commit, if any.
     #[must_use]
     pub const fn released_energy(&self) -> Option<ReleasedEnergyTrace> {
-        self.released_energy
+        self.resources.released_energy
     }
 
     /// Returns the equipment provider exclusively occupied by this operation, if any.
     #[must_use]
     pub const fn equipment_provider(&self) -> Option<EquipmentOperationTrace> {
-        self.equipment_provider
+        self.equipment.provider
     }
 
     /// Whether this operation was authorized only while its equipment had an active structural
     /// support. Unsupported/free-standing providers do not acquire this requirement implicitly.
     #[must_use]
     pub const fn has_required_active_support(&self) -> bool {
-        self.equipment_requires_active_support
+        self.equipment.requires_active_support
     }
 
     /// Returns the persisted post-operation condition for the occupied equipment provider.
     #[must_use]
     pub const fn equipment_condition_after(&self) -> Option<Condition> {
-        self.equipment_condition_after
+        self.equipment.condition_after
     }
 
     /// Returns exact material streams and their committed destinations.
@@ -298,7 +318,7 @@ impl ProductionState {
 
     pub(crate) fn has_valid_equipment_condition_outcomes(&self) -> bool {
         self.jobs.values().all(|job| {
-            match (job.equipment_provider, job.equipment_condition_after) {
+            match (job.equipment.provider, job.equipment.condition_after) {
                 (Some(provider), Some(after)) => after <= provider.condition(),
                 (None, None) => true,
                 (Some(_), None) | (None, Some(_)) => false,
@@ -311,26 +331,29 @@ impl ProductionState {
             return false;
         }
         for (id, job) in &self.jobs {
-            if job.completes_at <= job.started_at || job.active_duration.value() == 0 {
+            if job.schedule.completes_at <= job.schedule.started_at
+                || job.schedule.active_duration.value() == 0
+            {
                 return false;
             }
-            if job.equipment_requires_active_support && job.equipment_provider.is_none() {
+            if job.equipment.requires_active_support && job.equipment.provider.is_none() {
                 return false;
             }
-            match job.suspension {
+            match job.schedule.suspension {
                 Some(suspension) => {
-                    if !job.equipment_requires_active_support
+                    if !job.equipment.requires_active_support
                         || suspension.remaining_active_time().value() == 0
-                        || suspension.remaining_active_time().value() > job.active_duration.value()
-                        || suspension.suspended_at() < job.started_at
+                        || suspension.remaining_active_time().value()
+                            > job.schedule.active_duration.value()
+                        || suspension.suspended_at() < job.schedule.started_at
                         || suspension
                             .suspended_at()
                             .checked_add_span(suspension.remaining_active_time())
-                            != Some(job.completes_at)
+                            != Some(job.schedule.completes_at)
                     {
                         return false;
                     }
-                    match (suspension.reason(), job.equipment_provider) {
+                    match (suspension.reason(), job.equipment.provider) {
                         (
                             ProductionSuspensionReason::EquipmentSupportUnavailable { equipment },
                             Some(provider),
@@ -344,7 +367,7 @@ impl ProductionState {
                 None => {
                     if !self
                         .due_jobs
-                        .get(&job.completes_at)
+                        .get(&job.schedule.completes_at)
                         .is_some_and(|ids| ids.contains(id))
                     {
                         return false;
@@ -354,9 +377,9 @@ impl ProductionState {
         }
         self.due_jobs.iter().all(|(due, ids)| {
             ids.iter().all(|id| {
-                self.jobs
-                    .get(id)
-                    .is_some_and(|job| job.suspension.is_none() && job.completes_at == *due)
+                self.jobs.get(id).is_some_and(|job| {
+                    job.schedule.suspension.is_none() && job.schedule.completes_at == *due
+                })
             })
         })
     }
@@ -378,13 +401,15 @@ impl ProductionState {
     fn expected_energy_occupancy(&self) -> Option<BTreeMap<EnergyStoreId, ProductionJobId>> {
         let mut occupied = BTreeMap::new();
         for job in self.jobs.values() {
-            if let Some(trace) = job.consumed_energy
-                && occupied.insert(trace.source(), job.id).is_some()
+            if let Some(trace) = job.resources.consumed_energy
+                && occupied.insert(trace.source(), job.identity.id).is_some()
             {
                 return None;
             }
-            if let Some(trace) = job.released_energy
-                && occupied.insert(trace.destination(), job.id).is_some()
+            if let Some(trace) = job.resources.released_energy
+                && occupied
+                    .insert(trace.destination(), job.identity.id)
+                    .is_some()
             {
                 return None;
             }
@@ -419,8 +444,10 @@ impl ProductionState {
     fn expected_equipment_occupancy(&self) -> Option<BTreeMap<EquipmentId, ProductionJobId>> {
         let mut occupied = BTreeMap::new();
         for job in self.jobs.values() {
-            if let Some(provider) = job.equipment_provider
-                && occupied.insert(provider.equipment(), job.id).is_some()
+            if let Some(provider) = job.equipment.provider
+                && occupied
+                    .insert(provider.equipment(), job.identity.id)
+                    .is_some()
             {
                 return None;
             }
@@ -455,11 +482,14 @@ impl ProductionState {
     fn expected_stockpile_occupancy(&self) -> BTreeMap<StockpileId, BTreeSet<ProductionJobId>> {
         let mut occupied = BTreeMap::<StockpileId, BTreeSet<ProductionJobId>>::new();
         for job in self.jobs.values() {
-            let stockpiles = std::iter::once(job.source)
+            let stockpiles = std::iter::once(job.identity.source)
                 .chain(job.output_streams.iter().map(|stream| stream.destination))
                 .collect::<BTreeSet<_>>();
             for stockpile in stockpiles {
-                occupied.entry(stockpile).or_default().insert(job.id);
+                occupied
+                    .entry(stockpile)
+                    .or_default()
+                    .insert(job.identity.id);
             }
         }
         occupied
@@ -539,12 +569,15 @@ impl ProductionState {
         next_job_id: u64,
         next_revision: u64,
     ) {
-        let id = job.id;
-        let completes_at = job.completes_at;
-        let consumed_energy_store = job.consumed_energy.map(|trace| trace.source());
-        let released_energy_store = job.released_energy.map(|trace| trace.destination());
-        let equipment = job.equipment_provider.map(|provider| provider.equipment());
-        let stockpiles = std::iter::once(job.source)
+        let id = job.identity.id;
+        let completes_at = job.schedule.completes_at;
+        let consumed_energy_store = job.resources.consumed_energy.map(|trace| trace.source());
+        let released_energy_store = job
+            .resources
+            .released_energy
+            .map(|trace| trace.destination());
+        let equipment = job.equipment.provider.map(|provider| provider.equipment());
+        let stockpiles = std::iter::once(job.identity.source)
             .chain(job.output_streams.iter().map(|stream| stream.destination))
             .collect::<BTreeSet<_>>();
         if let (Some(consumed), Some(released)) = (consumed_energy_store, released_energy_store) {
@@ -609,7 +642,7 @@ impl ProductionState {
         reason: ProductionSuspensionReason,
     ) {
         let due = match self.jobs.get(&id) {
-            Some(record) => record.completes_at,
+            Some(record) => record.schedule.completes_at,
             None => panic!(
                 "runtime invariant broken: production job {} disappeared before suspension",
                 id.value()
@@ -638,10 +671,10 @@ impl ProductionState {
             None => unreachable!("production job existence was checked before due-index mutation"),
         };
         assert!(
-            record.suspension.is_none(),
+            record.schedule.suspension.is_none(),
             "runtime invariant broken: already-suspended job received another suspension"
         );
-        record.suspension = Some(ProductionSuspension::new(
+        record.schedule.suspension = Some(ProductionSuspension::new(
             suspended_at,
             remaining_active_time,
             reason,
@@ -657,11 +690,11 @@ impl ProductionState {
             ),
         };
         assert!(
-            record.suspension.is_some(),
+            record.schedule.suspension.is_some(),
             "runtime invariant broken: running job received a resume transition"
         );
-        record.completes_at = scheduled_completion;
-        record.suspension = None;
+        record.schedule.completes_at = scheduled_completion;
+        record.schedule.suspension = None;
         let inserted = self
             .due_jobs
             .entry(scheduled_completion)
@@ -691,7 +724,7 @@ impl ProductionState {
                 id.value()
             ),
         };
-        let due_set = match self.due_jobs.get_mut(&job.completes_at) {
+        let due_set = match self.due_jobs.get_mut(&job.schedule.completes_at) {
             Some(due_set) => due_set,
             None => panic!(
                 "runtime invariant broken: missing due index for production job {}",
@@ -704,13 +737,18 @@ impl ProductionState {
             id.value()
         );
         if due_set.is_empty() {
-            self.due_jobs.remove(&job.completes_at);
+            self.due_jobs.remove(&job.schedule.completes_at);
         }
         for store in job
+            .resources
             .consumed_energy
             .map(|trace| trace.source())
             .into_iter()
-            .chain(job.released_energy.map(|trace| trace.destination()))
+            .chain(
+                job.resources
+                    .released_energy
+                    .map(|trace| trace.destination()),
+            )
         {
             let removed = self.energy_occupancy.remove(&store);
             assert_eq!(
@@ -720,7 +758,7 @@ impl ProductionState {
                 id.value()
             );
         }
-        if let Some(provider) = job.equipment_provider {
+        if let Some(provider) = job.equipment.provider {
             let removed = self.equipment_occupancy.remove(&provider.equipment());
             assert_eq!(
                 removed,
@@ -729,7 +767,7 @@ impl ProductionState {
                 id.value()
             );
         }
-        let stockpiles = std::iter::once(job.source)
+        let stockpiles = std::iter::once(job.identity.source)
             .chain(job.output_streams.iter().map(|stream| stream.destination))
             .collect::<BTreeSet<_>>();
         for stockpile in stockpiles {
@@ -1279,26 +1317,26 @@ pub(crate) fn validate_loaded_production(
     }
 
     for (id, job) in &state.jobs {
-        if id.value() == 0 || job.id.value() == 0 {
+        if id.value() == 0 || job.identity.id.value() == 0 {
             return Err(ProductionValidationError::ZeroJobId);
         }
-        if *id != job.id {
+        if *id != job.identity.id {
             return Err(ProductionValidationError::JobIdMismatch {
                 key: *id,
-                record: job.id,
+                record: job.identity.id,
             });
         }
-        if job.completes_at <= job.started_at {
+        if job.schedule.completes_at <= job.schedule.started_at {
             return Err(ProductionValidationError::CompletionNotAfterStart { job: *id });
         }
-        if job.active_duration.value() == 0 {
+        if job.schedule.active_duration.value() == 0 {
             return Err(ProductionValidationError::ZeroActiveDuration { job: *id });
         }
-        if job.equipment_requires_active_support && job.equipment_provider.is_none() {
+        if job.equipment.requires_active_support && job.equipment.provider.is_none() {
             return Err(ProductionValidationError::RequiredSupportWithoutEquipment { job: *id });
         }
-        if let Some(suspension) = job.suspension {
-            if !job.equipment_requires_active_support {
+        if let Some(suspension) = job.schedule.suspension {
+            if !job.equipment.requires_active_support {
                 return Err(
                     ProductionValidationError::SuspensionWithoutRequiredSupport { job: *id },
                 );
@@ -1306,19 +1344,19 @@ pub(crate) fn validate_loaded_production(
             if suspension.remaining_active_time().value() == 0 {
                 return Err(ProductionValidationError::ZeroSuspensionRemaining { job: *id });
             }
-            if suspension.suspended_at() < job.started_at {
+            if suspension.suspended_at() < job.schedule.started_at {
                 return Err(ProductionValidationError::SuspensionBeforeStart {
                     job: *id,
-                    started_at: job.started_at,
+                    started_at: job.schedule.started_at,
                     suspended_at: suspension.suspended_at(),
                 });
             }
-            if suspension.remaining_active_time().value() > job.active_duration.value() {
+            if suspension.remaining_active_time().value() > job.schedule.active_duration.value() {
                 return Err(
                     ProductionValidationError::SuspensionRemainingExceedsActiveDuration {
                         job: *id,
                         remaining: suspension.remaining_active_time(),
-                        active_duration: job.active_duration,
+                        active_duration: job.schedule.active_duration,
                     },
                 );
             }
@@ -1326,16 +1364,16 @@ pub(crate) fn validate_loaded_production(
                 .suspended_at()
                 .checked_add_span(suspension.remaining_active_time())
                 .ok_or(ProductionValidationError::SuspensionScheduleOverflow { job: *id })?;
-            if expected_due != job.completes_at {
+            if expected_due != job.schedule.completes_at {
                 return Err(ProductionValidationError::SuspensionScheduleMismatch {
                     job: *id,
                     expected_due,
-                    actual_due: job.completes_at,
+                    actual_due: job.schedule.completes_at,
                 });
             }
             match suspension.reason() {
                 ProductionSuspensionReason::EquipmentSupportUnavailable { equipment } => {
-                    let expected = match job.equipment_provider {
+                    let expected = match job.equipment.provider {
                         Some(provider) => provider.equipment(),
                         None => {
                             return Err(
@@ -1358,11 +1396,11 @@ pub(crate) fn validate_loaded_production(
         if job.output_streams.is_empty() {
             return Err(ProductionValidationError::NoOutputs { job: *id });
         }
-        if job.consumed_inputs.is_empty() {
+        if job.resources.consumed_inputs.is_empty() {
             return Err(ProductionValidationError::NoConsumedInputs { job: *id });
         }
         let mut traced_input_mass = Mass::ZERO;
-        for trace in &job.consumed_inputs {
+        for trace in &job.resources.consumed_inputs {
             if trace.mass().is_zero() {
                 return Err(ProductionValidationError::ZeroConsumedInputMass { job: *id });
             }
@@ -1381,25 +1419,25 @@ pub(crate) fn validate_loaded_production(
             if trace.provenance().latest_created_at() < trace.provenance().earliest_created_at() {
                 return Err(ProductionValidationError::InvalidConsumedInputProvenance { job: *id });
             }
-            if trace.provenance().latest_created_at() > job.started_at {
+            if trace.provenance().latest_created_at() > job.schedule.started_at {
                 return Err(ProductionValidationError::ConsumedInputCreatedAfterStart {
                     job: *id,
                     latest_created_at: trace.provenance().latest_created_at(),
-                    started_at: job.started_at,
+                    started_at: job.schedule.started_at,
                 });
             }
             traced_input_mass = traced_input_mass
                 .checked_add(trace.mass())
                 .ok_or(ProductionValidationError::ConsumedInputMassOverflow { job: *id })?;
         }
-        if traced_input_mass != job.consumed_mass {
+        if traced_input_mass != job.resources.consumed_mass {
             return Err(ProductionValidationError::ConsumedInputMassMismatch {
                 job: *id,
                 traced: traced_input_mass,
-                consumed: job.consumed_mass,
+                consumed: job.resources.consumed_mass,
             });
         }
-        if let Some(trace) = job.consumed_energy {
+        if let Some(trace) = job.resources.consumed_energy {
             if trace.energy().is_zero() {
                 return Err(ProductionValidationError::ZeroConsumedEnergy { job: *id });
             }
@@ -1412,7 +1450,7 @@ pub(crate) fn validate_loaded_production(
                 });
             }
         }
-        if let Some(trace) = job.released_energy {
+        if let Some(trace) = job.resources.released_energy {
             if trace.energy().is_zero() {
                 return Err(ProductionValidationError::ZeroReleasedEnergy { job: *id });
             }
@@ -1427,7 +1465,7 @@ pub(crate) fn validate_loaded_production(
                 });
             }
         }
-        match (job.equipment_provider, job.equipment_condition_after) {
+        match (job.equipment.provider, job.equipment.condition_after) {
             (Some(provider), Some(after)) => {
                 if after > provider.condition() {
                     return Err(ProductionValidationError::EquipmentConditionImproved {
@@ -1512,27 +1550,27 @@ pub(crate) fn validate_loaded_production(
                     .ok_or(ProductionValidationError::OutputMassOverflow { job: *id })?;
             }
         }
-        if output_mass != job.consumed_mass {
+        if output_mass != job.resources.consumed_mass {
             return Err(ProductionValidationError::OutputMassMismatch {
                 job: *id,
                 output: output_mass,
-                consumed: job.consumed_mass,
+                consumed: job.resources.consumed_mass,
             });
         }
         let is_indexed = state
             .due_jobs
-            .get(&job.completes_at)
+            .get(&job.schedule.completes_at)
             .is_some_and(|ids| ids.contains(id));
-        if job.suspension.is_some() && is_indexed {
+        if job.schedule.suspension.is_some() && is_indexed {
             return Err(ProductionValidationError::SuspendedJobInDueIndex {
                 job: *id,
-                due: job.completes_at,
+                due: job.schedule.completes_at,
             });
         }
-        if job.suspension.is_none() && !is_indexed {
+        if job.schedule.suspension.is_none() && !is_indexed {
             return Err(ProductionValidationError::MissingDueIndex {
                 job: *id,
-                due: job.completes_at,
+                due: job.schedule.completes_at,
             });
         }
     }
@@ -1548,13 +1586,13 @@ pub(crate) fn validate_loaded_production(
                     due: *due,
                 });
             };
-            if job.suspension.is_some() {
+            if job.schedule.suspension.is_some() {
                 return Err(ProductionValidationError::SuspendedJobInDueIndex {
                     job: *id,
                     due: *due,
                 });
             }
-            if job.completes_at != *due {
+            if job.schedule.completes_at != *due {
                 return Err(ProductionValidationError::UnexpectedDueIndex {
                     job: *id,
                     due: *due,

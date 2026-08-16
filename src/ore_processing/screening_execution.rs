@@ -397,14 +397,29 @@ pub enum ScreeningBottleneck {
 #[derive(Debug)]
 pub struct ResolvedScreening {
     resolution: ProcessResolution,
-    equipment: EquipmentId,
+    equipment: ScreeningEquipmentProfile,
+    constraints: ScreeningConstraintProfile,
+    partition: ScreeningPartition,
+}
+
+#[derive(Debug)]
+struct ScreeningEquipmentProfile {
+    id: EquipmentId,
     condition_before: Condition,
     condition_after: Condition,
+}
+
+#[derive(Debug)]
+struct ScreeningConstraintProfile {
     processing_rate: MassFlow,
     required_energy: Energy,
     available_power: Power,
     throughput_duration: TickSpan,
     energy_duration: TickSpan,
+}
+
+#[derive(Debug)]
+struct ScreeningPartition {
     undersize_mass: Mass,
     oversize_mass: Mass,
 }
@@ -416,57 +431,61 @@ impl ResolvedScreening {
 
     #[must_use]
     pub const fn equipment(&self) -> EquipmentId {
-        self.equipment
+        self.equipment.id
     }
 
     #[must_use]
     pub const fn condition_before(&self) -> Condition {
-        self.condition_before
+        self.equipment.condition_before
     }
 
     #[must_use]
     pub const fn condition_after(&self) -> Condition {
-        self.condition_after
+        self.equipment.condition_after
     }
 
     #[must_use]
     pub const fn processing_rate(&self) -> MassFlow {
-        self.processing_rate
+        self.constraints.processing_rate
     }
 
     #[must_use]
     pub const fn required_energy(&self) -> Energy {
-        self.required_energy
+        self.constraints.required_energy
     }
 
     #[must_use]
     pub const fn available_power(&self) -> Power {
-        self.available_power
+        self.constraints.available_power
     }
 
     #[must_use]
     pub const fn throughput_duration(&self) -> TickSpan {
-        self.throughput_duration
+        self.constraints.throughput_duration
     }
 
     #[must_use]
     pub const fn energy_duration(&self) -> TickSpan {
-        self.energy_duration
+        self.constraints.energy_duration
     }
 
     #[must_use]
     pub const fn undersize_mass(&self) -> Mass {
-        self.undersize_mass
+        self.partition.undersize_mass
     }
 
     #[must_use]
     pub const fn oversize_mass(&self) -> Mass {
-        self.oversize_mass
+        self.partition.oversize_mass
     }
 
     #[must_use]
     pub fn bottleneck(&self) -> ScreeningBottleneck {
-        match self.throughput_duration.cmp(&self.energy_duration) {
+        match self
+            .constraints
+            .throughput_duration
+            .cmp(&self.constraints.energy_duration)
+        {
             std::cmp::Ordering::Greater => ScreeningBottleneck::Throughput,
             std::cmp::Ordering::Less => ScreeningBottleneck::EnergyDelivery,
             std::cmp::Ordering::Equal => ScreeningBottleneck::Balanced,
@@ -575,16 +594,22 @@ pub fn resolve_screening_process(
 
     Ok(ResolvedScreening {
         resolution,
-        equipment,
-        condition_before: provider.condition(),
-        condition_after,
-        processing_rate,
-        required_energy,
-        available_power,
-        throughput_duration,
-        energy_duration,
-        undersize_mass: outputs.undersize_mass,
-        oversize_mass: outputs.oversize_mass,
+        equipment: ScreeningEquipmentProfile {
+            id: equipment,
+            condition_before: provider.condition(),
+            condition_after,
+        },
+        constraints: ScreeningConstraintProfile {
+            processing_rate,
+            required_energy,
+            available_power,
+            throughput_duration,
+            energy_duration,
+        },
+        partition: ScreeningPartition {
+            undersize_mass: outputs.undersize_mass,
+            oversize_mass: outputs.oversize_mass,
+        },
     })
 }
 
@@ -1322,8 +1347,8 @@ mod tests {
         let mut tampered =
             serde_json::to_value(SaveEnvelope::new(&fixture.registries, &fixture.state))
                 .unwrap_or_else(|error| panic!("screening tamper serialization failed: {error}"));
-        tampered["state"]["production"]["jobs"][job.value().to_string()]["output_streams"][0]["outputs"]
-            [0]["particle_size"]["classes"][0]["range"]["maximum_diameter"] =
+        tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["output_streams"]
+            [0]["outputs"][0]["particle_size"]["classes"][0]["range"]["maximum_diameter"] =
             serde_json::json!(1_999_u64);
         let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
             .unwrap_or_else(|error| panic!("screening tampered save decode failed: {error}"));

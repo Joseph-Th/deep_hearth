@@ -31,8 +31,9 @@ use super::resolution::{
     ProcessOutputStreamId, ProcessResolution, sum_lot_spec_mass, sum_output_stream_mass,
 };
 use super::state::{
-    ProductionJobId, ProductionJobRecord, ProductionOccupancyRelease, ProductionOutputStream,
-    ProductionSuspensionReason,
+    ProductionJobEquipment, ProductionJobId, ProductionJobIdentity, ProductionJobRecord,
+    ProductionJobResources, ProductionJobSchedule, ProductionOccupancyRelease,
+    ProductionOutputStream, ProductionSuspensionReason,
 };
 
 /// Explicit route assigning one resolved physical stream to one stockpile.
@@ -978,21 +979,29 @@ pub fn validate_start_process_routed(
 
     Ok(ValidatedStartProcess {
         job: ProductionJobRecord {
-            id: job_id,
-            process,
-            source,
-            started_at: current,
-            completes_at,
-            active_duration: resolution.duration(),
-            suspension: None,
-            consumed_mass: input_mass,
-            consumed_inputs,
-            consumed_energy,
-            released_energy,
-            equipment_provider,
-            equipment_requires_active_support: equipment_use
-                .is_some_and(|selection| selection.support().is_some()),
-            equipment_condition_after: resolution.equipment_condition_after(),
+            identity: ProductionJobIdentity {
+                id: job_id,
+                process,
+                source,
+            },
+            schedule: ProductionJobSchedule {
+                started_at: current,
+                completes_at,
+                active_duration: resolution.duration(),
+                suspension: None,
+            },
+            resources: ProductionJobResources {
+                consumed_mass: input_mass,
+                consumed_inputs,
+                consumed_energy,
+                released_energy,
+            },
+            equipment: ProductionJobEquipment {
+                provider: equipment_provider,
+                requires_active_support: equipment_use
+                    .is_some_and(|selection| selection.support().is_some()),
+                condition_after: resolution.equipment_condition_after(),
+            },
             output_streams,
         },
         next_job_id: next_after,
@@ -1100,6 +1109,17 @@ impl ProcessCompletion {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CompletionPlan {
     tick: SimulationTick,
+    revisions: CompletionRevisionPlan,
+    next_lot_id_after: u64,
+    availability_changes: Vec<ProductionAvailabilityChange>,
+    entries: Vec<CompletionPlanEntry>,
+    equipment_outcomes: Vec<EquipmentOperationConditionOutcome>,
+    released_energy_outcomes: Vec<ReleasedEnergyTrace>,
+    structural_load: Option<ValidatedStockpileStructuralLoad>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CompletionRevisionPlan {
     expected_inventory_revision: u64,
     next_inventory_revision: u64,
     expected_production_revision: u64,
@@ -1109,12 +1129,6 @@ pub(crate) struct CompletionPlan {
     expected_energy_revision: u64,
     next_energy_revision: u64,
     expected_structure_revision: u64,
-    next_lot_id_after: u64,
-    availability_changes: Vec<ProductionAvailabilityChange>,
-    entries: Vec<CompletionPlanEntry>,
-    equipment_outcomes: Vec<EquipmentOperationConditionOutcome>,
-    released_energy_outcomes: Vec<ReleasedEnergyTrace>,
-    structural_load: Option<ValidatedStockpileStructuralLoad>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1440,15 +1454,17 @@ pub(crate) fn decide_due_completions(
 
     Ok(CompletionPlan {
         tick,
-        expected_inventory_revision,
-        next_inventory_revision,
-        expected_production_revision,
-        next_production_revision,
-        expected_equipment_revision,
-        next_equipment_revision,
-        expected_energy_revision,
-        next_energy_revision,
-        expected_structure_revision,
+        revisions: CompletionRevisionPlan {
+            expected_inventory_revision,
+            next_inventory_revision,
+            expected_production_revision,
+            next_production_revision,
+            expected_equipment_revision,
+            next_equipment_revision,
+            expected_energy_revision,
+            next_energy_revision,
+            expected_structure_revision,
+        },
         next_lot_id_after: next_lot_id,
         availability_changes,
         entries,
@@ -1465,15 +1481,18 @@ pub(crate) fn apply_completion_plan(
 ) -> Result<CompletionApplication, CompletionCommitError> {
     let CompletionPlan {
         tick,
-        expected_inventory_revision,
-        next_inventory_revision,
-        expected_production_revision,
-        next_production_revision,
-        expected_equipment_revision,
-        next_equipment_revision,
-        expected_energy_revision,
-        next_energy_revision,
-        expected_structure_revision,
+        revisions:
+            CompletionRevisionPlan {
+                expected_inventory_revision,
+                next_inventory_revision,
+                expected_production_revision,
+                next_production_revision,
+                expected_equipment_revision,
+                next_equipment_revision,
+                expected_energy_revision,
+                next_energy_revision,
+                expected_structure_revision,
+            },
         next_lot_id_after,
         availability_changes,
         entries,
@@ -1970,7 +1989,7 @@ mod tests {
             Err(error) => panic!("multi-stream save serialization failed: {error}"),
         };
         let mut noncanonical = encoded.clone();
-        let streams = match noncanonical["state"]["production"]["jobs"]
+        let streams = match noncanonical["state"]["systems"]["production"]["jobs"]
             [job.value().to_string()]["output_streams"]
             .as_array_mut()
         {
