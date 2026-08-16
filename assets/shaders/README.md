@@ -3,7 +3,8 @@
 These WGSL modules are renderer-neutral immutable content. Call
 `registries.shaders().bake_shader_set()` once at startup, compile the assembled programs, and retain
 the resulting backend pipelines. Shared libraries are dependency-expanded exactly once in stable ID
-order. Naga parsing and validation run in tests only; the shipping crate has no graphics dependency.
+order. Naga parsing and validation run only in the default-off `test-shader-validation` lane; the
+default shipping crate has no graphics dependency.
 
 ## Frame Order
 

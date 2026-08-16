@@ -4,7 +4,7 @@ mod capabilities;
 mod energy;
 mod equipment;
 mod fluid;
-#[cfg(test)]
+#[cfg(all(test, feature = "test-gameplay"))]
 mod gameplay_harness;
 mod materials;
 mod ore_processing;

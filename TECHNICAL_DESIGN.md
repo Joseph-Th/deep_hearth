@@ -255,14 +255,17 @@ Performance begins with ownership and access patterns rather than premature micr
   half-resolution reads, and post processing at five reads. A logarithmic workgroup prefix scan
   compacts lights without nondeterministic atomic allocation, smoke rejects empty billboard pixels
   before procedural noise, and indoor/unlit surface fragments skip shadow taps. The unique shipped
-  WGSL source suite has a tested 48 KiB maximum. Naga is a test-only dependency, so shader validation
-  adds no graphics library or runtime weight to the shipping crate.
+  WGSL source suite has a tested 48 KiB maximum. Naga parser/semantic validation is behind the
+  default-off `test-shader-validation` test feature, so ordinary core test builds do not compile it
+  and the default shipping crate has no graphics dependency.
 - Spatial/chunk architecture must be justified by workload measurements before selection.
 
 ## 10. Validation Policy
 
 Every change must keep formatting clean, `cargo check` silent, Clippy warning-free with `-D warnings`,
-and all tests passing. Release builds retain integer overflow checks.
+and the maintained test lanes passing as defined in `TESTING.md`. The ordinary edit loop keeps
+specialized gameplay-harness and WGSL-parser compilation out of the default feature set; CI runs those
+lanes independently. Release builds retain integer overflow checks.
 
 The deterministic headless soak runs 10,000 canonical ticks with repeated production and transfers.
 It runs twice from the same seed and requires complete final `AppState` equality. It also performs

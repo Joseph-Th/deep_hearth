@@ -43,22 +43,36 @@ Read these documents before changing the project. Each question has one owning d
 | --- | --- |
 | What is this project and how do I run it? | `README.md` |
 | What coding and architecture law must contributors follow? | `AGENTS.md` |
+| How are tests, harnesses, and CI lanes organized? | `TESTING.md` |
 | What is the implemented technical architecture and its deliberate boundaries? | `TECHNICAL_DESIGN.md` |
 | What is currently implemented and what is deliberately deferred? | `STATUS.md` |
 | What gameplay intent and progression is intended? | `GAME_DESIGN.md` |
 
-Required development validation:
+The ordinary edit loop is intentionally small:
+
+```text
+cargo test <qualified-test-name> -- --exact
+cargo test-fast
+```
+
+Before committing, run formatting, default-feature compilation/lint, and the fast lane; add the
+specialized lane for the contract you changed:
 
 ```text
 cargo fmt --check
-cargo check --locked --all-targets
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked -j 2
+cargo test-check
+cargo test-lint
+cargo test-fast
+cargo test-soak       # when long-horizon ownership/invariants changed
+cargo test-gameplay   # when workshop behavior/content changed
+cargo test-shaders    # when WGSL/shader assembly changed
 ```
 
-Release hardening additionally runs:
+`TESTING.md` owns lane selection, harness output, and the parallel CI gate. Release hardening is kept
+out of the ordinary pull-request path and remains explicit:
 
 ```text
-cargo test --release --locked -j 2
-cargo doc --locked --no-deps
+cargo test-lint-all
+cargo test-release
+cargo test-doc
 ```

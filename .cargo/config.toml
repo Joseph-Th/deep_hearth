@@ -1,0 +1,14 @@
+[alias]
+# Daily feedback stays on the default feature set so expensive harness/parser-only dependencies do
+# not enter ordinary edit-loop builds. Specialized lanes opt into those features explicitly.
+test-check = "check --locked --all-targets"
+test-lint = "clippy --locked --all-targets -- -D warnings"
+test-lint-all = "clippy --locked --all-targets --all-features -- -D warnings"
+test-fast = "test --quiet --locked --lib -- --skip soak"
+test-soak = "test --quiet --locked --lib soak"
+test-gameplay = "test --quiet --locked --lib --features test-gameplay content::gameplay_harness"
+test-gameplay-report = "test --quiet --locked --lib --features test-gameplay content::gameplay_harness::gameplay_harness_agent_experience_matrix -- --exact --nocapture"
+test-shaders = "test --quiet --locked --lib --features test-shader-validation content::shaders::tests::built_in_programs_assemble_and_validate_as_portable_wgsl -- --exact"
+test-all = "test --quiet --locked --lib --features test-gameplay,test-shader-validation"
+test-release = "test --quiet --release --locked --lib --features test-gameplay,test-shader-validation"
+test-doc = "doc --quiet --locked --no-deps"

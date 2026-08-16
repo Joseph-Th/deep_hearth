@@ -1,16 +1,31 @@
 //! Headless workshop gameplay harness over the same canonical content registries used by the game.
 //!
 //! The harness deliberately varies physical initial conditions and lets a small operational policy
-//! react only to observed state and resolver projections. Normal runs combine a deterministic
-//! experience-coverage matrix with one fixed exploratory seed that is printed for replay.
+//! react only to observed state and resolver projections. Normal exercise-mode runs combine a
+//! deterministic experience-coverage matrix with one fixed exploratory seed for reproducibility.
 //! `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED` replaces that exploratory seed with an exact decimal or
 //! `0x` hexadecimal seed for additional uncurated coverage. Forecast event timing is exact but load
 //! magnitude is only an estimate; deterministic actual regional snow is revealed on the event tick,
 //! including during in-flight production. Faster machinery can therefore change how much work is
 //! secured before an uncertain environment changes. `DEEP_HEARTH_GAMEPLAY_SEEDS` replaces the whole
-//! matrix with an exact comma-separated decimal or `0x` hexadecimal seed list.
+//! matrix with an exact comma-separated decimal or `0x` hexadecimal seed list; malformed entries are
+//! rejected instead of ignored. Detailed trace output is opt-in via `DEEP_HEARTH_GAMEPLAY_VERBOSE`.
 
 use std::env;
+
+const HARNESS_MODE: &str = "exercise";
+
+fn has_verbose_output() -> bool {
+    env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some()
+}
+
+macro_rules! println {
+    ($($argument:tt)*) => {{
+        if has_verbose_output() {
+            std::println!($($argument)*);
+        }
+    }};
+}
 
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
@@ -201,12 +216,31 @@ struct OrePreparationProbeIds {
     drive: EnergyStoreId,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 struct ScenarioReport {
+    seed: u64,
     structure: ScenarioStructureReport,
     choices: ScenarioChoiceReport,
     limits: ScenarioLimitReport,
     progress: ScenarioProgressReport,
+}
+
+impl ScenarioReport {
+    fn new(seed: u64, target_batches: u8) -> Self {
+        Self {
+            seed,
+            structure: ScenarioStructureReport::default(),
+            choices: ScenarioChoiceReport::default(),
+            limits: ScenarioLimitReport::default(),
+            progress: ScenarioProgressReport {
+                disturbance_applied: false,
+                batches_before_disturbance: 0,
+                ore_frontier_visible: false,
+                completed_batches: 0,
+                target_batches,
+            },
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -301,40 +335,51 @@ fn parse_seed(raw: &str) -> Option<u64> {
 /// is reproducible; override with `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED` for extra coverage.
 const DEFAULT_EXPLORATORY_SEED: u64 = 0xD33D_1A5E_BEEF_5EED;
 
-fn resolve_exploratory_seed(raw: Option<&str>) -> u64 {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GameplayHarnessConfigError {
+    InvalidExploratorySeed,
+    EmptyScenarioSeedList,
+    InvalidScenarioSeed { index: usize },
+}
+
+fn resolve_exploratory_seed(raw: Option<&str>) -> Result<u64, GameplayHarnessConfigError> {
     match raw {
-        Some(text) => parse_seed(text).unwrap_or_else(|| {
-            panic!("DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED contained no valid decimal or hexadecimal seed")
-        }),
-        None => DEFAULT_EXPLORATORY_SEED,
+        Some(text) => parse_seed(text).ok_or(GameplayHarnessConfigError::InvalidExploratorySeed),
+        None => Ok(DEFAULT_EXPLORATORY_SEED),
     }
 }
 
-fn exploratory_seed() -> u64 {
-    resolve_exploratory_seed(
-        env::var("DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED")
-            .ok()
-            .as_deref(),
-    )
-}
-
-fn scenario_seeds() -> (Vec<u64>, bool) {
-    if let Ok(raw) = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS") {
-        let seeds: Vec<_> = raw.split(',').filter_map(parse_seed).collect();
-        assert!(
-            !seeds.is_empty(),
-            "DEEP_HEARTH_GAMEPLAY_SEEDS contained no valid decimal or hexadecimal seeds"
-        );
-        return (seeds, false);
+fn scenario_seeds_from(
+    scenario_raw: Option<&str>,
+    exploratory_raw: Option<&str>,
+) -> Result<(Vec<u64>, bool), GameplayHarnessConfigError> {
+    if let Some(raw) = scenario_raw {
+        if raw.trim().is_empty() {
+            return Err(GameplayHarnessConfigError::EmptyScenarioSeedList);
+        }
+        let mut seeds = Vec::new();
+        for (index, token) in raw.split(',').enumerate() {
+            let seed = parse_seed(token)
+                .ok_or(GameplayHarnessConfigError::InvalidScenarioSeed { index })?;
+            seeds.push(seed);
+        }
+        return Ok((seeds, false));
     }
+
     // Stable coverage seeds exercise: regional structural outage, maintenance stop, forecast-driven
     // siting, successful relocation after forecast error, and relocation without prior support
     // failure. The exploratory seed then probes one additional uncurated combination. It is a fixed
     // constant by default so the run is reproducible, overridable via
     // `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED` for extra coverage.
     let mut seeds = vec![1, 4, 13, 41, 61];
-    seeds.push(exploratory_seed());
-    (seeds, true)
+    seeds.push(resolve_exploratory_seed(exploratory_raw)?);
+    Ok((seeds, true))
+}
+
+fn scenario_seeds() -> Result<(Vec<u64>, bool), GameplayHarnessConfigError> {
+    let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
+    let exploratory_raw = env::var("DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED").ok();
+    scenario_seeds_from(scenario_raw.as_deref(), exploratory_raw.as_deref())
 }
 
 fn bounds(x: i64) -> VoxelBounds {
@@ -1455,8 +1500,7 @@ fn apply_disturbance_and_adapt(
 
 fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> ScenarioReport {
     let (mut state, ids) = setup_workshop(registries, variation);
-    let mut report = ScenarioReport::default();
-    report.progress.target_batches = variation.ore.planned_batches;
+    let mut report = ScenarioReport::new(variation.seed, variation.ore.planned_batches);
     let small_drive_batch_budget = variation.ore.planned_batches;
     println!(
         "\nSCENARIO seed=0x{:016X} ore={}ppm Cu batch={}mg crusher={}ppm target_batches={} forecast=[tick:{} snow:{}mN/bay] work_reserve=[small:{} batch(es), high-power:{} batch(es)]",
@@ -1870,13 +1914,7 @@ fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> Scenar
     report
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CapabilityProbeOutcome {
-    Passed,
-    Failed,
-}
-
-fn run_foundry_capability_probe(registries: &Registries) -> CapabilityProbeOutcome {
+fn run_foundry_capability_probe(registries: &Registries) -> Vec<&'static str> {
     let mass = Mass::from_milligrams(10);
     let (mut state, ids) = setup_foundry_probe(registries, mass);
     println!(
@@ -1948,18 +1986,20 @@ fn run_foundry_capability_probe(registries: &Registries) -> CapabilityProbeOutco
     .unwrap_or_else(|error| panic!("foundry probe casting commit failed: {error}"));
     finish_operation(registries, &mut state, cast_duration);
     assert_eq!(validate_loaded_state(registries, &state), Ok(()));
-    if state
+    let cast_mass_is_conserved = state
         .inventory()
         .get_stockpile(ids.cast_storage)
-        .is_some_and(|stockpile| stockpile.stored_mass() == mass)
-    {
-        CapabilityProbeOutcome::Passed
-    } else {
-        CapabilityProbeOutcome::Failed
-    }
+        .is_some_and(|stockpile| stockpile.stored_mass() == mass);
+    [(
+        "foundry cast output preserves input mass",
+        cast_mass_is_conserved,
+    )]
+    .into_iter()
+    .filter_map(|(name, observed)| (!observed).then_some(name))
+    .collect()
 }
 
-fn run_ore_preparation_capability_probe(registries: &Registries) -> CapabilityProbeOutcome {
+fn run_ore_preparation_capability_probe(registries: &Registries) -> Vec<&'static str> {
     let (mut state, ids) = setup_ore_preparation_probe(registries);
     let batch_mass = Mass::from_milligrams(10);
     let initial_matter = calculate_matter_accounting(&state)
@@ -2264,34 +2304,232 @@ fn run_ore_preparation_capability_probe(registries: &Registries) -> CapabilityPr
         .and_then(|energy| energy.checked_add(fine_energy))
         .unwrap_or_else(|| panic!("ore preparation consumed energy overflowed"));
 
-    if final_matter == initial_matter
-        && initial_energy.checked_sub(consumed_energy) == Some(final_energy)
-        && final_energy == Energy::ZERO
-        && final_crusher_condition == crusher_condition
-        && final_grinder_condition == final_grinder_projection
-        && final_screen_condition == screen_condition
-        && crusher_output_is_conservative
-        && grinder_is_required
-        && fine_grind_requires_screen_oversize
-        && grinding_resolved_screen_cut
-        && oversize_profile_is_preserved
-        && composition_preserved
-        && final_distribution_is_fine
-        && final_undersize_lot_count == 1
-        && undersize_mass == Mass::from_milligrams(10)
-        && oversize_mass == Mass::ZERO
-    {
-        CapabilityProbeOutcome::Passed
-    } else {
-        CapabilityProbeOutcome::Failed
-    }
+    let requirements = [
+        (
+            "ore preparation conserves matter",
+            final_matter == initial_matter,
+        ),
+        (
+            "ore preparation consumes exactly resolved work energy",
+            initial_energy.checked_sub(consumed_energy) == Some(final_energy),
+        ),
+        (
+            "ore preparation exhausts its finite work budget",
+            final_energy == Energy::ZERO,
+        ),
+        (
+            "crusher condition matches resolved wear",
+            final_crusher_condition == crusher_condition,
+        ),
+        (
+            "grinder condition matches resolved wear",
+            final_grinder_condition == final_grinder_projection,
+        ),
+        (
+            "screen condition matches resolved wear",
+            final_screen_condition == screen_condition,
+        ),
+        (
+            "crusher output remains conservative",
+            crusher_output_is_conservative,
+        ),
+        (
+            "grinding is required before the screen cut",
+            grinder_is_required,
+        ),
+        (
+            "fine regrind rejects unscreened crusher feed",
+            fine_grind_requires_screen_oversize,
+        ),
+        (
+            "grinding resolves the authored screen cut",
+            grinding_resolved_screen_cut,
+        ),
+        (
+            "screen oversize preserves its particle profile",
+            oversize_profile_is_preserved,
+        ),
+        (
+            "ore preparation preserves composition",
+            composition_preserved,
+        ),
+        (
+            "final product satisfies the fine size range",
+            final_distribution_is_fine,
+        ),
+        (
+            "compatible final lots coalesce",
+            final_undersize_lot_count == 1,
+        ),
+        (
+            "all prepared mass finishes in undersize storage",
+            undersize_mass == Mass::from_milligrams(10),
+        ),
+        (
+            "oversize storage is empty after regrind",
+            oversize_mass == Mass::ZERO,
+        ),
+    ];
+
+    requirements
+        .into_iter()
+        .filter_map(|(name, observed)| (!observed).then_some(name))
+        .collect()
+}
+
+fn coverage_gaps(reports: &[ScenarioReport]) -> Vec<&'static str> {
+    let requirements = [
+        (
+            "structural consequence",
+            reports
+                .iter()
+                .any(|report| report.structure.structural_consequence),
+        ),
+        (
+            "stable structure",
+            reports
+                .iter()
+                .any(|report| !report.structure.structural_consequence),
+        ),
+        (
+            "persistent structural damage",
+            reports
+                .iter()
+                .any(|report| report.structure.structural_damage_debt),
+        ),
+        (
+            "forecast-changed siting",
+            reports
+                .iter()
+                .any(|report| report.choices.forecast_changed_siting),
+        ),
+        (
+            "structural stop",
+            reports
+                .iter()
+                .any(|report| report.structure.structural_stop),
+        ),
+        (
+            "production suspension",
+            reports
+                .iter()
+                .any(|report| report.structure.production_suspension),
+        ),
+        (
+            "stranded work in process",
+            reports
+                .iter()
+                .any(|report| report.structure.stranded_work_in_process),
+        ),
+        (
+            "recovered suspended work",
+            reports.iter().any(|report| {
+                report.structure.production_suspension && !report.structure.stranded_work_in_process
+            }),
+        ),
+        (
+            "production blocked by support failure",
+            reports
+                .iter()
+                .any(|report| report.structure.support_failure_blocked_production),
+        ),
+        (
+            "support relocation",
+            reports
+                .iter()
+                .any(|report| report.structure.support_relocation),
+        ),
+        (
+            "scenario without relocation",
+            reports
+                .iter()
+                .any(|report| !report.structure.support_relocation),
+        ),
+        (
+            "proactive relocation",
+            reports.iter().any(|report| {
+                report.structure.support_relocation
+                    && !report.structure.support_failure_blocked_production
+            }),
+        ),
+        (
+            "compact support selection",
+            reports
+                .iter()
+                .any(|report| report.choices.chose_compact_support),
+        ),
+        (
+            "reinforced support selection",
+            reports
+                .iter()
+                .any(|report| !report.choices.chose_compact_support),
+        ),
+        (
+            "small drive use",
+            reports.iter().any(|report| report.choices.used_small_drive),
+        ),
+        (
+            "large drive use",
+            reports.iter().any(|report| report.choices.used_large_drive),
+        ),
+        (
+            "large drive exhaustion",
+            reports
+                .iter()
+                .any(|report| report.choices.large_drive_exhausted),
+        ),
+        (
+            "forecast-driven power choice",
+            reports
+                .iter()
+                .any(|report| report.choices.forecast_power_choice),
+        ),
+        (
+            "energy bottleneck",
+            reports.iter().any(|report| report.limits.energy_bottleneck),
+        ),
+        (
+            "throughput bottleneck",
+            reports
+                .iter()
+                .any(|report| report.limits.throughput_bottleneck),
+        ),
+        (
+            "maintenance warning",
+            reports
+                .iter()
+                .any(|report| report.limits.maintenance_warning),
+        ),
+        (
+            "maintenance stop",
+            reports.iter().any(|report| report.limits.maintenance_stop),
+        ),
+        (
+            "completed work order",
+            reports
+                .iter()
+                .any(|report| report.progress.completed_batches == report.progress.target_batches),
+        ),
+        (
+            "incomplete work order",
+            reports
+                .iter()
+                .any(|report| report.progress.completed_batches < report.progress.target_batches),
+        ),
+    ];
+
+    requirements
+        .into_iter()
+        .filter_map(|(name, observed)| (!observed).then_some(name))
+        .collect()
 }
 
 #[test]
 fn gameplay_harness_agent_experience_matrix() {
     let registries = build_registries();
     assert_canonical_gameplay_content(&registries);
-    let (seeds, enforce_coverage_matrix) = scenario_seeds();
+    let (seeds, enforce_coverage_matrix) = scenario_seeds()
+        .unwrap_or_else(|error| panic!("gameplay harness configuration failed: {error:?}"));
     println!(
         "\n=== DEEP HEARTH WORKSHOP GAMEPLAY HARNESS: {} scenario(s), registry schema {} ===",
         seeds.len(),
@@ -2325,29 +2563,51 @@ fn gameplay_harness_agent_experience_matrix() {
         .iter()
         .map(|report| u32::from(report.progress.batches_before_disturbance))
         .sum();
-    let ore_preparation_probe = run_ore_preparation_capability_probe(&registries);
-    let foundry_probe = run_foundry_capability_probe(&registries);
-    println!(
-        "\nEXPERIENCE SUMMARY: batches={completed_batches}/{target_batches} pre_disturbance_batches={batches_before_disturbance} compact_choices={} reinforced_choices={} forecast_siting_changes={} structural_consequences={} damage_debt={} relocations={} blocked_by_failure={} structural_stops={} production_suspensions={} stranded_wip={} recovered_wip={} forecast_power_choices={} small_drive={} large_drive={} large_exhausted={} energy_bottlenecks={} throughput_bottlenecks={} maintenance_warnings={} maintenance_stops={} energy_stops={} ore_frontier={} ore_preparation_probe={ore_preparation_probe:?} foundry_probe={foundry_probe:?}",
-        reports
-            .iter()
-            .filter(|report| report.choices.chose_compact_support)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| !report.choices.chose_compact_support)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.choices.forecast_changed_siting)
-            .count(),
+    let ore_preparation_gaps = run_ore_preparation_capability_probe(&registries);
+    let foundry_gaps = run_foundry_capability_probe(&registries);
+
+    for report in &reports {
+        assert!(
+            report.progress.completed_batches > 0,
+            "gameplay exercise seed 0x{:016X} completed no production batch",
+            report.seed
+        );
+        assert!(
+            report.progress.disturbance_applied,
+            "gameplay exercise seed 0x{:016X} never reached its environmental disturbance",
+            report.seed
+        );
+        assert!(
+            report.progress.ore_frontier_visible,
+            "gameplay exercise seed 0x{:016X} did not expose the mixed-ore processing frontier",
+            report.seed
+        );
+    }
+    assert!(
+        ore_preparation_gaps.is_empty(),
+        "ore-preparation capability gaps: {}",
+        ore_preparation_gaps.join(", ")
+    );
+    assert!(
+        foundry_gaps.is_empty(),
+        "foundry capability gaps: {}",
+        foundry_gaps.join(", ")
+    );
+    if enforce_coverage_matrix {
+        let gaps = coverage_gaps(&reports);
+        assert!(
+            gaps.is_empty(),
+            "gameplay exercise coverage gaps: {}",
+            gaps.join(", ")
+        );
+    }
+
+    std::println!(
+        "HARNESS PASS mode={HARNESS_MODE} scenarios={} batches={completed_batches}/{target_batches} pre_disturbance={batches_before_disturbance} structural={} relocations={} suspensions={} stops=[structural:{} maintenance:{} energy:{}] probes=[ore:pass foundry:pass]",
+        reports.len(),
         reports
             .iter()
             .filter(|report| report.structure.structural_consequence)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.structure.structural_damage_debt)
             .count(),
         reports
             .iter()
@@ -2355,52 +2615,11 @@ fn gameplay_harness_agent_experience_matrix() {
             .count(),
         reports
             .iter()
-            .filter(|report| report.structure.support_failure_blocked_production)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.structure.structural_stop)
-            .count(),
-        reports
-            .iter()
             .filter(|report| report.structure.production_suspension)
             .count(),
         reports
             .iter()
-            .filter(|report| report.structure.stranded_work_in_process)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.structure.production_suspension
-                && !report.structure.stranded_work_in_process)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.choices.forecast_power_choice)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.choices.used_small_drive)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.choices.used_large_drive)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.choices.large_drive_exhausted)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.limits.energy_bottleneck)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.limits.throughput_bottleneck)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.limits.maintenance_warning)
+            .filter(|report| report.structure.structural_stop)
             .count(),
         reports
             .iter()
@@ -2410,137 +2629,15 @@ fn gameplay_harness_agent_experience_matrix() {
             .iter()
             .filter(|report| report.limits.energy_stop)
             .count(),
-        reports
-            .iter()
-            .filter(|report| report.progress.ore_frontier_visible)
-            .count(),
     );
-
-    assert!(
-        reports
-            .iter()
-            .all(|report| report.progress.completed_batches > 0)
-    );
-    assert!(
-        reports
-            .iter()
-            .all(|report| report.progress.disturbance_applied)
-    );
-    assert!(
-        reports
-            .iter()
-            .all(|report| report.progress.ore_frontier_visible)
-    );
-    assert_eq!(ore_preparation_probe, CapabilityProbeOutcome::Passed);
-    assert_eq!(foundry_probe, CapabilityProbeOutcome::Passed);
-    if enforce_coverage_matrix {
-        assert!(
-            reports
-                .iter()
-                .any(|report| report.structure.structural_consequence)
-        );
-        assert!(
-            reports
-                .iter()
-                .any(|report| !report.structure.structural_consequence)
-        );
-        assert!(
-            reports
-                .iter()
-                .any(|report| report.structure.structural_damage_debt)
-        );
-        assert!(
-            reports
-                .iter()
-                .any(|report| report.choices.forecast_changed_siting)
-        );
-        assert!(
-            reports
-                .iter()
-                .any(|report| report.structure.structural_stop)
-        );
-        assert!(
-            reports
-                .iter()
-                .any(|report| report.structure.production_suspension)
-        );
-        assert!(
-            reports
-                .iter()
-                .any(|report| report.structure.stranded_work_in_process)
-        );
-        assert!(reports.iter().any(|report| {
-            report.structure.production_suspension && !report.structure.stranded_work_in_process
-        }));
-        assert!(
-            reports
-                .iter()
-                .any(|report| report.structure.support_failure_blocked_production)
-        );
-        assert!(
-            reports
-                .iter()
-                .any(|report| report.structure.support_relocation)
-        );
-        assert!(
-            reports
-                .iter()
-                .any(|report| !report.structure.support_relocation)
-        );
-        assert!(reports.iter().any(|report| {
-            report.structure.support_relocation
-                && !report.structure.support_failure_blocked_production
-        }));
-        assert!(
-            reports
-                .iter()
-                .any(|report| report.choices.chose_compact_support)
-        );
-        assert!(
-            reports
-                .iter()
-                .any(|report| !report.choices.chose_compact_support)
-        );
-        assert!(reports.iter().any(|report| report.choices.used_small_drive));
-        assert!(reports.iter().any(|report| report.choices.used_large_drive));
-        assert!(
-            reports
-                .iter()
-                .any(|report| report.choices.large_drive_exhausted)
-        );
-        assert!(
-            reports
-                .iter()
-                .any(|report| report.choices.forecast_power_choice)
-        );
-        assert!(reports.iter().any(|report| report.limits.energy_bottleneck));
-        assert!(
-            reports
-                .iter()
-                .any(|report| report.limits.throughput_bottleneck)
-        );
-        assert!(
-            reports
-                .iter()
-                .any(|report| report.limits.maintenance_warning)
-        );
-        assert!(reports.iter().any(|report| report.limits.maintenance_stop));
-        assert!(
-            reports
-                .iter()
-                .any(|report| report.progress.completed_batches == report.progress.target_batches)
-        );
-        assert!(
-            reports
-                .iter()
-                .any(|report| report.progress.completed_batches < report.progress.target_batches)
-        );
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_EXPLORATORY_SEED, parse_seed, resolve_exploratory_seed};
+    use super::{
+        DEFAULT_EXPLORATORY_SEED, GameplayHarnessConfigError, parse_seed, resolve_exploratory_seed,
+        scenario_seeds_from,
+    };
 
     #[test]
     fn parse_seed_accepts_decimal_and_hexadecimal() {
@@ -2556,20 +2653,40 @@ mod tests {
 
     #[test]
     fn exploratory_seed_uses_fixed_default_without_override() {
-        assert_eq!(resolve_exploratory_seed(None), DEFAULT_EXPLORATORY_SEED);
+        assert_eq!(resolve_exploratory_seed(None), Ok(DEFAULT_EXPLORATORY_SEED));
     }
 
     #[test]
     fn exploratory_seed_accepts_explicit_override() {
-        assert_eq!(resolve_exploratory_seed(Some("0xBAD")), 0xBAD);
-        assert_eq!(resolve_exploratory_seed(Some("2997")), 2997);
+        assert_eq!(resolve_exploratory_seed(Some("0xBAD")), Ok(0xBAD));
+        assert_eq!(resolve_exploratory_seed(Some("2997")), Ok(2997));
     }
 
     #[test]
-    #[should_panic(
-        expected = "DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED contained no valid decimal or hexadecimal seed"
-    )]
     fn exploratory_seed_rejects_invalid_override() {
-        resolve_exploratory_seed(Some("nope"));
+        assert_eq!(
+            resolve_exploratory_seed(Some("nope")),
+            Err(GameplayHarnessConfigError::InvalidExploratorySeed)
+        );
+    }
+
+    #[test]
+    fn explicit_seed_list_rejects_invalid_entries_instead_of_dropping_them() {
+        assert_eq!(
+            scenario_seeds_from(Some("1,nope,4"), None),
+            Err(GameplayHarnessConfigError::InvalidScenarioSeed { index: 1 })
+        );
+        assert_eq!(
+            scenario_seeds_from(Some(""), None),
+            Err(GameplayHarnessConfigError::EmptyScenarioSeedList)
+        );
+    }
+
+    #[test]
+    fn explicit_seed_list_is_exact_and_disables_default_matrix_contract() {
+        assert_eq!(
+            scenario_seeds_from(Some("1, 0x2A,3"), Some("ignored")),
+            Ok((vec![1, 42, 3], false))
+        );
     }
 }

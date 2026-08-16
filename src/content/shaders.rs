@@ -173,12 +173,15 @@ pub(crate) fn build_shader_registry() -> ShaderRegistry {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "test-shader-validation")]
     use naga::ShaderStage;
+    #[cfg(feature = "test-shader-validation")]
     use naga::valid::{Capabilities, ValidationFlags, Validator};
 
     use super::*;
     use crate::shader::ShaderProgramKind;
 
+    #[cfg(feature = "test-shader-validation")]
     const EXECUTABLE_PROGRAMS: [ShaderId; 9] = [
         SHADER_SURFACE,
         SHADER_LIGHT_CULL,
@@ -191,6 +194,7 @@ mod tests {
         SHADER_SHADOW_CUTOUT,
     ];
 
+    #[cfg(feature = "test-shader-validation")]
     #[test]
     fn built_in_programs_assemble_and_validate_as_portable_wgsl() {
         let registry = build_shader_registry();

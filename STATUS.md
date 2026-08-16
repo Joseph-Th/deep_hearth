@@ -348,8 +348,9 @@
   ambient occlusion, warm block light, up to 32 local lights, four-tap sun shadows, and height fog.
   A logarithmic workgroup prefix scan compacts light candidates; overflowing tiles retain the first
   32 stable-ordered overlaps without atomic allocation flicker. The unique WGSL suite is held below
-  48 KiB and every assembled program is parsed and semantically validated by test-only Naga, leaving
-  the shipping crate free of a graphics dependency.
+  48 KiB and every assembled program is parsed and semantically validated in the default-off
+  `test-shader-validation` lane, leaving ordinary core test builds and the default shipping crate free
+  of the Naga dependency.
 - Deterministic 10,000-tick mixed-system soak with repeated production/transfers, varying structural
   snow load on a persistently cracked supported deck, full-state replay equality, periodic exhaustive
   audits, matter-conservation checks, and lot-fragmentation ceiling.
@@ -403,20 +404,22 @@
   maintaining shadow equipment/process definitions. Canonical built-in content includes the jaw
   crusher, grinding mill, dry screen, electric furnace, cooled casting mold, two mechanical drive
   envelopes, electrical buffer, thermal sink, ore crushing, same-form grinding, exact dry screening,
-  pure-copper melting, and pure-copper casting used by the harness. Normal
-  runs combine five deterministic qualitative-coverage seeds with one fixed printed exploratory seed;
+  pure-copper melting, and pure-copper casting used by the harness. Normal exercise-mode runs combine
+  five deterministic qualitative-coverage seeds with one fixed exploratory seed;
   `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED` overrides that exploratory seed with an exact decimal or
   hex seed, and `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex seed lists for replay or
-  wider sweeps. Starting conditions vary ore grade, batch size, crusher condition, two competing
+  wider sweeps. Explicit seed lists fail on malformed entries rather than silently dropping them.
+  Routine harness tests keep success output captured; the report lane emits one compact summary, while
+  `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace. Starting conditions vary ore
+  grade, batch size, crusher condition, two competing
   structural bays, existing bay load, an exact event tick, an imperfect deterministic regional-snow
   forecast, and finite mechanical work reserves. Actual snow magnitude is revealed only when the event
-  occurs and is applied to both workshop bays rather than following the selected machine. A 100-seed
-  calibration sweep spans ordinary and severe conditions rather than making catastrophe the default:
-  19 selected bays remained stable, 60 became strained, 8 cracked, and 13 failed. The low-power drive
-  is seeded with exactly enough work for the planned order, while the high-power drive remains an
-  optional scarce reserve rather than a hidden completion requirement. The harness no longer injects
-  seed-selected operating personalities. Siting compares forecast-adjusted structural margin while
-  retaining current margin as a tiebreaker; power selection compares reserve, throughput/energy
+  occurs and is applied to both workshop bays rather than following the selected machine. Wider seed
+  sweeps remain explicit diagnostic exercises rather than a fixed gate or frozen balance claim. The
+  low-power drive is seeded with exactly enough work for the planned order, while the high-power drive
+  remains an optional scarce reserve rather than a hidden completion requirement. The harness no longer
+  injects seed-selected operating personalities. Siting compares forecast-adjusted structural margin
+  while retaining current margin as a tiebreaker; power selection compares reserve, throughput/energy
   duration, projected condition, the approaching event, and whether a forecasted regional outage makes
   productive time before the event unusually valuable. Critical-condition work is refused rather than
   relying on an arbitrary cautious-policy flag, and lack of usable stored work is reported separately
@@ -449,8 +452,12 @@
   private mutation access. Production execution is organized behind one canonical facade with separate
   start-admission and in-flight completion modules; thermal process code likewise separates immutable
   resolver registration, sensible-heating resolution, and persistence replay validation.
-- Current debug validation suite passes with `cargo check` silent and
-  Clippy warnings denied.
+- `TESTING.md` and `.cargo/config.toml` expose maintained fast, soak, gameplay, shader, full, release,
+  lint, check, and documentation lanes. The default test build excludes the large gameplay harness and
+  Naga parser dependency; those compile only in explicit features. GitHub CI runs core/soak, gameplay,
+  and shader validation as independent cached jobs with superseded-run cancellation instead of one
+  serial release-sized gate.
+- Current default validation keeps `cargo check` silent and Clippy warnings denied.
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
   as variants evolve instead of relying on review to catch silent fallback behavior.
 - Boolean fields, parameters, and predicate APIs follow the project `is_`/`has_`/`can_` vocabulary;

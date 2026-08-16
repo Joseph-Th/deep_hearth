@@ -6,7 +6,7 @@ Read before changing code. Current work is in STATUS.md.
 
 This repository follows [`../STANDARDS.md`](../STANDARDS.md). The applicable profiles are Universal, Stateful Application, and Deterministic System.
 
-`STANDARDS.md` supplies portfolio defaults; this file owns Deep Hearth's repository-local coding law. `STATUS.md` owns current implemented scope, `TECHNICAL_DESIGN.md` owns project-specific technical design where referenced, and `GAME_DESIGN.md` owns product intent. If current authorities, tests, and implementation conflict, treat the conflict as a defect to reconcile rather than choosing whichever description is convenient.
+`STANDARDS.md` supplies portfolio defaults; this file owns Deep Hearth's repository-local coding law. `TESTING.md` owns test selection, harness modes, and CI lanes, `STATUS.md` owns current implemented scope, `TECHNICAL_DESIGN.md` owns project-specific technical design where referenced, and `GAME_DESIGN.md` owns product intent. If current authorities, tests, and implementation conflict, treat the conflict as a defect to reconcile rather than choosing whichever description is convenient.
 
 Before implementation, a cold agent must be able to identify current scope, authoritative owner, canonical operation, persistence/observation boundary when applicable, narrowest proving test, and completion gate. If that route is not discoverable, improve the owning documentation as part of the change.
 
@@ -177,9 +177,11 @@ Co-locate as `#[cfg(test)] mod tests` at the bottom of the file under test. No s
 
 Fixture helpers that touch a shared production registry and would panic on duplicate registration are named `*_for_test` and are idempotent register-or-update calls, matching `register_or_update_policy_for_test`. Fixtures that build a throwaway local `AppState` or record are named `make_test_*`. Do not invent a third naming scheme for the same job.
 
+`TESTING.md` owns maintained lanes. The ordinary edit loop uses the narrowest exact test plus `cargo test-fast`; long-horizon soak, gameplay-harness, and Naga shader validation compile/run in explicit lanes rather than burdening every test build. Routine successful output stays quiet; failures identify the violated contract and relevant identity/seed.
+
 ## Before Committing
 
-- [ ] `cargo check` silent; `cargo test` passes.
+- [ ] `cargo fmt --check`, `cargo test-check`, `cargo test-lint`, and `cargo test-fast` pass; run the specialized lane owned by the changed contract.
 - [ ] Every consequential mutation resolves before the function returns; no mutation bypasses the canonical system path.
 - [ ] All randomness comes from state-owned RNG; result-affecting iteration is deterministic.
 - [ ] Runtime state is not stored in static definitions; new generated state is serializable.
