@@ -361,10 +361,6 @@ impl ProductionState {
         })
     }
 
-    pub(crate) fn has_unique_energy_reservations(&self) -> bool {
-        self.expected_energy_occupancy().is_some()
-    }
-
     pub(crate) fn has_valid_energy_occupancy_index(&self) -> bool {
         self.expected_energy_occupancy()
             .is_some_and(|expected| expected == self.energy_occupancy)

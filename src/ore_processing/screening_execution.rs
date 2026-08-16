@@ -952,7 +952,7 @@ mod tests {
         EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store_with_initial_for_test,
     };
     use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment};
-    use crate::inventory::{add_stockpile, deposit_lot_spec_for_test};
+    use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_spec_for_test};
     use crate::maintenance::MaintenanceThresholds;
     use crate::material::{CompositionComponent, ParticleSizeClass};
     use crate::matter::calculate_matter_accounting;
@@ -1078,7 +1078,7 @@ mod tests {
     fn fixture(aperture: Length) -> Fixture {
         let registries = registries(aperture);
         let mut state = AppState::new(WorldSeed::new(0x9710_0001));
-        let source = add_stockpile(&mut state, Mass::from_milligrams(100))
+        let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
             .unwrap_or_else(|error| panic!("screening source fixture failed: {error}"));
         let input = MaterialLotSpec::with_composition_and_particle_size(
             CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
@@ -1226,9 +1226,10 @@ mod tests {
     #[test]
     fn routed_screening_completion_conserves_matter_and_validates_while_in_flight() {
         let mut fixture = fixture(Length::from_micrometers(2_000));
-        let undersize = add_stockpile(&mut fixture.state, Mass::from_milligrams(100))
-            .unwrap_or_else(|error| panic!("undersize destination fixture failed: {error}"));
-        let oversize = add_stockpile(&mut fixture.state, Mass::from_milligrams(100))
+        let undersize =
+            add_solid_stockpile_for_test(&mut fixture.state, Mass::from_milligrams(100))
+                .unwrap_or_else(|error| panic!("undersize destination fixture failed: {error}"));
+        let oversize = add_solid_stockpile_for_test(&mut fixture.state, Mass::from_milligrams(100))
             .unwrap_or_else(|error| panic!("oversize destination fixture failed: {error}"));
         let initial_matter = calculate_matter_accounting(&fixture.state)
             .unwrap_or_else(|error| panic!("screening matter accounting failed: {error}"))
@@ -1287,9 +1288,10 @@ mod tests {
     #[test]
     fn screening_job_round_trip_rejects_tampered_output_distribution() {
         let mut fixture = fixture(Length::from_micrometers(2_000));
-        let undersize = add_stockpile(&mut fixture.state, Mass::from_milligrams(100))
-            .unwrap_or_else(|error| panic!("undersize destination fixture failed: {error}"));
-        let oversize = add_stockpile(&mut fixture.state, Mass::from_milligrams(100))
+        let undersize =
+            add_solid_stockpile_for_test(&mut fixture.state, Mass::from_milligrams(100))
+                .unwrap_or_else(|error| panic!("undersize destination fixture failed: {error}"));
+        let oversize = add_solid_stockpile_for_test(&mut fixture.state, Mass::from_milligrams(100))
             .unwrap_or_else(|error| panic!("oversize destination fixture failed: {error}"));
         let resolved = resolve(&fixture)
             .unwrap_or_else(|error| panic!("screening resolution failed: {error}"));
@@ -1339,11 +1341,11 @@ mod tests {
         let registries = registries(Length::from_micrometers(2_000));
         let mut state = AppState::new(seed);
         let total_mass = Mass::from_milligrams(OPERATIONS * BATCH_MILLIGRAMS);
-        let source = add_stockpile(&mut state, total_mass)
+        let source = add_solid_stockpile_for_test(&mut state, total_mass)
             .unwrap_or_else(|error| panic!("screening soak source failed: {error}"));
-        let undersize = add_stockpile(&mut state, total_mass)
+        let undersize = add_solid_stockpile_for_test(&mut state, total_mass)
             .unwrap_or_else(|error| panic!("screening soak undersize storage failed: {error}"));
-        let oversize = add_stockpile(&mut state, total_mass)
+        let oversize = add_solid_stockpile_for_test(&mut state, total_mass)
             .unwrap_or_else(|error| panic!("screening soak oversize storage failed: {error}"));
         let input = MaterialLotSpec::with_composition_and_particle_size(
             CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),

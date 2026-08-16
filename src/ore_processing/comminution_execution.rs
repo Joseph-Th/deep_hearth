@@ -866,7 +866,7 @@ mod tests {
         EquipmentDefinitionId, add_equipment,
     };
     use crate::inventory::{
-        add_stockpile, deposit_composed_lot_for_test, deposit_lot_spec_for_test,
+        add_solid_stockpile_for_test, deposit_composed_lot_for_test, deposit_lot_spec_for_test,
     };
     use crate::maintenance::MaintenanceThresholds;
     use crate::material::CompositionComponent;
@@ -1053,7 +1053,7 @@ mod tests {
                 .and_then(ComminutionProcessDefinition::input_particle_size_range),
             Some(crushed_particle_size())
         );
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
             Ok(source) => source,
             Err(error) => panic!("grinding source fixture failed: {error}"),
         };
@@ -1131,7 +1131,7 @@ mod tests {
             ),
         );
         let mut state = AppState::new(WorldSeed::new(0x9700_0007));
-        let source = add_stockpile(&mut state, Mass::from_milligrams(100))
+        let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
             .unwrap_or_else(|error| panic!("constrained grinding source failed: {error}"));
         let input = MaterialLotSpec::with_composition_and_particle_size(
             CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
@@ -1201,9 +1201,9 @@ mod tests {
             ),
         );
         let mut state = AppState::new(WorldSeed::new(0x9700_0008));
-        let source = add_stockpile(&mut state, Mass::from_milligrams(100))
+        let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
             .unwrap_or_else(|error| panic!("constrained persistence source failed: {error}"));
-        let destination = add_stockpile(&mut state, Mass::from_milligrams(100))
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
             .unwrap_or_else(|error| panic!("constrained persistence destination failed: {error}"));
         let input = MaterialLotSpec::with_composition_and_particle_size(
             CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
@@ -1292,14 +1292,15 @@ mod tests {
         equipment_condition: Condition,
     ) -> Fixture {
         let mut state = AppState::new(seed);
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(1_000)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000)) {
             Ok(source) => source,
             Err(error) => panic!("comminution source fixture failed: {error}"),
         };
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(1_000)) {
-            Ok(destination) => destination,
-            Err(error) => panic!("comminution destination fixture failed: {error}"),
-        };
+        let destination =
+            match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000)) {
+                Ok(destination) => destination,
+                Err(error) => panic!("comminution destination fixture failed: {error}"),
+            };
         let lot = match deposit_composed_lot_for_test(
             &registries,
             &mut state,
@@ -1508,7 +1509,7 @@ mod tests {
     fn comminution_rejects_wrong_form_and_oversized_batch_without_mutation() {
         let registries = make_registries();
         let mut state = AppState::new(WorldSeed::new(0x9700_0002));
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(500)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(500)) {
             Ok(source) => source,
             Err(error) => panic!("comminution rejection source failed: {error}"),
         };

@@ -373,7 +373,8 @@ mod tests {
     use crate::core::time::WorldSeed;
     use crate::energy::{ExplicitEnergyAccountingError, calculate_explicit_energy_accounting};
     use crate::inventory::{
-        MaterialLotSelection, add_stockpile, deposit_lot_for_test, validate_mount_stockpile,
+        MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test,
+        validate_mount_stockpile,
     };
     use crate::material::CommodityKey;
     use crate::matter::calculate_matter_accounting;
@@ -489,7 +490,8 @@ mod tests {
             Some(record) => record.embodied_material()[0].clone(),
             None => panic!("deconstruction member disappeared"),
         };
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(10)) {
+        let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
+        {
             Ok(destination) => destination,
             Err(error) => panic!("deconstruction destination failed: {error}"),
         };
@@ -570,7 +572,7 @@ mod tests {
             Ok(element) => element,
             Err(error) => panic!("multi-trace structural member failed: {error}"),
         };
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
             Ok(source) => source,
             Err(error) => panic!("multi-trace construction source failed: {error}"),
         };
@@ -628,7 +630,8 @@ mod tests {
         assert_eq!(record.embodied_material().len(), 2);
         assert_eq!(record.embodied_mass(), Mass::from_milligrams(20));
 
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
+        let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        {
             Ok(destination) => destination,
             Err(error) => panic!("multi-trace recovery destination failed: {error}"),
         };
@@ -680,7 +683,7 @@ mod tests {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5D00_0003));
         let element = materialized_member(&registries, &mut state, Mass::from_milligrams(10));
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(5)) {
+        let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(5)) {
             Ok(destination) => destination,
             Err(error) => panic!("deconstruction capacity destination failed: {error}"),
         };
@@ -701,7 +704,8 @@ mod tests {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5D00_0004));
         let element = materialized_member(&registries, &mut state, Mass::from_milligrams(10));
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
+        let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        {
             Ok(destination) => destination,
             Err(error) => panic!("stale deconstruction destination failed: {error}"),
         };
@@ -714,7 +718,7 @@ mod tests {
             Ok(token) => token,
             Err(error) => panic!("stale inventory deconstruction validation failed: {error}"),
         };
-        if let Err(error) = add_stockpile(&mut state, Mass::from_milligrams(1)) {
+        if let Err(error) = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1)) {
             panic!("stale deconstruction inventory mutation failed: {error}");
         }
         let before_inventory_commit = state.clone();

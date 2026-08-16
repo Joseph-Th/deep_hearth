@@ -172,8 +172,9 @@ mod tests {
         validate_mount_equipment,
     };
     use crate::inventory::{
-        InventoryValidationError, MaterialLotSelection, add_stockpile, deposit_bulk_for_test,
-        deposit_composed_lot_for_test, deposit_lot_for_test, validate_mount_stockpile,
+        InventoryValidationError, MaterialLotSelection, add_solid_stockpile_for_test,
+        deposit_bulk_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
+        validate_mount_stockpile,
     };
     use crate::maintenance::{Condition, MaintenanceThresholds};
     use crate::material::{
@@ -476,7 +477,7 @@ mod tests {
     fn save_round_trip_preserves_authoritative_runtime_state() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5EED));
-        let stockpile = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let stockpile = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
             Ok(id) => id,
             Err(error) => panic!("fixture stockpile failed: {error}"),
         };
@@ -933,7 +934,8 @@ mod tests {
         let mut state = AppState::new(WorldSeed::new(0x5700_0021));
         let support = make_test_structural_element(&registries, &mut state, 0, 0, true);
         activate_test_structural_element(&registries, &mut state, support);
-        let stockpile = match add_stockpile(&mut state, Mass::from_milligrams(1_000)) {
+        let stockpile = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000))
+        {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("supported persistence stockpile failed: {error}"),
         };
@@ -995,7 +997,8 @@ mod tests {
         let mut state = AppState::new(WorldSeed::new(0x5700_0022));
         let support = make_test_structural_element(&registries, &mut state, 0, 0, true);
         activate_test_structural_element(&registries, &mut state, support);
-        let stockpile = match add_stockpile(&mut state, Mass::from_milligrams(1_000)) {
+        let stockpile = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000))
+        {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("support corruption stockpile failed: {error}"),
         };
@@ -1466,11 +1469,12 @@ mod tests {
     fn in_flight_sensible_heating_round_trip_preserves_energy_trace_and_continuation() {
         let registries = make_test_heating_registries();
         let mut state = AppState::new(WorldSeed::new(0xE900_0100));
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
             Ok(id) => id,
             Err(error) => panic!("heating persistence source failed: {error}"),
         };
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        {
             Ok(id) => id,
             Err(error) => panic!("heating persistence destination failed: {error}"),
         };
@@ -1851,11 +1855,12 @@ mod tests {
     fn in_flight_job_round_trip_preserves_deterministic_continuation() {
         let registries = make_test_registries_with_process(make_test_process());
         let mut state = AppState::new(WorldSeed::new(0xC011_71A0));
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(10)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10)) {
             Ok(id) => id,
             Err(error) => panic!("fixture source failed: {error}"),
         };
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
+        let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        {
             Ok(id) => id,
             Err(error) => panic!("fixture destination failed: {error}"),
         };
@@ -1916,11 +1921,12 @@ mod tests {
     fn in_flight_job_survives_later_process_requirement_rebalance() {
         let original_registries = make_test_registries_with_process(make_test_process());
         let mut state = AppState::new(WorldSeed::new(0xBA1A_0CE0));
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
             Ok(id) => id,
             Err(error) => panic!("fixture source failed: {error}"),
         };
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
+        let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        {
             Ok(id) => id,
             Err(error) => panic!("fixture destination failed: {error}"),
         };
@@ -1982,11 +1988,12 @@ mod tests {
     fn tampered_in_flight_consumed_mass_is_rejected_on_load() {
         let registries = make_test_registries_with_process(make_test_process());
         let mut state = AppState::new(WorldSeed::new(0xC0DE_0009));
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(10)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10)) {
             Ok(id) => id,
             Err(error) => panic!("fixture source failed: {error}"),
         };
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
+        let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        {
             Ok(id) => id,
             Err(error) => panic!("fixture destination failed: {error}"),
         };
@@ -2061,7 +2068,7 @@ mod tests {
     fn mixed_composition_round_trip_preserves_constituents_exactly() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0xC0A1_1051));
-        let stockpile = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let stockpile = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
             Ok(id) => id,
             Err(error) => panic!("fixture stockpile failed: {error}"),
         };
@@ -2110,7 +2117,7 @@ mod tests {
     fn unknown_lot_composition_constituent_is_rejected_on_load() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0xBAD0_C0DE));
-        let stockpile = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let stockpile = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
             Ok(id) => id,
             Err(error) => panic!("fixture stockpile failed: {error}"),
         };

@@ -1028,7 +1028,7 @@ mod tests {
     };
     use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment};
     use crate::inventory::{
-        MaterialLotId, StockpileStorageProfile, add_stockpile, add_stockpile_with_storage_profile,
+        MaterialLotId, StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
         deposit_lot_for_test,
     };
     use crate::maintenance::MaintenanceThresholds;
@@ -1181,18 +1181,15 @@ mod tests {
             Ok(profile) => profile,
             Err(error) => panic!("casting source profile failed: {error}"),
         };
-        let source = match add_stockpile_with_storage_profile(
-            &mut state,
-            Mass::from_milligrams(1_000),
-            source_profile,
-        ) {
+        let source = match add_stockpile(&mut state, Mass::from_milligrams(1_000), source_profile) {
             Ok(source) => source,
             Err(error) => panic!("casting source fixture failed: {error}"),
         };
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(1_000)) {
-            Ok(destination) => destination,
-            Err(error) => panic!("casting destination fixture failed: {error}"),
-        };
+        let destination =
+            match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000)) {
+                Ok(destination) => destination,
+                Err(error) => panic!("casting destination fixture failed: {error}"),
+            };
         let source_lot = match deposit_lot_for_test(
             &registries,
             &mut state,
@@ -1362,11 +1359,7 @@ mod tests {
             Ok(profile) => profile,
             Err(error) => panic!("wrong-carrier source profile failed: {error}"),
         };
-        let source = match add_stockpile_with_storage_profile(
-            &mut state,
-            Mass::from_milligrams(100),
-            source_profile,
-        ) {
+        let source = match add_stockpile(&mut state, Mass::from_milligrams(100), source_profile) {
             Ok(source) => source,
             Err(error) => panic!("wrong-carrier source failed: {error}"),
         };

@@ -683,8 +683,8 @@ mod tests {
         EquipmentDefinition, add_equipment, apply_equipment_condition_plan, decide_equipment_wear,
     };
     use crate::inventory::{
-        MaterialLotSelection, add_stockpile, deposit_lot_for_test, validate_mount_stockpile,
-        validate_transfer_bulk,
+        MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test,
+        validate_mount_stockpile, validate_transfer_bulk,
     };
     use crate::maintenance::MaintenanceThresholds;
     use crate::material::CommodityKey;
@@ -873,11 +873,11 @@ mod tests {
                 Ok(equipment) => equipment,
                 Err(error) => panic!("repair equipment fixture failed: {error}"),
             };
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("repair source fixture failed: {error}"),
         };
-        let spent = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("repair spent fixture failed: {error}"),
         };
@@ -963,11 +963,11 @@ mod tests {
                 Ok(equipment) => equipment,
                 Err(error) => panic!("repair rejection equipment fixture failed: {error}"),
             };
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("repair rejection source fixture failed: {error}"),
         };
-        let spent = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
+        let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("repair rejection spent fixture failed: {error}"),
         };
@@ -1019,11 +1019,11 @@ mod tests {
                 Ok(equipment) => equipment,
                 Err(error) => panic!("repair stale equipment fixture failed: {error}"),
             };
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("repair stale source fixture failed: {error}"),
         };
-        let spent = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
+        let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("repair stale spent fixture failed: {error}"),
         };
@@ -1045,7 +1045,7 @@ mod tests {
             Ok(token) => token,
             Err(error) => panic!("repair stale inventory validation failed: {error}"),
         };
-        if let Err(error) = add_stockpile(&mut state, Mass::from_milligrams(1)) {
+        if let Err(error) = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1)) {
             panic!("repair stale inventory mutation failed: {error}");
         }
         let condition_before = state
@@ -1111,11 +1111,11 @@ mod tests {
                 Ok(equipment) => equipment,
                 Err(error) => panic!("repair stale-resolution equipment fixture failed: {error}"),
             };
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(2)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("repair stale-resolution source fixture failed: {error}"),
         };
-        let spent = match add_stockpile(&mut state, Mass::from_milligrams(2)) {
+        let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("repair stale-resolution spent fixture failed: {error}"),
         };
@@ -1197,11 +1197,11 @@ mod tests {
                 Ok(equipment) => equipment,
                 Err(error) => panic!("repair support equipment fixture failed: {error}"),
             };
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(10)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("repair supported source fixture failed: {error}"),
         };
-        let spent = match add_stockpile(&mut state, Mass::from_milligrams(10)) {
+        let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("repair supported spent fixture failed: {error}"),
         };
@@ -1277,11 +1277,11 @@ mod tests {
                 Ok(equipment) => equipment,
                 Err(error) => panic!("multi-lot repair equipment fixture failed: {error}"),
             };
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("multi-lot repair source fixture failed: {error}"),
         };
-        let spent = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
+        let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("multi-lot repair spent fixture failed: {error}"),
         };
@@ -1370,11 +1370,11 @@ mod tests {
                 Ok(equipment) => equipment,
                 Err(error) => panic!("repair capacity equipment fixture failed: {error}"),
             };
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(10)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("repair capacity source fixture failed: {error}"),
         };
-        let spent = match add_stockpile(&mut state, Mass::from_milligrams(1)) {
+        let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("repair capacity spent fixture failed: {error}"),
         };
@@ -1417,11 +1417,11 @@ mod tests {
             Ok(equipment) => equipment,
             Err(error) => panic!("repair soak equipment fixture failed: {error}"),
         };
-        let source = match add_stockpile(&mut first, Mass::from_milligrams(1)) {
+        let source = match add_solid_stockpile_for_test(&mut first, Mass::from_milligrams(1)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("repair soak source fixture failed: {error}"),
         };
-        let spent = match add_stockpile(&mut first, Mass::from_milligrams(1)) {
+        let spent = match add_solid_stockpile_for_test(&mut first, Mass::from_milligrams(1)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("repair soak spent fixture failed: {error}"),
         };
@@ -1517,19 +1517,22 @@ mod tests {
                 Ok(equipment) => equipment,
                 Err(error) => panic!("repair occupancy equipment fixture failed: {error}"),
             };
-        let process_source = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
-            Ok(stockpile) => stockpile,
-            Err(error) => panic!("repair occupancy process source failed: {error}"),
-        };
-        let process_destination = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
-            Ok(stockpile) => stockpile,
-            Err(error) => panic!("repair occupancy process destination failed: {error}"),
-        };
-        let maintenance_source = match add_stockpile(&mut state, Mass::from_milligrams(1)) {
-            Ok(stockpile) => stockpile,
-            Err(error) => panic!("repair occupancy maintenance source failed: {error}"),
-        };
-        let spent = match add_stockpile(&mut state, Mass::from_milligrams(1)) {
+        let process_source =
+            match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
+                Ok(stockpile) => stockpile,
+                Err(error) => panic!("repair occupancy process source failed: {error}"),
+            };
+        let process_destination =
+            match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
+                Ok(stockpile) => stockpile,
+                Err(error) => panic!("repair occupancy process destination failed: {error}"),
+            };
+        let maintenance_source =
+            match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1)) {
+                Ok(stockpile) => stockpile,
+                Err(error) => panic!("repair occupancy maintenance source failed: {error}"),
+            };
+        let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("repair occupancy spent destination failed: {error}"),
         };
@@ -1657,15 +1660,17 @@ mod tests {
                 Ok(equipment) => equipment,
                 Err(error) => panic!("reserved-weight repair equipment fixture failed: {error}"),
             };
-        let process_source = match add_stockpile(&mut state, Mass::from_milligrams(5)) {
-            Ok(stockpile) => stockpile,
-            Err(error) => panic!("reserved-weight process source fixture failed: {error}"),
-        };
-        let maintenance_source = match add_stockpile(&mut state, Mass::from_milligrams(2)) {
-            Ok(stockpile) => stockpile,
-            Err(error) => panic!("reserved-weight maintenance source fixture failed: {error}"),
-        };
-        let spent = match add_stockpile(&mut state, Mass::from_milligrams(10)) {
+        let process_source =
+            match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(5)) {
+                Ok(stockpile) => stockpile,
+                Err(error) => panic!("reserved-weight process source fixture failed: {error}"),
+            };
+        let maintenance_source =
+            match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2)) {
+                Ok(stockpile) => stockpile,
+                Err(error) => panic!("reserved-weight maintenance source fixture failed: {error}"),
+            };
+        let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("reserved-weight spent fixture failed: {error}"),
         };

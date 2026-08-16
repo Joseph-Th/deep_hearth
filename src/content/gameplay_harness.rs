@@ -24,8 +24,9 @@ use crate::equipment::{
     validate_mount_equipment, validate_unmount_equipment,
 };
 use crate::inventory::{
-    MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, add_stockpile,
-    add_stockpile_with_storage_profile, deposit_composed_lot_for_test, deposit_lot_for_test,
+    MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile,
+    add_solid_stockpile_for_test, add_stockpile, deposit_composed_lot_for_test,
+    deposit_lot_for_test,
 };
 use crate::maintenance::{Condition, MaintenanceBand};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
@@ -440,10 +441,11 @@ fn setup_workshop(
 ) -> (AppState, WorkshopIds) {
     let mut state = AppState::new(WorldSeed::new(variation.seed));
     let ore_mass = variation.batch_mass.milligrams() * u64::from(variation.planned_batches);
-    let ore_source = add_stockpile(&mut state, Mass::from_milligrams(ore_mass + 20))
+    let ore_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(ore_mass + 20))
         .unwrap_or_else(|error| panic!("gameplay harness ore stockpile failed: {error}"));
-    let crushed_storage = add_stockpile(&mut state, Mass::from_milligrams(ore_mass + 20))
-        .unwrap_or_else(|error| panic!("gameplay harness crushed storage failed: {error}"));
+    let crushed_storage =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(ore_mass + 20))
+            .unwrap_or_else(|error| panic!("gameplay harness crushed storage failed: {error}"));
 
     let ore_lot = deposit_composed_lot_for_test(
         registries,
@@ -531,15 +533,14 @@ fn setup_workshop(
 
 fn setup_foundry_probe(registries: &Registries, mass: Mass) -> (AppState, FoundryIds) {
     let mut state = AppState::new(WorldSeed::new(0xD33F_F001));
-    let pure_copper_source = add_stockpile(&mut state, Mass::from_milligrams(30))
+    let pure_copper_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(30))
         .unwrap_or_else(|error| panic!("foundry probe copper stockpile failed: {error}"));
     let vessel_profile =
         StockpileStorageProfile::new(false, true, Temperature::from_millikelvin(1_500_000))
             .unwrap_or_else(|error| panic!("foundry probe molten storage profile failed: {error}"));
-    let molten_vessel =
-        add_stockpile_with_storage_profile(&mut state, Mass::from_milligrams(30), vessel_profile)
-            .unwrap_or_else(|error| panic!("foundry probe molten vessel failed: {error}"));
-    let cast_storage = add_stockpile(&mut state, Mass::from_milligrams(30))
+    let molten_vessel = add_stockpile(&mut state, Mass::from_milligrams(30), vessel_profile)
+        .unwrap_or_else(|error| panic!("foundry probe molten vessel failed: {error}"));
+    let cast_storage = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(30))
         .unwrap_or_else(|error| panic!("foundry probe cast storage failed: {error}"));
     let pure_copper_lot = deposit_lot_for_test(
         registries,
@@ -585,15 +586,15 @@ fn setup_foundry_probe(registries: &Registries, mass: Mass) -> (AppState, Foundr
 fn setup_ore_preparation_probe(registries: &Registries) -> (AppState, OrePreparationProbeIds) {
     let mut state = AppState::new(WorldSeed::new(0xD33F_0A11));
     let batch_mass = Mass::from_milligrams(10);
-    let ore_source = add_stockpile(&mut state, Mass::from_milligrams(20))
+    let ore_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
         .unwrap_or_else(|error| panic!("ore preparation source failed: {error}"));
-    let crushed_storage = add_stockpile(&mut state, Mass::from_milligrams(20))
+    let crushed_storage = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
         .unwrap_or_else(|error| panic!("ore preparation crushed storage failed: {error}"));
-    let ground_storage = add_stockpile(&mut state, Mass::from_milligrams(20))
+    let ground_storage = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
         .unwrap_or_else(|error| panic!("ore preparation ground storage failed: {error}"));
-    let undersize_storage = add_stockpile(&mut state, Mass::from_milligrams(20))
+    let undersize_storage = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
         .unwrap_or_else(|error| panic!("ore preparation undersize storage failed: {error}"));
-    let oversize_storage = add_stockpile(&mut state, Mass::from_milligrams(20))
+    let oversize_storage = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
         .unwrap_or_else(|error| panic!("ore preparation oversize storage failed: {error}"));
     let ore_lot = deposit_composed_lot_for_test(
         registries,

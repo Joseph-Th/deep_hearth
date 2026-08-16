@@ -622,7 +622,7 @@ pub(crate) fn materialize_structural_element_for_test(
     form: crate::material::FormId,
 ) {
     use crate::core::quantity::Temperature;
-    use crate::inventory::{add_stockpile, deposit_lot_for_test};
+    use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
     use crate::material::CommodityKey;
 
     let requirement = match resolve_structural_material_requirement(registries, state, element) {
@@ -631,7 +631,7 @@ pub(crate) fn materialize_structural_element_for_test(
     };
     let material = requirement.material();
     let mass = requirement.required_mass();
-    let source = match add_stockpile(state, mass) {
+    let source = match add_solid_stockpile_for_test(state, mass) {
         Ok(source) => source,
         Err(error) => panic!("construction test stockpile failed: {error}"),
     };
@@ -676,7 +676,7 @@ mod tests {
     use crate::core::time::WorldSeed;
     use crate::energy::{ExplicitEnergyAccountingError, calculate_explicit_energy_accounting};
     use crate::inventory::{
-        StockpileStorageProfile, add_stockpile, add_stockpile_with_storage_profile,
+        StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
         deposit_composed_lot_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
         validate_mount_stockpile,
     };
@@ -735,11 +735,7 @@ mod tests {
             Ok(profile) => profile,
             Err(error) => panic!("liquid construction vessel profile failed: {error}"),
         };
-        let source = match add_stockpile_with_storage_profile(
-            &mut state,
-            requirement.required_mass(),
-            vessel_profile,
-        ) {
+        let source = match add_stockpile(&mut state, requirement.required_mass(), vessel_profile) {
             Ok(source) => source,
             Err(error) => panic!("liquid construction source failed: {error}"),
         };
@@ -804,7 +800,7 @@ mod tests {
                 Ok(requirement) => requirement,
                 Err(error) => panic!("particulate construction requirement failed: {error}"),
             };
-        let source = match add_stockpile(&mut state, requirement.required_mass()) {
+        let source = match add_solid_stockpile_for_test(&mut state, requirement.required_mass()) {
             Ok(source) => source,
             Err(error) => panic!("particulate construction source failed: {error}"),
         };
@@ -930,7 +926,7 @@ mod tests {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5C00_0011));
         let element = member(&registries, &mut state, Mass::from_milligrams(10));
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
             Ok(source) => source,
             Err(error) => panic!("quantity-mismatch source failed: {error}"),
         };
@@ -1016,10 +1012,11 @@ mod tests {
         if let Err(error) = activation.commit(&mut state) {
             panic!("construction storage support activation commit failed: {error}");
         }
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(2_000_000)) {
-            Ok(source) => source,
-            Err(error) => panic!("construction source failed: {error}"),
-        };
+        let source =
+            match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000)) {
+                Ok(source) => source,
+                Err(error) => panic!("construction source failed: {error}"),
+            };
         let lot = match deposit_lot_for_test(
             &registries,
             &mut state,
@@ -1098,7 +1095,7 @@ mod tests {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5C00_0003));
         let element = member(&registries, &mut state, Mass::from_milligrams(100));
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
             Ok(source) => source,
             Err(error) => panic!("wrong-material source failed: {error}"),
         };
@@ -1139,7 +1136,7 @@ mod tests {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5C00_0004));
         let element = member(&registries, &mut state, Mass::from_milligrams(100));
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
             Ok(source) => source,
             Err(error) => panic!("mixed construction source failed: {error}"),
         };
@@ -1187,7 +1184,7 @@ mod tests {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5C00_0005));
         let element = member(&registries, &mut state, Mass::from_milligrams(10));
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(20)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
             Ok(source) => source,
             Err(error) => panic!("stale construction source failed: {error}"),
         };
@@ -1214,7 +1211,7 @@ mod tests {
                 Ok(token) => token,
                 Err(error) => panic!("stale inventory construction validation failed: {error}"),
             };
-        if let Err(error) = add_stockpile(&mut state, Mass::from_milligrams(1)) {
+        if let Err(error) = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1)) {
             panic!("stale inventory independent mutation failed: {error}");
         }
         let before_inventory_commit = state.clone();
@@ -1253,14 +1250,15 @@ mod tests {
     fn run_construction_ownership_soak(seed: WorldSeed) -> AppState {
         let registries = build_registries();
         let mut state = AppState::new(seed);
-        let mut source = match add_stockpile(&mut state, Mass::from_milligrams(10)) {
+        let mut source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10)) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("construction soak source failed: {error}"),
         };
-        let mut destination = match add_stockpile(&mut state, Mass::from_milligrams(10)) {
-            Ok(stockpile) => stockpile,
-            Err(error) => panic!("construction soak destination failed: {error}"),
-        };
+        let mut destination =
+            match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10)) {
+                Ok(stockpile) => stockpile,
+                Err(error) => panic!("construction soak destination failed: {error}"),
+            };
         let mut lot = match deposit_lot_for_test(
             &registries,
             &mut state,

@@ -663,7 +663,7 @@ mod tests {
     use crate::core::state::validate_loaded_state;
     use crate::core::time::WorldSeed;
     use crate::energy::calculate_explicit_energy_accounting;
-    use crate::inventory::{add_stockpile, validate_mount_stockpile};
+    use crate::inventory::{add_solid_stockpile_for_test, validate_mount_stockpile};
     use crate::material::{
         CommodityKey, CompositionComponent, MaterialComposition, MaterialId, MaterialPhase,
     };
@@ -848,7 +848,8 @@ mod tests {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x6E00_0001));
         let support = active_support(&registries, &mut state);
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        {
             Ok(destination) => destination,
             Err(error) => panic!("geological extraction destination failed: {error}"),
         };
@@ -928,7 +929,8 @@ mod tests {
     fn extraction_capacity_failure_is_atomic() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x6E00_0002));
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(10)) {
+        let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
+        {
             Ok(destination) => destination,
             Err(error) => panic!("capacity fixture destination failed: {error}"),
         };
@@ -954,7 +956,8 @@ mod tests {
     fn stale_owner_revisions_reject_cross_owner_commit_without_partial_mutation() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x6E00_0003));
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        {
             Ok(destination) => destination,
             Err(error) => panic!("stale fixture destination failed: {error}"),
         };
@@ -993,7 +996,7 @@ mod tests {
             Ok(token) => token,
             Err(error) => panic!("stale inventory validation failed: {error}"),
         };
-        if let Err(error) = add_stockpile(&mut state, Mass::from_milligrams(1)) {
+        if let Err(error) = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1)) {
             panic!("stale inventory independent mutation failed: {error}");
         }
         let before_inventory_commit = state.clone();
@@ -1011,7 +1014,8 @@ mod tests {
     fn partially_extracted_deposit_round_trips_and_continues_deterministically() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x6E00_0004));
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        {
             Ok(destination) => destination,
             Err(error) => panic!("round-trip destination failed: {error}"),
         };
@@ -1076,10 +1080,11 @@ mod tests {
     fn run_extraction_soak(seed: WorldSeed) -> AppState {
         let registries = build_registries();
         let mut state = AppState::new(seed);
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(2_000)) {
-            Ok(destination) => destination,
-            Err(error) => panic!("extraction soak destination failed: {error}"),
-        };
+        let destination =
+            match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000)) {
+                Ok(destination) => destination,
+                Err(error) => panic!("extraction soak destination failed: {error}"),
+            };
         let deposit =
             match insert_generated_deposit(&registries, &mut state, deposit_spec(0, 2_000)) {
                 Ok(deposit) => deposit,

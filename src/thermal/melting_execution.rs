@@ -1013,8 +1013,8 @@ mod tests {
     };
     use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment};
     use crate::inventory::{
-        StockpileStorageError, StockpileStorageProfile, add_stockpile,
-        add_stockpile_with_storage_profile, deposit_composed_lot_for_test, deposit_lot_for_test,
+        StockpileStorageError, StockpileStorageProfile, add_solid_stockpile_for_test,
+        add_stockpile, deposit_composed_lot_for_test, deposit_lot_for_test,
     };
     use crate::maintenance::MaintenanceThresholds;
     use crate::material::{CompositionComponent, MaterialComposition};
@@ -1152,7 +1152,7 @@ mod tests {
     ) -> MeltingFixture {
         let registries = make_registries(maximum_temperature, carrier);
         let mut state = AppState::new(WorldSeed::new(0x9500_0001));
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(1_000)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000)) {
             Ok(source) => source,
             Err(error) => panic!("melting source fixture failed: {error}"),
         };
@@ -1164,14 +1164,11 @@ mod tests {
             Ok(profile) => profile,
             Err(error) => panic!("melting vessel profile failed: {error}"),
         };
-        let destination = match add_stockpile_with_storage_profile(
-            &mut state,
-            Mass::from_milligrams(1_000),
-            vessel_profile,
-        ) {
-            Ok(destination) => destination,
-            Err(error) => panic!("melting vessel fixture failed: {error}"),
-        };
+        let destination =
+            match add_stockpile(&mut state, Mass::from_milligrams(1_000), vessel_profile) {
+                Ok(destination) => destination,
+                Err(error) => panic!("melting vessel fixture failed: {error}"),
+            };
         let source_lot = match deposit_lot_for_test(
             &registries,
             &mut state,
@@ -1347,10 +1344,11 @@ mod tests {
             Mass::from_milligrams(10),
         );
         let mut state = fixture.state;
-        let bad_destination = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
-            Ok(stockpile) => stockpile,
-            Err(error) => panic!("solid destination fixture failed: {error}"),
-        };
+        let bad_destination =
+            match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
+                Ok(stockpile) => stockpile,
+                Err(error) => panic!("solid destination fixture failed: {error}"),
+            };
         let resolved = match resolve_selected(
             &fixture.registries,
             &state,

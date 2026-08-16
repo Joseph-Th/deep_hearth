@@ -1699,7 +1699,9 @@ mod tests {
     use crate::core::quantity::{Mass, Temperature};
     use crate::core::state::{StateValidationError, validate_loaded_state};
     use crate::core::time::WorldSeed;
-    use crate::inventory::{add_stockpile, deposit_bulk_for_test, deposit_composed_lot_for_test};
+    use crate::inventory::{
+        add_solid_stockpile_for_test, deposit_bulk_for_test, deposit_composed_lot_for_test,
+    };
     use crate::material::{
         CommodityKey, CompositionComponent, CompositionConstraint, MaterialComposition,
         MaterialInputSpec, MaterialLotSpec,
@@ -1850,7 +1852,7 @@ mod tests {
     }
 
     fn add_test_stockpile(state: &mut AppState, capacity: u64) -> StockpileId {
-        match add_stockpile(state, Mass::from_milligrams(capacity)) {
+        match add_solid_stockpile_for_test(state, Mass::from_milligrams(capacity)) {
             Ok(id) => id,
             Err(error) => panic!("fixture stockpile failed: {error}"),
         }

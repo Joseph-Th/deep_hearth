@@ -731,7 +731,7 @@ mod tests {
     use crate::core::state::validate_loaded_state;
     use crate::core::time::WorldSeed;
     use crate::inventory::{
-        TransferCommitError, TransferError, add_stockpile, deposit_lot_for_test,
+        TransferCommitError, TransferError, add_solid_stockpile_for_test, deposit_lot_for_test,
         validate_transfer_bulk,
     };
     use crate::material::{CommodityKey, MaterialInputSpec, MaterialLotSpec};
@@ -790,7 +790,7 @@ mod tests {
         capacity: Mass,
         mass: Mass,
     ) -> StockpileId {
-        let stockpile = match add_stockpile(state, capacity) {
+        let stockpile = match add_solid_stockpile_for_test(state, capacity) {
             Ok(stockpile) => stockpile,
             Err(error) => panic!("stockpile support storage fixture failed: {error}"),
         };

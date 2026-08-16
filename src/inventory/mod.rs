@@ -17,7 +17,7 @@ pub use structural_integration::{
 pub use transactions::{
     AddStockpileError, DepositError, MaterialLotSelection, StockpileStorageError,
     TransferCommitError, TransferError, ValidatedTransferBulk, add_stockpile,
-    add_stockpile_with_storage_profile, validate_transfer_bulk,
+    validate_transfer_bulk,
 };
 
 pub(crate) use state::validate_loaded_inventory;
@@ -41,8 +41,8 @@ pub(crate) use transactions::{
 
 #[cfg(test)]
 pub(crate) use transactions::{
-    deposit_bulk_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
-    deposit_lot_spec_for_test,
+    add_solid_stockpile_for_test, deposit_bulk_for_test, deposit_composed_lot_for_test,
+    deposit_lot_for_test, deposit_lot_spec_for_test,
 };
 
 #[cfg(test)]
@@ -58,7 +58,7 @@ mod explicit_selection_tests {
     fn explicit_selection_binds_partial_lot_without_mutation() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x1A70_0001));
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
             Ok(source) => source,
             Err(error) => panic!("explicit selection source fixture failed: {error}"),
         };
@@ -101,11 +101,11 @@ mod explicit_selection_tests {
     fn explicit_selection_rejects_duplicate_lot_and_wrong_source() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x1A70_0002));
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
             Ok(source) => source,
             Err(error) => panic!("explicit selection source fixture failed: {error}"),
         };
-        let other = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let other = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
             Ok(source) => source,
             Err(error) => panic!("explicit selection secondary fixture failed: {error}"),
         };

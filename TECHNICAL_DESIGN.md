@@ -341,7 +341,9 @@ avoids per-container rounding creating artificial weight. Reserved inbound capac
 matter, and therefore contributes no structural load until physical output becomes authoritative.
 
 `validate_transfer_bulk` plus the consumed `ValidatedTransferBulk::commit` performs revision-bound
-two-stockpile movement. If either stockpile is structurally supported, transfer validation computes
+movement between distinct stockpiles. A same-stockpile request is rejected as an invalid transfer;
+source-equals-destination production reservations use their separate production transaction path.
+If either stockpile is structurally supported, transfer validation computes
 both final stored masses and analyzes the complete final stored-matter load arrangement under one
 structural revision before matter moves. The transaction remains bound to that structural revision
 even when aggregate mass-to-force rounding leaves the numeric load unchanged. Partial transfers split

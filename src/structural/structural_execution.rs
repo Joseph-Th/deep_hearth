@@ -1199,7 +1199,7 @@ mod tests {
     };
     use crate::core::quantity::{Area, Length};
     use crate::core::time::WorldSeed;
-    use crate::inventory::add_stockpile;
+    use crate::inventory::add_solid_stockpile_for_test;
     use crate::spatial::{VoxelBounds, VoxelCoord};
     use crate::structural::{
         StructuralFailureCause, StructuralStage, ValidatedStructuralDeconstruction,
@@ -1281,7 +1281,7 @@ mod tests {
             Some(record) => record.embodied_mass(),
             None => panic!("deconstruction fixture references missing structural element"),
         };
-        let destination = match add_stockpile(state, mass) {
+        let destination = match add_solid_stockpile_for_test(state, mass) {
             Ok(destination) => destination,
             Err(error) => panic!("deconstruction fixture stockpile failed: {error}"),
         };

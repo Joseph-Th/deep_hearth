@@ -508,7 +508,7 @@ mod tests {
         EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store,
         add_energy_store_with_initial_for_test,
     };
-    use crate::inventory::{add_stockpile, deposit_bulk_for_test};
+    use crate::inventory::{add_solid_stockpile_for_test, deposit_bulk_for_test};
     use crate::material::{CommodityKey, MaterialInputSpec, MaterialLotSpec};
     use crate::production::{
         ProcessDefinition, ProcessId, make_test_process_resolution, validate_process_inputs,
@@ -851,14 +851,16 @@ mod tests {
         let expected_energy_revision = state.energy().revision();
         let expected_production_revision = state.production().revision();
 
-        let material_source = match add_stockpile(&mut state, Mass::from_milligrams(2)) {
-            Ok(stockpile) => stockpile,
-            Err(error) => panic!("production-stale material source failed: {error}"),
-        };
-        let material_destination = match add_stockpile(&mut state, Mass::from_milligrams(2)) {
-            Ok(stockpile) => stockpile,
-            Err(error) => panic!("production-stale material destination failed: {error}"),
-        };
+        let material_source =
+            match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2)) {
+                Ok(stockpile) => stockpile,
+                Err(error) => panic!("production-stale material source failed: {error}"),
+            };
+        let material_destination =
+            match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2)) {
+                Ok(stockpile) => stockpile,
+                Err(error) => panic!("production-stale material destination failed: {error}"),
+            };
         if let Err(error) = deposit_bulk_for_test(
             &registries,
             &mut state,

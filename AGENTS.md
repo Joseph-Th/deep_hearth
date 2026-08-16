@@ -10,7 +10,7 @@ This repository follows [`../STANDARDS.md`](../STANDARDS.md). The applicable pro
 
 Before implementation, a cold agent must be able to identify current scope, authoritative owner, canonical operation, persistence/observation boundary when applicable, narrowest proving test, and completion gate. If that route is not discoverable, improve the owning documentation as part of the change.
 
-When multiple agents may be active in this workspace, read [`../COORDINATION.md`](../COORDINATION.md) and the live [`../COORDINATION_STATUS.md`](../COORDINATION_STATUS.md) before the first consequential write. Coordination claims reserve active write scope only; they do not override Deep Hearth's coding law, current status, technical design, or game-design authority.
+When multiple agents may be active, follow [`../AGENTS.md`](../AGENTS.md): prefer Git Wizard `summon_agent` worktree isolation for independent parallel implementation, preserve unrelated working-tree state, and serialize only genuinely scarce shared external resources. Project-local authorities below remain controlling for architecture and behavior.
 
 ## Coding Design Law
 

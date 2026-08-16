@@ -1441,12 +1441,8 @@ pub fn validate_invariants(_registries: &Registries, state: &AppState) {
         "Runtime Invariant 6 (Lifecycle Validity): production suspension timestamps must not be later than the authoritative clock"
     );
     debug_assert!(
-        state.production.has_unique_energy_reservations(),
-        "Runtime Invariant 5 (Ownership Exclusivity): active production jobs must not share finite energy sources or sinks"
-    );
-    debug_assert!(
         state.production.has_valid_energy_occupancy_index(),
-        "Runtime Invariant 12 (Derived Data Consistency): production energy occupancy index must match active job reservations"
+        "Runtime Invariants 5/12 (Ownership Exclusivity, Derived Data Consistency): production energy occupancy index must contain exactly one owner for each active job reservation"
     );
     debug_assert!(
         state
@@ -1477,7 +1473,9 @@ mod tests {
     };
     use crate::core::quantity::{Area, Force, Mass, Temperature};
     use crate::core::rng::RngAlgorithm;
-    use crate::inventory::{add_stockpile, deposit_bulk_for_test, validate_transfer_bulk};
+    use crate::inventory::{
+        add_solid_stockpile_for_test, deposit_bulk_for_test, validate_transfer_bulk,
+    };
     use crate::material::{CommodityKey, MaterialInputSpec, MaterialLotSpec};
     use crate::matter::calculate_matter_accounting;
     use crate::production::{
@@ -1528,7 +1526,7 @@ mod tests {
     }
 
     fn add_soak_stockpile(state: &mut AppState, capacity: u64) -> crate::inventory::StockpileId {
-        match add_stockpile(state, Mass::from_milligrams(capacity)) {
+        match add_solid_stockpile_for_test(state, Mass::from_milligrams(capacity)) {
             Ok(id) => id,
             Err(error) => panic!("soak stockpile allocation failed: {error}"),
         }

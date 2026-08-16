@@ -1204,8 +1204,8 @@ mod tests {
         decide_equipment_wear, validate_mount_equipment, validate_unmount_equipment,
     };
     use crate::inventory::{
-        StockpileStorageProfile, StockpileSupportError, add_stockpile,
-        add_stockpile_with_storage_profile, deposit_lot_for_test, validate_mount_stockpile,
+        StockpileStorageProfile, StockpileSupportError, add_solid_stockpile_for_test,
+        add_stockpile, deposit_lot_for_test, validate_mount_stockpile,
     };
     use crate::maintenance::{Condition, MaintenanceThresholds};
     use crate::material::{CommodityKey, MaterialComposition};
@@ -1254,22 +1254,15 @@ mod tests {
             Ok(profile) => profile,
             Err(error) => panic!("liquid heating storage profile failed: {error}"),
         };
-        let source = match add_stockpile_with_storage_profile(
-            &mut state,
-            Mass::from_milligrams(100),
-            liquid_profile,
-        ) {
+        let source = match add_stockpile(&mut state, Mass::from_milligrams(100), liquid_profile) {
             Ok(source) => source,
             Err(error) => panic!("liquid heating source failed: {error}"),
         };
-        let destination = match add_stockpile_with_storage_profile(
-            &mut state,
-            Mass::from_milligrams(100),
-            liquid_profile,
-        ) {
-            Ok(destination) => destination,
-            Err(error) => panic!("liquid heating destination failed: {error}"),
-        };
+        let destination =
+            match add_stockpile(&mut state, Mass::from_milligrams(100), liquid_profile) {
+                Ok(destination) => destination,
+                Err(error) => panic!("liquid heating destination failed: {error}"),
+            };
         let melting_point = Temperature::from_millikelvin(1_357_770);
         let target = Temperature::from_millikelvin(1_400_000);
         let lot = match deposit_lot_for_test(
@@ -1565,11 +1558,12 @@ mod tests {
         EnergyStoreId,
     ) {
         let mut state = AppState::new(WorldSeed::new(0x9200_0001));
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
             Ok(id) => id,
             Err(error) => panic!("thermal source fixture failed: {error}"),
         };
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        {
             Ok(id) => id,
             Err(error) => panic!("thermal destination fixture failed: {error}"),
         };
@@ -2046,7 +2040,7 @@ mod tests {
     fn selected_batch_heating_rejects_mass_above_equipment_capacity_without_mutation() {
         let (registries, mut state, _, _, equipment, energy_store) =
             make_loaded_fixture(EnergyCarrier::Electrical);
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
             Ok(source) => source,
             Err(error) => panic!("batch-capacity source allocation failed: {error}"),
         };
@@ -2090,10 +2084,11 @@ mod tests {
     fn selected_batch_heating_uses_actual_material_heat_capacity() {
         let (registries, mut state, wood_source, _, equipment, energy_store) =
             make_loaded_fixture(EnergyCarrier::Electrical);
-        let copper_source = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
-            Ok(source) => source,
-            Err(error) => panic!("copper heating source allocation failed: {error}"),
-        };
+        let copper_source =
+            match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
+                Ok(source) => source,
+                Err(error) => panic!("copper heating source allocation failed: {error}"),
+            };
         let copper_lot = match deposit_lot_for_test(
             &registries,
             &mut state,
@@ -2167,7 +2162,7 @@ mod tests {
             Temperature::from_millikelvin(2_000_000),
         );
         let mut state = AppState::new(WorldSeed::new(0x9200_0020));
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(100)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
             Ok(source) => source,
             Err(error) => panic!("phase-boundary source allocation failed: {error}"),
         };
@@ -2361,11 +2356,12 @@ mod tests {
     fn run_sensible_heating_soak(seed: WorldSeed) -> AppState {
         let registries = make_registries(EnergyCarrier::Electrical);
         let mut state = AppState::new(seed);
-        let source = match add_stockpile(&mut state, Mass::from_milligrams(200)) {
+        let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(200)) {
             Ok(id) => id,
             Err(error) => panic!("heating soak source allocation failed: {error}"),
         };
-        let destination = match add_stockpile(&mut state, Mass::from_milligrams(200)) {
+        let destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(200))
+        {
             Ok(id) => id,
             Err(error) => panic!("heating soak destination allocation failed: {error}"),
         };

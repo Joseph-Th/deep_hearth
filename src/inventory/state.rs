@@ -62,7 +62,7 @@ impl StockpileStorageProfile {
         Ok(profile)
     }
 
-    /// Default loose/general solid storage used by the legacy stockpile allocation convenience API.
+    /// Unbounded-temperature containment for dry storage that accepts solid matter only.
     #[must_use]
     pub const fn solid_only() -> Self {
         Self {

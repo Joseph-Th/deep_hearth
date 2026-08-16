@@ -26,10 +26,12 @@
   conservative meaning of an unresolved size envelope without inventing an internal yield curve.
   Particle-size state is part of lot fungibility rather than a detached ore-processing annotation.
 - Capacity-aware stockpiles with derived commodity totals, cached mass, inbound reservations,
-  revision-bound atomic transfers, deterministic splitting, compatible-fragment coalescing, and a
-  persisted material-containment envelope for accepted solid/liquid phases and maximum temperature.
-  The convenience stockpile allocator remains solid-only. Every deposit, ingress, transfer, future
-  production output, and exhaustive save audit rechecks phase and temperature compatibility.
+  revision-bound atomic transfers between distinct stockpiles, deterministic splitting,
+  compatible-fragment coalescing, and a persisted material-containment envelope for accepted
+  solid/liquid phases and maximum temperature.
+  Stockpile allocation requires that containment envelope explicitly; there is no compatibility
+  allocator that silently chooses one. Every deposit, ingress, transfer, future production output,
+  and exhaustive save audit rechecks phase and temperature compatibility.
 - Persistent stockpile-to-structure support assignment with a synchronized support-to-stockpile
   reverse index. Inventory exclusively owns `StoredMatter` structural load: all supported stockpile
   masses are aggregated per member before gravity conversion, generic callers cannot write the load
