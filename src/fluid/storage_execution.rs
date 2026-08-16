@@ -78,13 +78,13 @@ fn allocate_fluid_store(
         }
     }
     let fluid = state.fluid();
-    let id = FluidStoreId::new(fluid.next_store_id);
+    let id = FluidStoreId::new(fluid.next_store_id());
     let next_store_id = fluid
-        .next_store_id
+        .next_store_id()
         .checked_add(1)
         .ok_or(AddFluidStoreError::IdExhausted)?;
     let next_revision = fluid
-        .revision
+        .revision()
         .checked_add(1)
         .ok_or(AddFluidStoreError::RevisionExhausted)?;
     let record = FluidStoreRecord {
@@ -96,13 +96,7 @@ fn allocate_fluid_store(
     };
 
     let fluid = state.fluid_state_mut();
-    let previous = fluid.records.insert(id, record);
-    debug_assert!(
-        previous.is_none(),
-        "Runtime Invariant 4 (Index Uniqueness): fluid store allocation replaced an existing record"
-    );
-    fluid.next_store_id = next_store_id;
-    fluid.revision = next_revision;
+    fluid.insert_store(record, next_store_id, next_revision);
     Ok(id)
 }
 
@@ -582,10 +576,10 @@ impl ValidatedFluidTransfer {
         } = resolution;
         {
             let fluid = state.fluid();
-            if fluid.revision != expected_revision {
+            if fluid.revision() != expected_revision {
                 return Err(FluidTransferCommitError::StaleRevision {
                     expected: expected_revision,
-                    actual: fluid.revision,
+                    actual: fluid.revision(),
                 });
             }
             if fluid.get_store(source).and_then(FluidStoreRecord::contents) != Some(source_before) {
@@ -607,15 +601,13 @@ impl ValidatedFluidTransfer {
         };
 
         let fluid = state.fluid_state_mut();
-        let Some(source_record) = fluid.records.get_mut(&source) else {
-            unreachable!("validated fluid source cannot disappear without a revision change");
-        };
-        source_record.contents = source_after;
-        let Some(destination_record) = fluid.records.get_mut(&destination) else {
-            unreachable!("validated fluid destination cannot disappear without a revision change");
-        };
-        destination_record.contents = Some(destination_after);
-        fluid.revision = next_revision;
+        fluid.apply_transfer_contents(
+            source,
+            source_after,
+            destination,
+            destination_after,
+            next_revision,
+        );
 
         Ok(FluidTransferOutcome {
             source,

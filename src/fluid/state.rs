@@ -107,10 +107,10 @@ impl FluidStoreRecord {
 /// Persistent owner for finite fluid stores and monotonic identity/revision cursors.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FluidState {
-    pub(super) revision: u64,
-    pub(super) next_store_id: u64,
-    pub(super) records: BTreeMap<FluidStoreId, FluidStoreRecord>,
-    pub(super) stores_by_support: BTreeMap<StructuralElementId, BTreeSet<FluidStoreId>>,
+    revision: u64,
+    next_store_id: u64,
+    records: BTreeMap<FluidStoreId, FluidStoreRecord>,
+    stores_by_support: BTreeMap<StructuralElementId, BTreeSet<FluidStoreId>>,
 }
 
 impl FluidState {
@@ -130,12 +130,33 @@ impl FluidState {
     }
 
     #[must_use]
+    pub(super) const fn next_store_id(&self) -> u64 {
+        self.next_store_id
+    }
+
+    #[must_use]
     pub fn get_store(&self, id: FluidStoreId) -> Option<&FluidStoreRecord> {
         self.records.get(&id)
     }
 
     pub fn stores(&self) -> impl Iterator<Item = &FluidStoreRecord> {
         self.records.values()
+    }
+
+    /// Atomically inserts one allocated store record and advances the identity and revision cursors.
+    pub(super) fn insert_store(
+        &mut self,
+        record: FluidStoreRecord,
+        next_store_id: u64,
+        next_revision: u64,
+    ) {
+        let previous = self.records.insert(record.id, record);
+        debug_assert!(
+            previous.is_none(),
+            "Runtime Invariant 4 (Index Uniqueness): fluid store allocation replaced an existing record"
+        );
+        self.next_store_id = next_store_id;
+        self.revision = next_revision;
     }
 
     /// Iterates fluid stores assigned to one structural support in stable store-ID order.
@@ -200,6 +221,26 @@ impl FluidState {
         };
         debug_assert_eq!(record.supported_by, before);
         record.supported_by = after;
+        self.revision = next_revision;
+    }
+
+    /// Applies one validated transfer's final contents to both stores under one revision advance.
+    pub(super) fn apply_transfer_contents(
+        &mut self,
+        source: FluidStoreId,
+        source_contents: Option<FluidContents>,
+        destination: FluidStoreId,
+        destination_contents: FluidContents,
+        next_revision: u64,
+    ) {
+        let Some(source_record) = self.records.get_mut(&source) else {
+            unreachable!("validated fluid source cannot disappear without a revision change");
+        };
+        source_record.contents = source_contents;
+        let Some(destination_record) = self.records.get_mut(&destination) else {
+            unreachable!("validated fluid destination cannot disappear without a revision change");
+        };
+        destination_record.contents = Some(destination_contents);
         self.revision = next_revision;
     }
 

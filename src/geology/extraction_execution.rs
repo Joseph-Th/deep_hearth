@@ -144,11 +144,11 @@ pub fn insert_generated_deposit(
     .map_err(InsertGeneratedDepositError::InvalidPhaseState)?;
 
     let geology = state.geology();
-    let id = GeologicalDepositId::new(geology.next_deposit_id);
-    let Some(next_id) = geology.next_deposit_id.checked_add(1) else {
+    let id = GeologicalDepositId::new(geology.next_deposit_id());
+    let Some(next_id) = geology.next_deposit_id().checked_add(1) else {
         return Err(InsertGeneratedDepositError::IdExhausted);
     };
-    let Some(next_revision) = geology.revision.checked_add(1) else {
+    let Some(next_revision) = geology.revision().checked_add(1) else {
         return Err(InsertGeneratedDepositError::RevisionExhausted);
     };
     let generated_at = state.tick();
@@ -165,13 +165,7 @@ pub fn insert_generated_deposit(
     };
 
     let geology = state.geology_state_mut();
-    geology.next_deposit_id = next_id;
-    geology.revision = next_revision;
-    let replaced = geology.deposits.insert(id, record);
-    debug_assert!(
-        replaced.is_none(),
-        "geological deposit ID allocation must be unique"
-    );
+    geology.insert_deposit(record, next_id, next_revision);
     Ok(id)
 }
 
@@ -548,16 +542,11 @@ impl ValidatedGeologicalExtraction {
         }
 
         let lot = apply_material_ingress(state.inventory_state_mut(), self.ingress);
-        let geology = state.geology_state_mut();
-        let record = match geology.deposits.get_mut(&self.deposit) {
-            Some(record) => record,
-            None => panic!("validated geological deposit disappeared without revision change"),
-        };
-        record.remaining_mass = self.remaining_after;
-        if self.remaining_after.is_zero() {
-            record.lifecycle = GeologicalDepositLifecycle::Depleted;
-        }
-        geology.revision = self.next_geology_revision;
+        state.geology_state_mut().apply_extraction(
+            self.deposit,
+            self.remaining_after,
+            self.next_geology_revision,
+        );
 
         Ok(GeologicalExtractionOutcome {
             deposit: self.deposit,

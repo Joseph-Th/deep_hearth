@@ -167,7 +167,7 @@ impl Display for PowerDurationError {
 
 impl Error for PowerDurationError {}
 
-fn integrated_energy_is_at_least(
+fn has_integrated_energy_at_least(
     power: Power,
     ticks: u64,
     ticks_per_second: NonZeroU16,
@@ -201,7 +201,7 @@ pub fn calculate_power_duration_ceiling(
     if power.is_zero() {
         return Err(PowerDurationError::ZeroPower);
     }
-    if !integrated_energy_is_at_least(power, u64::MAX, ticks_per_second, required) {
+    if !has_integrated_energy_at_least(power, u64::MAX, ticks_per_second, required) {
         return Err(PowerDurationError::DurationOverflow);
     }
 
@@ -209,7 +209,7 @@ pub fn calculate_power_duration_ceiling(
     let mut high = u64::MAX;
     while low < high {
         let midpoint = low + (high - low) / 2;
-        if integrated_energy_is_at_least(power, midpoint, ticks_per_second, required) {
+        if has_integrated_energy_at_least(power, midpoint, ticks_per_second, required) {
             high = midpoint;
         } else {
             low = midpoint + 1;

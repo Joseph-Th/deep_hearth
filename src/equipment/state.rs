@@ -1,4 +1,4 @@
-//! Persistent equipment records and cursor validation; sibling execution is the only mutation path.
+//! Persistent equipment records and synchronized owner mutations; sibling systems resolve operations.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
@@ -107,13 +107,32 @@ impl EquipmentRecord {
     }
 }
 
+/// One completed operation's validated equipment-condition transition.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EquipmentOperationConditionOutcome {
+    equipment: EquipmentId,
+    before: Condition,
+    after: Condition,
+}
+
+impl EquipmentOperationConditionOutcome {
+    #[must_use]
+    pub(crate) const fn new(equipment: EquipmentId, before: Condition, after: Condition) -> Self {
+        Self {
+            equipment,
+            before,
+            after,
+        }
+    }
+}
+
 /// Authoritative equipment collection and monotonic mutation/version state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EquipmentState {
-    pub(super) revision: u64,
-    pub(super) next_equipment_id: u32,
-    pub(super) records: BTreeMap<EquipmentId, EquipmentRecord>,
-    pub(super) equipment_by_support: BTreeMap<StructuralElementId, BTreeSet<EquipmentId>>,
+    revision: u64,
+    next_equipment_id: u32,
+    records: BTreeMap<EquipmentId, EquipmentRecord>,
+    equipment_by_support: BTreeMap<StructuralElementId, BTreeSet<EquipmentId>>,
 }
 
 impl EquipmentState {
@@ -133,12 +152,118 @@ impl EquipmentState {
     }
 
     #[must_use]
+    pub(super) const fn next_equipment_id(&self) -> u32 {
+        self.next_equipment_id
+    }
+
+    #[must_use]
     pub fn get_equipment(&self, id: EquipmentId) -> Option<&EquipmentRecord> {
         self.records.get(&id)
     }
 
     pub fn equipment(&self) -> impl Iterator<Item = &EquipmentRecord> {
         self.records.values()
+    }
+
+    /// Atomically inserts one allocated equipment record and advances identity and revision cursors.
+    pub(super) fn insert_equipment(
+        &mut self,
+        record: EquipmentRecord,
+        next_equipment_id: u32,
+        next_revision: u64,
+    ) {
+        let replaced = self.records.insert(record.id, record);
+        assert!(
+            replaced.is_none(),
+            "Runtime Invariant 4 (Index Uniqueness): equipment allocation replaced an existing id"
+        );
+        self.next_equipment_id = next_equipment_id;
+        self.revision = next_revision;
+    }
+
+    /// Applies one prevalidated condition change and advances the owner revision exactly once.
+    pub(super) fn apply_condition_change(
+        &mut self,
+        equipment: EquipmentId,
+        before: Condition,
+        after: Condition,
+        next_revision: u64,
+    ) {
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "equipment condition mutation must advance revision exactly once"
+        );
+        let record = self.records.get_mut(&equipment).unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: equipment {} disappeared before condition update",
+                equipment.value()
+            )
+        });
+        assert_eq!(
+            record.condition,
+            before,
+            "runtime invariant broken: equipment {} condition changed after prevalidation",
+            equipment.value()
+        );
+        record.condition = after;
+        self.revision = next_revision;
+    }
+
+    /// Applies a validated simultaneous condition-outcome batch under one owner revision.
+    pub(crate) fn apply_operation_condition_outcomes(
+        &mut self,
+        expected_revision: u64,
+        next_revision: u64,
+        outcomes: &[EquipmentOperationConditionOutcome],
+    ) {
+        assert!(!outcomes.is_empty(), "empty equipment outcome batch");
+        assert_eq!(
+            self.revision, expected_revision,
+            "runtime invariant broken: equipment revision changed after completion precheck"
+        );
+        assert_eq!(
+            expected_revision.checked_add(1),
+            Some(next_revision),
+            "completed equipment outcome batch must advance revision exactly once"
+        );
+
+        let mut seen_equipment = BTreeSet::new();
+        for outcome in outcomes {
+            assert!(
+                seen_equipment.insert(outcome.equipment),
+                "completed equipment outcome batch contains duplicate equipment {}",
+                outcome.equipment.value()
+            );
+            let record = self.records.get(&outcome.equipment).unwrap_or_else(|| {
+                panic!(
+                    "runtime invariant broken: completed operation references missing equipment {}",
+                    outcome.equipment.value()
+                )
+            });
+            assert_eq!(
+                record.condition,
+                outcome.before,
+                "runtime invariant broken: equipment {} condition changed during its occupied operation",
+                outcome.equipment.value()
+            );
+            assert!(
+                outcome.after <= outcome.before,
+                "completed production operation cannot improve equipment condition"
+            );
+        }
+
+        for outcome in outcomes {
+            let record = match self.records.get_mut(&outcome.equipment) {
+                Some(record) => record,
+                None => panic!(
+                    "runtime invariant broken: prechecked equipment {} disappeared during batch apply",
+                    outcome.equipment.value()
+                ),
+            };
+            record.condition = outcome.after;
+        }
+        self.revision = next_revision;
     }
 
     /// Iterates equipment assigned to one structural support in stable equipment-ID order.

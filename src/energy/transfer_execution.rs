@@ -473,17 +473,13 @@ impl ValidatedEnergyTransfer {
         }
 
         let energy_state = state.energy_state_mut();
-        let source_record = match energy_state.records.get_mut(&source) {
-            Some(record) => record,
-            None => panic!("prevalidated energy transfer source disappeared before commit"),
-        };
-        source_record.stored = source_after;
-        let destination_record = match energy_state.records.get_mut(&destination) {
-            Some(record) => record,
-            None => panic!("prevalidated energy transfer destination disappeared before commit"),
-        };
-        destination_record.stored = destination_after;
-        energy_state.revision = next_energy_revision;
+        energy_state.apply_transfer_contents(
+            source,
+            source_after,
+            destination,
+            destination_after,
+            next_energy_revision,
+        );
 
         Ok(EnergyTransferOutcome {
             source,

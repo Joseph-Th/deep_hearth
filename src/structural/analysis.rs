@@ -307,7 +307,7 @@ impl StructuralAnalysisOverlay {
         state: &'state StructureState,
         element: StructuralElementId,
     ) -> Cow<'state, BTreeSet<StructuralElementId>> {
-        let Some(base) = state.supports_by_element.get(&element) else {
+        let Some(base) = state.support_set(element) else {
             return Cow::Owned(BTreeSet::new());
         };
         let support_change_applies = matches!(
@@ -354,7 +354,7 @@ impl StructuralAnalysisOverlay {
         state: &'state StructureState,
         support: StructuralElementId,
     ) -> Cow<'state, BTreeSet<StructuralElementId>> {
-        let Some(base) = state.dependents_by_support.get(&support) else {
+        let Some(base) = state.dependent_set(support) else {
             return Cow::Owned(BTreeSet::new());
         };
         let support_change_applies = matches!(
@@ -424,7 +424,7 @@ fn collect_connected_scope(
     let mut scope = BTreeSet::new();
     while let Some(element) = pending.pop_first() {
         if overlay.is_removed(element)
-            || !state.elements.contains_key(&element)
+            || !state.element_map().contains_key(&element)
             || !scope.insert(element)
         {
             continue;
@@ -445,7 +445,7 @@ fn active_ids(
         .iter()
         .copied()
         .filter(|element| {
-            state.elements.get(element).is_some_and(|record| {
+            state.element_map().get(element).is_some_and(|record| {
                 !overlay.is_removed(record.id)
                     && overlay.lifecycle(record) == StructuralLifecycle::Active
                     && !failed.contains(&record.id)
@@ -466,7 +466,7 @@ fn project_loads(
     let mut ready = BTreeSet::new();
 
     for element in &active {
-        let record = &state.elements[element];
+        let record = &state.element_map()[element];
         let load = overlay
             .sum_applied_load(record)
             .ok_or(StructuralAnalysisError::AppliedLoadOverflow { element: *element })?;
@@ -485,7 +485,7 @@ fn project_loads(
     let mut processed = 0_usize;
     while let Some(element) = ready.pop_first() {
         processed += 1;
-        let record = &state.elements[&element];
+        let record = &state.element_map()[&element];
         let load = carried[&element];
         let active_supports: Vec<_> = overlay
             .supports(state, element)
@@ -541,7 +541,7 @@ fn expand_unsupported_failures(
     let mut ready = BTreeSet::new();
 
     for element in &active {
-        let record = &state.elements[element];
+        let record = &state.element_map()[element];
         if record.is_grounded() {
             continue;
         }
@@ -565,7 +565,7 @@ fn expand_unsupported_failures(
             if !active.contains(dependent) || unsupported.contains(dependent) {
                 continue;
             }
-            let Some(record) = state.elements.get(dependent) else {
+            let Some(record) = state.element_map().get(dependent) else {
                 continue;
             };
             if record.is_grounded() {
@@ -591,7 +591,7 @@ fn pristine_capacity(
     state: &StructureState,
     element: StructuralElementId,
 ) -> Result<Force, StructuralAnalysisError> {
-    let record = &state.elements[&element];
+    let record = &state.element_map()[&element];
     let Some(profile) = profiles.get_profile(record.profile()) else {
         return Err(StructuralAnalysisError::UnknownProfile {
             element,
@@ -655,7 +655,7 @@ pub fn analyze_structure(
     materials: &MaterialRegistry,
     state: &StructureState,
 ) -> Result<StructuralAnalysis, StructuralAnalysisError> {
-    let scope: BTreeSet<_> = state.elements.keys().copied().collect();
+    let scope: BTreeSet<_> = state.element_ids().collect();
     let overlay = StructuralAnalysisOverlay::default();
     analyze_structure_scoped(profiles, materials, state, &overlay, &scope)
 }
@@ -679,7 +679,7 @@ fn analyze_structure_scoped(
     scope: &BTreeSet<StructuralElementId>,
 ) -> Result<StructuralAnalysis, StructuralAnalysisError> {
     for element in scope {
-        let Some(record) = state.elements.get(element) else {
+        let Some(record) = state.element_map().get(element) else {
             continue;
         };
         if overlay.sum_applied_load(record).is_none() {
@@ -691,7 +691,7 @@ fn analyze_structure_scoped(
         .iter()
         .copied()
         .filter(|element| {
-            state.elements.get(element).is_some_and(|record| {
+            state.element_map().get(element).is_some_and(|record| {
                 !overlay.is_removed(record.id)
                     && overlay.lifecycle(record) == StructuralLifecycle::Failed
             })
@@ -702,7 +702,7 @@ fn analyze_structure_scoped(
         .copied()
         .filter(|element| {
             state
-                .elements
+                .element_map()
                 .get(element)
                 .is_some_and(|record| !overlay.is_removed(record.id) && record.is_cracked)
         })
@@ -724,7 +724,7 @@ fn analyze_structure_scoped(
         let mut new_cracks = BTreeMap::new();
 
         for (element, load) in &projection.carried {
-            let record = &state.elements[element];
+            let record = &state.element_map()[element];
             let profile = profiles.get_profile(record.profile()).ok_or(
                 StructuralAnalysisError::UnknownProfile {
                     element: *element,
@@ -776,7 +776,7 @@ fn analyze_structure_scoped(
     let final_projection = project_loads(state, &failed, overlay, scope)?;
     let mut assessments = Vec::new();
     for element in scope {
-        let Some(record) = state.elements.get(element) else {
+        let Some(record) = state.element_map().get(element) else {
             continue;
         };
         if overlay.is_removed(record.id)

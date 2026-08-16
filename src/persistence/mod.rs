@@ -870,7 +870,7 @@ mod tests {
             decoded.into_state(&registries),
             Err(LoadError::RegistrySchemaMismatch {
                 found: RegistrySchemaVersion::new(16),
-                supported: RegistrySchemaVersion::new(17),
+                supported: registries.schema_version(),
             })
         );
     }

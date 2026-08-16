@@ -17,22 +17,19 @@ use crate::material::{MaterialComposition, MaterialPhase};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
-#[cfg(test)]
-use super::lot_mutation::apply_insert_lot;
-use super::lot_mutation::{
-    LotSlice, apply_aggregate_deposit, apply_aggregate_withdraw, apply_consume_lot_slice,
-    apply_insert_or_merge_new_lot, apply_move_full_lot, apply_split_lot,
-};
 use super::selection::ConsumptionSelection;
 #[cfg(test)]
 use super::selection::{
     apply_consumption_reservation, apply_reserved_deposit,
     validate_consumption_reservation_from_selection, validate_consumption_selection,
 };
+#[cfg(test)]
+use super::state::apply_insert_lot;
 use super::state::{
-    ConsumedMaterialTrace, InventoryState, MaterialLotId, MaterialLotProfile,
+    ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, MaterialLotProfile,
     MaterialLotProvenance, MaterialLotRecord, StockpileId, StockpileRecord,
-    StockpileStorageProfile,
+    StockpileStorageProfile, apply_aggregate_deposit, apply_aggregate_withdraw,
+    apply_consume_lot_slice, apply_insert_or_merge_new_lot, apply_move_full_lot, apply_split_lot,
 };
 use super::storage_validation::{StockpileStorageError, validate_stockpile_storage};
 use super::{
@@ -197,7 +194,7 @@ impl ValidatedMaterialRelocation {
             );
         }
         for (slice, split_lot_id) in self.lot_slices.into_iter().zip(self.split_lot_ids) {
-            let lot_mass = match inventories.lots.get(&slice.lot) {
+            let lot_mass = match inventories.get_lot(slice.lot) {
                 Some(lot) => lot.mass,
                 None => panic!(
                     "validated material relocation references missing lot {}",
@@ -224,9 +221,10 @@ impl ValidatedMaterialRelocation {
             }
         }
         if let Some(next_lot_id) = self.next_lot_id_after {
-            inventories.next_lot_id = next_lot_id;
+            inventories.apply_lot_cursor_and_revision(next_lot_id, self.next_revision);
+        } else {
+            inventories.apply_revision(self.next_revision);
         }
-        inventories.revision = self.next_revision;
         Ok(())
     }
 }
@@ -392,13 +390,13 @@ pub(crate) fn validate_material_egress_from_selection(
         consumed_inputs,
         total_consumed,
     } = selection;
-    if state.revision != expected_revision {
+    if state.revision() != expected_revision {
         return Err(MaterialEgressError::StaleSelection {
             expected: expected_revision,
-            actual: state.revision,
+            actual: state.revision(),
         });
     }
-    let Some(next_revision) = state.revision.checked_add(1) else {
+    let Some(next_revision) = state.revision().checked_add(1) else {
         return Err(MaterialEgressError::RevisionExhausted);
     };
     Ok(ValidatedMaterialEgress {
@@ -424,7 +422,8 @@ pub(crate) fn apply_material_egress(state: &mut InventoryState, egress: Validate
         total_consumed: _,
     } = egress;
     assert_eq!(
-        state.revision, expected_revision,
+        state.revision(),
+        expected_revision,
         "material egress commit requires its validated inventory revision"
     );
     for input in &inputs {
@@ -433,7 +432,7 @@ pub(crate) fn apply_material_egress(state: &mut InventoryState, egress: Validate
     for slice in lot_slices {
         apply_consume_lot_slice(state, slice);
     }
-    state.revision = next_revision;
+    state.apply_revision(next_revision);
 }
 
 /// Validates exact source-owned traces entering inventory while retaining their physical history.
@@ -560,19 +559,19 @@ pub(crate) fn validate_material_batch_ingress(
     }
 
     let mut allocated_lot_ids = Vec::with_capacity(traces.len());
-    let mut cursor = state.next_lot_id;
+    let mut cursor = state.next_lot_id();
     for _ in traces {
         allocated_lot_ids.push(MaterialLotId::new(cursor));
         cursor = cursor
             .checked_add(1)
             .ok_or(MaterialBatchIngressError::LotIdExhausted)?;
     }
-    let Some(next_revision) = state.revision.checked_add(1) else {
+    let Some(next_revision) = state.revision().checked_add(1) else {
         return Err(MaterialBatchIngressError::RevisionExhausted);
     };
 
     Ok(ValidatedMaterialBatchIngress {
-        expected_revision: state.revision,
+        expected_revision: state.revision(),
         next_revision,
         destination,
         traces: traces.to_vec(),
@@ -595,7 +594,8 @@ pub(crate) fn apply_material_batch_ingress(
         next_lot_id,
     } = ingress;
     assert_eq!(
-        state.revision, expected_revision,
+        state.revision(),
+        expected_revision,
         "material batch ingress commit requires its validated inventory revision"
     );
 
@@ -615,8 +615,7 @@ pub(crate) fn apply_material_batch_ingress(
         );
         resulting_lots.push(resulting);
     }
-    state.next_lot_id = next_lot_id;
-    state.revision = next_revision;
+    state.apply_lot_cursor_and_revision(next_lot_id, next_revision);
     resulting_lots
 }
 
@@ -1050,7 +1049,7 @@ impl ValidatedTransferBulk {
 
         let mut split_id = split_lot_id;
         for slice in slices {
-            let lot_mass = match inventories.lots.get(&slice.lot) {
+            let lot_mass = match inventories.get_lot(slice.lot) {
                 Some(lot) => lot.mass,
                 None => panic!(
                     "validated transfer references missing material lot {}",
@@ -1072,9 +1071,10 @@ impl ValidatedTransferBulk {
             panic!("validated transfer allocated an unused split lot ID");
         }
         if let Some(next_lot_id) = next_lot_id_after {
-            inventories.next_lot_id = next_lot_id;
+            inventories.apply_lot_cursor_and_revision(next_lot_id, next_revision);
+        } else {
+            inventories.apply_revision(next_revision);
         }
-        inventories.revision = next_revision;
         Ok(())
     }
 }
@@ -1090,11 +1090,11 @@ pub fn add_stockpile(
     }
 
     let inventories = state.inventory_state_mut();
-    let id = StockpileId::new(inventories.next_stockpile_id);
-    let Some(next_id) = inventories.next_stockpile_id.checked_add(1) else {
+    let id = StockpileId::new(inventories.next_stockpile_id());
+    let Some(next_id) = inventories.next_stockpile_id().checked_add(1) else {
         return Err(AddStockpileError::IdExhausted);
     };
-    let Some(next_revision) = inventories.revision.checked_add(1) else {
+    let Some(next_revision) = inventories.revision().checked_add(1) else {
         return Err(AddStockpileError::RevisionExhausted);
     };
 
@@ -1109,10 +1109,7 @@ pub fn add_stockpile(
         contents: BTreeMap::new(),
     };
 
-    inventories.next_stockpile_id = next_id;
-    inventories.revision = next_revision;
-    let replaced = inventories.stockpiles.insert(id, record);
-    debug_assert!(replaced.is_none(), "stockpile ID allocation must be unique");
+    inventories.insert_stockpile(record, next_id, next_revision);
     Ok(id)
 }
 
@@ -1207,16 +1204,16 @@ pub(crate) fn validate_material_ingress(
             stockpile: destination,
         })?;
 
-    let allocated_lot_id = MaterialLotId::new(state.next_lot_id);
-    let Some(next_lot_id) = state.next_lot_id.checked_add(1) else {
+    let allocated_lot_id = MaterialLotId::new(state.next_lot_id());
+    let Some(next_lot_id) = state.next_lot_id().checked_add(1) else {
         return Err(MaterialIngressError::LotIdExhausted);
     };
-    let Some(next_revision) = state.revision.checked_add(1) else {
+    let Some(next_revision) = state.revision().checked_add(1) else {
         return Err(MaterialIngressError::RevisionExhausted);
     };
 
     Ok(ValidatedMaterialIngress {
-        expected_revision: state.revision,
+        expected_revision: state.revision(),
         next_revision,
         destination,
         output,
@@ -1242,7 +1239,8 @@ pub(crate) fn apply_material_ingress(
         created_at,
     } = ingress;
     assert_eq!(
-        state.revision, expected_revision,
+        state.revision(),
+        expected_revision,
         "material ingress commit requires its validated inventory revision"
     );
 
@@ -1264,8 +1262,7 @@ pub(crate) fn apply_material_ingress(
             },
         },
     );
-    state.next_lot_id = next_lot_id;
-    state.revision = next_revision;
+    state.apply_lot_cursor_and_revision(next_lot_id, next_revision);
     resulting_lot
 }
 
@@ -1390,11 +1387,11 @@ pub(crate) fn deposit_lot_spec_for_test(
         .get_mass(commodity)
         .checked_add(mass)
         .ok_or(DepositError::MassOverflow { stockpile })?;
-    let lot_id = MaterialLotId::new(inventories.next_lot_id);
-    let Some(next_lot_id) = inventories.next_lot_id.checked_add(1) else {
+    let lot_id = MaterialLotId::new(inventories.next_lot_id());
+    let Some(next_lot_id) = inventories.next_lot_id().checked_add(1) else {
         return Err(DepositError::LotIdExhausted);
     };
-    let Some(next_revision) = inventories.revision.checked_add(1) else {
+    let Some(next_revision) = inventories.revision().checked_add(1) else {
         return Err(DepositError::RevisionExhausted);
     };
     let created_at = state.tick();
@@ -1433,8 +1430,7 @@ pub(crate) fn deposit_lot_spec_for_test(
             },
         },
     );
-    inventories.next_lot_id = next_lot_id;
-    inventories.revision = next_revision;
+    inventories.apply_lot_cursor_and_revision(next_lot_id, next_revision);
     Ok(lot_id)
 }
 
@@ -1483,7 +1479,7 @@ pub fn validate_transfer_bulk(
 
     let slices = select_lot_slices(inventories, source_record, commodity, mass);
     for slice in &slices {
-        let lot = match inventories.lots.get(&slice.lot) {
+        let lot = match inventories.get_lot(slice.lot) {
             Some(lot) => lot,
             None => panic!("validated transfer source lot disappeared during validation"),
         };
@@ -1506,18 +1502,17 @@ pub fn validate_transfer_bulk(
             stockpile: destination,
         })?;
 
-    let Some(next_revision) = inventories.revision.checked_add(1) else {
+    let Some(next_revision) = inventories.revision().checked_add(1) else {
         return Err(TransferError::RevisionExhausted);
     };
     let needs_split = slices.last().is_some_and(|slice| {
         inventories
-            .lots
-            .get(&slice.lot)
+            .get_lot(slice.lot)
             .is_some_and(|lot| slice.mass < lot.mass)
     });
     let (split_lot_id, next_lot_id_after) = if needs_split {
-        let id = MaterialLotId::new(inventories.next_lot_id);
-        let Some(next_id) = inventories.next_lot_id.checked_add(1) else {
+        let id = MaterialLotId::new(inventories.next_lot_id());
+        let Some(next_id) = inventories.next_lot_id().checked_add(1) else {
             return Err(TransferError::LotIdExhausted);
         };
         (Some(id), Some(next_id))
@@ -1552,7 +1547,7 @@ pub fn validate_transfer_bulk(
     .map_err(TransferError::StructuralLoad)?;
 
     Ok(ValidatedTransferBulk {
-        expected_revision: inventories.revision,
+        expected_revision: inventories.revision(),
         next_revision,
         source,
         destination,
@@ -1577,7 +1572,7 @@ fn select_lot_slices(
         if remaining.is_zero() {
             break;
         }
-        let lot = match inventories.lots.get(lot_id) {
+        let lot = match inventories.get_lot(*lot_id) {
             Some(lot) => lot,
             None => panic!(
                 "runtime invariant broken: stockpile {} indexes missing lot {}",
@@ -1648,10 +1643,10 @@ pub(crate) fn validate_material_relocation_from_selection(
         total_consumed,
     } = selection;
     let inventories = state.inventory();
-    if inventories.revision != expected_revision {
+    if inventories.revision() != expected_revision {
         return Err(MaterialRelocationError::StaleSelection {
             expected: expected_revision,
-            actual: inventories.revision,
+            actual: inventories.revision(),
         });
     }
     let source_record = inventories
@@ -1717,7 +1712,7 @@ pub(crate) fn validate_material_relocation_from_selection(
         .checked_sub(total_consumed)
         .ok_or(MaterialRelocationError::StaleSelection {
             expected: expected_revision,
-            actual: inventories.revision,
+            actual: inventories.revision(),
         })?;
     let structural = validate_stockpile_stored_mass_changes(
         registries,
@@ -1730,10 +1725,10 @@ pub(crate) fn validate_material_relocation_from_selection(
     .map_err(MaterialRelocationError::StructuralLoad)?;
 
     let mut split_lot_ids = Vec::with_capacity(lot_slices.len());
-    let mut next_lot_id = inventories.next_lot_id;
+    let mut next_lot_id = inventories.next_lot_id();
     let mut allocated_any = false;
     for slice in &lot_slices {
-        let lot = match inventories.lots.get(&slice.lot) {
+        let lot = match inventories.get_lot(slice.lot) {
             Some(lot) => lot,
             None => panic!(
                 "validated exact selection references missing lot {}",
@@ -1752,7 +1747,7 @@ pub(crate) fn validate_material_relocation_from_selection(
     }
     let next_lot_id_after = allocated_any.then_some(next_lot_id);
     let next_revision = inventories
-        .revision
+        .revision()
         .checked_add(1)
         .ok_or(MaterialRelocationError::RevisionExhausted)?;
 
@@ -1771,7 +1766,7 @@ pub(crate) fn validate_material_relocation_from_selection(
 }
 
 pub(crate) fn next_material_lot_id(state: &InventoryState) -> u64 {
-    state.next_lot_id
+    state.next_lot_id()
 }
 
 pub(crate) fn apply_lot_cursor_and_revision(
@@ -1779,8 +1774,7 @@ pub(crate) fn apply_lot_cursor_and_revision(
     next_lot_id: u64,
     next_revision: u64,
 ) {
-    state.next_lot_id = next_lot_id;
-    state.revision = next_revision;
+    state.apply_lot_cursor_and_revision(next_lot_id, next_revision);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

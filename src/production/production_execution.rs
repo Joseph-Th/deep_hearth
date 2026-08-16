@@ -13,10 +13,7 @@ use crate::energy::{
     apply_energy_consumption_reservation, apply_released_energy_outcomes,
     validate_energy_consumption_reservation, validate_energy_ingress_reservation,
 };
-use crate::equipment::{
-    EquipmentId, EquipmentOperationConditionOutcome, ValidatedEquipmentUse,
-    apply_operation_condition_outcomes,
-};
+use crate::equipment::{EquipmentId, EquipmentOperationConditionOutcome, ValidatedEquipmentUse};
 use crate::inventory::{
     ConsumptionReservation, MaterialLotId, ReservationCommitError, ReservationError, StockpileId,
     StockpileStorageError, StockpileStoredMassChange, StockpileStructuralLoadError,
@@ -35,7 +32,7 @@ use super::resolution::{
 };
 use super::state::{
     ProductionJobId, ProductionJobRecord, ProductionOccupancyRelease, ProductionOutputStream,
-    ProductionSuspension, ProductionSuspensionReason,
+    ProductionSuspensionReason,
 };
 
 /// Explicit route assigning one resolved physical stream to one stockpile.
@@ -825,7 +822,7 @@ pub fn validate_start_process_routed(
         });
     };
 
-    let next_job_value = state.production().next_job_id;
+    let next_job_value = state.production().next_job_id();
     let Some(next_after) = next_job_value.checked_add(1) else {
         return Err(StartProcessError::JobIdExhausted);
     };
@@ -1170,8 +1167,8 @@ pub(crate) enum CompletionCommitError {
     Structure(StructuralCommitError),
 }
 
-fn equipment_has_required_active_support(state: &AppState, job: &ProductionJobRecord) -> bool {
-    if !job.equipment_requires_active_support() {
+fn has_required_active_equipment_support(state: &AppState, job: &ProductionJobRecord) -> bool {
+    if !job.has_required_active_support() {
         return true;
     }
     let provider = match job.equipment_provider() {
@@ -1202,8 +1199,17 @@ fn decide_availability_changes(
 ) -> Result<Vec<ProductionAvailabilityChange>, CompletionPlanError> {
     let current = state.tick();
     let mut changes = Vec::new();
-    for job in state.production().jobs() {
-        if !job.equipment_requires_active_support() {
+    let mut equipment_jobs = state.production().equipment_occupants().collect::<Vec<_>>();
+    equipment_jobs.sort_unstable();
+    for job_id in equipment_jobs {
+        let job = match state.production().get_job(job_id) {
+            Some(job) => job,
+            None => panic!(
+                "runtime invariant broken: equipment occupancy index references missing production job {}",
+                job_id.value()
+            ),
+        };
+        if !job.has_required_active_support() {
             continue;
         }
         let provider = match job.equipment_provider() {
@@ -1213,7 +1219,7 @@ fn decide_availability_changes(
                 job.id().value()
             ),
         };
-        let support_active = equipment_has_required_active_support(state, job);
+        let support_active = has_required_active_equipment_support(state, job);
         match job.suspension() {
             None if !support_active => {
                 let remaining = job
@@ -1274,12 +1280,7 @@ pub(crate) fn decide_due_completions(
     let expected_energy_revision = state.energy().revision();
     let expected_structure_revision = state.structures().revision();
     let availability_changes = decide_availability_changes(state)?;
-    let mut due_ids = state
-        .production()
-        .due_jobs
-        .get(&tick)
-        .cloned()
-        .unwrap_or_default();
+    let mut due_ids = state.production().jobs_due_at(tick);
     for change in &availability_changes {
         match *change {
             ProductionAvailabilityChange::Suspended { job, .. } => {
@@ -1316,7 +1317,7 @@ pub(crate) fn decide_due_completions(
     let mut released_energy_outcomes = Vec::new();
     let mut deposited_mass_by_destination = BTreeMap::<StockpileId, Mass>::new();
     for job_id in &due_ids {
-        let job = match state.production().jobs.get(job_id) {
+        let job = match state.production().get_job(*job_id) {
             Some(job) => job,
             None => panic!(
                 "runtime invariant broken: due index references missing production job {}",
@@ -1540,78 +1541,21 @@ pub(crate) fn apply_completion_plan(
                 suspended_at,
                 remaining_active_time,
             } => {
-                let due = match state.production().get_job(job) {
-                    Some(record) => record.completes_at(),
-                    None => panic!(
-                        "runtime invariant broken: production job {} disappeared before suspension",
-                        job.value()
-                    ),
-                };
-                let production = state.production_state_mut();
-                let remove_due_entry = {
-                    let due_jobs = match production.due_jobs.get_mut(&due) {
-                        Some(due_jobs) => due_jobs,
-                        None => panic!(
-                            "runtime invariant broken: running job {} has no due-index entry",
-                            job.value()
-                        ),
-                    };
-                    assert!(
-                        due_jobs.remove(&job),
-                        "runtime invariant broken: due index missing running job {}",
-                        job.value()
-                    );
-                    due_jobs.is_empty()
-                };
-                if remove_due_entry {
-                    production.due_jobs.remove(&due);
-                }
-                let record = match production.jobs.get_mut(&job) {
-                    Some(record) => record,
-                    None => panic!(
-                        "runtime invariant broken: production job {} disappeared during suspension",
-                        job.value()
-                    ),
-                };
-                assert!(
-                    record.suspension.is_none(),
-                    "runtime invariant broken: already-suspended job received another suspension"
-                );
-                record.suspension = Some(ProductionSuspension::new(
+                state.production_state_mut().suspend_job(
+                    job,
                     suspended_at,
                     remaining_active_time,
                     reason,
-                ));
+                );
             }
             ProductionAvailabilityChange::Resumed {
                 job,
                 scheduled_completion,
                 ..
             } => {
-                let production = state.production_state_mut();
-                let record = match production.jobs.get_mut(&job) {
-                    Some(record) => record,
-                    None => panic!(
-                        "runtime invariant broken: production job {} disappeared before resume",
-                        job.value()
-                    ),
-                };
-                assert!(
-                    record.suspension.is_some(),
-                    "runtime invariant broken: running job received a resume transition"
-                );
-                record.completes_at = scheduled_completion;
-                record.suspension = None;
-                let inserted = production
-                    .due_jobs
-                    .entry(scheduled_completion)
-                    .or_default()
-                    .insert(job);
-                assert!(
-                    inserted,
-                    "runtime invariant broken: resumed job {} already exists in due index",
-                    job.value()
-                );
+                state
+                    .production_state_mut()
+                    .resume_job(job, scheduled_completion);
             }
         }
     }
@@ -1656,12 +1600,13 @@ pub(crate) fn apply_completion_plan(
 
     if !completions.is_empty() {
         if !equipment_outcomes.is_empty() {
-            apply_operation_condition_outcomes(
-                state.equipment_state_mut(),
-                expected_equipment_revision,
-                next_equipment_revision,
-                &equipment_outcomes,
-            );
+            state
+                .equipment_state_mut()
+                .apply_operation_condition_outcomes(
+                    expected_equipment_revision,
+                    next_equipment_revision,
+                    &equipment_outcomes,
+                );
         }
         if !released_energy_outcomes.is_empty() {
             apply_released_energy_outcomes(
@@ -1678,7 +1623,9 @@ pub(crate) fn apply_completion_plan(
         );
     }
     if !completions.is_empty() || !availability_changes.is_empty() {
-        state.production_state_mut().revision = next_production_revision;
+        state
+            .production_state_mut()
+            .apply_revision(next_production_revision);
     }
     Ok(CompletionApplication {
         completions,

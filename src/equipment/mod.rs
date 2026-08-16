@@ -32,8 +32,5 @@ pub use state::{
     EquipmentId, EquipmentOperationTrace, EquipmentRecord, EquipmentState, EquipmentValidationError,
 };
 
-pub(crate) use equipment_execution::{
-    EquipmentOperationConditionOutcome, apply_operation_condition_outcomes,
-};
 pub(crate) use equipment_integration::{ValidatedEquipmentUse, resolve_equipment_capability};
-pub(crate) use state::validate_loaded_equipment;
+pub(crate) use state::{EquipmentOperationConditionOutcome, validate_loaded_equipment};

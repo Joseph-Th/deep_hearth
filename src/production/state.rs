@@ -232,7 +232,7 @@ impl ProductionJobRecord {
     /// Whether this operation was authorized only while its equipment had an active structural
     /// support. Unsupported/free-standing providers do not acquire this requirement implicitly.
     #[must_use]
-    pub const fn equipment_requires_active_support(&self) -> bool {
+    pub const fn has_required_active_support(&self) -> bool {
         self.equipment_requires_active_support
     }
 
@@ -261,10 +261,10 @@ impl ProductionJobRecord {
 /// Runtime owner for active process jobs and deterministic scheduling/resource indexes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProductionState {
-    pub(super) revision: u64,
-    pub(super) next_job_id: u64,
-    pub(super) jobs: BTreeMap<ProductionJobId, ProductionJobRecord>,
-    pub(super) due_jobs: BTreeMap<SimulationTick, BTreeSet<ProductionJobId>>,
+    revision: u64,
+    next_job_id: u64,
+    jobs: BTreeMap<ProductionJobId, ProductionJobRecord>,
+    due_jobs: BTreeMap<SimulationTick, BTreeSet<ProductionJobId>>,
     energy_occupancy: BTreeMap<EnergyStoreId, ProductionJobId>,
     equipment_occupancy: BTreeMap<EquipmentId, ProductionJobId>,
     stockpile_occupancy: BTreeMap<StockpileId, BTreeSet<ProductionJobId>>,
@@ -286,6 +286,10 @@ impl ProductionState {
 
     pub(crate) const fn revision(&self) -> u64 {
         self.revision
+    }
+
+    pub(super) const fn next_job_id(&self) -> u64 {
+        self.next_job_id
     }
 
     pub(crate) const fn has_valid_id_cursor(&self) -> bool {
@@ -478,6 +482,10 @@ impl ProductionState {
         self.due_jobs.keys().next().copied()
     }
 
+    pub(super) fn jobs_due_at(&self, tick: SimulationTick) -> BTreeSet<ProductionJobId> {
+        self.due_jobs.get(&tick).cloned().unwrap_or_default()
+    }
+
     /// Returns one active process job by stable runtime ID.
     #[must_use]
     pub fn get_job(&self, id: ProductionJobId) -> Option<&ProductionJobRecord> {
@@ -504,6 +512,13 @@ impl ProductionState {
         self.equipment_occupancy
             .get(&equipment)
             .and_then(|job| self.jobs.get(job))
+    }
+
+    /// Returns active job IDs that own equipment, in deterministic equipment-ID order.
+    ///
+    /// Systems that publish job-ordered results must sort these IDs before deciding those results.
+    pub(crate) fn equipment_occupants(&self) -> impl Iterator<Item = ProductionJobId> + '_ {
+        self.equipment_occupancy.values().copied()
     }
 
     /// Returns the lowest-ID active production job involving one stockpile, if any.
@@ -583,6 +598,88 @@ impl ProductionState {
             debug_assert!(inserted);
         }
         self.next_job_id = next_job_id;
+        self.revision = next_revision;
+    }
+
+    pub(super) fn suspend_job(
+        &mut self,
+        id: ProductionJobId,
+        suspended_at: SimulationTick,
+        remaining_active_time: TickSpan,
+        reason: ProductionSuspensionReason,
+    ) {
+        let due = match self.jobs.get(&id) {
+            Some(record) => record.completes_at,
+            None => panic!(
+                "runtime invariant broken: production job {} disappeared before suspension",
+                id.value()
+            ),
+        };
+        let remove_due_entry = {
+            let due_jobs = match self.due_jobs.get_mut(&due) {
+                Some(due_jobs) => due_jobs,
+                None => panic!(
+                    "runtime invariant broken: running job {} has no due-index entry",
+                    id.value()
+                ),
+            };
+            assert!(
+                due_jobs.remove(&id),
+                "runtime invariant broken: due index missing running job {}",
+                id.value()
+            );
+            due_jobs.is_empty()
+        };
+        if remove_due_entry {
+            self.due_jobs.remove(&due);
+        }
+        let record = match self.jobs.get_mut(&id) {
+            Some(record) => record,
+            None => unreachable!("production job existence was checked before due-index mutation"),
+        };
+        assert!(
+            record.suspension.is_none(),
+            "runtime invariant broken: already-suspended job received another suspension"
+        );
+        record.suspension = Some(ProductionSuspension::new(
+            suspended_at,
+            remaining_active_time,
+            reason,
+        ));
+    }
+
+    pub(super) fn resume_job(&mut self, id: ProductionJobId, scheduled_completion: SimulationTick) {
+        let record = match self.jobs.get_mut(&id) {
+            Some(record) => record,
+            None => panic!(
+                "runtime invariant broken: production job {} disappeared before resume",
+                id.value()
+            ),
+        };
+        assert!(
+            record.suspension.is_some(),
+            "runtime invariant broken: running job received a resume transition"
+        );
+        record.completes_at = scheduled_completion;
+        record.suspension = None;
+        let inserted = self
+            .due_jobs
+            .entry(scheduled_completion)
+            .or_default()
+            .insert(id);
+        assert!(
+            inserted,
+            "runtime invariant broken: resumed job {} already exists in due index",
+            id.value()
+        );
+    }
+
+    pub(super) fn apply_revision(&mut self, next_revision: u64) {
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "production revision must advance exactly once per canonical mutation batch"
+        );
         self.revision = next_revision;
     }
 

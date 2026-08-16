@@ -848,17 +848,23 @@ fn choose_crush_option(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum JobAdvanceOutcome {
+    Completed,
+    Suspended,
+}
+
 fn advance_job_until_completion_or_suspension(
     registries: &Registries,
     state: &mut AppState,
     job: ProductionJobId,
-) -> bool {
+) -> JobAdvanceOutcome {
     loop {
         let Some(record) = state.production().get_job(job) else {
-            return true;
+            return JobAdvanceOutcome::Completed;
         };
         if record.is_suspended() {
-            return false;
+            return JobAdvanceOutcome::Suspended;
         }
         let outcome = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("gameplay harness job tick failed: {error}"));
@@ -867,7 +873,7 @@ fn advance_job_until_completion_or_suspension(
             .iter()
             .any(|completion| completion.job() == job)
         {
-            return true;
+            return JobAdvanceOutcome::Completed;
         }
         if outcome
             .production_availability_changes()
@@ -882,7 +888,7 @@ fn advance_job_until_completion_or_suspension(
                 )
             })
         {
-            return false;
+            return JobAdvanceOutcome::Suspended;
         }
     }
 }
@@ -1000,14 +1006,16 @@ fn crush_batch(
             println!(
                 "  recovery: suspended crush#{batch_index} resumes with its original work-in-process and remaining active time"
             );
-            assert!(
+            assert_eq!(
                 advance_job_until_completion_or_suspension(registries, state, job),
+                JobAdvanceOutcome::Completed,
                 "recovered crusher job suspended again without another structural mutation"
             );
         } else {
             let completed = advance_job_until_completion_or_suspension(registries, state, job);
-            assert!(
+            assert_eq!(
                 completed,
+                JobAdvanceOutcome::Completed,
                 "active support unexpectedly suspended crusher production"
             );
             if assessment.stage() != StructuralStage::Stable {
@@ -1015,8 +1023,9 @@ fn crush_batch(
             }
         }
     } else {
-        assert!(
+        assert_eq!(
             advance_job_until_completion_or_suspension(registries, state, job),
+            JobAdvanceOutcome::Completed,
             "crusher production suspended without a harness structural event"
         );
     }
@@ -1106,6 +1115,12 @@ fn preview_regional_snow_after_mount(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CrusherRelocationOutcome {
+    Relocated,
+    Blocked,
+}
+
 fn try_relocate_crusher(
     registries: &Registries,
     state: &mut AppState,
@@ -1113,7 +1128,7 @@ fn try_relocate_crusher(
     current_support: &mut StructuralElementId,
     alternate_support: &mut StructuralElementId,
     report: &mut ScenarioReport,
-) -> bool {
+) -> CrusherRelocationOutcome {
     let mut preview = state.clone();
     validate_unmount_equipment(registries, &preview, ids.crusher)
         .unwrap_or_else(|error| panic!("crusher recovery preview unmount failed: {error}"))
@@ -1130,7 +1145,7 @@ fn try_relocate_crusher(
             println!(
                 "  recovery blocked: alternate bay is {lifecycle:?} after the same regional weather event"
             );
-            return false;
+            return CrusherRelocationOutcome::Blocked;
         }
         Err(error) => panic!("crusher recovery preview remount failed: {error}"),
     };
@@ -1141,7 +1156,7 @@ fn try_relocate_crusher(
             "  recovery blocked: mounting the crusher on the alternate bay would fail it at {}ppm utilization",
             preview_assessment.utilization_ppm()
         );
-        return false;
+        return CrusherRelocationOutcome::Blocked;
     }
 
     let abandoned_support = *current_support;
@@ -1180,7 +1195,7 @@ fn try_relocate_crusher(
     }
     std::mem::swap(current_support, alternate_support);
     report.support_relocation = true;
-    true
+    CrusherRelocationOutcome::Relocated
 }
 
 fn adapt_after_disturbance(
@@ -1191,12 +1206,10 @@ fn adapt_after_disturbance(
     after: StructuralAssessment,
 ) {
     if after.stage() == StructuralStage::Failed {
-        let suspended_wip = state.production().jobs().find(|job| {
-            job.is_suspended()
-                && job
-                    .equipment_provider()
-                    .is_some_and(|provider| provider.equipment() == ids.crusher)
-        });
+        let suspended_wip = state
+            .production()
+            .get_equipment_occupant(ids.crusher)
+            .filter(|job| job.is_suspended());
         if let Some(job) = suspended_wip {
             let suspension = job
                 .suspension()
@@ -1248,14 +1261,15 @@ fn adapt_after_disturbance(
                 );
             }
         }
-        if !try_relocate_crusher(
+        if try_relocate_crusher(
             registries,
             state,
             ids,
             runtime.current_support,
             runtime.alternate_support,
             runtime.report,
-        ) {
+        ) == CrusherRelocationOutcome::Blocked
+        {
             runtime.report.structural_stop = true;
             println!(
                 "  structural frontier: no surviving bay can carry the crusher, so new production remains blocked"
@@ -1304,7 +1318,7 @@ fn adapt_after_disturbance(
                 runtime.alternate_support,
                 runtime.report,
             );
-            debug_assert!(relocated);
+            debug_assert_eq!(relocated, CrusherRelocationOutcome::Relocated);
         } else {
             println!(
                 "  decision: remain on current support at {}; alternate bay with the crusher mounted would be {}",
@@ -1778,7 +1792,13 @@ fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> Scenar
     report
 }
 
-fn run_foundry_capability_probe(registries: &Registries) -> bool {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CapabilityProbeOutcome {
+    Passed,
+    Failed,
+}
+
+fn run_foundry_capability_probe(registries: &Registries) -> CapabilityProbeOutcome {
     let mass = Mass::from_milligrams(10);
     let (mut state, ids) = setup_foundry_probe(registries, mass);
     println!(
@@ -1850,13 +1870,18 @@ fn run_foundry_capability_probe(registries: &Registries) -> bool {
     .unwrap_or_else(|error| panic!("foundry probe casting commit failed: {error}"));
     finish_operation(registries, &mut state, cast_duration);
     assert_eq!(validate_loaded_state(registries, &state), Ok(()));
-    state
+    if state
         .inventory()
         .get_stockpile(ids.cast_storage)
         .is_some_and(|stockpile| stockpile.stored_mass() == mass)
+    {
+        CapabilityProbeOutcome::Passed
+    } else {
+        CapabilityProbeOutcome::Failed
+    }
 }
 
-fn run_ore_preparation_capability_probe(registries: &Registries) -> bool {
+fn run_ore_preparation_capability_probe(registries: &Registries) -> CapabilityProbeOutcome {
     let (mut state, ids) = setup_ore_preparation_probe(registries);
     let batch_mass = Mass::from_milligrams(10);
     let initial_matter = calculate_matter_accounting(&state)
@@ -2161,7 +2186,7 @@ fn run_ore_preparation_capability_probe(registries: &Registries) -> bool {
         .and_then(|energy| energy.checked_add(fine_energy))
         .unwrap_or_else(|| panic!("ore preparation consumed energy overflowed"));
 
-    final_matter == initial_matter
+    if final_matter == initial_matter
         && initial_energy.checked_sub(consumed_energy) == Some(final_energy)
         && final_energy == Energy::ZERO
         && final_crusher_condition == crusher_condition
@@ -2177,6 +2202,11 @@ fn run_ore_preparation_capability_probe(registries: &Registries) -> bool {
         && final_undersize_lot_count == 1
         && undersize_mass == Mass::from_milligrams(10)
         && oversize_mass == Mass::ZERO
+    {
+        CapabilityProbeOutcome::Passed
+    } else {
+        CapabilityProbeOutcome::Failed
+    }
 }
 
 #[test]
@@ -2220,7 +2250,7 @@ fn gameplay_harness_agent_experience_matrix() {
     let ore_preparation_probe = run_ore_preparation_capability_probe(&registries);
     let foundry_probe = run_foundry_capability_probe(&registries);
     println!(
-        "\nEXPERIENCE SUMMARY: batches={completed_batches}/{target_batches} pre_disturbance_batches={batches_before_disturbance} compact_choices={} reinforced_choices={} forecast_siting_changes={} structural_consequences={} damage_debt={} relocations={} blocked_by_failure={} structural_stops={} production_suspensions={} stranded_wip={} recovered_wip={} forecast_power_choices={} small_drive={} large_drive={} large_exhausted={} energy_bottlenecks={} throughput_bottlenecks={} maintenance_warnings={} maintenance_stops={} energy_stops={} ore_frontier={} ore_preparation_probe={ore_preparation_probe} foundry_probe={foundry_probe}",
+        "\nEXPERIENCE SUMMARY: batches={completed_batches}/{target_batches} pre_disturbance_batches={batches_before_disturbance} compact_choices={} reinforced_choices={} forecast_siting_changes={} structural_consequences={} damage_debt={} relocations={} blocked_by_failure={} structural_stops={} production_suspensions={} stranded_wip={} recovered_wip={} forecast_power_choices={} small_drive={} large_drive={} large_exhausted={} energy_bottlenecks={} throughput_bottlenecks={} maintenance_warnings={} maintenance_stops={} energy_stops={} ore_frontier={} ore_preparation_probe={ore_preparation_probe:?} foundry_probe={foundry_probe:?}",
         reports
             .iter()
             .filter(|report| report.chose_compact_support)
@@ -2307,8 +2337,8 @@ fn gameplay_harness_agent_experience_matrix() {
     assert!(reports.iter().all(|report| report.completed_batches > 0));
     assert!(reports.iter().all(|report| report.disturbance_applied));
     assert!(reports.iter().all(|report| report.ore_frontier_visible));
-    assert!(ore_preparation_probe);
-    assert!(foundry_probe);
+    assert_eq!(ore_preparation_probe, CapabilityProbeOutcome::Passed);
+    assert_eq!(foundry_probe, CapabilityProbeOutcome::Passed);
     if enforce_coverage_matrix {
         assert!(reports.iter().any(|report| report.structural_consequence));
         assert!(reports.iter().any(|report| !report.structural_consequence));

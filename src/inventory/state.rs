@@ -1,4 +1,4 @@
-//! Inventory records and derived-data validation; sibling transaction code is their only mutation path.
+//! Inventory records, derived-data validation, and private synchronized collection ownership.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
@@ -14,6 +14,16 @@ use crate::material::{
     ParticleSizeStateError, validate_material_particle_size_state, validate_material_phase_state,
 };
 use crate::structural::StructuralElementId;
+
+mod lot_mutation;
+
+#[cfg(test)]
+pub(super) use lot_mutation::apply_insert_lot;
+pub(super) use lot_mutation::{
+    LotSlice, apply_aggregate_deposit, apply_aggregate_withdraw, apply_consume_lot_slice,
+    apply_insert_or_merge_new_lot, apply_move_full_lot, apply_split_lot,
+    get_stockpile_mut_or_panic,
+};
 
 /// Persistent identifier for a runtime stockpile record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -357,12 +367,12 @@ impl StockpileRecord {
 /// Runtime owner for stockpile records and their generated identifiers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InventoryState {
-    pub(super) revision: u64,
-    pub(super) next_stockpile_id: u32,
-    pub(super) next_lot_id: u64,
-    pub(super) stockpiles: BTreeMap<StockpileId, StockpileRecord>,
-    pub(super) lots: BTreeMap<MaterialLotId, MaterialLotRecord>,
-    pub(super) stockpiles_by_support: BTreeMap<StructuralElementId, BTreeSet<StockpileId>>,
+    revision: u64,
+    next_stockpile_id: u32,
+    next_lot_id: u64,
+    stockpiles: BTreeMap<StockpileId, StockpileRecord>,
+    lots: BTreeMap<MaterialLotId, MaterialLotRecord>,
+    stockpiles_by_support: BTreeMap<StructuralElementId, BTreeSet<StockpileId>>,
 }
 
 impl InventoryState {
@@ -380,6 +390,39 @@ impl InventoryState {
 
     pub(crate) const fn revision(&self) -> u64 {
         self.revision
+    }
+
+    pub(super) const fn next_stockpile_id(&self) -> u32 {
+        self.next_stockpile_id
+    }
+
+    pub(super) const fn next_lot_id(&self) -> u64 {
+        self.next_lot_id
+    }
+
+    pub(super) fn insert_stockpile(
+        &mut self,
+        record: StockpileRecord,
+        next_stockpile_id: u32,
+        next_revision: u64,
+    ) {
+        let id = record.id;
+        let replaced = self.stockpiles.insert(id, record);
+        assert!(
+            replaced.is_none(),
+            "validated stockpile ID must be globally unique"
+        );
+        self.next_stockpile_id = next_stockpile_id;
+        self.revision = next_revision;
+    }
+
+    pub(super) fn apply_lot_cursor_and_revision(&mut self, next_lot_id: u64, next_revision: u64) {
+        self.next_lot_id = next_lot_id;
+        self.revision = next_revision;
+    }
+
+    pub(super) fn apply_revision(&mut self, next_revision: u64) {
+        self.revision = next_revision;
     }
 
     pub(crate) const fn has_valid_id_cursors(&self) -> bool {

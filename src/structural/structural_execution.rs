@@ -88,13 +88,13 @@ pub fn add_structural_element(
         .validate()
         .map_err(AddStructuralElementError::Geometry)?;
     let structures = state.structures();
-    let id = StructuralElementId::new(structures.next_element_id);
+    let id = StructuralElementId::new(structures.next_element_id());
     let next_element_id = structures
-        .next_element_id
+        .next_element_id()
         .checked_add(1)
         .ok_or(AddStructuralElementError::IdExhausted)?;
     let next_revision = structures
-        .revision
+        .revision()
         .checked_add(1)
         .ok_or(AddStructuralElementError::RevisionExhausted)?;
     let record = StructuralElementRecord {
@@ -114,19 +114,7 @@ pub fn add_structural_element(
     };
 
     let structures = state.structure_state_mut();
-    let previous_record = structures.elements.insert(id, record);
-    let previous_supports = structures
-        .supports_by_element
-        .insert(id, Default::default());
-    let previous_dependents = structures
-        .dependents_by_support
-        .insert(id, Default::default());
-    debug_assert!(
-        previous_record.is_none() && previous_supports.is_none() && previous_dependents.is_none(),
-        "Runtime Invariant 4 (Index Uniqueness): structural allocation replaced existing state"
-    );
-    structures.next_element_id = next_element_id;
-    structures.revision = next_revision;
+    structures.insert_element(record, next_element_id, next_revision);
     Ok(id)
 }
 
@@ -373,10 +361,10 @@ impl ValidatedStructuralMutation {
         state: &mut AppState,
     ) -> Result<StructuralMutationOutcome, StructuralCommitError> {
         let structures = state.structure_state_mut();
-        if structures.revision != self.expected_revision {
+        if structures.revision() != self.expected_revision {
             return Err(StructuralCommitError::StaleRevision {
                 expected: self.expected_revision,
-                actual: structures.revision,
+                actual: structures.revision(),
             });
         }
 
@@ -389,14 +377,14 @@ impl ValidatedStructuralMutation {
             ) {
                 return Err(StructuralCommitError::StateChanged { element });
             }
-            if !structures.elements.contains_key(&element) {
+            if structures.get_element(element).is_none() {
                 return Err(StructuralCommitError::StateChanged { element });
             }
         }
 
         apply_operation_unchecked(structures, self.operation);
         apply_damage_events(structures, self.analysis.damage_events());
-        structures.revision = self.next_revision;
+        structures.apply_revision(self.next_revision);
         Ok(StructuralMutationOutcome {
             analysis: self.analysis,
         })
@@ -409,19 +397,9 @@ fn apply_damage_events(
 ) {
     for event in events {
         let element = event.element();
-        let Some(record) = structures.elements.get_mut(&element) else {
-            debug_assert!(
-                false,
-                "Runtime Invariant 2 (Record Reference Validity): prevalidated structural damage target disappeared"
-            );
-            continue;
-        };
         match event {
-            StructuralDamageEvent::Cracked { .. } => record.is_cracked = true,
-            StructuralDamageEvent::Failed { .. } => {
-                record.is_cracked = true;
-                record.lifecycle = StructuralLifecycle::Failed;
-            }
+            StructuralDamageEvent::Cracked { .. } => structures.apply_damage(element, false),
+            StructuralDamageEvent::Failed { .. } => structures.apply_damage(element, true),
         }
     }
 }
@@ -451,19 +429,19 @@ impl ValidatedStructuralLoadBatch {
         state: &mut AppState,
     ) -> Result<StructuralMutationOutcome, StructuralCommitError> {
         let structures = state.structure_state_mut();
-        if structures.revision != self.expected_revision {
+        if structures.revision() != self.expected_revision {
             return Err(StructuralCommitError::StaleRevision {
                 expected: self.expected_revision,
-                actual: structures.revision,
+                actual: structures.revision(),
             });
         }
         for element in self.loads.keys().copied() {
-            if !structures.elements.contains_key(&element) {
+            if structures.get_element(element).is_none() {
                 return Err(StructuralCommitError::StateChanged { element });
             }
         }
         for event in self.analysis.damage_events() {
-            if !structures.elements.contains_key(&event.element()) {
+            if structures.get_element(event.element()).is_none() {
                 return Err(StructuralCommitError::StateChanged {
                     element: event.element(),
                 });
@@ -472,7 +450,7 @@ impl ValidatedStructuralLoadBatch {
 
         apply_owned_loads(structures, self.kind, self.loads);
         apply_damage_events(structures, self.analysis.damage_events());
-        structures.revision = self.next_revision;
+        structures.apply_revision(self.next_revision);
         Ok(StructuralMutationOutcome {
             analysis: self.analysis,
         })
@@ -485,15 +463,7 @@ fn apply_owned_loads(
     loads: BTreeMap<StructuralElementId, Force>,
 ) {
     for (element, load) in loads {
-        let record = match structures.elements.get_mut(&element) {
-            Some(record) => record,
-            None => unreachable!("owned-load targets were prechecked"),
-        };
-        if load.is_zero() {
-            record.loads.remove(&kind);
-        } else {
-            record.loads.insert(kind, load);
-        }
+        structures.set_load(element, kind, load);
     }
 }
 
@@ -524,10 +494,10 @@ impl ValidatedStructuralRemovalWithLoads {
         state: &mut AppState,
     ) -> Result<StructuralMutationOutcome, StructuralCommitError> {
         let structures = state.structure_state_mut();
-        if structures.revision != self.expected_revision {
+        if structures.revision() != self.expected_revision {
             return Err(StructuralCommitError::StaleRevision {
                 expected: self.expected_revision,
-                actual: structures.revision,
+                actual: structures.revision(),
             });
         }
         validate_operation_commit_state(
@@ -537,13 +507,12 @@ impl ValidatedStructuralRemovalWithLoads {
             },
         )?;
         for element in self.loads.keys().copied() {
-            if element == self.element || !structures.elements.contains_key(&element) {
+            if element == self.element || structures.get_element(element).is_none() {
                 return Err(StructuralCommitError::StateChanged { element });
             }
         }
         for event in self.analysis.damage_events() {
-            if event.element() == self.element
-                || !structures.elements.contains_key(&event.element())
+            if event.element() == self.element || structures.get_element(event.element()).is_none()
             {
                 return Err(StructuralCommitError::StateChanged {
                     element: event.element(),
@@ -559,7 +528,7 @@ impl ValidatedStructuralRemovalWithLoads {
         );
         apply_owned_loads(structures, self.kind, self.loads);
         apply_damage_events(structures, self.analysis.damage_events());
-        structures.revision = self.next_revision;
+        structures.apply_revision(self.next_revision);
         Ok(StructuralMutationOutcome {
             analysis: self.analysis,
         })
@@ -625,10 +594,10 @@ fn validate_operation_commit_state(
 ) -> Result<(), StructuralCommitError> {
     match operation {
         StructuralMutation::LinkSupport { element, support } => {
-            let Some(supports) = structures.supports_by_element.get(&element) else {
+            let Some(supports) = structures.support_set(element) else {
                 return Err(StructuralCommitError::StateChanged { element });
             };
-            let Some(dependents) = structures.dependents_by_support.get(&support) else {
+            let Some(dependents) = structures.dependent_set(support) else {
                 return Err(StructuralCommitError::StateChanged { element: support });
             };
             if supports.contains(&support) || dependents.contains(&element) {
@@ -636,10 +605,10 @@ fn validate_operation_commit_state(
             }
         }
         StructuralMutation::RemoveSupport { element, support } => {
-            let Some(supports) = structures.supports_by_element.get(&element) else {
+            let Some(supports) = structures.support_set(element) else {
                 return Err(StructuralCommitError::StateChanged { element });
             };
-            let Some(dependents) = structures.dependents_by_support.get(&support) else {
+            let Some(dependents) = structures.dependent_set(support) else {
                 return Err(StructuralCommitError::StateChanged { element: support });
             };
             if !supports.contains(&support) || !dependents.contains(&element) {
@@ -647,17 +616,17 @@ fn validate_operation_commit_state(
             }
         }
         StructuralMutation::RemoveElement { element } => {
-            if !structures.elements.contains_key(&element) {
+            if structures.get_element(element).is_none() {
                 return Err(StructuralCommitError::StateChanged { element });
             }
-            let Some(supports) = structures.supports_by_element.get(&element) else {
+            let Some(supports) = structures.support_set(element) else {
                 return Err(StructuralCommitError::StateChanged { element });
             };
-            let Some(dependents) = structures.dependents_by_support.get(&element) else {
+            let Some(dependents) = structures.dependent_set(element) else {
                 return Err(StructuralCommitError::StateChanged { element });
             };
             for support in supports {
-                let Some(reverse) = structures.dependents_by_support.get(support) else {
+                let Some(reverse) = structures.dependent_set(*support) else {
                     return Err(StructuralCommitError::StateChanged { element: *support });
                 };
                 if !reverse.contains(&element) {
@@ -668,7 +637,7 @@ fn validate_operation_commit_state(
                 }
             }
             for dependent in dependents {
-                let Some(forward) = structures.supports_by_element.get(dependent) else {
+                let Some(forward) = structures.support_set(*dependent) else {
                     return Err(StructuralCommitError::StateChanged {
                         element: *dependent,
                     });
@@ -683,7 +652,7 @@ fn validate_operation_commit_state(
         }
         StructuralMutation::Activate { element }
         | StructuralMutation::SetLoadContribution { element, .. } => {
-            if !structures.elements.contains_key(&element) {
+            if structures.get_element(element).is_none() {
                 return Err(StructuralCommitError::StateChanged { element });
             }
         }
@@ -697,95 +666,23 @@ fn apply_operation_unchecked(
 ) {
     match operation {
         StructuralMutation::LinkSupport { element, support } => {
-            let Some(supports) = structures.supports_by_element.get_mut(&element) else {
-                debug_assert!(false, "prevalidated structural support source disappeared");
-                return;
-            };
-            let inserted_support = supports.insert(support);
-            let Some(dependents) = structures.dependents_by_support.get_mut(&support) else {
-                debug_assert!(false, "prevalidated structural support target disappeared");
-                return;
-            };
-            let inserted_dependent = dependents.insert(element);
-            debug_assert!(inserted_support && inserted_dependent);
+            structures.link_support(element, support);
         }
         StructuralMutation::RemoveSupport { element, support } => {
-            let Some(supports) = structures.supports_by_element.get_mut(&element) else {
-                debug_assert!(false, "prevalidated structural support source disappeared");
-                return;
-            };
-            let removed_support = supports.remove(&support);
-            let Some(dependents) = structures.dependents_by_support.get_mut(&support) else {
-                debug_assert!(false, "prevalidated structural support target disappeared");
-                return;
-            };
-            let removed_dependent = dependents.remove(&element);
-            debug_assert!(removed_support && removed_dependent);
+            structures.unlink_support(element, support);
         }
         StructuralMutation::RemoveElement { element } => {
-            let Some(supports) = structures.supports_by_element.get(&element).cloned() else {
-                debug_assert!(
-                    false,
-                    "prevalidated removed structural element lost support index"
-                );
-                return;
-            };
-            let Some(dependents) = structures.dependents_by_support.get(&element).cloned() else {
-                debug_assert!(
-                    false,
-                    "prevalidated removed structural element lost dependent index"
-                );
-                return;
-            };
-            for support in supports {
-                if let Some(reverse) = structures.dependents_by_support.get_mut(&support) {
-                    let removed = reverse.remove(&element);
-                    debug_assert!(removed);
-                } else {
-                    debug_assert!(false, "prevalidated structural reverse index disappeared");
-                }
-            }
-            for dependent in dependents {
-                if let Some(forward) = structures.supports_by_element.get_mut(&dependent) {
-                    let removed = forward.remove(&element);
-                    debug_assert!(removed);
-                } else {
-                    debug_assert!(false, "prevalidated structural forward index disappeared");
-                }
-            }
-            let removed_supports = structures.supports_by_element.remove(&element);
-            let removed_dependents = structures.dependents_by_support.remove(&element);
-            let removed_record = structures.elements.remove(&element);
-            debug_assert!(
-                removed_supports.is_some()
-                    && removed_dependents.is_some()
-                    && removed_record.is_some()
-            );
+            structures.remove_element(element);
         }
         StructuralMutation::Activate { element } => {
-            if let Some(record) = structures.elements.get_mut(&element) {
-                record.lifecycle = StructuralLifecycle::Active;
-            } else {
-                debug_assert!(
-                    false,
-                    "prevalidated structural activation target disappeared"
-                );
-            }
+            structures.activate_element(element);
         }
         StructuralMutation::SetLoadContribution {
             element,
             kind,
             load,
         } => {
-            if let Some(record) = structures.elements.get_mut(&element) {
-                if load.is_zero() {
-                    record.loads.remove(&kind);
-                } else {
-                    record.loads.insert(kind, load);
-                }
-            } else {
-                debug_assert!(false, "prevalidated structural load target disappeared");
-            }
+            structures.set_load(element, kind, load);
         }
     }
 }

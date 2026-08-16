@@ -210,10 +210,10 @@ impl GeologicalObservationRecord {
 /// Player-accessible geological knowledge, separate from exact authoritative deposit truth.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GeologicalKnowledgeState {
-    pub(super) revision: u64,
-    pub(super) next_observation_id: u32,
-    pub(super) observations: BTreeMap<GeologicalObservationId, GeologicalObservationRecord>,
-    pub(super) observations_by_material: BTreeMap<MaterialId, BTreeSet<GeologicalObservationId>>,
+    revision: u64,
+    next_observation_id: u32,
+    observations: BTreeMap<GeologicalObservationId, GeologicalObservationRecord>,
+    observations_by_material: BTreeMap<MaterialId, BTreeSet<GeologicalObservationId>>,
 }
 
 impl GeologicalKnowledgeState {
@@ -230,6 +230,11 @@ impl GeologicalKnowledgeState {
     #[must_use]
     pub const fn revision(&self) -> u64 {
         self.revision
+    }
+
+    #[must_use]
+    pub(super) const fn next_observation_id(&self) -> u32 {
+        self.next_observation_id
     }
 
     #[must_use]
@@ -257,6 +262,29 @@ impl GeologicalKnowledgeState {
     /// Iterates materials for which at least one observation has been acquired.
     pub fn known_materials(&self) -> impl Iterator<Item = MaterialId> + '_ {
         self.observations_by_material.keys().copied()
+    }
+
+    pub(super) fn insert_observation(
+        &mut self,
+        record: GeologicalObservationRecord,
+        next_observation_id: u32,
+        next_revision: u64,
+    ) {
+        let id = record.id;
+        assert!(
+            !self.observations.contains_key(&id),
+            "validated geological observation ID must be unique"
+        );
+        for finding in &record.findings {
+            self.observations_by_material
+                .entry(finding.material())
+                .or_default()
+                .insert(id);
+        }
+        let replaced = self.observations.insert(id, record);
+        assert!(replaced.is_none(), "observation uniqueness was prechecked");
+        self.next_observation_id = next_observation_id;
+        self.revision = next_revision;
     }
 
     pub(crate) const fn has_valid_id_cursor(&self) -> bool {

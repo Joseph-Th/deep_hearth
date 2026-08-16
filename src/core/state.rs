@@ -192,10 +192,6 @@ impl AppState {
     pub(crate) fn production_state_mut(&mut self) -> &mut ProductionState {
         &mut self.production
     }
-
-    pub(crate) fn random_state_mut(&mut self) -> &mut RandomState {
-        &mut self.random
-    }
 }
 
 /// Error returned when decoded runtime state violates a required persistent invariant.

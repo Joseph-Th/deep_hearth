@@ -5,8 +5,10 @@
 - Headless deterministic Rust simulation core with no renderer or engine dependency.
 - Immutable registry aggregate with separate authored-ID compatibility version.
 - Typed absolute `SimulationTick`, relative `TickSpan`, and deterministic periodic phase scheduling.
-- Persisted independent RNG streams derived from the world seed, normalized integer probability,
-  and unbiased bounded random selection.
+- Persisted independent RNG streams derived from the world seed.
+- Consequential production, inventory, structural, equipment, energy, fluid, geology, and geological
+  knowledge backing collections are private to their state owners. Synchronized indexes change only
+  through owner methods that update each related collection in one mutation boundary.
 - Explicit authoritative integer quantities for mass, aggregate mass, temperature, energy,
   pressure, area, length, acceleration, force, power, torque, angular speed, voltage, current,
   resistance, volume, aggregate volume, and volumetric flow.
@@ -291,9 +293,10 @@
   resources remain exclusive and report an explicit `AwaitingResume` release horizon rather than a
   stale pre-failure due tick.
 - Canonical top-level tick pipeline with cheap per-tick invariants and exhaustive save/load audits.
-- Persistence semantic schema 30 and authored registry compatibility schema 17 with current-schema-only
-  loading, registry-aware state validation, structural topology/damage audits, energy/equipment
-  ownership validation, directional energy-source/sink reservation, production
+- Current-schema-only persistence and authored registry compatibility, with accepted version values
+  owned by `CURRENT_SAVE_SCHEMA_VERSION` and the built-in content registry rather than duplicated in
+  status documentation. Loading performs registry-aware state validation, structural topology/damage
+  audits, energy/equipment ownership validation, directional energy-source/sink reservation, production
   energy/equipment/stockpile occupancy and capacity audits, embodied structural
   matter/self-weight/phase audits, geometry/density-to-mass recomputation,
   equipment-support/load agreement audits, stockpile-support/index/stored-matter-load agreement

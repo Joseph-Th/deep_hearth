@@ -1,6 +1,5 @@
 //! Fungible matter storage with passive state, deterministic selection, and validated mutation pipelines.
 
-mod lot_mutation;
 mod selection;
 mod state;
 mod storage_validation;

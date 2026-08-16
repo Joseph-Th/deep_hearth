@@ -6,13 +6,11 @@ use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
 use crate::material::{CommodityKey, MaterialInputSpec, MaterialLotSpec};
 
-use super::lot_mutation::{
-    LotSlice, apply_aggregate_withdraw, apply_consume_lot_slice, apply_insert_or_merge_new_lot,
-    get_stockpile_mut_or_panic,
-};
 use super::state::{
-    ConsumedMaterialTrace, InventoryState, MaterialLotId, MaterialLotProfile,
+    ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, MaterialLotProfile,
     MaterialLotProvenance, MaterialLotRecord, StockpileId, StockpileRecord,
+    apply_aggregate_withdraw, apply_consume_lot_slice, apply_insert_or_merge_new_lot,
+    get_stockpile_mut_or_panic,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -196,7 +194,7 @@ pub(crate) fn validate_consumption_selection(
     let consumed_inputs = lot_slices
         .iter()
         .map(|slice| {
-            let lot = match state.lots.get(&slice.lot) {
+            let lot = match state.get_lot(slice.lot) {
                 Some(lot) => lot,
                 None => panic!(
                     "validated input slice references missing material lot {}",
@@ -212,7 +210,7 @@ pub(crate) fn validate_consumption_selection(
         .collect();
 
     Ok(ConsumptionSelection {
-        expected_revision: state.revision,
+        expected_revision: state.revision(),
         source,
         inputs: inputs.to_vec(),
         lot_slices,
@@ -295,7 +293,7 @@ pub(crate) fn validate_explicit_consumption_selection(
         .map(|(commodity, mass)| MaterialInputSpec::new(commodity, mass))
         .collect();
     Ok(ConsumptionSelection {
-        expected_revision: state.revision,
+        expected_revision: state.revision(),
         source,
         inputs,
         lot_slices,
@@ -317,13 +315,13 @@ pub(crate) fn validate_consumption_reservation_from_selection(
         consumed_inputs,
         total_consumed,
     } = selection;
-    if state.revision != expected_revision {
+    if state.revision() != expected_revision {
         return Err(ReservationError::StaleSelection {
             expected: expected_revision,
-            actual: state.revision,
+            actual: state.revision(),
         });
     }
-    let Some(next_revision) = state.revision.checked_add(1) else {
+    let Some(next_revision) = state.revision().checked_add(1) else {
         return Err(ReservationError::RevisionExhausted);
     };
 
@@ -386,10 +384,10 @@ pub(crate) fn apply_consumption_reservation(
         inbound_by_destination,
     } = reservation;
 
-    if state.revision != expected_revision {
+    if state.revision() != expected_revision {
         return Err(ReservationCommitError::StaleInventoryRevision {
             expected: expected_revision,
-            actual: state.revision,
+            actual: state.revision(),
         });
     }
 
@@ -413,7 +411,7 @@ pub(crate) fn apply_consumption_reservation(
             ),
         };
     }
-    state.revision = next_revision;
+    state.apply_revision(next_revision);
     Ok(())
 }
 
@@ -474,7 +472,7 @@ fn select_input_lot_slices(
     let mut slices = Vec::new();
 
     for lot_id in &source.lot_ids {
-        let lot = match inventories.lots.get(lot_id) {
+        let lot = match inventories.get_lot(*lot_id) {
             Some(lot) => lot,
             None => panic!(
                 "runtime invariant broken: stockpile {} indexes missing lot {}",

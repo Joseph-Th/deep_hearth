@@ -138,22 +138,14 @@ impl ValidatedGeologicalObservation {
             observed_at,
         } = self;
         let knowledge = state.geological_knowledge_state_mut();
-        if knowledge.revision != expected_revision {
+        if knowledge.revision() != expected_revision {
             return Err(ProspectingCommitError::StaleKnowledgeRevision {
                 expected: expected_revision,
-                actual: knowledge.revision,
+                actual: knowledge.revision(),
             });
         }
 
-        for finding in &findings {
-            knowledge
-                .observations_by_material
-                .entry(finding.material())
-                .or_default()
-                .insert(id);
-        }
-        let replaced = knowledge.observations.insert(
-            id,
+        knowledge.insert_observation(
             GeologicalObservationRecord {
                 id,
                 region,
@@ -161,13 +153,9 @@ impl ValidatedGeologicalObservation {
                 findings,
                 observed_at,
             },
+            next_observation_id,
+            next_revision,
         );
-        assert!(
-            replaced.is_none(),
-            "validated geological observation ID must be unique"
-        );
-        knowledge.next_observation_id = next_observation_id;
-        knowledge.revision = next_revision;
         Ok(id)
     }
 }
@@ -202,16 +190,16 @@ pub fn validate_record_prospecting(
     }
 
     let knowledge = state.geological_knowledge();
-    let id = GeologicalObservationId::new(knowledge.next_observation_id);
-    let Some(next_observation_id) = knowledge.next_observation_id.checked_add(1) else {
+    let id = GeologicalObservationId::new(knowledge.next_observation_id());
+    let Some(next_observation_id) = knowledge.next_observation_id().checked_add(1) else {
         return Err(RecordProspectingError::ObservationIdExhausted);
     };
-    let Some(next_revision) = knowledge.revision.checked_add(1) else {
+    let Some(next_revision) = knowledge.revision().checked_add(1) else {
         return Err(RecordProspectingError::RevisionExhausted);
     };
 
     Ok(ValidatedGeologicalObservation {
-        expected_revision: knowledge.revision,
+        expected_revision: knowledge.revision(),
         next_revision,
         id,
         next_observation_id,

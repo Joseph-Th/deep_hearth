@@ -1,20 +1,20 @@
-//! Low-level inventory lot and aggregate mutations used only after transaction validation.
+//! Child mutation layer of `InventoryState`, used only after transaction validation.
 
 use crate::core::quantity::Mass;
 use crate::material::CommodityKey;
 
-use super::state::{
+use super::{
     InventoryState, MaterialLotId, MaterialLotProfile, MaterialLotRecord, StockpileId,
     StockpileRecord,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct LotSlice {
-    pub(super) lot: MaterialLotId,
-    pub(super) mass: Mass,
+pub(in crate::inventory) struct LotSlice {
+    pub(in crate::inventory) lot: MaterialLotId,
+    pub(in crate::inventory) mass: Mass,
 }
 
-pub(super) fn apply_aggregate_deposit(
+pub(in crate::inventory) fn apply_aggregate_deposit(
     state: &mut InventoryState,
     stockpile: StockpileId,
     commodity: CommodityKey,
@@ -39,7 +39,7 @@ pub(super) fn apply_aggregate_deposit(
     };
 }
 
-pub(super) fn apply_aggregate_withdraw(
+pub(in crate::inventory) fn apply_aggregate_withdraw(
     state: &mut InventoryState,
     stockpile: StockpileId,
     commodity: CommodityKey,
@@ -68,7 +68,7 @@ pub(super) fn apply_aggregate_withdraw(
     };
 }
 
-pub(super) fn apply_insert_or_merge_new_lot(
+pub(in crate::inventory) fn apply_insert_or_merge_new_lot(
     state: &mut InventoryState,
     lot: MaterialLotRecord,
 ) -> MaterialLotId {
@@ -85,7 +85,7 @@ pub(super) fn apply_insert_or_merge_new_lot(
     existing_id
 }
 
-pub(super) fn apply_move_full_lot(
+pub(in crate::inventory) fn apply_move_full_lot(
     state: &mut InventoryState,
     lot: MaterialLotId,
     source: StockpileId,
@@ -119,22 +119,22 @@ pub(super) fn apply_move_full_lot(
     record.stockpile = destination;
 }
 
-pub(super) fn apply_split_lot(
+pub(in crate::inventory) fn apply_split_lot(
     state: &mut InventoryState,
     source_lot: MaterialLotId,
     new_lot: MaterialLotId,
     destination: StockpileId,
     transferred: Mass,
 ) {
-    let source_snapshot = match state.lots.get(&source_lot) {
-        Some(lot) => lot.clone(),
+    let (source_mass, source_profile, source_provenance) = match state.lots.get(&source_lot) {
+        Some(lot) => (lot.mass, lot.profile.clone(), lot.provenance),
         None => panic!(
             "validated partial transfer references missing material lot {}",
             source_lot.value()
         ),
     };
     assert!(
-        transferred < source_snapshot.mass,
+        transferred < source_mass,
         "partial transfer must leave positive mass in its source lot"
     );
 
@@ -151,8 +151,8 @@ pub(super) fn apply_split_lot(
         id: new_lot,
         stockpile: destination,
         mass: transferred,
-        profile: source_snapshot.profile.clone(),
-        provenance: source_snapshot.provenance,
+        profile: source_profile,
+        provenance: source_provenance,
     };
     if let Some(existing_id) = find_compatible_lot(state, destination, &split.profile) {
         apply_merge_lot_record(state, existing_id, split);
@@ -161,16 +161,16 @@ pub(super) fn apply_split_lot(
     }
 }
 
-pub(super) fn apply_consume_lot_slice(state: &mut InventoryState, slice: LotSlice) {
-    let snapshot = match state.lots.get(&slice.lot) {
-        Some(lot) => lot.clone(),
+pub(in crate::inventory) fn apply_consume_lot_slice(state: &mut InventoryState, slice: LotSlice) {
+    let (source_stockpile, source_mass) = match state.lots.get(&slice.lot) {
+        Some(lot) => (lot.stockpile, lot.mass),
         None => panic!(
             "validated consumption references missing material lot {}",
             slice.lot.value()
         ),
     };
-    if slice.mass == snapshot.mass {
-        let removed = get_stockpile_mut_or_panic(state, snapshot.stockpile)
+    if slice.mass == source_mass {
+        let removed = get_stockpile_mut_or_panic(state, source_stockpile)
             .lot_ids
             .remove(&slice.lot);
         assert!(removed, "consumed full lot must exist in owner index");
@@ -192,7 +192,7 @@ pub(super) fn apply_consume_lot_slice(state: &mut InventoryState, slice: LotSlic
     }
 }
 
-pub(super) fn get_stockpile_mut_or_panic(
+pub(in crate::inventory) fn get_stockpile_mut_or_panic(
     state: &mut InventoryState,
     stockpile: StockpileId,
 ) -> &mut StockpileRecord {
@@ -205,7 +205,7 @@ pub(super) fn get_stockpile_mut_or_panic(
     }
 }
 
-pub(super) fn apply_insert_lot(state: &mut InventoryState, lot: MaterialLotRecord) {
+pub(in crate::inventory) fn apply_insert_lot(state: &mut InventoryState, lot: MaterialLotRecord) {
     apply_aggregate_deposit(state, lot.stockpile, lot.commodity(), lot.mass);
     apply_insert_lot_record(state, lot);
 }

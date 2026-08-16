@@ -1,4 +1,4 @@
-//! Persistent structural members and synchronized support indexes; sibling execution owns every mutation path.
+//! Persistent structural members with private synchronized support-index ownership.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
@@ -238,11 +238,11 @@ impl StructuralElementRecord {
 /// Authoritative structural records plus synchronized forward and reverse support indexes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StructureState {
-    pub(super) revision: u64,
-    pub(super) next_element_id: u32,
-    pub(super) elements: BTreeMap<StructuralElementId, StructuralElementRecord>,
-    pub(super) supports_by_element: BTreeMap<StructuralElementId, BTreeSet<StructuralElementId>>,
-    pub(super) dependents_by_support: BTreeMap<StructuralElementId, BTreeSet<StructuralElementId>>,
+    revision: u64,
+    next_element_id: u32,
+    elements: BTreeMap<StructuralElementId, StructuralElementRecord>,
+    supports_by_element: BTreeMap<StructuralElementId, BTreeSet<StructuralElementId>>,
+    dependents_by_support: BTreeMap<StructuralElementId, BTreeSet<StructuralElementId>>,
 }
 
 impl StructureState {
@@ -263,12 +263,23 @@ impl StructureState {
     }
 
     #[must_use]
+    pub(super) const fn next_element_id(&self) -> u32 {
+        self.next_element_id
+    }
+
+    #[must_use]
     pub fn get_element(&self, id: StructuralElementId) -> Option<&StructuralElementRecord> {
         self.elements.get(&id)
     }
 
     pub fn elements(&self) -> impl Iterator<Item = &StructuralElementRecord> {
         self.elements.values()
+    }
+
+    pub(super) const fn element_map(
+        &self,
+    ) -> &BTreeMap<StructuralElementId, StructuralElementRecord> {
+        &self.elements
     }
 
     pub fn supports(
@@ -278,6 +289,181 @@ impl StructureState {
         self.supports_by_element
             .get(&id)
             .map(|entries| entries.iter().copied())
+    }
+
+    pub(super) fn element_ids(&self) -> impl Iterator<Item = StructuralElementId> + '_ {
+        self.elements.keys().copied()
+    }
+
+    #[must_use]
+    pub(super) fn support_set(
+        &self,
+        element: StructuralElementId,
+    ) -> Option<&BTreeSet<StructuralElementId>> {
+        self.supports_by_element.get(&element)
+    }
+
+    #[must_use]
+    pub(super) fn dependent_set(
+        &self,
+        support: StructuralElementId,
+    ) -> Option<&BTreeSet<StructuralElementId>> {
+        self.dependents_by_support.get(&support)
+    }
+
+    pub(super) fn insert_element(
+        &mut self,
+        record: StructuralElementRecord,
+        next_element_id: u32,
+        next_revision: u64,
+    ) {
+        let id = record.id;
+        let previous_record = self.elements.insert(id, record);
+        let previous_supports = self.supports_by_element.insert(id, BTreeSet::new());
+        let previous_dependents = self.dependents_by_support.insert(id, BTreeSet::new());
+        assert!(
+            previous_record.is_none()
+                && previous_supports.is_none()
+                && previous_dependents.is_none(),
+            "Runtime Invariant 4 (Index Uniqueness): structural allocation replaced existing state"
+        );
+        self.next_element_id = next_element_id;
+        self.revision = next_revision;
+    }
+
+    pub(super) fn link_support(
+        &mut self,
+        element: StructuralElementId,
+        support: StructuralElementId,
+    ) {
+        let inserted_support = self
+            .supports_by_element
+            .get_mut(&element)
+            .unwrap_or_else(|| panic!("prevalidated structural support source disappeared"))
+            .insert(support);
+        let inserted_dependent = self
+            .dependents_by_support
+            .get_mut(&support)
+            .unwrap_or_else(|| panic!("prevalidated structural support target disappeared"))
+            .insert(element);
+        assert!(
+            inserted_support && inserted_dependent,
+            "prevalidated structural support edge already existed"
+        );
+    }
+
+    pub(super) fn unlink_support(
+        &mut self,
+        element: StructuralElementId,
+        support: StructuralElementId,
+    ) {
+        let removed_support = self
+            .supports_by_element
+            .get_mut(&element)
+            .unwrap_or_else(|| panic!("prevalidated structural support source disappeared"))
+            .remove(&support);
+        let removed_dependent = self
+            .dependents_by_support
+            .get_mut(&support)
+            .unwrap_or_else(|| panic!("prevalidated structural support target disappeared"))
+            .remove(&element);
+        assert!(
+            removed_support && removed_dependent,
+            "prevalidated structural support edge disappeared"
+        );
+    }
+
+    pub(super) fn remove_element(&mut self, element: StructuralElementId) {
+        let supports = self
+            .supports_by_element
+            .get(&element)
+            .cloned()
+            .unwrap_or_else(|| panic!("prevalidated removed element lost support index"));
+        let dependents = self
+            .dependents_by_support
+            .get(&element)
+            .cloned()
+            .unwrap_or_else(|| panic!("prevalidated removed element lost dependent index"));
+        for support in supports {
+            let removed = self
+                .dependents_by_support
+                .get_mut(&support)
+                .unwrap_or_else(|| panic!("prevalidated structural reverse index disappeared"))
+                .remove(&element);
+            assert!(removed, "prevalidated structural reverse edge disappeared");
+        }
+        for dependent in dependents {
+            let removed = self
+                .supports_by_element
+                .get_mut(&dependent)
+                .unwrap_or_else(|| panic!("prevalidated structural forward index disappeared"))
+                .remove(&element);
+            assert!(removed, "prevalidated structural forward edge disappeared");
+        }
+        assert!(self.supports_by_element.remove(&element).is_some());
+        assert!(self.dependents_by_support.remove(&element).is_some());
+        assert!(self.elements.remove(&element).is_some());
+    }
+
+    pub(super) fn activate_element(&mut self, element: StructuralElementId) {
+        self.elements
+            .get_mut(&element)
+            .unwrap_or_else(|| panic!("prevalidated structural activation target disappeared"))
+            .lifecycle = StructuralLifecycle::Active;
+    }
+
+    pub(super) fn set_load(
+        &mut self,
+        element: StructuralElementId,
+        kind: StructuralLoadKind,
+        load: Force,
+    ) {
+        let record = self
+            .elements
+            .get_mut(&element)
+            .unwrap_or_else(|| panic!("prevalidated structural load target disappeared"));
+        if load.is_zero() {
+            record.loads.remove(&kind);
+        } else {
+            record.loads.insert(kind, load);
+        }
+    }
+
+    pub(super) fn apply_damage(&mut self, element: StructuralElementId, failed: bool) {
+        let record = self
+            .elements
+            .get_mut(&element)
+            .unwrap_or_else(|| panic!("prevalidated structural damage target disappeared"));
+        record.is_cracked = true;
+        if failed {
+            record.lifecycle = StructuralLifecycle::Failed;
+        }
+    }
+
+    pub(super) fn set_embodied_matter(
+        &mut self,
+        element: StructuralElementId,
+        mass: Mass,
+        material: Vec<ConsumedMaterialTrace>,
+        self_weight: Force,
+    ) {
+        let record = self
+            .elements
+            .get_mut(&element)
+            .unwrap_or_else(|| panic!("prechecked structural construction target disappeared"));
+        record.embodied_mass = mass;
+        record.embodied_material = material;
+        if self_weight.is_zero() {
+            record.loads.remove(&StructuralLoadKind::SelfWeight);
+        } else {
+            record
+                .loads
+                .insert(StructuralLoadKind::SelfWeight, self_weight);
+        }
+    }
+
+    pub(super) fn apply_revision(&mut self, next_revision: u64) {
+        self.revision = next_revision;
     }
 
     pub fn dependents(

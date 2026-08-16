@@ -42,9 +42,6 @@ state, explicit inputs, and external snapshots.
 - PRNG and stream-derivation algorithms have explicit versioned identities.
 - Typed `RngStreamId` values create independent streams derived from the world seed; advancing one
   subsystem stream cannot shift another subsystem's sequence.
-- `ProbabilityPpm` represents normalized probability with integer parts per million.
-- Bounded random choices use rejection sampling rather than modulo reduction, avoiding distribution
-  bias. Zero-percent and one-hundred-percent decisions do not consume RNG state.
 - Ordering that can affect results uses deterministic collections or explicit sorting. Hash
   iteration order must never decide simulation outcomes.
 - Authoritative physical quantities use integer representations and checked arithmetic.
@@ -110,9 +107,10 @@ callbacks, event handlers, record methods, or engine lifecycle hooks.
 ## 7. Persistence
 
 The core defines a current-schema semantic save envelope while deliberately leaving byte encoding and
-storage to adapters. The current save schema is version 29. Authored identity/physics compatibility
-is tracked separately by `RegistrySchemaVersion`; the built-in registry schema is currently version
-17. Core gravity, material phase/fusion semantics, physical form and particle-state policies, fluid
+storage to adapters. `CURRENT_SAVE_SCHEMA_VERSION` in `src/persistence/mod.rs` is the sole owner of
+the accepted save schema version. Authored identity/physics compatibility is tracked separately by
+`RegistrySchemaVersion`; the built-in content registry owns its current value in `src/content/mod.rs`.
+Core gravity, material phase/fusion semantics, physical form and particle-state policies, fluid
 identity/density definitions, directional energy-store semantics, and operation-specific resolver
 identities are part of that immutable registry contract because changing them can alter persisted
 physical consequences even when authored IDs are unchanged.

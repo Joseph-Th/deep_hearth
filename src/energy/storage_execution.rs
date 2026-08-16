@@ -89,13 +89,13 @@ fn allocate_energy_store(
         });
     }
     let energy = state.energy();
-    let id = EnergyStoreId::new(energy.next_store_id);
+    let id = EnergyStoreId::new(energy.next_store_id());
     let next_store_id = energy
-        .next_store_id
+        .next_store_id()
         .checked_add(1)
         .ok_or(AddEnergyStoreError::IdExhausted)?;
     let next_revision = energy
-        .revision
+        .revision()
         .checked_add(1)
         .ok_or(AddEnergyStoreError::RevisionExhausted)?;
     let record = EnergyStoreRecord {
@@ -106,13 +106,7 @@ fn allocate_energy_store(
     };
 
     let energy = state.energy_state_mut();
-    let previous = energy.records.insert(id, record);
-    debug_assert!(
-        previous.is_none(),
-        "Runtime Invariant 4 (Index Uniqueness): energy store allocation replaced an existing record"
-    );
-    energy.next_store_id = next_store_id;
-    energy.revision = next_revision;
+    energy.insert_store(record, next_store_id, next_revision);
     Ok(id)
 }
 
@@ -525,25 +519,25 @@ pub(crate) fn validate_energy_ingress_reservation(
     state: &EnergyState,
     selection: ValidatedEnergySink,
 ) -> Result<EnergyIngressReservation, EnergyIngressReservationError> {
-    if state.revision != selection.expected_revision {
+    if state.revision() != selection.expected_revision {
         return Err(EnergyIngressReservationError::StaleSelection {
             expected: selection.expected_revision,
-            actual: state.revision,
+            actual: state.revision(),
         });
     }
     let trace = selection.trace;
-    let Some(record) = state.records.get(&trace.destination) else {
+    let Some(record) = state.get_store(trace.destination) else {
         return Err(EnergyIngressReservationError::UnknownStore {
             store: trace.destination,
         });
     };
-    let capacity = match registries.energy().get_store(record.definition) {
+    let capacity = match registries.energy().get_store(record.definition()) {
         Some(definition) => definition.capacity(),
         None => {
             unreachable!("validated energy sink definition disappeared from immutable registry")
         }
     };
-    let after = record.stored.checked_add(trace.energy).ok_or(
+    let after = record.stored().checked_add(trace.energy).ok_or(
         EnergyIngressReservationError::CapacityOverflow {
             store: trace.destination,
         },
@@ -551,13 +545,13 @@ pub(crate) fn validate_energy_ingress_reservation(
     if after > capacity {
         return Err(EnergyIngressReservationError::InsufficientCapacity {
             store: trace.destination,
-            stored: record.stored,
+            stored: record.stored(),
             requested: trace.energy,
             capacity,
         });
     }
     Ok(EnergyIngressReservation {
-        expected_revision: state.revision,
+        expected_revision: state.revision(),
         trace,
     })
 }
@@ -569,23 +563,14 @@ pub(crate) fn apply_released_energy_outcomes(
     traces: &[ReleasedEnergyTrace],
 ) {
     assert_eq!(
-        state.revision, expected_revision,
+        state.revision(),
+        expected_revision,
         "released-energy completion requires its planned energy revision"
     );
     for trace in traces {
-        let record = match state.records.get_mut(&trace.destination) {
-            Some(record) => record,
-            None => panic!(
-                "runtime invariant broken: released-energy sink {} disappeared",
-                trace.destination.value()
-            ),
-        };
-        record.stored = match record.stored.checked_add(trace.energy) {
-            Some(stored) => stored,
-            None => panic!("runtime invariant broken: released-energy sink overflowed"),
-        };
+        state.add_stored_energy(trace.destination, trace.energy);
     }
-    state.revision = next_revision;
+    state.apply_revision(next_revision);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -626,31 +611,31 @@ pub(crate) fn validate_energy_consumption_reservation(
     state: &EnergyState,
     selection: ValidatedEnergySupply,
 ) -> Result<EnergyConsumptionReservation, EnergyReservationError> {
-    if state.revision != selection.expected_revision {
+    if state.revision() != selection.expected_revision {
         return Err(EnergyReservationError::StaleSelection {
             expected: selection.expected_revision,
-            actual: state.revision,
+            actual: state.revision(),
         });
     }
     let trace = selection.trace;
-    let Some(record) = state.records.get(&trace.source) else {
+    let Some(record) = state.get_store(trace.source) else {
         return Err(EnergyReservationError::UnknownStore {
             store: trace.source,
         });
     };
-    if record.stored < trace.energy {
+    if record.stored() < trace.energy {
         return Err(EnergyReservationError::InsufficientEnergy {
             store: trace.source,
-            available: record.stored,
+            available: record.stored(),
             requested: trace.energy,
         });
     }
     let next_revision = state
-        .revision
+        .revision()
         .checked_add(1)
         .ok_or(EnergyReservationError::RevisionExhausted)?;
     Ok(EnergyConsumptionReservation {
-        expected_revision: state.revision,
+        expected_revision: state.revision(),
         next_revision,
         trace,
     })
@@ -665,28 +650,15 @@ pub(crate) fn apply_energy_consumption_reservation(
     state: &mut EnergyState,
     reservation: EnergyConsumptionReservation,
 ) -> Result<ConsumedEnergyTrace, EnergyCommitError> {
-    if state.revision != reservation.expected_revision {
+    if state.revision() != reservation.expected_revision {
         return Err(EnergyCommitError::StaleRevision {
             expected: reservation.expected_revision,
-            actual: state.revision,
+            actual: state.revision(),
         });
     }
     let trace = reservation.trace;
-    let Some(record) = state.records.get_mut(&trace.source) else {
-        debug_assert!(false, "prevalidated energy store disappeared before commit");
-        unreachable!("prevalidated energy store disappeared before commit");
-    };
-    record.stored = match record.stored.checked_sub(trace.energy) {
-        Some(stored) => stored,
-        None => {
-            debug_assert!(
-                false,
-                "prevalidated energy amount disappeared before commit"
-            );
-            unreachable!("prevalidated energy amount disappeared before commit");
-        }
-    };
-    state.revision = reservation.next_revision;
+    state.subtract_stored_energy(trace.source, trace.energy);
+    state.apply_revision(reservation.next_revision);
     Ok(trace)
 }
 

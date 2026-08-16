@@ -1,6 +1,5 @@
 //! Canonical equipment creation and revision-checked condition mutation for sibling persistent state.
 
-use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -10,7 +9,7 @@ use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 
 use super::definitions::EquipmentDefinitionId;
-use super::state::{EquipmentId, EquipmentRecord, EquipmentState};
+use super::state::{EquipmentId, EquipmentRecord};
 
 /// Failure while allocating one persistent equipment instance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,13 +47,13 @@ pub fn add_equipment(
     }
 
     let equipment_state = state.equipment();
-    let id = EquipmentId::new(equipment_state.next_equipment_id);
+    let id = EquipmentId::new(equipment_state.next_equipment_id());
     let next_equipment_id = equipment_state
-        .next_equipment_id
+        .next_equipment_id()
         .checked_add(1)
         .ok_or(AddEquipmentError::IdExhausted)?;
     let next_revision = equipment_state
-        .revision
+        .revision()
         .checked_add(1)
         .ok_or(AddEquipmentError::RevisionExhausted)?;
     let record = EquipmentRecord {
@@ -66,13 +65,7 @@ pub fn add_equipment(
     };
 
     let equipment_state = state.equipment_state_mut();
-    let replaced = equipment_state.records.insert(id, record);
-    debug_assert!(
-        replaced.is_none(),
-        "Runtime Invariant 4 (Index Uniqueness): equipment allocation replaced an existing id"
-    );
-    equipment_state.next_equipment_id = next_equipment_id;
-    equipment_state.revision = next_revision;
+    equipment_state.insert_equipment(record, next_equipment_id, next_revision);
     Ok(id)
 }
 
@@ -156,12 +149,12 @@ fn decide_condition_change(
         });
     }
     let next_revision = equipment_state
-        .revision
+        .revision()
         .checked_add(1)
         .ok_or(EquipmentConditionPlanError::RevisionExhausted)?;
     Ok(EquipmentConditionPlan {
         equipment,
-        expected_revision: equipment_state.revision,
+        expected_revision: equipment_state.revision(),
         next_revision,
         transition: decide(record.condition()),
     })
@@ -257,99 +250,26 @@ pub fn apply_equipment_condition_plan(
         });
     }
 
-    let equipment_state = state.equipment_state_mut();
-    let Some(record) = equipment_state.records.get_mut(&plan.equipment) else {
+    let Some(record) = state.equipment().get_equipment(plan.equipment) else {
         return Err(EquipmentConditionCommitError::UnknownEquipment {
             equipment: plan.equipment,
         });
     };
-    if record.condition != plan.transition.before() {
+    if record.condition() != plan.transition.before() {
         return Err(EquipmentConditionCommitError::ConditionChanged {
             equipment: plan.equipment,
             expected: plan.transition.before(),
-            actual: record.condition,
+            actual: record.condition(),
         });
     }
 
-    record.condition = plan.transition.after();
-    equipment_state.revision = plan.next_revision;
+    state.equipment_state_mut().apply_condition_change(
+        plan.equipment,
+        plan.transition.before(),
+        plan.transition.after(),
+        plan.next_revision,
+    );
     Ok(())
-}
-
-/// One persisted operation outcome that changes equipment condition when its owning job completes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct EquipmentOperationConditionOutcome {
-    equipment: EquipmentId,
-    before: Condition,
-    after: Condition,
-}
-
-impl EquipmentOperationConditionOutcome {
-    #[must_use]
-    pub(crate) const fn new(equipment: EquipmentId, before: Condition, after: Condition) -> Self {
-        Self {
-            equipment,
-            before,
-            after,
-        }
-    }
-}
-
-/// Applies a validated batch of completed-operation condition outcomes under one owner revision.
-///
-/// Production owns operation occupancy and batches simultaneous completions. This internal boundary
-/// keeps the equipment mutation itself centralized while avoiding one revision increment per job.
-pub(crate) fn apply_operation_condition_outcomes(
-    state: &mut EquipmentState,
-    expected_revision: u64,
-    next_revision: u64,
-    outcomes: &[EquipmentOperationConditionOutcome],
-) {
-    assert!(!outcomes.is_empty(), "empty equipment outcome batch");
-    assert_eq!(
-        state.revision, expected_revision,
-        "runtime invariant broken: equipment revision changed after completion precheck"
-    );
-    assert_eq!(
-        expected_revision.checked_add(1),
-        Some(next_revision),
-        "completed equipment outcome batch must advance revision exactly once"
-    );
-
-    let mut seen_equipment = BTreeSet::new();
-    for outcome in outcomes {
-        assert!(
-            seen_equipment.insert(outcome.equipment),
-            "completed equipment outcome batch contains duplicate equipment {}",
-            outcome.equipment.value()
-        );
-        let record = match state.records.get(&outcome.equipment) {
-            Some(record) => record,
-            None => panic!(
-                "runtime invariant broken: completed operation references missing equipment {}",
-                outcome.equipment.value()
-            ),
-        };
-        assert_eq!(
-            record.condition,
-            outcome.before,
-            "runtime invariant broken: equipment {} condition changed during its occupied operation",
-            outcome.equipment.value()
-        );
-        assert!(
-            outcome.after <= outcome.before,
-            "completed production operation cannot improve equipment condition"
-        );
-    }
-
-    for outcome in outcomes {
-        let record = match state.records.get_mut(&outcome.equipment) {
-            Some(record) => record,
-            None => unreachable!("equipment outcome batch was prechecked"),
-        };
-        record.condition = outcome.after;
-    }
-    state.revision = next_revision;
 }
 
 #[cfg(test)]

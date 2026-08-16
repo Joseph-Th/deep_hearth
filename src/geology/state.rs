@@ -198,9 +198,9 @@ impl GeologicalDepositRecord {
 /// Runtime owner for finite geological deposits and their generated identities.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GeologyState {
-    pub(super) revision: u64,
-    pub(super) next_deposit_id: u32,
-    pub(super) deposits: BTreeMap<GeologicalDepositId, GeologicalDepositRecord>,
+    revision: u64,
+    next_deposit_id: u32,
+    deposits: BTreeMap<GeologicalDepositId, GeologicalDepositRecord>,
 }
 
 impl GeologyState {
@@ -219,6 +219,11 @@ impl GeologyState {
     }
 
     #[must_use]
+    pub(super) const fn next_deposit_id(&self) -> u32 {
+        self.next_deposit_id
+    }
+
+    #[must_use]
     pub fn get_deposit(&self, id: GeologicalDepositId) -> Option<&GeologicalDepositRecord> {
         self.deposits.get(&id)
     }
@@ -226,6 +231,37 @@ impl GeologyState {
     /// Iterates deposits deterministically by persistent identity.
     pub fn deposits(&self) -> impl Iterator<Item = &GeologicalDepositRecord> {
         self.deposits.values()
+    }
+
+    pub(super) fn insert_deposit(
+        &mut self,
+        record: GeologicalDepositRecord,
+        next_deposit_id: u32,
+        next_revision: u64,
+    ) {
+        let replaced = self.deposits.insert(record.id, record);
+        assert!(
+            replaced.is_none(),
+            "geological deposit ID allocation must be unique"
+        );
+        self.next_deposit_id = next_deposit_id;
+        self.revision = next_revision;
+    }
+
+    pub(super) fn apply_extraction(
+        &mut self,
+        deposit: GeologicalDepositId,
+        remaining_after: Mass,
+        next_revision: u64,
+    ) {
+        let record = self.deposits.get_mut(&deposit).unwrap_or_else(|| {
+            panic!("validated geological deposit disappeared without revision change")
+        });
+        record.remaining_mass = remaining_after;
+        if remaining_after.is_zero() {
+            record.lifecycle = GeologicalDepositLifecycle::Depleted;
+        }
+        self.revision = next_revision;
     }
 
     pub(crate) const fn has_valid_id_cursor(&self) -> bool {

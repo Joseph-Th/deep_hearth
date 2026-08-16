@@ -31,7 +31,9 @@ use super::geometry::{
     calculate_prismatic_volume_ceiling,
 };
 use super::load::calculate_aggregate_weight_force_ceiling;
-use super::state::{StructuralElementId, StructuralLifecycle, StructuralLoadKind};
+#[cfg(test)]
+use super::state::StructuralLoadKind;
+use super::state::{StructuralElementId, StructuralLifecycle};
 
 /// Read-only physical material requirement for one prismatic structural member.
 #[must_use]
@@ -465,20 +467,8 @@ impl ValidatedStructuralConstruction {
         }
         apply_material_egress(state.inventory_state_mut(), self.egress);
         let structures = state.structure_state_mut();
-        let record = match structures.elements.get_mut(&self.element) {
-            Some(record) => record,
-            None => panic!("prechecked structural construction target disappeared"),
-        };
-        record.embodied_mass = self.mass;
-        record.embodied_material = self.material;
-        if self.self_weight.is_zero() {
-            record.loads.remove(&StructuralLoadKind::SelfWeight);
-        } else {
-            record
-                .loads
-                .insert(StructuralLoadKind::SelfWeight, self.self_weight);
-        }
-        structures.revision = self.next_structure_revision;
+        structures.set_embodied_matter(self.element, self.mass, self.material, self.self_weight);
+        structures.apply_revision(self.next_structure_revision);
         Ok(())
     }
 }

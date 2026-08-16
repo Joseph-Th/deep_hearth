@@ -504,14 +504,12 @@ impl ValidatedEquipmentRepair {
             .commit(state)
             .map_err(map_material_commit_error)?;
 
-        let equipment_state = state.equipment_state_mut();
-        let record = match equipment_state.records.get_mut(&self.equipment) {
-            Some(record) => record,
-            None => unreachable!("repair target was prechecked before material commit"),
-        };
-        debug_assert_eq!(record.condition, self.condition_before);
-        record.condition = self.condition_after;
-        equipment_state.revision = self.next_equipment_revision;
+        state.equipment_state_mut().apply_condition_change(
+            self.equipment,
+            self.condition_before,
+            self.condition_after,
+            self.next_equipment_revision,
+        );
 
         Ok(EquipmentRepairOutcome {
             equipment: self.equipment,
