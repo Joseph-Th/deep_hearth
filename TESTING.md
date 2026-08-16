@@ -79,9 +79,17 @@ The acting policy uses observable state and resolver projections. Hidden authori
 used only for diagnostics and postcondition checks. Scenario variation is deterministic and does not
 consume unrelated simulation randomness.
 
+The maintained workshop loop covers forecast-aware structural siting, finite power choice, active-tick
+wear, exact replacement-stock maintenance, environmental disruption, persistent structural damage,
+production suspension, WIP recovery/stranding, and the current mixed-ore processing frontier. The
+maintenance path uses the production resolver and conserved repair transaction, not a harness-only
+condition reset. The separate ore-preparation and foundry probes remain explicitly labeled capability
+checks until concentration/smelting provides a truthful bridge between those stages.
+
 `cargo test-gameplay` keeps successful harness output captured. `cargo test-gameplay-report` emits one
-compact success summary; set `DEEP_HEARTH_GAMEPLAY_VERBOSE` to any value before that report lane to
-emit the detailed decision trace. Seed controls are:
+compact outcome line plus a `SYSTEMS` line summarizing player control, recovery, pressure, and current
+bottlenecks. Set `DEEP_HEARTH_GAMEPLAY_VERBOSE` to any value before that report lane to emit the
+detailed decision trace. Seed controls are:
 
 - `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED`: replaces the one fixed exploratory seed;
 - `DEEP_HEARTH_GAMEPLAY_SEEDS`: replaces the maintained matrix with an exact comma-separated seed

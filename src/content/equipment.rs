@@ -4,9 +4,10 @@ use crate::capability::{CapabilityProfile, CapabilityValue};
 use crate::core::quantity::{Mass, MassFlow, Power, Temperature};
 use crate::equipment::{
     CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
-    EquipmentRegistry,
+    EquipmentMaintenanceProfile, EquipmentRegistry,
 };
 use crate::maintenance::{Condition, MaintenanceThresholds};
+use crate::material::CommodityKey;
 
 use super::capabilities::{
     CAPABILITY_COOLING_POWER, CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW,
@@ -14,6 +15,7 @@ use super::capabilities::{
     CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW, CAPABILITY_THERMAL_BATCH,
     CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
+use super::materials::{FORM_INGOT, MATERIAL_COPPER};
 
 pub const EQUIPMENT_JAW_CRUSHER: EquipmentDefinitionId = EquipmentDefinitionId::new(1);
 pub const EQUIPMENT_ELECTRIC_FURNACE: EquipmentDefinitionId = EquipmentDefinitionId::new(2);
@@ -26,6 +28,14 @@ fn condition(parts_per_million: u32) -> Condition {
         Ok(condition) => condition,
         Err(error) => panic!("built-in equipment condition is invalid: {error}"),
     }
+}
+
+fn crusher_maintenance() -> EquipmentMaintenanceProfile {
+    EquipmentMaintenanceProfile::new(
+        CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+        Mass::from_milligrams(50_000),
+        condition(900_000),
+    )
 }
 
 fn thresholds() -> MaintenanceThresholds {
@@ -101,7 +111,8 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             ]),
             thresholds(),
             vec![crusher_curve],
-        ),
+        )
+        .with_maintenance_profile(crusher_maintenance()),
         EquipmentDefinition::new(
             EQUIPMENT_ELECTRIC_FURNACE,
             "workshop electric furnace",

@@ -35,8 +35,9 @@ use crate::energy::{
     calculate_mass_specific_energy,
 };
 use crate::equipment::{
-    EquipmentId, EquipmentProviderError, EquipmentSupportError, add_equipment,
-    validate_mount_equipment, validate_unmount_equipment,
+    EquipmentId, EquipmentMaintenanceRequest, EquipmentMaintenanceResolutionError,
+    EquipmentProviderError, EquipmentSupportError, add_equipment, resolve_equipment_maintenance,
+    validate_equipment_repair, validate_mount_equipment, validate_unmount_equipment,
 };
 use crate::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile,
@@ -180,6 +181,8 @@ enum CrushStopReason {
 struct WorkshopIds {
     ore_source: StockpileId,
     crushed_storage: StockpileId,
+    maintenance_source: StockpileId,
+    maintenance_spent: StockpileId,
     ore_lot: MaterialLotId,
     crusher: EquipmentId,
     furnace: EquipmentId,
@@ -221,6 +224,7 @@ struct ScenarioReport {
     seed: u64,
     structure: ScenarioStructureReport,
     choices: ScenarioChoiceReport,
+    maintenance: ScenarioMaintenanceReport,
     limits: ScenarioLimitReport,
     progress: ScenarioProgressReport,
 }
@@ -231,6 +235,11 @@ impl ScenarioReport {
             seed,
             structure: ScenarioStructureReport::default(),
             choices: ScenarioChoiceReport::default(),
+            maintenance: ScenarioMaintenanceReport {
+                services: 0,
+                replacement_spent: Mass::ZERO,
+                supply_exhausted: false,
+            },
             limits: ScenarioLimitReport::default(),
             progress: ScenarioProgressReport {
                 disturbance_applied: false,
@@ -241,6 +250,13 @@ impl ScenarioReport {
             },
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ScenarioMaintenanceReport {
+    services: u8,
+    replacement_spent: Mass,
+    supply_exhausted: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -528,6 +544,14 @@ fn assert_canonical_gameplay_content(registries: &Registries) {
             .get_casting(PROCESS_CAST_PURE_COPPER)
             .is_some()
     );
+    assert!(
+        registries
+            .equipment()
+            .get_equipment(EQUIPMENT_JAW_CRUSHER)
+            .and_then(|definition| definition.maintenance_profile())
+            .is_some(),
+        "canonical jaw crusher must expose a physical maintenance service"
+    );
 }
 
 fn setup_workshop(
@@ -541,6 +565,21 @@ fn setup_workshop(
     let crushed_storage =
         add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(ore_mass + 20))
             .unwrap_or_else(|error| panic!("gameplay harness crushed storage failed: {error}"));
+    let maintenance_profile = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_JAW_CRUSHER)
+        .and_then(|definition| definition.maintenance_profile())
+        .unwrap_or_else(|| panic!("canonical crusher maintenance profile disappeared"));
+    let maintenance_source =
+        add_solid_stockpile_for_test(&mut state, maintenance_profile.replacement_mass())
+            .unwrap_or_else(|error| {
+                panic!("gameplay harness maintenance stockpile failed: {error}")
+            });
+    let maintenance_spent =
+        add_solid_stockpile_for_test(&mut state, maintenance_profile.replacement_mass())
+            .unwrap_or_else(|error| {
+                panic!("gameplay harness spent-maintenance stockpile failed: {error}")
+            });
 
     let ore_lot = deposit_composed_lot_for_test(
         registries,
@@ -552,6 +591,17 @@ fn setup_workshop(
         mixed_ore_composition(variation.ore.ore_copper_ppm),
     )
     .unwrap_or_else(|error| panic!("gameplay harness ore seed failed: {error}"));
+    deposit_lot_for_test(
+        registries,
+        &mut state,
+        maintenance_source,
+        maintenance_profile.replacement(),
+        maintenance_profile.replacement_mass(),
+        ROOM_TEMPERATURE,
+    )
+    .unwrap_or_else(|error| {
+        panic!("gameplay harness maintenance replacement seed failed: {error}")
+    });
 
     let crusher = add_equipment(
         registries,
@@ -623,6 +673,8 @@ fn setup_workshop(
         WorkshopIds {
             ore_source,
             crushed_storage,
+            maintenance_source,
+            maintenance_spent,
             ore_lot,
             crusher,
             furnace,
@@ -633,6 +685,72 @@ fn setup_workshop(
             reinforced_support,
         },
     )
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MaintenanceAttempt {
+    Serviced,
+    SupplyExhausted,
+}
+
+fn service_crusher(
+    registries: &Registries,
+    state: &mut AppState,
+    ids: WorkshopIds,
+    report: &mut ScenarioReport,
+) -> MaintenanceAttempt {
+    let resolution = match resolve_equipment_maintenance(
+        registries,
+        state,
+        EquipmentMaintenanceRequest::new(
+            ids.crusher,
+            ids.maintenance_source,
+            ids.maintenance_spent,
+        ),
+    ) {
+        Ok(resolution) => resolution,
+        Err(EquipmentMaintenanceResolutionError::InsufficientReplacementMaterial {
+            available,
+            required,
+            ..
+        }) => {
+            report.maintenance.supply_exhausted = true;
+            println!(
+                "  maintenance supply: service needs {}mg replacement stock but only {}mg remains",
+                required.milligrams(),
+                available.milligrams(),
+            );
+            return MaintenanceAttempt::SupplyExhausted;
+        }
+        Err(error) => panic!("gameplay harness maintenance resolution failed: {error}"),
+    };
+    let before = resolution.condition_before();
+    let after = resolution.condition_after();
+    let material_mass = resolution.material_mass();
+    let outcome = validate_equipment_repair(registries, state, resolution)
+        .unwrap_or_else(|error| panic!("gameplay harness maintenance validation failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("gameplay harness maintenance commit failed: {error}"));
+    assert_eq!(outcome.condition_before(), before);
+    assert_eq!(outcome.condition_after(), after);
+    assert_eq!(outcome.material_mass(), material_mass);
+    report.maintenance.services = report
+        .maintenance
+        .services
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("gameplay harness maintenance service count overflowed"));
+    report.maintenance.replacement_spent = report
+        .maintenance
+        .replacement_spent
+        .checked_add(material_mass)
+        .unwrap_or_else(|| panic!("gameplay harness maintenance material accounting overflowed"));
+    println!(
+        "  maintenance service: spend={}mg replacement stock condition={}ppm->{}ppm; worn material remains in spent storage",
+        material_mass.milligrams(),
+        before.parts_per_million(),
+        after.parts_per_million(),
+    );
+    MaintenanceAttempt::Serviced
 }
 
 fn setup_foundry_probe(registries: &Registries, mass: Mass) -> (AppState, FoundryIds) {
@@ -1500,10 +1618,20 @@ fn apply_disturbance_and_adapt(
 
 fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> ScenarioReport {
     let (mut state, ids) = setup_workshop(registries, variation);
+    let initial_matter = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| {
+            panic!("gameplay harness initial matter accounting failed: {error}")
+        })
+        .total();
     let mut report = ScenarioReport::new(variation.seed, variation.ore.planned_batches);
     let small_drive_batch_budget = variation.ore.planned_batches;
+    let maintenance_profile = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_JAW_CRUSHER)
+        .and_then(|definition| definition.maintenance_profile())
+        .unwrap_or_else(|| panic!("canonical crusher maintenance profile disappeared"));
     println!(
-        "\nSCENARIO seed=0x{:016X} ore={}ppm Cu batch={}mg crusher={}ppm target_batches={} forecast=[tick:{} snow:{}mN/bay] work_reserve=[small:{} batch(es), high-power:{} batch(es)]",
+        "\nSCENARIO seed=0x{:016X} ore={}ppm Cu batch={}mg crusher={}ppm target_batches={} forecast=[tick:{} snow:{}mN/bay] work_reserve=[small:{} batch(es), high-power:{} batch(es)] maintenance=[replacement:{}mg target:{}ppm]",
         variation.seed,
         variation.ore.ore_copper_ppm,
         variation.ore.batch_mass.milligrams(),
@@ -1516,9 +1644,11 @@ fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> Scenar
         variation.disturbance.forecast_snow_load.millinewtons(),
         small_drive_batch_budget,
         variation.crusher.large_drive_batch_budget,
+        maintenance_profile.replacement_mass().milligrams(),
+        maintenance_profile.restored_condition().parts_per_million(),
     );
     println!(
-        "  objective: complete the ore work order without entering critical condition; use scarce high power where time, wear, or the forecast makes it worth spending"
+        "  objective: complete the ore work order without operating in critical condition; use scarce high power and finite replacement stock where time, wear, or the forecast makes them worth spending"
     );
 
     let compact_mount =
@@ -1627,89 +1757,103 @@ fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> Scenar
         .get_equipment(EQUIPMENT_JAW_CRUSHER)
         .unwrap_or_else(|| panic!("canonical crusher definition disappeared"))
         .maintenance_thresholds();
-    for batch_index in 0..variation.ore.planned_batches {
+    'batches: for batch_index in 0..variation.ore.planned_batches {
         if report.structure.structural_stop {
             println!(
                 "  decision: stop crushing; the regional structural outage left no support that can carry the machine"
             );
             break;
         }
-        let current_condition = state
-            .equipment()
-            .get_equipment(ids.crusher)
-            .map(|record| record.condition())
-            .unwrap_or_else(|| panic!("crusher disappeared during gameplay harness"));
-        let band = thresholds.classify(current_condition);
-        if band != MaintenanceBand::Normal && !report.limits.maintenance_warning {
-            report.limits.maintenance_warning = true;
-            println!(
-                "  maintenance transition: condition={}ppm band={band:?}",
-                current_condition.parts_per_million()
-            );
-        }
-        if band == MaintenanceBand::Critical {
-            report.limits.maintenance_stop = true;
-            println!("  decision: stop crushing; machine is already in critical condition");
-            println!(
-                "  maintenance frontier: no free condition reset is available; service requires a physically resolved resource/tool/labor path"
-            );
-            break;
-        }
-
-        let small = resolve_crush_option(
-            registries,
-            &state,
-            ids,
-            variation.ore.batch_mass,
-            "small",
-            ids.small_drive,
-        );
-        let large = resolve_crush_option(
-            registries,
-            &state,
-            ids,
-            variation.ore.batch_mass,
-            "large",
-            ids.large_drive,
-        );
-        if let Some(option) = &small {
-            print_crush_option(option, thresholds);
-        }
-        if let Some(option) = &large {
-            print_crush_option(option, thresholds);
-        } else if !report.choices.large_drive_exhausted {
-            report.choices.large_drive_exhausted = true;
-            println!("  power reserve: high-power drive can no longer supply a full batch");
-        }
-        let (selected, reason, forecast_driven) = match choose_crush_option(
-            small,
-            large,
-            thresholds,
-            state.tick().value(),
-            variation.disturbance.disturbance_at_tick,
-            !report.progress.disturbance_applied,
-            forecasted_structural_outage,
-        ) {
-            Ok(choice) => choice,
-            Err(CrushStopReason::EnergyUnavailable) => {
-                report.limits.energy_stop = true;
+        let (selected, reason, forecast_driven) = loop {
+            let current_condition = state
+                .equipment()
+                .get_equipment(ids.crusher)
+                .map(|record| record.condition())
+                .unwrap_or_else(|| panic!("crusher disappeared during gameplay harness"));
+            let band = thresholds.classify(current_condition);
+            if band != MaintenanceBand::Normal && !report.limits.maintenance_warning {
+                report.limits.maintenance_warning = true;
                 println!(
-                    "  decision: stop crushing; no stored mechanical source can supply another batch"
+                    "  maintenance transition: condition={}ppm band={band:?}",
+                    current_condition.parts_per_million()
                 );
-                println!(
-                    "  energy frontier: stored work is exhausted and no generation/recharge path is present in this workshop setup"
-                );
-                break;
             }
-            Err(CrushStopReason::MaintenanceCritical) => {
-                report.limits.maintenance_stop = true;
+            if band == MaintenanceBand::Critical {
                 println!(
-                    "  decision: stop crushing; every available power choice would enter critical machine condition"
+                    "  decision: service crusher before more work because current condition is critical"
                 );
-                println!(
-                    "  maintenance frontier: no free condition reset is available; service requires a physically resolved resource/tool/labor path"
-                );
-                break;
+                match service_crusher(registries, &mut state, ids, &mut report) {
+                    MaintenanceAttempt::Serviced => continue,
+                    MaintenanceAttempt::SupplyExhausted => {
+                        report.limits.maintenance_stop = true;
+                        println!(
+                            "  decision: stop crushing; replacement stock is exhausted and the crusher remains critical"
+                        );
+                        break 'batches;
+                    }
+                }
+            }
+
+            let small = resolve_crush_option(
+                registries,
+                &state,
+                ids,
+                variation.ore.batch_mass,
+                "small",
+                ids.small_drive,
+            );
+            let large = resolve_crush_option(
+                registries,
+                &state,
+                ids,
+                variation.ore.batch_mass,
+                "large",
+                ids.large_drive,
+            );
+            if let Some(option) = &small {
+                print_crush_option(option, thresholds);
+            }
+            if let Some(option) = &large {
+                print_crush_option(option, thresholds);
+            } else if !report.choices.large_drive_exhausted {
+                report.choices.large_drive_exhausted = true;
+                println!("  power reserve: high-power drive can no longer supply a full batch");
+            }
+            match choose_crush_option(
+                small,
+                large,
+                thresholds,
+                state.tick().value(),
+                variation.disturbance.disturbance_at_tick,
+                !report.progress.disturbance_applied,
+                forecasted_structural_outage,
+            ) {
+                Ok(choice) => break choice,
+                Err(CrushStopReason::EnergyUnavailable) => {
+                    report.limits.energy_stop = true;
+                    println!(
+                        "  decision: stop crushing; no stored mechanical source can supply another batch"
+                    );
+                    println!(
+                        "  energy frontier: stored work is exhausted and no generation/recharge path is present in this workshop setup"
+                    );
+                    break 'batches;
+                }
+                Err(CrushStopReason::MaintenanceCritical) => {
+                    println!(
+                        "  decision: service crusher because every available power choice would enter critical condition"
+                    );
+                    match service_crusher(registries, &mut state, ids, &mut report) {
+                        MaintenanceAttempt::Serviced => continue,
+                        MaintenanceAttempt::SupplyExhausted => {
+                            report.limits.maintenance_stop = true;
+                            println!(
+                                "  decision: stop crushing; replacement stock is exhausted and every power choice would enter critical condition"
+                            );
+                            break 'batches;
+                        }
+                    }
+                }
             }
         };
         report.choices.forecast_power_choice |= forecast_driven;
@@ -1860,6 +2004,11 @@ fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> Scenar
         report.progress.ore_frontier_visible
     );
 
+    assert_eq!(
+        calculate_matter_accounting(&state).map(|accounting| accounting.total()),
+        Ok(initial_matter),
+        "gameplay workshop must conserve matter across production, relocation, and maintenance"
+    );
     assert_eq!(validate_loaded_state(registries, &state), Ok(()));
     let small_remaining = state
         .energy()
@@ -1875,8 +2024,13 @@ fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> Scenar
         .structures()
         .get_element(current_support)
         .unwrap_or_else(|| panic!("active workshop support disappeared"));
+    let maintenance_remaining = state
+        .inventory()
+        .get_stockpile(ids.maintenance_source)
+        .map(|stockpile| stockpile.stored_mass())
+        .unwrap_or_else(|| panic!("maintenance replacement stockpile disappeared"));
     println!(
-        "  outcome: batches={}/{} before_disturbance={} forecast_siting={} forecast_power={} suspended={} stranded_wip={} final_condition={}ppm/{:?} mechanical_reserve=[small:{}nJ high-power:{}nJ] active_support={:?}/cracked:{} ticks={}",
+        "  outcome: batches={}/{} before_disturbance={} forecast_siting={} forecast_power={} suspended={} stranded_wip={} final_condition={}ppm/{:?} maintenance=[services:{} spent:{}mg remaining:{}mg] mechanical_reserve=[small:{}nJ high-power:{}nJ] active_support={:?}/cracked:{} ticks={}",
         report.progress.completed_batches,
         variation.ore.planned_batches,
         report.progress.batches_before_disturbance,
@@ -1886,6 +2040,9 @@ fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> Scenar
         report.structure.stranded_work_in_process,
         final_condition.parts_per_million(),
         thresholds.classify(final_condition),
+        report.maintenance.services,
+        report.maintenance.replacement_spent.milligrams(),
+        maintenance_remaining.milligrams(),
         small_remaining.nanojoules(),
         large_remaining.nanojoules(),
         active_support.lifecycle(),
@@ -1893,7 +2050,7 @@ fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> Scenar
         state.tick().value(),
     );
     println!(
-        "  report: structural_change={} damage_debt={} support_block={} relocation={} structural_stop={} production_suspension={} stranded_wip={} small_drive={} large_drive={} large_exhausted={} energy_limit={} throughput_limit={} maintenance_warning={} maintenance_stop={} energy_stop={} ore_frontier={}",
+        "  report: structural_change={} damage_debt={} support_block={} relocation={} structural_stop={} production_suspension={} stranded_wip={} small_drive={} large_drive={} large_exhausted={} energy_limit={} throughput_limit={} maintenance_warning={} maintenance_services={} maintenance_supply_exhausted={} maintenance_stop={} energy_stop={} ore_frontier={}",
         report.structure.structural_consequence,
         report.structure.structural_damage_debt,
         report.structure.support_failure_blocked_production,
@@ -1907,6 +2064,8 @@ fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> Scenar
         report.limits.energy_bottleneck,
         report.limits.throughput_bottleneck,
         report.limits.maintenance_warning,
+        report.maintenance.services,
+        report.maintenance.supply_exhausted,
         report.limits.maintenance_stop,
         report.limits.energy_stop,
         report.progress.ore_frontier_visible,
@@ -2501,8 +2660,21 @@ fn coverage_gaps(reports: &[ScenarioReport]) -> Vec<&'static str> {
                 .any(|report| report.limits.maintenance_warning),
         ),
         (
-            "maintenance stop",
-            reports.iter().any(|report| report.limits.maintenance_stop),
+            "maintenance service",
+            reports.iter().any(|report| report.maintenance.services > 0),
+        ),
+        (
+            "scenario not requiring maintenance",
+            reports
+                .iter()
+                .any(|report| report.maintenance.services == 0),
+        ),
+        (
+            "maintenance service restores productive capacity",
+            reports.iter().any(|report| {
+                report.maintenance.services > 0
+                    && report.progress.completed_batches == report.progress.target_batches
+            }),
         ),
         (
             "completed work order",
@@ -2542,7 +2714,7 @@ fn gameplay_harness_agent_experience_matrix() {
         "WORKSHOP FANTASY: turn a constrained, failure-prone physical workshop into reliable production by reading structural margin, power reserve, machine condition, material state, and an approaching environmental load."
     );
     println!(
-        "LOOP SCOPE: the scenario matrix experiences forecast-aware siting under imperfect load estimates, comminution, finite stored work, power-versus-time tradeoffs, wear, exact-tick regional weather, persistent structural damage, production suspension, and recovery. Geological acquisition and construction authorization remain outside this workshop setup; separate ore-preparation and foundry probes validate existing downstream capabilities without pretending the mixed-ore chain is complete."
+        "LOOP SCOPE: the scenario matrix experiences forecast-aware siting under imperfect load estimates, comminution, finite stored work, power-versus-time tradeoffs, wear, finite replacement-stock maintenance, exact-tick regional weather, persistent structural damage, production suspension, and recovery. Geological acquisition and construction authorization remain outside this workshop setup; separate ore-preparation and foundry probes validate existing downstream capabilities without pretending the mixed-ore chain is complete."
     );
 
     let reports: Vec<_> = seeds
@@ -2562,6 +2734,20 @@ fn gameplay_harness_agent_experience_matrix() {
     let batches_before_disturbance: u32 = reports
         .iter()
         .map(|report| u32::from(report.progress.batches_before_disturbance))
+        .sum();
+    let completed_orders = reports
+        .iter()
+        .filter(|report| report.progress.completed_batches == report.progress.target_batches)
+        .count();
+    let recovered_work_in_process = reports
+        .iter()
+        .filter(|report| {
+            report.structure.production_suspension && !report.structure.stranded_work_in_process
+        })
+        .count();
+    let maintenance_services: u32 = reports
+        .iter()
+        .map(|report| u32::from(report.maintenance.services))
         .sum();
     let ore_preparation_gaps = run_ore_preparation_capability_probe(&registries);
     let foundry_gaps = run_foundry_capability_probe(&registries);
@@ -2603,20 +2789,9 @@ fn gameplay_harness_agent_experience_matrix() {
     }
 
     std::println!(
-        "HARNESS PASS mode={HARNESS_MODE} scenarios={} batches={completed_batches}/{target_batches} pre_disturbance={batches_before_disturbance} structural={} relocations={} suspensions={} stops=[structural:{} maintenance:{} energy:{}] probes=[ore:pass foundry:pass]",
+        "HARNESS PASS mode={HARNESS_MODE} scenarios={} orders={completed_orders}/{} batches={completed_batches}/{target_batches} pre_disturbance={batches_before_disturbance} stops=[structural:{} maintenance:{} energy:{}] material=[ore_prep:pass foundry:pass mixed_ore_bridge:blocked]",
         reports.len(),
-        reports
-            .iter()
-            .filter(|report| report.structure.structural_consequence)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.structure.support_relocation)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.structure.production_suspension)
-            .count(),
+        reports.len(),
         reports
             .iter()
             .filter(|report| report.structure.structural_stop)
@@ -2628,6 +2803,41 @@ fn gameplay_harness_agent_experience_matrix() {
         reports
             .iter()
             .filter(|report| report.limits.energy_stop)
+            .count(),
+    );
+    std::println!(
+        "SYSTEMS control=[forecast_siting:{} forecast_power:{}] recovery=[relocations:{} resumed_wip:{recovered_work_in_process} stranded_wip:{} maintenance_services:{maintenance_services}] pressure=[structural:{} maintenance_warning:{}] bottlenecks=[energy_delivery:{} throughput:{}]",
+        reports
+            .iter()
+            .filter(|report| report.choices.forecast_changed_siting)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.choices.forecast_power_choice)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.structure.support_relocation)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.structure.stranded_work_in_process)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.structure.structural_consequence)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.limits.maintenance_warning)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.limits.energy_bottleneck)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| report.limits.throughput_bottleneck)
             .count(),
     );
 }

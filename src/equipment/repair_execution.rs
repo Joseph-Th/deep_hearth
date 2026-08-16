@@ -1,10 +1,10 @@
-//! Conserved equipment-repair transaction boundary.
+//! Authored equipment maintenance resolution and conserved repair transaction boundary.
 //!
-//! This module does not decide whether a particular part, lubricant, tool, worker, or duration can
-//! repair equipment. A future physical maintenance resolver must produce the opaque resolution.
-//! Once resolved, the canonical transaction requires exact inventory matter to leave its source and
-//! enter an explicit spent-material destination while condition improves. This closes the former
-//! free-repair mutation path without inventing unmodeled waste transformations.
+//! Equipment definitions may author one replacement-material maintenance profile. Runtime resolution
+//! selects that exact commodity from a requested source and binds the profile's restored condition.
+//! The canonical transaction then moves the selected matter into an explicit spent-material
+//! destination while condition improves. Labor, tooling, access, and maintenance duration can extend
+//! this physical resolver when those owners exist without reopening a free condition mutation path.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -12,8 +12,9 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::{
-    ConsumptionSelection, MaterialRelocationCommitError, MaterialRelocationError, StockpileId,
-    StockpileStorageError, StockpileStructuralLoadError, ValidatedMaterialRelocation,
+    ConsumptionSelection, ConsumptionSelectionError, MaterialRelocationCommitError,
+    MaterialRelocationError, StockpileId, StockpileStorageError, StockpileStructuralLoadError,
+    ValidatedMaterialRelocation, validate_consumption_selection,
     validate_material_relocation_from_selection,
 };
 #[cfg(test)]
@@ -22,6 +23,7 @@ use crate::inventory::{
     validate_explicit_consumption_selection,
 };
 use crate::maintenance::Condition;
+use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
@@ -29,11 +31,10 @@ use crate::structural::StructuralCommitError;
 use super::definitions::EquipmentDefinitionId;
 use super::state::EquipmentId;
 
-/// Opaque result of future physical maintenance resolution.
+/// Opaque result of physical maintenance resolution.
 ///
-/// Production callers cannot construct this directly. The resolver that eventually owns spare-part
-/// suitability, tools, labor, duration, access, and waste transformation must bind the exact material
-/// selection and resulting equipment condition before this transaction can be validated.
+/// Production callers cannot construct this directly. The maintenance resolver binds exact authored
+/// replacement material and resulting equipment condition before this transaction can be validated.
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EquipmentRepairResolution {
@@ -43,6 +44,198 @@ pub struct EquipmentRepairResolution {
     condition_after: Condition,
     material: ConsumptionSelection,
     spent_destination: StockpileId,
+}
+
+/// Player/system request to service one idle equipment instance from explicit replacement stock.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EquipmentMaintenanceRequest {
+    equipment: EquipmentId,
+    material_source: StockpileId,
+    spent_destination: StockpileId,
+}
+
+impl EquipmentMaintenanceRequest {
+    pub const fn new(
+        equipment: EquipmentId,
+        material_source: StockpileId,
+        spent_destination: StockpileId,
+    ) -> Self {
+        Self {
+            equipment,
+            material_source,
+            spent_destination,
+        }
+    }
+}
+
+/// Failure while resolving an authored replacement-material maintenance action.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EquipmentMaintenanceResolutionError {
+    UnknownEquipment {
+        equipment: EquipmentId,
+    },
+    UnknownDefinition {
+        equipment: EquipmentId,
+        definition: EquipmentDefinitionId,
+    },
+    NoMaintenanceProfile {
+        equipment: EquipmentId,
+        definition: EquipmentDefinitionId,
+    },
+    ConditionAtOrAboveServiceTarget {
+        equipment: EquipmentId,
+        current: Condition,
+        target: Condition,
+    },
+    UnknownMaterialSource {
+        stockpile: StockpileId,
+    },
+    InsufficientReplacementMaterial {
+        stockpile: StockpileId,
+        commodity: CommodityKey,
+        available: Mass,
+        required: Mass,
+    },
+    MaterialSelectionMassOverflow {
+        stockpile: StockpileId,
+    },
+}
+
+impl Display for EquipmentMaintenanceResolutionError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownEquipment { equipment } => {
+                write!(formatter, "unknown equipment id {}", equipment.value())
+            }
+            Self::UnknownDefinition {
+                equipment,
+                definition,
+            } => write!(
+                formatter,
+                "equipment {} references unknown definition {} during maintenance resolution",
+                equipment.value(),
+                definition.value()
+            ),
+            Self::NoMaintenanceProfile {
+                equipment,
+                definition,
+            } => write!(
+                formatter,
+                "equipment {} definition {} has no authored maintenance profile",
+                equipment.value(),
+                definition.value()
+            ),
+            Self::ConditionAtOrAboveServiceTarget {
+                equipment,
+                current,
+                target,
+            } => write!(
+                formatter,
+                "equipment {} condition {} ppm is already at or above maintenance target {} ppm",
+                equipment.value(),
+                current.parts_per_million(),
+                target.parts_per_million()
+            ),
+            Self::UnknownMaterialSource { stockpile } => write!(
+                formatter,
+                "maintenance replacement source stockpile {} does not exist",
+                stockpile.value()
+            ),
+            Self::InsufficientReplacementMaterial {
+                stockpile,
+                commodity,
+                available,
+                required,
+            } => write!(
+                formatter,
+                "maintenance source stockpile {} has {} mg of commodity {} but {} mg is required",
+                stockpile.value(),
+                available.milligrams(),
+                commodity.value(),
+                required.milligrams()
+            ),
+            Self::MaterialSelectionMassOverflow { stockpile } => write!(
+                formatter,
+                "maintenance replacement selection overflows mass accounting in stockpile {}",
+                stockpile.value()
+            ),
+        }
+    }
+}
+
+impl Error for EquipmentMaintenanceResolutionError {}
+
+/// Resolves the equipment definition's authored replacement-material service against current state.
+pub fn resolve_equipment_maintenance(
+    registries: &Registries,
+    state: &AppState,
+    request: EquipmentMaintenanceRequest,
+) -> Result<EquipmentRepairResolution, EquipmentMaintenanceResolutionError> {
+    let record = state.equipment().get_equipment(request.equipment).ok_or(
+        EquipmentMaintenanceResolutionError::UnknownEquipment {
+            equipment: request.equipment,
+        },
+    )?;
+    let definition = registries
+        .equipment()
+        .get_equipment(record.definition())
+        .ok_or(EquipmentMaintenanceResolutionError::UnknownDefinition {
+            equipment: request.equipment,
+            definition: record.definition(),
+        })?;
+    let profile = definition.maintenance_profile().ok_or(
+        EquipmentMaintenanceResolutionError::NoMaintenanceProfile {
+            equipment: request.equipment,
+            definition: record.definition(),
+        },
+    )?;
+    let condition_before = record.condition();
+    if condition_before >= profile.restored_condition() {
+        return Err(
+            EquipmentMaintenanceResolutionError::ConditionAtOrAboveServiceTarget {
+                equipment: request.equipment,
+                current: condition_before,
+                target: profile.restored_condition(),
+            },
+        );
+    }
+    let material = validate_consumption_selection(
+        state.inventory(),
+        request.material_source,
+        &[MaterialInputSpec::new(
+            profile.replacement(),
+            profile.replacement_mass(),
+        )],
+    )
+    .map_err(|error| match error {
+        ConsumptionSelectionError::UnknownStockpile { stockpile } => {
+            EquipmentMaintenanceResolutionError::UnknownMaterialSource { stockpile }
+        }
+        ConsumptionSelectionError::InsufficientMass {
+            stockpile,
+            commodity,
+            available,
+            requested,
+        } => EquipmentMaintenanceResolutionError::InsufficientReplacementMaterial {
+            stockpile,
+            commodity,
+            available,
+            required: requested,
+        },
+        ConsumptionSelectionError::MassOverflow { stockpile } => {
+            EquipmentMaintenanceResolutionError::MaterialSelectionMassOverflow { stockpile }
+        }
+    })?;
+
+    Ok(EquipmentRepairResolution {
+        equipment: request.equipment,
+        expected_equipment_revision: state.equipment().revision(),
+        condition_before,
+        condition_after: profile.restored_condition(),
+        material,
+        spent_destination: request.spent_destination,
+    })
 }
 
 impl EquipmentRepairResolution {
@@ -84,7 +277,7 @@ pub(crate) enum EquipmentRepairBindingError {
     Inventory(ExplicitConsumptionSelectionError),
 }
 
-/// Test-side stand-in for a future physical maintenance resolver.
+/// Test-side stand-in for custom repair resolutions not represented by an authored maintenance profile.
 #[cfg(test)]
 pub(crate) fn bind_equipment_repair_for_test(
     state: &AppState,
@@ -666,7 +859,8 @@ mod tests {
         calculate_explicit_energy_accounting,
     };
     use crate::equipment::{
-        EquipmentDefinition, add_equipment, apply_equipment_condition_plan, decide_equipment_wear,
+        EquipmentDefinition, EquipmentMaintenanceProfile, add_equipment,
+        apply_equipment_condition_plan, decide_equipment_wear,
     };
     use crate::inventory::{
         MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test,
@@ -724,7 +918,12 @@ mod tests {
                 Mass::from_milligrams(40_000),
                 profile,
                 thresholds,
-            ),
+            )
+            .with_maintenance_profile(EquipmentMaintenanceProfile::new(
+                CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+                Mass::from_milligrams(7),
+                condition(700_000),
+            )),
         )
     }
 
@@ -848,6 +1047,103 @@ mod tests {
             Ok(resolution) => resolution,
             Err(error) => panic!("repair binding fixture failed: {error:?}"),
         }
+    }
+
+    #[test]
+    fn authored_maintenance_resolution_binds_exact_replacement_stock_and_service_target() {
+        let registries = registries();
+        let mut state = AppState::new(WorldSeed::new(0x8120_0000));
+        let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
+            .unwrap_or_else(|error| {
+                panic!("maintenance resolver equipment fixture failed: {error}")
+            });
+        let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+            .unwrap_or_else(|error| panic!("maintenance resolver source fixture failed: {error}"));
+        let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+            .unwrap_or_else(|error| panic!("maintenance resolver spent fixture failed: {error}"));
+        add_material(&registries, &mut state, source, Mass::from_milligrams(20));
+
+        let resolution = resolve_equipment_maintenance(
+            &registries,
+            &state,
+            EquipmentMaintenanceRequest::new(equipment, source, spent),
+        )
+        .unwrap_or_else(|error| panic!("maintenance resolution failed: {error}"));
+        assert_eq!(resolution.equipment(), equipment);
+        assert_eq!(resolution.material_source(), source);
+        assert_eq!(resolution.spent_destination(), spent);
+        assert_eq!(resolution.material_mass(), Mass::from_milligrams(7));
+        assert_eq!(resolution.condition_before(), condition(500_000));
+        assert_eq!(resolution.condition_after(), condition(700_000));
+
+        let outcome = validate_equipment_repair(&registries, &state, resolution)
+            .unwrap_or_else(|error| panic!("maintenance transaction validation failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("maintenance transaction commit failed: {error}"));
+        assert_eq!(outcome.condition_before(), condition(500_000));
+        assert_eq!(outcome.condition_after(), condition(700_000));
+        assert_eq!(outcome.material_mass(), Mass::from_milligrams(7));
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(source)
+                .map(|record| record.stored_mass()),
+            Some(Mass::from_milligrams(13))
+        );
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(spent)
+                .map(|record| record.stored_mass()),
+            Some(Mass::from_milligrams(7))
+        );
+    }
+
+    #[test]
+    fn authored_maintenance_resolution_rejects_unneeded_or_understocked_service() {
+        let registries = registries();
+        let mut state = AppState::new(WorldSeed::new(0x8120_000A));
+        let healthy = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(700_000))
+            .unwrap_or_else(|error| {
+                panic!("healthy maintenance equipment fixture failed: {error}")
+            });
+        let worn = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
+            .unwrap_or_else(|error| panic!("worn maintenance equipment fixture failed: {error}"));
+        let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+            .unwrap_or_else(|error| panic!("maintenance stock fixture failed: {error}"));
+        let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+            .unwrap_or_else(|error| panic!("maintenance spent fixture failed: {error}"));
+        add_material(&registries, &mut state, source, Mass::from_milligrams(6));
+
+        assert_eq!(
+            resolve_equipment_maintenance(
+                &registries,
+                &state,
+                EquipmentMaintenanceRequest::new(healthy, source, spent),
+            ),
+            Err(
+                EquipmentMaintenanceResolutionError::ConditionAtOrAboveServiceTarget {
+                    equipment: healthy,
+                    current: condition(700_000),
+                    target: condition(700_000),
+                }
+            )
+        );
+        assert_eq!(
+            resolve_equipment_maintenance(
+                &registries,
+                &state,
+                EquipmentMaintenanceRequest::new(worn, source, spent),
+            ),
+            Err(
+                EquipmentMaintenanceResolutionError::InsufficientReplacementMaterial {
+                    stockpile: source,
+                    commodity: CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+                    available: Mass::from_milligrams(6),
+                    required: Mass::from_milligrams(7),
+                }
+            )
+        );
     }
 
     #[test]

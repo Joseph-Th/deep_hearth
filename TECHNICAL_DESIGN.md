@@ -543,22 +543,26 @@ use continuous condition curves because the capability model has no numeric abse
 future capability-disable behavior must be an explicit discrete policy. Pure wear plans clamp at the
 physical failed bound without deleting the owning record.
 
-Equipment repair is a separate conserved cross-owner transaction rather than a public condition
-increment. `EquipmentRepairResolution` has no public constructor. A future physical maintenance
-resolver must bind a specific equipment instance together with the equipment owner revision and
-observed pre-repair `Condition`, a strictly improved final `Condition`, an exact inventory
-`ConsumptionSelection`, and an explicit spent-material stockpile. Transaction validation first
-rejects a stale equipment snapshot, then resolves the equipment definition, rejects active production
-occupancy, binds the resulting owner revisions, and delegates the exact matter movement to the
-inventory relocation primitive. Commit rechecks equipment revision, condition, and production
-occupancy before allowing any material mutation, then relocates the exact selected matter and finally
-applies the infallible condition improvement. If the maintenance source
-or spent destination is structurally supported, both final `StoredMatter` loads are analyzed in the
-same validated relocation. The current boundary intentionally preserves spent material identity,
-temperature, composition, particulate state, and provenance; replacement-part consumption,
-lubrication chemistry, salvage/waste transformation, tools, workers, skill, duration, access, and
-maintenance-process automation remain responsibilities of future physical resolvers rather than
-being guessed inside the transaction.
+Equipment maintenance is resolved from immutable equipment-definition policy into the existing
+conserved cross-owner repair transaction rather than a public condition increment. An optional
+`EquipmentMaintenanceProfile` names one exact replacement commodity and mass plus a restored
+condition that must return the equipment to its normal band. Registry construction validates the
+profile's material/form references. `resolve_equipment_maintenance` reads the current equipment
+definition and condition, rejects unnecessary service, and deterministically selects the authored
+replacement quantity from an explicit source stockpile. It produces the opaque
+`EquipmentRepairResolution`, which still has no public constructor.
+
+Repair transaction validation binds the equipment owner revision and observed pre-repair `Condition`,
+requires a strictly improved final `Condition`, rejects active production occupancy, and delegates the
+exact selected matter movement to the inventory relocation primitive. Commit rechecks equipment
+revision, condition, and production occupancy before allowing any material mutation, then relocates
+the exact selected matter into an explicit spent-material stockpile and finally applies the infallible
+condition improvement. If the maintenance source or spent destination is structurally supported, both
+final `StoredMatter` loads are analyzed in the same validated relocation. The current resolver models
+replacement-stock consumption but intentionally preserves spent material identity, temperature,
+composition, particulate state, and provenance rather than inventing wear chemistry. Tools, workers,
+skill, service duration, access, lubrication chemistry, salvage/waste transformation, and maintenance
+automation remain future physical extensions.
 
 The current engineering modules provide scalar conservation foundations without prematurely choosing
 network topology:

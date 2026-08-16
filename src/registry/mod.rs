@@ -102,7 +102,9 @@ impl Registries {
         domains: RegistryDomains,
     ) -> Self {
         domains.fluid.validate_references(&domains.materials);
-        domains.equipment.validate_references(&domains.capabilities);
+        domains
+            .equipment
+            .validate_references(&domains.capabilities, &domains.materials);
         domains
             .production
             .validate_references(&domains.materials, &domains.capabilities);

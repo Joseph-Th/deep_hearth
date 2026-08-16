@@ -102,16 +102,18 @@
   revision, with simultaneous due outcomes sharing one revision advance. Continuous condition curves
   reject presence-only capabilities; discrete capability loss remains an explicit future policy
   rather than fake numeric interpolation.
-- Resource-backed equipment repair replaces the former arbitrary condition-increase path. A future
-  physical maintenance resolver must produce an opaque repair resolution that binds the equipment
-  owner revision and observed condition, strictly improved final condition, exact selected inventory
-  lot slices, and an explicit spent-material destination. Canonical validation relocates those exact
-  traces without changing composition, temperature, particle-size state, or provenance; source and
-  destination `StoredMatter` structural loads are planned together, and both equipment and inventory
-  revisions are rechecked before commit. Repair also rechecks derived production occupancy immediately
-  before material moves because job start does not advance the equipment owner revision. The current
-  conservative boundary preserves spent material identity rather than inventing unmodeled replacement
-  part or waste chemistry.
+- Resource-backed equipment maintenance replaces the former arbitrary condition-increase path.
+  Equipment definitions can author one replacement commodity/mass and a service target in the normal
+  condition band. Runtime maintenance resolution selects that exact conserved stock from an explicit
+  source and binds it into the opaque repair resolution; registry construction validates the authored
+  material/form references. Canonical validation relocates those exact traces into an explicit spent
+  destination without changing composition, temperature, particle-size state, or provenance; source
+  and destination `StoredMatter` structural loads are planned together, and both equipment and
+  inventory revisions are rechecked before commit. Repair also rechecks derived production occupancy
+  immediately before material moves because job start does not advance the equipment owner revision.
+  The canonical jaw crusher currently consumes 50,000 mg of copper-ingot replacement stock and
+  restores to 900,000 ppm condition. Tools, workers, service duration, access, and replacement/waste
+  chemistry remain deliberately unresolved rather than being faked inside the transaction.
 - Persistent equipment-to-structure support assignment with revision-bound two-owner mount/unmount
   transactions and a synchronized support-to-equipment reverse index. Mounted equipment mass is
   aggregated support-locally before gravity conversion, writes only the equipment-owned structural
@@ -409,9 +411,13 @@
   `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED` overrides that exploratory seed with an exact decimal or
   hex seed, and `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex seed lists for replay or
   wider sweeps. Explicit seed lists fail on malformed entries rather than silently dropping them.
-  Routine harness tests keep success output captured; the report lane emits one compact summary, while
-  `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace. Starting conditions vary ore
-  grade, batch size, crusher condition, two competing
+  Routine harness tests keep success output captured; the report lane emits a compact outcome line plus
+  a system-interaction line, while `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace.
+  The compact report includes
+  completed work orders, terminal causes, forecast-driven control decisions, structural/WIP recovery,
+  maintenance services, system pressure, and bottleneck prevalence so a wide deterministic sweep is
+  useful as gameplay feedback rather than only a pass/fail result. Starting conditions vary ore
+  grade, batch size, crusher condition, one finite crusher-service replacement stock, two competing
   structural bays, existing bay load, an exact event tick, an imperfect deterministic regional-snow
   forecast, and finite mechanical work reserves. Actual snow magnitude is revealed only when the event
   occurs and is applied to both workshop bays rather than following the selected machine. Wider seed
@@ -421,9 +427,12 @@
   injects seed-selected operating personalities. Siting compares forecast-adjusted structural margin
   while retaining current margin as a tiebreaker; power selection compares reserve, throughput/energy
   duration, projected condition, the approaching event, and whether a forecasted regional outage makes
-  productive time before the event unusually valuable. Critical-condition work is refused rather than
-  relying on an arbitrary cautious-policy flag, and lack of usable stored work is reported separately
-  from a maintenance stop. Weather can arrive during production. If the active support merely strains,
+  productive time before the event unusually valuable. The policy refuses to operate into critical
+  condition; when projected wear would cross that boundary it resolves and commits real authored
+  maintenance if replacement stock remains, then reevaluates the power choice with restored condition.
+  Replacement stock is finite and spent matter remains owned rather than disappearing. Lack of usable
+  stored work is reported separately from maintenance supply exhaustion. Weather can arrive during
+  production. If the active support merely strains,
   the committed job can finish and the player may then relocate; if the support fails, the production
   job suspends with exact remaining active time and conserved work-in-process. Recovery can relocate
   the occupied machine and resume that work, or leave it visibly stranded when no surviving bay can
@@ -483,12 +492,11 @@
   fusion and finite explicit thermal sinks are modeled; an implicit environment is deliberately not
   used as an infinite heat source or sink.
 - Broader equipment/tool/worker content beyond the canonical crusher, grinding mill, dry screen,
-  furnace, and casting mold;
-  richer voxel/container equipment placement beyond a
-  structural support owner, physical spare-part suitability, repair tools/labor/duration, replacement
-  and waste transformations, discrete capability-disable policies, and authored gameplay-specific
-  degradation curves. Exact maintenance matter is now required and conserved by the canonical repair
-  boundary, but that boundary deliberately does not authorize repairs by itself.
+  furnace, and casting mold; richer voxel/container equipment placement beyond a structural support
+  owner; repair tools/labor/duration/access, richer spare-part suitability, replacement and waste
+  transformations, discrete capability-disable policies, and broader authored maintenance/degradation
+  profiles. The jaw crusher now has a real replacement-stock maintenance resolver, but that narrow
+  service does not pretend unresolved tooling, labor, time, or chemistry already exist.
 - Richer physical construction and demolition resolution: member orientation/end geometry,
   joints/connections, cutting and placement waste, tools, labor, duration, salvage fractions, debris
   transformation, and non-identity-preserving demolition outputs. Current prismatic geometry resolves

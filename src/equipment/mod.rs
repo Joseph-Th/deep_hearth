@@ -9,7 +9,7 @@ mod state;
 
 pub use definitions::{
     CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
-    EquipmentRegistry,
+    EquipmentMaintenanceProfile, EquipmentRegistry,
 };
 pub use equipment_execution::{
     AddEquipmentError, EquipmentConditionCommitError, EquipmentConditionPlan,
@@ -24,8 +24,9 @@ pub use equipment_structural_integration::{
     ValidatedEquipmentSupportChange, validate_mount_equipment, validate_unmount_equipment,
 };
 pub use repair_execution::{
-    EquipmentRepairCommitError, EquipmentRepairError, EquipmentRepairMaterialError,
-    EquipmentRepairOutcome, EquipmentRepairResolution, ValidatedEquipmentRepair,
+    EquipmentMaintenanceRequest, EquipmentMaintenanceResolutionError, EquipmentRepairCommitError,
+    EquipmentRepairError, EquipmentRepairMaterialError, EquipmentRepairOutcome,
+    EquipmentRepairResolution, ValidatedEquipmentRepair, resolve_equipment_maintenance,
     validate_equipment_repair,
 };
 pub use state::{

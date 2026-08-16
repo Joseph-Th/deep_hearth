@@ -9,6 +9,7 @@ use crate::capability::{
 };
 use crate::core::quantity::Mass;
 use crate::maintenance::{Condition, MaintenanceThresholds};
+use crate::material::{CommodityKey, MaterialRegistry};
 
 /// Stable authored identifier for one equipment definition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -24,6 +25,57 @@ impl EquipmentDefinitionId {
     #[must_use]
     pub const fn value(self) -> u32 {
         self.0
+    }
+}
+
+/// Authored replacement-material service for one equipment class.
+///
+/// The profile deliberately models the physical consequence visible to the current game: exact
+/// replacement stock leaves inventory and the maintained machine returns to an authored condition.
+/// Labor/tool/time requirements can extend this resolver when those owners exist without reopening a
+/// free condition mutation path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EquipmentMaintenanceProfile {
+    replacement: CommodityKey,
+    replacement_mass: Mass,
+    restored_condition: Condition,
+}
+
+impl EquipmentMaintenanceProfile {
+    #[must_use]
+    pub fn new(
+        replacement: CommodityKey,
+        replacement_mass: Mass,
+        restored_condition: Condition,
+    ) -> Self {
+        assert!(
+            !replacement_mass.is_zero(),
+            "equipment maintenance replacement mass must be nonzero"
+        );
+        assert!(
+            restored_condition > Condition::FAILED,
+            "equipment maintenance restored condition must be above failed"
+        );
+        Self {
+            replacement,
+            replacement_mass,
+            restored_condition,
+        }
+    }
+
+    #[must_use]
+    pub const fn replacement(self) -> CommodityKey {
+        self.replacement
+    }
+
+    #[must_use]
+    pub const fn replacement_mass(self) -> Mass {
+        self.replacement_mass
+    }
+
+    #[must_use]
+    pub const fn restored_condition(self) -> Condition {
+        self.restored_condition
     }
 }
 
@@ -153,6 +205,7 @@ pub struct EquipmentDefinition {
     capabilities: CapabilityProfile,
     capability_condition_curves: BTreeMap<CapabilityId, CapabilityConditionCurve>,
     maintenance_thresholds: MaintenanceThresholds,
+    maintenance_profile: Option<EquipmentMaintenanceProfile>,
 }
 
 impl EquipmentDefinition {
@@ -221,7 +274,20 @@ impl EquipmentDefinition {
             capabilities,
             capability_condition_curves: curves_by_capability,
             maintenance_thresholds,
+            maintenance_profile: None,
         }
+    }
+
+    /// Adds the authored replacement-material service available to runtime maintenance resolution.
+    #[must_use]
+    pub fn with_maintenance_profile(mut self, profile: EquipmentMaintenanceProfile) -> Self {
+        assert!(
+            profile.restored_condition() > self.maintenance_thresholds.warning_below(),
+            "equipment definition {} maintenance service must restore into its normal condition band",
+            self.id.value()
+        );
+        self.maintenance_profile = Some(profile);
+        self
     }
 
     #[must_use]
@@ -256,6 +322,11 @@ impl EquipmentDefinition {
     pub const fn maintenance_thresholds(&self) -> MaintenanceThresholds {
         self.maintenance_thresholds
     }
+
+    #[must_use]
+    pub const fn maintenance_profile(&self) -> Option<EquipmentMaintenanceProfile> {
+        self.maintenance_profile
+    }
 }
 
 /// Immutable deterministic authored equipment lookup table.
@@ -283,7 +354,11 @@ impl EquipmentRegistry {
         self.definitions.get(&id)
     }
 
-    pub(crate) fn validate_references(&self, capabilities: &CapabilityRegistry) {
+    pub(crate) fn validate_references(
+        &self,
+        capabilities: &CapabilityRegistry,
+        materials: &MaterialRegistry,
+    ) {
         for definition in self.definitions.values() {
             for (capability, value) in definition.capabilities().entries() {
                 let Some(capability_definition) = capabilities.get_capability(capability) else {
@@ -299,6 +374,24 @@ impl EquipmentRegistry {
                     "equipment definition {} capability {} has wrong physical value kind",
                     definition.id().value(),
                     capability.value()
+                );
+            }
+            if let Some(maintenance) = definition.maintenance_profile() {
+                assert!(
+                    materials
+                        .get_material(maintenance.replacement().material())
+                        .is_some(),
+                    "equipment definition {} maintenance profile references missing material {}",
+                    definition.id().value(),
+                    maintenance.replacement().material().value()
+                );
+                assert!(
+                    materials
+                        .get_form(maintenance.replacement().form())
+                        .is_some(),
+                    "equipment definition {} maintenance profile references missing form {}",
+                    definition.id().value(),
+                    maintenance.replacement().form().value()
                 );
             }
         }
