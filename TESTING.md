@@ -88,6 +88,14 @@ maintained matrix owns aggregate experience claims such as completed/incomplete 
 frontier, relocation/recovery, and policy diversity rather than requiring every seed to exhibit every
 behavior.
 
+Direct fixture-only starting-state injection is deliberately isolated in
+`content/gameplay_harness/bootstrap.rs`. That module may seed loose matter and stored energy or
+materialize already-planned structures because the corresponding acquisition, generation, and
+construction authorizers do not exist yet. The acting policy cannot call those shortcuts. Ordinary
+stockpile allocation, structural geometry, equipment
+allocation, process resolution, maintenance, support changes, production, and ticks use the normal
+runtime APIs.
+
 The gameplay exercise is an integration-test target rather than a crate unit test. This keeps its
 large policy/scenario implementation out of the monolithic unit-test binary and lets gameplay work
 rebuild against the normal library without compiling hundreds of unrelated test bodies. The same
@@ -103,6 +111,12 @@ seed within bounded deterministic choices: reserve conservation, projected machi
 completion time. Safety and maintenance gates remain canonical regardless of personality. The acting
 policy never sees the actual future load before the stimulus is committed.
 
+Scenario physics follow current authored content. Crusher batch mass is chosen inside the current
+equipment limit; initial condition is derived from its current maintenance bands; support geometry and
+external load scale from current equipment weight, material strength, and structural thresholds; and
+the announced event tick is selected inside a work horizon derived from an actually resolved batch
+duration. These are bounded variations around real game quantities rather than copied balance values.
+
 Capability probes derive legal batch sizes, output partitions, and equipment limits from the current
 authored registries instead of duplicating recipe constants. Their assertions focus on conservation,
 resolver/authoring agreement, legal routing, condition changes, and state validity. They may report
@@ -110,19 +124,22 @@ currently unavailable direct routes as observations, but do not freeze those abs
 requirements. The ore-preparation and foundry probes remain explicitly labeled capability checks until
 concentration/smelting provides a truthful bridge between those stages.
 
-`cargo test-gameplay` keeps successful harness output captured. `cargo test-gameplay-report` emits one
-compact outcome line plus a `SYSTEMS` line summarizing policy mix, player control, recovery, pressure,
-and current bottlenecks. Set `DEEP_HEARTH_GAMEPLAY_VERBOSE` to any value before that report lane to
-emit the detailed decision trace. Seed controls are:
+`cargo test-gameplay` keeps successful harness output captured. `cargo test-gameplay-report` emits a
+replay-input line, compact outcome and systems summaries, and one scope line distinguishing exercised
+runtime behavior from bootstrap/external/deferred systems. Set `DEEP_HEARTH_GAMEPLAY_VERBOSE` to any
+value before that report lane to emit the detailed decision trace. Seed controls are:
 
-- `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED`: replaces the one fixed exploratory seed;
+- `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED`: reproduces the normal organic scenario set from one exact
+  decimal or hexadecimal root seed;
 - `DEEP_HEARTH_GAMEPLAY_SEEDS`: replaces the maintained matrix with an exact comma-separated seed
   list for reproduction or deliberate sweeps.
 
 Seed lists fail on an empty or malformed entry rather than silently dropping it. When the maintained
-matrix is used, aggregate coverage is proven only by its five curated coverage seeds; the exploratory
-seed cannot mask a lost maintained behavior. Explicit custom seed lists prove only the universal
-per-scenario contracts and do not inherit the maintained matrix's aggregate coverage claim.
+matrix is used, five curated scenarios own the aggregate regression coverage and three additional
+organic scenarios are generated from a fresh variation root. Organic scenarios exercise universal
+per-scenario contracts but cannot mask a lost maintained behavior. The input line prints the root and
+all exact scenario seeds so any failure is replayable. Explicit custom seed lists prove only the
+universal per-scenario contracts and do not inherit the maintained matrix's aggregate coverage claim.
 
 ## CI and completion gates
 

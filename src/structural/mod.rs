@@ -58,7 +58,7 @@ pub(crate) use construction_execution::materialize_structural_element_for_test;
 #[cfg(test)]
 pub(crate) use deconstruction_execution::make_test_deconstruction_resolution;
 
-#[cfg(any(test, feature = "test-gameplay"))]
+#[cfg(test)]
 pub(crate) fn make_test_structural_geometry(
     bounds: crate::spatial::VoxelBounds,
     length: crate::core::quantity::Length,

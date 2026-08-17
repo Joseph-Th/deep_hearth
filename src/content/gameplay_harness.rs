@@ -2,10 +2,11 @@
 //!
 //! The harness deliberately varies physical initial conditions and player priorities, then lets a
 //! small operational policy react only to observed state and resolver projections. Normal
-//! exercise-mode runs combine a deterministic experience-coverage matrix with one fixed exploratory
-//! seed for reproducibility.
-//! `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED` replaces that exploratory seed with an exact decimal or
-//! `0x` hexadecimal seed for additional uncurated coverage. The scenario can announce a future snow
+//! exercise-mode runs combine a deterministic experience-coverage matrix with a small replayable set
+//! of organic exploratory scenarios. Their physical ranges are derived from the current authored
+//! content rather than copied balance constants.
+//! `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` reproduces one organic scenario set from an exact decimal or
+//! `0x` hexadecimal root seed. The scenario can announce a future snow
 //! load and then inject the actual load at the announced tick. This is an external harness stimulus,
 //! not an implemented weather or forecasting subsystem. Faster machinery can therefore change how
 //! much work is secured before an uncertain external condition changes.
@@ -15,8 +16,13 @@
 
 use std::env;
 
+mod bootstrap;
 mod configuration;
 
+use bootstrap::{
+    materialize_structure, seed_composed_lot, seed_energy_store as bootstrap_seed_energy_store,
+    seed_lot,
+};
 use configuration::{ScenarioSeedPlan, configuration_contract_gaps, scenario_seeds};
 
 const HARNESS_MODE: &str = "exercise";
@@ -38,8 +44,7 @@ use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
 use crate::core::time::{TickSpan, WorldSeed};
 use crate::energy::{
-    EnergyStoreId, EnergySupplyError, add_energy_store, add_energy_store_with_initial_for_test,
-    calculate_mass_specific_energy,
+    EnergyStoreId, EnergySupplyError, add_energy_store, calculate_mass_specific_energy,
 };
 use crate::equipment::{
     EquipmentDefinitionId, EquipmentId, EquipmentMaintenanceRequest,
@@ -48,11 +53,9 @@ use crate::equipment::{
     validate_mount_equipment, validate_unmount_equipment,
 };
 use crate::inventory::{
-    MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile,
-    add_solid_stockpile_for_test, add_stockpile, deposit_composed_lot_for_test,
-    deposit_lot_for_test,
+    MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, add_stockpile,
 };
-use crate::maintenance::{Condition, MaintenanceBand};
+use crate::maintenance::{CONDITION_PARTS_PER_MILLION, Condition, MaintenanceBand};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::ore_processing::{
@@ -68,10 +71,10 @@ use crate::registry::Registries;
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
-    StructuralAssessment, StructuralElementId, StructuralLifecycle, StructuralLoadKind,
-    StructuralStage, add_structural_element, analyze_structure,
-    materialize_structural_element_for_test, validate_activate_structural_element,
-    validate_set_structural_load,
+    STRUCTURAL_PARTS_PER_MILLION, StructuralAssessment, StructuralElementGeometry,
+    StructuralElementId, StructuralLifecycle, StructuralLoadKind, StructuralLoadMode,
+    StructuralStage, add_structural_element, analyze_structure, calculate_weight_force_ceiling,
+    validate_activate_structural_element, validate_set_structural_load,
 };
 use crate::thermal::{
     CastingRequest, MeltingBatchError, MeltingRequest, MeltingResolutionError,
@@ -158,7 +161,7 @@ struct ScenarioPolicyVariation {
 }
 
 impl ScenarioVariation {
-    fn from_seed(seed: u64) -> Self {
+    fn from_seed(registries: &Registries, seed: u64) -> Self {
         let a = mix64(seed);
         let b = mix64(a);
         let c = mix64(b);
@@ -170,12 +173,59 @@ impl ScenarioVariation {
         let i = mix64(h);
         let j = mix64(i);
         let k = mix64(j);
-        let compact_area = 1_450_u64 + a % 351;
-        let reinforced_area = compact_area + 300 + b % 351;
-        let briefed_snow_millinewtons = 1_000_000 + g % 32_000_001;
+        let crusher_definition = registries
+            .equipment()
+            .get_equipment(EQUIPMENT_JAW_CRUSHER)
+            .unwrap_or_else(|| panic!("canonical crusher definition disappeared"));
+        let crusher_process = registries
+            .ore_processing()
+            .get_comminution(PROCESS_CRUSH_ORE)
+            .unwrap_or_else(|| panic!("canonical crusher process definition disappeared"));
+        let maximum_batch = nominal_equipment_mass_capability(
+            registries,
+            EQUIPMENT_JAW_CRUSHER,
+            crusher_process.max_batch_mass_capability(),
+        )
+        .milligrams();
+        assert!(
+            maximum_batch > 0,
+            "canonical crusher batch limit must be nonzero"
+        );
+        let minimum_batch = maximum_batch.div_ceil(2);
+        let batch_mass = minimum_batch + c % (maximum_batch - minimum_batch + 1);
+        let planned_batches = 4 + (a % 3) as u8;
+
+        let thresholds = crusher_definition.maintenance_thresholds();
+        let warning = thresholds.warning_below().parts_per_million();
+        let first_normal = warning.saturating_add(1).min(CONDITION_PARTS_PER_MILLION);
+        let normal_span = CONDITION_PARTS_PER_MILLION - first_normal;
+        let initial_condition = first_normal + (e % u64::from(normal_span + 1)) as u32;
+
+        let crusher_weight =
+            calculate_weight_force_ceiling(crusher_definition.mass(), registries.core().gravity());
+        let structural_profile = registries
+            .structural()
+            .get_profile(STRUCTURAL_PROFILE_AXIAL_COMPRESSION)
+            .unwrap_or_else(|| panic!("canonical compression profile disappeared"));
+        let strained = structural_profile.strained_at_ppm();
+        let target_low = ((u64::from(strained) * 800_000) / u64::from(STRUCTURAL_PARTS_PER_MILLION))
+            .max(1) as u32;
+        let slightly_strained =
+            ((u64::from(strained) * 1_050_000) / u64::from(STRUCTURAL_PARTS_PER_MILLION)) as u32;
+        let target_high = structural_profile
+            .cracking_at_ppm()
+            .saturating_sub(25_000)
+            .min(slightly_strained)
+            .max(target_low);
+        let target_span = u64::from(target_high - target_low) + 1;
+        let compact_target_ppm = target_low + (b % target_span) as u32;
+        let compact_area =
+            support_area_for_utilization(registries, crusher_weight, compact_target_ppm);
+        let reinforced_area = scale_area(compact_area, 1_150_000 + (d % 350_001) as u32);
+        let reinforced_background_load = scale_force(crusher_weight, 50_000 + (f % 400_001) as u32);
+        let briefed_snow_load = scale_force(crusher_weight, 30_000 + (g % 900_001) as u32);
         let actual_to_briefed_ppm = 700_000 + i % 600_001;
-        let actual_snow_millinewtons =
-            u128::from(briefed_snow_millinewtons) * u128::from(actual_to_briefed_ppm) / 1_000_000;
+        let actual_snow_load = scale_force(briefed_snow_load, actual_to_briefed_ppm as u32);
         let power_preference = match j % 3 {
             0 => PowerPreference::PreserveReserve,
             1 => PowerPreference::ProtectCondition,
@@ -186,24 +236,22 @@ impl ScenarioVariation {
             seed,
             ore: ScenarioOreVariation {
                 ore_copper_ppm: 450_000 + (b % 300_001) as u32,
-                batch_mass: Mass::from_milligrams(8 + c % 13),
-                planned_batches: 4 + (a % 3) as u8,
+                batch_mass: Mass::from_milligrams(batch_mass),
+                planned_batches,
             },
             crusher: ScenarioCrusherVariation {
-                initial_crusher_condition: condition(650_000 + (e % 330_001) as u32),
-                large_drive_batch_budget: 1 + (h % 3) as u8,
+                initial_crusher_condition: condition(initial_condition),
+                large_drive_batch_budget: 1 + (h % u64::from(planned_batches)) as u8,
             },
             structure: ScenarioStructureVariation {
-                compact_support_area: Area::from_square_millimeters(compact_area),
-                reinforced_support_area: Area::from_square_millimeters(reinforced_area),
-                reinforced_background_load: Force::from_millinewtons(u128::from(
-                    4_000_000 + f % 12_000_001,
-                )),
+                compact_support_area: compact_area,
+                reinforced_support_area: reinforced_area,
+                reinforced_background_load,
             },
             stimulus: ScenarioStimulusVariation {
-                briefed_snow_load: Force::from_millinewtons(u128::from(briefed_snow_millinewtons)),
-                actual_snow_load: Force::from_millinewtons(actual_snow_millinewtons),
-                stimulus_at_tick: 15 + d % 26,
+                briefed_snow_load,
+                actual_snow_load,
+                stimulus_at_tick: 0,
             },
             policy: ScenarioPolicyVariation {
                 load_confidence_ppm: 450_000 + (k % 550_001) as u32,
@@ -367,8 +415,64 @@ fn scale_force(load: Force, parts_per_million: u32) -> Force {
         .millinewtons()
         .checked_mul(u128::from(parts_per_million))
         .unwrap_or_else(|| panic!("gameplay harness load-confidence scaling overflowed"))
-        / 1_000_000;
+        / u128::from(STRUCTURAL_PARTS_PER_MILLION);
     Force::from_millinewtons(scaled)
+}
+
+fn divide_ceiling(numerator: u128, denominator: u128) -> u128 {
+    assert!(denominator > 0, "gameplay harness divisor must be nonzero");
+    if numerator == 0 {
+        0
+    } else {
+        1 + (numerator - 1) / denominator
+    }
+}
+
+fn support_area_for_utilization(
+    registries: &Registries,
+    carried_load: Force,
+    target_utilization_ppm: u32,
+) -> Area {
+    assert!(target_utilization_ppm > 0);
+    let profile = registries
+        .structural()
+        .get_profile(STRUCTURAL_PROFILE_AXIAL_COMPRESSION)
+        .unwrap_or_else(|| panic!("canonical compression profile disappeared"));
+    let material = registries
+        .materials()
+        .get_material(MATERIAL_WOOD)
+        .unwrap_or_else(|| panic!("canonical wood material disappeared"));
+    let mechanical = material.properties().mechanical();
+    let strength_kpa = match profile.load_mode() {
+        StructuralLoadMode::Compression => mechanical.compressive_strength_kpa(),
+        StructuralLoadMode::Tension => mechanical.tensile_strength_kpa(),
+    };
+    assert!(
+        strength_kpa > 0,
+        "canonical support material must have nonzero strength"
+    );
+    let required_capacity = divide_ceiling(
+        carried_load
+            .millinewtons()
+            .checked_mul(u128::from(STRUCTURAL_PARTS_PER_MILLION))
+            .unwrap_or_else(|| panic!("gameplay harness support-capacity scaling overflowed")),
+        u128::from(target_utilization_ppm),
+    );
+    let area = divide_ceiling(required_capacity, u128::from(strength_kpa));
+    let area = u64::try_from(area).unwrap_or_else(|_| {
+        panic!("gameplay harness support area exceeds authored quantity range")
+    });
+    Area::from_square_millimeters(area.max(1))
+}
+
+fn scale_area(area: Area, parts_per_million: u32) -> Area {
+    let scaled = divide_ceiling(
+        u128::from(area.square_millimeters()) * u128::from(parts_per_million),
+        u128::from(STRUCTURAL_PARTS_PER_MILLION),
+    );
+    let scaled = u64::try_from(scaled)
+        .unwrap_or_else(|_| panic!("gameplay harness support area scaling overflowed"));
+    Area::from_square_millimeters(scaled.max(1))
 }
 
 fn greatest_common_divisor(mut left: u64, mut right: u64) -> u64 {
@@ -411,8 +515,7 @@ fn seed_energy_store_exact(
     definition: crate::energy::EnergyStoreDefinitionId,
     amount: Energy,
 ) -> EnergyStoreId {
-    add_energy_store_with_initial_for_test(registries, state, definition, amount)
-        .unwrap_or_else(|error| panic!("gameplay harness exact energy seed failed: {error}"))
+    bootstrap_seed_energy_store(registries, state, definition, amount)
 }
 
 fn condition(parts_per_million: u32) -> Condition {
@@ -435,11 +538,9 @@ fn active_support(
     x: i64,
     cross_section: Area,
 ) -> StructuralElementId {
-    let geometry = crate::structural::make_test_structural_geometry(
-        bounds(x),
-        Length::from_micrometers(1),
-        cross_section,
-    );
+    let geometry =
+        StructuralElementGeometry::new(bounds(x), Length::from_micrometers(1), cross_section)
+            .unwrap_or_else(|error| panic!("gameplay harness support geometry failed: {error}"));
     let element = match add_structural_element(
         registries,
         state,
@@ -451,7 +552,7 @@ fn active_support(
         Ok(element) => element,
         Err(error) => panic!("gameplay harness support allocation failed: {error}"),
     };
-    materialize_structural_element_for_test(registries, state, element, FORM_LOG);
+    materialize_structure(registries, state, element, FORM_LOG);
     let activation = match validate_activate_structural_element(registries, state, element) {
         Ok(activation) => activation,
         Err(error) => panic!("gameplay harness support activation failed: {error}"),
@@ -476,10 +577,12 @@ fn seed_energy_store(
         ),
     };
     let amount = Energy::from_nanojoules(authored.capacity().nanojoules() / fraction_divisor);
-    match add_energy_store_with_initial_for_test(registries, state, definition, amount) {
-        Ok(store) => store,
-        Err(error) => panic!("gameplay harness initial energy store failed: {error}"),
-    }
+    bootstrap_seed_energy_store(registries, state, definition, amount)
+}
+
+fn add_solid_stockpile(state: &mut AppState, capacity: Mass, context: &'static str) -> StockpileId {
+    add_stockpile(state, capacity, StockpileStorageProfile::solid_only())
+        .unwrap_or_else(|error| panic!("gameplay harness {context} stockpile failed: {error}"))
 }
 
 fn mixed_ore_composition(copper_ppm: u32) -> MaterialComposition {
@@ -584,28 +687,33 @@ fn setup_workshop(
 ) -> (AppState, WorkshopIds) {
     let mut state = AppState::new(WorldSeed::new(variation.seed));
     let ore_mass = variation.ore.batch_mass.milligrams() * u64::from(variation.ore.planned_batches);
-    let ore_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(ore_mass + 20))
-        .unwrap_or_else(|error| panic!("gameplay harness ore stockpile failed: {error}"));
-    let crushed_storage =
-        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(ore_mass + 20))
-            .unwrap_or_else(|error| panic!("gameplay harness crushed storage failed: {error}"));
+    let ore_source = add_solid_stockpile(
+        &mut state,
+        Mass::from_milligrams(ore_mass + variation.ore.batch_mass.milligrams()),
+        "ore source",
+    );
+    let crushed_storage = add_solid_stockpile(
+        &mut state,
+        Mass::from_milligrams(ore_mass + variation.ore.batch_mass.milligrams()),
+        "crushed storage",
+    );
     let maintenance_profile = registries
         .equipment()
         .get_equipment(EQUIPMENT_JAW_CRUSHER)
         .and_then(|definition| definition.maintenance_profile())
         .unwrap_or_else(|| panic!("canonical crusher maintenance profile disappeared"));
-    let maintenance_source =
-        add_solid_stockpile_for_test(&mut state, maintenance_profile.replacement_mass())
-            .unwrap_or_else(|error| {
-                panic!("gameplay harness maintenance stockpile failed: {error}")
-            });
-    let maintenance_spent =
-        add_solid_stockpile_for_test(&mut state, maintenance_profile.replacement_mass())
-            .unwrap_or_else(|error| {
-                panic!("gameplay harness spent-maintenance stockpile failed: {error}")
-            });
+    let maintenance_source = add_solid_stockpile(
+        &mut state,
+        maintenance_profile.replacement_mass(),
+        "maintenance source",
+    );
+    let maintenance_spent = add_solid_stockpile(
+        &mut state,
+        maintenance_profile.replacement_mass(),
+        "maintenance spent",
+    );
 
-    let ore_lot = deposit_composed_lot_for_test(
+    let ore_lot = seed_composed_lot(
         registries,
         &mut state,
         ore_source,
@@ -613,19 +721,15 @@ fn setup_workshop(
         Mass::from_milligrams(ore_mass),
         ROOM_TEMPERATURE,
         mixed_ore_composition(variation.ore.ore_copper_ppm),
-    )
-    .unwrap_or_else(|error| panic!("gameplay harness ore seed failed: {error}"));
-    deposit_lot_for_test(
+    );
+    seed_lot(
         registries,
         &mut state,
         maintenance_source,
         maintenance_profile.replacement(),
         maintenance_profile.replacement_mass(),
         ROOM_TEMPERATURE,
-    )
-    .unwrap_or_else(|error| {
-        panic!("gameplay harness maintenance replacement seed failed: {error}")
-    });
+    );
 
     let crusher = add_equipment(
         registries,
@@ -779,24 +883,21 @@ fn service_crusher(
 
 fn setup_foundry_probe(registries: &Registries, mass: Mass) -> (AppState, FoundryIds) {
     let mut state = AppState::new(WorldSeed::new(0xD33F_F001));
-    let pure_copper_source = add_solid_stockpile_for_test(&mut state, mass)
-        .unwrap_or_else(|error| panic!("foundry probe copper stockpile failed: {error}"));
+    let pure_copper_source = add_solid_stockpile(&mut state, mass, "foundry copper source");
     let vessel_profile =
         StockpileStorageProfile::new(false, true, Temperature::from_millikelvin(1_500_000))
             .unwrap_or_else(|error| panic!("foundry probe molten storage profile failed: {error}"));
     let molten_vessel = add_stockpile(&mut state, mass, vessel_profile)
         .unwrap_or_else(|error| panic!("foundry probe molten vessel failed: {error}"));
-    let cast_storage = add_solid_stockpile_for_test(&mut state, mass)
-        .unwrap_or_else(|error| panic!("foundry probe cast storage failed: {error}"));
-    let pure_copper_lot = deposit_lot_for_test(
+    let cast_storage = add_solid_stockpile(&mut state, mass, "foundry cast storage");
+    let pure_copper_lot = seed_lot(
         registries,
         &mut state,
         pure_copper_source,
         CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
         mass,
         ROOM_TEMPERATURE,
-    )
-    .unwrap_or_else(|error| panic!("foundry probe copper seed failed: {error}"));
+    );
     let furnace = add_equipment(
         registries,
         &mut state,
@@ -845,17 +946,16 @@ fn setup_ore_preparation_probe(
     copper_ppm: u32,
 ) -> (AppState, OrePreparationProbeIds) {
     let mut state = AppState::new(WorldSeed::new(0xD33F_0A11));
-    let ore_source = add_solid_stockpile_for_test(&mut state, batch_mass)
-        .unwrap_or_else(|error| panic!("ore preparation source failed: {error}"));
-    let crushed_storage = add_solid_stockpile_for_test(&mut state, batch_mass)
-        .unwrap_or_else(|error| panic!("ore preparation crushed storage failed: {error}"));
-    let ground_storage = add_solid_stockpile_for_test(&mut state, batch_mass)
-        .unwrap_or_else(|error| panic!("ore preparation ground storage failed: {error}"));
-    let undersize_storage = add_solid_stockpile_for_test(&mut state, batch_mass)
-        .unwrap_or_else(|error| panic!("ore preparation undersize storage failed: {error}"));
-    let oversize_storage = add_solid_stockpile_for_test(&mut state, batch_mass)
-        .unwrap_or_else(|error| panic!("ore preparation oversize storage failed: {error}"));
-    let ore_lot = deposit_composed_lot_for_test(
+    let ore_source = add_solid_stockpile(&mut state, batch_mass, "ore preparation source");
+    let crushed_storage =
+        add_solid_stockpile(&mut state, batch_mass, "ore preparation crushed storage");
+    let ground_storage =
+        add_solid_stockpile(&mut state, batch_mass, "ore preparation ground storage");
+    let undersize_storage =
+        add_solid_stockpile(&mut state, batch_mass, "ore preparation undersize storage");
+    let oversize_storage =
+        add_solid_stockpile(&mut state, batch_mass, "ore preparation oversize storage");
+    let ore_lot = seed_composed_lot(
         registries,
         &mut state,
         ore_source,
@@ -863,8 +963,7 @@ fn setup_ore_preparation_probe(
         batch_mass,
         ROOM_TEMPERATURE,
         mixed_ore_composition(copper_ppm),
-    )
-    .unwrap_or_else(|error| panic!("ore preparation material seed failed: {error}"));
+    );
     let crusher = add_equipment(
         registries,
         &mut state,
@@ -992,6 +1091,43 @@ fn resolve_crush_option(
         })) => None,
         Err(error) => panic!("gameplay harness {name} drive resolution failed: {error}"),
     }
+}
+
+fn schedule_stimulus_from_current_gameplay(
+    registries: &Registries,
+    state: &AppState,
+    ids: WorkshopIds,
+    variation: &mut ScenarioVariation,
+) {
+    let reference_duration = resolve_crush_option(
+        registries,
+        state,
+        ids,
+        variation.ore.batch_mass,
+        "small",
+        ids.small_drive,
+    )
+    .or_else(|| {
+        resolve_crush_option(
+            registries,
+            state,
+            ids,
+            variation.ore.batch_mass,
+            "large",
+            ids.large_drive,
+        )
+    })
+    .map(|option| option.resolved.process_resolution().duration().value())
+    .unwrap_or_else(|| panic!("gameplay harness has no powered reference batch for event timing"));
+    assert!(
+        reference_duration > 0,
+        "nonzero gameplay batch must take at least one tick"
+    );
+    let work_horizon = reference_duration
+        .checked_mul(u64::from(variation.ore.planned_batches))
+        .unwrap_or_else(|| panic!("gameplay harness work horizon overflowed"));
+    variation.stimulus.stimulus_at_tick =
+        1 + mix64(variation.seed ^ 0x57A1_1EED_71A1_1EED) % work_horizon;
 }
 
 fn print_crush_option(option: &CrushOption, thresholds: crate::maintenance::MaintenanceThresholds) {
@@ -1649,8 +1785,9 @@ fn apply_stimulus_and_adapt(
     adapt_after_stimulus(registries, state, ids, &mut runtime, after);
 }
 
-fn run_scenario(registries: &Registries, variation: ScenarioVariation) -> ScenarioReport {
+fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> ScenarioReport {
     let (mut state, ids) = setup_workshop(registries, variation);
+    schedule_stimulus_from_current_gameplay(registries, &state, ids, &mut variation);
     let initial_matter = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| {
             panic!("gameplay harness initial matter accounting failed: {error}")
@@ -2924,8 +3061,23 @@ pub fn run_gameplay_harness() {
     let ScenarioSeedPlan {
         seeds,
         coverage_seed_count,
+        variation_seed,
     } = scenario_seeds()
         .unwrap_or_else(|error| panic!("gameplay harness configuration failed: {error:?}"));
+    let replay_seeds = seeds
+        .iter()
+        .map(|seed| format!("0x{seed:016X}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let variation_label = variation_seed
+        .map(|seed| format!("0x{seed:016X}"))
+        .unwrap_or_else(|| "custom-seed-list".to_owned());
+    std::println!(
+        "HARNESS INPUT maintained={} organic={} variation_seed={} replay={replay_seeds}",
+        coverage_seed_count,
+        seeds.len().saturating_sub(coverage_seed_count),
+        variation_label,
+    );
     let probe_seed = seeds
         .iter()
         .copied()
@@ -2949,7 +3101,7 @@ pub fn run_gameplay_harness() {
 
     let reports: Vec<_> = seeds
         .into_iter()
-        .map(ScenarioVariation::from_seed)
+        .map(|seed| ScenarioVariation::from_seed(&registries, seed))
         .map(|variation| run_scenario(&registries, variation))
         .collect();
 
@@ -3069,6 +3221,9 @@ pub fn run_gameplay_harness() {
             .iter()
             .filter(|report| report.limits.throughput_bottleneck)
             .count(),
+    );
+    std::println!(
+        "SCOPE exercised=[canonical comminution,power choice,wear,maintenance,structural siting,failure recovery] bootstrap=[matter,stored energy,equipment,constructed bays,baseline load] external=[announced snow stimulus] deferred=[resource acquisition,energy generation,weather ownership,concentration/smelting bridge]"
     );
 }
 

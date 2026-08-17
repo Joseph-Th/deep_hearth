@@ -1,15 +1,14 @@
-//! Deterministic gameplay-harness seed selection and environment configuration.
+//! Replayable gameplay-harness seed selection and environment configuration.
 
 use std::env;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-const COVERAGE_SEEDS: [u64; 5] = [1, 4, 5, 23, 957];
-
-/// Fixed default for the extra uncurated exploratory probe.
-const DEFAULT_EXPLORATORY_SEED: u64 = 0xD33D_1A5E_BEEF_5EED;
+const COVERAGE_SEEDS: [u64; 5] = [1, 4, 9, 19, 380];
+const ORGANIC_SCENARIO_COUNT: usize = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum GameplayHarnessConfigError {
-    InvalidExploratorySeed,
+    InvalidVariationSeed,
     EmptyScenarioSeedList,
     InvalidScenarioSeed { index: usize },
 }
@@ -18,6 +17,7 @@ pub(super) enum GameplayHarnessConfigError {
 pub(super) struct ScenarioSeedPlan {
     pub(super) seeds: Vec<u64>,
     pub(super) coverage_seed_count: usize,
+    pub(super) variation_seed: Option<u64>,
 }
 
 fn parse_seed(raw: &str) -> Option<u64> {
@@ -32,16 +32,43 @@ fn parse_seed(raw: &str) -> Option<u64> {
     }
 }
 
-fn resolve_exploratory_seed(raw: Option<&str>) -> Result<u64, GameplayHarnessConfigError> {
+fn mix64(mut value: u64) -> u64 {
+    value = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    value ^ (value >> 31)
+}
+
+fn generated_variation_seed() -> u64 {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let nanos = elapsed.as_nanos();
+    let folded_time = nanos as u64 ^ (nanos >> 64) as u64;
+    mix64(folded_time ^ u64::from(std::process::id()))
+}
+
+fn resolve_variation_seed(raw: Option<&str>) -> Result<u64, GameplayHarnessConfigError> {
     match raw {
-        Some(text) => parse_seed(text).ok_or(GameplayHarnessConfigError::InvalidExploratorySeed),
-        None => Ok(DEFAULT_EXPLORATORY_SEED),
+        Some(text) => parse_seed(text).ok_or(GameplayHarnessConfigError::InvalidVariationSeed),
+        None => Ok(generated_variation_seed()),
+    }
+}
+
+fn append_organic_seeds(seeds: &mut Vec<u64>, root: u64) {
+    let mut candidate = root;
+    for index in 0..ORGANIC_SCENARIO_COUNT {
+        candidate = mix64(candidate ^ (index as u64 + 1).wrapping_mul(0xD1B5_4A32_D192_ED03));
+        while seeds.contains(&candidate) {
+            candidate = mix64(candidate);
+        }
+        seeds.push(candidate);
     }
 }
 
 fn scenario_seeds_from(
     scenario_raw: Option<&str>,
-    exploratory_raw: Option<&str>,
+    variation_raw: Option<&str>,
 ) -> Result<ScenarioSeedPlan, GameplayHarnessConfigError> {
     if let Some(raw) = scenario_raw {
         if raw.trim().is_empty() {
@@ -56,21 +83,24 @@ fn scenario_seeds_from(
         return Ok(ScenarioSeedPlan {
             seeds,
             coverage_seed_count: 0,
+            variation_seed: None,
         });
     }
 
     let mut seeds = COVERAGE_SEEDS.to_vec();
-    seeds.push(resolve_exploratory_seed(exploratory_raw)?);
+    let variation_seed = resolve_variation_seed(variation_raw)?;
+    append_organic_seeds(&mut seeds, variation_seed);
     Ok(ScenarioSeedPlan {
         seeds,
         coverage_seed_count: COVERAGE_SEEDS.len(),
+        variation_seed: Some(variation_seed),
     })
 }
 
 pub(super) fn scenario_seeds() -> Result<ScenarioSeedPlan, GameplayHarnessConfigError> {
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
-    let exploratory_raw = env::var("DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED").ok();
-    scenario_seeds_from(scenario_raw.as_deref(), exploratory_raw.as_deref())
+    let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
+    scenario_seeds_from(scenario_raw.as_deref(), variation_raw.as_deref())
 }
 
 pub(super) fn configuration_contract_gaps() -> Vec<&'static str> {
@@ -91,17 +121,13 @@ pub(super) fn configuration_contract_gaps() -> Vec<&'static str> {
             parse_seed("not-a-seed").is_none(),
         ),
         (
-            "default exploratory seed",
-            resolve_exploratory_seed(None) == Ok(DEFAULT_EXPLORATORY_SEED),
+            "variation seed override",
+            resolve_variation_seed(Some("0xBAD")) == Ok(0xBAD),
         ),
         (
-            "exploratory seed override",
-            resolve_exploratory_seed(Some("0xBAD")) == Ok(0xBAD),
-        ),
-        (
-            "invalid exploratory seed rejection",
-            resolve_exploratory_seed(Some("nope"))
-                == Err(GameplayHarnessConfigError::InvalidExploratorySeed),
+            "invalid variation seed rejection",
+            resolve_variation_seed(Some("nope"))
+                == Err(GameplayHarnessConfigError::InvalidVariationSeed),
         ),
         (
             "invalid custom seed entry rejection",
@@ -120,15 +146,33 @@ pub(super) fn configuration_contract_gaps() -> Vec<&'static str> {
         .collect::<Vec<_>>();
 
     match scenario_seeds_from(Some("1, 0x2A,3"), Some("ignored")) {
-        Ok(plan) if plan.seeds == [1, 42, 3] && plan.coverage_seed_count == 0 => {}
+        Ok(plan)
+            if plan.seeds == [1, 42, 3]
+                && plan.coverage_seed_count == 0
+                && plan.variation_seed.is_none() => {}
         Ok(_) | Err(_) => gaps.push("custom seed lists remain exact diagnostic inputs"),
     }
     match scenario_seeds_from(None, Some("0xBAD")) {
         Ok(plan)
             if plan.coverage_seed_count == COVERAGE_SEEDS.len()
                 && plan.seeds[..plan.coverage_seed_count] == COVERAGE_SEEDS
-                && plan.seeds.last() == Some(&0xBAD) => {}
-        Ok(_) | Err(_) => gaps.push("exploratory seed is excluded from maintained coverage"),
+                && plan.seeds.len() == COVERAGE_SEEDS.len() + ORGANIC_SCENARIO_COUNT
+                && plan.variation_seed == Some(0xBAD)
+                && plan.seeds[plan.coverage_seed_count..]
+                    .iter()
+                    .all(|seed| !COVERAGE_SEEDS.contains(seed)) => {}
+        Ok(_) | Err(_) => {
+            gaps.push("organic scenarios are replayable and excluded from maintained coverage")
+        }
+    }
+    match (
+        scenario_seeds_from(None, Some("0xBAD")),
+        scenario_seeds_from(None, Some("0xBAD")),
+    ) {
+        (Ok(first), Ok(second)) if first == second => {}
+        (Ok(_), Ok(_)) | (Ok(_), Err(_)) | (Err(_), Ok(_)) | (Err(_), Err(_)) => {
+            gaps.push("variation root reproduces the same organic scenario set")
+        }
     }
 
     gaps

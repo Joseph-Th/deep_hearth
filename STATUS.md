@@ -412,23 +412,29 @@
   crusher, grinding mill, dry screen, electric furnace, cooled casting mold, two mechanical drive
   envelopes, electrical buffer, thermal sink, ore crushing, same-form grinding, exact dry screening,
   pure-copper melting, and pure-copper casting used by the harness. Normal exercise-mode runs combine
-  five deterministic qualitative-coverage seeds with one fixed exploratory seed;
-  `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED` overrides that exploratory seed with an exact decimal or
-  hex seed, and `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex seed lists for replay or
-  wider sweeps. Explicit seed lists fail on malformed entries rather than silently dropping them.
-  The five maintained seeds alone own aggregate coverage; the exploratory seed cannot hide a lost
-  maintained behavior. The exercise runs as a dedicated integration target, so gameplay iteration
-  builds the normal library plus one dedicated test target instead of compiling the full crate
-  unit-test harness; lightweight seed/configuration contracts run in that same target.
-  Routine harness tests keep success output captured; the report lane emits a compact outcome line plus
-  a system-interaction line, while `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace.
+  five deterministic qualitative-coverage seeds with three organic exploratory seeds generated from
+  a fresh run root. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` reproduces that organic set from an exact
+  decimal or hex root, and `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex seed lists for
+  replay or wider sweeps. Explicit seed lists fail on malformed entries rather than silently dropping
+  them. The five maintained seeds alone own aggregate coverage; organic scenarios cannot hide a lost
+  maintained behavior. Every run reports its exact replay seeds. The exercise runs as a dedicated
+  integration target, so gameplay iteration builds the normal library plus one dedicated test target
+  instead of compiling the full crate unit-test harness; lightweight seed/configuration contracts run
+  in that same target. Routine harness tests keep success output captured; the report lane emits replay
+  inputs, compact outcome/system summaries, and an explicit exercised/bootstrap/external/deferred
+  scope line, while `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace.
   The compact report includes completed work orders, terminal causes, announced-load-informed control
   decisions, structural/WIP recovery, maintenance services, system pressure, and bottleneck prevalence
   so a wide deterministic sweep is useful as gameplay feedback rather than only a pass/fail result.
   Starting conditions vary ore grade, batch size, crusher condition, one finite crusher-service
   replacement stock, two competing structural bays, existing bay load, an exact stimulus tick, an
-  imperfect announced snow-load estimate, and finite mechanical work reserves. Deep Hearth does not
-  yet implement a weather or forecast owner: the snow event is explicitly an external harness stimulus
+  imperfect announced snow-load estimate, and finite mechanical work reserves. Batch size and initial
+  condition are derived from current authored crusher capabilities and maintenance bands. Support
+  geometry and load magnitudes scale from current equipment weight, material strength, and structural
+  thresholds, while stimulus timing is selected within a horizon derived from a real resolved batch
+  duration. Bootstrap-only matter/energy seeding and structural materialization are isolated in one
+  setup module and cannot be called by the acting policy. Deep Hearth does not yet implement a weather
+  or forecast owner: the snow event is explicitly an external harness stimulus
   committed through the canonical structural-load transaction. Its actual magnitude is revealed to the
   acting policy only when the event occurs and is applied to both workshop bays rather than following
   the selected machine. Wider seed sweeps remain explicit diagnostic exercises rather than a fixed gate
