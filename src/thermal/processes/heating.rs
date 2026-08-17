@@ -192,16 +192,33 @@ impl Error for SensibleHeatingResolutionError {
             Self::Duration(error) => Some(error),
             Self::Output(error) => Some(error),
             Self::Resolution(error) => Some(error),
-            Self::UnknownThermalProcess { .. }
-            | Self::MissingHeatingPower { .. }
-            | Self::MissingMaximumTemperature { .. }
-            | Self::MissingMaximumBatchMass { .. }
-            | Self::TargetExceedsEquipmentMaximum { .. }
-            | Self::BatchMassExceedsEquipmentCapacity { .. }
-            | Self::TargetBelowInputTemperature { .. }
-            | Self::RequiredEnergyOverflow
-            | Self::NoHeatingRequired
-            | Self::WrongEnergyCarrier { .. } => None,
+            Self::UnknownThermalProcess { process: _process } => None,
+            Self::MissingHeatingPower {
+                capability: _capability,
+            }
+            | Self::MissingMaximumTemperature {
+                capability: _capability,
+            }
+            | Self::MissingMaximumBatchMass {
+                capability: _capability,
+            } => None,
+            Self::TargetExceedsEquipmentMaximum {
+                target: _target,
+                maximum: _maximum,
+            } => None,
+            Self::TargetBelowInputTemperature {
+                current: _current,
+                target: _target,
+            } => None,
+            Self::BatchMassExceedsEquipmentCapacity {
+                selected: _selected,
+                maximum: _maximum,
+            } => None,
+            Self::WrongEnergyCarrier {
+                required: _required,
+                provided: _provided,
+            } => None,
+            Self::RequiredEnergyOverflow | Self::NoHeatingRequired => None,
         }
     }
 }

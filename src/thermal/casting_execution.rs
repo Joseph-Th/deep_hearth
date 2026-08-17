@@ -210,18 +210,37 @@ impl Display for CastingBatchError {
 impl Error for CastingBatchError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::SensibleHeat { error, .. } => Some(error),
-            Self::FusionHeat { error, .. } => Some(error),
+            Self::SensibleHeat {
+                material: _material,
+                error,
+            } => Some(error),
+            Self::FusionHeat {
+                material: _material,
+                error,
+            } => Some(error),
             Self::Output(error) => Some(error),
-            Self::EmptyInput
-            | Self::UnknownInputForm { .. }
-            | Self::InputNotLiquid { .. }
-            | Self::ImpureInput { .. }
-            | Self::PureMaterialDoesNotMatchCommodity { .. }
-            | Self::MixedMaterials { .. }
-            | Self::InputBelowMeltingPoint { .. }
-            | Self::EnergyOverflow
-            | Self::MassOverflow => None,
+            Self::UnknownInputForm { form: _form } => None,
+            Self::InputNotLiquid {
+                form: _form,
+                phase: _phase,
+            } => None,
+            Self::ImpureInput {
+                commodity: _commodity,
+            } => None,
+            Self::PureMaterialDoesNotMatchCommodity {
+                commodity: _commodity,
+                pure: _pure,
+            } => None,
+            Self::MixedMaterials {
+                expected: _expected,
+                found: _found,
+            } => None,
+            Self::InputBelowMeltingPoint {
+                material: _material,
+                current: _current,
+                melting_point: _melting_point,
+            } => None,
+            Self::EmptyInput | Self::EnergyOverflow | Self::MassOverflow => None,
         }
     }
 }
@@ -506,13 +525,28 @@ impl Error for CastingResolutionError {
             Self::EnergySink(error) => Some(error),
             Self::Duration(error) => Some(error),
             Self::Resolution(error) => Some(error),
-            Self::UnknownThermalProcess { .. }
-            | Self::MissingCoolingPower { .. }
-            | Self::MissingMaximumTemperature { .. }
-            | Self::MissingMaximumBatchMass { .. }
-            | Self::BatchMassExceedsEquipmentCapacity { .. }
-            | Self::InputTemperatureExceedsEquipmentMaximum { .. }
-            | Self::WrongEnergyCarrier { .. } => None,
+            Self::UnknownThermalProcess { process: _process } => None,
+            Self::MissingCoolingPower {
+                capability: _capability,
+            }
+            | Self::MissingMaximumTemperature {
+                capability: _capability,
+            }
+            | Self::MissingMaximumBatchMass {
+                capability: _capability,
+            } => None,
+            Self::BatchMassExceedsEquipmentCapacity {
+                selected: _selected,
+                maximum: _maximum,
+            } => None,
+            Self::InputTemperatureExceedsEquipmentMaximum {
+                input: _input,
+                maximum: _maximum,
+            } => None,
+            Self::WrongEnergyCarrier {
+                required: _required,
+                provided: _provided,
+            } => None,
         }
     }
 }
@@ -846,24 +880,48 @@ impl Display for CastingJobValidationError {
 impl Error for CastingJobValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Batch { error, .. } => Some(error),
-            Self::Duration { error, .. } => Some(error),
-            Self::UnexpectedConsumedEnergy { .. }
-            | Self::MissingReleasedEnergy { .. }
-            | Self::MissingEquipmentProvider { .. }
-            | Self::UnknownEquipmentDefinition { .. }
-            | Self::UnknownEnergyDefinition { .. }
-            | Self::MissingCoolingPowerCapability { .. }
-            | Self::MissingMaximumTemperatureCapability { .. }
-            | Self::MissingMaximumBatchMassCapability { .. }
-            | Self::BatchMassExceedsEquipmentCapacity { .. }
-            | Self::InputTemperatureExceedsEquipmentMaximum { .. }
-            | Self::WrongEnergyCarrier { .. }
-            | Self::ReleasedEnergyMismatch { .. }
-            | Self::DurationMismatch { .. }
-            | Self::MissingEquipmentConditionOutcome { .. }
-            | Self::EquipmentConditionOutcomeMismatch { .. }
-            | Self::OutputMismatch { .. } => None,
+            Self::Batch { job: _job, error } => Some(error),
+            Self::Duration { job: _job, error } => Some(error),
+            Self::UnexpectedConsumedEnergy { job: _job }
+            | Self::MissingReleasedEnergy { job: _job }
+            | Self::MissingEquipmentProvider { job: _job }
+            | Self::UnknownEquipmentDefinition { job: _job }
+            | Self::UnknownEnergyDefinition { job: _job }
+            | Self::MissingCoolingPowerCapability { job: _job }
+            | Self::MissingMaximumTemperatureCapability { job: _job }
+            | Self::MissingMaximumBatchMassCapability { job: _job }
+            | Self::MissingEquipmentConditionOutcome { job: _job }
+            | Self::OutputMismatch { job: _job } => None,
+            Self::BatchMassExceedsEquipmentCapacity {
+                job: _job,
+                selected: _selected,
+                maximum: _maximum,
+            } => None,
+            Self::InputTemperatureExceedsEquipmentMaximum {
+                job: _job,
+                input: _input,
+                maximum: _maximum,
+            } => None,
+            Self::WrongEnergyCarrier {
+                job: _job,
+                required: _required,
+                provided: _provided,
+            } => None,
+            Self::ReleasedEnergyMismatch {
+                job: _job,
+                traced: _traced,
+                required: _required,
+            } => None,
+            Self::DurationMismatch {
+                job: _job,
+                stored: _stored,
+                required: _required,
+            } => None,
+            Self::EquipmentConditionOutcomeMismatch {
+                job: _job,
+                stored: _stored,
+                required: _required,
+            } => None,
         }
     }
 }

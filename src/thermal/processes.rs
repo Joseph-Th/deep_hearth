@@ -1074,7 +1074,11 @@ mod tests {
             ),
             Err(SensibleHeatingResolutionError::Heat(
                 PhaseSensibleHeatError::InvalidTargetState(
-                    crate::material::MaterialPhaseStateError::SolidAboveMeltingPoint { .. }
+                    crate::material::MaterialPhaseStateError::SolidAboveMeltingPoint {
+                        material: _material,
+                        temperature: _temperature,
+                        melting_point: _melting_point,
+                    }
                 )
             ))
         ));

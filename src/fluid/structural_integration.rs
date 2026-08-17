@@ -128,14 +128,27 @@ impl Error for FluidStructuralLoadError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::UnknownStore { .. }
-            | Self::UnknownSupport { .. }
-            | Self::UnknownFluidDefinition { .. }
-            | Self::SupportNotActiveForIncrease { .. }
-            | Self::StoreMassNumeratorOverflow { .. }
-            | Self::AggregateMassNumeratorOverflow { .. }
-            | Self::WeightForceOverflow { .. }
-            | Self::ExistingLoadMismatch { .. } => None,
+            Self::UnknownStore { store: _store }
+            | Self::StoreMassNumeratorOverflow { store: _store } => None,
+            Self::UnknownSupport {
+                store: _store,
+                element: _element,
+            } => None,
+            Self::UnknownFluidDefinition {
+                store: _store,
+                definition: _definition,
+            } => None,
+            Self::SupportNotActiveForIncrease {
+                element: _element,
+                lifecycle: _lifecycle,
+            } => None,
+            Self::AggregateMassNumeratorOverflow { element: _element }
+            | Self::WeightForceOverflow { element: _element } => None,
+            Self::ExistingLoadMismatch {
+                element: _element,
+                stored: _stored,
+                expected: _expected,
+            } => None,
         }
     }
 }
@@ -409,11 +422,16 @@ impl Error for FluidSupportError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Load(error) => Some(error),
-            Self::UnknownStore { .. }
-            | Self::AlreadyMounted { .. }
-            | Self::NotMounted { .. }
-            | Self::TargetNotActive { .. }
-            | Self::FluidRevisionExhausted => None,
+            Self::UnknownStore { store: _store } | Self::NotMounted { store: _store } => None,
+            Self::AlreadyMounted {
+                store: _store,
+                element: _element,
+            } => None,
+            Self::TargetNotActive {
+                element: _element,
+                lifecycle: _lifecycle,
+            } => None,
+            Self::FluidRevisionExhausted => None,
         }
     }
 }
@@ -469,9 +487,16 @@ impl Error for FluidSupportCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleFluidRevision { .. }
-            | Self::UnknownStore { .. }
-            | Self::SupportChanged { .. } => None,
+            Self::StaleFluidRevision {
+                expected: _expected,
+                actual: _actual,
+            } => None,
+            Self::UnknownStore { store: _store } => None,
+            Self::SupportChanged {
+                store: _store,
+                expected: _expected,
+                actual: _actual,
+            } => None,
         }
     }
 }
@@ -1087,7 +1112,10 @@ mod tests {
         assert!(matches!(
             token.commit(&mut state),
             Err(super::super::FluidTransferCommitError::Structure(
-                StructuralCommitError::StaleRevision { .. }
+                StructuralCommitError::StaleRevision {
+                    expected: _expected,
+                    actual: _actual,
+                }
             ))
         ));
         assert_eq!(state.fluid(), &fluid_before);
@@ -1110,7 +1138,10 @@ mod tests {
 
         assert!(matches!(
             token.commit(&mut state),
-            Err(FluidSupportCommitError::StaleFluidRevision { .. })
+            Err(FluidSupportCommitError::StaleFluidRevision {
+                expected: _expected,
+                actual: _actual,
+            })
         ));
         assert_eq!(state.structures(), &structure_before);
         assert_eq!(

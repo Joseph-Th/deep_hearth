@@ -9,14 +9,14 @@ use crate::material::{CommodityKey, MaterialComposition, MaterialLotSpec, Materi
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
+use super::ingress::{
+    MaterialIngressEntry, MaterialIngressError, apply_material_ingress, validate_material_ingress,
+};
 use super::state::{MaterialLotId, StockpileId, StockpileStorageProfile};
 use super::structural_integration::{
     StockpileStoredMassChange, StockpileStructuralLoadError, validate_stockpile_stored_mass_changes,
 };
-use super::transactions::{
-    AddStockpileError, MaterialIngressError, add_stockpile, apply_material_ingress,
-    validate_material_ingress,
-};
+use super::transactions::{AddStockpileError, add_stockpile};
 
 #[cfg(test)]
 const TEST_REFERENCE_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
@@ -128,12 +128,14 @@ pub(crate) fn deposit_lot_spec_for_test(
     specification: MaterialLotSpec,
 ) -> Result<MaterialLotId, MaterialFixtureError> {
     let mass = specification.mass();
+    let created_at = state.tick();
+    let entry = MaterialIngressEntry::from_lot_spec(specification, created_at);
     let ingress = validate_material_ingress(
         registries,
         state.inventory(),
         stockpile,
-        specification,
-        state.tick(),
+        [entry],
+        created_at,
     )
     .map_err(MaterialFixtureError::Ingress)?;
     let record = state
@@ -156,5 +158,9 @@ pub(crate) fn deposit_lot_spec_for_test(
             .map_err(MaterialFixtureError::StructuralCommit)?;
     }
 
-    Ok(apply_material_ingress(state.inventory_state_mut(), ingress))
+    let resulting_lots = apply_material_ingress(state.inventory_state_mut(), ingress);
+    let [resulting_lot] = resulting_lots.as_slice() else {
+        unreachable!("single-parcel fixture ingress must produce exactly one resulting lot")
+    };
+    Ok(*resulting_lot)
 }

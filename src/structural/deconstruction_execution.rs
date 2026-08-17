@@ -10,9 +10,9 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::{
-    MaterialBatchIngressError, MaterialLotId, StockpileId, StockpileStorageError,
-    StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedMaterialBatchIngress,
-    apply_material_batch_ingress, resolve_stockpile_stored_loads, validate_material_batch_ingress,
+    MaterialIngressEntry, MaterialIngressError, MaterialLotId, StockpileId, StockpileStorageError,
+    StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedMaterialIngress,
+    apply_material_ingress, resolve_stockpile_stored_loads, validate_material_ingress,
 };
 use crate::registry::Registries;
 
@@ -142,33 +142,39 @@ impl Error for StructuralDeconstructionError {
             Self::Structure(error) => Some(error),
             Self::DestinationStorage(error) => Some(error),
             Self::StoredMatterLoad(error) => Some(error),
-            Self::UnknownElement { .. }
-            | Self::NoEmbodiedMatter { .. }
-            | Self::UnknownDestination { .. }
-            | Self::InvalidEmbodiedMatter { .. }
-            | Self::DestinationMassOverflow { .. }
-            | Self::DestinationCapacityExceeded { .. }
-            | Self::LotIdExhausted
-            | Self::InventoryRevisionExhausted => None,
+            Self::UnknownElement { element: _element }
+            | Self::NoEmbodiedMatter { element: _element }
+            | Self::InvalidEmbodiedMatter { element: _element } => None,
+            Self::UnknownDestination {
+                stockpile: _stockpile,
+            }
+            | Self::DestinationMassOverflow {
+                stockpile: _stockpile,
+            } => None,
+            Self::DestinationCapacityExceeded {
+                stockpile: _stockpile,
+                capacity: _capacity,
+                committed: _committed,
+                requested: _requested,
+            } => None,
+            Self::LotIdExhausted | Self::InventoryRevisionExhausted => None,
         }
     }
 }
 
-fn map_batch_error(
+fn map_ingress_error(
     element: StructuralElementId,
-    error: MaterialBatchIngressError,
+    error: MaterialIngressError,
 ) -> StructuralDeconstructionError {
     match error {
-        MaterialBatchIngressError::EmptyBatch => {
-            StructuralDeconstructionError::NoEmbodiedMatter { element }
-        }
-        MaterialBatchIngressError::UnknownStockpile { stockpile } => {
+        MaterialIngressError::Empty => StructuralDeconstructionError::NoEmbodiedMatter { element },
+        MaterialIngressError::UnknownStockpile { stockpile } => {
             StructuralDeconstructionError::UnknownDestination { stockpile }
         }
-        MaterialBatchIngressError::MassOverflow { stockpile } => {
+        MaterialIngressError::MassOverflow { stockpile } => {
             StructuralDeconstructionError::DestinationMassOverflow { stockpile }
         }
-        MaterialBatchIngressError::CapacityExceeded {
+        MaterialIngressError::CapacityExceeded {
             stockpile,
             capacity,
             committed,
@@ -179,23 +185,38 @@ fn map_batch_error(
             committed,
             requested,
         },
-        MaterialBatchIngressError::LotIdExhausted => StructuralDeconstructionError::LotIdExhausted,
-        MaterialBatchIngressError::RevisionExhausted => {
+        MaterialIngressError::LotIdExhausted => StructuralDeconstructionError::LotIdExhausted,
+        MaterialIngressError::RevisionExhausted => {
             StructuralDeconstructionError::InventoryRevisionExhausted
         }
-        MaterialBatchIngressError::Storage(error) => {
+        MaterialIngressError::Storage(error) => {
             StructuralDeconstructionError::DestinationStorage(error)
         }
-        MaterialBatchIngressError::UnknownMaterial { .. }
-        | MaterialBatchIngressError::UnknownForm { .. }
-        | MaterialBatchIngressError::UnknownCompositionMaterial { .. }
-        | MaterialBatchIngressError::ZeroMass
-        | MaterialBatchIngressError::InvalidComposition { .. }
-        | MaterialBatchIngressError::CompositionMissingHost { .. }
-        | MaterialBatchIngressError::InvalidProvenance
-        | MaterialBatchIngressError::ProvenanceInFuture { .. } => {
+        MaterialIngressError::UnknownMaterial {
+            material: _material,
+        }
+        | MaterialIngressError::UnknownCompositionMaterial {
+            material: _material,
+        } => StructuralDeconstructionError::InvalidEmbodiedMatter { element },
+        MaterialIngressError::UnknownForm { form: _form } => {
             StructuralDeconstructionError::InvalidEmbodiedMatter { element }
         }
+        MaterialIngressError::ZeroMass => {
+            StructuralDeconstructionError::InvalidEmbodiedMatter { element }
+        }
+        MaterialIngressError::InvalidComposition { error: _error } => {
+            StructuralDeconstructionError::InvalidEmbodiedMatter { element }
+        }
+        MaterialIngressError::CompositionMissingHost { host: _host } => {
+            StructuralDeconstructionError::InvalidEmbodiedMatter { element }
+        }
+        MaterialIngressError::InvalidProvenance => {
+            StructuralDeconstructionError::InvalidEmbodiedMatter { element }
+        }
+        MaterialIngressError::ProvenanceInFuture {
+            latest: _latest,
+            current: _current,
+        } => StructuralDeconstructionError::InvalidEmbodiedMatter { element },
     }
 }
 
@@ -225,7 +246,10 @@ impl Error for StructuralDeconstructionCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleInventoryRevision { .. } => None,
+            Self::StaleInventoryRevision {
+                expected: _expected,
+                actual: _actual,
+            } => None,
         }
     }
 }
@@ -254,7 +278,7 @@ impl StructuralDeconstructionOutcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedStructuralDeconstruction {
     removal: ValidatedStructuralRemovalWithLoads,
-    ingress: ValidatedMaterialBatchIngress,
+    ingress: ValidatedMaterialIngress,
 }
 
 impl ValidatedStructuralDeconstruction {
@@ -282,8 +306,7 @@ impl ValidatedStructuralDeconstruction {
             .removal
             .commit(state)
             .map_err(StructuralDeconstructionCommitError::Structure)?;
-        let recovered_lots =
-            apply_material_batch_ingress(state.inventory_state_mut(), self.ingress);
+        let recovered_lots = apply_material_ingress(state.inventory_state_mut(), self.ingress);
         Ok(StructuralDeconstructionOutcome {
             structural,
             recovered_lots,
@@ -305,14 +328,17 @@ pub fn validate_structural_deconstruction(
     if record.embodied_mass().is_zero() || record.embodied_material().is_empty() {
         return Err(StructuralDeconstructionError::NoEmbodiedMatter { element });
     }
-    let ingress = validate_material_batch_ingress(
+    let ingress = validate_material_ingress(
         registries,
         state.inventory(),
         resolution.destination,
-        record.embodied_material(),
+        record
+            .embodied_material()
+            .iter()
+            .map(MaterialIngressEntry::from_consumed_trace),
         state.tick(),
     )
-    .map_err(|error| map_batch_error(element, error))?;
+    .map_err(|error| map_ingress_error(element, error))?;
     let destination = state
         .inventory()
         .get_stockpile(resolution.destination)
@@ -694,7 +720,12 @@ mod tests {
                 &state,
                 make_test_deconstruction_resolution(element, destination),
             ),
-            Err(StructuralDeconstructionError::DestinationCapacityExceeded { .. })
+            Err(StructuralDeconstructionError::DestinationCapacityExceeded {
+                stockpile: _stockpile,
+                capacity: _capacity,
+                committed: _committed,
+                requested: _requested,
+            })
         ));
         assert_eq!(state, before);
     }
@@ -724,7 +755,12 @@ mod tests {
         let before_inventory_commit = state.clone();
         assert!(matches!(
             stale_inventory.commit(&mut state),
-            Err(StructuralDeconstructionCommitError::StaleInventoryRevision { .. })
+            Err(
+                StructuralDeconstructionCommitError::StaleInventoryRevision {
+                    expected: _expected,
+                    actual: _actual,
+                }
+            )
         ));
         assert_eq!(state, before_inventory_commit);
         assert!(state.structures().get_element(element).is_some());
@@ -759,7 +795,10 @@ mod tests {
         assert!(matches!(
             stale_structure.commit(&mut state),
             Err(StructuralDeconstructionCommitError::Structure(
-                StructuralCommitError::StaleRevision { .. }
+                StructuralCommitError::StaleRevision {
+                    expected: _expected,
+                    actual: _actual,
+                }
             ))
         ));
         assert_eq!(state, before_structure_commit);

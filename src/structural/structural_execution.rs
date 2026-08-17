@@ -61,10 +61,11 @@ impl Error for AddStructuralElementError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Geometry(error) => Some(error),
-            Self::UnknownProfile { .. }
-            | Self::UnknownMaterial { .. }
-            | Self::IdExhausted
-            | Self::RevisionExhausted => None,
+            Self::UnknownProfile { profile: _profile } => None,
+            Self::UnknownMaterial {
+                material: _material,
+            } => None,
+            Self::IdExhausted | Self::RevisionExhausted => None,
         }
     }
 }
@@ -317,25 +318,49 @@ impl Error for StructuralMutationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Analysis(error) => Some(error),
-            Self::UnknownElement { .. }
-            | Self::UnknownSupport { .. }
-            | Self::ElementFailed { .. }
-            | Self::ElementSupportsEquipment { .. }
-            | Self::ElementSupportsStockpile { .. }
-            | Self::ElementSupportsFluidStore { .. }
-            | Self::ElementOwnsMatter { .. }
-            | Self::LoadOwnedBySubsystem { .. }
-            | Self::LoadTargetsRemovedElement { .. }
-            | Self::SupportFailed { .. }
-            | Self::GroundedElementCannotHaveSupport { .. }
-            | Self::SelfSupport { .. }
-            | Self::DuplicateSupport { .. }
-            | Self::MissingSupport { .. }
-            | Self::SupportCycle { .. }
-            | Self::ElementNotPlanned { .. }
-            | Self::ActivationUnsupported { .. }
-            | Self::ActivationUnmaterialized { .. }
-            | Self::RevisionExhausted => None,
+            Self::UnknownElement { element: _element }
+            | Self::ElementFailed { element: _element }
+            | Self::GroundedElementCannotHaveSupport { element: _element }
+            | Self::SelfSupport { element: _element }
+            | Self::ElementNotPlanned { element: _element }
+            | Self::ActivationUnsupported { element: _element }
+            | Self::ActivationUnmaterialized { element: _element } => None,
+            Self::UnknownSupport { support: _support }
+            | Self::SupportFailed { support: _support } => None,
+            Self::ElementSupportsEquipment {
+                element: _element,
+                equipment: _equipment,
+            } => None,
+            Self::ElementSupportsStockpile {
+                element: _element,
+                stockpile: _stockpile,
+            } => None,
+            Self::ElementSupportsFluidStore {
+                element: _element,
+                store: _store,
+            } => None,
+            Self::ElementOwnsMatter {
+                element: _element,
+                mass: _mass,
+            } => None,
+            Self::LoadOwnedBySubsystem { kind: _kind } => None,
+            Self::LoadTargetsRemovedElement {
+                element: _element,
+                kind: _kind,
+            } => None,
+            Self::DuplicateSupport {
+                element: _element,
+                support: _support,
+            }
+            | Self::MissingSupport {
+                element: _element,
+                support: _support,
+            }
+            | Self::SupportCycle {
+                element: _element,
+                support: _support,
+            } => None,
+            Self::RevisionExhausted => None,
         }
     }
 }
@@ -398,8 +423,15 @@ fn apply_damage_events(
     for event in events {
         let element = event.element();
         match event {
-            StructuralDamageEvent::Cracked { .. } => structures.apply_damage(element, false),
-            StructuralDamageEvent::Failed { .. } => structures.apply_damage(element, true),
+            StructuralDamageEvent::Cracked {
+                element: _element,
+                carried_load: _carried_load,
+                pristine_capacity: _pristine_capacity,
+            } => structures.apply_damage(element, false),
+            StructuralDamageEvent::Failed {
+                element: _element,
+                cause: _cause,
+            } => structures.apply_damage(element, true),
         }
     }
 }
@@ -711,9 +743,10 @@ fn build_plan(
         .ok_or(StructuralMutationError::RevisionExhausted)?;
     validate_operation_commit_state(state.structures(), operation).map_err(
         |error| match error {
-            StructuralCommitError::StaleRevision { .. } => {
-                StructuralMutationError::RevisionExhausted
-            }
+            StructuralCommitError::StaleRevision {
+                expected: _expected,
+                actual: _actual,
+            } => StructuralMutationError::RevisionExhausted,
             StructuralCommitError::StateChanged { element } => {
                 StructuralMutationError::UnknownElement { element }
             }

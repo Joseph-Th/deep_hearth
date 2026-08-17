@@ -384,7 +384,10 @@ mod tests {
         .unwrap_or_else(|error| panic!("touching particle class failed: {error}"));
         assert!(matches!(
             ParticleSizeDistribution::new(vec![first, touching]),
-            Err(ParticleSizeDistributionError::OverlappingClasses { .. })
+            Err(ParticleSizeDistributionError::OverlappingClasses {
+                previous: _previous,
+                current: _current,
+            })
         ));
 
         let encoded = br#"{

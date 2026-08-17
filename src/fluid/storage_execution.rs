@@ -302,18 +302,38 @@ impl Error for FluidTransferError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::StructuralLoad(error) => Some(error),
-            Self::SameStore { .. }
-            | Self::ZeroVolume
-            | Self::UnknownSource { .. }
-            | Self::UnknownDestination { .. }
-            | Self::SourceEmpty { .. }
-            | Self::UnknownFluidDefinition { .. }
-            | Self::InsufficientSourceVolume { .. }
-            | Self::DestinationFluidMismatch { .. }
-            | Self::DestinationTemperatureMismatch { .. }
-            | Self::DestinationVolumeOverflow { .. }
-            | Self::DestinationCapacityExceeded { .. }
-            | Self::RevisionExhausted => None,
+            Self::SameStore { store: _store }
+            | Self::UnknownSource { store: _store }
+            | Self::UnknownDestination { store: _store }
+            | Self::SourceEmpty { store: _store } => None,
+            Self::UnknownFluidDefinition {
+                definition: _definition,
+            } => None,
+            Self::InsufficientSourceVolume {
+                store: _store,
+                available: _available,
+                requested: _requested,
+            } => None,
+            Self::DestinationFluidMismatch {
+                destination: _destination,
+                stored: _stored,
+                incoming: _incoming,
+            } => None,
+            Self::DestinationTemperatureMismatch {
+                destination: _destination,
+                stored: _stored,
+                incoming: _incoming,
+            } => None,
+            Self::DestinationVolumeOverflow {
+                destination: _destination,
+            } => None,
+            Self::DestinationCapacityExceeded {
+                destination: _destination,
+                capacity: _capacity,
+                stored: _stored,
+                requested: _requested,
+            } => None,
+            Self::ZeroVolume | Self::RevisionExhausted => None,
         }
     }
 }
@@ -499,9 +519,13 @@ impl Error for FluidTransferCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleRevision { .. }
-            | Self::SourceChanged { .. }
-            | Self::DestinationChanged { .. } => None,
+            Self::StaleRevision {
+                expected: _expected,
+                actual: _actual,
+            } => None,
+            Self::SourceChanged { store: _store } | Self::DestinationChanged { store: _store } => {
+                None
+            }
         }
     }
 }
@@ -767,7 +791,11 @@ mod tests {
                     Volume::from_microliters(1),
                 ),
             ),
-            Err(FluidTransferError::DestinationFluidMismatch { .. })
+            Err(FluidTransferError::DestinationFluidMismatch {
+                destination: _destination,
+                stored: _stored,
+                incoming: _incoming,
+            })
         ));
         assert!(matches!(
             validate_fluid_transfer(
@@ -775,7 +803,11 @@ mod tests {
                 &state,
                 make_test_fluid_transfer_resolution(source, hotter, Volume::from_microliters(1),),
             ),
-            Err(FluidTransferError::DestinationTemperatureMismatch { .. })
+            Err(FluidTransferError::DestinationTemperatureMismatch {
+                destination: _destination,
+                stored: _stored,
+                incoming: _incoming,
+            })
         ));
         assert_eq!(state, before);
     }
@@ -797,7 +829,12 @@ mod tests {
                     Volume::from_microliters(6),
                 ),
             ),
-            Err(FluidTransferError::DestinationCapacityExceeded { .. })
+            Err(FluidTransferError::DestinationCapacityExceeded {
+                destination: _destination,
+                capacity: _capacity,
+                stored: _stored,
+                requested: _requested,
+            })
         ));
         assert_eq!(state, before_capacity_failure);
 

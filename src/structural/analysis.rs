@@ -53,7 +53,15 @@ impl StructuralDamageEvent {
     #[must_use]
     pub const fn element(self) -> StructuralElementId {
         match self {
-            Self::Cracked { element, .. } | Self::Failed { element, .. } => element,
+            Self::Cracked {
+                element,
+                carried_load: _carried_load,
+                pristine_capacity: _pristine_capacity,
+            } => element,
+            Self::Failed {
+                element,
+                cause: _cause,
+            } => element,
         }
     }
 }

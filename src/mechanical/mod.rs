@@ -554,7 +554,10 @@ mod tests {
                 Torque::from_micronewton_meters(11),
                 AngularSpeed::from_microradians_per_second(1),
             ),
-            Err(RotationalOperatingPointError::TorqueExceeded { .. })
+            Err(RotationalOperatingPointError::TorqueExceeded {
+                requested: _requested,
+                maximum: _maximum,
+            })
         ));
         assert!(matches!(
             validate_rotational_operating_point(
@@ -562,7 +565,10 @@ mod tests {
                 Torque::from_micronewton_meters(1),
                 AngularSpeed::from_microradians_per_second(21),
             ),
-            Err(RotationalOperatingPointError::AngularSpeedExceeded { .. })
+            Err(RotationalOperatingPointError::AngularSpeedExceeded {
+                requested: _requested,
+                maximum: _maximum,
+            })
         ));
     }
 

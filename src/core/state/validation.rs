@@ -618,53 +618,184 @@ impl Error for StateValidationError {
             Self::ComminutionJob(error) => Some(error),
             Self::ScreeningJob(error) => Some(error),
             Self::ThermalJob(error) => Some(error),
-            Self::JobOutputStorage { error, .. } => Some(error),
-            Self::InvalidJobConsumedParticleSizeState { error, .. } => Some(error),
+            Self::JobOutputStorage { job: _job, error } => Some(error),
+            Self::InvalidJobConsumedParticleSizeState { job: _job, error } => Some(error),
             Self::FluidStructuralLoad(error) => Some(error),
-            Self::RandomWorldSeedMismatch { .. }
-            | Self::UnresolvedStructuralDamage { .. }
-            | Self::UnknownStoredCommodity { .. }
-            | Self::LotCreatedInFuture { .. }
-            | Self::LotProvenanceInFuture { .. }
-            | Self::UnknownLotCompositionMaterial { .. }
-            | Self::UnknownJobProcess { .. }
-            | Self::UnknownJobSource { .. }
-            | Self::UnknownJobDestination { .. }
-            | Self::UnknownJobEnergySource { .. }
-            | Self::JobEnergyDefinitionMismatch { .. }
-            | Self::JobEnergyCarrierMismatch { .. }
-            | Self::UnknownJobEnergySink { .. }
-            | Self::JobReleasedEnergyDefinitionMismatch { .. }
-            | Self::JobReleasedEnergyCarrierMismatch { .. }
-            | Self::JobReleasedEnergySinkHasNoInputPower { .. }
-            | Self::JobReleasedEnergyCapacityOverflow { .. }
-            | Self::JobReleasedEnergyCapacityExceeded { .. }
-            | Self::EnergyStoreDoubleBooked { .. }
-            | Self::UnknownJobEquipment { .. }
-            | Self::JobEquipmentDefinitionMismatch { .. }
-            | Self::JobEquipmentConditionMismatch { .. }
-            | Self::EquipmentDoubleBooked { .. }
-            | Self::UnknownEquipmentSupport { .. }
-            | Self::EquipmentSupportedByPlannedElement { .. }
-            | Self::MountedEquipmentMassOverflow { .. }
-            | Self::MountedEquipmentWeightOverflow { .. }
-            | Self::EquipmentStructuralLoadMismatch { .. }
-            | Self::UnknownStockpileSupport { .. }
-            | Self::StockpileSupportedByPlannedElement { .. }
-            | Self::StoredMatterMassOverflow { .. }
-            | Self::StoredMatterWeightOverflow { .. }
-            | Self::StoredMatterStructuralLoadMismatch { .. }
-            | Self::UnknownFluidSupport { .. }
-            | Self::FluidSupportedByPlannedElement { .. }
-            | Self::JobAlreadyDue { .. }
-            | Self::JobSuspendedInFuture { .. }
-            | Self::ReservedMassOverflow { .. }
-            | Self::UnknownJobOutputCommodity { .. }
-            | Self::UnknownJobOutputCompositionMaterial { .. }
-            | Self::UnknownJobConsumedCommodity { .. }
-            | Self::UnknownJobConsumedCompositionMaterial { .. }
-            | Self::JobOutputMassOverflow { .. }
-            | Self::ReservedInboundMismatch { .. } => None,
+            Self::RandomWorldSeedMismatch {
+                world_seed: _world_seed,
+                random_seed: _random_seed,
+            } => None,
+            Self::UnresolvedStructuralDamage { event: _event } => None,
+            Self::UnknownStoredCommodity {
+                stockpile: _stockpile,
+                commodity: _commodity,
+            } => None,
+            Self::LotCreatedInFuture {
+                lot: _lot,
+                created_at: _created_at,
+                current: _current,
+            } => None,
+            Self::LotProvenanceInFuture {
+                lot: _lot,
+                latest_created_at: _latest_created_at,
+                current: _current,
+            } => None,
+            Self::UnknownLotCompositionMaterial {
+                lot: _lot,
+                material: _material,
+            } => None,
+            Self::UnknownJobProcess {
+                job: _job,
+                process: _process,
+            } => None,
+            Self::UnknownJobSource {
+                job: _job,
+                stockpile: _stockpile,
+            }
+            | Self::UnknownJobDestination {
+                job: _job,
+                stockpile: _stockpile,
+            } => None,
+            Self::UnknownJobEnergySource {
+                job: _job,
+                store: _store,
+            }
+            | Self::UnknownJobEnergySink {
+                job: _job,
+                store: _store,
+            }
+            | Self::JobReleasedEnergySinkHasNoInputPower {
+                job: _job,
+                store: _store,
+            }
+            | Self::JobReleasedEnergyCapacityOverflow {
+                job: _job,
+                store: _store,
+            } => None,
+            Self::JobEnergyDefinitionMismatch {
+                job: _job,
+                traced: _traced,
+                stored: _stored,
+            }
+            | Self::JobReleasedEnergyDefinitionMismatch {
+                job: _job,
+                traced: _traced,
+                stored: _stored,
+            } => None,
+            Self::JobEnergyCarrierMismatch {
+                job: _job,
+                traced: _traced,
+                authored: _authored,
+            }
+            | Self::JobReleasedEnergyCarrierMismatch {
+                job: _job,
+                traced: _traced,
+                authored: _authored,
+            } => None,
+            Self::JobReleasedEnergyCapacityExceeded {
+                job: _job,
+                store: _store,
+                stored: _stored,
+                released: _released,
+                capacity: _capacity,
+            } => None,
+            Self::EnergyStoreDoubleBooked {
+                store: _store,
+                first: _first,
+                second: _second,
+            } => None,
+            Self::UnknownJobEquipment {
+                job: _job,
+                equipment: _equipment,
+            } => None,
+            Self::JobEquipmentDefinitionMismatch {
+                job: _job,
+                traced: _traced,
+                stored: _stored,
+            } => None,
+            Self::JobEquipmentConditionMismatch {
+                job: _job,
+                traced: _traced,
+                stored: _stored,
+            } => None,
+            Self::EquipmentDoubleBooked {
+                equipment: _equipment,
+                first: _first,
+                second: _second,
+            } => None,
+            Self::UnknownEquipmentSupport {
+                equipment: _equipment,
+                element: _element,
+            }
+            | Self::EquipmentSupportedByPlannedElement {
+                equipment: _equipment,
+                element: _element,
+            } => None,
+            Self::MountedEquipmentMassOverflow { element: _element }
+            | Self::MountedEquipmentWeightOverflow { element: _element }
+            | Self::StoredMatterMassOverflow { element: _element }
+            | Self::StoredMatterWeightOverflow { element: _element } => None,
+            Self::EquipmentStructuralLoadMismatch {
+                element: _element,
+                stored: _stored,
+                expected: _expected,
+            }
+            | Self::StoredMatterStructuralLoadMismatch {
+                element: _element,
+                stored: _stored,
+                expected: _expected,
+            } => None,
+            Self::UnknownStockpileSupport {
+                stockpile: _stockpile,
+                element: _element,
+            }
+            | Self::StockpileSupportedByPlannedElement {
+                stockpile: _stockpile,
+                element: _element,
+            } => None,
+            Self::UnknownFluidSupport {
+                store: _store,
+                element: _element,
+            }
+            | Self::FluidSupportedByPlannedElement {
+                store: _store,
+                element: _element,
+            } => None,
+            Self::JobAlreadyDue {
+                job: _job,
+                current: _current,
+                due: _due,
+            } => None,
+            Self::JobSuspendedInFuture {
+                job: _job,
+                current: _current,
+                suspended_at: _suspended_at,
+            } => None,
+            Self::ReservedMassOverflow {
+                stockpile: _stockpile,
+            } => None,
+            Self::UnknownJobOutputCommodity {
+                job: _job,
+                commodity: _commodity,
+            }
+            | Self::UnknownJobConsumedCommodity {
+                job: _job,
+                commodity: _commodity,
+            } => None,
+            Self::UnknownJobOutputCompositionMaterial {
+                job: _job,
+                material: _material,
+            }
+            | Self::UnknownJobConsumedCompositionMaterial {
+                job: _job,
+                material: _material,
+            } => None,
+            Self::JobOutputMassOverflow { job: _job } => None,
+            Self::ReservedInboundMismatch {
+                stockpile: _stockpile,
+                reserved: _reserved,
+                expected: _expected,
+            } => None,
         }
     }
 }

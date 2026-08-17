@@ -6,7 +6,7 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::{
-    MaterialIngressError, MaterialLotId, StockpileId, StockpileStorageError,
+    MaterialIngressEntry, MaterialIngressError, MaterialLotId, StockpileId, StockpileStorageError,
     StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedMaterialIngress,
     ValidatedStockpileStructuralLoad, apply_material_ingress, validate_material_ingress,
     validate_stockpile_stored_mass_changes,
@@ -79,13 +79,19 @@ impl Error for InsertGeneratedDepositError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::InvalidPhaseState(error) => Some(error),
-            Self::UnknownMaterial { .. }
-            | Self::UnknownForm { .. }
-            | Self::UnsupportedPhase { .. }
-            | Self::UnsupportedParticulateForm { .. }
-            | Self::UnknownCompositionMaterial { .. }
-            | Self::IdExhausted
-            | Self::RevisionExhausted => None,
+            Self::UnknownMaterial {
+                material: _material,
+            }
+            | Self::UnknownCompositionMaterial {
+                material: _material,
+            } => None,
+            Self::UnknownForm { form: _form }
+            | Self::UnsupportedParticulateForm { form: _form } => None,
+            Self::UnsupportedPhase {
+                form: _form,
+                phase: _phase,
+            } => None,
+            Self::IdExhausted | Self::RevisionExhausted => None,
         }
     }
 }
@@ -347,17 +353,34 @@ impl Error for GeologicalExtractionError {
             Self::InvalidDepositComposition { error } => Some(error),
             Self::DestinationStorage(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
-            Self::UnknownDeposit { .. }
-            | Self::DepositDepleted { .. }
-            | Self::ZeroMass
-            | Self::InsufficientMass { .. }
-            | Self::UnknownDestination { .. }
-            | Self::UnknownDepositMaterial { .. }
-            | Self::UnknownDepositForm { .. }
-            | Self::UnknownDepositCompositionMaterial { .. }
-            | Self::DepositCompositionMissingHost { .. }
-            | Self::DestinationMassOverflow { .. }
-            | Self::DestinationCapacityExceeded { .. }
+            Self::UnknownDeposit { deposit: _deposit }
+            | Self::DepositDepleted { deposit: _deposit } => None,
+            Self::InsufficientMass {
+                deposit: _deposit,
+                available: _available,
+                requested: _requested,
+            } => None,
+            Self::UnknownDestination {
+                stockpile: _stockpile,
+            }
+            | Self::DestinationMassOverflow {
+                stockpile: _stockpile,
+            } => None,
+            Self::UnknownDepositMaterial {
+                material: _material,
+            }
+            | Self::UnknownDepositCompositionMaterial {
+                material: _material,
+            } => None,
+            Self::UnknownDepositForm { form: _form } => None,
+            Self::DepositCompositionMissingHost { host: _host } => None,
+            Self::DestinationCapacityExceeded {
+                stockpile: _stockpile,
+                capacity: _capacity,
+                committed: _committed,
+                requested: _requested,
+            } => None,
+            Self::ZeroMass
             | Self::LotIdExhausted
             | Self::InventoryRevisionExhausted
             | Self::GeologyRevisionExhausted => None,
@@ -367,6 +390,9 @@ impl Error for GeologicalExtractionError {
 
 fn map_material_ingress_error(error: MaterialIngressError) -> GeologicalExtractionError {
     match error {
+        MaterialIngressError::Empty => {
+            unreachable!("geological extraction always validates exactly one ingress parcel")
+        }
         MaterialIngressError::UnknownStockpile { stockpile } => {
             GeologicalExtractionError::UnknownDestination { stockpile }
         }
@@ -386,6 +412,14 @@ fn map_material_ingress_error(error: MaterialIngressError) -> GeologicalExtracti
         MaterialIngressError::CompositionMissingHost { host } => {
             GeologicalExtractionError::DepositCompositionMissingHost { host }
         }
+        MaterialIngressError::InvalidProvenance => unreachable!(
+            "geological extraction creates exact current-tick provenance for its ingress parcel"
+        ),
+        MaterialIngressError::ProvenanceInFuture { latest, current } => unreachable!(
+            "geological extraction current-tick provenance cannot end at tick {} after tick {}",
+            latest.value(),
+            current.value()
+        ),
         MaterialIngressError::Storage(error) => {
             GeologicalExtractionError::DestinationStorage(error)
         }
@@ -446,9 +480,18 @@ impl Error for GeologicalExtractionCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleGeologyRevision { .. }
-            | Self::StaleInventoryRevision { .. }
-            | Self::StaleStructureRevision { .. } => None,
+            Self::StaleGeologyRevision {
+                expected: _expected,
+                actual: _actual,
+            }
+            | Self::StaleInventoryRevision {
+                expected: _expected,
+                actual: _actual,
+            }
+            | Self::StaleStructureRevision {
+                expected: _expected,
+                actual: _actual,
+            } => None,
         }
     }
 }
@@ -541,7 +584,10 @@ impl ValidatedGeologicalExtraction {
                 .map_err(GeologicalExtractionCommitError::Structure)?;
         }
 
-        let lot = apply_material_ingress(state.inventory_state_mut(), self.ingress);
+        let resulting_lots = apply_material_ingress(state.inventory_state_mut(), self.ingress);
+        let [lot] = resulting_lots.as_slice() else {
+            unreachable!("single-parcel geological ingress must produce exactly one resulting lot")
+        };
         state.geology_state_mut().apply_extraction(
             self.deposit,
             self.remaining_after,
@@ -551,7 +597,7 @@ impl ValidatedGeologicalExtraction {
         Ok(GeologicalExtractionOutcome {
             deposit: self.deposit,
             destination: self.destination,
-            lot,
+            lot: *lot,
             mass: self.mass,
             is_depleted: self.remaining_after.is_zero(),
         })
@@ -596,12 +642,14 @@ pub fn validate_geological_extraction(
         record.composition().clone(),
     )
     .map_err(GeologicalExtractionError::InvalidOutput)?;
+    let current_tick = state.tick();
+    let entry = MaterialIngressEntry::from_lot_spec(output, current_tick);
     let ingress = validate_material_ingress(
         registries,
         state.inventory(),
         destination,
-        output,
-        state.tick(),
+        [entry],
+        current_tick,
     )
     .map_err(map_material_ingress_error)?;
     let destination_record = state.inventory().get_stockpile(destination).ok_or(
@@ -937,7 +985,12 @@ mod tests {
                 &resolution(deposit, 20),
                 destination,
             ),
-            Err(GeologicalExtractionError::DestinationCapacityExceeded { .. })
+            Err(GeologicalExtractionError::DestinationCapacityExceeded {
+                stockpile: _stockpile,
+                capacity: _capacity,
+                committed: _committed,
+                requested: _requested,
+            })
         ));
         assert_eq!(state, before);
     }

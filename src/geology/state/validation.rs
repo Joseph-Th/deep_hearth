@@ -183,23 +183,64 @@ impl Display for GeologyValidationError {
 impl Error for GeologyValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::InvalidComposition { error, .. } => Some(error),
-            Self::InvalidPhaseState { error, .. } => Some(error),
-            Self::ZeroNextDepositId
-            | Self::NextIdNotAfterExisting { .. }
-            | Self::ZeroDepositId
-            | Self::IdMismatch { .. }
-            | Self::ZeroInitialMass { .. }
-            | Self::RemainingMassExceedsInitial { .. }
-            | Self::AvailableWithoutMass { .. }
-            | Self::DepletedWithRemainingMass { .. }
-            | Self::CompositionMissingHost { .. }
-            | Self::UnknownCommodityMaterial { .. }
-            | Self::UnknownCommodityForm { .. }
-            | Self::UnsupportedCommodityPhase { .. }
-            | Self::UnsupportedCommodityParticulateForm { .. }
-            | Self::UnknownCompositionMaterial { .. }
-            | Self::GeneratedInFuture { .. } => None,
+            Self::InvalidComposition {
+                deposit: _deposit,
+                error,
+            } => Some(error),
+            Self::InvalidPhaseState {
+                deposit: _deposit,
+                error,
+            } => Some(error),
+            Self::NextIdNotAfterExisting {
+                next: _next,
+                highest: _highest,
+            } => None,
+            Self::IdMismatch {
+                key: _key,
+                record: _record,
+            } => None,
+            Self::ZeroInitialMass { deposit: _deposit }
+            | Self::AvailableWithoutMass { deposit: _deposit } => None,
+            Self::RemainingMassExceedsInitial {
+                deposit: _deposit,
+                initial: _initial,
+                remaining: _remaining,
+            } => None,
+            Self::DepletedWithRemainingMass {
+                deposit: _deposit,
+                remaining: _remaining,
+            } => None,
+            Self::CompositionMissingHost {
+                deposit: _deposit,
+                host: _host,
+            }
+            | Self::UnknownCommodityMaterial {
+                deposit: _deposit,
+                material: _host,
+            }
+            | Self::UnknownCompositionMaterial {
+                deposit: _deposit,
+                material: _host,
+            } => None,
+            Self::UnknownCommodityForm {
+                deposit: _deposit,
+                form: _form,
+            }
+            | Self::UnsupportedCommodityParticulateForm {
+                deposit: _deposit,
+                form: _form,
+            } => None,
+            Self::UnsupportedCommodityPhase {
+                deposit: _deposit,
+                form: _form,
+                phase: _phase,
+            } => None,
+            Self::GeneratedInFuture {
+                deposit: _deposit,
+                generated_at: _generated_at,
+                current: _current,
+            } => None,
+            Self::ZeroNextDepositId | Self::ZeroDepositId => None,
         }
     }
 }

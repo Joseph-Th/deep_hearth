@@ -110,7 +110,14 @@ impl Display for LoadError {
 impl Error for LoadError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::UnsupportedSchemaVersion { .. } | Self::RegistrySchemaMismatch { .. } => None,
+            Self::UnsupportedSchemaVersion {
+                found: _found,
+                supported: _supported,
+            } => None,
+            Self::RegistrySchemaMismatch {
+                found: _found,
+                supported: _supported,
+            } => None,
             Self::InvalidState(error) => Some(error),
         }
     }

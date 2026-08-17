@@ -135,12 +135,25 @@ impl Error for StockpileStructuralLoadError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::UnknownStockpile { .. }
-            | Self::UnknownSupport { .. }
-            | Self::SupportNotActiveForIncrease { .. }
-            | Self::AggregateMassOverflow { .. }
-            | Self::WeightForceOverflow { .. }
-            | Self::ExistingLoadMismatch { .. } => None,
+            Self::UnknownStockpile {
+                stockpile: _stockpile,
+            } => None,
+            Self::UnknownSupport {
+                stockpile: _stockpile,
+                element: _element,
+            } => None,
+            Self::SupportNotActiveForIncrease {
+                stockpile: _stockpile,
+                element: _element,
+                lifecycle: _lifecycle,
+            } => None,
+            Self::AggregateMassOverflow { element: _element }
+            | Self::WeightForceOverflow { element: _element } => None,
+            Self::ExistingLoadMismatch {
+                element: _element,
+                stored: _stored,
+                expected: _expected,
+            } => None,
         }
     }
 }
@@ -431,12 +444,26 @@ impl Error for StockpileSupportError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Load(error) => Some(error),
-            Self::UnknownStockpile { .. }
-            | Self::AlreadyMounted { .. }
-            | Self::NotMounted { .. }
-            | Self::TargetNotActive { .. }
-            | Self::StockpileBusy { .. }
-            | Self::InventoryRevisionExhausted => None,
+            Self::UnknownStockpile {
+                stockpile: _stockpile,
+            }
+            | Self::NotMounted {
+                stockpile: _stockpile,
+            } => None,
+            Self::AlreadyMounted {
+                stockpile: _stockpile,
+                element: _element,
+            } => None,
+            Self::TargetNotActive {
+                element: _element,
+                lifecycle: _lifecycle,
+            } => None,
+            Self::StockpileBusy {
+                stockpile: _stockpile,
+                job: _job,
+                release: _release,
+            } => None,
+            Self::InventoryRevisionExhausted => None,
         }
     }
 }
@@ -507,10 +534,23 @@ impl Error for StockpileSupportCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleInventoryRevision { .. }
-            | Self::UnknownStockpile { .. }
-            | Self::SupportChanged { .. }
-            | Self::StockpileBusy { .. } => None,
+            Self::StaleInventoryRevision {
+                expected: _expected,
+                actual: _actual,
+            } => None,
+            Self::UnknownStockpile {
+                stockpile: _stockpile,
+            } => None,
+            Self::SupportChanged {
+                stockpile: _stockpile,
+                expected: _expected,
+                actual: _actual,
+            } => None,
+            Self::StockpileBusy {
+                stockpile: _stockpile,
+                job: _job,
+                release: _release,
+            } => None,
         }
     }
 }
@@ -1012,7 +1052,12 @@ mod tests {
 
         assert!(matches!(
             start.commit(&mut state),
-            Err(crate::production::StartProcessCommitError::StaleStructureRevision { .. })
+            Err(
+                crate::production::StartProcessCommitError::StaleStructureRevision {
+                    expected: _expected,
+                    actual: _actual,
+                }
+            )
         ));
         assert_eq!(
             state
@@ -1321,7 +1366,10 @@ mod tests {
         assert!(matches!(
             transfer.commit(&mut state),
             Err(TransferCommitError::Structure(
-                StructuralCommitError::StaleRevision { .. }
+                StructuralCommitError::StaleRevision {
+                    expected: _expected,
+                    actual: _actual,
+                }
             ))
         ));
         assert_eq!(
@@ -1373,7 +1421,10 @@ mod tests {
         assert!(matches!(
             mount.commit(&mut state),
             Err(StockpileSupportCommitError::Structure(
-                StructuralCommitError::StaleRevision { .. }
+                StructuralCommitError::StaleRevision {
+                    expected: _expected,
+                    actual: _actual,
+                }
             ))
         ));
         assert_eq!(
@@ -1441,7 +1492,10 @@ mod tests {
         assert!(matches!(
             transfer.commit(&mut state),
             Err(TransferCommitError::Structure(
-                StructuralCommitError::StaleRevision { .. }
+                StructuralCommitError::StaleRevision {
+                    expected: _expected,
+                    actual: _actual,
+                }
             ))
         ));
         assert_eq!(

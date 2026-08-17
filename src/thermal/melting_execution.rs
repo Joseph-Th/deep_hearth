@@ -208,18 +208,37 @@ impl Display for MeltingBatchError {
 impl Error for MeltingBatchError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::SensibleHeat { error, .. } => Some(error),
-            Self::FusionHeat { error, .. } => Some(error),
+            Self::SensibleHeat {
+                material: _material,
+                error,
+            } => Some(error),
+            Self::FusionHeat {
+                material: _material,
+                error,
+            } => Some(error),
             Self::Output(error) => Some(error),
-            Self::EmptyInput
-            | Self::UnknownInputForm { .. }
-            | Self::InputNotSolid { .. }
-            | Self::ImpureInput { .. }
-            | Self::PureMaterialDoesNotMatchCommodity { .. }
-            | Self::MixedMaterials { .. }
-            | Self::InputAboveMeltingPoint { .. }
-            | Self::EnergyOverflow
-            | Self::MassOverflow => None,
+            Self::UnknownInputForm { form: _form } => None,
+            Self::InputNotSolid {
+                form: _form,
+                phase: _phase,
+            } => None,
+            Self::ImpureInput {
+                commodity: _commodity,
+            } => None,
+            Self::PureMaterialDoesNotMatchCommodity {
+                commodity: _commodity,
+                pure: _pure,
+            } => None,
+            Self::MixedMaterials {
+                expected: _expected,
+                found: _found,
+            } => None,
+            Self::InputAboveMeltingPoint {
+                material: _material,
+                current: _current,
+                melting_point: _melting_point,
+            } => None,
+            Self::EmptyInput | Self::EnergyOverflow | Self::MassOverflow => None,
         }
     }
 }
@@ -503,13 +522,28 @@ impl Error for MeltingResolutionError {
             Self::Energy(error) => Some(error),
             Self::Duration(error) => Some(error),
             Self::Resolution(error) => Some(error),
-            Self::UnknownThermalProcess { .. }
-            | Self::MissingHeatingPower { .. }
-            | Self::MissingMaximumTemperature { .. }
-            | Self::MissingMaximumBatchMass { .. }
-            | Self::BatchMassExceedsEquipmentCapacity { .. }
-            | Self::MeltingPointExceedsEquipmentMaximum { .. }
-            | Self::WrongEnergyCarrier { .. } => None,
+            Self::UnknownThermalProcess { process: _process } => None,
+            Self::MissingHeatingPower {
+                capability: _capability,
+            }
+            | Self::MissingMaximumTemperature {
+                capability: _capability,
+            }
+            | Self::MissingMaximumBatchMass {
+                capability: _capability,
+            } => None,
+            Self::BatchMassExceedsEquipmentCapacity {
+                selected: _selected,
+                maximum: _maximum,
+            } => None,
+            Self::MeltingPointExceedsEquipmentMaximum {
+                melting_point: _melting_point,
+                maximum: _maximum,
+            } => None,
+            Self::WrongEnergyCarrier {
+                required: _required,
+                provided: _provided,
+            } => None,
         }
     }
 }
@@ -836,23 +870,47 @@ impl Display for MeltingJobValidationError {
 impl Error for MeltingJobValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Batch { error, .. } => Some(error),
-            Self::Duration { error, .. } => Some(error),
-            Self::MissingEnergy { .. }
-            | Self::MissingEquipmentProvider { .. }
-            | Self::UnknownEquipmentDefinition { .. }
-            | Self::UnknownEnergyDefinition { .. }
-            | Self::MissingHeatingPowerCapability { .. }
-            | Self::MissingMaximumTemperatureCapability { .. }
-            | Self::MissingMaximumBatchMassCapability { .. }
-            | Self::BatchMassExceedsEquipmentCapacity { .. }
-            | Self::MeltingPointExceedsEquipmentMaximum { .. }
-            | Self::WrongEnergyCarrier { .. }
-            | Self::EnergyMismatch { .. }
-            | Self::DurationMismatch { .. }
-            | Self::MissingEquipmentConditionOutcome { .. }
-            | Self::EquipmentConditionOutcomeMismatch { .. }
-            | Self::OutputMismatch { .. } => None,
+            Self::Batch { job: _job, error } => Some(error),
+            Self::Duration { job: _job, error } => Some(error),
+            Self::MissingEnergy { job: _job }
+            | Self::MissingEquipmentProvider { job: _job }
+            | Self::UnknownEquipmentDefinition { job: _job }
+            | Self::UnknownEnergyDefinition { job: _job }
+            | Self::MissingHeatingPowerCapability { job: _job }
+            | Self::MissingMaximumTemperatureCapability { job: _job }
+            | Self::MissingMaximumBatchMassCapability { job: _job }
+            | Self::MissingEquipmentConditionOutcome { job: _job }
+            | Self::OutputMismatch { job: _job } => None,
+            Self::BatchMassExceedsEquipmentCapacity {
+                job: _job,
+                selected: _selected,
+                maximum: _maximum,
+            } => None,
+            Self::MeltingPointExceedsEquipmentMaximum {
+                job: _job,
+                melting_point: _melting_point,
+                maximum: _maximum,
+            } => None,
+            Self::WrongEnergyCarrier {
+                job: _job,
+                required: _required,
+                provided: _provided,
+            } => None,
+            Self::EnergyMismatch {
+                job: _job,
+                traced: _traced,
+                required: _required,
+            } => None,
+            Self::DurationMismatch {
+                job: _job,
+                stored: _stored,
+                required: _required,
+            } => None,
+            Self::EquipmentConditionOutcomeMismatch {
+                job: _job,
+                stored: _stored,
+                required: _required,
+            } => None,
         }
     }
 }
@@ -1513,7 +1571,9 @@ mod tests {
                 ),
             ),
             Err(MeltingResolutionError::Batch(
-                MeltingBatchError::ImpureInput { .. }
+                MeltingBatchError::ImpureInput {
+                    commodity: _commodity,
+                }
             ))
         ));
 

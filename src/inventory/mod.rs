@@ -1,5 +1,6 @@
 //! Fungible matter storage with passive state, deterministic selection, and validated mutation pipelines.
 
+mod ingress;
 mod reserved_ingress;
 mod selection;
 mod state;
@@ -9,6 +10,10 @@ mod structural_integration;
 mod test_support;
 mod transactions;
 
+pub(crate) use ingress::{
+    MaterialIngressEntry, MaterialIngressError, ValidatedMaterialIngress, apply_material_ingress,
+    validate_material_ingress,
+};
 pub use selection::MaterialLotSelection;
 pub use state::{
     ConsumedMaterialTrace, InventoryState, InventoryValidationError, MaterialLotId,
@@ -43,12 +48,9 @@ pub(crate) use structural_integration::{
     validate_stockpile_stored_mass_changes, validate_stockpile_support_for_new_inbound,
 };
 pub(crate) use transactions::{
-    MaterialBatchIngressError, MaterialEgressError, MaterialIngressError,
-    MaterialRelocationCommitError, MaterialRelocationError, ValidatedMaterialBatchIngress,
-    ValidatedMaterialEgress, ValidatedMaterialIngress, ValidatedMaterialRelocation,
-    apply_material_batch_ingress, apply_material_egress, apply_material_ingress,
-    validate_material_batch_ingress, validate_material_egress_from_selection,
-    validate_material_ingress, validate_material_relocation_from_selection,
+    MaterialEgressError, MaterialRelocationCommitError, MaterialRelocationError,
+    ValidatedMaterialEgress, ValidatedMaterialRelocation, apply_material_egress,
+    validate_material_egress_from_selection, validate_material_relocation_from_selection,
 };
 
 #[cfg(test)]

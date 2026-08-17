@@ -381,42 +381,115 @@ impl Display for StructureValidationError {
 impl Error for StructureValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Geometry { error, .. } => Some(error),
-            Self::InvalidEmbodiedPhaseState { error, .. } => Some(error),
-            Self::ZeroNextElementId
-            | Self::NextElementIdNotAboveAllocated { .. }
-            | Self::ElementKeyMismatch { .. }
-            | Self::UnknownProfile { .. }
-            | Self::UnknownMaterial { .. }
-            | Self::ZeroCrossSection { .. }
-            | Self::ZeroLength { .. }
-            | Self::EmbodiedMassGeometryMismatch { .. }
-            | Self::UnmaterializedLoadBearingElement { .. }
-            | Self::EmbodiedMassMismatch { .. }
-            | Self::EmbodiedMassOverflow { .. }
-            | Self::ZeroEmbodiedTrace { .. }
-            | Self::EmbodiedMaterialMismatch { .. }
-            | Self::UnsupportedEmbodiedComposition { .. }
-            | Self::UnknownEmbodiedCommodity { .. }
-            | Self::UnsupportedEmbodiedPhase { .. }
-            | Self::UnsupportedEmbodiedParticulateForm { .. }
-            | Self::UnknownEmbodiedCompositionMaterial { .. }
-            | Self::InvalidEmbodiedProvenanceRange { .. }
-            | Self::EmbodiedProvenanceInFuture { .. }
-            | Self::SelfWeightOverflow { .. }
-            | Self::SelfWeightMismatch { .. }
-            | Self::ZeroLoadContribution { .. }
-            | Self::CreatedInFuture { .. }
-            | Self::PlannedElementCracked { .. }
-            | Self::FailedElementNotCracked { .. }
-            | Self::MissingSupportIndex { .. }
-            | Self::OrphanSupportIndex { .. }
-            | Self::UnknownSupportReference { .. }
-            | Self::SelfSupport { .. }
-            | Self::GroundedElementHasSupport { .. }
-            | Self::ReverseIndexMismatch { .. }
-            | Self::SupportCycle { .. }
-            | Self::ActiveElementUnsupported { .. } => None,
+            Self::Geometry {
+                element: _element,
+                error,
+            } => Some(error),
+            Self::InvalidEmbodiedPhaseState {
+                element: _element,
+                error,
+            } => Some(error),
+            Self::NextElementIdNotAboveAllocated {
+                next: _next,
+                highest: _highest,
+            } => None,
+            Self::ElementKeyMismatch {
+                key: _key,
+                record: _record,
+            } => None,
+            Self::UnknownProfile {
+                element: _element,
+                profile: _profile,
+            } => None,
+            Self::UnknownMaterial {
+                element: _element,
+                material: _material,
+            }
+            | Self::UnsupportedEmbodiedComposition {
+                element: _element,
+                material: _material,
+            }
+            | Self::UnknownEmbodiedCompositionMaterial {
+                element: _element,
+                material: _material,
+            } => None,
+            Self::ZeroCrossSection { element: _element }
+            | Self::ZeroLength { element: _element }
+            | Self::EmbodiedMassOverflow { element: _element }
+            | Self::ZeroEmbodiedTrace { element: _element }
+            | Self::UnknownEmbodiedCommodity { element: _element }
+            | Self::InvalidEmbodiedProvenanceRange { element: _element }
+            | Self::SelfWeightOverflow { element: _element }
+            | Self::PlannedElementCracked { element: _element }
+            | Self::FailedElementNotCracked { element: _element }
+            | Self::MissingSupportIndex { element: _element }
+            | Self::OrphanSupportIndex { element: _element }
+            | Self::SelfSupport { element: _element }
+            | Self::ActiveElementUnsupported { element: _element } => None,
+            Self::EmbodiedMassGeometryMismatch {
+                element: _element,
+                stored: _stored,
+                required: _required,
+            } => None,
+            Self::UnmaterializedLoadBearingElement {
+                element: _element,
+                lifecycle: _lifecycle,
+            } => None,
+            Self::EmbodiedMassMismatch {
+                element: _element,
+                stored: _stored,
+                traced: _traced,
+            } => None,
+            Self::EmbodiedMaterialMismatch {
+                element: _element,
+                expected: _expected,
+                found: _found,
+            } => None,
+            Self::UnsupportedEmbodiedPhase {
+                element: _element,
+                form: _form,
+                phase: _phase,
+            } => None,
+            Self::UnsupportedEmbodiedParticulateForm {
+                element: _element,
+                form: _form,
+            } => None,
+            Self::EmbodiedProvenanceInFuture {
+                element: _element,
+                latest_created_at: _latest_created_at,
+                current: _current,
+            } => None,
+            Self::SelfWeightMismatch {
+                element: _element,
+                stored: _stored,
+                expected: _expected,
+            } => None,
+            Self::ZeroLoadContribution {
+                element: _element,
+                kind: _kind,
+            } => None,
+            Self::CreatedInFuture {
+                element: _element,
+                created_at: _created_at,
+                current: _current,
+            } => None,
+            Self::UnknownSupportReference {
+                element: _element,
+                support: _support,
+            }
+            | Self::GroundedElementHasSupport {
+                element: _element,
+                support: _support,
+            }
+            | Self::ReverseIndexMismatch {
+                element: _element,
+                support: _support,
+            }
+            | Self::SupportCycle {
+                element: _element,
+                support: _support,
+            } => None,
+            Self::ZeroNextElementId => None,
         }
     }
 }

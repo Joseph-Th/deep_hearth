@@ -132,9 +132,9 @@ impl Display for ProcessInputError {
             }
             Self::InsufficientMass {
                 stockpile,
+                commodity: _commodity,
                 available,
                 requested,
-                ..
             } => write!(
                 formatter,
                 "stockpile {} has {} mg eligible matter but process requires {} mg",
@@ -562,19 +562,32 @@ impl Display for ProcessResolutionError {
 impl Error for ProcessResolutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::InvalidOutputComposition { error, .. } => Some(error),
+            Self::InvalidOutputComposition {
+                commodity: _commodity,
+                error,
+            } => Some(error),
             Self::ZeroDuration
             | Self::NoOutputs
             | Self::ZeroOutputStreamId
-            | Self::DuplicateOutputStreamId { .. }
             | Self::EmptyOutputStream
-            | Self::ZeroOutputMass { .. }
-            | Self::OutputCompositionMissingHost { .. }
-            | Self::DuplicateOutputSpecification { .. }
             | Self::OutputMassOverflow
             | Self::MissingEquipmentConditionOutcome
-            | Self::EquipmentConditionWithoutEquipment
-            | Self::EquipmentConditionImproved { .. } => None,
+            | Self::EquipmentConditionWithoutEquipment => None,
+            Self::DuplicateOutputStreamId { stream: _stream } => None,
+            Self::ZeroOutputMass {
+                commodity: _commodity,
+            }
+            | Self::DuplicateOutputSpecification {
+                commodity: _commodity,
+            } => None,
+            Self::OutputCompositionMissingHost {
+                commodity: _commodity,
+                host: _host,
+            } => None,
+            Self::EquipmentConditionImproved {
+                before: _before,
+                after: _after,
+            } => None,
         }
     }
 }

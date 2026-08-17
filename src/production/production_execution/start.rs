@@ -363,40 +363,102 @@ impl Error for StartProcessError {
         match self {
             Self::DestinationStorage(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
-            Self::UnknownProcess { .. }
-            | Self::UnknownOutputMaterial { .. }
-            | Self::UnknownOutputForm { .. }
-            | Self::UnknownOutputCompositionMaterial { .. }
-            | Self::UnknownStockpile { .. }
-            | Self::OutputRouteCountMismatch { .. }
-            | Self::DuplicateOutputRoute { .. }
-            | Self::UnknownOutputRoute { .. }
-            | Self::MissingOutputRoute { .. }
-            | Self::CapacityExceeded { .. }
-            | Self::MassOverflow { .. }
-            | Self::MatterBalanceMismatch { .. }
-            | Self::CompletionTickOverflow { .. }
-            | Self::JobIdExhausted
+            Self::UnknownProcess { process: _process } => None,
+            Self::UnknownOutputMaterial {
+                material: _material,
+            }
+            | Self::UnknownOutputCompositionMaterial {
+                material: _material,
+            } => None,
+            Self::UnknownOutputForm { form: _form } => None,
+            Self::UnknownStockpile {
+                stockpile: _stockpile,
+            }
+            | Self::MassOverflow {
+                stockpile: _stockpile,
+            } => None,
+            Self::OutputRouteCountMismatch {
+                streams: _streams,
+                routes: _routes,
+            } => None,
+            Self::DuplicateOutputRoute { stream: _stream }
+            | Self::UnknownOutputRoute { stream: _stream }
+            | Self::MissingOutputRoute { stream: _stream } => None,
+            Self::CapacityExceeded {
+                stockpile: _stockpile,
+                capacity: _capacity,
+                committed_after_consumption: _committed_after_consumption,
+                requested_inbound: _requested_inbound,
+            } => None,
+            Self::MatterBalanceMismatch {
+                input_mass: _input_mass,
+                output_mass: _output_mass,
+            } => None,
+            Self::CompletionTickOverflow {
+                current: _current,
+                duration_ticks: _duration_ticks,
+            } => None,
+            Self::ResolutionSourceMismatch {
+                bound: _bound,
+                requested: _requested,
+            } => None,
+            Self::StaleResolvedInputs {
+                expected_inventory_revision: _expected_inventory_revision,
+                actual_inventory_revision: _actual_inventory_revision,
+            } => None,
+            Self::StaleResolvedEnergy {
+                expected_energy_revision: _expected_energy_revision,
+                actual_energy_revision: _actual_energy_revision,
+            } => None,
+            Self::StaleResolvedEquipment {
+                expected_equipment_revision: _expected_equipment_revision,
+                actual_equipment_revision: _actual_equipment_revision,
+            } => None,
+            Self::StaleResolvedStructure {
+                expected_structure_revision: _expected_structure_revision,
+                actual_structure_revision: _actual_structure_revision,
+            } => None,
+            Self::EnergyStoreBusy {
+                store: _store,
+                job: _job,
+                release: _release,
+            } => None,
+            Self::ResolvedEquipmentMissing {
+                equipment: _equipment,
+            }
+            | Self::ResolvedEquipmentDefinitionChanged {
+                equipment: _equipment,
+            }
+            | Self::ResolvedEquipmentConditionChanged {
+                equipment: _equipment,
+            } => None,
+            Self::ResolvedEquipmentSupportChanged {
+                equipment: _equipment,
+                expected: _expected,
+                actual: _actual,
+            } => None,
+            Self::ResolvedEquipmentSupportMissing {
+                equipment: _equipment,
+                element: _element,
+            } => None,
+            Self::ResolvedEquipmentSupportNotActive {
+                equipment: _equipment,
+                element: _element,
+                lifecycle: _lifecycle,
+            } => None,
+            Self::EquipmentBusy {
+                equipment: _equipment,
+                job: _job,
+                release: _release,
+            } => None,
+            Self::JobIdExhausted
             | Self::InventoryRevisionExhausted
             | Self::ProductionRevisionExhausted
             | Self::EnergyRevisionExhausted
-            | Self::ResolutionSourceMismatch { .. }
-            | Self::StaleResolvedInputs { .. }
-            | Self::StaleResolvedEnergy { .. }
-            | Self::StaleResolvedEquipment { .. }
-            | Self::StaleResolvedStructure { .. }
             | Self::ResolvedEnergyStoreMissing
             | Self::ResolvedEnergyInsufficient
             | Self::ResolvedEnergySinkMissing
-            | Self::ResolvedEnergySinkCapacity
-            | Self::EnergyStoreBusy { .. }
-            | Self::ResolvedEquipmentMissing { .. }
-            | Self::ResolvedEquipmentDefinitionChanged { .. }
-            | Self::ResolvedEquipmentConditionChanged { .. }
-            | Self::ResolvedEquipmentSupportChanged { .. }
-            | Self::ResolvedEquipmentSupportMissing { .. }
-            | Self::ResolvedEquipmentSupportNotActive { .. }
-            | Self::EquipmentBusy { .. } => None,
+            | Self::ResolvedEnergySinkCapacity => None,
         }
     }
 }
@@ -447,11 +509,26 @@ impl Error for StartProcessCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleProductionRevision { .. }
-            | Self::StaleInventoryRevision { .. }
-            | Self::StaleEnergyRevision { .. }
-            | Self::StaleEquipmentRevision { .. }
-            | Self::StaleStructureRevision { .. } => None,
+            Self::StaleProductionRevision {
+                expected: _expected,
+                actual: _actual,
+            }
+            | Self::StaleInventoryRevision {
+                expected: _expected,
+                actual: _actual,
+            }
+            | Self::StaleEnergyRevision {
+                expected: _expected,
+                actual: _actual,
+            }
+            | Self::StaleEquipmentRevision {
+                expected: _expected,
+                actual: _actual,
+            }
+            | Self::StaleStructureRevision {
+                expected: _expected,
+                actual: _actual,
+            } => None,
         }
     }
 }
@@ -963,13 +1040,18 @@ fn map_energy_ingress_reservation_error(error: EnergyIngressReservationError) ->
                 actual_energy_revision: actual,
             }
         }
-        EnergyIngressReservationError::UnknownStore { .. } => {
+        EnergyIngressReservationError::UnknownStore { store: _store } => {
             StartProcessError::ResolvedEnergySinkMissing
         }
-        EnergyIngressReservationError::CapacityOverflow { .. }
-        | EnergyIngressReservationError::InsufficientCapacity { .. } => {
+        EnergyIngressReservationError::CapacityOverflow { store: _store } => {
             StartProcessError::ResolvedEnergySinkCapacity
         }
+        EnergyIngressReservationError::InsufficientCapacity {
+            store: _store,
+            stored: _stored,
+            requested: _requested,
+            capacity: _capacity,
+        } => StartProcessError::ResolvedEnergySinkCapacity,
     }
 }
 
@@ -981,12 +1063,14 @@ fn map_energy_reservation_error(error: EnergyReservationError) -> StartProcessEr
                 actual_energy_revision: actual,
             }
         }
-        EnergyReservationError::UnknownStore { .. } => {
+        EnergyReservationError::UnknownStore { store: _store } => {
             StartProcessError::ResolvedEnergyStoreMissing
         }
-        EnergyReservationError::InsufficientEnergy { .. } => {
-            StartProcessError::ResolvedEnergyInsufficient
-        }
+        EnergyReservationError::InsufficientEnergy {
+            store: _store,
+            available: _available,
+            requested: _requested,
+        } => StartProcessError::ResolvedEnergyInsufficient,
         EnergyReservationError::RevisionExhausted => StartProcessError::EnergyRevisionExhausted,
     }
 }

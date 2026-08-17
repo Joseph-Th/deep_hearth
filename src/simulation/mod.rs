@@ -163,19 +163,40 @@ impl Error for TickError {
         match self {
             Self::StructuralLoad(error) => Some(error),
             Self::Structure(error) => Some(error),
-            Self::ClockExhausted { .. }
-            | Self::MaterialLotIdExhausted
+            Self::ClockExhausted { current: _current } => None,
+            Self::ProductionResumeTickOverflow {
+                job: _job,
+                current: _current,
+                remaining: _remaining,
+            } => None,
+            Self::DestinationMassOverflow {
+                stockpile: _stockpile,
+            } => None,
+            Self::StaleInventoryRevision {
+                expected: _expected,
+                actual: _actual,
+            }
+            | Self::StaleProductionRevision {
+                expected: _expected,
+                actual: _actual,
+            }
+            | Self::StaleEquipmentRevision {
+                expected: _expected,
+                actual: _actual,
+            }
+            | Self::StaleEnergyRevision {
+                expected: _expected,
+                actual: _actual,
+            }
+            | Self::StaleStructureRevision {
+                expected: _expected,
+                actual: _actual,
+            } => None,
+            Self::MaterialLotIdExhausted
             | Self::InventoryRevisionExhausted
             | Self::ProductionRevisionExhausted
             | Self::EquipmentRevisionExhausted
-            | Self::EnergyRevisionExhausted
-            | Self::ProductionResumeTickOverflow { .. }
-            | Self::DestinationMassOverflow { .. }
-            | Self::StaleInventoryRevision { .. }
-            | Self::StaleProductionRevision { .. }
-            | Self::StaleEquipmentRevision { .. }
-            | Self::StaleEnergyRevision { .. }
-            | Self::StaleStructureRevision { .. } => None,
+            | Self::EnergyRevisionExhausted => None,
         }
     }
 }

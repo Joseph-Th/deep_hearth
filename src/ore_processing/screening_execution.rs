@@ -130,12 +130,20 @@ impl Error for ScreeningBatchError {
         match self {
             Self::Distribution(error) => Some(error),
             Self::Output(error) => Some(error),
-            Self::EmptyInput
-            | Self::InputFormMismatch { .. }
-            | Self::MissingParticleSize
-            | Self::UnresolvedParticleClass { .. }
-            | Self::UnrepresentableClassMass { .. }
-            | Self::MassOverflow => None,
+            Self::InputFormMismatch {
+                expected: _expected,
+                found: _found,
+            } => None,
+            Self::UnresolvedParticleClass {
+                aperture: _aperture,
+                class: _class,
+            } => None,
+            Self::UnrepresentableClassMass {
+                mass: _mass,
+                undersize_weight: _undersize_weight,
+                total_weight: _total_weight,
+            } => None,
+            Self::EmptyInput | Self::MissingParticleSize | Self::MassOverflow => None,
         }
     }
 }
@@ -375,11 +383,16 @@ impl Error for ScreeningResolutionError {
             Self::ThroughputDuration(error) => Some(error),
             Self::EnergyDuration(error) => Some(error),
             Self::Resolution(error) => Some(error),
-            Self::UnknownScreeningProcess { .. }
-            | Self::MissingMassFlowCapability
-            | Self::MissingMaximumBatchMassCapability
-            | Self::BatchMassExceeded { .. }
-            | Self::WrongEnergyCarrier { .. } => None,
+            Self::UnknownScreeningProcess { process: _process } => None,
+            Self::BatchMassExceeded {
+                selected: _selected,
+                maximum: _maximum,
+            } => None,
+            Self::WrongEnergyCarrier {
+                required: _required,
+                provided: _provided,
+            } => None,
+            Self::MissingMassFlowCapability | Self::MissingMaximumBatchMassCapability => None,
         }
     }
 }
@@ -803,23 +816,43 @@ impl Display for ScreeningJobValidationError {
 impl Error for ScreeningJobValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Batch { error, .. } => Some(error),
-            Self::ThroughputDuration { error, .. } => Some(error),
-            Self::EnergyDuration { error, .. } => Some(error),
-            Self::MissingEnergy { .. }
-            | Self::UnexpectedReleasedEnergy { .. }
-            | Self::MissingEquipmentProvider { .. }
-            | Self::UnknownEquipmentDefinition { .. }
-            | Self::UnknownEnergyDefinition { .. }
-            | Self::MissingMassFlowCapability { .. }
-            | Self::MissingMaximumBatchMassCapability { .. }
-            | Self::BatchMassExceeded { .. }
-            | Self::WrongEnergyCarrier { .. }
-            | Self::EnergyMismatch { .. }
-            | Self::DurationMismatch { .. }
-            | Self::MissingConditionOutcome { .. }
-            | Self::ConditionOutcomeMismatch { .. }
-            | Self::OutputMismatch { .. } => None,
+            Self::Batch { job: _job, error } => Some(error),
+            Self::ThroughputDuration { job: _job, error } => Some(error),
+            Self::EnergyDuration { job: _job, error } => Some(error),
+            Self::MissingEnergy { job: _job }
+            | Self::UnexpectedReleasedEnergy { job: _job }
+            | Self::MissingEquipmentProvider { job: _job }
+            | Self::UnknownEquipmentDefinition { job: _job }
+            | Self::UnknownEnergyDefinition { job: _job }
+            | Self::MissingMassFlowCapability { job: _job }
+            | Self::MissingMaximumBatchMassCapability { job: _job }
+            | Self::MissingConditionOutcome { job: _job }
+            | Self::OutputMismatch { job: _job } => None,
+            Self::BatchMassExceeded {
+                job: _job,
+                selected: _selected,
+                maximum: _maximum,
+            } => None,
+            Self::WrongEnergyCarrier {
+                job: _job,
+                required: _required,
+                provided: _provided,
+            } => None,
+            Self::EnergyMismatch {
+                job: _job,
+                traced: _traced,
+                required: _required,
+            } => None,
+            Self::DurationMismatch {
+                job: _job,
+                stored_ticks: _stored_ticks,
+                required_ticks: _required_ticks,
+            } => None,
+            Self::ConditionOutcomeMismatch {
+                job: _job,
+                stored: _stored,
+                required: _required,
+            } => None,
         }
     }
 }
@@ -1192,7 +1225,10 @@ mod tests {
         assert!(matches!(
             resolve(&fixture),
             Err(ScreeningResolutionError::Batch(
-                ScreeningBatchError::UnresolvedParticleClass { .. }
+                ScreeningBatchError::UnresolvedParticleClass {
+                    aperture: _aperture,
+                    class: _class,
+                }
             ))
         ));
         assert_eq!(

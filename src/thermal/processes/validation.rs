@@ -240,26 +240,54 @@ impl Error for ThermalJobValidationError {
         match self {
             Self::Casting(error) => Some(error),
             Self::Melting(error) => Some(error),
-            Self::Heat { error, .. } => Some(error),
-            Self::OutputConstruction { error, .. } => Some(error),
-            Self::Duration { error, .. } => Some(error),
-            Self::MissingEquipmentProvider { .. }
-            | Self::UnknownEquipmentDefinition { .. }
-            | Self::MissingHeatingPowerCapability { .. }
-            | Self::MissingMaximumTemperatureCapability { .. }
-            | Self::MissingMaximumBatchMassCapability { .. }
-            | Self::TargetExceedsEquipmentMaximum { .. }
-            | Self::BatchMassExceedsEquipmentCapacity { .. }
-            | Self::MissingEnergy { .. }
-            | Self::WrongEnergyCarrier { .. }
-            | Self::MixedOutputTemperatures { .. }
-            | Self::TargetBelowInputTemperature { .. }
-            | Self::RequiredEnergyOverflow { .. }
-            | Self::EnergyMismatch { .. }
-            | Self::OutputMismatch { .. }
-            | Self::DurationMismatch { .. }
-            | Self::MissingEquipmentConditionOutcome { .. }
-            | Self::EquipmentConditionOutcomeMismatch { .. } => None,
+            Self::Heat { job: _job, error } => Some(error),
+            Self::OutputConstruction { job: _job, error } => Some(error),
+            Self::Duration { job: _job, error } => Some(error),
+            Self::MissingEquipmentProvider { job: _job }
+            | Self::UnknownEquipmentDefinition { job: _job }
+            | Self::MissingHeatingPowerCapability { job: _job }
+            | Self::MissingMaximumTemperatureCapability { job: _job }
+            | Self::MissingMaximumBatchMassCapability { job: _job }
+            | Self::MissingEnergy { job: _job }
+            | Self::MixedOutputTemperatures { job: _job }
+            | Self::RequiredEnergyOverflow { job: _job }
+            | Self::OutputMismatch { job: _job }
+            | Self::MissingEquipmentConditionOutcome { job: _job } => None,
+            Self::TargetExceedsEquipmentMaximum {
+                job: _job,
+                target: _target,
+                maximum: _maximum,
+            } => None,
+            Self::TargetBelowInputTemperature {
+                job: _job,
+                current: _current,
+                target: _target,
+            } => None,
+            Self::BatchMassExceedsEquipmentCapacity {
+                job: _job,
+                selected: _selected,
+                maximum: _maximum,
+            } => None,
+            Self::WrongEnergyCarrier {
+                job: _job,
+                required: _required,
+                provided: _provided,
+            } => None,
+            Self::EnergyMismatch {
+                job: _job,
+                traced: _traced,
+                required: _required,
+            } => None,
+            Self::DurationMismatch {
+                job: _job,
+                stored: _stored,
+                required: _required,
+            } => None,
+            Self::EquipmentConditionOutcomeMismatch {
+                job: _job,
+                stored: _stored,
+                required: _required,
+            } => None,
         }
     }
 }

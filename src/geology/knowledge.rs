@@ -401,9 +401,15 @@ pub fn build_geological_knowledge_map(
             let assessment = assess_geological_knowledge(state, region, material);
             match assessment.consistency() {
                 GeologicalEvidenceConsistency::NoEvidence => None,
-                GeologicalEvidenceConsistency::SpatiallyIncomparable
-                | GeologicalEvidenceConsistency::Compatible { .. }
-                | GeologicalEvidenceConsistency::Conflicting { .. } => Some(assessment),
+                GeologicalEvidenceConsistency::SpatiallyIncomparable => Some(assessment),
+                GeologicalEvidenceConsistency::Compatible {
+                    lower_ppm: _lower_ppm,
+                    upper_ppm: _upper_ppm,
+                } => Some(assessment),
+                GeologicalEvidenceConsistency::Conflicting {
+                    highest_lower_ppm: _highest_lower_ppm,
+                    lowest_upper_ppm: _lowest_upper_ppm,
+                } => Some(assessment),
             }
         })
         .collect();

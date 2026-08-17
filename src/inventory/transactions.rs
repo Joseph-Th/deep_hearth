@@ -8,17 +8,20 @@ use crate::core::quantity::Mass;
 #[cfg(test)]
 use crate::core::quantity::Temperature;
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
 #[cfg(test)]
 use crate::material::MaterialComposition;
 #[cfg(test)]
+use crate::material::MaterialLotSpec;
+#[cfg(test)]
 use crate::material::MaterialPhase;
-use crate::material::{
-    CommodityKey, CompositionError, FormId, MaterialId, MaterialInputSpec, MaterialLotSpec,
-};
+use crate::material::{CommodityKey, FormId, MaterialId, MaterialInputSpec};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
+#[cfg(test)]
+use super::ingress::{
+    MaterialIngressEntry, MaterialIngressError, apply_material_ingress, validate_material_ingress,
+};
 #[cfg(test)]
 use super::reserved_ingress::{
     ReservedDepositRequest, apply_reserved_deposits, decide_reserved_deposits,
@@ -31,12 +34,14 @@ use super::selection::{
     apply_consumption_reservation, validate_consumption_reservation_from_selection,
 };
 use super::state::{
-    ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, MaterialLotProfile,
-    MaterialLotProvenance, MaterialLotRecord, StockpileId, StockpileRecord,
+    ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, StockpileId, StockpileRecord,
     StockpileStorageProfile, apply_aggregate_deposit, apply_aggregate_withdraw,
-    apply_consume_lot_slice, apply_insert_or_merge_new_lot, apply_move_full_lot, apply_split_lot,
+    apply_consume_lot_slice, apply_move_full_lot, apply_split_lot,
 };
-use super::storage_validation::{StockpileStorageError, validate_stockpile_storage};
+use super::storage_validation::{
+    CommodityReferenceError, StockpileStorageError, validate_commodity_reference,
+    validate_stockpile_storage,
+};
 use super::{
     StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedStockpileStructuralLoad,
     validate_stockpile_stored_mass_changes,
@@ -48,66 +53,6 @@ pub enum AddStockpileError {
     ZeroCapacity,
     IdExhausted,
     RevisionExhausted,
-}
-
-/// Failure while validating multiple conserved material traces entering one stockpile.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MaterialBatchIngressError {
-    EmptyBatch,
-    UnknownStockpile {
-        stockpile: StockpileId,
-    },
-    UnknownMaterial {
-        material: MaterialId,
-    },
-    UnknownForm {
-        form: FormId,
-    },
-    UnknownCompositionMaterial {
-        material: MaterialId,
-    },
-    ZeroMass,
-    InvalidComposition {
-        error: CompositionError,
-    },
-    CompositionMissingHost {
-        host: MaterialId,
-    },
-    Storage(StockpileStorageError),
-    InvalidProvenance,
-    ProvenanceInFuture {
-        latest: SimulationTick,
-        current: SimulationTick,
-    },
-    MassOverflow {
-        stockpile: StockpileId,
-    },
-    CapacityExceeded {
-        stockpile: StockpileId,
-        capacity: Mass,
-        committed: Mass,
-        requested: Mass,
-    },
-    LotIdExhausted,
-    RevisionExhausted,
-}
-
-/// Consumed proof that a complete source-owned trace batch can enter one stockpile atomically.
-#[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ValidatedMaterialBatchIngress {
-    expected_revision: u64,
-    next_revision: u64,
-    destination: StockpileId,
-    traces: Vec<ConsumedMaterialTrace>,
-    allocated_lot_ids: Vec<MaterialLotId>,
-    next_lot_id: u64,
-}
-
-impl ValidatedMaterialBatchIngress {
-    pub(crate) const fn expected_revision(&self) -> u64 {
-        self.expected_revision
-    }
 }
 
 /// Revision-bound withdrawal of exact material slices into another authoritative owner.
@@ -325,14 +270,29 @@ impl Error for MaterialRelocationError {
         match self {
             Self::DestinationStorage(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
-            Self::StaleSelection { .. }
-            | Self::UnknownSource { .. }
-            | Self::UnknownDestination { .. }
-            | Self::SameStockpile { .. }
-            | Self::DestinationMassOverflow { .. }
-            | Self::DestinationCapacityExceeded { .. }
-            | Self::LotIdExhausted
-            | Self::RevisionExhausted => None,
+            Self::StaleSelection {
+                expected: _expected,
+                actual: _actual,
+            } => None,
+            Self::UnknownSource {
+                stockpile: _stockpile,
+            }
+            | Self::UnknownDestination {
+                stockpile: _stockpile,
+            }
+            | Self::SameStockpile {
+                stockpile: _stockpile,
+            }
+            | Self::DestinationMassOverflow {
+                stockpile: _stockpile,
+            } => None,
+            Self::DestinationCapacityExceeded {
+                stockpile: _stockpile,
+                capacity: _capacity,
+                committed: _committed,
+                requested: _requested,
+            } => None,
+            Self::LotIdExhausted | Self::RevisionExhausted => None,
         }
     }
 }
@@ -364,7 +324,10 @@ impl Error for MaterialRelocationCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleInventoryRevision { .. } => None,
+            Self::StaleInventoryRevision {
+                expected: _expected,
+                actual: _actual,
+            } => None,
         }
     }
 }
@@ -437,324 +400,7 @@ pub(crate) fn apply_material_egress(state: &mut InventoryState, egress: Validate
     state.apply_revision(next_revision);
 }
 
-/// Validates exact source-owned traces entering inventory while retaining their physical history.
-pub(crate) fn validate_material_batch_ingress(
-    registries: &Registries,
-    state: &InventoryState,
-    destination: StockpileId,
-    traces: &[ConsumedMaterialTrace],
-    current_tick: SimulationTick,
-) -> Result<ValidatedMaterialBatchIngress, MaterialBatchIngressError> {
-    if traces.is_empty() {
-        return Err(MaterialBatchIngressError::EmptyBatch);
-    }
-    let Some(destination_record) = state.get_stockpile(destination) else {
-        return Err(MaterialBatchIngressError::UnknownStockpile {
-            stockpile: destination,
-        });
-    };
-
-    let mut total = Mass::ZERO;
-    let mut by_commodity = BTreeMap::<CommodityKey, Mass>::new();
-    for trace in traces {
-        if trace.mass().is_zero() {
-            return Err(MaterialBatchIngressError::ZeroMass);
-        }
-        let profile = trace.profile();
-        profile
-            .composition()
-            .validate()
-            .map_err(|error| MaterialBatchIngressError::InvalidComposition { error })?;
-        if profile
-            .composition()
-            .parts_per_million(profile.commodity().material())
-            == 0
-        {
-            return Err(MaterialBatchIngressError::CompositionMissingHost {
-                host: profile.commodity().material(),
-            });
-        }
-        validate_commodity(registries, profile.commodity()).map_err(|error| match error {
-            CommodityReferenceError::UnknownMaterial { material } => {
-                MaterialBatchIngressError::UnknownMaterial { material }
-            }
-            CommodityReferenceError::UnknownForm { form } => {
-                MaterialBatchIngressError::UnknownForm { form }
-            }
-        })?;
-        for component in profile.composition().components() {
-            if registries
-                .materials()
-                .get_material(component.material())
-                .is_none()
-            {
-                return Err(MaterialBatchIngressError::UnknownCompositionMaterial {
-                    material: component.material(),
-                });
-            }
-        }
-        validate_stockpile_storage(
-            registries,
-            destination_record,
-            destination,
-            profile.commodity(),
-            profile.composition(),
-            profile.temperature(),
-            profile.particle_size_distribution(),
-        )
-        .map_err(MaterialBatchIngressError::Storage)?;
-        let provenance = trace.provenance();
-        if provenance.latest_created_at() < provenance.earliest_created_at() {
-            return Err(MaterialBatchIngressError::InvalidProvenance);
-        }
-        if provenance.latest_created_at() > current_tick {
-            return Err(MaterialBatchIngressError::ProvenanceInFuture {
-                latest: provenance.latest_created_at(),
-                current: current_tick,
-            });
-        }
-        total = total
-            .checked_add(trace.mass())
-            .ok_or(MaterialBatchIngressError::MassOverflow {
-                stockpile: destination,
-            })?;
-        let existing = by_commodity
-            .get(&profile.commodity())
-            .copied()
-            .unwrap_or(Mass::ZERO);
-        by_commodity.insert(
-            profile.commodity(),
-            existing
-                .checked_add(trace.mass())
-                .ok_or(MaterialBatchIngressError::MassOverflow {
-                    stockpile: destination,
-                })?,
-        );
-    }
-
-    let committed = destination_record
-        .stored_mass
-        .checked_add(destination_record.reserved_inbound)
-        .ok_or(MaterialBatchIngressError::MassOverflow {
-            stockpile: destination,
-        })?;
-    let after = committed
-        .checked_add(total)
-        .ok_or(MaterialBatchIngressError::MassOverflow {
-            stockpile: destination,
-        })?;
-    if after > destination_record.capacity {
-        return Err(MaterialBatchIngressError::CapacityExceeded {
-            stockpile: destination,
-            capacity: destination_record.capacity,
-            committed,
-            requested: total,
-        });
-    }
-    for (commodity, incoming) in by_commodity {
-        destination_record
-            .get_mass(commodity)
-            .checked_add(incoming)
-            .ok_or(MaterialBatchIngressError::MassOverflow {
-                stockpile: destination,
-            })?;
-    }
-
-    let mut allocated_lot_ids = Vec::with_capacity(traces.len());
-    let mut cursor = state.next_lot_id();
-    for _ in traces {
-        allocated_lot_ids.push(MaterialLotId::new(cursor));
-        cursor = cursor
-            .checked_add(1)
-            .ok_or(MaterialBatchIngressError::LotIdExhausted)?;
-    }
-    let Some(next_revision) = state.revision().checked_add(1) else {
-        return Err(MaterialBatchIngressError::RevisionExhausted);
-    };
-
-    Ok(ValidatedMaterialBatchIngress {
-        expected_revision: state.revision(),
-        next_revision,
-        destination,
-        traces: traces.to_vec(),
-        allocated_lot_ids,
-        next_lot_id: cursor,
-    })
-}
-
-/// Applies a validated trace batch after its cross-owner transaction rechecks inventory revision.
-pub(crate) fn apply_material_batch_ingress(
-    state: &mut InventoryState,
-    ingress: ValidatedMaterialBatchIngress,
-) -> Vec<MaterialLotId> {
-    let ValidatedMaterialBatchIngress {
-        expected_revision,
-        next_revision,
-        destination,
-        traces,
-        allocated_lot_ids,
-        next_lot_id,
-    } = ingress;
-    assert_eq!(
-        state.revision(),
-        expected_revision,
-        "material batch ingress commit requires its validated inventory revision"
-    );
-
-    let mut resulting_lots = Vec::with_capacity(traces.len());
-    for (trace, allocated_lot_id) in traces.into_iter().zip(allocated_lot_ids) {
-        let profile = trace.profile().clone();
-        let provenance = trace.provenance();
-        let resulting = apply_insert_or_merge_new_lot(
-            state,
-            MaterialLotRecord {
-                id: allocated_lot_id,
-                stockpile: destination,
-                mass: trace.mass(),
-                profile,
-                provenance,
-            },
-        );
-        resulting_lots.push(resulting);
-    }
-    state.apply_lot_cursor_and_revision(next_lot_id, next_revision);
-    resulting_lots
-}
-
 impl Error for AddStockpileError {}
-
-/// Crate-internal failure while validating matter entering inventory from an explicit owner.
-///
-/// This boundary is intentionally not public. Source systems such as geology must prove ownership
-/// and conservation before invoking it; callers cannot use it as an arbitrary matter-spawn API.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MaterialIngressError {
-    UnknownStockpile {
-        stockpile: StockpileId,
-    },
-    UnknownMaterial {
-        material: MaterialId,
-    },
-    UnknownForm {
-        form: FormId,
-    },
-    UnknownCompositionMaterial {
-        material: MaterialId,
-    },
-    ZeroMass,
-    InvalidComposition {
-        error: CompositionError,
-    },
-    CompositionMissingHost {
-        host: MaterialId,
-    },
-    Storage(StockpileStorageError),
-    MassOverflow {
-        stockpile: StockpileId,
-    },
-    CapacityExceeded {
-        stockpile: StockpileId,
-        capacity: Mass,
-        committed: Mass,
-        requested: Mass,
-    },
-    LotIdExhausted,
-    RevisionExhausted,
-}
-
-impl Display for MaterialIngressError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownStockpile { stockpile } => {
-                write!(formatter, "unknown stockpile id {}", stockpile.value())
-            }
-            Self::UnknownMaterial { material } => {
-                write!(formatter, "unknown material id {}", material.value())
-            }
-            Self::UnknownForm { form } => write!(formatter, "unknown form id {}", form.value()),
-            Self::UnknownCompositionMaterial { material } => write!(
-                formatter,
-                "material ingress composition references unknown material {}",
-                material.value()
-            ),
-            Self::Storage(error) => {
-                write!(formatter, "stockpile rejects material ingress: {error}")
-            }
-            Self::ZeroMass => formatter.write_str("material ingress mass must be nonzero"),
-            Self::InvalidComposition { error } => {
-                write!(
-                    formatter,
-                    "material ingress has invalid composition: {error}"
-                )
-            }
-            Self::CompositionMissingHost { host } => write!(
-                formatter,
-                "material ingress composition omits host material {}",
-                host.value()
-            ),
-            Self::MassOverflow { stockpile } => write!(
-                formatter,
-                "material ingress overflows mass accounting in stockpile {}",
-                stockpile.value()
-            ),
-            Self::CapacityExceeded {
-                stockpile,
-                capacity,
-                committed,
-                requested,
-            } => write!(
-                formatter,
-                "stockpile {} capacity {} mg exceeded: {} mg committed, {} mg ingress requested",
-                stockpile.value(),
-                capacity.milligrams(),
-                committed.milligrams(),
-                requested.milligrams()
-            ),
-            Self::LotIdExhausted => {
-                formatter.write_str("material lot identifier space is exhausted")
-            }
-            Self::RevisionExhausted => formatter.write_str("inventory revision space is exhausted"),
-        }
-    }
-}
-
-impl Error for MaterialIngressError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::InvalidComposition { error } => Some(error),
-            Self::Storage(error) => Some(error),
-            Self::UnknownStockpile { .. }
-            | Self::UnknownMaterial { .. }
-            | Self::UnknownForm { .. }
-            | Self::UnknownCompositionMaterial { .. }
-            | Self::ZeroMass
-            | Self::CompositionMissingHost { .. }
-            | Self::MassOverflow { .. }
-            | Self::CapacityExceeded { .. }
-            | Self::LotIdExhausted
-            | Self::RevisionExhausted => None,
-        }
-    }
-}
-
-/// Consumed proof that one source-owned material lot may enter a destination stockpile atomically.
-#[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ValidatedMaterialIngress {
-    expected_revision: u64,
-    next_revision: u64,
-    destination: StockpileId,
-    output: MaterialLotSpec,
-    allocated_lot_id: MaterialLotId,
-    next_lot_id: u64,
-    created_at: SimulationTick,
-}
-
-impl ValidatedMaterialIngress {
-    pub(crate) const fn expected_revision(&self) -> u64 {
-        self.expected_revision
-    }
-}
 
 /// Failure while validating an atomic stockpile-to-stockpile transfer.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -812,9 +458,9 @@ impl Display for TransferError {
             Self::Storage(error) => write!(formatter, "destination rejects transfer: {error}"),
             Self::InsufficientMass {
                 stockpile,
+                commodity: _commodity,
                 available,
                 requested,
-                ..
             } => write!(
                 formatter,
                 "stockpile {} has {} mg available but {} mg was requested",
@@ -859,16 +505,32 @@ impl Error for TransferError {
         match self {
             Self::Storage(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
-            Self::UnknownStockpile { .. }
-            | Self::SameStockpile { .. }
-            | Self::UnknownMaterial { .. }
-            | Self::UnknownForm { .. }
-            | Self::ZeroMass
-            | Self::InsufficientMass { .. }
-            | Self::MassOverflow { .. }
-            | Self::CapacityExceeded { .. }
-            | Self::LotIdExhausted
-            | Self::RevisionExhausted => None,
+            Self::UnknownStockpile {
+                stockpile: _stockpile,
+            }
+            | Self::SameStockpile {
+                stockpile: _stockpile,
+            }
+            | Self::MassOverflow {
+                stockpile: _stockpile,
+            } => None,
+            Self::UnknownMaterial {
+                material: _material,
+            } => None,
+            Self::UnknownForm { form: _form } => None,
+            Self::InsufficientMass {
+                stockpile: _stockpile,
+                commodity: _commodity,
+                available: _available,
+                requested: _requested,
+            } => None,
+            Self::CapacityExceeded {
+                stockpile: _stockpile,
+                capacity: _capacity,
+                committed: _committed,
+                requested: _requested,
+            } => None,
+            Self::ZeroMass | Self::LotIdExhausted | Self::RevisionExhausted => None,
         }
     }
 }
@@ -899,7 +561,10 @@ impl Error for TransferCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleInventoryRevision { .. } => None,
+            Self::StaleInventoryRevision {
+                expected: _expected,
+                actual: _actual,
+            } => None,
         }
     }
 }
@@ -959,151 +624,6 @@ pub fn add_stockpile(
     Ok(id)
 }
 
-/// Validates inventory admission for matter already owned and conserved by another subsystem.
-pub(crate) fn validate_material_ingress(
-    registries: &Registries,
-    state: &InventoryState,
-    destination: StockpileId,
-    output: MaterialLotSpec,
-    created_at: SimulationTick,
-) -> Result<ValidatedMaterialIngress, MaterialIngressError> {
-    if output.mass().is_zero() {
-        return Err(MaterialIngressError::ZeroMass);
-    }
-    output
-        .composition()
-        .validate()
-        .map_err(|error| MaterialIngressError::InvalidComposition { error })?;
-    if output
-        .composition()
-        .parts_per_million(output.commodity().material())
-        == 0
-    {
-        return Err(MaterialIngressError::CompositionMissingHost {
-            host: output.commodity().material(),
-        });
-    }
-    validate_commodity(registries, output.commodity()).map_err(|error| match error {
-        CommodityReferenceError::UnknownMaterial { material } => {
-            MaterialIngressError::UnknownMaterial { material }
-        }
-        CommodityReferenceError::UnknownForm { form } => MaterialIngressError::UnknownForm { form },
-    })?;
-    for component in output.composition().components() {
-        if registries
-            .materials()
-            .get_material(component.material())
-            .is_none()
-        {
-            return Err(MaterialIngressError::UnknownCompositionMaterial {
-                material: component.material(),
-            });
-        }
-    }
-
-    let Some(destination_record) = state.get_stockpile(destination) else {
-        return Err(MaterialIngressError::UnknownStockpile {
-            stockpile: destination,
-        });
-    };
-    validate_stockpile_storage(
-        registries,
-        destination_record,
-        destination,
-        output.commodity(),
-        output.composition(),
-        output.temperature(),
-        output.particle_size_distribution(),
-    )
-    .map_err(MaterialIngressError::Storage)?;
-    let committed = destination_record
-        .stored_mass
-        .checked_add(destination_record.reserved_inbound)
-        .ok_or(MaterialIngressError::MassOverflow {
-            stockpile: destination,
-        })?;
-    let after = committed
-        .checked_add(output.mass())
-        .ok_or(MaterialIngressError::MassOverflow {
-            stockpile: destination,
-        })?;
-    if after > destination_record.capacity {
-        return Err(MaterialIngressError::CapacityExceeded {
-            stockpile: destination,
-            capacity: destination_record.capacity,
-            committed,
-            requested: output.mass(),
-        });
-    }
-    destination_record
-        .get_mass(output.commodity())
-        .checked_add(output.mass())
-        .ok_or(MaterialIngressError::MassOverflow {
-            stockpile: destination,
-        })?;
-
-    let allocated_lot_id = MaterialLotId::new(state.next_lot_id());
-    let Some(next_lot_id) = state.next_lot_id().checked_add(1) else {
-        return Err(MaterialIngressError::LotIdExhausted);
-    };
-    let Some(next_revision) = state.revision().checked_add(1) else {
-        return Err(MaterialIngressError::RevisionExhausted);
-    };
-
-    Ok(ValidatedMaterialIngress {
-        expected_revision: state.revision(),
-        next_revision,
-        destination,
-        output,
-        allocated_lot_id,
-        next_lot_id,
-        created_at,
-    })
-}
-
-/// Applies a previously validated source ingress after the owning cross-system transaction has
-/// rechecked the inventory revision.
-pub(crate) fn apply_material_ingress(
-    state: &mut InventoryState,
-    ingress: ValidatedMaterialIngress,
-) -> MaterialLotId {
-    let ValidatedMaterialIngress {
-        expected_revision,
-        next_revision,
-        destination,
-        output,
-        allocated_lot_id,
-        next_lot_id,
-        created_at,
-    } = ingress;
-    assert_eq!(
-        state.revision(),
-        expected_revision,
-        "material ingress commit requires its validated inventory revision"
-    );
-
-    let resulting_lot = apply_insert_or_merge_new_lot(
-        state,
-        MaterialLotRecord {
-            id: allocated_lot_id,
-            stockpile: destination,
-            mass: output.mass(),
-            profile: MaterialLotProfile {
-                commodity: output.commodity(),
-                temperature: output.temperature(),
-                composition: output.composition().clone(),
-                particle_size: output.particle_size_distribution().cloned(),
-            },
-            provenance: MaterialLotProvenance {
-                earliest_created_at: created_at,
-                latest_created_at: created_at,
-            },
-        },
-    );
-    state.apply_lot_cursor_and_revision(next_lot_id, next_revision);
-    resulting_lot
-}
-
 /// Validates a multi-record transfer without mutating either stockpile.
 pub fn validate_transfer_bulk(
     registries: &Registries,
@@ -1113,7 +633,7 @@ pub fn validate_transfer_bulk(
     commodity: CommodityKey,
     mass: Mass,
 ) -> Result<ValidatedTransferBulk, TransferError> {
-    validate_commodity(registries, commodity).map_err(|error| match error {
+    validate_commodity_reference(registries, commodity).map_err(|error| match error {
         CommodityReferenceError::UnknownMaterial { material } => {
             TransferError::UnknownMaterial { material }
         }
@@ -1326,33 +846,6 @@ pub(crate) fn validate_material_relocation_from_selection(
     })
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CommodityReferenceError {
-    UnknownMaterial { material: MaterialId },
-    UnknownForm { form: FormId },
-}
-
-fn validate_commodity(
-    registries: &Registries,
-    commodity: CommodityKey,
-) -> Result<(), CommodityReferenceError> {
-    if registries
-        .materials()
-        .get_material(commodity.material())
-        .is_none()
-    {
-        return Err(CommodityReferenceError::UnknownMaterial {
-            material: commodity.material(),
-        });
-    }
-    if registries.materials().get_form(commodity.form()).is_none() {
-        return Err(CommodityReferenceError::UnknownForm {
-            form: commodity.form(),
-        });
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1539,7 +1032,12 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(TransferError::CapacityExceeded { .. })
+            Err(TransferError::CapacityExceeded {
+                stockpile: _stockpile,
+                capacity: _capacity,
+                committed: _committed,
+                requested: _requested,
+            })
         ));
         assert_eq!(state, before);
     }
@@ -1779,7 +1277,10 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(TransferCommitError::StaleInventoryRevision { .. })
+            Err(TransferCommitError::StaleInventoryRevision {
+                expected: _expected,
+                actual: _actual,
+            })
         ));
         assert_eq!(state, before_commit);
     }
@@ -2096,7 +1597,10 @@ mod tests {
         assert!(
             matches!(
                 result,
-                Err(TransferCommitError::StaleInventoryRevision { .. })
+                Err(TransferCommitError::StaleInventoryRevision {
+                    expected: _expected,
+                    actual: _actual,
+                })
             ),
             "stale transfer commit must be rejected: {result:?}"
         );
@@ -2241,7 +1745,7 @@ mod tests {
     }
 
     #[test]
-    fn egress_and_batch_ingress_round_trip_preserves_exact_quantity() {
+    fn egress_and_ingress_round_trip_preserves_exact_quantity() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x1A70_2004));
         let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
@@ -2285,16 +1789,16 @@ mod tests {
             "egress must remove exactly the selected mass"
         );
 
-        let ingress = validate_material_batch_ingress(
+        let ingress = validate_material_ingress(
             &registries,
             state.inventory(),
             destination,
-            &traces,
+            traces.iter().map(MaterialIngressEntry::from_consumed_trace),
             state.tick(),
         )
-        .unwrap_or_else(|error| panic!("batch ingress failed: {error:?}"));
-        apply_material_batch_ingress(state.inventory_state_mut(), ingress);
-        assert_lot_aggregate_agreement(&registries, &state, "after batch ingress");
+        .unwrap_or_else(|error| panic!("ingress failed: {error:?}"));
+        apply_material_ingress(state.inventory_state_mut(), ingress);
+        assert_lot_aggregate_agreement(&registries, &state, "after ingress");
         assert_eq!(
             state
                 .inventory()
@@ -2302,14 +1806,14 @@ mod tests {
                 .unwrap_or_else(|| panic!("conservation stockpile disappeared"))
                 .stored_mass(),
             Mass::from_milligrams(7),
-            "batch ingress must restore exactly the egressed mass"
+            "ingress must restore exactly the egressed mass"
         );
         assert_eq!(
             calculate_matter_accounting(&state)
                 .unwrap_or_else(|error| panic!("accounting failed: {error:?}"))
                 .total(),
             before,
-            "egress plus batch ingress round trip must conserve world matter"
+            "egress plus ingress round trip must conserve world matter"
         );
     }
 
@@ -2462,17 +1966,17 @@ mod tests {
                                 });
                         let traces = egress.consumed_inputs().to_vec();
                         apply_material_egress(state.inventory_state_mut(), egress);
-                        let ingress = validate_material_batch_ingress(
+                        let ingress = validate_material_ingress(
                             &registries,
                             state.inventory(),
                             destination,
-                            &traces,
+                            traces.iter().map(MaterialIngressEntry::from_consumed_trace),
                             state.tick(),
                         )
                         .unwrap_or_else(|error| {
                             panic!("random ingress validation failed: {error:?}")
                         });
-                        apply_material_batch_ingress(state.inventory_state_mut(), ingress);
+                        apply_material_ingress(state.inventory_state_mut(), ingress);
                         moved = true;
                     }
                 }

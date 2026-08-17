@@ -104,9 +104,14 @@ impl Error for SensibleHeatError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::InvalidComposition(error) => Some(error),
-            Self::UnknownMaterial { .. }
-            | Self::PhaseBoundaryCrossed { .. }
-            | Self::ArithmeticOverflow => None,
+            Self::UnknownMaterial {
+                material: _material,
+            } => None,
+            Self::PhaseBoundaryCrossed {
+                material: _material,
+                melting_point: _melting_point,
+            } => None,
+            Self::ArithmeticOverflow => None,
         }
     }
 }
@@ -391,11 +396,17 @@ impl Error for MaterialThermalEnergyError {
         match self {
             Self::SensibleHeat(error) => Some(error),
             Self::FusionHeat(error) => Some(error),
-            Self::UnknownForm { .. }
-            | Self::ImpureLiquidComposition
-            | Self::LiquidHostMismatch { .. }
-            | Self::LiquidBelowMeltingPoint { .. }
-            | Self::ArithmeticOverflow => None,
+            Self::UnknownForm { form: _form } => None,
+            Self::LiquidHostMismatch {
+                host: _host,
+                pure: _pure,
+            } => None,
+            Self::LiquidBelowMeltingPoint {
+                material: _material,
+                temperature: _temperature,
+                melting_point: _melting_point,
+            } => None,
+            Self::ImpureLiquidComposition | Self::ArithmeticOverflow => None,
         }
     }
 }
@@ -666,7 +677,11 @@ mod tests {
                 target,
             ),
             Err(PhaseSensibleHeatError::InvalidTargetState(
-                MaterialPhaseStateError::SolidAboveMeltingPoint { .. }
+                MaterialPhaseStateError::SolidAboveMeltingPoint {
+                    material: _material,
+                    temperature: _temperature,
+                    melting_point: _melting_point,
+                }
             ))
         ));
     }

@@ -359,7 +359,9 @@ impl ProductionState {
                             Some(provider),
                         ) if equipment == provider.equipment() => {}
                         (
-                            ProductionSuspensionReason::EquipmentSupportUnavailable { .. },
+                            ProductionSuspensionReason::EquipmentSupportUnavailable {
+                                equipment: _equipment,
+                            },
                             Some(_) | None,
                         ) => return false,
                     }

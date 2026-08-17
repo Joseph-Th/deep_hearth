@@ -525,7 +525,12 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(ProcessInputError::InsufficientMass { .. })
+            Err(ProcessInputError::InsufficientMass {
+                stockpile: _stockpile,
+                commodity: _commodity,
+                available: _available,
+                requested: _requested,
+            })
         ));
         assert_eq!(state, before);
     }
@@ -591,7 +596,12 @@ mod tests {
         assert!(matches!(
             result,
             Err(crate::inventory::MaterialFixtureError::Ingress(
-                crate::inventory::MaterialIngressError::CapacityExceeded { .. }
+                crate::inventory::MaterialIngressError::CapacityExceeded {
+                    stockpile: _stockpile,
+                    capacity: _capacity,
+                    committed: _committed,
+                    requested: _requested,
+                }
             ))
         ));
     }
@@ -781,7 +791,10 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(StartProcessCommitError::StaleInventoryRevision { .. })
+            Err(StartProcessCommitError::StaleInventoryRevision {
+                expected: _expected,
+                actual: _actual,
+            })
         ));
         assert_eq!(state, before_commit);
     }
@@ -811,7 +824,10 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(StartProcessCommitError::StaleProductionRevision { .. })
+            Err(StartProcessCommitError::StaleProductionRevision {
+                expected: _expected,
+                actual: _actual,
+            })
         ));
         assert_eq!(state, before_stale_commit);
     }

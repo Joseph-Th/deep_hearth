@@ -137,16 +137,37 @@ impl Error for EquipmentSupportError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::UnknownEquipment { .. }
-            | Self::UnknownEquipmentDefinition { .. }
-            | Self::AlreadyMounted { .. }
-            | Self::NotMounted { .. }
-            | Self::TargetNotActive { .. }
-            | Self::EquipmentBusy { .. }
-            | Self::AggregateMassOverflow { .. }
-            | Self::WeightForceOverflow { .. }
-            | Self::ExistingEquipmentLoadMismatch { .. }
-            | Self::EquipmentRevisionExhausted => None,
+            Self::UnknownEquipment {
+                equipment: _equipment,
+            }
+            | Self::NotMounted {
+                equipment: _equipment,
+            } => None,
+            Self::UnknownEquipmentDefinition {
+                equipment: _equipment,
+                definition: _definition,
+            } => None,
+            Self::AlreadyMounted {
+                equipment: _equipment,
+                element: _element,
+            } => None,
+            Self::TargetNotActive {
+                element: _element,
+                lifecycle: _lifecycle,
+            } => None,
+            Self::EquipmentBusy {
+                equipment: _equipment,
+                job: _job,
+                completes_at: _completes_at,
+            } => None,
+            Self::AggregateMassOverflow { element: _element }
+            | Self::WeightForceOverflow { element: _element } => None,
+            Self::ExistingEquipmentLoadMismatch {
+                element: _element,
+                stored: _stored,
+                expected: _expected,
+            } => None,
+            Self::EquipmentRevisionExhausted => None,
         }
     }
 }
@@ -219,10 +240,23 @@ impl Error for EquipmentSupportCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleEquipmentRevision { .. }
-            | Self::UnknownEquipment { .. }
-            | Self::SupportChanged { .. }
-            | Self::EquipmentBusy { .. } => None,
+            Self::StaleEquipmentRevision {
+                expected: _expected,
+                actual: _actual,
+            } => None,
+            Self::UnknownEquipment {
+                equipment: _equipment,
+            } => None,
+            Self::SupportChanged {
+                equipment: _equipment,
+                expected: _expected,
+                actual: _actual,
+            } => None,
+            Self::EquipmentBusy {
+                equipment: _equipment,
+                job: _job,
+                completes_at: _completes_at,
+            } => None,
         }
     }
 }
@@ -948,7 +982,10 @@ mod tests {
         assert!(matches!(
             relocation.commit(&mut state),
             Err(EquipmentSupportCommitError::Structure(
-                StructuralCommitError::StaleRevision { .. }
+                StructuralCommitError::StaleRevision {
+                    expected: _expected,
+                    actual: _actual,
+                }
             ))
         ));
         assert_eq!(

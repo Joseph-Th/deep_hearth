@@ -149,7 +149,8 @@ impl Error for GeneratedDepositSpecError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::InvalidComposition(error) => Some(error),
-            Self::ZeroMass | Self::MissingHostMaterial { .. } => None,
+            Self::ZeroMass => None,
+            Self::MissingHostMaterial { host: _host } => None,
         }
     }
 }

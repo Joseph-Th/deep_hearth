@@ -491,9 +491,13 @@
   start-admission and in-flight completion modules; thermal process code likewise separates immutable
   resolver registration, sensible-heating resolution, and persistence replay validation. Inventory
   fixture/bootstrap helpers now live in a dedicated conditional support module instead of the
-  production transaction module. Public bulk stockpile transfer performs deterministic selection and
-  then delegates admission, split-ID planning, structural-load planning, and commit to the same exact
-  relocation pipeline used by physical resolvers, removing the former parallel transfer mutation path.
+  production transaction module. Source-owned material admission is centralized in one inventory
+  ingress transaction for geological creation, structural multi-trace recovery, and controlled test
+  seeding; the former parallel single-lot and batch ingress validators/committers are removed, and
+  commodity-reference validation is shared with storage admission. Public bulk stockpile transfer
+  performs deterministic selection and then delegates admission, split-ID planning, structural-load
+  planning, and commit to the same exact relocation pipeline used by physical resolvers, removing the
+  former parallel transfer mutation path.
 - `TESTING.md` and `.cargo/config.toml` expose maintained fast, soak, gameplay, shader, full, release,
   lint, check, and documentation lanes. Long-horizon soaks are explicit ignored unit tests, so fast and
   soak execution reuse one default-feature unit-test artifact instead of triggering separate feature

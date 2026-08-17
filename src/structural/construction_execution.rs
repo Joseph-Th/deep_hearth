@@ -97,8 +97,11 @@ impl Display for StructuralMaterialRequirementError {
 impl Error for StructuralMaterialRequirementError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Geometry { error, .. } => Some(error),
-            Self::UnknownElement { .. } => None,
+            Self::Geometry {
+                element: _element,
+                error,
+            } => Some(error),
+            Self::UnknownElement { element: _element } => None,
         }
     }
 }
@@ -336,21 +339,50 @@ impl Display for StructuralConstructionError {
 impl Error for StructuralConstructionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Geometry { error, .. } => Some(error),
+            Self::Geometry {
+                element: _element,
+                error,
+            } => Some(error),
             Self::StructuralLoad(error) => Some(error),
-            Self::UnknownElement { .. }
-            | Self::ElementNotPlanned { .. }
-            | Self::AlreadyMaterialized { .. }
-            | Self::MaterialMismatch { .. }
-            | Self::UnsupportedComposition { .. }
-            | Self::UnknownMaterialForm { .. }
-            | Self::UnsupportedPhase { .. }
-            | Self::UnsupportedParticulateForm { .. }
-            | Self::MaterialQuantityMismatch { .. }
-            | Self::InventorySelectionStale { .. }
-            | Self::InventoryRevisionExhausted
-            | Self::StructureRevisionExhausted
-            | Self::SelfWeightOverflow { .. } => None,
+            Self::UnknownElement { element: _element }
+            | Self::AlreadyMaterialized { element: _element }
+            | Self::SelfWeightOverflow { element: _element } => None,
+            Self::ElementNotPlanned {
+                element: _element,
+                lifecycle: _lifecycle,
+            } => None,
+            Self::MaterialMismatch {
+                element: _element,
+                expected: _expected,
+                found: _found,
+            } => None,
+            Self::UnsupportedComposition {
+                element: _element,
+                material: _material,
+            } => None,
+            Self::UnknownMaterialForm {
+                element: _element,
+                form: _form,
+            }
+            | Self::UnsupportedParticulateForm {
+                element: _element,
+                form: _form,
+            } => None,
+            Self::UnsupportedPhase {
+                element: _element,
+                form: _form,
+                phase: _phase,
+            } => None,
+            Self::MaterialQuantityMismatch {
+                element: _element,
+                required: _required,
+                selected: _selected,
+            } => None,
+            Self::InventorySelectionStale {
+                expected: _expected,
+                actual: _actual,
+            } => None,
+            Self::InventoryRevisionExhausted | Self::StructureRevisionExhausted => None,
         }
     }
 }
@@ -392,9 +424,15 @@ impl Error for StructuralConstructionCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleStructureRevision { .. }
-            | Self::StaleInventoryRevision { .. }
-            | Self::StateChanged { .. } => None,
+            Self::StaleStructureRevision {
+                expected: _expected,
+                actual: _actual,
+            }
+            | Self::StaleInventoryRevision {
+                expected: _expected,
+                actual: _actual,
+            } => None,
+            Self::StateChanged { element: _element } => None,
         }
     }
 }
@@ -1206,7 +1244,10 @@ mod tests {
         let before_inventory_commit = state.clone();
         assert!(matches!(
             stale_inventory.commit(&mut state),
-            Err(StructuralConstructionCommitError::StaleInventoryRevision { .. })
+            Err(StructuralConstructionCommitError::StaleInventoryRevision {
+                expected: _expected,
+                actual: _actual,
+            })
         ));
         assert_eq!(state, before_inventory_commit);
 
@@ -1224,7 +1265,10 @@ mod tests {
         let before_structure_commit = state.clone();
         assert!(matches!(
             stale_structure.commit(&mut state),
-            Err(StructuralConstructionCommitError::StaleStructureRevision { .. })
+            Err(StructuralConstructionCommitError::StaleStructureRevision {
+                expected: _expected,
+                actual: _actual,
+            })
         ));
         assert_eq!(state, before_structure_commit);
         assert_eq!(

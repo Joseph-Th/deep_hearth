@@ -1,17 +1,44 @@
-//! Material-containment validation for stockpile ingress and relocation boundaries.
+//! Material-reference and containment validation for stockpile admission and relocation boundaries.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Temperature;
 use crate::material::{
-    CommodityKey, FormId, MaterialComposition, MaterialPhase, MaterialPhaseStateError,
+    CommodityKey, FormId, MaterialComposition, MaterialId, MaterialPhase, MaterialPhaseStateError,
     ParticleSizeDistribution, ParticleSizeStateError, validate_material_particle_size_state,
     validate_material_phase_state,
 };
 use crate::registry::Registries;
 
 use super::state::{StockpileId, StockpileRecord};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CommodityReferenceError {
+    UnknownMaterial { material: MaterialId },
+    UnknownForm { form: FormId },
+}
+
+pub(super) fn validate_commodity_reference(
+    registries: &Registries,
+    commodity: CommodityKey,
+) -> Result<(), CommodityReferenceError> {
+    if registries
+        .materials()
+        .get_material(commodity.material())
+        .is_none()
+    {
+        return Err(CommodityReferenceError::UnknownMaterial {
+            material: commodity.material(),
+        });
+    }
+    if registries.materials().get_form(commodity.form()).is_none() {
+        return Err(CommodityReferenceError::UnknownForm {
+            form: commodity.form(),
+        });
+    }
+    Ok(())
+}
 
 /// Failure because a stockpile's physical containment envelope rejects a material lot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,9 +100,16 @@ impl Error for StockpileStorageError {
         match self {
             Self::InvalidMaterialPhaseState(error) => Some(error),
             Self::InvalidParticleSizeState(error) => Some(error),
-            Self::UnknownForm { .. }
-            | Self::PhaseNotAccepted { .. }
-            | Self::TemperatureExceedsMaximum { .. } => None,
+            Self::UnknownForm { form: _form } => None,
+            Self::PhaseNotAccepted {
+                stockpile: _stockpile,
+                phase: _phase,
+            } => None,
+            Self::TemperatureExceedsMaximum {
+                stockpile: _stockpile,
+                temperature: _temperature,
+                maximum: _maximum,
+            } => None,
         }
     }
 }

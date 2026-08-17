@@ -24,7 +24,18 @@ impl ProductionAvailabilityChange {
     #[must_use]
     pub const fn job(self) -> ProductionJobId {
         match self {
-            Self::Suspended { job, .. } | Self::Resumed { job, .. } => job,
+            Self::Suspended {
+                job,
+                reason: _reason,
+                suspended_at: _suspended_at,
+                remaining_active_time: _remaining_active_time,
+            } => job,
+            Self::Resumed {
+                job,
+                reason: _reason,
+                resumed_at: _resumed_at,
+                scheduled_completion: _scheduled_completion,
+            } => job,
         }
     }
 }
@@ -238,17 +249,28 @@ pub(crate) fn decide_due_completions(
     let mut due_ids = state.production().jobs_due_at(tick);
     for change in &availability_changes {
         match *change {
-            ProductionAvailabilityChange::Suspended { job, .. } => {
+            ProductionAvailabilityChange::Suspended {
+                job,
+                reason: _reason,
+                suspended_at: _suspended_at,
+                remaining_active_time: _remaining_active_time,
+            } => {
                 due_ids.remove(&job);
             }
             ProductionAvailabilityChange::Resumed {
                 job,
+                reason: _reason,
+                resumed_at: _resumed_at,
                 scheduled_completion,
-                ..
             } if scheduled_completion == tick => {
                 due_ids.insert(job);
             }
-            ProductionAvailabilityChange::Resumed { .. } => {}
+            ProductionAvailabilityChange::Resumed {
+                job: _job,
+                reason: _reason,
+                resumed_at: _resumed_at,
+                scheduled_completion: _scheduled_completion,
+            } => {}
         }
     }
 

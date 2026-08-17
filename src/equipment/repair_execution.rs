@@ -432,14 +432,29 @@ impl Error for EquipmentRepairMaterialError {
         match self {
             Self::SpentStorage(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
-            Self::StaleSelection { .. }
-            | Self::UnknownSource { .. }
-            | Self::UnknownSpentDestination { .. }
-            | Self::SpentDestinationIsSource { .. }
-            | Self::SpentMassOverflow { .. }
-            | Self::SpentCapacityExceeded { .. }
-            | Self::LotIdExhausted
-            | Self::InventoryRevisionExhausted => None,
+            Self::StaleSelection {
+                expected: _expected,
+                actual: _actual,
+            } => None,
+            Self::UnknownSource {
+                stockpile: _stockpile,
+            }
+            | Self::UnknownSpentDestination {
+                stockpile: _stockpile,
+            }
+            | Self::SpentDestinationIsSource {
+                stockpile: _stockpile,
+            }
+            | Self::SpentMassOverflow {
+                stockpile: _stockpile,
+            } => None,
+            Self::SpentCapacityExceeded {
+                stockpile: _stockpile,
+                capacity: _capacity,
+                committed: _committed,
+                requested: _requested,
+            } => None,
+            Self::LotIdExhausted | Self::InventoryRevisionExhausted => None,
         }
     }
 }
@@ -515,13 +530,34 @@ impl Error for EquipmentRepairError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Material(error) => Some(error),
-            Self::UnknownEquipment { .. }
-            | Self::UnknownDefinition { .. }
-            | Self::StaleEquipmentResolution { .. }
-            | Self::ConditionChangedSinceResolution { .. }
-            | Self::EquipmentBusy { .. }
-            | Self::ConditionNotImproved { .. }
-            | Self::EquipmentRevisionExhausted => None,
+            Self::UnknownEquipment {
+                equipment: _equipment,
+            } => None,
+            Self::UnknownDefinition {
+                equipment: _equipment,
+                definition: _definition,
+            } => None,
+            Self::StaleEquipmentResolution {
+                equipment: _equipment,
+                expected_revision: _expected_revision,
+                actual_revision: _actual_revision,
+            } => None,
+            Self::ConditionChangedSinceResolution {
+                equipment: _equipment,
+                expected: _expected,
+                actual: _actual,
+            } => None,
+            Self::EquipmentBusy {
+                equipment: _equipment,
+                job: _job,
+                release: _release,
+            } => None,
+            Self::ConditionNotImproved {
+                equipment: _equipment,
+                before: _before,
+                after: _after,
+            } => None,
+            Self::EquipmentRevisionExhausted => None,
         }
     }
 }
@@ -602,11 +638,27 @@ impl Error for EquipmentRepairCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleEquipmentRevision { .. }
-            | Self::UnknownEquipment { .. }
-            | Self::ConditionChanged { .. }
-            | Self::EquipmentBusy { .. }
-            | Self::StaleInventoryRevision { .. } => None,
+            Self::StaleEquipmentRevision {
+                expected: _expected,
+                actual: _actual,
+            }
+            | Self::StaleInventoryRevision {
+                expected: _expected,
+                actual: _actual,
+            } => None,
+            Self::UnknownEquipment {
+                equipment: _equipment,
+            } => None,
+            Self::ConditionChanged {
+                equipment: _equipment,
+                expected: _expected,
+                actual: _actual,
+            } => None,
+            Self::EquipmentBusy {
+                equipment: _equipment,
+                job: _job,
+                release: _release,
+            } => None,
         }
     }
 }
@@ -1338,7 +1390,10 @@ mod tests {
             .map(|record| record.condition());
         assert!(matches!(
             inventory_stale.commit(&mut state),
-            Err(EquipmentRepairCommitError::StaleInventoryRevision { .. })
+            Err(EquipmentRepairCommitError::StaleInventoryRevision {
+                expected: _expected,
+                actual: _actual,
+            })
         ));
         assert_eq!(
             state
@@ -1378,7 +1433,10 @@ mod tests {
         let lot_mass_before = state.inventory().get_lot(lot).map(|record| record.mass());
         assert!(matches!(
             equipment_stale.commit(&mut state),
-            Err(EquipmentRepairCommitError::StaleEquipmentRevision { .. })
+            Err(EquipmentRepairCommitError::StaleEquipmentRevision {
+                expected: _expected,
+                actual: _actual,
+            })
         ));
         assert_eq!(
             state.inventory().get_lot(lot).map(|record| record.mass()),
