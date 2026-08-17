@@ -1,6 +1,19 @@
 //! Persistent-state validation for structural; this child audits private owner data without exposing mutation.
 
-use super::*;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
+use crate::core::quantity::{Acceleration, AggregateMass, Force, Mass};
+use crate::core::time::SimulationTick;
+use crate::material::{
+    MaterialId, MaterialPhase, MaterialPhaseStateError, MaterialRegistry, ParticleSizeStatePolicy,
+    validate_material_phase_state,
+};
+
+use super::super::definitions::{StructuralProfileId, StructuralRegistry};
+use super::super::geometry::{StructuralGeometryError, calculate_prismatic_material_mass_ceiling};
+use super::super::load::calculate_aggregate_weight_force_ceiling;
+use super::{StructuralElementId, StructuralLifecycle, StructuralLoadKind, StructureState};
 
 /// Exhaustive failure found while validating decoded structural state.
 #[derive(Clone, Debug, PartialEq, Eq)]

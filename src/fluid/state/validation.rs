@@ -1,6 +1,14 @@
 //! Persistent-state validation for fluid; this child audits private owner data without exposing mutation.
 
-use super::*;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
+use crate::core::quantity::Volume;
+use crate::core::time::SimulationTick;
+use crate::structural::StructuralElementId;
+
+use super::super::definitions::{FluidDefinitionId, FluidRegistry};
+use super::{FluidState, FluidStoreId};
 
 /// Invalid persisted fluid ownership discovered during exhaustive load validation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

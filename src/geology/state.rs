@@ -1,18 +1,18 @@
 //! Persistent finite geological deposits; child validation audits durable geological ownership.
 
 use std::collections::BTreeMap;
+#[cfg(test)]
 use std::error::Error;
+#[cfg(test)]
 use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::SimulationTick;
-use crate::material::{
-    CommodityKey, CompositionError, MaterialComposition, MaterialId, MaterialPhase,
-    MaterialPhaseStateError, MaterialRegistry, ParticleSizeStatePolicy,
-    validate_material_phase_state,
-};
+use crate::material::{CommodityKey, MaterialComposition};
+#[cfg(test)]
+use crate::material::{CompositionError, MaterialId};
 use crate::spatial::VoxelBounds;
 
 /// Persistent identifier for one finite geological matter owner.
@@ -279,6 +279,7 @@ pub(crate) use validation::validate_loaded_geology;
 mod tests {
     use super::*;
     use crate::content::{FORM_CRUSHED, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, build_registries};
+    use crate::material::MaterialPhase;
     use crate::spatial::VoxelCoord;
 
     fn bounds() -> VoxelBounds {

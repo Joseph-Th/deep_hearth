@@ -1,41 +1,5 @@
 //! Thermal process facade; child modules separate registry ownership, runtime heating resolution, and persistence replay.
 
-use std::collections::BTreeMap;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-
-use crate::capability::{
-    CapabilityEvaluationError, CapabilityId, CapabilityRegistry, CapabilityValue,
-    CapabilityValueKind, evaluate_capabilities,
-};
-use crate::core::quantity::{Energy, Mass, Power, Temperature};
-use crate::core::state::AppState;
-use crate::core::time::TickSpan;
-use crate::energy::{
-    EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerDurationError,
-    calculate_power_duration_ceiling, validate_energy_supply,
-};
-use crate::equipment::{
-    EquipmentId, EquipmentProviderError, resolve_equipment_capability, resolve_equipment_provider,
-};
-use crate::inventory::{MaterialLotSelection, StockpileId};
-use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
-use crate::material::{MaterialLotSpec, MaterialLotSpecError, MaterialPhase, MaterialRegistry};
-use crate::production::{
-    ProcessId, ProcessInputError, ProcessInputPolicy, ProcessOutputStream, ProcessOutputStreamId,
-    ProcessResolution, ProcessResolutionError, ProductionJobId, ProductionJobRecord,
-    ProductionRegistry, validate_selected_process_inputs,
-};
-use crate::registry::Registries;
-
-use super::casting_execution::{
-    CastingJobValidationError, CastingProcessDefinition, validate_loaded_casting_job,
-};
-use super::melting_execution::{
-    MeltingJobValidationError, MeltingProcessDefinition, validate_loaded_melting_job,
-};
-use super::{HeatDirection, PhaseSensibleHeatError, calculate_phase_sensible_heat};
-
 mod heating;
 mod registry;
 mod validation;
@@ -51,27 +15,33 @@ pub(crate) use validation::validate_loaded_thermal_job;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capability::{CapabilityDefinition, CapabilityProfile, CapabilityValue};
+    use crate::capability::{
+        CapabilityDefinition, CapabilityId, CapabilityProfile, CapabilityValue, CapabilityValueKind,
+    };
     use crate::content::{
         FORM_LOG, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, MATERIAL_WOOD,
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION, make_test_registries_with_sensible_heating,
     };
-    use crate::core::quantity::{Area, Force, Mass, Power};
-    use crate::core::state::{StateValidationError, validate_loaded_state};
-    use crate::core::time::{SimulationTick, WorldSeed};
+    use crate::core::quantity::{Area, Energy, Force, Mass, Power, Temperature};
+    use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
+    use crate::core::time::{SimulationTick, TickSpan, WorldSeed};
     use crate::energy::{
-        EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store,
-        add_energy_store_with_initial_for_test, calculate_explicit_energy_accounting,
+        EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, EnergyStoreId,
+        EnergySupplyError, add_energy_store, add_energy_store_with_initial_for_test,
+        calculate_explicit_energy_accounting, calculate_power_duration_ceiling,
+        validate_energy_supply,
     };
     use crate::equipment::{
         CapabilityConditionCurve, CapabilityConditionPoint, EquipmentConditionCommitError,
-        EquipmentConditionPlanError, EquipmentDefinition, EquipmentDefinitionId,
-        EquipmentSupportCommitError, add_equipment, apply_equipment_condition_plan,
-        decide_equipment_wear, validate_mount_equipment, validate_unmount_equipment,
+        EquipmentConditionPlanError, EquipmentDefinition, EquipmentDefinitionId, EquipmentId,
+        EquipmentProviderError, EquipmentSupportCommitError, add_equipment,
+        apply_equipment_condition_plan, decide_equipment_wear, validate_mount_equipment,
+        validate_unmount_equipment,
     };
     use crate::inventory::{
-        StockpileStorageProfile, StockpileSupportError, add_solid_stockpile_for_test,
-        add_stockpile, deposit_lot_for_test, validate_mount_stockpile,
+        MaterialLotSelection, StockpileId, StockpileStorageProfile, StockpileSupportError,
+        add_solid_stockpile_for_test, add_stockpile, deposit_lot_for_test,
+        validate_mount_stockpile,
     };
     use crate::maintenance::{Condition, MaintenanceThresholds};
     use crate::material::{CommodityKey, MaterialComposition};
@@ -79,11 +49,12 @@ mod tests {
     use crate::matter::calculate_matter_accounting;
     use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
     use crate::production::{
-        CompletionCommitError, ProcessDefinition, ProductionAvailabilityChange,
-        ProductionOccupancyRelease, ProductionSuspensionReason, ProductionValidationError,
-        StartProcessCommitError, StartProcessError, apply_completion_plan, decide_due_completions,
-        validate_start_process,
+        CompletionCommitError, ProcessDefinition, ProcessId, ProcessInputError,
+        ProductionAvailabilityChange, ProductionOccupancyRelease, ProductionSuspensionReason,
+        ProductionValidationError, StartProcessCommitError, StartProcessError,
+        apply_completion_plan, decide_due_completions, validate_start_process,
     };
+    use crate::registry::Registries;
     use crate::simulation::advance_tick;
     use crate::spatial::{VoxelBounds, VoxelCoord};
     use crate::structural::{
@@ -91,6 +62,7 @@ mod tests {
         materialize_structural_element_for_test, validate_activate_structural_element,
         validate_set_structural_load,
     };
+    use crate::thermal::{PhaseSensibleHeatError, calculate_phase_sensible_heat};
 
     const HEATING_POWER: CapabilityId = CapabilityId::new(920_001);
     const MAX_TEMPERATURE: CapabilityId = CapabilityId::new(920_002);

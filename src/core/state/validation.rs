@@ -1,11 +1,10 @@
 //! Persistent-state validation for root runtime; child audits reconcile private owners without
 //! exposing mutation.
 
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::{AggregateMass, Energy, Force, Mass};
+use crate::core::quantity::{Energy, Force, Mass};
 use crate::core::rng::RandomStateValidationError;
 use crate::core::time::{SimulationTick, WorldSeed};
 use crate::crafting::ManualCraftJobValidationError;
@@ -14,8 +13,7 @@ use crate::equipment::{
     EquipmentDefinitionId, EquipmentId, EquipmentValidationError, validate_loaded_equipment,
 };
 use crate::fluid::{
-    FluidStoreId, FluidStructuralLoadError, FluidValidationError, validate_existing_fluid_load,
-    validate_loaded_fluid,
+    FluidStoreId, FluidStructuralLoadError, FluidValidationError, validate_loaded_fluid,
 };
 use crate::geology::{
     GeologicalKnowledgeValidationError, GeologyValidationError,
@@ -23,32 +21,25 @@ use crate::geology::{
 };
 use crate::inventory::{
     InventoryValidationError, MaterialLotId, StockpileId, StockpileStorageError,
-    validate_loaded_inventory, validate_stockpile_storage,
+    validate_loaded_inventory,
 };
 use crate::labor::{PlayerWorkValidationError, validate_loaded_player_work};
 use crate::maintenance::Condition;
-use crate::material::{
-    CommodityKey, MaterialId, ParticleSizeStateError, validate_material_particle_size_state,
-};
+use crate::material::{CommodityKey, MaterialId, ParticleSizeStateError};
 use crate::mining::{
     MiningReferenceError, MiningValidationError, validate_loaded_mining, validate_mining_references,
 };
-use crate::ore_processing::{
-    ComminutionJobValidationError, ScreeningJobValidationError, validate_loaded_comminution_job,
-    validate_loaded_screening_job,
-};
+use crate::ore_processing::{ComminutionJobValidationError, ScreeningJobValidationError};
 use crate::production::{
-    ProcessId, ProductionJobId, ProductionValidationError, sum_lot_spec_mass,
-    validate_loaded_production,
+    ProcessId, ProductionJobId, ProductionValidationError, validate_loaded_production,
 };
 use crate::registry::Registries;
 use crate::structural::{
-    StructuralAnalysisError, StructuralDamageEvent, StructuralElementId, StructuralLifecycle,
-    StructuralLoadKind, StructureValidationError, analyze_structure,
-    calculate_aggregate_weight_force_ceiling, validate_loaded_structure,
+    StructuralAnalysisError, StructuralDamageEvent, StructuralElementId, StructureValidationError,
+    validate_loaded_structure,
 };
 use crate::survival::{SurvivalValidationError, validate_loaded_survival};
-use crate::thermal::{ThermalJobValidationError, validate_loaded_thermal_job};
+use crate::thermal::ThermalJobValidationError;
 
 use super::AppState;
 

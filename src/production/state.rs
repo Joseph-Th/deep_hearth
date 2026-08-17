@@ -1,7 +1,6 @@
 //! Durable production jobs and synchronized scheduling/resource indexes; child validation audits persistence.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
@@ -12,7 +11,7 @@ use crate::energy::{ConsumedEnergyTrace, EnergyStoreId, ReleasedEnergyTrace};
 use crate::equipment::{EquipmentId, EquipmentOperationTrace};
 use crate::inventory::{ConsumedMaterialTrace, StockpileId};
 use crate::maintenance::Condition;
-use crate::material::{CommodityKey, CompositionError, MaterialId, MaterialLotSpec};
+use crate::material::MaterialLotSpec;
 
 use super::definitions::ProcessId;
 use super::resolution::ProcessOutputStreamId;

@@ -1,6 +1,14 @@
 //! Immutable thermal process definitions and exclusive resolver registry ownership.
 
-use super::*;
+use std::collections::BTreeMap;
+
+use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
+use crate::energy::EnergyCarrier;
+use crate::material::{MaterialPhase, MaterialRegistry};
+use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
+
+use super::super::casting_execution::CastingProcessDefinition;
+use super::super::melting_execution::MeltingProcessDefinition;
 
 /// Immutable declaration that one process is resolved as ideal sensible heating.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

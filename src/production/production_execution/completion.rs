@@ -1,6 +1,24 @@
 //! In-flight availability, completion planning, and atomic application; sibling start owns admission.
 
-use super::*;
+use std::collections::BTreeMap;
+
+use crate::core::quantity::Mass;
+use crate::core::state::AppState;
+use crate::core::time::{SimulationTick, TickSpan};
+use crate::energy::{ReleasedEnergyTrace, apply_released_energy_outcomes};
+use crate::equipment::EquipmentOperationConditionOutcome;
+use crate::inventory::{
+    ReservedDepositPlan, ReservedDepositPlanError, ReservedDepositRequest, StockpileId,
+    StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedStockpileStructuralLoad,
+    apply_reserved_deposits, decide_reserved_deposits, validate_stockpile_stored_mass_changes,
+};
+use crate::registry::Registries;
+use crate::structural::{StructuralCommitError, StructuralLifecycle};
+
+use super::super::definitions::ProcessId;
+use super::super::resolution::{ProcessOutputStreamId, sum_lot_spec_mass};
+use super::super::state::{ProductionJobId, ProductionJobRecord, ProductionSuspensionReason};
+use super::start::ProcessOutputRoute;
 
 /// Observable active-time scheduling change caused by a production provider becoming unavailable or
 /// usable again. Work-in-process remains owned by the same job across both transitions.

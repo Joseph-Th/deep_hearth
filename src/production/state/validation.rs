@@ -1,6 +1,19 @@
 //! Persistent-state validation for production; this child audits private owner data without exposing mutation.
 
-use super::*;
+use std::collections::BTreeSet;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
+use crate::core::quantity::Mass;
+use crate::core::time::{SimulationTick, TickSpan};
+use crate::energy::EnergyStoreId;
+use crate::equipment::EquipmentId;
+use crate::inventory::StockpileId;
+use crate::maintenance::Condition;
+use crate::material::{CommodityKey, CompositionError, MaterialId, MaterialLotSpec};
+
+use super::super::resolution::ProcessOutputStreamId;
+use super::{ProductionJobId, ProductionState, ProductionSuspensionReason};
 
 /// Persistent-state validation failure for production records or their due index.
 #[derive(Clone, Debug, PartialEq, Eq)]

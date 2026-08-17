@@ -1,7 +1,10 @@
 //! Cross-owner inventory validation; this child checks authored references and temporal lot
 //! provenance.
 
-use super::*;
+use crate::core::state::AppState;
+use crate::registry::Registries;
+
+use super::StateValidationError;
 
 pub(super) fn validate_inventory_references(
     registries: &Registries,

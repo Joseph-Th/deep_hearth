@@ -1,6 +1,14 @@
 //! Persistent-state validation for equipment; this child audits private owner data without exposing mutation.
 
-use super::*;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
+use crate::core::quantity::Mass;
+use crate::core::time::SimulationTick;
+use crate::structural::StructuralElementId;
+
+use super::super::definitions::{EquipmentDefinitionId, EquipmentRegistry};
+use super::{EquipmentId, EquipmentState};
 
 /// Structural or cross-reference failure in decoded persistent equipment state.
 #[derive(Clone, Debug, PartialEq, Eq)]

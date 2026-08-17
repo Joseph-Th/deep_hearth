@@ -1,6 +1,16 @@
 //! Persistent-state validation for geology; this child audits private owner data without exposing mutation.
 
-use super::*;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
+use crate::core::quantity::Mass;
+use crate::core::time::SimulationTick;
+use crate::material::{
+    CompositionError, MaterialId, MaterialPhase, MaterialPhaseStateError, MaterialRegistry,
+    ParticleSizeStatePolicy, validate_material_phase_state,
+};
+
+use super::{GeologicalDepositId, GeologicalDepositLifecycle, GeologyState};
 
 /// Persistent-state validation failure for geological matter ownership.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -1,6 +1,19 @@
 //! Persistent-state validation for inventory; this child audits private owner data without exposing mutation.
 
-use super::*;
+use std::collections::BTreeMap;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
+use crate::core::quantity::{Mass, Temperature};
+use crate::core::time::SimulationTick;
+use crate::material::{
+    CommodityKey, CompositionError, FormId, MaterialPhase, MaterialPhaseStateError,
+    MaterialRegistry, ParticleSizeStateError, validate_material_particle_size_state,
+    validate_material_phase_state,
+};
+use crate::structural::StructuralElementId;
+
+use super::{InventoryState, MaterialLotId, StockpileId, StockpileStorageProfileError};
 
 /// Persistent-state validation failure for the inventory owner.
 #[derive(Clone, Debug, PartialEq, Eq)]

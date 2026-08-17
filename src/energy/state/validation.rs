@@ -1,6 +1,13 @@
 //! Persistent-state validation for energy; this child audits private owner data without exposing mutation.
 
-use super::*;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
+use crate::core::quantity::Energy;
+use crate::core::time::SimulationTick;
+
+use super::super::definitions::{EnergyRegistry, EnergyStoreDefinitionId};
+use super::{EnergyState, EnergyStoreId};
 
 /// Invalid persisted energy ownership discovered during exhaustive load validation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

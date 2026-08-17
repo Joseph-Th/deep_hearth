@@ -12,12 +12,14 @@
   geology, geological knowledge, and player-survival backing collections are private to their state
   owners. Synchronized indexes change only through owner methods that update each related collection
   in one mutation boundary.
+- Split subsystem children declare their production dependencies explicitly. Facades are limited to
+  module wiring and re-exports instead of acting as wildcard import warehouses, and their tests own
+  any additional fixture imports they require.
 - Wide runtime and coordination records are grouped by ownership concern rather than accumulating
   flat field lists: root runtime systems, production-job identity/schedule/resources/equipment,
   registry presentation domains, screening resolution constraints, completion revision contracts,
-  and gameplay-harness inputs/reports each have explicit nested profiles. The resulting persistent
-  layout is save schema 35 and remains current-schema-only; no historical layout shim or migration is
-  retained.
+  and gameplay-harness inputs/reports each have explicit nested profiles. The persistent layout
+  remains current-schema-only; no historical layout shim or migration is retained.
 - Explicit authoritative integer quantities for mass, aggregate mass, temperature, energy,
   pressure, area, length, acceleration, force, power, torque, angular speed, voltage, current,
   resistance, volume, aggregate volume, and volumetric flow.
@@ -546,6 +548,17 @@
   performs deterministic selection and then delegates admission, split-ID planning, structural-load
   planning, and commit to the same exact relocation pipeline used by physical resolvers, removing the
   former parallel transfer mutation path.
+- Mining work-in-process groups persistent identity, resources, and schedule state instead of keeping
+  an oversized flat record. Mining start tokens likewise group owner revision transitions, capability
+  failures identify the exact authored capability and value-kind mismatch, and missing material
+  definitions are reported as material-reference failures rather than deposit failures. Due mining
+  buckets are consumed directly into stable tick outcomes instead of cloning their job-ID sets during
+  planning. This persistent layout change advances the current-only save schema; no historical mining
+  layout decoder or migration path is retained.
+- Player labor now distinguishes admission failures from commit-time conflicts. Revision-bound work
+  tokens report an explicit stale revision when labor ownership changed after validation, including
+  the case where intervening work has already finished, instead of misreporting the stale token as an
+  active busy job.
 - `TESTING.md` and `.cargo/config.toml` expose maintained fast, soak, gameplay, shader, full, release,
   lint, check, and documentation lanes. Long-horizon soaks are explicit ignored unit tests, so fast and
   soak execution reuse one default-feature unit-test artifact instead of triggering separate feature

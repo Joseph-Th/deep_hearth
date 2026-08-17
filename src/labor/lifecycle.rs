@@ -70,6 +70,24 @@ impl Display for PlayerWorkStartError {
 impl Error for PlayerWorkStartError {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlayerWorkCommitError {
+    StaleRevision { expected: u64, actual: u64 },
+}
+
+impl Display for PlayerWorkCommitError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StaleRevision { expected, actual } => write!(
+                formatter,
+                "player-work revision changed from {expected} to {actual} after validation"
+            ),
+        }
+    }
+}
+
+impl Error for PlayerWorkCommitError {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedPlayerWorkStart {
     expected_revision: u64,
     next_revision: u64,
@@ -77,14 +95,13 @@ pub(crate) struct ValidatedPlayerWorkStart {
 }
 
 impl ValidatedPlayerWorkStart {
-    pub(crate) fn precheck(self, state: &AppState) -> Result<(), PlayerWorkStartError> {
-        if state.player_work().revision() != self.expected_revision {
-            return Err(PlayerWorkStartError::Busy {
-                active: state.player_work().active().unwrap_or(self.work),
+    pub(crate) fn precheck(self, state: &AppState) -> Result<(), PlayerWorkCommitError> {
+        let actual_revision = state.player_work().revision();
+        if actual_revision != self.expected_revision {
+            return Err(PlayerWorkCommitError::StaleRevision {
+                expected: self.expected_revision,
+                actual: actual_revision,
             });
-        }
-        if let Some(active) = state.player_work().active() {
-            return Err(PlayerWorkStartError::Busy { active });
         }
         Ok(())
     }

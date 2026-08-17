@@ -1,7 +1,19 @@
 //! Cross-owner structural validation; this child reconciles mounted runtime owners with structural
 //! load channels.
 
-use super::*;
+use std::collections::BTreeMap;
+
+use crate::core::quantity::AggregateMass;
+use crate::core::state::AppState;
+use crate::equipment::EquipmentValidationError;
+use crate::fluid::validate_existing_fluid_load;
+use crate::registry::Registries;
+use crate::structural::{
+    StructuralElementId, StructuralLifecycle, StructuralLoadKind, analyze_structure,
+    calculate_aggregate_weight_force_ceiling,
+};
+
+use super::StateValidationError;
 
 pub(super) fn validate_structural_integrations(
     registries: &Registries,

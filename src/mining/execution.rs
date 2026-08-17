@@ -1,10 +1,9 @@
 //! Canonical mining start, work completion, and reserved-output claim transactions.
 
-use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::capability::CapabilityValue;
+use crate::capability::{CapabilityId, CapabilityValue, CapabilityValueKind};
 use crate::core::quantity::{Mass, MassFlow, Pressure};
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
@@ -18,15 +17,17 @@ use crate::inventory::{
     validate_stockpile_stored_mass_changes, validate_stockpile_support_for_new_inbound,
 };
 use crate::labor::{
-    PlayerWork, PlayerWorkStartError, ValidatedPlayerWorkStart, validate_player_work_start,
+    PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ValidatedPlayerWorkStart,
+    validate_player_work_start,
 };
 use crate::maintenance::calculate_condition_after_active_ticks;
-use crate::material::{MaterialLotSpec, MaterialLotSpecError};
+use crate::material::{MaterialId, MaterialLotSpec, MaterialLotSpecError};
 use crate::ore_processing::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
+use super::state::{MiningJobIdentity, MiningJobResources, MiningJobSchedule};
 use super::{MiningJobId, MiningJobRecord, MiningMethodId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,7 +59,17 @@ pub enum MiningStartError {
         equipment: EquipmentId,
         job: MiningJobId,
     },
-    MissingCapability,
+    MissingCapability {
+        capability: CapabilityId,
+    },
+    CapabilityKindMismatch {
+        capability: CapabilityId,
+        expected: CapabilityValueKind,
+        found: CapabilityValueKind,
+    },
+    UnknownMaterialDefinition {
+        material: MaterialId,
+    },
     BatchTooLarge {
         maximum: Mass,
         requested: Mass,
@@ -131,7 +142,7 @@ pub enum MiningStartCommitError {
         equipment: EquipmentId,
         job: MiningJobId,
     },
-    Work(PlayerWorkStartError),
+    Work(PlayerWorkCommitError),
 }
 
 impl Display for MiningStartCommitError {
@@ -144,18 +155,26 @@ impl Error for MiningStartCommitError {}
 
 #[must_use]
 pub struct ValidatedMiningStart {
-    expected_geology_revision: u64,
-    next_geology_revision: u64,
+    revisions: MiningStartRevisions,
     remaining_after: Mass,
-    expected_equipment_revision: u64,
-    next_equipment_revision: u64,
-    expected_mining_revision: u64,
-    next_mining_revision: u64,
     next_mining_job_id: u64,
-    expected_structure_revision: Option<u64>,
     reservation: ValidatedInboundReservation,
     work: ValidatedPlayerWorkStart,
     record: MiningJobRecord,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RevisionTransition {
+    expected: u64,
+    next: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MiningStartRevisions {
+    geology: RevisionTransition,
+    equipment: RevisionTransition,
+    mining: RevisionTransition,
+    structure: Option<u64>,
 }
 
 impl ValidatedMiningStart {
@@ -163,9 +182,9 @@ impl ValidatedMiningStart {
         self.work
             .precheck(state)
             .map_err(MiningStartCommitError::Work)?;
-        if state.geology().revision() != self.expected_geology_revision {
+        if state.geology().revision() != self.revisions.geology.expected {
             return Err(MiningStartCommitError::StaleGeology {
-                expected: self.expected_geology_revision,
+                expected: self.revisions.geology.expected,
                 actual: state.geology().revision(),
             });
         }
@@ -175,19 +194,19 @@ impl ValidatedMiningStart {
                 actual: state.inventory().revision(),
             });
         }
-        if state.equipment().revision() != self.expected_equipment_revision {
+        if state.equipment().revision() != self.revisions.equipment.expected {
             return Err(MiningStartCommitError::StaleEquipment {
-                expected: self.expected_equipment_revision,
+                expected: self.revisions.equipment.expected,
                 actual: state.equipment().revision(),
             });
         }
-        if state.mining().revision() != self.expected_mining_revision {
+        if state.mining().revision() != self.revisions.mining.expected {
             return Err(MiningStartCommitError::StaleMining {
-                expected: self.expected_mining_revision,
+                expected: self.revisions.mining.expected,
                 actual: state.mining().revision(),
             });
         }
-        if let Some(expected) = self.expected_structure_revision
+        if let Some(expected) = self.revisions.structure
             && state.structures().revision() != expected
         {
             return Err(MiningStartCommitError::StaleStructure {
@@ -218,18 +237,18 @@ impl ValidatedMiningStart {
         state.geology_state_mut().apply_extraction(
             self.record.deposit(),
             self.remaining_after,
-            self.next_geology_revision,
+            self.revisions.geology.next,
         );
         state.equipment_state_mut().apply_condition_change(
             self.record.equipment(),
             self.record.equipment_condition_before(),
             self.record.equipment_condition_after(),
-            self.next_equipment_revision,
+            self.revisions.equipment.next,
         );
         state.mining_state_mut().insert_job(
             self.record,
             self.next_mining_job_id,
-            self.next_mining_revision,
+            self.revisions.mining.next,
         );
         self.work.apply(state);
         Ok(id)
@@ -286,17 +305,46 @@ pub fn validate_start_mining(
     if let Some(job) = state.mining().get_equipment_occupant(equipment) {
         return Err(MiningStartError::EquipmentBusyMining { equipment, job });
     }
-    let flow = match provider.get_capability(method_def.mass_flow_capability()) {
-        Some(CapabilityValue::MassFlow(value)) => value,
-        _ => return Err(MiningStartError::MissingCapability),
+    let flow_capability = method_def.mass_flow_capability();
+    let flow_value =
+        provider
+            .get_capability(flow_capability)
+            .ok_or(MiningStartError::MissingCapability {
+                capability: flow_capability,
+            })?;
+    let CapabilityValue::MassFlow(flow) = flow_value else {
+        return Err(MiningStartError::CapabilityKindMismatch {
+            capability: flow_capability,
+            expected: CapabilityValueKind::MassFlow,
+            found: flow_value.kind(),
+        });
     };
-    let max_batch = match provider.get_capability(method_def.max_batch_mass_capability()) {
-        Some(CapabilityValue::Mass(value)) => value,
-        _ => return Err(MiningStartError::MissingCapability),
+    let batch_capability = method_def.max_batch_mass_capability();
+    let batch_value =
+        provider
+            .get_capability(batch_capability)
+            .ok_or(MiningStartError::MissingCapability {
+                capability: batch_capability,
+            })?;
+    let CapabilityValue::Mass(max_batch) = batch_value else {
+        return Err(MiningStartError::CapabilityKindMismatch {
+            capability: batch_capability,
+            expected: CapabilityValueKind::Mass,
+            found: batch_value.kind(),
+        });
     };
-    let max_hardness = match provider.get_capability(method_def.max_hardness_capability()) {
-        Some(CapabilityValue::Pressure(value)) => value,
-        _ => return Err(MiningStartError::MissingCapability),
+    let hardness_capability = method_def.max_hardness_capability();
+    let hardness_value = provider.get_capability(hardness_capability).ok_or(
+        MiningStartError::MissingCapability {
+            capability: hardness_capability,
+        },
+    )?;
+    let CapabilityValue::Pressure(max_hardness) = hardness_value else {
+        return Err(MiningStartError::CapabilityKindMismatch {
+            capability: hardness_capability,
+            expected: CapabilityValueKind::Pressure,
+            found: hardness_value.kind(),
+        });
     };
     if flow == MassFlow::ZERO {
         return Err(MiningStartError::ZeroThroughput);
@@ -307,10 +355,12 @@ pub fn validate_start_mining(
             requested: mass,
         });
     }
-    let material = registries
-        .materials()
-        .get_material(deposit_record.commodity().material())
-        .ok_or(MiningStartError::UnknownDeposit { deposit })?;
+    let material_id = deposit_record.commodity().material();
+    let material = registries.materials().get_material(material_id).ok_or(
+        MiningStartError::UnknownMaterialDefinition {
+            material: material_id,
+        },
+    )?;
     let hardness = Pressure::from_pascals(
         u64::from(material.properties().mechanical().hardness_mpa()) * 1_000_000,
     );
@@ -410,30 +460,44 @@ pub fn validate_start_mining(
     let work = validate_player_work_start(state, PlayerWork::Mining { job })
         .map_err(MiningStartError::Work)?;
     Ok(ValidatedMiningStart {
-        expected_geology_revision,
-        next_geology_revision,
+        revisions: MiningStartRevisions {
+            geology: RevisionTransition {
+                expected: expected_geology_revision,
+                next: next_geology_revision,
+            },
+            equipment: RevisionTransition {
+                expected: expected_equipment_revision,
+                next: next_equipment_revision,
+            },
+            mining: RevisionTransition {
+                expected: expected_mining_revision,
+                next: next_mining_revision,
+            },
+            structure: expected_structure_revision,
+        },
         remaining_after,
-        expected_equipment_revision,
-        next_equipment_revision,
-        expected_mining_revision,
-        next_mining_revision,
         next_mining_job_id,
-        expected_structure_revision,
         reservation,
         work,
-        record: MiningJobRecord {
-            id: job,
-            method,
-            deposit,
-            destination,
-            equipment,
-            started_at: state.tick(),
-            completes_at,
-            output,
-            equipment_condition_before: condition_before,
-            equipment_condition_after: condition_after,
-            ready_at: None,
-        },
+        record: MiningJobRecord::new(
+            MiningJobIdentity {
+                id: job,
+                method,
+                deposit,
+            },
+            MiningJobResources {
+                destination,
+                equipment,
+                output,
+                equipment_condition_before: condition_before,
+                equipment_condition_after: condition_after,
+            },
+            MiningJobSchedule {
+                started_at: state.tick(),
+                completes_at,
+                ready_at: None,
+            },
+        ),
     })
 }
 
@@ -447,15 +511,13 @@ pub(crate) struct MiningTickPlan {
     expected_revision: u64,
     next_revision: u64,
     ready_at: SimulationTick,
-    jobs: BTreeSet<MiningJobId>,
 }
 
 pub(crate) fn decide_mining_tick(
     state: &AppState,
     next_tick: SimulationTick,
 ) -> Result<Option<MiningTickPlan>, MiningTickError> {
-    let jobs = state.mining().jobs_due_at(next_tick);
-    if jobs.is_empty() {
+    if !state.mining().has_jobs_due_at(next_tick) {
         return Ok(None);
     }
     let expected_revision = state.mining().revision();
@@ -466,7 +528,6 @@ pub(crate) fn decide_mining_tick(
         expected_revision,
         next_revision,
         ready_at: next_tick,
-        jobs,
     }))
 }
 
@@ -477,14 +538,11 @@ pub(crate) fn apply_mining_tick(
     let Some(plan) = plan else {
         return Vec::new();
     };
-    let ready = plan.jobs.iter().copied().collect();
-    state.mining_state_mut().mark_ready_batch(
+    state.mining_state_mut().mark_due_jobs_ready(
         plan.expected_revision,
         plan.next_revision,
         plan.ready_at,
-        &plan.jobs,
-    );
-    ready
+    )
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -618,8 +676,8 @@ pub fn validate_claim_mining_output(
 mod tests {
     use super::*;
     use crate::content::{
-        EQUIPMENT_STONE_PICK, FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_ORE, FORM_TOOL,
-        MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK,
+        EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_PICK, FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_ORE,
+        FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK,
         PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE, build_registries,
     };
     use crate::core::quantity::Temperature;
@@ -627,10 +685,11 @@ mod tests {
     use crate::core::time::WorldSeed;
     use crate::crafting::{StartManualCraftError, validate_start_manual_craft};
     use crate::energy::calculate_explicit_energy_accounting;
-    use crate::equipment::validate_assemble_equipment;
+    use crate::equipment::{add_equipment, validate_assemble_equipment};
     use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
     use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
     use crate::labor::{PlayerWork, PlayerWorkStartError};
+    use crate::maintenance::Condition;
     use crate::material::{CommodityKey, MaterialComposition};
     use crate::matter::calculate_matter_accounting;
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -731,6 +790,58 @@ mod tests {
                 .unwrap_or_else(|| panic!("hardness deposit disappeared"))
                 .remaining_mass(),
             Mass::from_milligrams(100)
+        );
+    }
+
+    #[test]
+    fn missing_mining_capability_reports_the_exact_authored_requirement() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0xA11E_0003));
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("missing-capability survival setup failed: {error}"));
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+            .unwrap_or_else(|error| panic!("missing-capability destination failed: {error}"));
+        let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+            .unwrap_or_else(|error| panic!("missing-capability deposit failed: {error}"));
+        let crusher = add_equipment(
+            &registries,
+            &mut state,
+            EQUIPMENT_JAW_CRUSHER,
+            Condition::PRISTINE,
+        )
+        .unwrap_or_else(|error| panic!("missing-capability equipment failed: {error}"));
+        let expected_capability = registries
+            .mining()
+            .get_method(MINING_METHOD_HAND_PICK)
+            .unwrap_or_else(|| panic!("hand-pick mining method disappeared"))
+            .mass_flow_capability();
+
+        let error = validate_start_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            crusher,
+            Mass::from_milligrams(1),
+        )
+        .err()
+        .unwrap_or_else(|| panic!("crusher unexpectedly satisfied hand-mining capabilities"));
+
+        assert_eq!(
+            error,
+            MiningStartError::MissingCapability {
+                capability: expected_capability,
+            }
+        );
+        assert_eq!(state.player_work().active(), None);
+        assert_eq!(
+            state
+                .geology()
+                .get_deposit(deposit)
+                .unwrap_or_else(|| panic!("missing-capability deposit disappeared"))
+                .remaining_mass(),
+            Mass::from_milligrams(1_000)
         );
     }
 

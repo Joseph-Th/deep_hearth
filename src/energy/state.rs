@@ -1,15 +1,13 @@
 //! Persistent finite-energy ownership; child validation audits immutable references and runtime invariants.
 
 use std::collections::BTreeMap;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Energy;
 use crate::core::time::SimulationTick;
 
-use super::definitions::{EnergyRegistry, EnergyStoreDefinitionId};
+use super::definitions::EnergyStoreDefinitionId;
 
 /// Persistent identity of one runtime energy store.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

@@ -30,68 +30,95 @@ impl MiningJobId {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MiningJobRecord {
+pub(super) struct MiningJobIdentity {
     pub(super) id: MiningJobId,
     pub(super) method: MiningMethodId,
     pub(super) deposit: GeologicalDepositId,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct MiningJobResources {
     pub(super) destination: StockpileId,
     pub(super) equipment: EquipmentId,
-    pub(super) started_at: SimulationTick,
-    pub(super) completes_at: SimulationTick,
     pub(super) output: MaterialLotSpec,
     pub(super) equipment_condition_before: Condition,
     pub(super) equipment_condition_after: Condition,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct MiningJobSchedule {
+    pub(super) started_at: SimulationTick,
+    pub(super) completes_at: SimulationTick,
     pub(super) ready_at: Option<SimulationTick>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MiningJobRecord {
+    identity: MiningJobIdentity,
+    resources: MiningJobResources,
+    schedule: MiningJobSchedule,
+}
+
 impl MiningJobRecord {
+    pub(super) const fn new(
+        identity: MiningJobIdentity,
+        resources: MiningJobResources,
+        schedule: MiningJobSchedule,
+    ) -> Self {
+        Self {
+            identity,
+            resources,
+            schedule,
+        }
+    }
+
     #[must_use]
     pub const fn id(&self) -> MiningJobId {
-        self.id
+        self.identity.id
     }
     #[must_use]
     pub const fn method(&self) -> MiningMethodId {
-        self.method
+        self.identity.method
     }
     #[must_use]
     pub const fn deposit(&self) -> GeologicalDepositId {
-        self.deposit
+        self.identity.deposit
     }
     #[must_use]
     pub const fn destination(&self) -> StockpileId {
-        self.destination
+        self.resources.destination
     }
     #[must_use]
     pub const fn equipment(&self) -> EquipmentId {
-        self.equipment
+        self.resources.equipment
     }
     #[must_use]
     pub const fn started_at(&self) -> SimulationTick {
-        self.started_at
+        self.schedule.started_at
     }
     #[must_use]
     pub const fn completes_at(&self) -> SimulationTick {
-        self.completes_at
+        self.schedule.completes_at
     }
     #[must_use]
     pub const fn output(&self) -> &MaterialLotSpec {
-        &self.output
+        &self.resources.output
     }
     #[must_use]
     pub const fn equipment_condition_before(&self) -> Condition {
-        self.equipment_condition_before
+        self.resources.equipment_condition_before
     }
     #[must_use]
     pub const fn equipment_condition_after(&self) -> Condition {
-        self.equipment_condition_after
+        self.resources.equipment_condition_after
     }
     #[must_use]
     pub const fn ready_at(&self) -> Option<SimulationTick> {
-        self.ready_at
+        self.schedule.ready_at
     }
     #[must_use]
     pub const fn is_working(&self) -> bool {
-        self.ready_at.is_none()
+        self.schedule.ready_at.is_none()
     }
 }
 
@@ -131,12 +158,12 @@ impl MiningState {
         self.jobs.values()
     }
 
-    pub(crate) fn jobs_due_at(&self, tick: SimulationTick) -> BTreeSet<MiningJobId> {
-        self.due_jobs.get(&tick).cloned().unwrap_or_default()
-    }
-
     pub(crate) fn get_equipment_occupant(&self, equipment: EquipmentId) -> Option<MiningJobId> {
         self.equipment_occupancy.get(&equipment).copied()
+    }
+
+    pub(crate) fn has_jobs_due_at(&self, tick: SimulationTick) -> bool {
+        self.due_jobs.contains_key(&tick)
     }
 
     pub(crate) fn insert_job(
@@ -145,47 +172,50 @@ impl MiningState {
         next_job_id: u64,
         next_revision: u64,
     ) {
-        assert!(record.ready_at.is_none());
-        assert!(!self.equipment_occupancy.contains_key(&record.equipment));
-        let id = record.id;
+        assert!(record.schedule.ready_at.is_none());
+        assert!(
+            !self
+                .equipment_occupancy
+                .contains_key(&record.resources.equipment)
+        );
+        let id = record.identity.id;
         self.due_jobs
-            .entry(record.completes_at)
+            .entry(record.schedule.completes_at)
             .or_default()
             .insert(id);
-        self.equipment_occupancy.insert(record.equipment, id);
+        self.equipment_occupancy
+            .insert(record.resources.equipment, id);
         assert!(self.jobs.insert(id, record).is_none());
         self.next_job_id = next_job_id;
         self.revision = next_revision;
     }
 
-    pub(crate) fn mark_ready_batch(
+    pub(crate) fn mark_due_jobs_ready(
         &mut self,
         expected_revision: u64,
         next_revision: u64,
         ready_at: SimulationTick,
-        jobs: &BTreeSet<MiningJobId>,
-    ) {
+    ) -> Vec<MiningJobId> {
         assert_eq!(self.revision, expected_revision);
-        if jobs.is_empty() {
-            return;
-        }
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
-        let indexed = self
+        let jobs = self
             .due_jobs
             .remove(&ready_at)
             .unwrap_or_else(|| panic!("validated due mining bucket disappeared"));
-        assert_eq!(&indexed, jobs);
+        let mut ready = Vec::with_capacity(jobs.len());
         for id in jobs {
             let record = self
                 .jobs
-                .get_mut(id)
+                .get_mut(&id)
                 .unwrap_or_else(|| panic!("validated mining job disappeared"));
-            assert!(record.ready_at.is_none());
-            record.ready_at = Some(ready_at);
-            let removed = self.equipment_occupancy.remove(&record.equipment);
-            assert_eq!(removed, Some(*id));
+            assert!(record.schedule.ready_at.is_none());
+            record.schedule.ready_at = Some(ready_at);
+            let removed = self.equipment_occupancy.remove(&record.resources.equipment);
+            assert_eq!(removed, Some(id));
+            ready.push(id);
         }
         self.revision = next_revision;
+        ready
     }
 
     pub(crate) fn remove_ready_job(
@@ -200,7 +230,7 @@ impl MiningState {
             .jobs
             .remove(&id)
             .unwrap_or_else(|| panic!("validated mining claim job disappeared"));
-        assert!(record.ready_at.is_some());
+        assert!(record.schedule.ready_at.is_some());
         self.revision = next_revision;
         record
     }

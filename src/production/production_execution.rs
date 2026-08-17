@@ -1,42 +1,5 @@
 //! Production execution facade; child modules separate process admission from in-flight completion.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-
-use crate::core::quantity::Mass;
-use crate::core::state::AppState;
-use crate::core::time::{SimulationTick, TickSpan};
-use crate::energy::{
-    EnergyCommitError, EnergyConsumptionReservation, EnergyIngressReservation,
-    EnergyIngressReservationError, EnergyReservationError, ReleasedEnergyTrace,
-    apply_energy_consumption_reservation, apply_released_energy_outcomes,
-    validate_energy_consumption_reservation, validate_energy_ingress_reservation,
-};
-use crate::equipment::{EquipmentId, EquipmentOperationConditionOutcome, ValidatedEquipmentUse};
-use crate::inventory::{
-    ConsumptionReservation, ReservationCommitError, ReservationError, ReservedDepositPlan,
-    ReservedDepositPlanError, ReservedDepositRequest, StockpileId, StockpileStorageError,
-    StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedStockpileStructuralLoad,
-    apply_consumption_reservation, apply_reserved_deposits, decide_reserved_deposits,
-    validate_consumption_reservation_from_selection, validate_stockpile_storage,
-    validate_stockpile_stored_mass_changes, validate_stockpile_support_for_new_inbound,
-};
-use crate::material::{FormId, MaterialId};
-use crate::mining::MiningJobId;
-use crate::registry::Registries;
-use crate::structural::{StructuralCommitError, StructuralElementId, StructuralLifecycle};
-
-use super::definitions::ProcessId;
-use super::resolution::{
-    ProcessOutputStreamId, ProcessResolution, sum_lot_spec_mass, sum_output_stream_mass,
-};
-use super::state::{
-    ProductionJobEquipment, ProductionJobId, ProductionJobIdentity, ProductionJobRecord,
-    ProductionJobResources, ProductionJobSchedule, ProductionOccupancyRelease,
-    ProductionOutputStream, ProductionSuspensionReason,
-};
-
 mod completion;
 mod start;
 
@@ -60,10 +23,11 @@ mod tests {
         MATERIAL_SLAG, MATERIAL_WOOD, make_test_registries_with_process,
     };
     use crate::core::quantity::{Mass, Temperature};
-    use crate::core::state::{StateValidationError, validate_loaded_state};
-    use crate::core::time::WorldSeed;
+    use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
+    use crate::core::time::{SimulationTick, WorldSeed};
     use crate::inventory::{
-        add_solid_stockpile_for_test, deposit_bulk_for_test, deposit_composed_lot_for_test,
+        StockpileId, add_solid_stockpile_for_test, deposit_bulk_for_test,
+        deposit_composed_lot_for_test,
     };
     use crate::material::{
         CommodityKey, CompositionComponent, CompositionConstraint, MaterialComposition,
@@ -71,10 +35,12 @@ mod tests {
     };
     use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
     use crate::production::{
-        ProcessDefinition, ProcessInputError, ProductionValidationError,
+        ProcessDefinition, ProcessId, ProcessInputError, ProcessOutputStreamId, ProcessResolution,
+        ProductionJobId, ProductionJobRecord, ProductionValidationError,
         make_test_process_resolution, make_test_process_resolution_with_streams,
         validate_process_inputs,
     };
+    use crate::registry::Registries;
     use crate::simulation::advance_tick;
 
     const TEST_PROCESS: ProcessId = ProcessId::new(900_001);

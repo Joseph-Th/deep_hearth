@@ -1,23 +1,17 @@
 //! Persistent structural members with private synchronized support-index ownership; child validation audits state.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::core::quantity::{Acceleration, AggregateMass, Area, Force, Length, Mass};
+use crate::core::quantity::{Area, Force, Length, Mass};
 use crate::core::time::SimulationTick;
 use crate::inventory::ConsumedMaterialTrace;
-use crate::material::{
-    MaterialId, MaterialPhase, MaterialPhaseStateError, MaterialRegistry, ParticleSizeStatePolicy,
-    validate_material_phase_state,
-};
+use crate::material::MaterialId;
 use crate::spatial::VoxelBounds;
 
-use super::definitions::{StructuralProfileId, StructuralRegistry};
-use super::geometry::{StructuralGeometryError, calculate_prismatic_material_mass_ceiling};
-use super::load::calculate_aggregate_weight_force_ceiling;
+use super::definitions::StructuralProfileId;
+use super::geometry::StructuralGeometryError;
 
 /// Persistent identifier for one structural member record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

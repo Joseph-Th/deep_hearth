@@ -1,8 +1,6 @@
 //! Persistent equipment records and synchronized owner mutations; child validation audits durable state.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +10,7 @@ use crate::inventory::ConsumedMaterialTrace;
 use crate::maintenance::Condition;
 use crate::structural::StructuralElementId;
 
-use super::definitions::{EquipmentDefinitionId, EquipmentRegistry};
+use super::definitions::EquipmentDefinitionId;
 
 /// Persistent identifier for one runtime equipment record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

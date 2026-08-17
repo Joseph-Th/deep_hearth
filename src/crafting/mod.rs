@@ -9,7 +9,8 @@ use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::inventory::StockpileId;
 use crate::labor::{
-    PlayerWork, PlayerWorkStartError, ValidatedPlayerWorkStart, validate_player_work_start,
+    PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ValidatedPlayerWorkStart,
+    validate_player_work_start,
 };
 use crate::material::{
     CommodityKey, MaterialComposition, MaterialLotSpec, MaterialLotSpecError, MaterialRegistry,
@@ -375,7 +376,7 @@ impl Error for StartManualCraftError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManualCraftCommitError {
     Process(StartProcessCommitError),
-    Work(PlayerWorkStartError),
+    Work(PlayerWorkCommitError),
 }
 
 impl Display for ManualCraftCommitError {
@@ -544,6 +545,48 @@ mod tests {
         );
         validate_loaded_state(&registries, &state)
             .unwrap_or_else(|error| panic!("stone knapping final audit failed: {error}"));
+    }
+
+    #[test]
+    fn stale_manual_craft_token_reports_labor_revision_conflict_after_prior_work_finishes() {
+        let (registries, mut state, source, destination) = make_fixture();
+        let first = validate_start_manual_craft(
+            &registries,
+            &state,
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            destination,
+        )
+        .unwrap_or_else(|error| panic!("first manual craft validation failed: {error}"));
+        let stale = validate_start_manual_craft(
+            &registries,
+            &state,
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            destination,
+        )
+        .unwrap_or_else(|error| panic!("stale manual craft validation failed: {error}"));
+        first
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("first manual craft commit failed: {error}"));
+        for _ in 0..40 {
+            advance_tick(&registries, &mut state)
+                .unwrap_or_else(|error| panic!("manual craft completion tick failed: {error}"));
+        }
+
+        let error = stale
+            .commit(&mut state)
+            .err()
+            .unwrap_or_else(|| panic!("stale manual craft token unexpectedly committed"));
+
+        assert_eq!(
+            error,
+            ManualCraftCommitError::Work(PlayerWorkCommitError::StaleRevision {
+                expected: 0,
+                actual: 2,
+            })
+        );
+        assert_eq!(state.player_work().active(), None);
     }
 
     #[test]

@@ -1,6 +1,22 @@
 //! Persistence replay validation for thermal production jobs using the same physical derivations as runtime.
 
-use super::*;
+use std::collections::BTreeMap;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
+use crate::capability::CapabilityValue;
+use crate::core::quantity::{Energy, Mass, Temperature};
+use crate::core::time::TickSpan;
+use crate::energy::{EnergyCarrier, PowerDurationError, calculate_power_duration_ceiling};
+use crate::equipment::resolve_equipment_capability;
+use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
+use crate::material::{MaterialLotSpec, MaterialLotSpecError};
+use crate::production::{ProductionJobId, ProductionJobRecord};
+use crate::registry::Registries;
+
+use super::super::casting_execution::{CastingJobValidationError, validate_loaded_casting_job};
+use super::super::melting_execution::{MeltingJobValidationError, validate_loaded_melting_job};
+use super::super::{PhaseSensibleHeatError, calculate_phase_sensible_heat};
 
 /// Invalid persisted operation-specific thermal semantics discovered during exhaustive load audit.
 #[derive(Clone, Debug, PartialEq, Eq)]

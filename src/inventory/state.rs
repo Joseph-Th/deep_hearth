@@ -9,9 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::SimulationTick;
 use crate::material::{
-    CommodityKey, CompositionError, FormId, MaterialComposition, MaterialPhase,
-    MaterialPhaseStateError, MaterialRegistry, ParticleSizeDistribution, ParticleSizeRange,
-    ParticleSizeStateError, validate_material_particle_size_state, validate_material_phase_state,
+    CommodityKey, MaterialComposition, MaterialPhase, ParticleSizeDistribution, ParticleSizeRange,
 };
 use crate::structural::StructuralElementId;
 

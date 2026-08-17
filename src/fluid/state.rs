@@ -1,8 +1,6 @@
 //! Persistent finite fluid-store records; child validation audits durable state and references.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +8,7 @@ use crate::core::quantity::{Temperature, Volume};
 use crate::core::time::SimulationTick;
 use crate::structural::StructuralElementId;
 
-use super::definitions::{FluidDefinitionId, FluidRegistry};
+use super::definitions::FluidDefinitionId;
 
 /// Persistent identity of one finite runtime fluid store.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

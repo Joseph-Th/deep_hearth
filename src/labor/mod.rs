@@ -4,7 +4,7 @@ mod lifecycle;
 mod state;
 mod validation;
 
-pub use lifecycle::PlayerWorkStartError;
+pub use lifecycle::{PlayerWorkCommitError, PlayerWorkStartError};
 pub use state::{PlayerWork, PlayerWorkState};
 pub use validation::PlayerWorkValidationError;
 

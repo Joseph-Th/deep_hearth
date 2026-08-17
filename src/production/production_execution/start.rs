@@ -1,6 +1,39 @@
 //! Process-start validation and atomic commit; sibling completion handles in-flight scheduling and output.
 
-use super::*;
+use std::collections::{BTreeMap, BTreeSet};
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
+use crate::core::quantity::Mass;
+use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
+use crate::energy::{
+    EnergyCommitError, EnergyConsumptionReservation, EnergyIngressReservation,
+    EnergyIngressReservationError, EnergyReservationError, apply_energy_consumption_reservation,
+    validate_energy_consumption_reservation, validate_energy_ingress_reservation,
+};
+use crate::equipment::{EquipmentId, ValidatedEquipmentUse};
+use crate::inventory::{
+    ConsumptionReservation, ReservationCommitError, ReservationError, StockpileId,
+    StockpileStorageError, StockpileStoredMassChange, StockpileStructuralLoadError,
+    ValidatedStockpileStructuralLoad, apply_consumption_reservation,
+    validate_consumption_reservation_from_selection, validate_stockpile_storage,
+    validate_stockpile_stored_mass_changes, validate_stockpile_support_for_new_inbound,
+};
+use crate::material::{FormId, MaterialId};
+use crate::mining::MiningJobId;
+use crate::registry::Registries;
+use crate::structural::{StructuralCommitError, StructuralElementId, StructuralLifecycle};
+
+use super::super::definitions::ProcessId;
+use super::super::resolution::{
+    ProcessOutputStreamId, ProcessResolution, sum_lot_spec_mass, sum_output_stream_mass,
+};
+use super::super::state::{
+    ProductionJobEquipment, ProductionJobId, ProductionJobIdentity, ProductionJobRecord,
+    ProductionJobResources, ProductionJobSchedule, ProductionOccupancyRelease,
+    ProductionOutputStream,
+};
 
 /// Explicit route assigning one resolved physical stream to one stockpile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

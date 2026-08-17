@@ -1,6 +1,29 @@
 //! Selected-batch sensible-heating resolution against exact matter, equipment, and finite energy.
 
-use super::*;
+use std::collections::BTreeMap;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
+use crate::capability::{
+    CapabilityEvaluationError, CapabilityId, CapabilityValue, evaluate_capabilities,
+};
+use crate::core::quantity::{Energy, Mass, Power, Temperature};
+use crate::core::state::AppState;
+use crate::energy::{
+    EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerDurationError,
+    calculate_power_duration_ceiling, validate_energy_supply,
+};
+use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
+use crate::inventory::{MaterialLotSelection, StockpileId};
+use crate::maintenance::calculate_condition_after_active_ticks;
+use crate::material::{MaterialLotSpec, MaterialLotSpecError};
+use crate::production::{
+    ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
+    ProcessResolutionError, validate_selected_process_inputs,
+};
+use crate::registry::Registries;
+
+use super::super::{HeatDirection, PhaseSensibleHeatError, calculate_phase_sensible_heat};
 
 /// Observable physically resolved sensible-heating operation before production start.
 #[must_use]

@@ -1,8 +1,21 @@
 //! Cross-owner production validation; this child reconciles job traces, reservations, and runtime
 //! resources.
 
-use super::*;
+use std::collections::BTreeMap;
+
+use crate::core::quantity::Mass;
+use crate::core::state::AppState;
 use crate::crafting::validate_loaded_manual_craft_job;
+use crate::energy::EnergyValidationError;
+use crate::equipment::EquipmentId;
+use crate::inventory::{StockpileId, validate_stockpile_storage};
+use crate::material::validate_material_particle_size_state;
+use crate::ore_processing::{validate_loaded_comminution_job, validate_loaded_screening_job};
+use crate::production::{ProductionJobId, sum_lot_spec_mass};
+use crate::registry::Registries;
+use crate::thermal::validate_loaded_thermal_job;
+
+use super::StateValidationError;
 
 pub(super) fn validate_production_references(
     registries: &Registries,
