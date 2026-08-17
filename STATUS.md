@@ -57,6 +57,8 @@
   Production completion hands already-reserved output streams to an inventory-owned batch plan that
   allocates material-lot IDs, releases reservations, inserts/coalesces lots, and advances the inventory
   cursor/revision together; production no longer reads or writes inventory ID bookkeeping directly.
+  Test/bootstrap lot seeding also delegates to the same validated material-ingress path as source-owned
+  production transactions; raw lot insertion remains private to inventory's lot-mutation owner.
 - Persistent finite geological deposits with chunk-independent bounds, exact initial/remaining mass,
   material form, normalized composition, temperature, generation provenance, depletion lifecycle,
   generated IDs, owner revision, and exhaustive registry/state validation. Authoritative deposit

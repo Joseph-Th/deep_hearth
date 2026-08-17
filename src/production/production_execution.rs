@@ -590,7 +590,9 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(crate::inventory::DepositError::CapacityExceeded { .. })
+            Err(crate::inventory::MaterialFixtureError::Ingress(
+                crate::inventory::MaterialIngressError::CapacityExceeded { .. }
+            ))
         ));
     }
 

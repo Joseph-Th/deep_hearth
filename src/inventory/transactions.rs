@@ -13,7 +13,7 @@ use crate::material::{
     CommodityKey, CompositionError, FormId, MaterialId, MaterialInputSpec, MaterialLotSpec,
 };
 #[cfg(test)]
-use crate::material::{MaterialComposition, MaterialPhase};
+use crate::material::{MaterialComposition, MaterialLotSpecError, MaterialPhase};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
@@ -27,8 +27,6 @@ use super::selection::{
     apply_consumption_reservation, validate_consumption_reservation_from_selection,
     validate_consumption_selection,
 };
-#[cfg(test)]
-use super::state::apply_insert_lot;
 use super::state::{
     ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, MaterialLotProfile,
     MaterialLotProvenance, MaterialLotRecord, StockpileId, StockpileRecord,
@@ -625,100 +623,44 @@ pub(crate) fn apply_material_batch_ingress(
 
 impl Error for AddStockpileError {}
 
-/// Failure while depositing matter from an explicit source into a stockpile.
+/// Failure while constructing or committing a canonical material fixture.
 #[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum DepositError {
-    UnknownStockpile {
-        stockpile: StockpileId,
-    },
-    UnknownMaterial {
-        material: MaterialId,
-    },
-    UnknownForm {
-        form: FormId,
-    },
-    ZeroMass,
-    Storage(StockpileStorageError),
-    MassOverflow {
-        stockpile: StockpileId,
-    },
-    CapacityExceeded {
-        stockpile: StockpileId,
-        capacity: Mass,
-        committed: Mass,
-        requested: Mass,
-    },
-    LotIdExhausted,
-    RevisionExhausted,
+pub(crate) enum MaterialFixtureError {
+    Specification(MaterialLotSpecError),
+    Ingress(MaterialIngressError),
     StructuralLoad(StockpileStructuralLoadError),
     StructuralCommit(StructuralCommitError),
 }
 
 #[cfg(test)]
-impl Display for DepositError {
+impl Display for MaterialFixtureError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UnknownStockpile { stockpile } => {
-                write!(formatter, "unknown stockpile id {}", stockpile.value())
-            }
-            Self::UnknownMaterial { material } => {
-                write!(formatter, "unknown material id {}", material.value())
-            }
-            Self::UnknownForm { form } => write!(formatter, "unknown form id {}", form.value()),
-            Self::ZeroMass => formatter.write_str("deposit mass must be nonzero"),
-            Self::Storage(error) => write!(formatter, "stockpile rejects deposit: {error}"),
-            Self::MassOverflow { stockpile } => write!(
-                formatter,
-                "mass accounting overflow in stockpile {}",
-                stockpile.value()
-            ),
-            Self::CapacityExceeded {
-                stockpile,
-                capacity,
-                committed,
-                requested,
-            } => write!(
-                formatter,
-                "stockpile {} capacity {} mg exceeded: {} mg committed, {} mg requested",
-                stockpile.value(),
-                capacity.milligrams(),
-                committed.milligrams(),
-                requested.milligrams()
-            ),
-            Self::LotIdExhausted => {
-                formatter.write_str("material lot identifier space is exhausted")
-            }
-            Self::RevisionExhausted => formatter.write_str("inventory revision space is exhausted"),
+            Self::Specification(error) => write!(formatter, "invalid material fixture: {error}"),
+            Self::Ingress(error) => write!(formatter, "material fixture ingress failed: {error}"),
             Self::StructuralLoad(error) => {
                 write!(
                     formatter,
-                    "deposit cannot update stored-matter support load: {error}"
+                    "material fixture cannot update stored-matter support load: {error}"
                 )
             }
             Self::StructuralCommit(error) => write!(
                 formatter,
-                "deposit could not commit stored-matter structural load: {error}"
+                "material fixture could not commit stored-matter structural load: {error}"
             ),
         }
     }
 }
 
 #[cfg(test)]
-impl Error for DepositError {
+impl Error for MaterialFixtureError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Storage(error) => Some(error),
+            Self::Specification(error) => Some(error),
+            Self::Ingress(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::StructuralCommit(error) => Some(error),
-            Self::UnknownStockpile { .. }
-            | Self::UnknownMaterial { .. }
-            | Self::UnknownForm { .. }
-            | Self::ZeroMass
-            | Self::MassOverflow { .. }
-            | Self::CapacityExceeded { .. }
-            | Self::LotIdExhausted
-            | Self::RevisionExhausted => None,
         }
     }
 }
@@ -1281,7 +1223,7 @@ pub(crate) fn deposit_bulk_for_test(
     stockpile: StockpileId,
     commodity: CommodityKey,
     mass: Mass,
-) -> Result<(), DepositError> {
+) -> Result<(), MaterialFixtureError> {
     deposit_lot_for_test(
         registries,
         state,
@@ -1302,7 +1244,7 @@ pub(crate) fn deposit_lot_for_test(
     commodity: CommodityKey,
     mass: Mass,
     temperature: Temperature,
-) -> Result<MaterialLotId, DepositError> {
+) -> Result<MaterialLotId, MaterialFixtureError> {
     deposit_composed_lot_for_test(
         registries,
         state,
@@ -1323,122 +1265,51 @@ pub(crate) fn deposit_composed_lot_for_test(
     mass: Mass,
     temperature: Temperature,
     composition: MaterialComposition,
-) -> Result<MaterialLotId, DepositError> {
-    if let Err(error) = composition.validate() {
-        panic!("test fixture provided invalid material composition: {error}");
-    }
-    assert!(
-        composition.parts_per_million(commodity.material()) > 0,
-        "test fixture composition must contain its host material"
-    );
-    if mass.is_zero() {
-        return Err(DepositError::ZeroMass);
-    }
+) -> Result<MaterialLotId, MaterialFixtureError> {
     let specification =
-        match MaterialLotSpec::with_composition(commodity, mass, temperature, composition) {
-            Ok(specification) => specification,
-            Err(error) => panic!("validated test material lot could not be specified: {error}"),
-        };
+        MaterialLotSpec::with_composition(commodity, mass, temperature, composition)
+            .map_err(MaterialFixtureError::Specification)?;
     deposit_lot_spec_for_test(registries, state, stockpile, specification)
 }
 
-/// Seeds one already-validated lot specification through the normal inventory storage checks.
+/// Seeds one already-validated lot specification through canonical inventory ingress.
 #[cfg(test)]
 pub(crate) fn deposit_lot_spec_for_test(
     registries: &Registries,
     state: &mut AppState,
     stockpile: StockpileId,
     specification: MaterialLotSpec,
-) -> Result<MaterialLotId, DepositError> {
-    let commodity = specification.commodity();
+) -> Result<MaterialLotId, MaterialFixtureError> {
     let mass = specification.mass();
-    let temperature = specification.temperature();
-    let composition = specification.composition().clone();
-    let particle_size = specification.particle_size_distribution().cloned();
-    validate_commodity(registries, commodity).map_err(|error| match error {
-        CommodityReferenceError::UnknownMaterial { material } => {
-            DepositError::UnknownMaterial { material }
-        }
-        CommodityReferenceError::UnknownForm { form } => DepositError::UnknownForm { form },
-    })?;
-    let inventories = state.inventory();
-    let Some(record) = inventories.get_stockpile(stockpile) else {
-        return Err(DepositError::UnknownStockpile { stockpile });
-    };
-    validate_stockpile_storage(
+    let ingress = validate_material_ingress(
         registries,
-        record,
+        state.inventory(),
         stockpile,
-        commodity,
-        &composition,
-        temperature,
-        particle_size.as_ref(),
+        specification,
+        state.tick(),
     )
-    .map_err(DepositError::Storage)?;
-    let committed = record
-        .stored_mass
-        .checked_add(record.reserved_inbound)
-        .ok_or(DepositError::MassOverflow { stockpile })?;
-    let after = committed
-        .checked_add(mass)
-        .ok_or(DepositError::MassOverflow { stockpile })?;
-    if after > record.capacity {
-        return Err(DepositError::CapacityExceeded {
-            stockpile,
-            capacity: record.capacity,
-            committed,
-            requested: mass,
-        });
-    }
-    record
-        .get_mass(commodity)
-        .checked_add(mass)
-        .ok_or(DepositError::MassOverflow { stockpile })?;
-    let lot_id = MaterialLotId::new(inventories.next_lot_id());
-    let Some(next_lot_id) = inventories.next_lot_id().checked_add(1) else {
-        return Err(DepositError::LotIdExhausted);
-    };
-    let Some(next_revision) = inventories.revision().checked_add(1) else {
-        return Err(DepositError::RevisionExhausted);
-    };
-    let created_at = state.tick();
+    .map_err(MaterialFixtureError::Ingress)?;
+    let record = state
+        .inventory()
+        .get_stockpile(stockpile)
+        .unwrap_or_else(|| panic!("validated test ingress destination disappeared"));
     let stored_after = record
         .stored_mass()
         .checked_add(mass)
-        .ok_or(DepositError::MassOverflow { stockpile })?;
+        .unwrap_or_else(|| panic!("validated test ingress overflowed stored mass"));
     let structural = validate_stockpile_stored_mass_changes(
         registries,
         state,
         [StockpileStoredMassChange::new(stockpile, stored_after)],
     )
-    .map_err(DepositError::StructuralLoad)?;
+    .map_err(MaterialFixtureError::StructuralLoad)?;
     if let Some(structural) = structural {
         structural
             .commit(state)
-            .map_err(DepositError::StructuralCommit)?;
+            .map_err(MaterialFixtureError::StructuralCommit)?;
     }
 
-    let inventories = state.inventory_state_mut();
-    apply_insert_lot(
-        inventories,
-        MaterialLotRecord {
-            id: lot_id,
-            stockpile,
-            mass,
-            profile: MaterialLotProfile {
-                commodity,
-                temperature,
-                composition,
-                particle_size,
-            },
-            provenance: MaterialLotProvenance {
-                earliest_created_at: created_at,
-                latest_created_at: created_at,
-            },
-        },
-    );
-    inventories.apply_lot_cursor_and_revision(next_lot_id, next_revision);
-    Ok(lot_id)
+    Ok(apply_material_ingress(state.inventory_state_mut(), ingress))
 }
 
 /// Validates a multi-record transfer without mutating either stockpile.
@@ -1836,11 +1707,11 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(DepositError::Storage(
-                StockpileStorageError::PhaseNotAccepted {
+            Err(MaterialFixtureError::Ingress(
+                MaterialIngressError::Storage(StockpileStorageError::PhaseNotAccepted {
                     stockpile,
                     phase: MaterialPhase::Liquid,
-                }
+                })
             ))
         );
         assert_eq!(state, before);
@@ -1881,12 +1752,12 @@ mod tests {
                 Mass::from_milligrams(1),
                 too_hot,
             ),
-            Err(DepositError::Storage(
-                StockpileStorageError::TemperatureExceedsMaximum {
+            Err(MaterialFixtureError::Ingress(
+                MaterialIngressError::Storage(StockpileStorageError::TemperatureExceedsMaximum {
                     stockpile: vessel,
                     temperature: too_hot,
                     maximum,
-                }
+                })
             ))
         );
         assert_eq!(state, before_hot_rejection);

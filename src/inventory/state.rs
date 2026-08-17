@@ -17,8 +17,6 @@ use crate::structural::StructuralElementId;
 
 mod lot_mutation;
 
-#[cfg(test)]
-pub(super) use lot_mutation::apply_insert_lot;
 pub(super) use lot_mutation::{
     LotSlice, apply_aggregate_deposit, apply_aggregate_withdraw, apply_consume_lot_slice,
     apply_insert_or_merge_new_lot, apply_move_full_lot, apply_split_lot,

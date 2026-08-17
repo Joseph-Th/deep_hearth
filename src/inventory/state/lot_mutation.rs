@@ -205,7 +205,7 @@ pub(in crate::inventory) fn get_stockpile_mut_or_panic(
     }
 }
 
-pub(in crate::inventory) fn apply_insert_lot(state: &mut InventoryState, lot: MaterialLotRecord) {
+fn apply_insert_lot(state: &mut InventoryState, lot: MaterialLotRecord) {
     apply_aggregate_deposit(state, lot.stockpile, lot.commodity(), lot.mass);
     apply_insert_lot_record(state, lot);
 }
