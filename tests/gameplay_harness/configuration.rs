@@ -1,10 +1,11 @@
 //! Replayable gameplay-harness seed parsing and deterministic scenario-plan configuration.
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use super::seed::mix64;
 
-const COVERAGE_SEEDS: [u64; 5] = [1, 4, 9, 19, 380];
+const ANCHOR_SEEDS: [u64; 5] = [1, 4, 9, 19, 380];
 const ORGANIC_SCENARIO_COUNT: usize = 3;
-const DEFAULT_VARIATION_SEED: u64 = 0xD33F_2026_0816_0001;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum GameplayHarnessConfigError {
@@ -16,7 +17,7 @@ pub(super) enum GameplayHarnessConfigError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ScenarioSeedPlan {
     pub(super) seeds: Vec<u64>,
-    pub(super) coverage_seed_count: usize,
+    pub(super) anchor_seed_count: usize,
     pub(super) variation_seed: Option<u64>,
 }
 
@@ -32,10 +33,19 @@ fn parse_seed(raw: &str) -> Option<u64> {
     }
 }
 
+fn generated_variation_seed() -> u64 {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let nanos = elapsed.as_nanos();
+    let folded_time = nanos as u64 ^ (nanos >> 64) as u64;
+    mix64(folded_time ^ u64::from(std::process::id()))
+}
+
 fn resolve_variation_seed(raw: Option<&str>) -> Result<u64, GameplayHarnessConfigError> {
     match raw {
         Some(text) => parse_seed(text).ok_or(GameplayHarnessConfigError::InvalidVariationSeed),
-        None => Ok(DEFAULT_VARIATION_SEED),
+        None => Ok(generated_variation_seed()),
     }
 }
 
@@ -66,17 +76,17 @@ pub(super) fn scenario_seeds_from(
         }
         return Ok(ScenarioSeedPlan {
             seeds,
-            coverage_seed_count: 0,
+            anchor_seed_count: 0,
             variation_seed: None,
         });
     }
 
-    let mut seeds = COVERAGE_SEEDS.to_vec();
+    let mut seeds = ANCHOR_SEEDS.to_vec();
     let variation_seed = resolve_variation_seed(variation_raw)?;
     append_organic_seeds(&mut seeds, variation_seed);
     Ok(ScenarioSeedPlan {
         seeds,
-        coverage_seed_count: COVERAGE_SEEDS.len(),
+        anchor_seed_count: ANCHOR_SEEDS.len(),
         variation_seed: Some(variation_seed),
     })
 }
@@ -103,10 +113,6 @@ pub(super) fn configuration_contract_gaps() -> Vec<&'static str> {
             resolve_variation_seed(Some("0xBAD")) == Ok(0xBAD),
         ),
         (
-            "default variation seed is stable",
-            resolve_variation_seed(None) == Ok(DEFAULT_VARIATION_SEED),
-        ),
-        (
             "invalid variation seed rejection",
             resolve_variation_seed(Some("nope"))
                 == Err(GameplayHarnessConfigError::InvalidVariationSeed),
@@ -130,21 +136,21 @@ pub(super) fn configuration_contract_gaps() -> Vec<&'static str> {
     match scenario_seeds_from(Some("1, 0x2A,3"), Some("ignored")) {
         Ok(plan)
             if plan.seeds == [1, 42, 3]
-                && plan.coverage_seed_count == 0
+                && plan.anchor_seed_count == 0
                 && plan.variation_seed.is_none() => {}
         Ok(_) | Err(_) => gaps.push("custom seed lists remain exact diagnostic inputs"),
     }
     match scenario_seeds_from(None, Some("0xBAD")) {
         Ok(plan)
-            if plan.coverage_seed_count == COVERAGE_SEEDS.len()
-                && plan.seeds[..plan.coverage_seed_count] == COVERAGE_SEEDS
-                && plan.seeds.len() == COVERAGE_SEEDS.len() + ORGANIC_SCENARIO_COUNT
+            if plan.anchor_seed_count == ANCHOR_SEEDS.len()
+                && plan.seeds[..plan.anchor_seed_count] == ANCHOR_SEEDS
+                && plan.seeds.len() == ANCHOR_SEEDS.len() + ORGANIC_SCENARIO_COUNT
                 && plan.variation_seed == Some(0xBAD)
-                && plan.seeds[plan.coverage_seed_count..]
+                && plan.seeds[plan.anchor_seed_count..]
                     .iter()
-                    .all(|seed| !COVERAGE_SEEDS.contains(seed)) => {}
+                    .all(|seed| !ANCHOR_SEEDS.contains(seed)) => {}
         Ok(_) | Err(_) => {
-            gaps.push("organic scenarios are replayable and excluded from maintained coverage")
+            gaps.push("organic scenarios are replayable and distinct from maintained anchors")
         }
     }
     match (

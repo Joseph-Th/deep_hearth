@@ -2,14 +2,13 @@
 //!
 //! The harness deliberately varies physical initial conditions and player priorities, then lets a
 //! small operational policy react only to observed state and resolver projections. Normal
-//! exercise-mode runs combine a deterministic experience-coverage matrix with a small replayable set
-//! of organic exploratory scenarios rooted at a stable default seed. Their physical ranges are
+//! exercise-mode runs combine a deterministic anchor matrix with a small replayable set of organic
+//! exploratory scenarios rooted at a fresh run seed. Their physical ranges are
 //! derived from the current authored content rather than copied balance constants.
 //! `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` reproduces one organic scenario set from an exact decimal or
-//! `0x` hexadecimal root seed. The scenario can announce a future snow
-//! load and then inject the actual load at the announced tick. This is an external harness stimulus,
-//! not an implemented weather or forecasting subsystem. Faster machinery can therefore change how
-//! much work is secured before an uncertain external condition changes.
+//! `0x` hexadecimal root seed. Each scenario schedules a real material transfer into supported
+//! storage, so ordinary inventory ownership can change structural margin while production is active.
+//! Faster machinery can therefore change how much work is secured before that planned logistics event.
 //! `DEEP_HEARTH_GAMEPLAY_SEEDS` replaces the whole matrix with an exact comma-separated decimal or
 //! `0x` hexadecimal seed list; malformed entries are rejected instead of ignored. Detailed trace
 //! output is opt-in via `DEEP_HEARTH_GAMEPLAY_VERBOSE`.
@@ -17,12 +16,12 @@
 use std::env;
 
 mod configuration;
-mod coverage;
+mod contracts;
 mod probe_setup;
 mod seed;
 
 use configuration::{ScenarioSeedPlan, configuration_contract_gaps, scenario_seeds_from};
-use coverage::{coverage_gaps, scenario_contract_gaps};
+use contracts::{anchor_diversity_gaps, scenario_contract_gaps};
 use deep_hearth::content::gameplay_fixture::{
     materialize_structure, seed_composed_lot, seed_energy_store as bootstrap_seed_energy_store,
     seed_lot,
@@ -57,6 +56,7 @@ use deep_hearth::equipment::{
 };
 use deep_hearth::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, add_stockpile,
+    validate_mount_stockpile, validate_transfer_bulk,
 };
 use deep_hearth::maintenance::{CONDITION_PARTS_PER_MILLION, Condition, MaintenanceBand};
 use deep_hearth::material::{CommodityKey, CompositionComponent, MaterialComposition};
@@ -77,7 +77,7 @@ use deep_hearth::structural::{
     STRUCTURAL_PARTS_PER_MILLION, StructuralAssessment, StructuralElementGeometry,
     StructuralElementId, StructuralLifecycle, StructuralLoadKind, StructuralLoadMode,
     StructuralStage, add_structural_element, analyze_structure, calculate_weight_force_ceiling,
-    validate_activate_structural_element, validate_set_structural_load,
+    validate_activate_structural_element,
 };
 use deep_hearth::thermal::{
     CastingRequest, MeltingBatchError, MeltingRequest, MeltingResolutionError,
@@ -109,7 +109,7 @@ struct ScenarioVariation {
     ore: ScenarioOreVariation,
     crusher: ScenarioCrusherVariation,
     structure: ScenarioStructureVariation,
-    stimulus: ScenarioStimulusVariation,
+    delivery: ScenarioDeliveryVariation,
     policy: ScenarioPolicyVariation,
 }
 
@@ -130,14 +130,14 @@ struct ScenarioCrusherVariation {
 struct ScenarioStructureVariation {
     compact_support_area: Area,
     reinforced_support_area: Area,
-    reinforced_background_load: Force,
+    reinforced_background_mass: Mass,
 }
 
 #[derive(Clone, Copy, Debug)]
-struct ScenarioStimulusVariation {
-    briefed_snow_load: Force,
-    actual_snow_load: Force,
-    stimulus_at_tick: u64,
+struct ScenarioDeliveryVariation {
+    mass: Mass,
+    destination_is_compact: bool,
+    delivery_at_tick: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -159,7 +159,6 @@ impl PowerPreference {
 
 #[derive(Clone, Copy, Debug)]
 struct ScenarioPolicyVariation {
-    load_confidence_ppm: u32,
     power_preference: PowerPreference,
 }
 
@@ -175,7 +174,6 @@ impl ScenarioVariation {
         let h = mix64(g);
         let i = mix64(h);
         let j = mix64(i);
-        let k = mix64(j);
         let crusher_definition = registries
             .equipment()
             .get_equipment(EQUIPMENT_JAW_CRUSHER)
@@ -206,29 +204,15 @@ impl ScenarioVariation {
 
         let crusher_weight =
             calculate_weight_force_ceiling(crusher_definition.mass(), registries.core().gravity());
-        let structural_profile = registries
-            .structural()
-            .get_profile(STRUCTURAL_PROFILE_AXIAL_COMPRESSION)
-            .unwrap_or_else(|| panic!("canonical compression profile disappeared"));
-        let strained = structural_profile.strained_at_ppm();
-        let target_low = ((u64::from(strained) * 800_000) / u64::from(STRUCTURAL_PARTS_PER_MILLION))
-            .max(1) as u32;
-        let slightly_strained =
-            ((u64::from(strained) * 1_050_000) / u64::from(STRUCTURAL_PARTS_PER_MILLION)) as u32;
-        let target_high = structural_profile
-            .cracking_at_ppm()
-            .saturating_sub(25_000)
-            .min(slightly_strained)
-            .max(target_low);
-        let target_span = u64::from(target_high - target_low) + 1;
-        let compact_target_ppm = target_low + (b % target_span) as u32;
+        let target_low = 350_000_u32;
+        let target_high = 750_000_u32;
+        let compact_target_ppm = target_low + (b % u64::from(target_high - target_low + 1)) as u32;
         let compact_area =
             support_area_for_utilization(registries, crusher_weight, compact_target_ppm);
-        let reinforced_area = scale_area(compact_area, 1_150_000 + (d % 350_001) as u32);
-        let reinforced_background_load = scale_force(crusher_weight, 50_000 + (f % 400_001) as u32);
-        let briefed_snow_load = scale_force(crusher_weight, 30_000 + (g % 900_001) as u32);
-        let actual_to_briefed_ppm = 700_000 + i % 600_001;
-        let actual_snow_load = scale_force(briefed_snow_load, actual_to_briefed_ppm as u32);
+        let reinforced_area = scale_area(compact_area, 1_300_000 + (d % 500_001) as u32);
+        let reinforced_background_mass =
+            scale_mass(crusher_definition.mass(), 50_000 + (f % 200_001) as u32);
+        let delivery_mass = scale_mass(crusher_definition.mass(), 150_000 + (g % 850_001) as u32);
         let power_preference = match j % 3 {
             0 => PowerPreference::PreserveReserve,
             1 => PowerPreference::ProtectCondition,
@@ -249,17 +233,14 @@ impl ScenarioVariation {
             structure: ScenarioStructureVariation {
                 compact_support_area: compact_area,
                 reinforced_support_area: reinforced_area,
-                reinforced_background_load,
+                reinforced_background_mass,
             },
-            stimulus: ScenarioStimulusVariation {
-                briefed_snow_load,
-                actual_snow_load,
-                stimulus_at_tick: 0,
+            delivery: ScenarioDeliveryVariation {
+                mass: delivery_mass,
+                destination_is_compact: i.is_multiple_of(2),
+                delivery_at_tick: 0,
             },
-            policy: ScenarioPolicyVariation {
-                load_confidence_ppm: 450_000 + (k % 550_001) as u32,
-                power_preference,
-            },
+            policy: ScenarioPolicyVariation { power_preference },
         }
     }
 }
@@ -282,6 +263,9 @@ struct WorkshopIds {
     small_drive: EnergyStoreId,
     large_drive: EnergyStoreId,
     electrical_buffer: EnergyStoreId,
+    delivery_source: StockpileId,
+    delivery_destination: StockpileId,
+    delivery_support: StructuralElementId,
     compact_support: StructuralElementId,
     reinforced_support: StructuralElementId,
 }
@@ -290,6 +274,7 @@ struct WorkshopIds {
 struct ScenarioReport {
     seed: u64,
     policy: ScenarioPolicyVariation,
+    inputs: ScenarioInputReport,
     structure: ScenarioStructureReport,
     choices: ScenarioChoiceReport,
     maintenance: ScenarioMaintenanceReport,
@@ -298,10 +283,16 @@ struct ScenarioReport {
 }
 
 impl ScenarioReport {
-    fn new(seed: u64, policy: ScenarioPolicyVariation, target_batches: u8) -> Self {
+    fn new(variation: ScenarioVariation) -> Self {
         Self {
-            seed,
-            policy,
+            seed: variation.seed,
+            policy: variation.policy,
+            inputs: ScenarioInputReport {
+                ore_copper_ppm: variation.ore.ore_copper_ppm,
+                batch_mass: variation.ore.batch_mass,
+                delivery_mass: variation.delivery.mass,
+                delivery_is_compact: variation.delivery.destination_is_compact,
+            },
             structure: ScenarioStructureReport::default(),
             choices: ScenarioChoiceReport::default(),
             maintenance: ScenarioMaintenanceReport {
@@ -311,14 +302,22 @@ impl ScenarioReport {
             },
             limits: ScenarioLimitReport::default(),
             progress: ScenarioProgressReport {
-                stimulus_applied: false,
-                batches_before_stimulus: 0,
+                delivery_applied: false,
+                batches_before_delivery: 0,
                 ore_frontier_visible: false,
                 completed_batches: 0,
-                target_batches,
+                target_batches: variation.ore.planned_batches,
             },
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ScenarioInputReport {
+    ore_copper_ppm: u32,
+    batch_mass: Mass,
+    delivery_mass: Mass,
+    delivery_is_compact: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -342,11 +341,11 @@ struct ScenarioStructureReport {
 #[derive(Clone, Copy, Debug, Default)]
 struct ScenarioChoiceReport {
     chose_compact_support: bool,
-    briefing_changed_siting: bool,
+    delivery_plan_changed_siting: bool,
     used_small_drive: bool,
     used_large_drive: bool,
     large_drive_exhausted: bool,
-    deadline_power_choice: bool,
+    delivery_deadline_power_choice: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -360,8 +359,8 @@ struct ScenarioLimitReport {
 
 #[derive(Clone, Copy, Debug, Default)]
 struct ScenarioProgressReport {
-    stimulus_applied: bool,
-    batches_before_stimulus: u8,
+    delivery_applied: bool,
+    batches_before_delivery: u8,
     ore_frontier_visible: bool,
     completed_batches: u8,
     target_batches: u8,
@@ -378,15 +377,6 @@ struct ScenarioRuntime<'state> {
     current_support: &'state mut StructuralElementId,
     alternate_support: &'state mut StructuralElementId,
     report: &'state mut ScenarioReport,
-}
-
-fn scale_force(load: Force, parts_per_million: u32) -> Force {
-    let scaled = load
-        .millinewtons()
-        .checked_mul(u128::from(parts_per_million))
-        .unwrap_or_else(|| panic!("gameplay harness load-confidence scaling overflowed"))
-        / u128::from(STRUCTURAL_PARTS_PER_MILLION);
-    Force::from_millinewtons(scaled)
 }
 
 fn divide_ceiling(numerator: u128, denominator: u128) -> u128 {
@@ -433,6 +423,14 @@ fn support_area_for_utilization(
         panic!("gameplay harness support area exceeds authored quantity range")
     });
     Area::from_square_millimeters(area.max(1))
+}
+
+fn scale_mass(mass: Mass, parts_per_million: u32) -> Mass {
+    let scaled = u128::from(mass.milligrams()) * u128::from(parts_per_million)
+        / u128::from(STRUCTURAL_PARTS_PER_MILLION);
+    let scaled = u64::try_from(scaled)
+        .unwrap_or_else(|_| panic!("gameplay harness mass scaling overflowed"));
+    Mass::from_milligrams(scaled.max(1))
 }
 
 fn scale_area(area: Area, parts_per_million: u32) -> Area {
@@ -729,17 +727,53 @@ fn setup_workshop(
         2,
         variation.structure.reinforced_support_area,
     );
-    let occupied_bay = validate_set_structural_load(
+    let background_storage = add_solid_stockpile(
+        &mut state,
+        variation.structure.reinforced_background_mass,
+        "reinforced bay background storage",
+    );
+    seed_lot(
         registries,
-        &state,
-        reinforced_support,
-        StructuralLoadKind::Permanent,
-        variation.structure.reinforced_background_load,
-    )
-    .unwrap_or_else(|error| panic!("gameplay harness background support load failed: {error}"));
-    occupied_bay.commit(&mut state).unwrap_or_else(|error| {
-        panic!("gameplay harness background support load commit failed: {error}")
-    });
+        &mut state,
+        background_storage,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        variation.structure.reinforced_background_mass,
+        ROOM_TEMPERATURE,
+    );
+    validate_mount_stockpile(registries, &state, background_storage, reinforced_support)
+        .unwrap_or_else(|error| panic!("gameplay harness background storage mount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("gameplay harness background storage commit failed: {error}")
+        });
+
+    let delivery_source = add_solid_stockpile(
+        &mut state,
+        variation.delivery.mass,
+        "scheduled delivery source",
+    );
+    let delivery_destination = add_solid_stockpile(
+        &mut state,
+        variation.delivery.mass,
+        "scheduled delivery destination",
+    );
+    seed_lot(
+        registries,
+        &mut state,
+        delivery_source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        variation.delivery.mass,
+        ROOM_TEMPERATURE,
+    );
+    let delivery_support = if variation.delivery.destination_is_compact {
+        compact_support
+    } else {
+        reinforced_support
+    };
+    validate_mount_stockpile(registries, &state, delivery_destination, delivery_support)
+        .unwrap_or_else(|error| panic!("gameplay harness delivery storage mount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("gameplay harness delivery storage commit failed: {error}"));
 
     let comminution = registries
         .ore_processing()
@@ -779,6 +813,9 @@ fn setup_workshop(
             small_drive,
             large_drive,
             electrical_buffer,
+            delivery_source,
+            delivery_destination,
+            delivery_support,
             compact_support,
             reinforced_support,
         },
@@ -888,9 +925,9 @@ struct CrushChoiceContext {
     thresholds: deep_hearth::maintenance::MaintenanceThresholds,
     preference: PowerPreference,
     current_tick: u64,
-    stimulus_at_tick: u64,
-    stimulus_pending: bool,
-    planned_structural_outage: bool,
+    delivery_at_tick: u64,
+    delivery_pending: bool,
+    planned_delivery_outage: bool,
 }
 
 fn resolve_crush_option(
@@ -931,7 +968,7 @@ fn resolve_crush_option(
     }
 }
 
-fn schedule_stimulus_from_current_gameplay(
+fn schedule_delivery_from_current_gameplay(
     registries: &Registries,
     state: &AppState,
     ids: WorkshopIds,
@@ -956,7 +993,9 @@ fn schedule_stimulus_from_current_gameplay(
         )
     })
     .map(|option| option.resolved.process_resolution().duration().value())
-    .unwrap_or_else(|| panic!("gameplay harness has no powered reference batch for event timing"));
+    .unwrap_or_else(|| {
+        panic!("gameplay harness has no powered reference batch for delivery timing")
+    });
     assert!(
         reference_duration > 0,
         "nonzero gameplay batch must take at least one tick"
@@ -964,7 +1003,7 @@ fn schedule_stimulus_from_current_gameplay(
     let work_horizon = reference_duration
         .checked_mul(u64::from(variation.ore.planned_batches))
         .unwrap_or_else(|| panic!("gameplay harness work horizon overflowed"));
-    variation.stimulus.stimulus_at_tick =
+    variation.delivery.delivery_at_tick =
         1 + mix64(variation.seed ^ 0x57A1_1EED_71A1_1EED) % work_horizon;
 }
 
@@ -999,9 +1038,9 @@ fn choose_crush_option(
         thresholds,
         preference,
         current_tick,
-        stimulus_at_tick,
-        stimulus_pending,
-        planned_structural_outage,
+        delivery_at_tick,
+        delivery_pending,
+        planned_delivery_outage,
     } = context;
     match (small, large) {
         (None, None) => Err(CrushStopReason::EnergyUnavailable),
@@ -1020,27 +1059,25 @@ fn choose_crush_option(
                 Err(CrushStopReason::MaintenanceCritical)
             } else if small_after == MaintenanceBand::Critical {
                 Ok((large, "high power avoids critical machine condition", false))
-            } else if stimulus_pending
-                && planned_structural_outage
-                && current_tick < stimulus_at_tick
+            } else if delivery_pending && planned_delivery_outage && current_tick < delivery_at_tick
             {
                 Ok((
                     large,
-                    "spend high-power reserve before the announced load event may halt production",
+                    "spend high-power reserve before the scheduled delivery may halt production",
                     true,
                 ))
-            } else if stimulus_pending
-                && current_tick < stimulus_at_tick
+            } else if delivery_pending
+                && current_tick < delivery_at_tick
                 && current_tick
                     .checked_add(small.resolved.process_resolution().duration().value())
-                    .is_some_and(|finish| finish >= stimulus_at_tick)
+                    .is_some_and(|finish| finish >= delivery_at_tick)
                 && current_tick
                     .checked_add(large.resolved.process_resolution().duration().value())
-                    .is_some_and(|finish| finish < stimulus_at_tick)
+                    .is_some_and(|finish| finish < delivery_at_tick)
             {
                 Ok((
                     large,
-                    "high power completes this batch before the announced load event",
+                    "high power completes this batch before the scheduled delivery",
                     true,
                 ))
             } else {
@@ -1172,16 +1209,16 @@ fn crush_batch(
     let completes_at = started_at
         .checked_add(duration.value())
         .unwrap_or_else(|| panic!("gameplay harness crushing completion tick overflowed"));
-    if !runtime.report.progress.stimulus_applied
-        && started_at < runtime.variation.stimulus.stimulus_at_tick
-        && runtime.variation.stimulus.stimulus_at_tick < completes_at
+    if !runtime.report.progress.delivery_applied
+        && started_at < runtime.variation.delivery.delivery_at_tick
+        && runtime.variation.delivery.delivery_at_tick < completes_at
     {
         finish_operation(
             registries,
             state,
-            TickSpan::new(runtime.variation.stimulus.stimulus_at_tick - started_at),
+            TickSpan::new(runtime.variation.delivery.delivery_at_tick - started_at),
         );
-        let assessment = apply_stimulus(registries, state, ids, &mut runtime);
+        let assessment = apply_delivery(registries, state, ids, &mut runtime);
         if assessment.stage() == StructuralStage::Failed {
             let outcome = advance_tick(registries, state)
                 .unwrap_or_else(|error| panic!("gameplay harness suspension tick failed: {error}"));
@@ -1212,7 +1249,7 @@ fn crush_batch(
                 "  interruption: crush#{batch_index} suspends with {} active tick(s) remaining; consumed matter and work stay owned as work-in-process",
                 suspension.1.value()
             );
-            adapt_after_stimulus(registries, state, ids, &mut runtime, assessment);
+            adapt_after_delivery(registries, state, ids, &mut runtime, assessment);
             if runtime.report.structure.structural_stop {
                 runtime.report.structure.stranded_work_in_process = true;
                 println!(
@@ -1259,14 +1296,14 @@ fn crush_batch(
                 "active support unexpectedly suspended crusher production"
             );
             if assessment.stage() != StructuralStage::Stable {
-                adapt_after_stimulus(registries, state, ids, &mut runtime, assessment);
+                adapt_after_delivery(registries, state, ids, &mut runtime, assessment);
             }
         }
     } else {
         assert_eq!(
             advance_job_until_completion_or_suspension(registries, state, job),
             JobAdvanceOutcome::Completed,
-            "crusher production suspended without a harness structural event"
+            "crusher production suspended without the scheduled delivery changing support state"
         );
     }
     CrushBatchOutcome {
@@ -1299,55 +1336,57 @@ fn structural_label(assessment: StructuralAssessment) -> String {
     }
 }
 
-fn apply_snow_load(
+fn analyze_workshop_supports(
     registries: &Registries,
-    state: &mut AppState,
-    support: StructuralElementId,
-    load: Force,
-) {
-    validate_set_structural_load(registries, state, support, StructuralLoadKind::Snow, load)
-        .unwrap_or_else(|error| panic!("workshop snow-load validation failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("workshop snow-load commit failed: {error}"));
-}
-
-fn apply_external_snow_load(
-    registries: &Registries,
-    state: &mut AppState,
+    state: &AppState,
     ids: WorkshopIds,
-    load: Force,
 ) -> (StructuralAssessment, StructuralAssessment) {
-    let mut supports = [ids.compact_support, ids.reinforced_support];
-    supports.sort();
-    for support in supports {
-        apply_snow_load(registries, state, support, load);
-    }
     let analysis = analyze_structure(
         registries.structural(),
         registries.materials(),
         state.structures(),
     )
-    .unwrap_or_else(|error| panic!("workshop external snow-load analysis failed: {error}"));
+    .unwrap_or_else(|error| panic!("workshop structural analysis failed: {error}"));
     (
         structural_assessment(&analysis, ids.compact_support),
         structural_assessment(&analysis, ids.reinforced_support),
     )
 }
 
-fn preview_snow_load_after_mount(
+fn transfer_scheduled_delivery(
+    registries: &Registries,
+    state: &mut AppState,
+    ids: WorkshopIds,
+    mass: Mass,
+) {
+    validate_transfer_bulk(
+        registries,
+        state,
+        ids.delivery_source,
+        ids.delivery_destination,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        mass,
+    )
+    .unwrap_or_else(|error| panic!("workshop scheduled delivery validation failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("workshop scheduled delivery commit failed: {error}"));
+}
+
+fn preview_delivery_after_mount(
     registries: &Registries,
     state: &AppState,
     ids: WorkshopIds,
     mount: &deep_hearth::equipment::ValidatedEquipmentSupportChange,
     mounted_support: StructuralElementId,
-    load: Force,
+    mass: Mass,
 ) -> StructuralAssessment {
     let mut preview = state.clone();
     mount
         .clone()
         .commit(&mut preview)
-        .unwrap_or_else(|error| panic!("workshop planned-load mount preview failed: {error}"));
-    let (compact, reinforced) = apply_external_snow_load(registries, &mut preview, ids, load);
+        .unwrap_or_else(|error| panic!("workshop delivery-plan mount preview failed: {error}"));
+    transfer_scheduled_delivery(registries, &mut preview, ids, mass);
+    let (compact, reinforced) = analyze_workshop_supports(registries, &preview, ids);
     if mounted_support == ids.compact_support {
         compact
     } else {
@@ -1383,7 +1422,7 @@ fn try_relocate_crusher(
         Ok(remount) => remount,
         Err(EquipmentSupportError::TargetNotActive { lifecycle, .. }) => {
             println!(
-                "  recovery blocked: alternate bay is {lifecycle:?} after the same external snow load"
+                "  recovery blocked: alternate bay is {lifecycle:?} after the stored-matter delivery"
             );
             return CrusherRelocationOutcome::Blocked;
         }
@@ -1429,8 +1468,10 @@ fn try_relocate_crusher(
         );
     } else {
         println!(
-            "  recovery note: previous bay remains exposed to the same {}mN external snow load after relocation",
-            abandoned.load(StructuralLoadKind::Snow).millinewtons(),
+            "  recovery note: previous bay retains {}mN of inventory-owned stored-matter load after relocation",
+            abandoned
+                .load(StructuralLoadKind::StoredMatter)
+                .millinewtons(),
         );
     }
     std::mem::swap(current_support, alternate_support);
@@ -1438,7 +1479,7 @@ fn try_relocate_crusher(
     CrusherRelocationOutcome::Relocated
 }
 
-fn adapt_after_stimulus(
+fn adapt_after_delivery(
     registries: &Registries,
     state: &mut AppState,
     ids: WorkshopIds,
@@ -1535,7 +1576,7 @@ fn adapt_after_stimulus(
             Ok(alternate) => alternate,
             Err(EquipmentSupportError::TargetNotActive { lifecycle, .. }) => {
                 println!(
-                    "  decision: remain on current support; alternate bay is {lifecycle:?} after the external snow load"
+                    "  decision: remain on current support; alternate bay is {lifecycle:?} after the stored-matter delivery"
                 );
                 return;
             }
@@ -1571,7 +1612,7 @@ fn adapt_after_stimulus(
     }
 }
 
-fn apply_stimulus(
+fn apply_delivery(
     registries: &Registries,
     state: &mut AppState,
     ids: WorkshopIds,
@@ -1579,17 +1620,13 @@ fn apply_stimulus(
 ) -> StructuralAssessment {
     assert_eq!(
         state.tick().value(),
-        runtime.variation.stimulus.stimulus_at_tick,
-        "gameplay harness external load must occur at its announced world tick"
+        runtime.variation.delivery.delivery_at_tick,
+        "scheduled gameplay delivery must occur at its planned world tick"
     );
-    runtime.report.progress.stimulus_applied = true;
-    runtime.report.progress.batches_before_stimulus = runtime.report.progress.completed_batches;
-    let (compact, reinforced) = apply_external_snow_load(
-        registries,
-        state,
-        ids,
-        runtime.variation.stimulus.actual_snow_load,
-    );
+    runtime.report.progress.delivery_applied = true;
+    runtime.report.progress.batches_before_delivery = runtime.report.progress.completed_batches;
+    transfer_scheduled_delivery(registries, state, ids, runtime.variation.delivery.mass);
+    let (compact, reinforced) = analyze_workshop_supports(registries, state, ids);
     let (after, alternate_after) = if *runtime.current_support == ids.compact_support {
         (compact, reinforced)
     } else {
@@ -1606,53 +1643,54 @@ fn apply_stimulus(
                     .get_element(support)
                     .is_some_and(|record| record.is_cracked())
             });
+    let destination = if ids.delivery_support == ids.compact_support {
+        "compact"
+    } else {
+        "reinforced"
+    };
     println!(
-        "  stimulus: external snow load arrives at tick={} after {} completed batch(es); briefed={}mN/bay actual={}mN/bay -> active={} alternate={}",
+        "  delivery: move={}mg wood into {destination} supported storage at tick={} after {} completed batch(es) -> active={} alternate={}",
+        runtime.variation.delivery.mass.milligrams(),
         state.tick().value(),
         runtime.report.progress.completed_batches,
-        runtime.variation.stimulus.briefed_snow_load.millinewtons(),
-        runtime.variation.stimulus.actual_snow_load.millinewtons(),
         structural_label(after),
         structural_label(alternate_after),
     );
     after
 }
 
-fn apply_stimulus_and_adapt(
+fn apply_delivery_and_adapt(
     registries: &Registries,
     state: &mut AppState,
     ids: WorkshopIds,
     mut runtime: ScenarioRuntime<'_>,
 ) {
-    let after = apply_stimulus(registries, state, ids, &mut runtime);
-    adapt_after_stimulus(registries, state, ids, &mut runtime, after);
+    let after = apply_delivery(registries, state, ids, &mut runtime);
+    adapt_after_delivery(registries, state, ids, &mut runtime, after);
 }
 
 fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> ScenarioReport {
     let (mut state, ids) = setup_workshop(registries, variation);
-    schedule_stimulus_from_current_gameplay(registries, &state, ids, &mut variation);
+    schedule_delivery_from_current_gameplay(registries, &state, ids, &mut variation);
     let initial_matter = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| {
             panic!("gameplay harness initial matter accounting failed: {error}")
         })
         .total();
-    let mut report = ScenarioReport::new(
-        variation.seed,
-        variation.policy,
-        variation.ore.planned_batches,
-    );
+    let mut report = ScenarioReport::new(variation);
     let small_drive_batch_budget = variation.ore.planned_batches;
     let maintenance_profile = registries
         .equipment()
         .get_equipment(EQUIPMENT_JAW_CRUSHER)
         .and_then(|definition| definition.maintenance_profile())
         .unwrap_or_else(|| panic!("canonical crusher maintenance profile disappeared"));
-    let planned_snow_load = scale_force(
-        variation.stimulus.briefed_snow_load,
-        variation.policy.load_confidence_ppm,
-    );
+    let delivery_target = if variation.delivery.destination_is_compact {
+        "compact"
+    } else {
+        "reinforced"
+    };
     println!(
-        "\nSCENARIO seed=0x{:016X} ore={}ppm Cu batch={}mg crusher={}ppm target_batches={} stimulus=[tick:{} briefed_snow:{}mN/bay confidence:{}ppm planned_snow:{}mN/bay] policy=[power:{}] work_reserve=[small:{} batch(es), high-power:{} batch(es)] maintenance=[replacement:{}mg target:{}ppm]",
+        "\nSCENARIO seed=0x{:016X} ore={}ppm Cu batch={}mg crusher={}ppm target_batches={} delivery=[tick:{} mass:{}mg target:{}] policy=[power:{}] work_reserve=[small:{} batch(es), high-power:{} batch(es)] maintenance=[replacement:{}mg target:{}ppm]",
         variation.seed,
         variation.ore.ore_copper_ppm,
         variation.ore.batch_mass.milligrams(),
@@ -1661,10 +1699,9 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
             .initial_crusher_condition
             .parts_per_million(),
         variation.ore.planned_batches,
-        variation.stimulus.stimulus_at_tick,
-        variation.stimulus.briefed_snow_load.millinewtons(),
-        variation.policy.load_confidence_ppm,
-        planned_snow_load.millinewtons(),
+        variation.delivery.delivery_at_tick,
+        variation.delivery.mass.milligrams(),
+        delivery_target,
         variation.policy.power_preference.label(),
         small_drive_batch_budget,
         variation.crusher.large_drive_batch_budget,
@@ -1672,10 +1709,7 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
         maintenance_profile.restored_condition().parts_per_million(),
     );
     println!(
-        "  objective: complete the ore work order without operating in critical condition; choose among resolver-projected power and siting options according to this player's priorities"
-    );
-    println!(
-        "  stimulus boundary: the announced snow load and event tick are harness inputs, not an implemented weather or forecasting system; the actual load is hidden from the acting policy until injection"
+        "  objective: complete the ore work order while accounting for a scheduled material delivery, structural margin, finite work reserve, and machine condition"
     );
 
     let compact_mount =
@@ -1690,32 +1724,29 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
         reinforced_mount.structural_analysis(),
         ids.reinforced_support,
     );
-    let compact_planned = preview_snow_load_after_mount(
+    let compact_planned = preview_delivery_after_mount(
         registries,
         &state,
         ids,
         &compact_mount,
         ids.compact_support,
-        planned_snow_load,
+        variation.delivery.mass,
     );
-    let reinforced_planned = preview_snow_load_after_mount(
+    let reinforced_planned = preview_delivery_after_mount(
         registries,
         &state,
         ids,
         &reinforced_mount,
         ids.reinforced_support,
-        planned_snow_load,
+        variation.delivery.mass,
     );
     println!(
-        "  support options: compact now={} planned_load={}; reinforced now={} planned_load={} (reinforced existing load={}mN)",
+        "  support options: compact now={} after_delivery={}; reinforced now={} after_delivery={} (reinforced stored cargo={}mg)",
         structural_label(compact_assessment),
         structural_label(compact_planned),
         structural_label(reinforced_assessment),
         structural_label(reinforced_planned),
-        variation
-            .structure
-            .reinforced_background_load
-            .millinewtons(),
+        variation.structure.reinforced_background_mass.milligrams(),
     );
     let compact_is_better_now = (
         stage_rank(compact_assessment.stage()),
@@ -1735,7 +1766,7 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
         stage_rank(reinforced_assessment.stage()),
         reinforced_assessment.utilization_ppm(),
     );
-    report.choices.briefing_changed_siting = compact_is_better != compact_is_better_now;
+    report.choices.delivery_plan_changed_siting = compact_is_better != compact_is_better_now;
     let (mut current_support, mut alternate_support, selected_mount, support_name) =
         if compact_is_better {
             report.choices.chose_compact_support = true;
@@ -1758,21 +1789,21 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
     } else {
         reinforced_assessment
     };
-    let planned_structural_outage = compact_planned.stage() == StructuralStage::Failed
+    let planned_delivery_outage = compact_planned.stage() == StructuralStage::Failed
         && reinforced_planned.stage() == StructuralStage::Failed;
     assert_ne!(selected_assessment.stage(), StructuralStage::Failed);
-    if report.choices.briefing_changed_siting {
+    if report.choices.delivery_plan_changed_siting {
         println!(
-            "  decision: mount crusher on {support_name}; the announced-load plan changes the choice from the best present-only margin"
+            "  decision: mount crusher on {support_name}; the scheduled delivery changes the choice from the best present-only margin"
         );
     } else {
         println!(
-            "  decision: mount crusher on {support_name}; it has the best margin under this player's announced-load plan"
+            "  decision: mount crusher on {support_name}; it has the best margin after the scheduled delivery"
         );
     }
-    if planned_structural_outage {
+    if planned_delivery_outage {
         println!(
-            "  risk: neither siting option survives the load this player planned around; production before the announced event has extra value"
+            "  risk: neither siting option survives the scheduled delivery; production before that transfer has extra value"
         );
     }
     selected_mount
@@ -1787,7 +1818,7 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
     'batches: for batch_index in 0..variation.ore.planned_batches {
         if report.structure.structural_stop {
             println!(
-                "  decision: stop crushing; the external structural load left no support that can carry the machine"
+                "  decision: stop crushing; the delivered stored-matter load left no support that can carry the machine"
             );
             break;
         }
@@ -1853,9 +1884,9 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
                     thresholds,
                     preference: variation.policy.power_preference,
                     current_tick: state.tick().value(),
-                    stimulus_at_tick: variation.stimulus.stimulus_at_tick,
-                    stimulus_pending: !report.progress.stimulus_applied,
-                    planned_structural_outage,
+                    delivery_at_tick: variation.delivery.delivery_at_tick,
+                    delivery_pending: !report.progress.delivery_applied,
+                    planned_delivery_outage,
                 },
             ) {
                 Ok(choice) => break choice,
@@ -1886,7 +1917,7 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
                 }
             }
         };
-        report.choices.deadline_power_choice |= deadline_driven;
+        report.choices.delivery_deadline_power_choice |= deadline_driven;
         println!("  decision: use {} drive because {reason}", selected.name);
         if selected.store == ids.small_drive {
             report.choices.used_small_drive = true;
@@ -1921,10 +1952,10 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
         if !outcome.completed {
             break;
         }
-        if !report.progress.stimulus_applied
-            && state.tick().value() >= variation.stimulus.stimulus_at_tick
+        if !report.progress.delivery_applied
+            && state.tick().value() >= variation.delivery.delivery_at_tick
         {
-            apply_stimulus_and_adapt(
+            apply_delivery_and_adapt(
                 registries,
                 &mut state,
                 ids,
@@ -1937,20 +1968,20 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
             );
         }
     }
-    if !report.progress.stimulus_applied {
+    if !report.progress.delivery_applied {
         let current_tick = state.tick().value();
-        if current_tick < variation.stimulus.stimulus_at_tick {
+        if current_tick < variation.delivery.delivery_at_tick {
             println!(
-                "  timeline: work pauses at tick={current_tick}; advance to announced load event at tick={}",
-                variation.stimulus.stimulus_at_tick
+                "  timeline: work pauses at tick={current_tick}; advance to scheduled delivery at tick={}",
+                variation.delivery.delivery_at_tick
             );
             finish_operation(
                 registries,
                 &mut state,
-                TickSpan::new(variation.stimulus.stimulus_at_tick - current_tick),
+                TickSpan::new(variation.delivery.delivery_at_tick - current_tick),
             );
         }
-        apply_stimulus_and_adapt(
+        apply_delivery_and_adapt(
             registries,
             &mut state,
             ids,
@@ -2069,12 +2100,12 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
         .map(|stockpile| stockpile.stored_mass())
         .unwrap_or_else(|| panic!("maintenance replacement stockpile disappeared"));
     println!(
-        "  outcome: batches={}/{} before_stimulus={} briefing_changed_siting={} deadline_power={} suspended={} stranded_wip={} final_condition={}ppm/{:?} maintenance=[services:{} spent:{}mg remaining:{}mg] mechanical_reserve=[small:{}nJ high-power:{}nJ] active_support={:?}/cracked:{} ticks={}",
+        "  outcome: batches={}/{} before_delivery={} delivery_plan_changed_siting={} delivery_deadline_power={} suspended={} stranded_wip={} final_condition={}ppm/{:?} maintenance=[services:{} spent:{}mg remaining:{}mg] mechanical_reserve=[small:{}nJ high-power:{}nJ] active_support={:?}/cracked:{} ticks={}",
         report.progress.completed_batches,
         variation.ore.planned_batches,
-        report.progress.batches_before_stimulus,
-        report.choices.briefing_changed_siting,
-        report.choices.deadline_power_choice,
+        report.progress.batches_before_delivery,
+        report.choices.delivery_plan_changed_siting,
+        report.choices.delivery_deadline_power_choice,
         report.structure.production_suspension,
         report.structure.stranded_work_in_process,
         final_condition.parts_per_million(),
@@ -2740,7 +2771,7 @@ fn run_gameplay_harness() {
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
     let ScenarioSeedPlan {
         seeds,
-        coverage_seed_count,
+        anchor_seed_count,
         variation_seed,
     } = scenario_seeds_from(scenario_raw.as_deref(), variation_raw.as_deref())
         .unwrap_or_else(|error| panic!("gameplay harness configuration failed: {error:?}"));
@@ -2753,9 +2784,9 @@ fn run_gameplay_harness() {
         .map(|seed| format!("0x{seed:016X}"))
         .unwrap_or_else(|| "custom-seed-list".to_owned());
     std::println!(
-        "HARNESS INPUT maintained={} organic={} variation_seed={} replay={replay_seeds}",
-        coverage_seed_count,
-        seeds.len().saturating_sub(coverage_seed_count),
+        "HARNESS INPUT anchors={} organic={} variation_seed={} replay={replay_seeds}",
+        anchor_seed_count,
+        seeds.len().saturating_sub(anchor_seed_count),
         variation_label,
     );
     let probe_seed = seeds
@@ -2770,13 +2801,13 @@ fn run_gameplay_harness() {
         registries.schema_version().value(),
     );
     println!(
-        "SETUP BOUNDARY: matter, equipment, finite energy, structural bays, and the reinforced bay's baseline load are starting conditions; every experienced decision and mutation after setup uses canonical runtime transactions."
+        "SETUP BOUNDARY: starting matter, equipment, finite energy, structural bays, and background stored cargo are arranged because their acquisition/construction owners are deferred; the scheduled delivery and every experienced post-setup mutation use canonical runtime transactions."
     );
     println!(
-        "WORKSHOP FANTASY: turn a constrained, failure-prone physical workshop into reliable production by reading structural margin, power reserve, machine condition, material state, and an announced external load event."
+        "WORKSHOP FANTASY: turn a constrained physical workshop into reliable production by reading structural margin, power reserve, machine condition, material state, and a planned material transfer."
     );
     println!(
-        "LOOP SCOPE: the scenario matrix experiences varied player priorities, imperfect confidence in an announced external snow load, comminution, finite stored work, power-versus-time tradeoffs, wear, finite replacement-stock maintenance, exact-tick load injection, persistent structural damage, production suspension, and recovery. Deep Hearth does not yet implement weather/forecast ownership; geological acquisition and construction authorization also remain outside this workshop setup. Separate ore-preparation and foundry probes validate existing downstream capabilities without pretending the mixed-ore chain is complete."
+        "LOOP SCOPE: the scenario matrix chooses when to attempt a canonical supported-stockpile transfer; it does not claim a logistics scheduler exists. It also experiences varied player priorities, comminution, finite stored work, power-versus-time tradeoffs, wear, finite replacement-stock maintenance, inventory-owned structural load changes, production suspension, and recovery. Resource acquisition, energy generation, and construction authorization remain outside this workshop setup. Separate ore-preparation and foundry probes validate existing downstream capabilities without pretending the mixed-ore chain is complete."
     );
 
     let reports: Vec<_> = seeds
@@ -2793,9 +2824,9 @@ fn run_gameplay_harness() {
         .iter()
         .map(|report| u32::from(report.progress.target_batches))
         .sum();
-    let batches_before_stimulus: u32 = reports
+    let batches_before_delivery: u32 = reports
         .iter()
-        .map(|report| u32::from(report.progress.batches_before_stimulus))
+        .map(|report| u32::from(report.progress.batches_before_delivery))
         .sum();
     let completed_orders = reports
         .iter()
@@ -2825,11 +2856,11 @@ fn run_gameplay_harness() {
             .into_iter()
             .map(|gap| format!("foundry: {gap}")),
     );
-    if coverage_seed_count > 0 {
+    if anchor_seed_count > 0 {
         gaps.extend(
-            coverage_gaps(&reports[..coverage_seed_count])
+            anchor_diversity_gaps(&reports[..anchor_seed_count])
                 .into_iter()
-                .map(|gap| format!("coverage: {gap}")),
+                .map(|gap| format!("anchor diversity: {gap}")),
         );
     }
     assert!(
@@ -2838,8 +2869,48 @@ fn run_gameplay_harness() {
         gaps.join("\n- ")
     );
 
+    let ore_grade_min = reports
+        .iter()
+        .map(|report| report.inputs.ore_copper_ppm)
+        .min()
+        .unwrap_or_else(|| panic!("gameplay harness produced no scenario reports"));
+    let ore_grade_max = reports
+        .iter()
+        .map(|report| report.inputs.ore_copper_ppm)
+        .max()
+        .unwrap_or_else(|| panic!("gameplay harness produced no scenario reports"));
+    let batch_mass_min = reports
+        .iter()
+        .map(|report| report.inputs.batch_mass.milligrams())
+        .min()
+        .unwrap_or_else(|| panic!("gameplay harness produced no scenario reports"));
+    let batch_mass_max = reports
+        .iter()
+        .map(|report| report.inputs.batch_mass.milligrams())
+        .max()
+        .unwrap_or_else(|| panic!("gameplay harness produced no scenario reports"));
+    let delivery_mass_min = reports
+        .iter()
+        .map(|report| report.inputs.delivery_mass.milligrams())
+        .min()
+        .unwrap_or_else(|| panic!("gameplay harness produced no scenario reports"));
+    let delivery_mass_max = reports
+        .iter()
+        .map(|report| report.inputs.delivery_mass.milligrams())
+        .max()
+        .unwrap_or_else(|| panic!("gameplay harness produced no scenario reports"));
+    let compact_deliveries = reports
+        .iter()
+        .filter(|report| report.inputs.delivery_is_compact)
+        .count();
+
     std::println!(
-        "HARNESS PASS mode={HARNESS_MODE} scenarios={} orders={completed_orders}/{} batches={completed_batches}/{target_batches} pre_stimulus={batches_before_stimulus} stops=[structural:{} maintenance:{} energy:{}] material=[ore_prep:pass foundry:pass mixed_ore_bridge:blocked]",
+        "SAMPLE ore=[grade:{ore_grade_min}..{ore_grade_max}ppm batch:{batch_mass_min}..{batch_mass_max}mg] delivery=[mass:{delivery_mass_min}..{delivery_mass_max}mg compact:{compact_deliveries} reinforced:{}]",
+        reports.len() - compact_deliveries,
+    );
+
+    std::println!(
+        "HARNESS PASS mode={HARNESS_MODE} scenarios={} orders={completed_orders}/{} batches={completed_batches}/{target_batches} pre_delivery={batches_before_delivery} stops=[structural:{} maintenance:{} energy:{}] material=[ore_prep:pass foundry:pass mixed_ore_bridge:blocked]",
         reports.len(),
         reports.len(),
         reports
@@ -2856,7 +2927,7 @@ fn run_gameplay_harness() {
             .count(),
     );
     std::println!(
-        "SYSTEMS policy=[reserve:{} condition:{} speed:{}] control=[briefing_siting:{} deadline_power:{}] recovery=[relocations:{} resumed_wip:{recovered_work_in_process} stranded_wip:{} maintenance_services:{maintenance_services}] pressure=[structural:{} maintenance_warning:{}] bottlenecks=[energy_delivery:{} throughput:{}]",
+        "SYSTEMS policy=[reserve:{} condition:{} speed:{}] control=[delivery_siting:{} delivery_deadline_power:{}] recovery=[relocations:{} resumed_wip:{recovered_work_in_process} stranded_wip:{} maintenance_services:{maintenance_services}] pressure=[structural:{} maintenance_warning:{}] bottlenecks=[energy_delivery:{} throughput:{}]",
         reports
             .iter()
             .filter(|report| report.policy.power_preference == PowerPreference::PreserveReserve)
@@ -2871,11 +2942,11 @@ fn run_gameplay_harness() {
             .count(),
         reports
             .iter()
-            .filter(|report| report.choices.briefing_changed_siting)
+            .filter(|report| report.choices.delivery_plan_changed_siting)
             .count(),
         reports
             .iter()
-            .filter(|report| report.choices.deadline_power_choice)
+            .filter(|report| report.choices.delivery_deadline_power_choice)
             .count(),
         reports
             .iter()
@@ -2903,7 +2974,7 @@ fn run_gameplay_harness() {
             .count(),
     );
     std::println!(
-        "SCOPE exercised=[canonical comminution,power choice,wear,maintenance,structural siting,failure recovery] bootstrap=[matter,stored energy,equipment,constructed bays,baseline load] external=[announced snow stimulus] deferred=[resource acquisition,energy generation,weather ownership,concentration/smelting bridge]"
+        "SCOPE exercised=[canonical comminution,power choice,wear,maintenance,structural siting,supported-stockpile delivery,failure recovery] bootstrap=[starting matter,stored energy,equipment,constructed bays] deferred=[resource acquisition,energy generation,construction authorization,concentration/smelting bridge]"
     );
 }
 

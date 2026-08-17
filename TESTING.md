@@ -65,9 +65,9 @@ contract. A successful operation should assert the exact identity, quantity, lif
 or durable result that defines success.
 
 Avoid assertions on human-readable error prose, incidental ordering, transient implementation counts,
-or arbitrary wall-clock duration. Aggregate `any`/`all` assertions are appropriate only when the
-contract is explicitly coverage across a maintained scenario matrix; those failures must name the
-missing behavior rather than returning an anonymous boolean failure.
+or arbitrary wall-clock duration. Aggregate `any`/`all` assertions are appropriate only for stable
+input/diversity contracts, not for balance-dependent outcomes. Those failures must name the missing
+contract rather than returning an anonymous boolean failure.
 
 Long-horizon tests use `soak` in the qualified test name and carry
 `#[ignore = "long-horizon soak"]`. The ignore marker, not a name filter, owns lane membership. Keep one
@@ -85,12 +85,13 @@ harness uses the same production validators, resolutions, commits, and simulatio
 runtime behavior.
 
 The acting policy uses observable state and resolver projections. Hidden authoritative state may be
-used only for diagnostics and postcondition checks. Scenario variation is deterministic and does not
-consume unrelated simulation randomness. A legal scenario may complete zero batches when an in-flight
-job is suspended before its first output; that is gameplay evidence, not a harness failure. The
-maintained matrix owns aggregate experience claims such as completed/incomplete orders, the mixed-ore
-frontier, relocation/recovery, and policy diversity rather than requiring every seed to exhibit every
-behavior.
+used only for diagnostics and postcondition checks. Each scenario is deterministic from its printed
+seed and does not consume unrelated simulation randomness, while normal runs add a small fresh organic
+sample so the harness does not become one memorized script. A legal scenario may complete zero batches
+when an in-flight job is suspended before its first output; that is gameplay evidence, not a harness
+failure. Maintained seeds guarantee only stable input/policy diversity. Balance-dependent outcomes such
+as completion, maintenance pressure, structural damage, suspension, and relocation are reported as
+observations rather than frozen into aggregate pass/fail requirements.
 
 Direct fixture-only starting-state injection is deliberately isolated in
 `src/content/gameplay_fixture.rs`. That feature-gated bridge may seed loose matter and stored energy or
@@ -107,20 +108,24 @@ dedicated test target against the cached library instead of invalidating the fea
 crate. Configuration contracts live in that same target so the gameplay lane has one specialized
 artifact rather than multiplying Cargo targets for small checks.
 
-The maintained workshop loop covers announced-load-informed structural siting, finite power choice,
-active-tick wear, exact replacement-stock maintenance, external structural disruption, persistent
-structural damage, production suspension, WIP recovery/stranding, and the current mixed-ore processing
-frontier. Deep Hearth does not yet own weather or forecasts, so the harness labels its timed snow load
-as an external stimulus rather than presenting it as implemented gameplay. Player priorities vary by
-seed within bounded deterministic choices: reserve conservation, projected machine condition, or
-completion time. Safety and maintenance gates remain canonical regardless of personality. The acting
-policy never sees the actual future load before the stimulus is committed.
+The maintained workshop loop covers delivery-informed structural siting, finite power choice,
+active-tick wear, exact replacement-stock maintenance, inventory-owned stored-matter loading,
+persistent structural damage, production suspension, WIP recovery/stranding, and the current mixed-ore
+processing frontier. The timed disruption is no longer a synthetic weather/load write: a real bulk
+material transfer moves seeded starting matter into a mounted stockpile, and the inventory subsystem
+updates the support's `StoredMatter` load through its canonical transaction. The harness chooses when
+to attempt that transfer; this is not presented as an implemented logistics scheduler. Player
+priorities vary by seed within bounded deterministic choices: reserve conservation, projected machine
+condition, or
+completion time. Safety, ownership, support, energy, and maintenance gates remain canonical regardless
+of personality.
 
 Scenario physics follow current authored content. Crusher batch mass is chosen inside the current
-equipment limit; initial condition is derived from its current maintenance bands; support geometry and
-external load scale from current equipment weight, material strength, and structural thresholds; and
-the announced event tick is selected inside a work horizon derived from an actually resolved batch
-duration. These are bounded variations around real game quantities rather than copied balance values.
+equipment limit; initial condition is derived from its current maintenance bands; support geometry,
+background stored cargo, and delivery mass scale from current equipment/material quantities; and the
+delivery tick is selected inside a work horizon derived from an actually resolved batch duration. The
+support generator deliberately spans a broad ordinary utilization range rather than targeting authored
+failure thresholds, so structural outcomes can change naturally as game balance evolves.
 
 Capability probes derive legal batch sizes, output partitions, and equipment limits from the current
 authored registries instead of duplicating recipe constants. Their assertions focus on conservation,
@@ -130,23 +135,25 @@ requirements. The ore-preparation and foundry probes remain explicitly labeled c
 concentration/smelting provides a truthful bridge between those stages.
 
 `cargo test-gameplay` keeps successful harness output captured. `cargo test-gameplay-report` emits a
-replay-input line, compact outcome and systems summaries, and one scope line distinguishing exercised
-runtime behavior from bootstrap/external/deferred systems. Set `DEEP_HEARTH_GAMEPLAY_VERBOSE` to any
-value before that report lane to emit the detailed decision trace. Seed controls are:
+replay-input line, sampled input ranges, compact outcome and systems summaries, and one scope line
+distinguishing exercised runtime behavior from bootstrap/deferred systems. Set
+`DEEP_HEARTH_GAMEPLAY_VERBOSE` to any value
+before that report lane to emit the detailed decision trace. Seed controls are:
 
 - `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED`: reproduces the normal organic scenario set from one exact
   decimal or hexadecimal root seed;
-- `DEEP_HEARTH_GAMEPLAY_SEEDS`: replaces the maintained matrix with an exact comma-separated seed
-  list for reproduction or deliberate sweeps.
+- `DEEP_HEARTH_GAMEPLAY_SEEDS`: replaces the anchor-plus-organic plan with an exact comma-separated
+  seed list for reproduction or deliberate sweeps.
 
-Seed lists fail on an empty or malformed entry rather than silently dropping it. When the maintained
-matrix is used, five curated scenarios own the aggregate regression coverage and three additional
-organic scenarios are generated from a stable default variation root. This makes the normal gate
-replay-identical across machines and runs. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` deliberately selects
-another replayable organic set when wider exploration is wanted. Organic scenarios exercise universal
-per-scenario contracts but cannot mask a lost maintained behavior. The input line prints the root and
-all exact scenario seeds so any failure is replayable. Explicit custom seed lists prove only the
-universal per-scenario contracts and do not inherit the maintained matrix's aggregate coverage claim.
+Seed lists fail on an empty or malformed entry rather than silently dropping it. Normal runs combine
+five fixed anchor scenarios with three organic scenarios derived from a fresh variation root. The
+anchors preserve reproducible comparison and all three operating priorities; the organic sample gives
+each run slightly different physical conditions without enlarging the lane enough to hurt iteration.
+`DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` reproduces any organic set exactly. Hard failures remain canonical
+execution/invariant failures and capability-probe conservation failures, not required balance outcomes.
+The input line prints the variation root and all exact scenario seeds so every failure is replayable.
+Explicit custom seed lists run the same per-scenario contracts without claiming aggregate outcome
+coverage.
 
 ## CI and completion gates
 

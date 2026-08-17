@@ -412,35 +412,37 @@
   crusher, grinding mill, dry screen, electric furnace, cooled casting mold, two mechanical drive
   envelopes, electrical buffer, thermal sink, ore crushing, same-form grinding, exact dry screening,
   pure-copper melting, and pure-copper casting used by the harness. Normal exercise-mode runs combine
-  five deterministic qualitative-coverage seeds with three organic exploratory seeds generated from
-  one stable default variation root. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` selects another exact
-  decimal or hex replay root, and `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex seed lists
-  for replay or wider sweeps. Explicit seed lists fail on malformed entries rather than silently
-  dropping them. The five maintained seeds alone own aggregate coverage; organic scenarios cannot hide
-  a lost maintained behavior. Every run reports its exact replay seeds. The exercise source lives under
-  `tests/gameplay_harness/` as a dedicated integration target rather than library code, so harness-only
-  edits rebuild the dedicated target against the cached core library instead of invalidating the
-  feature-enabled library or compiling the crate unit-test harness. Seed/configuration contracts share
-  that one specialized target instead of creating another Cargo artifact. Routine harness tests keep
-  success output captured; the report lane emits replay
-  inputs, compact outcome/system summaries, and an explicit exercised/bootstrap/external/deferred
-  scope line, while `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace.
-  The compact report includes completed work orders, terminal causes, announced-load-informed control
-  decisions, structural/WIP recovery, maintenance services, system pressure, and bottleneck prevalence
-  so a wide deterministic sweep is useful as gameplay feedback rather than only a pass/fail result.
-  Starting conditions vary ore grade, batch size, crusher condition, one finite crusher-service
-  replacement stock, two competing structural bays, existing bay load, an exact stimulus tick, an
-  imperfect announced snow-load estimate, and finite mechanical work reserves. Batch size and initial
-  condition are derived from current authored crusher capabilities and maintenance bands. Support
-  geometry and load magnitudes scale from current equipment weight, material strength, and structural
-  thresholds, while stimulus timing is selected within a horizon derived from a real resolved batch
-  duration. Bootstrap-only matter/energy seeding and structural materialization are isolated in one
-  setup module and cannot be called by the acting policy. Deep Hearth does not yet implement a weather
-  or forecast owner: the snow event is explicitly an external harness stimulus
-  committed through the canonical structural-load transaction. Its actual magnitude is revealed to the
-  acting policy only when the event occurs and is applied to both workshop bays rather than following
-  the selected machine. Wider seed sweeps remain explicit diagnostic exercises rather than a fixed gate
-  or frozen balance claim. Each seed also selects one bounded operating priority: conserve high-power
+  five deterministic anchor seeds with three organic exploratory seeds generated from a fresh replay
+  root. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` reproduces any organic set from an exact decimal or hex
+  root, and `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex seed lists for reproduction or
+  wider sweeps. Explicit seed lists fail on malformed entries rather than silently dropping them. The
+  anchors guarantee stable comparison and all three operating priorities; balance-dependent outcomes
+  are reported rather than frozen into aggregate pass/fail coverage. Every run reports its exact root
+  and replay seeds. The exercise source lives under `tests/gameplay_harness/` as a dedicated integration
+  target rather than library code, so harness-only edits rebuild the dedicated target against the
+  cached core library instead of invalidating the feature-enabled library or compiling the crate
+  unit-test harness. Seed/configuration contracts share that one specialized target instead of creating
+  another Cargo artifact. Routine harness tests keep success output captured; the report lane emits
+  replay inputs, compact outcome/system summaries, and an explicit exercised/bootstrap/deferred scope
+  line, while `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace.
+  The compact report exposes sampled ore/delivery input ranges alongside completed work orders,
+  terminal causes, delivery-informed control decisions, structural/WIP recovery, maintenance services,
+  system pressure, and bottleneck prevalence
+  so each fresh sample is useful as gameplay feedback rather than only a pass/fail result. Starting
+  conditions vary ore grade, batch size, crusher condition, one finite crusher-service replacement
+  stock, two competing structural bays, real background stored cargo, a scheduled supported-stockpile
+  delivery, and finite mechanical work reserves. Batch size and initial condition are derived from
+  current authored crusher capabilities and maintenance bands. Support geometry spans a broad ordinary
+  utilization range derived from current material strength and crusher weight; background cargo and
+  delivery mass scale from current equipment/material quantities, while delivery timing is selected
+  within a horizon derived from a real resolved batch duration. Bootstrap-only matter/energy seeding
+  and structural materialization are isolated in one setup module and cannot be called by the acting
+  policy. After setup the timed structural disruption is an actual `validate_transfer_bulk` transaction
+  into a mounted stockpile, so inventory owns the resulting `StoredMatter` load and normal support
+  analysis owns any strain, cracking, failure, suspension, or recovery. The harness chooses the
+  transfer tick; this does not claim an implemented logistics scheduler. Wider seed sweeps remain
+  explicit diagnostic exercises rather than a fixed gate or frozen balance claim. Each seed also
+  selects one bounded operating priority: conserve high-power
   reserve, protect projected equipment condition, or minimize batch completion time. These priorities
   choose only among legal resolver outputs and never override critical-condition, maintenance, support,
   energy, or ownership gates. The low-power drive is seeded with exactly enough work for the planned
@@ -449,14 +451,14 @@
   real authored maintenance if replacement stock remains, then reevaluates the power choice with
   restored condition. Replacement stock is finite and spent matter remains owned rather than
   disappearing. Lack of usable stored work is reported separately from maintenance supply exhaustion.
-  The external load can arrive during production. If the active support merely strains,
-  the committed job can finish and the player may then relocate; if the support fails, the production
-  job suspends with exact remaining active time and conserved work-in-process. Recovery can relocate
-  the occupied machine and resume that work, or leave it visibly stranded when no surviving bay can
-  carry the crusher. Failed structural damage remains persistent either way. Output exposes briefed
-  versus actual external load, player priority, remaining work reserve, condition band, support state,
-  completed work before the event, suspended/stranded work-in-process, contained copper floor, and
-  crushed ore particle-size
+  The scheduled delivery can occur during production. If its inventory-owned load merely strains the
+  active support, the committed job can finish and the player may then relocate; if the support fails,
+  the production job suspends with exact remaining active time and conserved work-in-process. Recovery
+  can relocate the occupied machine and resume that work, or leave it visibly stranded when no
+  surviving bay can carry the crusher. Failed structural damage remains persistent either way. Output
+  exposes delivery mass/target/timing, player priority, remaining work reserve, condition band, support
+  state, completed work before delivery, suspended/stranded work-in-process, contained copper floor,
+  and crushed ore particle-size
   classes rather than reducing experience coverage to booleans. Ore grade therefore has an honest
   conserved-value effect even though it cannot yet change a downstream processing choice. The harness
   identifies the missing concentration/smelting bridge. A separate ore-preparation capability probe
@@ -474,8 +476,8 @@
   equipment, initial energy, and structural bays remain explicit setup fixtures until their physical
   acquisition/construction authorizers exist; experienced post-setup mutations use canonical runtime
   transactions. Gameplay-harness support is split by responsibility across bootstrap, configuration,
-  coverage, probe setup, and deterministic seed-mixing modules instead of accumulating all support in
-  the main scenario controller. Isolated unit-test registry builders share one test-only domain
+  execution contracts, probe setup, and deterministic seed-mixing modules instead of accumulating all
+  support in the main scenario controller. Isolated unit-test registry builders share one test-only domain
   assembler and no longer inherit unrelated canonical gameplay content as that content expands.
 - Runtime state owners keep records, synchronized indexes, and owner mutation primitives in their
   state modules while descendant validation modules own exhaustive persistence audits without widening
