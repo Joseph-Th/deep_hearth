@@ -476,9 +476,12 @@
   equipment, initial energy, and structural bays remain explicit setup fixtures until their physical
   acquisition/construction authorizers exist; experienced post-setup mutations use canonical runtime
   transactions. Gameplay-harness support is split by responsibility across bootstrap, configuration,
-  execution contracts, probe setup, and deterministic seed-mixing modules instead of accumulating all
-  support in the main scenario controller. Isolated unit-test registry builders share one test-only domain
-  assembler and no longer inherit unrelated canonical gameplay content as that content expands.
+  execution contracts, probe setup, reporting, and deterministic seed-mixing modules instead of
+  accumulating all support in the main scenario controller. Seed/configuration behavior is covered by
+  focused named tests rather than one aggregated boolean contract test, and custom replay lists are
+  reported distinctly from generated organic scenarios. Isolated unit-test registry builders share one
+  test-only domain assembler and no longer inherit unrelated canonical gameplay content as that content
+  expands.
 - Runtime state owners keep records, synchronized indexes, and owner mutation primitives in their
   state modules while descendant validation modules own exhaustive persistence audits without widening
   private mutation access. Production execution is organized behind one canonical facade with separate
@@ -489,14 +492,19 @@
   then delegates admission, split-ID planning, structural-load planning, and commit to the same exact
   relocation pipeline used by physical resolvers, removing the former parallel transfer mutation path.
 - `TESTING.md` and `.cargo/config.toml` expose maintained fast, soak, gameplay, shader, full, release,
-  lint, check, and documentation lanes. Long-horizon soaks are explicit ignored
-  unit tests, so fast and soak execution reuse one default-feature unit-test artifact instead of
-  triggering separate feature builds. The large gameplay exercise is integration-test source rather
-  than library code, and the Naga parser dependency remains behind its dedicated test feature. GitHub
-  CI runs format/lint, combined core/soak tests, gameplay, and shader validation in parallel with a
-  shared dependency cache, source-aware per-lane target caches, and superseded-run cancellation instead
-  of one serial release-sized gate. Test binaries and one-shot validation binaries omit debug symbols
-  to reduce codegen/link time without changing ordinary dev-profile debugging behavior.
+  lint, check, and documentation lanes. Long-horizon soaks are explicit ignored unit tests, so fast and
+  soak execution reuse one default-feature unit-test artifact instead of triggering separate feature
+  builds. The ordinary Clippy lane checks production library code only; `test-fast` then compiles and
+  executes the full default-feature unit-test target, avoiding an all-target Clippy build immediately
+  before the same large test target is compiled for execution. The all-target/all-feature Clippy lane
+  remains explicit hardening. The large gameplay exercise is integration-test source rather than
+  library code, and the Naga parser dependency remains behind its dedicated test feature. GitHub CI runs
+  format/lint, combined core/soak tests, gameplay, and shader validation in parallel with a shared
+  dependency cache, source-aware per-lane target caches, and superseded-run cancellation instead of one
+  serial release-sized gate. Pull requests use a unit-tested fail-safe changed-path classifier to skip
+  documentation-only and known-unrelated specialized builds before installing Rust or restoring build
+  caches; pushes to `main` still run every lane. Test binaries and one-shot validation binaries omit
+  debug symbols to reduce codegen/link time without changing ordinary dev-profile debugging behavior.
 - Current default validation keeps `cargo check` silent and Clippy warnings denied.
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
   as variants evolve instead of relying on review to catch silent fallback behavior.

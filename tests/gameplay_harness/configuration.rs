@@ -14,11 +14,71 @@ pub(super) enum GameplayHarnessConfigError {
     InvalidScenarioSeed { index: usize },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ScenarioSeedSource {
+    AnchorOrganic,
+    Custom,
+}
+
+impl ScenarioSeedSource {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::AnchorOrganic => "anchor+organic",
+            Self::Custom => "custom",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ScenarioSeedPlan {
-    pub(super) seeds: Vec<u64>,
-    pub(super) anchor_seed_count: usize,
-    pub(super) variation_seed: Option<u64>,
+    source: ScenarioSeedSource,
+    seeds: Vec<u64>,
+    anchor_seed_count: usize,
+    variation_seed: Option<u64>,
+}
+
+impl ScenarioSeedPlan {
+    pub(super) const fn source_label(&self) -> &'static str {
+        self.source.label()
+    }
+
+    pub(super) fn seeds(&self) -> &[u64] {
+        &self.seeds
+    }
+
+    pub(super) const fn anchor_seed_count(&self) -> usize {
+        self.anchor_seed_count
+    }
+
+    pub(super) fn organic_seed_count(&self) -> usize {
+        match self.source {
+            ScenarioSeedSource::AnchorOrganic => {
+                self.seeds.len().saturating_sub(self.anchor_seed_count)
+            }
+            ScenarioSeedSource::Custom => 0,
+        }
+    }
+
+    pub(super) fn custom_seed_count(&self) -> usize {
+        match self.source {
+            ScenarioSeedSource::AnchorOrganic => 0,
+            ScenarioSeedSource::Custom => self.seeds.len(),
+        }
+    }
+
+    pub(super) fn variation_label(&self) -> String {
+        self.variation_seed
+            .map(|seed| format!("0x{seed:016X}"))
+            .unwrap_or_else(|| "n/a".to_owned())
+    }
+
+    pub(super) fn replay_label(&self) -> String {
+        self.seeds
+            .iter()
+            .map(|seed| format!("0x{seed:016X}"))
+            .collect::<Vec<_>>()
+            .join(",")
+    }
 }
 
 fn parse_seed(raw: &str) -> Option<u64> {
@@ -75,6 +135,7 @@ pub(super) fn scenario_seeds_from(
             seeds.push(seed);
         }
         return Ok(ScenarioSeedPlan {
+            source: ScenarioSeedSource::Custom,
             seeds,
             anchor_seed_count: 0,
             variation_seed: None,
@@ -85,83 +146,74 @@ pub(super) fn scenario_seeds_from(
     let variation_seed = resolve_variation_seed(variation_raw)?;
     append_organic_seeds(&mut seeds, variation_seed);
     Ok(ScenarioSeedPlan {
+        source: ScenarioSeedSource::AnchorOrganic,
         seeds,
         anchor_seed_count: ANCHOR_SEEDS.len(),
         variation_seed: Some(variation_seed),
     })
 }
 
-pub(super) fn configuration_contract_gaps() -> Vec<&'static str> {
-    let checks = [
-        ("decimal seed parsing", parse_seed("  42  ") == Some(42)),
-        ("hex seed parsing", parse_seed("0x2A") == Some(42)),
-        (
-            "maximum decimal seed parsing",
-            parse_seed("18446744073709551615") == Some(u64::MAX),
-        ),
-        (
-            "maximum hexadecimal seed parsing",
-            parse_seed("0xFFFFFFFFFFFFFFFF") == Some(u64::MAX),
-        ),
-        ("empty seed rejection", parse_seed("").is_none()),
-        (
-            "malformed seed rejection",
-            parse_seed("not-a-seed").is_none(),
-        ),
-        (
-            "variation seed override",
-            resolve_variation_seed(Some("0xBAD")) == Ok(0xBAD),
-        ),
-        (
-            "invalid variation seed rejection",
-            resolve_variation_seed(Some("nope"))
-                == Err(GameplayHarnessConfigError::InvalidVariationSeed),
-        ),
-        (
-            "invalid custom seed entry rejection",
-            scenario_seeds_from(Some("1,nope,4"), None)
-                == Err(GameplayHarnessConfigError::InvalidScenarioSeed { index: 1 }),
-        ),
-        (
-            "empty custom seed list rejection",
-            scenario_seeds_from(Some(""), None)
-                == Err(GameplayHarnessConfigError::EmptyScenarioSeedList),
-        ),
-    ];
-    let mut gaps = checks
-        .into_iter()
-        .filter_map(|(name, passed)| (!passed).then_some(name))
-        .collect::<Vec<_>>();
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    match scenario_seeds_from(Some("1, 0x2A,3"), Some("ignored")) {
-        Ok(plan)
-            if plan.seeds == [1, 42, 3]
-                && plan.anchor_seed_count == 0
-                && plan.variation_seed.is_none() => {}
-        Ok(_) | Err(_) => gaps.push("custom seed lists remain exact diagnostic inputs"),
-    }
-    match scenario_seeds_from(None, Some("0xBAD")) {
-        Ok(plan)
-            if plan.anchor_seed_count == ANCHOR_SEEDS.len()
-                && plan.seeds[..plan.anchor_seed_count] == ANCHOR_SEEDS
-                && plan.seeds.len() == ANCHOR_SEEDS.len() + ORGANIC_SCENARIO_COUNT
-                && plan.variation_seed == Some(0xBAD)
-                && plan.seeds[plan.anchor_seed_count..]
-                    .iter()
-                    .all(|seed| !ANCHOR_SEEDS.contains(seed)) => {}
-        Ok(_) | Err(_) => {
-            gaps.push("organic scenarios are replayable and distinct from maintained anchors")
-        }
-    }
-    match (
-        scenario_seeds_from(None, Some("0xBAD")),
-        scenario_seeds_from(None, Some("0xBAD")),
-    ) {
-        (Ok(first), Ok(second)) if first == second => {}
-        (Ok(_), Ok(_)) | (Ok(_), Err(_)) | (Err(_), Ok(_)) | (Err(_), Err(_)) => {
-            gaps.push("variation root reproduces the same organic scenario set")
-        }
+    #[test]
+    fn seed_parser_accepts_decimal_hex_and_u64_boundaries() {
+        assert_eq!(parse_seed("  42  "), Some(42));
+        assert_eq!(parse_seed("0x2A"), Some(42));
+        assert_eq!(parse_seed("18446744073709551615"), Some(u64::MAX));
+        assert_eq!(parse_seed("0xFFFFFFFFFFFFFFFF"), Some(u64::MAX));
     }
 
-    gaps
+    #[test]
+    fn seed_configuration_rejects_invalid_inputs_with_exact_error_location() {
+        assert_eq!(parse_seed(""), None);
+        assert_eq!(parse_seed("not-a-seed"), None);
+        assert_eq!(
+            resolve_variation_seed(Some("nope")),
+            Err(GameplayHarnessConfigError::InvalidVariationSeed)
+        );
+        assert_eq!(
+            scenario_seeds_from(Some("1,nope,4"), None),
+            Err(GameplayHarnessConfigError::InvalidScenarioSeed { index: 1 })
+        );
+        assert_eq!(
+            scenario_seeds_from(Some(""), None),
+            Err(GameplayHarnessConfigError::EmptyScenarioSeedList)
+        );
+    }
+
+    #[test]
+    fn custom_seed_list_is_exact_and_ignores_variation_seed() {
+        let plan = scenario_seeds_from(Some("1, 0x2A,3"), Some("ignored"))
+            .unwrap_or_else(|error| panic!("custom seed plan failed: {error:?}"));
+
+        assert_eq!(plan.seeds(), [1, 42, 3]);
+        assert_eq!(plan.source, ScenarioSeedSource::Custom);
+        assert_eq!(plan.anchor_seed_count(), 0);
+        assert_eq!(plan.organic_seed_count(), 0);
+        assert_eq!(plan.custom_seed_count(), 3);
+        assert_eq!(plan.variation_seed, None);
+    }
+
+    #[test]
+    fn variation_root_replays_distinct_organic_scenarios_after_anchors() {
+        let first = scenario_seeds_from(None, Some("0xBAD"))
+            .unwrap_or_else(|error| panic!("first organic seed plan failed: {error:?}"));
+        let second = scenario_seeds_from(None, Some("0xBAD"))
+            .unwrap_or_else(|error| panic!("second organic seed plan failed: {error:?}"));
+
+        assert_eq!(first, second);
+        assert_eq!(first.source, ScenarioSeedSource::AnchorOrganic);
+        assert_eq!(first.anchor_seed_count(), ANCHOR_SEEDS.len());
+        assert_eq!(&first.seeds()[..ANCHOR_SEEDS.len()], ANCHOR_SEEDS);
+        assert_eq!(first.organic_seed_count(), ORGANIC_SCENARIO_COUNT);
+        assert_eq!(first.custom_seed_count(), 0);
+        assert!(
+            first.seeds()[ANCHOR_SEEDS.len()..]
+                .iter()
+                .all(|seed| !ANCHOR_SEEDS.contains(seed))
+        );
+        assert_eq!(first.variation_seed, Some(0xBAD));
+    }
 }

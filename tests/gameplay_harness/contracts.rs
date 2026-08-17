@@ -5,7 +5,7 @@
 //! so a cold agent can understand the current game while hard failures stay focused on broken
 //! execution contracts and canonical invariants.
 
-use super::{PowerPreference, ScenarioReport};
+use super::report::{PowerPreference, ScenarioReport};
 
 pub(super) fn anchor_diversity_gaps(reports: &[ScenarioReport]) -> Vec<&'static str> {
     let requirements = [

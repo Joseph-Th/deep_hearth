@@ -2,7 +2,10 @@
 # Daily feedback stays on the default feature set so expensive harness/parser-only dependencies do
 # not enter ordinary edit-loop builds. Specialized lanes opt into those features explicitly.
 test-check = "check --locked --all-targets"
-test-lint = "clippy --locked --all-targets -- -D warnings"
+# The ordinary lint gate checks production code only. `test-fast` compiles and executes the complete
+# default-feature unit-test target immediately afterward, while `test-lint-all` remains the explicit
+# all-target/all-feature Clippy audit for cross-cutting and release hardening.
+test-lint = "clippy --locked --lib -- -D warnings"
 test-lint-all = "clippy --locked --all-targets --all-features -- -D warnings"
 test-fast = "test --quiet --locked --lib"
 test-soak = "test --quiet --locked --lib -- --ignored"

@@ -181,7 +181,7 @@ Fixture helpers that touch a shared production registry and would panic on dupli
 
 ## Before Committing
 
-- [ ] `cargo fmt --check`, `cargo test-check`, `cargo test-lint`, and `cargo test-fast` pass; run the specialized lane owned by the changed contract.
+- [ ] `cargo fmt --check`, `cargo test-lint`, and `cargo test-fast` pass; run the specialized lane owned by the changed contract. `cargo test-check` is a compile-only diagnostic, not an additional routine gate.
 - [ ] Every consequential mutation resolves before the function returns; no mutation bypasses the canonical system path.
 - [ ] All randomness comes from state-owned RNG; result-affecting iteration is deterministic.
 - [ ] Runtime state is not stored in static definitions; new generated state is serializable.

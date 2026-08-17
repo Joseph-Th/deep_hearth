@@ -23,10 +23,39 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.97.0
         with:
-          components: rustfmt, clippy
+          fetch-depth: 2
+      - name: Validate CI scope rules
+        run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
+      - name: Detect Rust formatting/lint scope
+        id: scope
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" ]] || ! git rev-parse HEAD^ >/dev/null 2>&1; then
+            format=true
+            lint=true
+          else
+            changed="$(git diff --name-only HEAD^)"
+            format="$(printf '%s\n' "$changed" | python3 -B .github/scripts/ci_scope.py quality)"
+            lint="$(printf '%s\n' "$changed" | python3 -B .github/scripts/ci_scope.py lint)"
+          fi
+          echo "format=$format" >> "$GITHUB_OUTPUT"
+          echo "lint=$lint" >> "$GITHUB_OUTPUT"
+          if [[ "$format" == "false" ]]; then
+            echo "Skipping Rust quality build: pull request changes no Rust source, tests, or Cargo configuration."
+          elif [[ "$lint" == "false" ]]; then
+            echo "Running rustfmt only: pull request changes tests but no production library source."
+          fi
+      - name: Install Rust formatting toolchain
+        if: steps.scope.outputs.format == 'true'
+        uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt
+      - name: Install Clippy
+        if: steps.scope.outputs.lint == 'true'
+        run: rustup component add clippy
       - name: Cache Cargo dependencies
+        if: steps.scope.outputs.lint == 'true'
         uses: actions/cache@v5
         with:
           path: |
@@ -37,16 +66,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-deps-rust-1.97.0-
       - name: Cache quality build
+        if: steps.scope.outputs.lint == 'true'
         uses: actions/cache@v5
         with:
           path: |
             target
-          key: ${{ runner.os }}-rust-1.97.0-quality-target-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'assets/**/*.wgsl') }}
+          key: ${{ runner.os }}-rust-1.97.0-quality-target-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs') }}
           restore-keys: |
             ${{ runner.os }}-rust-1.97.0-quality-target-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
       - name: Format
+        if: steps.scope.outputs.format == 'true'
         run: cargo fmt --check
       - name: Lint
+        if: steps.scope.outputs.lint == 'true'
         run: cargo test-lint
 
   core:
@@ -55,8 +87,25 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          fetch-depth: 2
+      - name: Detect core-test scope
+        id: scope
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" ]] || ! git rev-parse HEAD^ >/dev/null 2>&1; then
+            run=true
+          else
+            run="$(git diff --name-only HEAD^ | python3 -B .github/scripts/ci_scope.py core)"
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          if [[ "$run" == "false" ]]; then
+            echo "Skipping core build: pull request changes no library source, embedded shaders, or Cargo configuration."
+          fi
+      - if: steps.scope.outputs.run == 'true'
+        uses: dtolnay/rust-toolchain@1.97.0
       - name: Cache Cargo dependencies
+        if: steps.scope.outputs.run == 'true'
         uses: actions/cache@v5
         with:
           path: |
@@ -67,6 +116,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-deps-rust-1.97.0-
       - name: Cache core build
+        if: steps.scope.outputs.run == 'true'
         uses: actions/cache@v5
         with:
           path: |
@@ -75,6 +125,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-rust-1.97.0-core-target-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
       - name: Core + soak tests
+        if: steps.scope.outputs.run == 'true'
         run: cargo test-ci-core
 
   gameplay:
@@ -83,8 +134,25 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          fetch-depth: 2
+      - name: Detect gameplay-harness scope
+        id: scope
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" ]] || ! git rev-parse HEAD^ >/dev/null 2>&1; then
+            run=true
+          else
+            run="$(git diff --name-only HEAD^ | python3 -B .github/scripts/ci_scope.py gameplay)"
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          if [[ "$run" == "false" ]]; then
+            echo "Skipping gameplay build: pull request changes only known-unrelated domains."
+          fi
+      - if: steps.scope.outputs.run == 'true'
+        uses: dtolnay/rust-toolchain@1.97.0
       - name: Cache Cargo dependencies
+        if: steps.scope.outputs.run == 'true'
         uses: actions/cache@v5
         with:
           path: |
@@ -95,6 +163,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-deps-rust-1.97.0-
       - name: Cache gameplay build
+        if: steps.scope.outputs.run == 'true'
         uses: actions/cache@v5
         with:
           path: |
@@ -103,6 +172,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-rust-1.97.0-gameplay-target-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
       - name: Gameplay tests
+        if: steps.scope.outputs.run == 'true'
         run: cargo test-gameplay
 
   shaders:
@@ -111,8 +181,25 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          fetch-depth: 2
+      - name: Detect shader-validation scope
+        id: scope
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" ]] || ! git rev-parse HEAD^ >/dev/null 2>&1; then
+            run=true
+          else
+            run="$(git diff --name-only HEAD^ | python3 -B .github/scripts/ci_scope.py shaders)"
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          if [[ "$run" == "false" ]]; then
+            echo "Skipping shader build: pull request changes only known-unrelated domains."
+          fi
+      - if: steps.scope.outputs.run == 'true'
+        uses: dtolnay/rust-toolchain@1.97.0
       - name: Cache Cargo dependencies
+        if: steps.scope.outputs.run == 'true'
         uses: actions/cache@v5
         with:
           path: |
@@ -123,6 +210,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-deps-rust-1.97.0-
       - name: Cache shader build
+        if: steps.scope.outputs.run == 'true'
         uses: actions/cache@v5
         with:
           path: |
@@ -131,4 +219,5 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-rust-1.97.0-shaders-target-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
       - name: Shader validation
+        if: steps.scope.outputs.run == 'true'
         run: cargo test-shaders

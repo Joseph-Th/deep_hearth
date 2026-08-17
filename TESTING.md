@@ -40,7 +40,7 @@ simulation contract.
 | `cargo test-gameplay-report` | One workshop matrix with concise human-readable summary | Same dedicated integration target with captured output disabled |
 | `cargo test-shaders` | Naga parse/semantic validation of assembled WGSL without compiling the crate unit-test harness | Adds `test-shader-validation` |
 | `cargo test-check` | Silent all-target compilation of the default feature set | Default features |
-| `cargo test-lint` | Clippy with warnings denied | Default features |
+| `cargo test-lint` | Production-library Clippy with warnings denied | Default-feature library only; avoids lint-compiling the large unit-test target before `test-fast` compiles it normally |
 | `cargo test-lint-all` | Cross-cutting/release Clippy audit | All test features |
 | `cargo test-all` | Complete debug test inventory including dedicated integration targets | All test features |
 | `cargo test-release` | Complete optimized test inventory | All test features |
@@ -50,6 +50,12 @@ The `test-gameplay` and `test-shader-validation` features exist only to expose s
 boundaries. They do not change default runtime behavior. Naga remains absent from the default
 dependency graph and ordinary core test build. Soaks intentionally use no feature because feature
 splitting forced a second full unit-test codegen/link step after ordinary tests.
+
+`cargo test-lint` deliberately does not lint-compile test targets in the ordinary loop. `cargo
+test-fast` immediately compiles and executes the complete default-feature unit-test target, so running
+all-target Clippy first pays substantial duplicate compilation cost without adding type-check coverage.
+Use `cargo test-lint-all` when test/harness lint coverage is material to the change or for release
+hardening.
 
 `cargo test-ci-core` is an internal CI composition rather than an edit-loop command. It compiles the
 crate unit-test binary once and runs ordinary plus ignored soak tests from that single artifact. Local
@@ -105,8 +111,11 @@ The gameplay exercise source lives under `tests/gameplay_harness/` and is an int
 rather than library code or a crate unit test. This keeps its large policy/scenario implementation out
 of both library codegen and the monolithic unit-test binary. A harness-only edit therefore rebuilds the
 dedicated test target against the cached library instead of invalidating the feature-enabled core
-crate. Configuration contracts live in that same target so the gameplay lane has one specialized
-artifact rather than multiplying Cargo targets for small checks.
+crate. Configuration, execution contracts, probe setup, reporting, and seed mixing are separate modules
+inside that one target so common edits invalidate less source while the lane still builds one specialized
+artifact. Seed/configuration contracts are ordinary named tests with direct typed assertions instead of
+one aggregated boolean-gap test, so failures point at the exact contract without adding another Cargo
+target.
 
 The maintained workshop loop covers delivery-informed structural siting, finite power choice,
 active-tick wear, exact replacement-stock maintenance, inventory-owned stored-matter loading,
@@ -151,14 +160,21 @@ anchors preserve reproducible comparison and all three operating priorities; the
 each run slightly different physical conditions without enlarging the lane enough to hurt iteration.
 `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` reproduces any organic set exactly. Hard failures remain canonical
 execution/invariant failures and capability-probe conservation failures, not required balance outcomes.
-The input line prints the variation root and all exact scenario seeds so every failure is replayable.
-Explicit custom seed lists run the same per-scenario contracts without claiming aggregate outcome
+The input line prints the plan source, anchor/organic/custom counts, variation root when applicable,
+and all exact scenario seeds so every failure is replayable. Explicit custom seed lists are labeled as
+custom rather than organic, run the same per-scenario contracts, and do not claim aggregate outcome
 coverage.
 
 ## CI and completion gates
 
 Pull requests and pushes to `main` run independent jobs so unrelated compilation does not serially
-extend the feedback path, while lanes that require the same expensive unit-test artifact are combined:
+extend the feedback path, while lanes that require the same expensive unit-test artifact are combined.
+On pull requests each job first performs a cheap changed-path scope check. Documentation-only changes
+do not install a Rust toolchain or restore build caches. Harness-only changes run rustfmt but skip
+production-library Clippy, and specialized gameplay/shader jobs skip known-unrelated subsystem changes.
+The classifier is a standard-library Python script with its own millisecond unit tests; unknown/new
+paths default to running specialized validation, so the optimization fails safe rather than silently
+excluding new dependencies. Pushes to `main` run all lanes as the post-merge backstop.
 
 1. **Quality**: format and default-feature Clippy.
 2. **Core + Soak**: ordinary and ignored long-horizon tests from one default-feature unit-test build.
@@ -182,8 +198,9 @@ cargo test-lint
 cargo test-fast
 ```
 
-`cargo test-check` remains available as a compile-only diagnostic, but it is not part of the normal
-pre-commit sequence because `cargo test-lint` already type-checks all default targets.
+`cargo test-check` remains available as an all-target compile-only diagnostic, but it is not part of
+the normal pre-commit sequence. Production code is type-checked by `cargo test-lint`; default-feature
+unit-test code is compiled and executed by `cargo test-fast`.
 
 Also run `cargo test-soak`, `cargo test-gameplay`, or `cargo test-shaders` when the changed contract is
 owned by that lane. Use `cargo test-all` when a cross-cutting change needs the complete debug inventory.

@@ -18,15 +18,17 @@ use std::env;
 mod configuration;
 mod contracts;
 mod probe_setup;
+mod report;
 mod seed;
 
-use configuration::{ScenarioSeedPlan, configuration_contract_gaps, scenario_seeds_from};
+use configuration::scenario_seeds_from;
 use contracts::{anchor_diversity_gaps, scenario_contract_gaps};
 use deep_hearth::content::gameplay_fixture::{
     materialize_structure, seed_composed_lot, seed_energy_store as bootstrap_seed_energy_store,
     seed_lot,
 };
 use probe_setup::{setup_foundry_probe, setup_ore_preparation_probe};
+use report::{PowerPreference, ScenarioPolicyVariation, ScenarioReport, print_harness_summary};
 use seed::mix64;
 
 const HARNESS_MODE: &str = "exercise";
@@ -140,28 +142,6 @@ struct ScenarioDeliveryVariation {
     delivery_at_tick: u64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PowerPreference {
-    PreserveReserve,
-    ProtectCondition,
-    FinishSooner,
-}
-
-impl PowerPreference {
-    const fn label(self) -> &'static str {
-        match self {
-            Self::PreserveReserve => "preserve-reserve",
-            Self::ProtectCondition => "protect-condition",
-            Self::FinishSooner => "finish-sooner",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct ScenarioPolicyVariation {
-    power_preference: PowerPreference,
-}
-
 impl ScenarioVariation {
     fn from_seed(registries: &Registries, seed: u64) -> Self {
         let a = mix64(seed);
@@ -268,102 +248,6 @@ struct WorkshopIds {
     delivery_support: StructuralElementId,
     compact_support: StructuralElementId,
     reinforced_support: StructuralElementId,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct ScenarioReport {
-    seed: u64,
-    policy: ScenarioPolicyVariation,
-    inputs: ScenarioInputReport,
-    structure: ScenarioStructureReport,
-    choices: ScenarioChoiceReport,
-    maintenance: ScenarioMaintenanceReport,
-    limits: ScenarioLimitReport,
-    progress: ScenarioProgressReport,
-}
-
-impl ScenarioReport {
-    fn new(variation: ScenarioVariation) -> Self {
-        Self {
-            seed: variation.seed,
-            policy: variation.policy,
-            inputs: ScenarioInputReport {
-                ore_copper_ppm: variation.ore.ore_copper_ppm,
-                batch_mass: variation.ore.batch_mass,
-                delivery_mass: variation.delivery.mass,
-                delivery_is_compact: variation.delivery.destination_is_compact,
-            },
-            structure: ScenarioStructureReport::default(),
-            choices: ScenarioChoiceReport::default(),
-            maintenance: ScenarioMaintenanceReport {
-                services: 0,
-                replacement_spent: Mass::ZERO,
-                supply_exhausted: false,
-            },
-            limits: ScenarioLimitReport::default(),
-            progress: ScenarioProgressReport {
-                delivery_applied: false,
-                batches_before_delivery: 0,
-                ore_frontier_visible: false,
-                completed_batches: 0,
-                target_batches: variation.ore.planned_batches,
-            },
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct ScenarioInputReport {
-    ore_copper_ppm: u32,
-    batch_mass: Mass,
-    delivery_mass: Mass,
-    delivery_is_compact: bool,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct ScenarioMaintenanceReport {
-    services: u8,
-    replacement_spent: Mass,
-    supply_exhausted: bool,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-struct ScenarioStructureReport {
-    structural_consequence: bool,
-    structural_damage_debt: bool,
-    support_failure_blocked_production: bool,
-    support_relocation: bool,
-    structural_stop: bool,
-    production_suspension: bool,
-    stranded_work_in_process: bool,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-struct ScenarioChoiceReport {
-    chose_compact_support: bool,
-    delivery_plan_changed_siting: bool,
-    used_small_drive: bool,
-    used_large_drive: bool,
-    large_drive_exhausted: bool,
-    delivery_deadline_power_choice: bool,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-struct ScenarioLimitReport {
-    energy_bottleneck: bool,
-    throughput_bottleneck: bool,
-    maintenance_warning: bool,
-    maintenance_stop: bool,
-    energy_stop: bool,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-struct ScenarioProgressReport {
-    delivery_applied: bool,
-    batches_before_delivery: u8,
-    ore_frontier_visible: bool,
-    completed_batches: u8,
-    target_batches: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2769,27 +2653,19 @@ fn run_gameplay_harness() {
     assert_canonical_gameplay_content(&registries);
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
-    let ScenarioSeedPlan {
-        seeds,
-        anchor_seed_count,
-        variation_seed,
-    } = scenario_seeds_from(scenario_raw.as_deref(), variation_raw.as_deref())
+    let plan = scenario_seeds_from(scenario_raw.as_deref(), variation_raw.as_deref())
         .unwrap_or_else(|error| panic!("gameplay harness configuration failed: {error:?}"));
-    let replay_seeds = seeds
-        .iter()
-        .map(|seed| format!("0x{seed:016X}"))
-        .collect::<Vec<_>>()
-        .join(",");
-    let variation_label = variation_seed
-        .map(|seed| format!("0x{seed:016X}"))
-        .unwrap_or_else(|| "custom-seed-list".to_owned());
     std::println!(
-        "HARNESS INPUT anchors={} organic={} variation_seed={} replay={replay_seeds}",
-        anchor_seed_count,
-        seeds.len().saturating_sub(anchor_seed_count),
-        variation_label,
+        "HARNESS INPUT plan={} anchors={} organic={} custom={} variation_seed={} replay={}",
+        plan.source_label(),
+        plan.anchor_seed_count(),
+        plan.organic_seed_count(),
+        plan.custom_seed_count(),
+        plan.variation_label(),
+        plan.replay_label(),
     );
-    let probe_seed = seeds
+    let probe_seed = plan
+        .seeds()
         .iter()
         .copied()
         .fold(0xD33F_C01D_5EED_u64, |combined, seed| {
@@ -2797,7 +2673,7 @@ fn run_gameplay_harness() {
         });
     println!(
         "\n=== DEEP HEARTH WORKSHOP GAMEPLAY HARNESS: {} scenario(s), registry schema {} ===",
-        seeds.len(),
+        plan.seeds().len(),
         registries.schema_version().value(),
     );
     println!(
@@ -2810,38 +2686,13 @@ fn run_gameplay_harness() {
         "LOOP SCOPE: the scenario matrix chooses when to attempt a canonical supported-stockpile transfer; it does not claim a logistics scheduler exists. It also experiences varied player priorities, comminution, finite stored work, power-versus-time tradeoffs, wear, finite replacement-stock maintenance, inventory-owned structural load changes, production suspension, and recovery. Resource acquisition, energy generation, and construction authorization remain outside this workshop setup. Separate ore-preparation and foundry probes validate existing downstream capabilities without pretending the mixed-ore chain is complete."
     );
 
-    let reports: Vec<_> = seeds
-        .into_iter()
+    let reports: Vec<_> = plan
+        .seeds()
+        .iter()
+        .copied()
         .map(|seed| ScenarioVariation::from_seed(&registries, seed))
         .map(|variation| run_scenario(&registries, variation))
         .collect();
-
-    let completed_batches: u32 = reports
-        .iter()
-        .map(|report| u32::from(report.progress.completed_batches))
-        .sum();
-    let target_batches: u32 = reports
-        .iter()
-        .map(|report| u32::from(report.progress.target_batches))
-        .sum();
-    let batches_before_delivery: u32 = reports
-        .iter()
-        .map(|report| u32::from(report.progress.batches_before_delivery))
-        .sum();
-    let completed_orders = reports
-        .iter()
-        .filter(|report| report.progress.completed_batches == report.progress.target_batches)
-        .count();
-    let recovered_work_in_process = reports
-        .iter()
-        .filter(|report| {
-            report.structure.production_suspension && !report.structure.stranded_work_in_process
-        })
-        .count();
-    let maintenance_services: u32 = reports
-        .iter()
-        .map(|report| u32::from(report.maintenance.services))
-        .sum();
     let ore_preparation_gaps = run_ore_preparation_capability_probe(&registries, probe_seed);
     let foundry_gaps = run_foundry_capability_probe(&registries, probe_seed);
 
@@ -2856,9 +2707,9 @@ fn run_gameplay_harness() {
             .into_iter()
             .map(|gap| format!("foundry: {gap}")),
     );
-    if anchor_seed_count > 0 {
+    if plan.anchor_seed_count() > 0 {
         gaps.extend(
-            anchor_diversity_gaps(&reports[..anchor_seed_count])
+            anchor_diversity_gaps(&reports[..plan.anchor_seed_count()])
                 .into_iter()
                 .map(|gap| format!("anchor diversity: {gap}")),
         );
@@ -2868,124 +2719,7 @@ fn run_gameplay_harness() {
         "gameplay exercise failures:\n- {}",
         gaps.join("\n- ")
     );
-
-    let ore_grade_min = reports
-        .iter()
-        .map(|report| report.inputs.ore_copper_ppm)
-        .min()
-        .unwrap_or_else(|| panic!("gameplay harness produced no scenario reports"));
-    let ore_grade_max = reports
-        .iter()
-        .map(|report| report.inputs.ore_copper_ppm)
-        .max()
-        .unwrap_or_else(|| panic!("gameplay harness produced no scenario reports"));
-    let batch_mass_min = reports
-        .iter()
-        .map(|report| report.inputs.batch_mass.milligrams())
-        .min()
-        .unwrap_or_else(|| panic!("gameplay harness produced no scenario reports"));
-    let batch_mass_max = reports
-        .iter()
-        .map(|report| report.inputs.batch_mass.milligrams())
-        .max()
-        .unwrap_or_else(|| panic!("gameplay harness produced no scenario reports"));
-    let delivery_mass_min = reports
-        .iter()
-        .map(|report| report.inputs.delivery_mass.milligrams())
-        .min()
-        .unwrap_or_else(|| panic!("gameplay harness produced no scenario reports"));
-    let delivery_mass_max = reports
-        .iter()
-        .map(|report| report.inputs.delivery_mass.milligrams())
-        .max()
-        .unwrap_or_else(|| panic!("gameplay harness produced no scenario reports"));
-    let compact_deliveries = reports
-        .iter()
-        .filter(|report| report.inputs.delivery_is_compact)
-        .count();
-
-    std::println!(
-        "SAMPLE ore=[grade:{ore_grade_min}..{ore_grade_max}ppm batch:{batch_mass_min}..{batch_mass_max}mg] delivery=[mass:{delivery_mass_min}..{delivery_mass_max}mg compact:{compact_deliveries} reinforced:{}]",
-        reports.len() - compact_deliveries,
-    );
-
-    std::println!(
-        "HARNESS PASS mode={HARNESS_MODE} scenarios={} orders={completed_orders}/{} batches={completed_batches}/{target_batches} pre_delivery={batches_before_delivery} stops=[structural:{} maintenance:{} energy:{}] material=[ore_prep:pass foundry:pass mixed_ore_bridge:blocked]",
-        reports.len(),
-        reports.len(),
-        reports
-            .iter()
-            .filter(|report| report.structure.structural_stop)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.limits.maintenance_stop)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.limits.energy_stop)
-            .count(),
-    );
-    std::println!(
-        "SYSTEMS policy=[reserve:{} condition:{} speed:{}] control=[delivery_siting:{} delivery_deadline_power:{}] recovery=[relocations:{} resumed_wip:{recovered_work_in_process} stranded_wip:{} maintenance_services:{maintenance_services}] pressure=[structural:{} maintenance_warning:{}] bottlenecks=[energy_delivery:{} throughput:{}]",
-        reports
-            .iter()
-            .filter(|report| report.policy.power_preference == PowerPreference::PreserveReserve)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.policy.power_preference == PowerPreference::ProtectCondition)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.policy.power_preference == PowerPreference::FinishSooner)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.choices.delivery_plan_changed_siting)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.choices.delivery_deadline_power_choice)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.structure.support_relocation)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.structure.stranded_work_in_process)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.structure.structural_consequence)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.limits.maintenance_warning)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.limits.energy_bottleneck)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.limits.throughput_bottleneck)
-            .count(),
-    );
-    std::println!(
-        "SCOPE exercised=[canonical comminution,power choice,wear,maintenance,structural siting,supported-stockpile delivery,failure recovery] bootstrap=[starting matter,stored energy,equipment,constructed bays] deferred=[resource acquisition,energy generation,construction authorization,concentration/smelting bridge]"
-    );
-}
-
-#[test]
-fn gameplay_harness_configuration_contracts() {
-    let gaps = configuration_contract_gaps();
-    assert!(
-        gaps.is_empty(),
-        "gameplay harness configuration failures:\n- {}",
-        gaps.join("\n- ")
-    );
+    print_harness_summary(HARNESS_MODE, &reports);
 }
 
 #[test]
