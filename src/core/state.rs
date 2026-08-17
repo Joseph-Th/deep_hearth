@@ -1,50 +1,16 @@
 //! Root serializable runtime state; child validation audits persistence and cheap runtime invariants.
 
-use std::collections::BTreeMap;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::{AggregateMass, Energy, Force, Mass};
-use crate::energy::{EnergyState, EnergyValidationError, validate_loaded_energy};
-use crate::equipment::{
-    EquipmentDefinitionId, EquipmentId, EquipmentState, EquipmentValidationError,
-    validate_loaded_equipment,
-};
-use crate::fluid::{
-    FluidState, FluidStoreId, FluidStructuralLoadError, FluidValidationError,
-    validate_existing_fluid_load, validate_loaded_fluid,
-};
-use crate::geology::{
-    GeologicalKnowledgeState, GeologicalKnowledgeValidationError, GeologyState,
-    GeologyValidationError, validate_loaded_geological_knowledge, validate_loaded_geology,
-};
-use crate::inventory::{
-    InventoryState, InventoryValidationError, MaterialLotId, StockpileId, StockpileStorageError,
-    validate_loaded_inventory, validate_stockpile_storage,
-};
-use crate::maintenance::Condition;
-use crate::material::{
-    CommodityKey, MaterialId, ParticleSizeStateError, validate_material_particle_size_state,
-};
-use crate::ore_processing::{
-    ComminutionJobValidationError, ScreeningJobValidationError, validate_loaded_comminution_job,
-    validate_loaded_screening_job,
-};
-use crate::production::{
-    ProcessId, ProductionJobId, ProductionState, ProductionValidationError, sum_lot_spec_mass,
-    validate_loaded_production,
-};
-use crate::registry::Registries;
-use crate::structural::{
-    StructuralAnalysisError, StructuralDamageEvent, StructuralElementId, StructuralLifecycle,
-    StructuralLoadKind, StructureState, StructureValidationError, analyze_structure,
-    calculate_aggregate_weight_force_ceiling, validate_loaded_structure,
-};
-use crate::thermal::{ThermalJobValidationError, validate_loaded_thermal_job};
+use crate::energy::EnergyState;
+use crate::equipment::EquipmentState;
+use crate::fluid::FluidState;
+use crate::geology::{GeologicalKnowledgeState, GeologyState};
+use crate::inventory::InventoryState;
+use crate::production::ProductionState;
+use crate::structural::StructureState;
 
-use super::rng::{RandomState, RandomStateValidationError, RngStreamId};
+use super::rng::{RandomState, RngStreamId};
 use super::time::{SimulationTick, WorldSeed};
 
 /// Mutable runtime state that must survive execution and restart boundaries.
@@ -220,6 +186,7 @@ pub(crate) fn make_test_state_at_tick(world_seed: WorldSeed, tick: SimulationTic
 mod tests {
     use super::*;
     use crate::content::build_registries;
+    use crate::registry::Registries;
 
     use crate::content::{
         FORM_LOG, FORM_LUMP, MATERIAL_CHARCOAL, MATERIAL_WOOD,

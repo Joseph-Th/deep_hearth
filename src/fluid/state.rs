@@ -252,40 +252,6 @@ impl FluidState {
                 .next_back()
                 .is_none_or(|largest| largest.value() < self.next_store_id)
     }
-
-    pub(crate) fn has_valid_records(&self) -> bool {
-        self.records.values().all(|record| {
-            !record.capacity.is_zero()
-                && record.contents.is_none_or(|contents| {
-                    !contents.volume.is_zero() && contents.volume <= record.capacity
-                })
-        })
-    }
-
-    pub(crate) fn has_valid_support_index(&self) -> bool {
-        let records_match_index = self
-            .records
-            .values()
-            .all(|record| match record.supported_by {
-                Some(support) => self
-                    .stores_by_support
-                    .get(&support)
-                    .is_some_and(|stores| stores.contains(&record.id)),
-                None => true,
-            });
-        let index_matches_records = self.stores_by_support.iter().all(|(support, stores)| {
-            support.value() != 0
-                && !stores.is_empty()
-                && stores.iter().all(|id| {
-                    id.value() != 0
-                        && self
-                            .records
-                            .get(id)
-                            .is_some_and(|record| record.supported_by == Some(*support))
-                })
-        });
-        records_match_index && index_matches_records
-    }
 }
 
 mod validation;

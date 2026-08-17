@@ -482,12 +482,6 @@ impl StructureState {
                 .is_none_or(|id| id.value() < self.next_element_id)
     }
 
-    pub(crate) fn has_valid_geometry(&self) -> bool {
-        self.elements
-            .values()
-            .all(|record| record.geometry().validate().is_ok())
-    }
-
     pub(crate) fn has_path(&self, from: StructuralElementId, target: StructuralElementId) -> bool {
         let mut pending = BTreeSet::from([from]);
         let mut visited = BTreeSet::new();

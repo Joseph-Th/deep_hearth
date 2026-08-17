@@ -339,34 +339,6 @@ impl EquipmentState {
                 .next_back()
                 .is_none_or(|id| id.value() < self.next_equipment_id)
     }
-
-    pub(crate) fn has_valid_support_index(&self) -> bool {
-        let records_match_index = self
-            .records
-            .values()
-            .all(|record| match record.supported_by {
-                Some(support) => self
-                    .equipment_by_support
-                    .get(&support)
-                    .is_some_and(|equipment| equipment.contains(&record.id)),
-                None => true,
-            });
-        let index_matches_records = self
-            .equipment_by_support
-            .iter()
-            .all(|(support, equipment)| {
-                support.value() != 0
-                    && !equipment.is_empty()
-                    && equipment.iter().all(|id| {
-                        id.value() != 0
-                            && self
-                                .records
-                                .get(id)
-                                .is_some_and(|record| record.supported_by == Some(*support))
-                    })
-            });
-        records_match_index && index_matches_records
-    }
 }
 
 mod validation;

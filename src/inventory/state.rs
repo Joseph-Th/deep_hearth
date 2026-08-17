@@ -511,34 +511,6 @@ impl InventoryState {
         record.supported_by = after;
         self.revision = next_revision;
     }
-
-    pub(crate) fn has_valid_support_index(&self) -> bool {
-        let records_match_index =
-            self.stockpiles
-                .values()
-                .all(|record| match record.supported_by {
-                    Some(support) => self
-                        .stockpiles_by_support
-                        .get(&support)
-                        .is_some_and(|stockpiles| stockpiles.contains(&record.id)),
-                    None => true,
-                });
-        let index_matches_records =
-            self.stockpiles_by_support
-                .iter()
-                .all(|(support, stockpiles)| {
-                    support.value() != 0
-                        && !stockpiles.is_empty()
-                        && stockpiles.iter().all(|id| {
-                            id.value() != 0
-                                && self
-                                    .stockpiles
-                                    .get(id)
-                                    .is_some_and(|record| record.supported_by == Some(*support))
-                        })
-                });
-        records_match_index && index_matches_records
-    }
 }
 
 mod validation;

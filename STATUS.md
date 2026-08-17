@@ -305,7 +305,9 @@
   wear-audit contract even when wall-clock completion moves because of downtime. Other occupied
   resources remain exclusive and report an explicit `AwaitingResume` release horizon rather than a
   stale pre-failure due tick.
-- Canonical top-level tick pipeline with cheap per-tick invariants and exhaustive save/load audits.
+- Canonical top-level tick pipeline with non-allocating keyed/cursor per-tick invariants and
+  exhaustive save/load audits. Full-record, geometry, support-index, production scheduling, and
+  occupancy scans stay off the tick hot path and are reconstructed by authoritative validation instead.
 - Current-schema-only persistence and authored registry compatibility, with accepted version values
   owned by `CURRENT_SAVE_SCHEMA_VERSION` and the built-in content registry rather than duplicated in
   status documentation. Loading performs registry-aware state validation, structural topology/damage
@@ -325,9 +327,12 @@
   preserve work-in-process exactly; adversarial saves that reinsert a suspended job into the due
   index, forge its paused due tick, or claim more remaining work than the operation's active duration
   are rejected. Suspension timestamps later than the authoritative clock and empty production
-  due-index buckets are also rejected as noncanonical state. The cheap per-tick invariant suite
-  verifies running/suspended job scheduling and suspension time against the authoritative clock and
-  due index.
+  due-index buckets are also rejected as noncanonical state. Root cross-owner validation is split
+  into focused structural-integration, inventory-reference, and production-reference audits while
+  preserving one public load-validation boundary. The cheap per-tick invariant suite is limited to
+  state-owned RNG validity, owner identity cursors, and the earliest due production tick; full
+  scheduling, suspension, geometry, support-index, and occupancy consistency stays in exhaustive
+  validation and deterministic soak coverage.
 - Chunk-independent 64-bit voxel coordinates and validated spatial bounds without choosing chunk
   dimensions or streaming policy.
 - Renderer-neutral immutable texture registry with hue-shift-capable 16-shade palette ramps,
