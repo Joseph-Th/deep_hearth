@@ -465,9 +465,10 @@
   start-admission and in-flight completion modules; thermal process code likewise separates immutable
   resolver registration, sensible-heating resolution, and persistence replay validation.
 - `TESTING.md` and `.cargo/config.toml` expose maintained fast, soak, gameplay, shader, full, release,
-  lint, check, and documentation lanes. The default test build excludes the large gameplay harness and
-  Naga parser dependency; those compile only in explicit features. GitHub CI runs core/soak, gameplay,
-  and shader validation as independent cached jobs with superseded-run cancellation instead of one
+  lint, check, and documentation lanes. Long-horizon soak bodies, the large gameplay harness, and the
+  Naga parser dependency compile only in explicit test features, keeping the ordinary test binary
+  focused on fast feedback. GitHub CI runs format/lint, fast tests, soak tests, gameplay, and shader
+  validation as independent incrementally cached jobs with superseded-run cancellation instead of one
   serial release-sized gate.
 - Current default validation keeps `cargo check` silent and Clippy warnings denied.
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive

@@ -7,7 +7,7 @@ validation dependencies unless that coverage is relevant.
 ## Daily workflow
 
 Run the narrowest qualified test while changing one behavior, then use the fast lane before moving
-on:
+on. The fast lane does not compile long-horizon soak bodies:
 
 ```text
 cargo test <qualified-test-name> -- --exact
@@ -32,11 +32,11 @@ simulation contract.
 
 | Command | Purpose | Compile scope |
 | --- | --- | --- |
-| `cargo test-fast` | Ordinary deterministic behavior, errors, persistence, and integrations | Default features; skips named soak tests |
-| `cargo test-soak` | Long-horizon deterministic conservation/invariant scenarios | Default features |
+| `cargo test-fast` | Ordinary deterministic behavior, errors, persistence, and integrations | Default features; soak bodies are not compiled |
+| `cargo test-soak` | Long-horizon deterministic conservation/invariant scenarios | Adds `test-soak` and runs only `soak` tests |
 | `cargo test-gameplay` | Workshop exercise harness plus harness configuration contracts | Adds `test-gameplay` |
 | `cargo test-gameplay-report` | One workshop matrix with concise human-readable summary | Adds `test-gameplay` |
-| `cargo test-shaders` | Naga parse/semantic validation of assembled WGSL | Adds `test-shader-validation` |
+| `cargo test-shaders` | Naga parse/semantic validation of assembled WGSL without compiling the crate unit-test harness | Adds `test-shader-validation` |
 | `cargo test-check` | Silent all-target compilation of the default feature set | Default features |
 | `cargo test-lint` | Clippy with warnings denied | Default features |
 | `cargo test-lint-all` | Cross-cutting/release Clippy audit | All test features |
@@ -44,9 +44,9 @@ simulation contract.
 | `cargo test-release` | Complete optimized library inventory | All test features |
 | `cargo test-doc` | Documentation build without dependencies | Default features |
 
-The `test-gameplay` and `test-shader-validation` features exist only to control test compilation.
-They do not change default runtime behavior. Naga remains absent from the default dependency graph and
-ordinary core test build.
+The `test-soak`, `test-gameplay`, and `test-shader-validation` features exist only to control test
+compilation. They do not change default runtime behavior. Naga remains absent from the default
+dependency graph and ordinary core test build.
 
 ## Test organization and assertions
 
@@ -61,10 +61,10 @@ or arbitrary wall-clock duration. Aggregate `any`/`all` assertions are appropria
 contract is explicitly coverage across a maintained scenario matrix; those failures must name the
 missing behavior rather than returning an anonymous boolean failure.
 
-Long-horizon tests use `soak` in the qualified test name. They are excluded from `test-fast` and run
-as a dedicated lane. Keep one mixed-system thousands-of-ticks soak as the broad invariant proof;
-subsystem soaks should exist only where repeated ownership, conservation, persistence, or numerical
-accumulation adds evidence that a narrow test cannot provide.
+Long-horizon tests use `soak` in the qualified test name and are compiled only with the `test-soak`
+feature. Keep one mixed-system thousands-of-ticks soak as the broad invariant proof; subsystem soaks
+should exist only where repeated ownership, conservation, persistence, or numerical accumulation adds
+evidence that a narrow test cannot provide.
 
 ## Gameplay harness
 
@@ -101,25 +101,32 @@ universal per-scenario contracts and do not inherit the maintained matrix's aggr
 
 ## CI and completion gates
 
-Pull requests and pushes to `main` run three independent jobs so specialized compilation does not
-serially extend the core feedback path:
+Pull requests and pushes to `main` run independent jobs so unrelated compilation does not serially
+extend the feedback path:
 
-1. **Core**: format, default-feature Clippy, fast tests, then the soak lane using the same build.
-2. **Gameplay**: the feature-gated gameplay harness lane.
-3. **Shaders**: the feature-gated Naga WGSL validation lane.
+1. **Quality**: format and default-feature Clippy.
+2. **Core**: ordinary fast tests only.
+3. **Soak**: feature-gated long-horizon ownership/invariant tests.
+4. **Gameplay**: the feature-gated gameplay harness lane.
+5. **Shaders**: the feature-gated Naga WGSL validation lane.
 
-Jobs use locked dependencies, a pinned Rust toolchain, dependency/build caching, bounded timeouts, and
-concurrency cancellation for superseded runs. The ordinary CI gate intentionally does not rebuild the
-entire project in release mode or generate documentation on every change.
+Jobs use locked dependencies, a pinned Rust toolchain, source-aware per-lane build caches, incremental
+compilation, bounded timeouts, and concurrency cancellation for superseded runs. Cache keys retain the
+dependency/toolchain prefix while advancing with source changes, so a lane can reuse its previous
+incremental build instead of freezing the target cache at the first commit after a lockfile change.
+The ordinary CI gate intentionally does not rebuild the entire project in release mode or generate
+documentation on every change.
 
 Before committing, run:
 
 ```text
 cargo fmt --check
-cargo test-check
 cargo test-lint
 cargo test-fast
 ```
+
+`cargo test-check` remains available as a compile-only diagnostic, but it is not part of the normal
+pre-commit sequence because `cargo test-lint` already type-checks all default targets.
 
 Also run `cargo test-soak`, `cargo test-gameplay`, or `cargo test-shaders` when the changed contract is
 owned by that lane. Use `cargo test-all` when a cross-cutting change needs the complete debug inventory.

@@ -1243,6 +1243,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "test-soak")]
     fn commit_one_melt(
         registries: &Registries,
         state: &mut AppState,
@@ -1621,8 +1622,9 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "test-soak")]
     #[test]
-    fn repeated_small_melts_preserve_conservation_and_deterministic_replay() {
+    fn small_melt_soak_preserves_conservation_and_deterministic_replay() {
         let fixture = make_fixture(
             Temperature::from_millikelvin(1_500_000),
             EnergyCarrier::Electrical,

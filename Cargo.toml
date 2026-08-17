@@ -5,8 +5,14 @@ edition = "2024"
 rust-version = "1.97"
 publish = false
 
+[[bin]]
+name = "validate-shaders"
+path = "src/bin/validate_shaders.rs"
+required-features = ["test-shader-validation"]
+
 [features]
 default = []
+test-soak = []
 test-gameplay = []
 test-shader-validation = ["dep:naga"]
 

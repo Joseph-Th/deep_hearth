@@ -1574,6 +1574,7 @@ mod tests {
         assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     }
 
+    #[cfg(feature = "test-soak")]
     fn run_supported_transfer_soak(seed: WorldSeed) -> AppState {
         let registries = build_registries();
         let mut state = AppState::new(seed);
@@ -1624,6 +1625,7 @@ mod tests {
         state
     }
 
+    #[cfg(feature = "test-soak")]
     #[test]
     fn supported_transfer_soak_preserves_invariants_and_deterministic_replay() {
         let seed = WorldSeed::new(0x1A71_5000);

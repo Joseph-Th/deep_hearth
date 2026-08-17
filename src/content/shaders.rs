@@ -1,5 +1,15 @@
 //! Built-in bounded WGSL libraries and executable programs for the sibling shader registry.
 
+#[cfg(feature = "test-shader-validation")]
+use std::error::Error;
+#[cfg(feature = "test-shader-validation")]
+use std::fmt::{Display, Formatter};
+
+#[cfg(feature = "test-shader-validation")]
+use naga::ShaderStage;
+#[cfg(feature = "test-shader-validation")]
+use naga::valid::{Capabilities, ValidationFlags, Validator};
+
 use crate::shader::{
     ComputeEntryPoint, RenderEntryPoints, RenderPipelineProfile, ShaderBlendMode,
     ShaderColorTarget, ShaderDefinition, ShaderDepthMode, ShaderId, ShaderRegistry,
@@ -21,6 +31,19 @@ pub const SHADER_POST_PROCESS: ShaderId = ShaderId::new(105);
 pub const SHADER_BLOOM: ShaderId = ShaderId::new(106);
 pub const SHADER_SHADOW: ShaderId = ShaderId::new(107);
 pub const SHADER_SHADOW_CUTOUT: ShaderId = ShaderId::new(108);
+
+#[cfg(feature = "test-shader-validation")]
+const EXECUTABLE_PROGRAMS: [ShaderId; 9] = [
+    SHADER_SURFACE,
+    SHADER_LIGHT_CULL,
+    SHADER_WATER,
+    SHADER_SMOKE,
+    SHADER_SKY,
+    SHADER_POST_PROCESS,
+    SHADER_BLOOM,
+    SHADER_SHADOW,
+    SHADER_SHADOW_CUTOUT,
+];
 
 const COMMON_SOURCE: &str = include_str!("../../assets/shaders/common.wgsl");
 const NOISE_SOURCE: &str = include_str!("../../assets/shaders/noise.wgsl");
@@ -171,89 +194,203 @@ pub(crate) fn build_shader_registry() -> ShaderRegistry {
     ])
 }
 
+/// Failure while validating the assembled built-in executable shader suite with Naga.
+#[cfg(feature = "test-shader-validation")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BuiltInShaderValidationError {
+    ProgramCount {
+        expected: usize,
+        actual: usize,
+    },
+    MissingProgram {
+        shader: ShaderId,
+    },
+    Parse {
+        shader: ShaderId,
+        message: String,
+    },
+    Validation {
+        shader: ShaderId,
+        message: String,
+    },
+    ExecutableLibrary {
+        shader: ShaderId,
+    },
+    MissingEntryPoint {
+        shader: ShaderId,
+        stage: &'static str,
+        entry_point: String,
+    },
+    UnexpectedFragmentEntryPoint {
+        shader: ShaderId,
+    },
+}
+
+#[cfg(feature = "test-shader-validation")]
+impl Display for BuiltInShaderValidationError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ProgramCount { expected, actual } => write!(
+                formatter,
+                "built-in shader bake produced {actual} executable programs; expected {expected}"
+            ),
+            Self::MissingProgram { shader } => {
+                write!(
+                    formatter,
+                    "built-in executable shader {} was not baked",
+                    shader.value()
+                )
+            }
+            Self::Parse { shader, message } => write!(
+                formatter,
+                "shader {} failed WGSL parsing: {message}",
+                shader.value()
+            ),
+            Self::Validation { shader, message } => write!(
+                formatter,
+                "shader {} failed WGSL validation: {message}",
+                shader.value()
+            ),
+            Self::ExecutableLibrary { shader } => write!(
+                formatter,
+                "executable shader {} baked as a library",
+                shader.value()
+            ),
+            Self::MissingEntryPoint {
+                shader,
+                stage,
+                entry_point,
+            } => write!(
+                formatter,
+                "shader {} is missing {stage} entry point {entry_point}",
+                shader.value()
+            ),
+            Self::UnexpectedFragmentEntryPoint { shader } => write!(
+                formatter,
+                "vertex-only shader {} unexpectedly contains a fragment entry point",
+                shader.value()
+            ),
+        }
+    }
+}
+
+#[cfg(feature = "test-shader-validation")]
+impl Error for BuiltInShaderValidationError {}
+
+#[cfg(feature = "test-shader-validation")]
+fn require_entry_point(
+    shader: ShaderId,
+    module: &naga::Module,
+    stage: ShaderStage,
+    stage_name: &'static str,
+    entry_point: &str,
+) -> Result<(), BuiltInShaderValidationError> {
+    if module
+        .entry_points
+        .iter()
+        .any(|entry| entry.stage == stage && entry.name == entry_point)
+    {
+        return Ok(());
+    }
+    Err(BuiltInShaderValidationError::MissingEntryPoint {
+        shader,
+        stage: stage_name,
+        entry_point: entry_point.to_owned(),
+    })
+}
+
+/// Parses and semantically validates every assembled built-in executable shader with portable Naga
+/// capabilities. This lives outside `#[cfg(test)]` so the dedicated validation target does not need
+/// to compile the crate's unrelated unit-test harness.
+#[cfg(feature = "test-shader-validation")]
+pub fn validate_builtin_shader_programs() -> Result<usize, BuiltInShaderValidationError> {
+    let baked = build_shader_registry().bake_shader_set();
+    let actual = baked.program_count();
+    if actual != EXECUTABLE_PROGRAMS.len() {
+        return Err(BuiltInShaderValidationError::ProgramCount {
+            expected: EXECUTABLE_PROGRAMS.len(),
+            actual,
+        });
+    }
+
+    for shader in EXECUTABLE_PROGRAMS {
+        let program = baked
+            .get_program(shader)
+            .ok_or(BuiltInShaderValidationError::MissingProgram { shader })?;
+        let module = naga::front::wgsl::parse_str(program.source()).map_err(|error| {
+            BuiltInShaderValidationError::Parse {
+                shader,
+                message: error.emit_to_string(program.source()),
+            }
+        })?;
+        Validator::new(ValidationFlags::all(), Capabilities::empty())
+            .validate(&module)
+            .map_err(|error| BuiltInShaderValidationError::Validation {
+                shader,
+                message: format!("{error:?}"),
+            })?;
+
+        match program.kind() {
+            crate::shader::ShaderProgramKind::Library => {
+                return Err(BuiltInShaderValidationError::ExecutableLibrary { shader });
+            }
+            crate::shader::ShaderProgramKind::Render {
+                entry_points,
+                pipeline: _,
+                work_budget: _,
+            } => {
+                require_entry_point(
+                    shader,
+                    &module,
+                    ShaderStage::Vertex,
+                    "vertex",
+                    entry_points.vertex(),
+                )?;
+                if let Some(fragment) = entry_points.fragment() {
+                    require_entry_point(
+                        shader,
+                        &module,
+                        ShaderStage::Fragment,
+                        "fragment",
+                        fragment,
+                    )?;
+                } else if module
+                    .entry_points
+                    .iter()
+                    .any(|entry| entry.stage == ShaderStage::Fragment)
+                {
+                    return Err(BuiltInShaderValidationError::UnexpectedFragmentEntryPoint {
+                        shader,
+                    });
+                }
+            }
+            crate::shader::ShaderProgramKind::Compute {
+                entry_point,
+                work_budget: _,
+            } => require_entry_point(
+                shader,
+                &module,
+                ShaderStage::Compute,
+                "compute",
+                entry_point.name(),
+            )?,
+        }
+    }
+    Ok(EXECUTABLE_PROGRAMS.len())
+}
+
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "test-shader-validation")]
-    use naga::ShaderStage;
-    #[cfg(feature = "test-shader-validation")]
-    use naga::valid::{Capabilities, ValidationFlags, Validator};
-
     use super::*;
     use crate::shader::ShaderProgramKind;
 
     #[cfg(feature = "test-shader-validation")]
-    const EXECUTABLE_PROGRAMS: [ShaderId; 9] = [
-        SHADER_SURFACE,
-        SHADER_LIGHT_CULL,
-        SHADER_WATER,
-        SHADER_SMOKE,
-        SHADER_SKY,
-        SHADER_POST_PROCESS,
-        SHADER_BLOOM,
-        SHADER_SHADOW,
-        SHADER_SHADOW_CUTOUT,
-    ];
-
-    #[cfg(feature = "test-shader-validation")]
     #[test]
     fn built_in_programs_assemble_and_validate_as_portable_wgsl() {
-        let registry = build_shader_registry();
-        let baked = registry.bake_shader_set();
-
-        assert_eq!(baked.program_count(), EXECUTABLE_PROGRAMS.len());
-        for id in EXECUTABLE_PROGRAMS {
-            let program = match baked.get_program(id) {
-                Some(program) => program,
-                None => panic!("built-in executable shader {} was not baked", id.value()),
-            };
-            let module = match naga::front::wgsl::parse_str(program.source()) {
-                Ok(module) => module,
-                Err(error) => panic!(
-                    "shader {} failed WGSL parsing:\n{}",
-                    id.value(),
-                    error.emit_to_string(program.source())
-                ),
-            };
-            if let Err(error) =
-                Validator::new(ValidationFlags::all(), Capabilities::empty()).validate(&module)
-            {
-                panic!("shader {} failed WGSL validation: {error:?}", id.value());
-            }
-
-            match program.kind() {
-                ShaderProgramKind::Library => {
-                    panic!("executable shader {} baked as a library", id.value())
-                }
-                ShaderProgramKind::Render {
-                    entry_points,
-                    pipeline: _,
-                    work_budget: _,
-                } => {
-                    assert!(module.entry_points.iter().any(|entry| {
-                        entry.stage == ShaderStage::Vertex && entry.name == entry_points.vertex()
-                    }));
-                    match entry_points.fragment() {
-                        Some(fragment) => assert!(module.entry_points.iter().any(|entry| {
-                            entry.stage == ShaderStage::Fragment && entry.name == fragment
-                        })),
-                        None => assert!(
-                            !module
-                                .entry_points
-                                .iter()
-                                .any(|entry| entry.stage == ShaderStage::Fragment)
-                        ),
-                    }
-                }
-                ShaderProgramKind::Compute {
-                    entry_point,
-                    work_budget: _,
-                } => {
-                    assert!(module.entry_points.iter().any(|entry| {
-                        entry.stage == ShaderStage::Compute && entry.name == entry_point.name()
-                    }));
-                }
-            }
-        }
+        assert_eq!(
+            validate_builtin_shader_programs(),
+            Ok(EXECUTABLE_PROGRAMS.len())
+        );
     }
 
     #[test]

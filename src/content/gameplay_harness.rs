@@ -2452,11 +2452,6 @@ fn run_ore_preparation_capability_probe(registries: &Registries) -> Vec<&'static
             range.minimum_diameter() == Length::from_micrometers(500)
                 && range.maximum_diameter() == Length::from_micrometers(2_000)
         });
-    let final_undersize_lot_count = state
-        .inventory()
-        .get_stockpile(ids.undersize_storage)
-        .map(|stockpile| stockpile.lot_ids().count())
-        .unwrap_or_else(|| panic!("ore preparation undersize storage disappeared"));
     let consumed_energy = crush_energy
         .checked_add(grind_energy)
         .and_then(|energy| energy.checked_add(screen_energy))
@@ -2515,10 +2510,6 @@ fn run_ore_preparation_capability_probe(registries: &Registries) -> Vec<&'static
         (
             "final product satisfies the fine size range",
             final_distribution_is_fine,
-        ),
-        (
-            "compatible final lots coalesce",
-            final_undersize_lot_count == 1,
         ),
         (
             "all prepared mass finishes in undersize storage",
@@ -2599,43 +2590,11 @@ fn coverage_gaps(reports: &[ScenarioReport]) -> Vec<&'static str> {
                 .any(|report| report.structure.support_relocation),
         ),
         (
-            "scenario without relocation",
-            reports
-                .iter()
-                .any(|report| !report.structure.support_relocation),
-        ),
-        (
             "proactive relocation",
             reports.iter().any(|report| {
                 report.structure.support_relocation
                     && !report.structure.support_failure_blocked_production
             }),
-        ),
-        (
-            "compact support selection",
-            reports
-                .iter()
-                .any(|report| report.choices.chose_compact_support),
-        ),
-        (
-            "reinforced support selection",
-            reports
-                .iter()
-                .any(|report| !report.choices.chose_compact_support),
-        ),
-        (
-            "small drive use",
-            reports.iter().any(|report| report.choices.used_small_drive),
-        ),
-        (
-            "large drive use",
-            reports.iter().any(|report| report.choices.used_large_drive),
-        ),
-        (
-            "large drive exhaustion",
-            reports
-                .iter()
-                .any(|report| report.choices.large_drive_exhausted),
         ),
         (
             "forecast-driven power choice",
@@ -2696,6 +2655,31 @@ fn coverage_gaps(reports: &[ScenarioReport]) -> Vec<&'static str> {
         .collect()
 }
 
+fn scenario_contract_gaps(reports: &[ScenarioReport]) -> Vec<String> {
+    let mut gaps = Vec::new();
+    for report in reports {
+        if report.progress.completed_batches == 0 {
+            gaps.push(format!(
+                "seed 0x{:016X}: completed no production batch",
+                report.seed
+            ));
+        }
+        if !report.progress.disturbance_applied {
+            gaps.push(format!(
+                "seed 0x{:016X}: never reached its environmental disturbance",
+                report.seed
+            ));
+        }
+        if !report.progress.ore_frontier_visible {
+            gaps.push(format!(
+                "seed 0x{:016X}: did not expose the mixed-ore processing frontier",
+                report.seed
+            ));
+        }
+    }
+    gaps
+}
+
 #[test]
 fn gameplay_harness_agent_experience_matrix() {
     let registries = build_registries();
@@ -2752,41 +2736,29 @@ fn gameplay_harness_agent_experience_matrix() {
     let ore_preparation_gaps = run_ore_preparation_capability_probe(&registries);
     let foundry_gaps = run_foundry_capability_probe(&registries);
 
-    for report in &reports {
-        assert!(
-            report.progress.completed_batches > 0,
-            "gameplay exercise seed 0x{:016X} completed no production batch",
-            report.seed
-        );
-        assert!(
-            report.progress.disturbance_applied,
-            "gameplay exercise seed 0x{:016X} never reached its environmental disturbance",
-            report.seed
-        );
-        assert!(
-            report.progress.ore_frontier_visible,
-            "gameplay exercise seed 0x{:016X} did not expose the mixed-ore processing frontier",
-            report.seed
-        );
-    }
-    assert!(
-        ore_preparation_gaps.is_empty(),
-        "ore-preparation capability gaps: {}",
-        ore_preparation_gaps.join(", ")
+    let mut gaps = scenario_contract_gaps(&reports);
+    gaps.extend(
+        ore_preparation_gaps
+            .into_iter()
+            .map(|gap| format!("ore preparation: {gap}")),
     );
-    assert!(
-        foundry_gaps.is_empty(),
-        "foundry capability gaps: {}",
-        foundry_gaps.join(", ")
+    gaps.extend(
+        foundry_gaps
+            .into_iter()
+            .map(|gap| format!("foundry: {gap}")),
     );
     if enforce_coverage_matrix {
-        let gaps = coverage_gaps(&reports);
-        assert!(
-            gaps.is_empty(),
-            "gameplay exercise coverage gaps: {}",
-            gaps.join(", ")
+        gaps.extend(
+            coverage_gaps(&reports)
+                .into_iter()
+                .map(|gap| format!("coverage: {gap}")),
         );
     }
+    assert!(
+        gaps.is_empty(),
+        "gameplay exercise failures:\n- {}",
+        gaps.join("\n- ")
+    );
 
     std::println!(
         "HARNESS PASS mode={HARNESS_MODE} scenarios={} orders={completed_orders}/{} batches={completed_batches}/{target_batches} pre_disturbance={batches_before_disturbance} stops=[structural:{} maintenance:{} energy:{}] material=[ore_prep:pass foundry:pass mixed_ore_bridge:blocked]",

@@ -862,9 +862,11 @@ mod tests {
         EquipmentDefinition, EquipmentMaintenanceProfile, add_equipment,
         apply_equipment_condition_plan, decide_equipment_wear,
     };
+    #[cfg(feature = "test-soak")]
+    use crate::inventory::validate_transfer_bulk;
     use crate::inventory::{
         MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test,
-        validate_mount_stockpile, validate_transfer_bulk,
+        validate_mount_stockpile,
     };
     use crate::maintenance::MaintenanceThresholds;
     use crate::material::CommodityKey;
@@ -1686,8 +1688,9 @@ mod tests {
         assert_eq!(state, before);
     }
 
+    #[cfg(feature = "test-soak")]
     #[test]
-    fn repeated_resource_backed_repairs_preserve_conservation_and_replay() {
+    fn equipment_repair_soak_preserves_resource_conservation_and_replay() {
         let registries = registries();
         let mut first = AppState::new(WorldSeed::new(0x8120_0007));
         let equipment = match add_equipment(

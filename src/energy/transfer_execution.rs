@@ -498,6 +498,7 @@ mod tests {
         make_test_registries_with_energy_stores_and_process,
     };
     use crate::core::quantity::{Mass, Power, Temperature};
+    #[cfg(feature = "test-soak")]
     use crate::core::state::validate_loaded_state;
     use crate::core::time::WorldSeed;
     use crate::energy::{
@@ -529,6 +530,7 @@ mod tests {
         )
     }
 
+    #[cfg(feature = "test-soak")]
     fn stored_energy_total(state: &AppState) -> Energy {
         match state
             .energy()
@@ -541,6 +543,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "test-soak")]
     fn run_transfer_soak(seed: WorldSeed) -> AppState {
         let registries = registries();
         let mut state = AppState::new(seed);
@@ -910,8 +913,9 @@ mod tests {
         assert_eq!(state, before_commit);
     }
 
+    #[cfg(feature = "test-soak")]
     #[test]
-    fn repeated_energy_transfer_preserves_conservation_audits_and_replay() {
+    fn energy_transfer_soak_preserves_conservation_audits_and_replay() {
         let seed = WorldSeed::new(0x9310_0006);
         let first = run_transfer_soak(seed);
         let second = run_transfer_soak(seed);

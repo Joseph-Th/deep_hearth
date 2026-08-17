@@ -1718,6 +1718,7 @@ mod tests {
         assert_eq!(loaded, fixture.state);
     }
 
+    #[cfg(feature = "test-soak")]
     fn run_comminution_soak(seed: WorldSeed) -> AppState {
         let fixture = make_fixture(seed, Mass::from_milligrams(300), Condition::PRISTINE);
         let initial_matter = matter_total(&fixture.state);
@@ -1767,8 +1768,9 @@ mod tests {
         state
     }
 
+    #[cfg(feature = "test-soak")]
     #[test]
-    fn repeated_comminution_preserves_matter_and_deterministic_replay() {
+    fn comminution_soak_preserves_matter_and_deterministic_replay() {
         let seed = WorldSeed::new(0x9700_5000);
         let first = run_comminution_soak(seed);
         let second = run_comminution_soak(seed);

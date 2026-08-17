@@ -653,9 +653,10 @@ mod tests {
     use crate::core::quantity::{Area, Volume};
     use crate::core::state::{StateValidationError, validate_loaded_state};
     use crate::core::time::WorldSeed;
+    #[cfg(feature = "test-soak")]
+    use crate::fluid::calculate_fluid_volume_accounting;
     use crate::fluid::{
         FluidDefinition, FluidDefinitionId, FluidTransferError, FluidValidationError,
-        calculate_fluid_volume_accounting,
     };
     use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
     use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -1219,6 +1220,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "test-soak")]
     #[test]
     fn supported_fluid_transfer_soak_preserves_volume_load_invariants_and_replay() {
         let registries = registries(1_000);

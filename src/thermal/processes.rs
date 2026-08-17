@@ -75,6 +75,7 @@ mod tests {
     };
     use crate::maintenance::{Condition, MaintenanceThresholds};
     use crate::material::{CommodityKey, MaterialComposition};
+    #[cfg(feature = "test-soak")]
     use crate::matter::calculate_matter_accounting;
     use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
     use crate::production::{
@@ -1219,6 +1220,7 @@ mod tests {
         assert_eq!(state.production().jobs().count(), 0);
     }
 
+    #[cfg(feature = "test-soak")]
     fn run_sensible_heating_soak(seed: WorldSeed) -> AppState {
         let registries = make_registries(EnergyCarrier::Electrical);
         let mut state = AppState::new(seed);
@@ -1383,6 +1385,7 @@ mod tests {
         state
     }
 
+    #[cfg(feature = "test-soak")]
     #[test]
     fn sensible_heating_soak_preserves_determinism_matter_and_finite_energy() {
         let seed = WorldSeed::new(0x9200_5000);

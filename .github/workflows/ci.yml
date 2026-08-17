@@ -13,16 +13,16 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_INCREMENTAL: "0"
+  CARGO_INCREMENTAL: "1"
   CARGO_TERM_COLOR: always
 
 jobs:
-  core:
-    name: Core gate
+  quality:
+    name: Format and lint
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.97.0
         with:
           components: rustfmt, clippy
@@ -33,15 +33,51 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-core-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-rust-1.97.0-quality-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'assets/**/*.wgsl') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-core-
+            ${{ runner.os }}-rust-1.97.0-quality-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
       - name: Format
         run: cargo fmt --check
       - name: Lint
         run: cargo test-lint
+
+  core:
+    name: Fast tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-rust-1.97.0-core-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'assets/**/*.wgsl') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-1.97.0-core-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
       - name: Fast tests
         run: cargo test-fast
+
+  soak:
+    name: Soak tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-rust-1.97.0-soak-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'assets/**/*.wgsl') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-1.97.0-soak-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
       - name: Soak tests
         run: cargo test-soak
 
@@ -50,7 +86,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.97.0
       - uses: actions/cache@v5
         with:
@@ -59,9 +95,9 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-gameplay-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-rust-1.97.0-gameplay-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'assets/**/*.wgsl') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-gameplay-
+            ${{ runner.os }}-rust-1.97.0-gameplay-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
       - name: Gameplay tests
         run: cargo test-gameplay
 
@@ -70,7 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.97.0
       - uses: actions/cache@v5
         with:
@@ -79,8 +115,8 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-shaders-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-rust-1.97.0-shaders-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'assets/**/*.wgsl') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-shaders-
-      - name: Shader tests
+            ${{ runner.os }}-rust-1.97.0-shaders-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
+      - name: Shader validation
         run: cargo test-shaders

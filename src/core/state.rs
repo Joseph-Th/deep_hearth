@@ -219,23 +219,33 @@ pub(crate) fn make_test_state_at_tick(world_seed: WorldSeed, tick: SimulationTic
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::content::build_registries;
+    #[cfg(feature = "test-soak")]
     use crate::content::{
         FORM_LOG, FORM_LUMP, MATERIAL_CHARCOAL, MATERIAL_WOOD,
-        STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries, make_test_registries_with_process,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION, make_test_registries_with_process,
     };
+    #[cfg(feature = "test-soak")]
     use crate::core::quantity::{Area, Force, Mass, Temperature};
     use crate::core::rng::RngAlgorithm;
+    #[cfg(feature = "test-soak")]
     use crate::inventory::{
         add_solid_stockpile_for_test, deposit_bulk_for_test, validate_transfer_bulk,
     };
+    #[cfg(feature = "test-soak")]
     use crate::material::{CommodityKey, MaterialInputSpec, MaterialLotSpec};
+    #[cfg(feature = "test-soak")]
     use crate::matter::calculate_matter_accounting;
+    #[cfg(feature = "test-soak")]
     use crate::production::{
         ProcessDefinition, ProcessId, ProcessResolution, make_test_process_resolution,
         validate_process_inputs, validate_start_process,
     };
+    #[cfg(feature = "test-soak")]
     use crate::simulation::advance_tick;
+    #[cfg(feature = "test-soak")]
     use crate::spatial::{VoxelBounds, VoxelCoord};
+    #[cfg(feature = "test-soak")]
     use crate::structural::{
         StructuralElementId, StructuralLoadKind, StructuralMutationOutcome,
         ValidatedStructuralMutation, add_structural_element,
@@ -243,8 +253,10 @@ mod tests {
         validate_link_support, validate_set_structural_load,
     };
 
+    #[cfg(feature = "test-soak")]
     const SOAK_PROCESS: ProcessId = ProcessId::new(900_201);
 
+    #[cfg(feature = "test-soak")]
     fn make_test_soak_process() -> ProcessDefinition {
         ProcessDefinition::new(
             SOAK_PROCESS,
@@ -257,6 +269,7 @@ mod tests {
         )
     }
 
+    #[cfg(feature = "test-soak")]
     fn make_test_soak_resolution(
         registries: &Registries,
         state: &AppState,
@@ -277,6 +290,7 @@ mod tests {
         )
     }
 
+    #[cfg(feature = "test-soak")]
     fn add_soak_stockpile(state: &mut AppState, capacity: u64) -> crate::inventory::StockpileId {
         match add_solid_stockpile_for_test(state, Mass::from_milligrams(capacity)) {
             Ok(id) => id,
@@ -284,6 +298,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "test-soak")]
     fn make_soak_structural_bounds(x: i64, y: i64) -> VoxelBounds {
         match VoxelBounds::new(VoxelCoord::new(x, y, 0), VoxelCoord::new(x + 1, y + 1, 1)) {
             Ok(bounds) => bounds,
@@ -291,6 +306,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "test-soak")]
     fn add_soak_structural_element(
         registries: &Registries,
         state: &mut AppState,
@@ -317,6 +333,7 @@ mod tests {
         element
     }
 
+    #[cfg(feature = "test-soak")]
     fn commit_soak_structural_mutation(
         token: ValidatedStructuralMutation,
         state: &mut AppState,
@@ -327,6 +344,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "test-soak")]
     fn build_soak_structure(registries: &Registries, state: &mut AppState) -> StructuralElementId {
         let left = add_soak_structural_element(registries, state, 0, 0, true);
         let right = add_soak_structural_element(registries, state, 2, 0, true);
@@ -368,6 +386,7 @@ mod tests {
         deck
     }
 
+    #[cfg(feature = "test-soak")]
     fn vary_soak_structural_load(
         registries: &Registries,
         state: &mut AppState,
@@ -396,6 +415,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "test-soak")]
     fn schedule_soak_process(
         registries: &Registries,
         state: &mut AppState,
@@ -421,6 +441,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "test-soak")]
     fn transfer_soak_output(
         registries: &Registries,
         state: &mut AppState,
@@ -451,6 +472,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "test-soak")]
     fn run_test_soak(seed: WorldSeed) -> AppState {
         let registries = make_test_registries_with_process(make_test_soak_process());
         let mut state = AppState::new(seed);
@@ -526,6 +548,7 @@ mod tests {
         assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     }
 
+    #[cfg(feature = "test-soak")]
     #[test]
     fn test_headless_mixed_system_soak_preserves_invariants_and_determinism() {
         let seed = WorldSeed::new(0x5A0C_D37E_4D11_0001);

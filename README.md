@@ -55,18 +55,20 @@ cargo test <qualified-test-name> -- --exact
 cargo test-fast
 ```
 
-Before committing, run formatting, default-feature compilation/lint, and the fast lane; add the
+Before committing, run formatting, default-feature lint/type-checking, and the fast lane; add the
 specialized lane for the contract you changed:
 
 ```text
 cargo fmt --check
-cargo test-check
 cargo test-lint
 cargo test-fast
 cargo test-soak       # when long-horizon ownership/invariants changed
 cargo test-gameplay   # when workshop behavior/content changed
 cargo test-shaders    # when WGSL/shader assembly changed
 ```
+
+`cargo test-check` remains available when a compile-only diagnostic is useful, but it is redundant
+with the normal Clippy gate and is not part of the ordinary pre-commit sequence.
 
 `TESTING.md` owns lane selection, harness output, and the parallel CI gate. Release hardening is kept
 out of the ordinary pull-request path and remains explicit:
