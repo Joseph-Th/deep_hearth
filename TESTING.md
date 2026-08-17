@@ -7,7 +7,8 @@ validation dependencies unless that coverage is relevant.
 ## Daily workflow
 
 Run the narrowest qualified test while changing one behavior, then use the fast lane before moving
-on. The fast lane does not compile long-horizon soak bodies:
+on. Long-horizon soak tests compile into the same unit-test artifact but are marked ignored, so the
+fast lane does not execute them and a subsequent soak run reuses the existing build:
 
 ```text
 cargo test <qualified-test-name> -- --exact
@@ -23,8 +24,9 @@ cargo test-shaders
 ```
 
 Routine successful lanes use quiet Cargo output. Failure output remains Cargo-native and includes the
-failing qualified test. The test profile omits debug symbols to reduce codegen/link time; set Cargo's
-`CARGO_PROFILE_TEST_DEBUG` override when an interactive debugging session needs them. Do not add timing
+failing qualified test. The test profile and dedicated validation-binary profile omit debug symbols to
+reduce codegen/link time; normal dev builds retain their debugging behavior. Set Cargo's profile debug
+override when an interactive test/validator debugging session needs symbols. Do not add timing
 assertions or sleeps; performance of the verification workflow is an engineering property, not a
 simulation contract.
 
@@ -32,9 +34,9 @@ simulation contract.
 
 | Command | Purpose | Compile scope |
 | --- | --- | --- |
-| `cargo test-fast` | Ordinary deterministic behavior, errors, persistence, and integrations | Default features; soak bodies are not compiled |
-| `cargo test-soak` | Long-horizon deterministic conservation/invariant scenarios | Adds `test-soak` and runs only `soak` tests |
-| `cargo test-gameplay` | Harness configuration contracts plus workshop exercise | Dedicated integration target; library unit-test bodies are not compiled |
+| `cargo test-fast` | Ordinary deterministic behavior, errors, persistence, and integrations | Default-feature unit-test artifact; ignored long-horizon tests do not run |
+| `cargo test-soak` | Long-horizon deterministic conservation/invariant scenarios | Reuses the default-feature unit-test artifact and runs only ignored tests |
+| `cargo test-gameplay` | Seed/replay configuration contracts plus maintained workshop exercise | Dedicated integration target; library unit-test bodies are not compiled |
 | `cargo test-gameplay-report` | One workshop matrix with concise human-readable summary | Same dedicated integration target with captured output disabled |
 | `cargo test-shaders` | Naga parse/semantic validation of assembled WGSL without compiling the crate unit-test harness | Adds `test-shader-validation` |
 | `cargo test-check` | Silent all-target compilation of the default feature set | Default features |
@@ -44,14 +46,15 @@ simulation contract.
 | `cargo test-release` | Complete optimized test inventory | All test features |
 | `cargo test-doc` | Documentation build without dependencies | Default features |
 
-The `test-soak`, `test-gameplay`, and `test-shader-validation` features exist only to control test
-compilation. They do not change default runtime behavior. Naga remains absent from the default
-dependency graph and ordinary core test build.
+The `test-gameplay` and `test-shader-validation` features exist only to expose specialized test
+boundaries. They do not change default runtime behavior. Naga remains absent from the default
+dependency graph and ordinary core test build. Soaks intentionally use no feature because feature
+splitting forced a second full unit-test codegen/link step after ordinary tests.
 
 `cargo test-ci-core` is an internal CI composition rather than an edit-loop command. It compiles the
-crate unit-test binary once with `test-soak` enabled and runs both ordinary and soak tests from that
-single artifact. This avoids paying the dominant unit-test codegen/link cost twice in CI while keeping
-`cargo test-fast` and `cargo test-soak` independently targetable during development.
+crate unit-test binary once and runs ordinary plus ignored soak tests from that single artifact. Local
+`cargo test-fast` and `cargo test-soak` select different execution subsets without changing Cargo
+features, so running them back to back does not require a second unit-test binary.
 
 ## Test organization and assertions
 
@@ -66,10 +69,11 @@ or arbitrary wall-clock duration. Aggregate `any`/`all` assertions are appropria
 contract is explicitly coverage across a maintained scenario matrix; those failures must name the
 missing behavior rather than returning an anonymous boolean failure.
 
-Long-horizon tests use `soak` in the qualified test name and are compiled only with the `test-soak`
-feature. Keep one mixed-system thousands-of-ticks soak as the broad invariant proof; subsystem soaks
-should exist only where repeated ownership, conservation, persistence, or numerical accumulation adds
-evidence that a narrow test cannot provide.
+Long-horizon tests use `soak` in the qualified test name and carry
+`#[ignore = "long-horizon soak"]`. The ignore marker, not a name filter, owns lane membership. Keep one
+mixed-system thousands-of-ticks soak as the broad invariant proof; subsystem soaks should exist only
+where repeated ownership, conservation, persistence, or numerical accumulation adds evidence that a
+narrow test cannot provide. Do not ignore ordinary behavioral tests.
 
 ## Gameplay harness
 
@@ -89,18 +93,19 @@ frontier, relocation/recovery, and policy diversity rather than requiring every 
 behavior.
 
 Direct fixture-only starting-state injection is deliberately isolated in
-`content/gameplay_harness/bootstrap.rs`. That module may seed loose matter and stored energy or
+`src/content/gameplay_fixture.rs`. That feature-gated bridge may seed loose matter and stored energy or
 materialize already-planned structures because the corresponding acquisition, generation, and
 construction authorizers do not exist yet. The acting policy cannot call those shortcuts. Ordinary
 stockpile allocation, structural geometry, equipment
 allocation, process resolution, maintenance, support changes, production, and ticks use the normal
 runtime APIs.
 
-The gameplay exercise is an integration-test target rather than a crate unit test. This keeps its
-large policy/scenario implementation out of the monolithic unit-test binary and lets gameplay work
-rebuild against the normal library without compiling hundreds of unrelated test bodies. The same
-integration target runs lightweight seed/configuration contracts first, so those checks remain in the
-ordinary gameplay CI lane without forcing a feature-enabled crate unit-test build.
+The gameplay exercise source lives under `tests/gameplay_harness/` and is an integration-test target
+rather than library code or a crate unit test. This keeps its large policy/scenario implementation out
+of both library codegen and the monolithic unit-test binary. A harness-only edit therefore rebuilds the
+dedicated test target against the cached library instead of invalidating the feature-enabled core
+crate. Configuration contracts live in that same target so the gameplay lane has one specialized
+artifact rather than multiplying Cargo targets for small checks.
 
 The maintained workshop loop covers announced-load-informed structural siting, finite power choice,
 active-tick wear, exact replacement-stock maintenance, external structural disruption, persistent
@@ -136,7 +141,9 @@ value before that report lane to emit the detailed decision trace. Seed controls
 
 Seed lists fail on an empty or malformed entry rather than silently dropping it. When the maintained
 matrix is used, five curated scenarios own the aggregate regression coverage and three additional
-organic scenarios are generated from a fresh variation root. Organic scenarios exercise universal
+organic scenarios are generated from a stable default variation root. This makes the normal gate
+replay-identical across machines and runs. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` deliberately selects
+another replayable organic set when wider exploration is wanted. Organic scenarios exercise universal
 per-scenario contracts but cannot mask a lost maintained behavior. The input line prints the root and
 all exact scenario seeds so any failure is replayable. Explicit custom seed lists prove only the
 universal per-scenario contracts and do not inherit the maintained matrix's aggregate coverage claim.
@@ -147,17 +154,18 @@ Pull requests and pushes to `main` run independent jobs so unrelated compilation
 extend the feedback path, while lanes that require the same expensive unit-test artifact are combined:
 
 1. **Quality**: format and default-feature Clippy.
-2. **Core + Soak**: ordinary and long-horizon tests from one `test-soak` unit-test build.
+2. **Core + Soak**: ordinary and ignored long-horizon tests from one default-feature unit-test build.
 3. **Gameplay**: the dedicated feature-gated gameplay integration target.
 4. **Shaders**: the feature-gated Naga WGSL validation lane.
 
-Jobs use locked dependencies, a pinned Rust toolchain, source-aware per-lane build caches, incremental
-compilation, bounded timeouts, and concurrency cancellation for superseded runs. Cache keys retain the
-dependency/toolchain prefix while advancing with source changes, so a lane can reuse its previous
-incremental build instead of freezing the target cache at the first commit after a lockfile change.
-Core and soak deliberately share one test artifact, and gameplay deliberately does not compile the
-crate unit-test harness. The ordinary CI gate intentionally does not rebuild the entire project in
-release mode or generate documentation on every change.
+Jobs use locked dependencies, a pinned Rust toolchain, one shared Cargo dependency cache, source-aware
+per-lane target caches, incremental compilation, bounded timeouts, and concurrency cancellation for
+superseded runs. Target keys include the source trees each lane actually compiles, including gameplay
+integration sources, while restore prefixes reuse the previous incremental artifact after source
+changes. Splitting dependency downloads from target artifacts avoids storing the same Cargo registry
+payload in every lane cache. Core and soak deliberately share one test artifact, and gameplay
+deliberately does not compile the crate unit-test harness. The ordinary CI gate intentionally does not
+rebuild the entire project in release mode or generate documentation on every change.
 
 Before committing, run:
 

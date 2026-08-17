@@ -7,15 +7,15 @@ use super::{
     ROOM_TEMPERATURE, add_solid_stockpile, mixed_ore_composition, seed_composed_lot,
     seed_energy_store_exact, seed_lot,
 };
-use crate::core::quantity::{Mass, Temperature};
-use crate::core::state::AppState;
-use crate::core::time::WorldSeed;
-use crate::energy::{EnergyStoreId, add_energy_store};
-use crate::equipment::{EquipmentId, add_equipment};
-use crate::inventory::{MaterialLotId, StockpileId, StockpileStorageProfile, add_stockpile};
-use crate::maintenance::Condition;
-use crate::material::CommodityKey;
-use crate::registry::Registries;
+use deep_hearth::core::quantity::{Mass, Temperature};
+use deep_hearth::core::state::AppState;
+use deep_hearth::core::time::WorldSeed;
+use deep_hearth::energy::{EnergyStoreId, add_energy_store};
+use deep_hearth::equipment::{EquipmentId, add_equipment};
+use deep_hearth::inventory::{MaterialLotId, StockpileId, StockpileStorageProfile, add_stockpile};
+use deep_hearth::maintenance::Condition;
+use deep_hearth::material::CommodityKey;
+use deep_hearth::registry::Registries;
 
 #[derive(Clone, Copy)]
 pub(super) struct FoundryIds {

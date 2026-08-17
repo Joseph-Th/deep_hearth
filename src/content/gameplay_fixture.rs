@@ -20,7 +20,7 @@ use crate::material::{CommodityKey, FormId, MaterialComposition};
 use crate::registry::Registries;
 use crate::structural::{StructuralElementId, materialize_structural_element_for_test};
 
-pub(super) fn seed_energy_store(
+pub fn seed_energy_store(
     registries: &Registries,
     state: &mut AppState,
     definition: EnergyStoreDefinitionId,
@@ -30,7 +30,7 @@ pub(super) fn seed_energy_store(
         .unwrap_or_else(|error| panic!("gameplay bootstrap energy seed failed: {error}"))
 }
 
-pub(super) fn seed_lot(
+pub fn seed_lot(
     registries: &Registries,
     state: &mut AppState,
     stockpile: StockpileId,
@@ -42,7 +42,7 @@ pub(super) fn seed_lot(
         .unwrap_or_else(|error| panic!("gameplay bootstrap material seed failed: {error}"))
 }
 
-pub(super) fn seed_composed_lot(
+pub fn seed_composed_lot(
     registries: &Registries,
     state: &mut AppState,
     stockpile: StockpileId,
@@ -63,7 +63,7 @@ pub(super) fn seed_composed_lot(
     .unwrap_or_else(|error| panic!("gameplay bootstrap composed-material seed failed: {error}"))
 }
 
-pub(super) fn materialize_structure(
+pub fn materialize_structure(
     registries: &Registries,
     state: &mut AppState,
     element: StructuralElementId,

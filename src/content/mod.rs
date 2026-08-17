@@ -5,7 +5,8 @@ mod energy;
 mod equipment;
 mod fluid;
 #[cfg(feature = "test-gameplay")]
-mod gameplay_harness;
+#[doc(hidden)]
+pub mod gameplay_fixture;
 mod materials;
 mod ore_processing;
 mod processes;
@@ -20,9 +21,6 @@ use crate::core::quantity::Acceleration;
 use crate::registry::{
     CoreDefinitions, Registries, RegistryDomains, RegistryPresentation, RegistrySchemaVersion,
 };
-#[cfg(feature = "test-gameplay")]
-pub use gameplay_harness::{gameplay_harness_configuration_contract_gaps, run_gameplay_harness};
-
 #[cfg(test)]
 use test_support::{
     empty_energy_registry, empty_equipment_registry, empty_shader_registry, empty_texture_registry,

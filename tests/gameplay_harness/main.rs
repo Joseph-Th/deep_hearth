@@ -3,8 +3,8 @@
 //! The harness deliberately varies physical initial conditions and player priorities, then lets a
 //! small operational policy react only to observed state and resolver projections. Normal
 //! exercise-mode runs combine a deterministic experience-coverage matrix with a small replayable set
-//! of organic exploratory scenarios. Their physical ranges are derived from the current authored
-//! content rather than copied balance constants.
+//! of organic exploratory scenarios rooted at a stable default seed. Their physical ranges are
+//! derived from the current authored content rather than copied balance constants.
 //! `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` reproduces one organic scenario set from an exact decimal or
 //! `0x` hexadecimal root seed. The scenario can announce a future snow
 //! load and then inject the actual load at the announced tick. This is an external harness stimulus,
@@ -16,18 +16,17 @@
 
 use std::env;
 
-mod bootstrap;
 mod configuration;
 mod coverage;
 mod probe_setup;
 mod seed;
 
-use bootstrap::{
+use configuration::{ScenarioSeedPlan, configuration_contract_gaps, scenario_seeds_from};
+use coverage::{coverage_gaps, scenario_contract_gaps};
+use deep_hearth::content::gameplay_fixture::{
     materialize_structure, seed_composed_lot, seed_energy_store as bootstrap_seed_energy_store,
     seed_lot,
 };
-use configuration::{ScenarioSeedPlan, configuration_contract_gaps, scenario_seeds};
-use coverage::{coverage_gaps, scenario_contract_gaps};
 use probe_setup::{setup_foundry_probe, setup_ore_preparation_probe};
 use seed::mix64;
 
@@ -45,61 +44,61 @@ macro_rules! println {
     }};
 }
 
-use crate::capability::{CapabilityId, CapabilityValue};
-use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
-use crate::core::state::{AppState, validate_loaded_state};
-use crate::core::time::{TickSpan, WorldSeed};
-use crate::energy::{EnergyStoreId, EnergySupplyError, calculate_mass_specific_energy};
-use crate::equipment::{
+use deep_hearth::capability::{CapabilityId, CapabilityValue};
+use deep_hearth::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
+use deep_hearth::core::state::{AppState, validate_loaded_state};
+use deep_hearth::core::time::{TickSpan, WorldSeed};
+use deep_hearth::energy::{EnergyStoreId, EnergySupplyError, calculate_mass_specific_energy};
+use deep_hearth::equipment::{
     EquipmentDefinitionId, EquipmentId, EquipmentMaintenanceRequest,
     EquipmentMaintenanceResolutionError, EquipmentProviderError, EquipmentSupportError,
     add_equipment, resolve_equipment_maintenance, validate_equipment_repair,
     validate_mount_equipment, validate_unmount_equipment,
 };
-use crate::inventory::{
+use deep_hearth::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, add_stockpile,
 };
-use crate::maintenance::{CONDITION_PARTS_PER_MILLION, Condition, MaintenanceBand};
-use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
-use crate::matter::calculate_matter_accounting;
-use crate::ore_processing::{
+use deep_hearth::maintenance::{CONDITION_PARTS_PER_MILLION, Condition, MaintenanceBand};
+use deep_hearth::material::{CommodityKey, CompositionComponent, MaterialComposition};
+use deep_hearth::matter::calculate_matter_accounting;
+use deep_hearth::ore_processing::{
     ComminutionBatchError, ComminutionBottleneck, ComminutionRequest, ComminutionResolutionError,
     ResolvedComminution, ScreeningBatchError, ScreeningProcessDefinition, ScreeningRequest,
     ScreeningResolutionError, resolve_comminution_process, resolve_screening_process,
 };
-use crate::production::{
+use deep_hearth::production::{
     ProcessOutputRoute, ProductionAvailabilityChange, ProductionJobId, ProductionSuspensionReason,
     validate_start_process, validate_start_process_routed,
 };
-use crate::registry::Registries;
-use crate::simulation::advance_tick;
-use crate::spatial::{VoxelBounds, VoxelCoord};
-use crate::structural::{
+use deep_hearth::registry::Registries;
+use deep_hearth::simulation::advance_tick;
+use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
+use deep_hearth::structural::{
     STRUCTURAL_PARTS_PER_MILLION, StructuralAssessment, StructuralElementGeometry,
     StructuralElementId, StructuralLifecycle, StructuralLoadKind, StructuralLoadMode,
     StructuralStage, add_structural_element, analyze_structure, calculate_weight_force_ceiling,
     validate_activate_structural_element, validate_set_structural_load,
 };
-use crate::thermal::{
+use deep_hearth::thermal::{
     CastingRequest, MeltingBatchError, MeltingRequest, MeltingResolutionError,
     resolve_casting_process, resolve_melting_process,
 };
 
-use super::energy::{
+use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
     ENERGY_THERMAL_SINK,
 };
-use super::equipment::{
+use deep_hearth::content::{
     EQUIPMENT_CASTING_MOLD, EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE,
     EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER,
 };
-use super::processes::{
-    PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
-    PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
-};
-use super::{
+use deep_hearth::content::{
     FORM_INGOT, FORM_LOG, FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_WOOD,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+};
+use deep_hearth::content::{
+    PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+    PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
 };
 
 const ROOM_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
@@ -483,7 +482,7 @@ fn nominal_equipment_mass_capability(
 fn seed_energy_store_exact(
     registries: &Registries,
     state: &mut AppState,
-    definition: crate::energy::EnergyStoreDefinitionId,
+    definition: deep_hearth::energy::EnergyStoreDefinitionId,
     amount: Energy,
 ) -> EnergyStoreId {
     bootstrap_seed_energy_store(registries, state, definition, amount)
@@ -537,7 +536,7 @@ fn active_support(
 fn seed_energy_store(
     registries: &Registries,
     state: &mut AppState,
-    definition: crate::energy::EnergyStoreDefinitionId,
+    definition: deep_hearth::energy::EnergyStoreDefinitionId,
     fraction_divisor: u128,
 ) -> EnergyStoreId {
     let authored = match registries.energy().get_store(definition) {
@@ -886,7 +885,7 @@ struct CrushOption {
 
 #[derive(Clone, Copy)]
 struct CrushChoiceContext {
-    thresholds: crate::maintenance::MaintenanceThresholds,
+    thresholds: deep_hearth::maintenance::MaintenanceThresholds,
     preference: PowerPreference,
     current_tick: u64,
     stimulus_at_tick: u64,
@@ -969,7 +968,10 @@ fn schedule_stimulus_from_current_gameplay(
         1 + mix64(variation.seed ^ 0x57A1_1EED_71A1_1EED) % work_horizon;
 }
 
-fn print_crush_option(option: &CrushOption, thresholds: crate::maintenance::MaintenanceThresholds) {
+fn print_crush_option(
+    option: &CrushOption,
+    thresholds: deep_hearth::maintenance::MaintenanceThresholds,
+) {
     let stored_after = option
         .stored_before
         .checked_sub(option.resolved.required_energy())
@@ -1274,7 +1276,7 @@ fn crush_batch(
 }
 
 fn structural_assessment(
-    analysis: &crate::structural::StructuralAnalysis,
+    analysis: &deep_hearth::structural::StructuralAnalysis,
     element: StructuralElementId,
 ) -> StructuralAssessment {
     analysis
@@ -1336,7 +1338,7 @@ fn preview_snow_load_after_mount(
     registries: &Registries,
     state: &AppState,
     ids: WorkshopIds,
-    mount: &crate::equipment::ValidatedEquipmentSupportChange,
+    mount: &deep_hearth::equipment::ValidatedEquipmentSupportChange,
     mounted_support: StructuralElementId,
     load: Force,
 ) -> StructuralAssessment {
@@ -1444,10 +1446,12 @@ fn adapt_after_stimulus(
     after: StructuralAssessment,
 ) {
     if after.stage() == StructuralStage::Failed {
-        let suspended_wip = state
-            .production()
-            .get_equipment_occupant(ids.crusher)
-            .filter(|job| job.is_suspended());
+        let suspended_wip = state.production().jobs().find(|job| {
+            job.is_suspended()
+                && job
+                    .equipment_provider()
+                    .is_some_and(|provider| provider.equipment() == ids.crusher)
+        });
         if let Some(job) = suspended_wip {
             let suspension = job
                 .suspension()
@@ -2729,14 +2733,16 @@ fn run_ore_preparation_capability_probe(registries: &Registries, seed: u64) -> V
 ///
 /// This entry point exists only with the `test-gameplay` feature so the dedicated integration target
 /// can exercise gameplay behavior without compiling every crate unit-test body into the same binary.
-pub fn run_gameplay_harness() {
+fn run_gameplay_harness() {
     let registries = build_registries();
     assert_canonical_gameplay_content(&registries);
+    let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
+    let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
     let ScenarioSeedPlan {
         seeds,
         coverage_seed_count,
         variation_seed,
-    } = scenario_seeds()
+    } = scenario_seeds_from(scenario_raw.as_deref(), variation_raw.as_deref())
         .unwrap_or_else(|error| panic!("gameplay harness configuration failed: {error:?}"));
     let replay_seeds = seeds
         .iter()
@@ -2901,8 +2907,17 @@ pub fn run_gameplay_harness() {
     );
 }
 
-#[doc(hidden)]
-#[must_use]
-pub fn gameplay_harness_configuration_contract_gaps() -> Vec<&'static str> {
-    configuration_contract_gaps()
+#[test]
+fn gameplay_harness_configuration_contracts() {
+    let gaps = configuration_contract_gaps();
+    assert!(
+        gaps.is_empty(),
+        "gameplay harness configuration failures:\n- {}",
+        gaps.join("\n- ")
+    );
+}
+
+#[test]
+fn gameplay_harness_agent_experience_matrix() {
+    run_gameplay_harness();
 }

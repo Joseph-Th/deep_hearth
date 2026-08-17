@@ -1360,7 +1360,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "test-soak")]
     fn run_screening_soak(seed: WorldSeed) -> AppState {
         const OPERATIONS: u64 = 300;
         const BATCH_MILLIGRAMS: u64 = 10;
@@ -1508,8 +1507,8 @@ mod tests {
         state
     }
 
-    #[cfg(feature = "test-soak")]
     #[test]
+    #[ignore = "long-horizon soak"]
     fn screening_soak_preserves_conservation_persistence_and_replay() {
         let seed = WorldSeed::new(0x9710_50A5);
         let first = run_screening_soak(seed);

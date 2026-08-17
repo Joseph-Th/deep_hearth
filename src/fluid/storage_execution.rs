@@ -928,8 +928,8 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "test-soak")]
     #[test]
+    #[ignore = "long-horizon soak"]
     fn fluid_transfer_soak_preserves_volume_and_deterministic_state() {
         let registries = registries();
         let mut first = AppState::new(WorldSeed::new(0x9400_0007));

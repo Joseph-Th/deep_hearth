@@ -413,14 +413,16 @@
   envelopes, electrical buffer, thermal sink, ore crushing, same-form grinding, exact dry screening,
   pure-copper melting, and pure-copper casting used by the harness. Normal exercise-mode runs combine
   five deterministic qualitative-coverage seeds with three organic exploratory seeds generated from
-  a fresh run root. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` reproduces that organic set from an exact
-  decimal or hex root, and `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex seed lists for
-  replay or wider sweeps. Explicit seed lists fail on malformed entries rather than silently dropping
-  them. The five maintained seeds alone own aggregate coverage; organic scenarios cannot hide a lost
-  maintained behavior. Every run reports its exact replay seeds. The exercise runs as a dedicated
-  integration target, so gameplay iteration builds the normal library plus one dedicated test target
-  instead of compiling the full crate unit-test harness; lightweight seed/configuration contracts run
-  in that same target. Routine harness tests keep success output captured; the report lane emits replay
+  one stable default variation root. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` selects another exact
+  decimal or hex replay root, and `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex seed lists
+  for replay or wider sweeps. Explicit seed lists fail on malformed entries rather than silently
+  dropping them. The five maintained seeds alone own aggregate coverage; organic scenarios cannot hide
+  a lost maintained behavior. Every run reports its exact replay seeds. The exercise source lives under
+  `tests/gameplay_harness/` as a dedicated integration target rather than library code, so harness-only
+  edits rebuild the dedicated target against the cached core library instead of invalidating the
+  feature-enabled library or compiling the crate unit-test harness. Seed/configuration contracts share
+  that one specialized target instead of creating another Cargo artifact. Routine harness tests keep
+  success output captured; the report lane emits replay
   inputs, compact outcome/system summaries, and an explicit exercised/bootstrap/external/deferred
   scope line, while `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace.
   The compact report includes completed work orders, terminal causes, announced-load-informed control
@@ -481,11 +483,14 @@
   start-admission and in-flight completion modules; thermal process code likewise separates immutable
   resolver registration, sensible-heating resolution, and persistence replay validation.
 - `TESTING.md` and `.cargo/config.toml` expose maintained fast, soak, gameplay, shader, full, release,
-  lint, check, and documentation lanes. Long-horizon soak bodies, the large gameplay harness, and the
-  Naga parser dependency compile only in explicit test features, keeping the ordinary test binary
-  focused on fast feedback. GitHub CI runs format/lint, fast tests, soak tests, gameplay, and shader
-  validation as independent incrementally cached jobs with superseded-run cancellation instead of one
-  serial release-sized gate.
+  lint, check, and documentation lanes. Long-horizon soaks are explicit ignored
+  unit tests, so fast and soak execution reuse one default-feature unit-test artifact instead of
+  triggering separate feature builds. The large gameplay exercise is integration-test source rather
+  than library code, and the Naga parser dependency remains behind its dedicated test feature. GitHub
+  CI runs format/lint, combined core/soak tests, gameplay, and shader validation in parallel with a
+  shared dependency cache, source-aware per-lane target caches, and superseded-run cancellation instead
+  of one serial release-sized gate. Test binaries and one-shot validation binaries omit debug symbols
+  to reduce codegen/link time without changing ordinary dev-profile debugging behavior.
 - Current default validation keeps `cargo check` silent and Clippy warnings denied.
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
   as variants evolve instead of relying on review to catch silent fallback behavior.

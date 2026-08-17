@@ -12,12 +12,11 @@ required-features = ["test-shader-validation"]
 
 [[test]]
 name = "gameplay_harness"
-path = "tests/gameplay_harness.rs"
+path = "tests/gameplay_harness/main.rs"
 required-features = ["test-gameplay"]
 
 [features]
 default = []
-test-soak = []
 test-gameplay = []
 test-shader-validation = ["dep:naga"]
 
@@ -42,6 +41,12 @@ wildcard_enum_match_arm = "deny"
 [profile.test]
 # Test failures already carry source locations and typed assertion context; omitting debug symbols
 # keeps local test-binary codegen/linking out of the ordinary feedback bottleneck.
+debug = 0
+
+[profile.validation]
+# One-shot validation binaries need fast codegen/linking, not debugger symbols. Keep ordinary dev
+# builds unchanged so interactive debugging remains available without profile overrides.
+inherits = "dev"
 debug = 0
 
 [profile.release]

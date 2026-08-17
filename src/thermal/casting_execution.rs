@@ -1672,8 +1672,8 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "test-soak")]
     #[test]
+    #[ignore = "long-horizon soak"]
     fn casting_soak_preserves_conservation_and_replay() {
         let fixture = make_fixture(Mass::from_milligrams(300), MELTING_POINT);
         let initial_matter = matter_total(&fixture.state);

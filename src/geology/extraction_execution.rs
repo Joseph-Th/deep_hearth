@@ -658,7 +658,7 @@ mod tests {
     };
     use crate::matter::calculate_matter_accounting;
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
-    #[cfg(feature = "test-soak")]
+
     use crate::simulation::advance_tick;
     use crate::spatial::{VoxelBounds, VoxelCoord};
     use crate::structural::{
@@ -1067,7 +1067,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "test-soak")]
     fn run_extraction_soak(seed: WorldSeed) -> AppState {
         let registries = build_registries();
         let mut state = AppState::new(seed);
@@ -1138,8 +1137,8 @@ mod tests {
         state
     }
 
-    #[cfg(feature = "test-soak")]
     #[test]
+    #[ignore = "long-horizon soak"]
     fn extraction_soak_preserves_determinism_matter_and_modeled_energy() {
         let seed = WorldSeed::new(0x6E00_5000);
         let first = run_extraction_soak(seed);

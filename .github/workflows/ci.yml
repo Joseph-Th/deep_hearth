@@ -26,16 +26,24 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.97.0
         with:
           components: rustfmt, clippy
-      - uses: actions/cache@v5
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
-            target
-          key: ${{ runner.os }}-rust-1.97.0-quality-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'assets/**/*.wgsl') }}
+          key: ${{ runner.os }}-cargo-deps-rust-1.97.0-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-rust-1.97.0-quality-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
+            ${{ runner.os }}-cargo-deps-rust-1.97.0-
+      - name: Cache quality build
+        uses: actions/cache@v5
+        with:
+          path: |
+            target
+          key: ${{ runner.os }}-rust-1.97.0-quality-target-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'assets/**/*.wgsl') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-1.97.0-quality-target-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
       - name: Format
         run: cargo fmt --check
       - name: Lint
@@ -48,17 +56,25 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.97.0
-      - uses: actions/cache@v5
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
-            target
-          key: ${{ runner.os }}-rust-1.97.0-core-soak-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'assets/**/*.wgsl') }}
+          key: ${{ runner.os }}-cargo-deps-rust-1.97.0-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-rust-1.97.0-core-soak-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
-      - name: Core and soak tests
+            ${{ runner.os }}-cargo-deps-rust-1.97.0-
+      - name: Cache core build
+        uses: actions/cache@v5
+        with:
+          path: |
+            target
+          key: ${{ runner.os }}-rust-1.97.0-core-target-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'assets/**/*.wgsl') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-1.97.0-core-target-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
+      - name: Core + soak tests
         run: cargo test-ci-core
 
   gameplay:
@@ -68,16 +84,24 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.97.0
-      - uses: actions/cache@v5
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
-            target
-          key: ${{ runner.os }}-rust-1.97.0-gameplay-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'assets/**/*.wgsl') }}
+          key: ${{ runner.os }}-cargo-deps-rust-1.97.0-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-rust-1.97.0-gameplay-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
+            ${{ runner.os }}-cargo-deps-rust-1.97.0-
+      - name: Cache gameplay build
+        uses: actions/cache@v5
+        with:
+          path: |
+            target
+          key: ${{ runner.os }}-rust-1.97.0-gameplay-target-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'tests/gameplay_harness/**/*.rs', 'assets/**/*.wgsl') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-1.97.0-gameplay-target-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
       - name: Gameplay tests
         run: cargo test-gameplay
 
@@ -88,15 +112,23 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.97.0
-      - uses: actions/cache@v5
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
-            target
-          key: ${{ runner.os }}-rust-1.97.0-shaders-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'assets/**/*.wgsl') }}
+          key: ${{ runner.os }}-cargo-deps-rust-1.97.0-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-rust-1.97.0-shaders-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
+            ${{ runner.os }}-cargo-deps-rust-1.97.0-
+      - name: Cache shader build
+        uses: actions/cache@v5
+        with:
+          path: |
+            target
+          key: ${{ runner.os }}-rust-1.97.0-shaders-target-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'assets/**/*.wgsl') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-1.97.0-shaders-target-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
       - name: Shader validation
         run: cargo test-shaders

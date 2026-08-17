@@ -1,12 +1,10 @@
-//! Replayable gameplay-harness seed selection and environment configuration.
-
-use std::env;
-use std::time::{SystemTime, UNIX_EPOCH};
+//! Replayable gameplay-harness seed parsing and deterministic scenario-plan configuration.
 
 use super::seed::mix64;
 
 const COVERAGE_SEEDS: [u64; 5] = [1, 4, 9, 19, 380];
 const ORGANIC_SCENARIO_COUNT: usize = 3;
+const DEFAULT_VARIATION_SEED: u64 = 0xD33F_2026_0816_0001;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum GameplayHarnessConfigError {
@@ -34,19 +32,10 @@ fn parse_seed(raw: &str) -> Option<u64> {
     }
 }
 
-fn generated_variation_seed() -> u64 {
-    let elapsed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let nanos = elapsed.as_nanos();
-    let folded_time = nanos as u64 ^ (nanos >> 64) as u64;
-    mix64(folded_time ^ u64::from(std::process::id()))
-}
-
 fn resolve_variation_seed(raw: Option<&str>) -> Result<u64, GameplayHarnessConfigError> {
     match raw {
         Some(text) => parse_seed(text).ok_or(GameplayHarnessConfigError::InvalidVariationSeed),
-        None => Ok(generated_variation_seed()),
+        None => Ok(DEFAULT_VARIATION_SEED),
     }
 }
 
@@ -61,7 +50,7 @@ fn append_organic_seeds(seeds: &mut Vec<u64>, root: u64) {
     }
 }
 
-fn scenario_seeds_from(
+pub(super) fn scenario_seeds_from(
     scenario_raw: Option<&str>,
     variation_raw: Option<&str>,
 ) -> Result<ScenarioSeedPlan, GameplayHarnessConfigError> {
@@ -92,12 +81,6 @@ fn scenario_seeds_from(
     })
 }
 
-pub(super) fn scenario_seeds() -> Result<ScenarioSeedPlan, GameplayHarnessConfigError> {
-    let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
-    let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
-    scenario_seeds_from(scenario_raw.as_deref(), variation_raw.as_deref())
-}
-
 pub(super) fn configuration_contract_gaps() -> Vec<&'static str> {
     let checks = [
         ("decimal seed parsing", parse_seed("  42  ") == Some(42)),
@@ -118,6 +101,10 @@ pub(super) fn configuration_contract_gaps() -> Vec<&'static str> {
         (
             "variation seed override",
             resolve_variation_seed(Some("0xBAD")) == Ok(0xBAD),
+        ),
+        (
+            "default variation seed is stable",
+            resolve_variation_seed(None) == Ok(DEFAULT_VARIATION_SEED),
         ),
         (
             "invalid variation seed rejection",
