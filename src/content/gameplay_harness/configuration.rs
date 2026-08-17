@@ -3,6 +3,8 @@
 use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::seed::mix64;
+
 const COVERAGE_SEEDS: [u64; 5] = [1, 4, 9, 19, 380];
 const ORGANIC_SCENARIO_COUNT: usize = 3;
 
@@ -30,13 +32,6 @@ fn parse_seed(raw: &str) -> Option<u64> {
     } else {
         trimmed.parse().ok()
     }
-}
-
-fn mix64(mut value: u64) -> u64 {
-    value = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    value ^ (value >> 31)
 }
 
 fn generated_variation_seed() -> u64 {

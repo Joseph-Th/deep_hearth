@@ -11,6 +11,8 @@ mod ore_processing;
 mod processes;
 mod shaders;
 mod structural;
+#[cfg(test)]
+mod test_support;
 mod textures;
 mod thermal;
 
@@ -22,91 +24,19 @@ use crate::registry::{
 pub use gameplay_harness::{gameplay_harness_configuration_contract_gaps, run_gameplay_harness};
 
 #[cfg(test)]
-use crate::capability::{CapabilityDefinition, CapabilityRegistry};
-#[cfg(test)]
-use crate::energy::{EnergyRegistry, EnergyStoreDefinition};
-#[cfg(test)]
-use crate::equipment::{EquipmentDefinition, EquipmentRegistry};
-#[cfg(test)]
-use crate::fluid::{FluidDefinition, FluidRegistry};
-#[cfg(test)]
-use crate::ore_processing::{
-    ComminutionProcessDefinition, OreProcessingRegistry, ScreeningProcessDefinition,
+use test_support::{
+    empty_energy_registry, empty_equipment_registry, empty_shader_registry, empty_texture_registry,
+    empty_thermal_registry,
 };
 #[cfg(test)]
-use crate::production::{ProcessDefinition, ProductionRegistry};
-#[cfg(test)]
-use crate::shader::ShaderRegistry;
-#[cfg(test)]
-use crate::texture::TextureRegistry;
-#[cfg(test)]
-use crate::thermal::{
-    CastingProcessDefinition, MeltingProcessDefinition, SensibleHeatingProcessDefinition,
-    ThermalRegistry,
+pub(crate) use test_support::{
+    make_test_registries_with_casting, make_test_registries_with_comminution,
+    make_test_registries_with_energy_store, make_test_registries_with_energy_stores,
+    make_test_registries_with_energy_stores_and_process, make_test_registries_with_equipment,
+    make_test_registries_with_fluids, make_test_registries_with_melting,
+    make_test_registries_with_process, make_test_registries_with_screening,
+    make_test_registries_with_sensible_heating,
 };
-
-#[cfg(test)]
-fn empty_energy_registry() -> EnergyRegistry {
-    EnergyRegistry::new(std::iter::empty())
-}
-
-#[cfg(test)]
-fn empty_texture_registry() -> TextureRegistry {
-    TextureRegistry::empty()
-}
-
-#[cfg(test)]
-fn empty_shader_registry() -> ShaderRegistry {
-    ShaderRegistry::empty()
-}
-
-#[cfg(test)]
-pub(crate) fn make_test_registries_with_screening(
-    capability_definitions: Vec<CapabilityDefinition>,
-    equipment_definition: EquipmentDefinition,
-    energy_definition: EnergyStoreDefinition,
-    process: ProcessDefinition,
-    screening_definition: ScreeningProcessDefinition,
-) -> Registries {
-    let mut capabilities = CapabilityRegistry::new();
-    for capability in capability_definitions {
-        capabilities.register_capability(capability);
-    }
-    let mut production = ProductionRegistry::new();
-    production.register_process_for_test(process);
-    Registries::new(
-        REGISTRY_SCHEMA_VERSION,
-        build_core_definitions(),
-        RegistryDomains {
-            energy: EnergyRegistry::new([energy_definition]),
-            fluid: fluid::build_fluid_registry(),
-            capabilities,
-            equipment: EquipmentRegistry::new([equipment_definition]),
-            structural: structural::build_structural_registry(),
-            materials: materials::build_material_registry(),
-            ore_processing: OreProcessingRegistry::new_with_screening(
-                std::iter::empty(),
-                [screening_definition],
-            ),
-            thermal: empty_thermal_registry(),
-            production,
-            presentation: RegistryPresentation {
-                textures: empty_texture_registry(),
-                shaders: empty_shader_registry(),
-            },
-        },
-    )
-}
-
-#[cfg(test)]
-fn empty_equipment_registry() -> EquipmentRegistry {
-    EquipmentRegistry::new(std::iter::empty())
-}
-
-#[cfg(test)]
-fn empty_thermal_registry() -> ThermalRegistry {
-    ThermalRegistry::new(std::iter::empty(), std::iter::empty(), std::iter::empty())
-}
 
 pub use energy::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
@@ -179,294 +109,6 @@ pub fn build_registries() -> Registries {
 }
 
 #[cfg(test)]
-pub(crate) fn make_test_registries_with_equipment(
-    capability: CapabilityDefinition,
-    equipment_definition: EquipmentDefinition,
-) -> Registries {
-    let mut capabilities = CapabilityRegistry::new();
-    capabilities.register_capability(capability);
-    Registries::new(
-        REGISTRY_SCHEMA_VERSION,
-        build_core_definitions(),
-        RegistryDomains {
-            energy: empty_energy_registry(),
-            fluid: fluid::build_fluid_registry(),
-            capabilities,
-            equipment: EquipmentRegistry::new([equipment_definition]),
-            structural: structural::build_structural_registry(),
-            materials: materials::build_material_registry(),
-            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
-            thermal: empty_thermal_registry(),
-            production: ProductionRegistry::new(),
-            presentation: RegistryPresentation {
-                textures: empty_texture_registry(),
-                shaders: empty_shader_registry(),
-            },
-        },
-    )
-}
-
-#[cfg(test)]
-pub(crate) fn make_test_registries_with_process(process: ProcessDefinition) -> Registries {
-    let mut production = ProductionRegistry::new();
-    production.register_process_for_test(process);
-    Registries::new(
-        REGISTRY_SCHEMA_VERSION,
-        build_core_definitions(),
-        RegistryDomains {
-            energy: empty_energy_registry(),
-            fluid: fluid::build_fluid_registry(),
-            capabilities: CapabilityRegistry::new(),
-            equipment: empty_equipment_registry(),
-            structural: structural::build_structural_registry(),
-            materials: materials::build_material_registry(),
-            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
-            thermal: empty_thermal_registry(),
-            production,
-            presentation: RegistryPresentation {
-                textures: empty_texture_registry(),
-                shaders: empty_shader_registry(),
-            },
-        },
-    )
-}
-
-#[cfg(test)]
-pub(crate) fn make_test_registries_with_energy_store(
-    definition: EnergyStoreDefinition,
-) -> Registries {
-    make_test_registries_with_energy_stores(vec![definition])
-}
-
-#[cfg(test)]
-pub(crate) fn make_test_registries_with_energy_stores(
-    definitions: Vec<EnergyStoreDefinition>,
-) -> Registries {
-    Registries::new(
-        REGISTRY_SCHEMA_VERSION,
-        build_core_definitions(),
-        RegistryDomains {
-            energy: EnergyRegistry::new(definitions),
-            fluid: fluid::build_fluid_registry(),
-            capabilities: CapabilityRegistry::new(),
-            equipment: empty_equipment_registry(),
-            structural: structural::build_structural_registry(),
-            materials: materials::build_material_registry(),
-            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
-            thermal: empty_thermal_registry(),
-            production: ProductionRegistry::new(),
-            presentation: RegistryPresentation {
-                textures: empty_texture_registry(),
-                shaders: empty_shader_registry(),
-            },
-        },
-    )
-}
-
-#[cfg(test)]
-pub(crate) fn make_test_registries_with_energy_stores_and_process(
-    definitions: Vec<EnergyStoreDefinition>,
-    process: ProcessDefinition,
-) -> Registries {
-    let mut production = ProductionRegistry::new();
-    production.register_process_for_test(process);
-    Registries::new(
-        REGISTRY_SCHEMA_VERSION,
-        build_core_definitions(),
-        RegistryDomains {
-            energy: EnergyRegistry::new(definitions),
-            fluid: fluid::build_fluid_registry(),
-            capabilities: CapabilityRegistry::new(),
-            equipment: empty_equipment_registry(),
-            structural: structural::build_structural_registry(),
-            materials: materials::build_material_registry(),
-            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
-            thermal: empty_thermal_registry(),
-            production,
-            presentation: RegistryPresentation {
-                textures: empty_texture_registry(),
-                shaders: empty_shader_registry(),
-            },
-        },
-    )
-}
-
-#[cfg(test)]
-pub(crate) fn make_test_registries_with_sensible_heating(
-    capability_definitions: Vec<CapabilityDefinition>,
-    equipment_definition: EquipmentDefinition,
-    energy_definition: EnergyStoreDefinition,
-    process: ProcessDefinition,
-    thermal_definition: SensibleHeatingProcessDefinition,
-) -> Registries {
-    let mut capabilities = CapabilityRegistry::new();
-    for capability in capability_definitions {
-        capabilities.register_capability(capability);
-    }
-    let mut production = ProductionRegistry::new();
-    production.register_process_for_test(process);
-    Registries::new(
-        REGISTRY_SCHEMA_VERSION,
-        build_core_definitions(),
-        RegistryDomains {
-            energy: EnergyRegistry::new([energy_definition]),
-            fluid: fluid::build_fluid_registry(),
-            capabilities,
-            equipment: EquipmentRegistry::new([equipment_definition]),
-            structural: structural::build_structural_registry(),
-            materials: materials::build_material_registry(),
-            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
-            thermal: ThermalRegistry::new(
-                [thermal_definition],
-                std::iter::empty(),
-                std::iter::empty(),
-            ),
-            production,
-            presentation: RegistryPresentation {
-                textures: empty_texture_registry(),
-                shaders: empty_shader_registry(),
-            },
-        },
-    )
-}
-
-#[cfg(test)]
-pub(crate) fn make_test_registries_with_melting(
-    capability_definitions: Vec<CapabilityDefinition>,
-    equipment_definition: EquipmentDefinition,
-    energy_definition: EnergyStoreDefinition,
-    process: ProcessDefinition,
-    thermal_definition: MeltingProcessDefinition,
-) -> Registries {
-    let mut capabilities = CapabilityRegistry::new();
-    for capability in capability_definitions {
-        capabilities.register_capability(capability);
-    }
-    let mut production = ProductionRegistry::new();
-    production.register_process_for_test(process);
-    Registries::new(
-        REGISTRY_SCHEMA_VERSION,
-        build_core_definitions(),
-        RegistryDomains {
-            energy: EnergyRegistry::new([energy_definition]),
-            fluid: fluid::build_fluid_registry(),
-            capabilities,
-            equipment: EquipmentRegistry::new([equipment_definition]),
-            structural: structural::build_structural_registry(),
-            materials: materials::build_material_registry(),
-            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
-            thermal: ThermalRegistry::new(
-                std::iter::empty(),
-                [thermal_definition],
-                std::iter::empty(),
-            ),
-            production,
-            presentation: RegistryPresentation {
-                textures: empty_texture_registry(),
-                shaders: empty_shader_registry(),
-            },
-        },
-    )
-}
-
-#[cfg(test)]
-pub(crate) fn make_test_registries_with_casting(
-    capability_definitions: Vec<CapabilityDefinition>,
-    equipment_definition: EquipmentDefinition,
-    energy_definition: EnergyStoreDefinition,
-    process: ProcessDefinition,
-    thermal_definition: CastingProcessDefinition,
-) -> Registries {
-    let mut capabilities = CapabilityRegistry::new();
-    for capability in capability_definitions {
-        capabilities.register_capability(capability);
-    }
-    let mut production = ProductionRegistry::new();
-    production.register_process_for_test(process);
-    Registries::new(
-        REGISTRY_SCHEMA_VERSION,
-        build_core_definitions(),
-        RegistryDomains {
-            energy: EnergyRegistry::new([energy_definition]),
-            fluid: fluid::build_fluid_registry(),
-            capabilities,
-            equipment: EquipmentRegistry::new([equipment_definition]),
-            structural: structural::build_structural_registry(),
-            materials: materials::build_material_registry(),
-            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
-            thermal: ThermalRegistry::new(
-                std::iter::empty(),
-                std::iter::empty(),
-                [thermal_definition],
-            ),
-            production,
-            presentation: RegistryPresentation {
-                textures: empty_texture_registry(),
-                shaders: empty_shader_registry(),
-            },
-        },
-    )
-}
-
-#[cfg(test)]
-pub(crate) fn make_test_registries_with_fluids(definitions: Vec<FluidDefinition>) -> Registries {
-    Registries::new(
-        REGISTRY_SCHEMA_VERSION,
-        build_core_definitions(),
-        RegistryDomains {
-            energy: empty_energy_registry(),
-            fluid: FluidRegistry::new(definitions),
-            capabilities: CapabilityRegistry::new(),
-            equipment: empty_equipment_registry(),
-            structural: structural::build_structural_registry(),
-            materials: materials::build_material_registry(),
-            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
-            thermal: empty_thermal_registry(),
-            production: ProductionRegistry::new(),
-            presentation: RegistryPresentation {
-                textures: empty_texture_registry(),
-                shaders: empty_shader_registry(),
-            },
-        },
-    )
-}
-
-#[cfg(test)]
-pub(crate) fn make_test_registries_with_comminution(
-    capability_definitions: Vec<CapabilityDefinition>,
-    equipment_definition: EquipmentDefinition,
-    energy_definition: EnergyStoreDefinition,
-    process: ProcessDefinition,
-    comminution_definition: ComminutionProcessDefinition,
-) -> Registries {
-    let mut capabilities = CapabilityRegistry::new();
-    for capability in capability_definitions {
-        capabilities.register_capability(capability);
-    }
-    let mut production = ProductionRegistry::new();
-    production.register_process_for_test(process);
-    Registries::new(
-        REGISTRY_SCHEMA_VERSION,
-        build_core_definitions(),
-        RegistryDomains {
-            energy: EnergyRegistry::new([energy_definition]),
-            fluid: fluid::build_fluid_registry(),
-            capabilities,
-            equipment: EquipmentRegistry::new([equipment_definition]),
-            structural: structural::build_structural_registry(),
-            materials: materials::build_material_registry(),
-            ore_processing: OreProcessingRegistry::new([comminution_definition]),
-            thermal: empty_thermal_registry(),
-            production,
-            presentation: RegistryPresentation {
-                textures: empty_texture_registry(),
-                shaders: empty_shader_registry(),
-            },
-        },
-    )
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::capability::{
@@ -476,7 +118,9 @@ mod tests {
     use crate::core::quantity::{Length, Mass, MassSpecificEnergy, Temperature};
     use crate::energy::EnergyCarrier;
     use crate::material::{CommodityKey, MaterialInputSpec, ParticleSizeRange};
-    use crate::ore_processing::{ComminutionOperatingProfile, ComminutionProcessDefinition};
+    use crate::ore_processing::{
+        ComminutionOperatingProfile, ComminutionProcessDefinition, OreProcessingRegistry,
+    };
     use crate::production::{ProcessDefinition, ProcessId, ProductionRegistry};
     use crate::thermal::{SensibleHeatingProcessDefinition, ThermalRegistry};
 

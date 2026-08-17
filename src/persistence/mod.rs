@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 31;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 32;
 
 /// Borrowed versioned save payload suitable for any Serde encoding adapter.
 #[derive(Debug, Serialize)]
@@ -746,7 +746,7 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("planned structural damage save serialization failed: {error}"),
         };
-        encoded["state"]["systems"]["structures"]["elements"][member.value().to_string()]["cracked"] =
+        encoded["state"]["systems"]["structures"]["elements"][member.value().to_string()]["is_cracked"] =
             serde_json::json!(true);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,

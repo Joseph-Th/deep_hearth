@@ -13,7 +13,7 @@
   flat field lists: root runtime systems, production-job identity/schedule/resources/equipment,
   registry presentation domains, screening resolution constraints, completion revision contracts,
   and gameplay-harness inputs/reports each have explicit nested profiles. The resulting persistent
-  layout is save schema 31 and remains current-schema-only; no historical layout shim or migration is
+  layout is save schema 32 and remains current-schema-only; no historical layout shim or migration is
   retained.
 - Explicit authoritative integer quantities for mass, aggregate mass, temperature, energy,
   pressure, area, length, acceleration, force, power, torque, angular speed, voltage, current,
@@ -471,8 +471,10 @@
   capability probe, not repeated per scenario or presented as a continuous ore-to-metal loop. Matter,
   equipment, initial energy, and structural bays remain explicit setup fixtures until their physical
   acquisition/construction authorizers exist; experienced post-setup mutations use canonical runtime
-  transactions. Isolated unit-test registry builders no longer inherit unrelated canonical gameplay
-  content as that content expands.
+  transactions. Gameplay-harness support is split by responsibility across bootstrap, configuration,
+  coverage, probe setup, and deterministic seed-mixing modules instead of accumulating all support in
+  the main scenario controller. Isolated unit-test registry builders share one test-only domain
+  assembler and no longer inherit unrelated canonical gameplay content as that content expands.
 - Runtime state owners keep records, synchronized indexes, and owner mutation primitives in their
   state modules while descendant validation modules own exhaustive persistence audits without widening
   private mutation access. Production execution is organized behind one canonical facade with separate
@@ -488,7 +490,7 @@
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
   as variants evolve instead of relying on review to catch silent fallback behavior.
 - Boolean fields, parameters, and predicate APIs follow the project `is_`/`has_`/`can_` vocabulary;
-  persisted JSON field names remain stable where internal Rust names were corrected.
+  the current save schema uses those same names directly and retains no historical Serde rename shim.
 - Release profile keeps integer overflow checks enabled.
 
 ## Deliberately Deferred

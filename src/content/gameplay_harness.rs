@@ -18,12 +18,18 @@ use std::env;
 
 mod bootstrap;
 mod configuration;
+mod coverage;
+mod probe_setup;
+mod seed;
 
 use bootstrap::{
     materialize_structure, seed_composed_lot, seed_energy_store as bootstrap_seed_energy_store,
     seed_lot,
 };
 use configuration::{ScenarioSeedPlan, configuration_contract_gaps, scenario_seeds};
+use coverage::{coverage_gaps, scenario_contract_gaps};
+use probe_setup::{setup_foundry_probe, setup_ore_preparation_probe};
+use seed::mix64;
 
 const HARNESS_MODE: &str = "exercise";
 
@@ -43,9 +49,7 @@ use crate::capability::{CapabilityId, CapabilityValue};
 use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
 use crate::core::time::{TickSpan, WorldSeed};
-use crate::energy::{
-    EnergyStoreId, EnergySupplyError, add_energy_store, calculate_mass_specific_energy,
-};
+use crate::energy::{EnergyStoreId, EnergySupplyError, calculate_mass_specific_energy};
 use crate::equipment::{
     EquipmentDefinitionId, EquipmentId, EquipmentMaintenanceRequest,
     EquipmentMaintenanceResolutionError, EquipmentProviderError, EquipmentSupportError,
@@ -283,32 +287,6 @@ struct WorkshopIds {
     reinforced_support: StructuralElementId,
 }
 
-#[derive(Clone, Copy)]
-struct FoundryIds {
-    pure_copper_source: StockpileId,
-    molten_vessel: StockpileId,
-    cast_storage: StockpileId,
-    pure_copper_lot: MaterialLotId,
-    furnace: EquipmentId,
-    mold: EquipmentId,
-    electrical_buffer: EnergyStoreId,
-    heat_sink: EnergyStoreId,
-}
-
-#[derive(Clone, Copy)]
-struct OrePreparationProbeIds {
-    ore_source: StockpileId,
-    crushed_storage: StockpileId,
-    ground_storage: StockpileId,
-    undersize_storage: StockpileId,
-    oversize_storage: StockpileId,
-    ore_lot: MaterialLotId,
-    crusher: EquipmentId,
-    grinder: EquipmentId,
-    screen: EquipmentId,
-    drive: EnergyStoreId,
-}
-
 #[derive(Clone, Copy, Debug)]
 struct ScenarioReport {
     seed: u64,
@@ -401,13 +379,6 @@ struct ScenarioRuntime<'state> {
     current_support: &'state mut StructuralElementId,
     alternate_support: &'state mut StructuralElementId,
     report: &'state mut ScenarioReport,
-}
-
-fn mix64(mut value: u64) -> u64 {
-    value = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    value ^ (value >> 31)
 }
 
 fn scale_force(load: Force, parts_per_million: u32) -> Force {
@@ -879,138 +850,6 @@ fn service_crusher(
         after.parts_per_million(),
     );
     MaintenanceAttempt::Serviced
-}
-
-fn setup_foundry_probe(registries: &Registries, mass: Mass) -> (AppState, FoundryIds) {
-    let mut state = AppState::new(WorldSeed::new(0xD33F_F001));
-    let pure_copper_source = add_solid_stockpile(&mut state, mass, "foundry copper source");
-    let vessel_profile =
-        StockpileStorageProfile::new(false, true, Temperature::from_millikelvin(1_500_000))
-            .unwrap_or_else(|error| panic!("foundry probe molten storage profile failed: {error}"));
-    let molten_vessel = add_stockpile(&mut state, mass, vessel_profile)
-        .unwrap_or_else(|error| panic!("foundry probe molten vessel failed: {error}"));
-    let cast_storage = add_solid_stockpile(&mut state, mass, "foundry cast storage");
-    let pure_copper_lot = seed_lot(
-        registries,
-        &mut state,
-        pure_copper_source,
-        CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
-        mass,
-        ROOM_TEMPERATURE,
-    );
-    let furnace = add_equipment(
-        registries,
-        &mut state,
-        EQUIPMENT_ELECTRIC_FURNACE,
-        Condition::PRISTINE,
-    )
-    .unwrap_or_else(|error| panic!("foundry probe furnace allocation failed: {error}"));
-    let mold = add_equipment(
-        registries,
-        &mut state,
-        EQUIPMENT_CASTING_MOLD,
-        Condition::PRISTINE,
-    )
-    .unwrap_or_else(|error| panic!("foundry probe mold allocation failed: {error}"));
-    let electrical_capacity = registries
-        .energy()
-        .get_store(ENERGY_ELECTRICAL_BUFFER)
-        .map(|definition| definition.capacity())
-        .unwrap_or_else(|| panic!("foundry probe electrical-buffer definition disappeared"));
-    let electrical_buffer = seed_energy_store_exact(
-        registries,
-        &mut state,
-        ENERGY_ELECTRICAL_BUFFER,
-        electrical_capacity,
-    );
-    let heat_sink = add_energy_store(registries, &mut state, ENERGY_THERMAL_SINK)
-        .unwrap_or_else(|error| panic!("foundry probe thermal sink allocation failed: {error}"));
-    (
-        state,
-        FoundryIds {
-            pure_copper_source,
-            molten_vessel,
-            cast_storage,
-            pure_copper_lot,
-            furnace,
-            mold,
-            electrical_buffer,
-            heat_sink,
-        },
-    )
-}
-
-fn setup_ore_preparation_probe(
-    registries: &Registries,
-    batch_mass: Mass,
-    copper_ppm: u32,
-) -> (AppState, OrePreparationProbeIds) {
-    let mut state = AppState::new(WorldSeed::new(0xD33F_0A11));
-    let ore_source = add_solid_stockpile(&mut state, batch_mass, "ore preparation source");
-    let crushed_storage =
-        add_solid_stockpile(&mut state, batch_mass, "ore preparation crushed storage");
-    let ground_storage =
-        add_solid_stockpile(&mut state, batch_mass, "ore preparation ground storage");
-    let undersize_storage =
-        add_solid_stockpile(&mut state, batch_mass, "ore preparation undersize storage");
-    let oversize_storage =
-        add_solid_stockpile(&mut state, batch_mass, "ore preparation oversize storage");
-    let ore_lot = seed_composed_lot(
-        registries,
-        &mut state,
-        ore_source,
-        CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
-        batch_mass,
-        ROOM_TEMPERATURE,
-        mixed_ore_composition(copper_ppm),
-    );
-    let crusher = add_equipment(
-        registries,
-        &mut state,
-        EQUIPMENT_JAW_CRUSHER,
-        Condition::PRISTINE,
-    )
-    .unwrap_or_else(|error| panic!("ore preparation crusher failed: {error}"));
-    let grinder = add_equipment(
-        registries,
-        &mut state,
-        EQUIPMENT_GRINDING_MILL,
-        Condition::PRISTINE,
-    )
-    .unwrap_or_else(|error| panic!("ore preparation grinder failed: {error}"));
-    let screen = add_equipment(
-        registries,
-        &mut state,
-        EQUIPMENT_DRY_SCREEN,
-        Condition::PRISTINE,
-    )
-    .unwrap_or_else(|error| panic!("ore preparation screen failed: {error}"));
-    let drive_capacity = registries
-        .energy()
-        .get_store(ENERGY_MECHANICAL_LARGE_DRIVE)
-        .map(|definition| definition.capacity())
-        .unwrap_or_else(|| panic!("ore preparation drive definition disappeared"));
-    let drive = seed_energy_store_exact(
-        registries,
-        &mut state,
-        ENERGY_MECHANICAL_LARGE_DRIVE,
-        drive_capacity,
-    );
-    (
-        state,
-        OrePreparationProbeIds {
-            ore_source,
-            crushed_storage,
-            ground_storage,
-            undersize_storage,
-            oversize_storage,
-            ore_lot,
-            crusher,
-            grinder,
-            screen,
-            drive,
-        },
-    )
 }
 
 fn finish_operation(registries: &Registries, state: &mut AppState, duration: TickSpan) {
@@ -2884,171 +2723,6 @@ fn run_ore_preparation_capability_probe(registries: &Registries, seed: u64) -> V
         .into_iter()
         .filter_map(|(name, observed)| (!observed).then_some(name))
         .collect()
-}
-
-fn coverage_gaps(reports: &[ScenarioReport]) -> Vec<&'static str> {
-    let requirements = [
-        (
-            "structural consequence",
-            reports
-                .iter()
-                .any(|report| report.structure.structural_consequence),
-        ),
-        (
-            "stable structure",
-            reports
-                .iter()
-                .any(|report| !report.structure.structural_consequence),
-        ),
-        (
-            "persistent structural damage",
-            reports
-                .iter()
-                .any(|report| report.structure.structural_damage_debt),
-        ),
-        (
-            "reserve-conserving player priority",
-            reports
-                .iter()
-                .any(|report| report.policy.power_preference == PowerPreference::PreserveReserve),
-        ),
-        (
-            "condition-protecting player priority",
-            reports
-                .iter()
-                .any(|report| report.policy.power_preference == PowerPreference::ProtectCondition),
-        ),
-        (
-            "completion-time player priority",
-            reports
-                .iter()
-                .any(|report| report.policy.power_preference == PowerPreference::FinishSooner),
-        ),
-        (
-            "announced-load planning changes siting",
-            reports
-                .iter()
-                .any(|report| report.choices.briefing_changed_siting),
-        ),
-        (
-            "structural stop",
-            reports
-                .iter()
-                .any(|report| report.structure.structural_stop),
-        ),
-        (
-            "production suspension",
-            reports
-                .iter()
-                .any(|report| report.structure.production_suspension),
-        ),
-        (
-            "stranded work in process",
-            reports
-                .iter()
-                .any(|report| report.structure.stranded_work_in_process),
-        ),
-        (
-            "recovered suspended work",
-            reports.iter().any(|report| {
-                report.structure.production_suspension && !report.structure.stranded_work_in_process
-            }),
-        ),
-        (
-            "production blocked by support failure",
-            reports
-                .iter()
-                .any(|report| report.structure.support_failure_blocked_production),
-        ),
-        (
-            "support relocation",
-            reports
-                .iter()
-                .any(|report| report.structure.support_relocation),
-        ),
-        (
-            "proactive relocation",
-            reports.iter().any(|report| {
-                report.structure.support_relocation
-                    && !report.structure.support_failure_blocked_production
-            }),
-        ),
-        (
-            "load-event deadline changes power choice",
-            reports
-                .iter()
-                .any(|report| report.choices.deadline_power_choice),
-        ),
-        (
-            "energy bottleneck",
-            reports.iter().any(|report| report.limits.energy_bottleneck),
-        ),
-        (
-            "throughput bottleneck",
-            reports
-                .iter()
-                .any(|report| report.limits.throughput_bottleneck),
-        ),
-        (
-            "maintenance warning",
-            reports
-                .iter()
-                .any(|report| report.limits.maintenance_warning),
-        ),
-        (
-            "maintenance service",
-            reports.iter().any(|report| report.maintenance.services > 0),
-        ),
-        (
-            "scenario not requiring maintenance",
-            reports
-                .iter()
-                .any(|report| report.maintenance.services == 0),
-        ),
-        (
-            "maintenance service restores productive capacity",
-            reports.iter().any(|report| {
-                report.maintenance.services > 0
-                    && report.progress.completed_batches == report.progress.target_batches
-            }),
-        ),
-        (
-            "completed work order",
-            reports
-                .iter()
-                .any(|report| report.progress.completed_batches == report.progress.target_batches),
-        ),
-        (
-            "incomplete work order",
-            reports
-                .iter()
-                .any(|report| report.progress.completed_batches < report.progress.target_batches),
-        ),
-        (
-            "mixed-ore processing frontier",
-            reports
-                .iter()
-                .any(|report| report.progress.ore_frontier_visible),
-        ),
-    ];
-
-    requirements
-        .into_iter()
-        .filter_map(|(name, observed)| (!observed).then_some(name))
-        .collect()
-}
-
-fn scenario_contract_gaps(reports: &[ScenarioReport]) -> Vec<String> {
-    let mut gaps = Vec::new();
-    for report in reports {
-        if !report.progress.stimulus_applied {
-            gaps.push(format!(
-                "seed 0x{:016X}: never reached its announced external load stimulus",
-                report.seed
-            ));
-        }
-    }
-    gaps
 }
 
 /// Runs the maintained headless workshop exercise and fails with named contract gaps.

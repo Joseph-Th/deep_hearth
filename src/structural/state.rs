@@ -139,7 +139,6 @@ pub(super) struct StructuralElementConfiguration {
     pub(super) profile: StructuralProfileId,
     pub(super) material: MaterialId,
     pub(super) geometry: StructuralElementGeometry,
-    #[serde(rename = "grounded")]
     pub(super) is_grounded: bool,
 }
 
@@ -152,7 +151,6 @@ pub struct StructuralElementRecord {
     pub(super) embodied_material: Vec<ConsumedMaterialTrace>,
     pub(super) loads: BTreeMap<StructuralLoadKind, Force>,
     pub(super) lifecycle: StructuralLifecycle,
-    #[serde(rename = "cracked")]
     pub(super) is_cracked: bool,
     pub(super) created_at: SimulationTick,
 }

@@ -47,9 +47,7 @@ impl StockpileId {
 /// admit liquid matter up to an authored thermal limit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StockpileStorageProfile {
-    #[serde(rename = "allow_solid")]
     can_store_solid: bool,
-    #[serde(rename = "allow_liquid")]
     can_store_liquid: bool,
     maximum_temperature: Temperature,
 }
