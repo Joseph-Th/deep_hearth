@@ -416,43 +416,45 @@
   wider sweeps. Explicit seed lists fail on malformed entries rather than silently dropping them.
   Routine harness tests keep success output captured; the report lane emits a compact outcome line plus
   a system-interaction line, while `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace.
-  The compact report includes
-  completed work orders, terminal causes, forecast-driven control decisions, structural/WIP recovery,
-  maintenance services, system pressure, and bottleneck prevalence so a wide deterministic sweep is
-  useful as gameplay feedback rather than only a pass/fail result. Starting conditions vary ore
-  grade, batch size, crusher condition, one finite crusher-service replacement stock, two competing
-  structural bays, existing bay load, an exact event tick, an imperfect deterministic regional-snow
-  forecast, and finite mechanical work reserves. Actual snow magnitude is revealed only when the event
-  occurs and is applied to both workshop bays rather than following the selected machine. Wider seed
-  sweeps remain explicit diagnostic exercises rather than a fixed gate or frozen balance claim. The
-  low-power drive is seeded with exactly enough work for the planned order, while the high-power drive
-  remains an optional scarce reserve rather than a hidden completion requirement. The harness no longer
-  injects seed-selected operating personalities. Siting compares forecast-adjusted structural margin
-  while retaining current margin as a tiebreaker; power selection compares reserve, throughput/energy
-  duration, projected condition, the approaching event, and whether a forecasted regional outage makes
-  productive time before the event unusually valuable. The policy refuses to operate into critical
-  condition; when projected wear would cross that boundary it resolves and commits real authored
-  maintenance if replacement stock remains, then reevaluates the power choice with restored condition.
-  Replacement stock is finite and spent matter remains owned rather than disappearing. Lack of usable
-  stored work is reported separately from maintenance supply exhaustion. Weather can arrive during
-  production. If the active support merely strains,
+  The compact report includes completed work orders, terminal causes, announced-load-informed control
+  decisions, structural/WIP recovery, maintenance services, system pressure, and bottleneck prevalence
+  so a wide deterministic sweep is useful as gameplay feedback rather than only a pass/fail result.
+  Starting conditions vary ore grade, batch size, crusher condition, one finite crusher-service
+  replacement stock, two competing structural bays, existing bay load, an exact stimulus tick, an
+  imperfect announced snow-load estimate, and finite mechanical work reserves. Deep Hearth does not
+  yet implement a weather or forecast owner: the snow event is explicitly an external harness stimulus
+  committed through the canonical structural-load transaction. Its actual magnitude is revealed to the
+  acting policy only when the event occurs and is applied to both workshop bays rather than following
+  the selected machine. Wider seed sweeps remain explicit diagnostic exercises rather than a fixed gate
+  or frozen balance claim. Each seed also selects one bounded operating priority: conserve high-power
+  reserve, protect projected equipment condition, or minimize batch completion time. These priorities
+  choose only among legal resolver outputs and never override critical-condition, maintenance, support,
+  energy, or ownership gates. The low-power drive is seeded with exactly enough work for the planned
+  order, while the high-power drive remains an optional scarce reserve rather than a hidden completion
+  requirement. When projected wear would cross the critical boundary the policy resolves and commits
+  real authored maintenance if replacement stock remains, then reevaluates the power choice with
+  restored condition. Replacement stock is finite and spent matter remains owned rather than
+  disappearing. Lack of usable stored work is reported separately from maintenance supply exhaustion.
+  The external load can arrive during production. If the active support merely strains,
   the committed job can finish and the player may then relocate; if the support fails, the production
   job suspends with exact remaining active time and conserved work-in-process. Recovery can relocate
   the occupied machine and resume that work, or leave it visibly stranded when no surviving bay can
-  carry the crusher. Failed structural damage remains persistent either way. Output exposes forecast
-  versus actual load, remaining work reserve, condition band, support state, completed work before the
-  event, suspended/stranded work-in-process, contained copper floor, and crushed ore particle-size
+  carry the crusher. Failed structural damage remains persistent either way. Output exposes briefed
+  versus actual external load, player priority, remaining work reserve, condition band, support state,
+  completed work before the event, suspended/stranded work-in-process, contained copper floor, and
+  crushed ore particle-size
   classes rather than reducing experience coverage to booleans. Ore grade therefore has an honest
   conserved-value effect even though it cannot yet change a downstream processing choice. The harness
-  explicitly identifies the unresolved direct crusher-to-screen boundary and missing concentration/
-  smelting bridge. A separate ore-preparation capability probe runs one actual mixed-ore batch through
-  canonical crushing, verifies direct screening is rejected and the selective fine-grind pass rejects
-  unscreened crusher feed, then grinds the crusher output into explicit size classes and screens those
-  classes into routed 5 mg/5 mg streams. Only the 5 mg oversize stream pays for the fine regrind, and
-  its compatible output coalesces into the existing undersize lot so the final 10 mg batch is entirely
-  within the 0.5-2 mm profile. The probe uses exactly the finite mechanical work budget and checks
-  stage-by-stage persistence invariants, equipment wear, composition preservation, bounded lot
-  fragmentation, and whole-chain matter conservation. Pure-copper melt/cast is exercised once as a
+  identifies the missing concentration/smelting bridge. A separate ore-preparation capability probe
+  derives a legal mixed-ore batch from current authored equipment limits and screen-class
+  representability, then runs canonical crushing, grinding, screening, and any nonzero oversize
+  regrind. Direct crusher-to-screen and crusher-to-fine-grind availability are reported as current
+  observations rather than frozen requirements. Routing follows the resolver's actual nonzero output
+  streams, particle checks compare against authored process distributions/apertures, and the probe
+  checks stage-by-stage persistence invariants, resolved energy use, equipment wear, composition
+  preservation, and whole-chain matter conservation without requiring an arbitrary zero-energy final
+  state. Pure-copper melt/cast uses a seed-varied legal batch derived from the authored furnace/mold
+  limits and is exercised once as a
   separately labeled downstream
   capability probe, not repeated per scenario or presented as a continuous ore-to-metal loop. Matter,
   equipment, initial energy, and structural bays remain explicit setup fixtures until their physical

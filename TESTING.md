@@ -77,19 +77,32 @@ runtime behavior.
 
 The acting policy uses observable state and resolver projections. Hidden authoritative state may be
 used only for diagnostics and postcondition checks. Scenario variation is deterministic and does not
-consume unrelated simulation randomness.
+consume unrelated simulation randomness. A legal scenario may complete zero batches when an in-flight
+job is suspended before its first output; that is gameplay evidence, not a harness failure. The
+maintained matrix owns aggregate experience claims such as completed/incomplete orders, the mixed-ore
+frontier, relocation/recovery, and policy diversity rather than requiring every seed to exhibit every
+behavior.
 
-The maintained workshop loop covers forecast-aware structural siting, finite power choice, active-tick
-wear, exact replacement-stock maintenance, environmental disruption, persistent structural damage,
-production suspension, WIP recovery/stranding, and the current mixed-ore processing frontier. The
-maintenance path uses the production resolver and conserved repair transaction, not a harness-only
-condition reset. The separate ore-preparation and foundry probes remain explicitly labeled capability
-checks until concentration/smelting provides a truthful bridge between those stages.
+The maintained workshop loop covers announced-load-informed structural siting, finite power choice,
+active-tick wear, exact replacement-stock maintenance, external structural disruption, persistent
+structural damage, production suspension, WIP recovery/stranding, and the current mixed-ore processing
+frontier. Deep Hearth does not yet own weather or forecasts, so the harness labels its timed snow load
+as an external stimulus rather than presenting it as implemented gameplay. Player priorities vary by
+seed within bounded deterministic choices: reserve conservation, projected machine condition, or
+completion time. Safety and maintenance gates remain canonical regardless of personality. The acting
+policy never sees the actual future load before the stimulus is committed.
+
+Capability probes derive legal batch sizes, output partitions, and equipment limits from the current
+authored registries instead of duplicating recipe constants. Their assertions focus on conservation,
+resolver/authoring agreement, legal routing, condition changes, and state validity. They may report
+currently unavailable direct routes as observations, but do not freeze those absences into gameplay
+requirements. The ore-preparation and foundry probes remain explicitly labeled capability checks until
+concentration/smelting provides a truthful bridge between those stages.
 
 `cargo test-gameplay` keeps successful harness output captured. `cargo test-gameplay-report` emits one
-compact outcome line plus a `SYSTEMS` line summarizing player control, recovery, pressure, and current
-bottlenecks. Set `DEEP_HEARTH_GAMEPLAY_VERBOSE` to any value before that report lane to emit the
-detailed decision trace. Seed controls are:
+compact outcome line plus a `SYSTEMS` line summarizing policy mix, player control, recovery, pressure,
+and current bottlenecks. Set `DEEP_HEARTH_GAMEPLAY_VERBOSE` to any value before that report lane to
+emit the detailed decision trace. Seed controls are:
 
 - `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED`: replaces the one fixed exploratory seed;
 - `DEEP_HEARTH_GAMEPLAY_SEEDS`: replaces the maintained matrix with an exact comma-separated seed
