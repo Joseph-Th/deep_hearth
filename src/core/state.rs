@@ -9,6 +9,7 @@ use crate::geology::{GeologicalKnowledgeState, GeologyState};
 use crate::inventory::InventoryState;
 use crate::production::ProductionState;
 use crate::structural::StructureState;
+use crate::survival::SurvivalState;
 
 use super::rng::{RandomState, RngStreamId};
 use super::time::{SimulationTick, WorldSeed};
@@ -32,6 +33,7 @@ struct SystemState {
     geological_knowledge: GeologicalKnowledgeState,
     inventory: InventoryState,
     production: ProductionState,
+    survival: SurvivalState,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,6 +60,7 @@ impl AppState {
                 geological_knowledge: GeologicalKnowledgeState::new(),
                 inventory: InventoryState::new(),
                 production: ProductionState::new(),
+                survival: SurvivalState::new(),
             },
         }
     }
@@ -164,6 +167,16 @@ impl AppState {
 
     pub(crate) fn production_state_mut(&mut self) -> &mut ProductionState {
         &mut self.systems.production
+    }
+
+    /// Returns read-only authoritative player survival state.
+    #[must_use]
+    pub const fn survival(&self) -> &SurvivalState {
+        &self.systems.survival
+    }
+
+    pub(crate) fn survival_state_mut(&mut self) -> &mut SurvivalState {
+        &mut self.systems.survival
     }
 }
 

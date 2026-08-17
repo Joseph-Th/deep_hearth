@@ -250,6 +250,24 @@ impl ValidatedProcessInputs {
         )
     }
 
+    pub(crate) fn resolve_without_resources(
+        self,
+        duration: TickSpan,
+        outputs: Vec<MaterialLotSpec>,
+    ) -> Result<ProcessResolution, ProcessResolutionError> {
+        self.resolve_inner(
+            duration,
+            vec![ProcessOutputStream::new(
+                ProcessOutputStreamId::PRIMARY,
+                outputs,
+            )],
+            None,
+            None,
+            None,
+            None,
+        )
+    }
+
     pub(crate) fn resolve_with_energy_and_equipment(
         self,
         duration: TickSpan,

@@ -2,6 +2,7 @@
 //! resources.
 
 use super::*;
+use crate::crafting::validate_loaded_manual_craft_job;
 
 pub(super) fn validate_production_references(
     registries: &Registries,
@@ -157,6 +158,8 @@ pub(super) fn validate_production_references(
         validate_loaded_screening_job(registries, job)
             .map_err(StateValidationError::ScreeningJob)?;
         validate_loaded_thermal_job(registries, job).map_err(StateValidationError::ThermalJob)?;
+        validate_loaded_manual_craft_job(registries, job)
+            .map_err(StateValidationError::ManualCraftJob)?;
         if let Some(suspension) = job.suspension() {
             if suspension.suspended_at() > state.tick() {
                 return Err(StateValidationError::JobSuspendedInFuture {

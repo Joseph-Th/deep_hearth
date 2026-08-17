@@ -159,6 +159,22 @@ impl FluidState {
         self.revision = next_revision;
     }
 
+    /// Applies one validated egress final contents under one owner revision advance.
+    pub(super) fn apply_egress_contents(
+        &mut self,
+        store: FluidStoreId,
+        contents: Option<FluidContents>,
+        next_revision: u64,
+    ) {
+        let Some(record) = self.records.get_mut(&store) else {
+            unreachable!(
+                "validated fluid egress source cannot disappear without a revision change"
+            );
+        };
+        record.contents = contents;
+        self.revision = next_revision;
+    }
+
     /// Iterates fluid stores assigned to one structural support in stable store-ID order.
     pub(crate) fn supported_stores(
         &self,

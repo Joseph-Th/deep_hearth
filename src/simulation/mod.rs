@@ -12,6 +12,9 @@ use crate::production::{
 };
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
+use crate::survival::{
+    SurvivalAssessment, SurvivalTickError, apply_survival_tick, decide_survival_tick,
+};
 
 /// Successful result of one canonical simulation tick.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -19,6 +22,7 @@ pub struct TickOutcome {
     tick: SimulationTick,
     production_availability_changes: Vec<ProductionAvailabilityChange>,
     production_completions: Vec<ProcessCompletion>,
+    survival: Option<SurvivalAssessment>,
 }
 
 impl TickOutcome {
@@ -40,6 +44,12 @@ impl TickOutcome {
     pub fn production_completions(&self) -> &[ProcessCompletion] {
         &self.production_completions
     }
+
+    /// Returns the post-tick player survival projection when survival has been initialized.
+    #[must_use]
+    pub const fn survival(&self) -> Option<SurvivalAssessment> {
+        self.survival
+    }
 }
 
 /// Failure returned before any mutation when a simulation tick cannot advance.
@@ -57,6 +67,8 @@ pub enum TickError {
     EquipmentRevisionExhausted,
     /// Energy storage cannot advance its persisted revision for completed energy release.
     EnergyRevisionExhausted,
+    /// Player survival cannot advance its persisted revision for this tick.
+    SurvivalRevisionExhausted,
     /// A suspended operation cannot schedule its remaining active time within the world clock.
     ProductionResumeTickOverflow {
         job: ProductionJobId,
@@ -90,6 +102,9 @@ impl Display for TickError {
                     "simulation clock exhausted at tick {}",
                     current.value()
                 )
+            }
+            Self::SurvivalRevisionExhausted => {
+                formatter.write_str("survival state revision space is exhausted")
             }
             Self::ProductionResumeTickOverflow {
                 job,
@@ -196,7 +211,8 @@ impl Error for TickError {
             | Self::InventoryRevisionExhausted
             | Self::ProductionRevisionExhausted
             | Self::EquipmentRevisionExhausted
-            | Self::EnergyRevisionExhausted => None,
+            | Self::EnergyRevisionExhausted
+            | Self::SurvivalRevisionExhausted => None,
         }
     }
 }
@@ -238,6 +254,9 @@ pub fn advance_tick(
             }
             CompletionPlanError::StructuralLoad(error) => TickError::StructuralLoad(error),
         })?;
+    let survival_plan = decide_survival_tick(registries, state).map_err(|error| match error {
+        SurvivalTickError::RevisionExhausted => TickError::SurvivalRevisionExhausted,
+    })?;
     let CompletionApplication {
         completions: production_completions,
         availability_changes: production_availability_changes,
@@ -259,6 +278,7 @@ pub fn advance_tick(
         }
         CompletionCommitError::Structure(error) => TickError::Structure(error),
     })?;
+    let survival = apply_survival_tick(state, survival_plan);
     apply_clock_advance(state, next_tick);
 
     validate_invariants(registries, state);
@@ -266,6 +286,7 @@ pub fn advance_tick(
         tick: next_tick,
         production_availability_changes,
         production_completions,
+        survival,
     })
 }
 

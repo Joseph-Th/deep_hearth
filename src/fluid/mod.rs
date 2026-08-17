@@ -2,6 +2,7 @@
 
 mod accounting;
 mod definitions;
+mod egress;
 mod state;
 mod storage_execution;
 mod structural_integration;
@@ -20,8 +21,14 @@ pub use structural_integration::{
     ValidatedFluidSupportChange, validate_mount_fluid_store, validate_unmount_fluid_store,
 };
 
+pub(crate) use egress::{
+    FluidEgressCommitError, FluidEgressError, ValidatedFluidEgress, validate_fluid_egress,
+};
 pub(crate) use state::validate_loaded_fluid;
 pub(crate) use structural_integration::validate_existing_fluid_load;
+
+#[cfg(test)]
+pub(crate) use storage_execution::add_fluid_store_with_contents_for_test;
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};

@@ -87,5 +87,18 @@ pub fn calculate_fluid_volume_accounting(
             .checked_add(volume)
             .ok_or(FluidVolumeAccountingError::TotalVolumeOverflow)?;
     }
+    for (fluid, volume) in state.survival().ingested_fluids() {
+        let current = by_fluid
+            .get(&fluid)
+            .copied()
+            .unwrap_or(AggregateVolume::ZERO);
+        let next = current
+            .checked_add(volume)
+            .ok_or(FluidVolumeAccountingError::FluidVolumeOverflow { fluid })?;
+        by_fluid.insert(fluid, next);
+        total = total
+            .checked_add(volume)
+            .ok_or(FluidVolumeAccountingError::TotalVolumeOverflow)?;
+    }
     Ok(FluidVolumeAccounting { by_fluid, total })
 }

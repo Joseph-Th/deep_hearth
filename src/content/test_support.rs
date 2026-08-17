@@ -2,6 +2,7 @@
 
 use super::{REGISTRY_SCHEMA_VERSION, build_core_definitions, materials, structural};
 use crate::capability::{CapabilityDefinition, CapabilityRegistry};
+use crate::crafting::CraftingRegistry;
 use crate::energy::{EnergyRegistry, EnergyStoreDefinition};
 use crate::equipment::{EquipmentDefinition, EquipmentRegistry};
 use crate::fluid::{FluidDefinition, FluidRegistry};
@@ -11,6 +12,7 @@ use crate::ore_processing::{
 use crate::production::{ProcessDefinition, ProductionRegistry};
 use crate::registry::{Registries, RegistryDomains, RegistryPresentation};
 use crate::shader::ShaderRegistry;
+use crate::survival::SurvivalRegistry;
 use crate::texture::TextureRegistry;
 use crate::thermal::{
     CastingProcessDefinition, MeltingProcessDefinition, SensibleHeatingProcessDefinition,
@@ -21,10 +23,12 @@ struct TestRegistryDomains {
     energy: EnergyRegistry,
     fluid: FluidRegistry,
     capabilities: CapabilityRegistry,
+    crafting: CraftingRegistry,
     equipment: EquipmentRegistry,
     ore_processing: OreProcessingRegistry,
     thermal: ThermalRegistry,
     production: ProductionRegistry,
+    survival: SurvivalRegistry,
 }
 
 impl TestRegistryDomains {
@@ -33,10 +37,12 @@ impl TestRegistryDomains {
             energy: empty_energy_registry(),
             fluid: FluidRegistry::new(std::iter::empty()),
             capabilities: CapabilityRegistry::new(),
+            crafting: CraftingRegistry::new(std::iter::empty()),
             equipment: empty_equipment_registry(),
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: empty_thermal_registry(),
             production: ProductionRegistry::new(),
+            survival: super::survival::build_test_survival_registry(),
         }
     }
 
@@ -45,10 +51,12 @@ impl TestRegistryDomains {
             energy,
             fluid,
             capabilities,
+            crafting,
             equipment,
             ore_processing,
             thermal,
             production,
+            survival,
         } = self;
         Registries::new(
             REGISTRY_SCHEMA_VERSION,
@@ -57,12 +65,14 @@ impl TestRegistryDomains {
                 energy,
                 fluid,
                 capabilities,
+                crafting,
                 equipment,
                 structural: structural::build_structural_registry(),
                 materials: materials::build_material_registry(),
                 ore_processing,
                 thermal,
                 production,
+                survival,
                 presentation: RegistryPresentation {
                     textures: empty_texture_registry(),
                     shaders: empty_shader_registry(),

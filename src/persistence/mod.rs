@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 32;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 33;
 
 /// Borrowed versioned save payload suitable for any Serde encoding adapter.
 #[derive(Debug, Serialize)]
@@ -554,6 +554,12 @@ mod tests {
                     "energy_occupancy": {},
                     "equipment_occupancy": {},
                     "stockpile_occupancy": {}
+                },
+                "survival": {
+                    "revision": 0,
+                    "player": null,
+                    "metabolic_matter": {},
+                    "ingested_fluids": {}
                 }
                 }
             }

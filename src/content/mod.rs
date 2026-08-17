@@ -1,6 +1,7 @@
 //! Built-in immutable game definitions; sibling files own authored definitions for each registry domain.
 
 mod capabilities;
+mod crafting;
 mod energy;
 mod equipment;
 mod fluid;
@@ -12,15 +13,18 @@ mod ore_processing;
 mod processes;
 mod shaders;
 mod structural;
+mod survival;
 #[cfg(test)]
 mod test_support;
 mod textures;
 mod thermal;
 
 use crate::core::quantity::Acceleration;
+use crate::core::time::CalendarDefinition;
 use crate::registry::{
     CoreDefinitions, Registries, RegistryDomains, RegistryPresentation, RegistrySchemaVersion,
 };
+pub use fluid::FLUID_WATER;
 #[cfg(test)]
 use test_support::{
     empty_energy_registry, empty_equipment_registry, empty_shader_registry, empty_texture_registry,
@@ -45,12 +49,15 @@ pub use equipment::{
     EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER,
 };
 pub use materials::{
-    FORM_CONCENTRATE, FORM_CRUSHED, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE,
-    MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_WOOD,
+    FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED, FORM_FOOD, FORM_INGOT, FORM_LOG, FORM_LUMP,
+    FORM_MOLTEN, FORM_ORE, FORM_TOOL, FORM_UNFIRED_POTTERY, MATERIAL_BERRIES, MATERIAL_CHARCOAL,
+    MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_GRAIN, MATERIAL_MEAT, MATERIAL_SLAG, MATERIAL_STONE,
+    MATERIAL_WATER, MATERIAL_WOOD,
 };
 pub use processes::{
     PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
-    PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
+    PROCESS_FORM_CLAY_VESSEL, PROCESS_GRIND_CRUSHED_ORE, PROCESS_KNAP_STONE_TOOL,
+    PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
 };
 #[cfg(feature = "test-shader-validation")]
 pub use shaders::{BuiltInShaderValidationError, validate_builtin_shader_programs};
@@ -71,13 +78,21 @@ pub use textures::{
 
 const DEFAULT_TICKS_PER_SECOND: u16 = 20;
 const DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED: u64 = 9_806_650;
-const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(18);
+const DEFAULT_TICKS_PER_DAY: u64 = 24_000;
+const DEFAULT_DAYS_PER_MONTH: u16 = 8;
+const DEFAULT_MONTHS_PER_YEAR: u16 = 12;
+const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(19);
 
 fn build_core_definitions() -> CoreDefinitions {
     CoreDefinitions::new(
         DEFAULT_TICKS_PER_SECOND,
         Acceleration::from_micrometers_per_second_squared(
             DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED,
+        ),
+        CalendarDefinition::new(
+            DEFAULT_TICKS_PER_DAY,
+            DEFAULT_DAYS_PER_MONTH,
+            DEFAULT_MONTHS_PER_YEAR,
         ),
     )
 }
@@ -92,12 +107,14 @@ pub fn build_registries() -> Registries {
             energy: energy::build_energy_registry(),
             fluid: fluid::build_fluid_registry(),
             capabilities: capabilities::build_capability_registry(),
+            crafting: crafting::build_crafting_registry(),
             equipment: equipment::build_equipment_registry(),
             structural: structural::build_structural_registry(),
             materials: materials::build_material_registry(),
             ore_processing: ore_processing::build_ore_processing_registry(),
             thermal: thermal::build_thermal_registry(),
             production: processes::build_production_registry(),
+            survival: survival::build_survival_registry(),
             presentation: RegistryPresentation {
                 textures: textures::build_texture_registry(),
                 shaders: shaders::build_shader_registry(),
@@ -137,6 +154,10 @@ mod tests {
         assert_eq!(
             registries.core().gravity().micrometers_per_second_squared(),
             DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED
+        );
+        assert_eq!(
+            registries.core().calendar().ticks_per_day(),
+            DEFAULT_TICKS_PER_DAY
         );
     }
 
@@ -331,12 +352,14 @@ mod tests {
                 energy: empty_energy_registry(),
                 fluid: fluid::build_fluid_registry(),
                 capabilities,
+                crafting: crate::crafting::CraftingRegistry::new(std::iter::empty()),
                 equipment: empty_equipment_registry(),
                 structural: structural::build_structural_registry(),
                 materials: materials::build_material_registry(),
                 ore_processing: OreProcessingRegistry::new(std::iter::empty()),
                 thermal: empty_thermal_registry(),
                 production,
+                survival: survival::build_survival_registry(),
                 presentation: RegistryPresentation {
                     textures: empty_texture_registry(),
                     shaders: empty_shader_registry(),
@@ -427,12 +450,14 @@ mod tests {
                     energy: empty_energy_registry(),
                     fluid: fluid::build_fluid_registry(),
                     capabilities,
+                    crafting: crate::crafting::CraftingRegistry::new(std::iter::empty()),
                     equipment: empty_equipment_registry(),
                     structural: structural::build_structural_registry(),
                     materials: materials::build_material_registry(),
                     ore_processing,
                     thermal,
                     production,
+                    survival: survival::build_survival_registry(),
                     presentation: RegistryPresentation {
                         textures: empty_texture_registry(),
                         shaders: empty_shader_registry(),

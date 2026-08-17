@@ -366,6 +366,10 @@ impl OreProcessingRegistry {
             .copied()
     }
 
+    pub(crate) fn has_process(&self, process: ProcessId) -> bool {
+        self.comminution.contains_key(&process) || self.screening.contains_key(&process)
+    }
+
     pub(crate) fn validate_references(
         &self,
         production: &ProductionRegistry,

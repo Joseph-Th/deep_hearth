@@ -50,6 +50,7 @@ pub struct StockpileStorageProfile {
     can_store_solid: bool,
     can_store_liquid: bool,
     maximum_temperature: Temperature,
+    preservation_multiplier_ppm: u32,
 }
 
 impl StockpileStorageProfile {
@@ -63,6 +64,25 @@ impl StockpileStorageProfile {
             can_store_solid,
             can_store_liquid,
             maximum_temperature,
+            preservation_multiplier_ppm: 1_000_000,
+        };
+        profile.validate()?;
+        Ok(profile)
+    }
+
+    /// Builds containment with an explicit multiplier applied to authored perishability lifetimes.
+    /// One million ppm is ambient storage; larger values extend shelf life.
+    pub fn with_preservation(
+        can_store_solid: bool,
+        can_store_liquid: bool,
+        maximum_temperature: Temperature,
+        preservation_multiplier_ppm: u32,
+    ) -> Result<Self, StockpileStorageProfileError> {
+        let profile = Self {
+            can_store_solid,
+            can_store_liquid,
+            maximum_temperature,
+            preservation_multiplier_ppm,
         };
         profile.validate()?;
         Ok(profile)
@@ -75,6 +95,7 @@ impl StockpileStorageProfile {
             can_store_solid: true,
             can_store_liquid: false,
             maximum_temperature: Temperature::from_millikelvin(u32::MAX),
+            preservation_multiplier_ppm: 1_000_000,
         }
     }
 
@@ -91,12 +112,21 @@ impl StockpileStorageProfile {
         self.maximum_temperature
     }
 
+    /// Returns the multiplier applied to food or other perishable shelf-life definitions.
+    #[must_use]
+    pub const fn preservation_multiplier_ppm(self) -> u32 {
+        self.preservation_multiplier_ppm
+    }
+
     pub(crate) fn validate(self) -> Result<(), StockpileStorageProfileError> {
         if !self.can_store_solid && !self.can_store_liquid {
             return Err(StockpileStorageProfileError::NoAcceptedPhase);
         }
         if self.maximum_temperature.millikelvin() == 0 {
             return Err(StockpileStorageProfileError::ZeroMaximumTemperature);
+        }
+        if self.preservation_multiplier_ppm == 0 {
+            return Err(StockpileStorageProfileError::ZeroPreservationMultiplier);
         }
         Ok(())
     }
@@ -107,6 +137,7 @@ impl StockpileStorageProfile {
 pub enum StockpileStorageProfileError {
     NoAcceptedPhase,
     ZeroMaximumTemperature,
+    ZeroPreservationMultiplier,
 }
 
 impl Display for StockpileStorageProfileError {
@@ -117,6 +148,9 @@ impl Display for StockpileStorageProfileError {
             Self::ZeroMaximumTemperature => formatter.write_str(
                 "stockpile storage profile maximum temperature must be above absolute zero",
             ),
+            Self::ZeroPreservationMultiplier => {
+                formatter.write_str("stockpile preservation multiplier must be nonzero")
+            }
         }
     }
 }

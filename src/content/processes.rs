@@ -2,6 +2,7 @@
 
 use crate::capability::{CapabilityComparison, CapabilityRequirement, CapabilityValue};
 use crate::core::quantity::{Mass, MassFlow, Power, Temperature};
+use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::production::{ProcessDefinition, ProcessId, ProductionRegistry};
 
 use super::capabilities::{
@@ -10,6 +11,7 @@ use super::capabilities::{
     CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW, CAPABILITY_THERMAL_BATCH,
     CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
+use super::{FORM_LUMP, MATERIAL_CLAY, MATERIAL_STONE};
 
 pub const PROCESS_CRUSH_ORE: ProcessId = ProcessId::new(1);
 pub const PROCESS_MELT_PURE_COPPER: ProcessId = ProcessId::new(2);
@@ -17,6 +19,8 @@ pub const PROCESS_CAST_PURE_COPPER: ProcessId = ProcessId::new(3);
 pub const PROCESS_SCREEN_CRUSHED_ORE: ProcessId = ProcessId::new(4);
 pub const PROCESS_GRIND_CRUSHED_ORE: ProcessId = ProcessId::new(5);
 pub const PROCESS_FINE_GRIND_SCREEN_OVERSIZE: ProcessId = ProcessId::new(6);
+pub const PROCESS_KNAP_STONE_TOOL: ProcessId = ProcessId::new(7);
+pub const PROCESS_FORM_CLAY_VESSEL: ProcessId = ProcessId::new(8);
 
 pub(crate) fn build_production_registry() -> ProductionRegistry {
     let mut registry = ProductionRegistry::new();
@@ -126,6 +130,24 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
                     CapabilityValue::Mass(Mass::from_milligrams(1)),
                 ),
             ],
+        ),
+        ProcessDefinition::new(
+            PROCESS_KNAP_STONE_TOOL,
+            "knap stone tool",
+            vec![MaterialInputSpec::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+                Mass::from_milligrams(1_000),
+            )],
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_FORM_CLAY_VESSEL,
+            "form clay vessel",
+            vec![MaterialInputSpec::new(
+                CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
+                Mass::from_milligrams(1_000),
+            )],
+            Vec::new(),
         ),
     ] {
         registry.register_process(process);

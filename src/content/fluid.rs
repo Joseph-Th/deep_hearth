@@ -1,7 +1,16 @@
-//! Built-in fluid definitions; registrations remain empty until phase-aware world fluid content is authored.
+//! Built-in finite fluid identities; world sources remain owned by future hydrology generation.
 
-use crate::fluid::{FluidDefinition, FluidRegistry};
+use crate::fluid::{FluidDefinition, FluidDefinitionId, FluidRegistry};
+
+use super::MATERIAL_WATER;
+
+pub const FLUID_WATER: FluidDefinitionId = FluidDefinitionId::new(1);
 
 pub(crate) fn build_fluid_registry() -> FluidRegistry {
-    FluidRegistry::new(std::iter::empty::<FluidDefinition>())
+    FluidRegistry::new([FluidDefinition::new(
+        FLUID_WATER,
+        "water",
+        MATERIAL_WATER,
+        1_000,
+    )])
 }

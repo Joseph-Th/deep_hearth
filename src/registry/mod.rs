@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::capability::CapabilityRegistry;
 use crate::core::quantity::Acceleration;
+use crate::core::time::CalendarDefinition;
+use crate::crafting::CraftingRegistry;
 use crate::energy::EnergyRegistry;
 use crate::equipment::EquipmentRegistry;
 use crate::fluid::FluidRegistry;
@@ -14,6 +16,7 @@ use crate::ore_processing::OreProcessingRegistry;
 use crate::production::ProductionRegistry;
 use crate::shader::ShaderRegistry;
 use crate::structural::StructuralRegistry;
+use crate::survival::SurvivalRegistry;
 use crate::texture::TextureRegistry;
 use crate::thermal::ThermalRegistry;
 
@@ -39,10 +42,15 @@ impl RegistrySchemaVersion {
 pub struct CoreDefinitions {
     ticks_per_second: NonZeroU16,
     gravity: Acceleration,
+    calendar: CalendarDefinition,
 }
 
 impl CoreDefinitions {
-    pub(crate) fn new(ticks_per_second: u16, gravity: Acceleration) -> Self {
+    pub(crate) fn new(
+        ticks_per_second: u16,
+        gravity: Acceleration,
+        calendar: CalendarDefinition,
+    ) -> Self {
         let Some(ticks_per_second) = NonZeroU16::new(ticks_per_second) else {
             panic!("core registry ticks_per_second must be nonzero");
         };
@@ -50,6 +58,7 @@ impl CoreDefinitions {
         Self {
             ticks_per_second,
             gravity,
+            calendar,
         }
     }
 
@@ -63,6 +72,12 @@ impl CoreDefinitions {
     #[must_use]
     pub const fn gravity(&self) -> Acceleration {
         self.gravity
+    }
+
+    /// Returns the immutable calendar used to project ticks into days and seasons.
+    #[must_use]
+    pub const fn calendar(&self) -> CalendarDefinition {
+        self.calendar
     }
 }
 
@@ -80,12 +95,14 @@ pub(crate) struct RegistryDomains {
     pub(crate) energy: EnergyRegistry,
     pub(crate) fluid: FluidRegistry,
     pub(crate) capabilities: CapabilityRegistry,
+    pub(crate) crafting: CraftingRegistry,
     pub(crate) equipment: EquipmentRegistry,
     pub(crate) structural: StructuralRegistry,
     pub(crate) materials: MaterialRegistry,
     pub(crate) ore_processing: OreProcessingRegistry,
     pub(crate) thermal: ThermalRegistry,
     pub(crate) production: ProductionRegistry,
+    pub(crate) survival: SurvivalRegistry,
     pub(crate) presentation: RegistryPresentation,
 }
 
@@ -103,6 +120,9 @@ impl Registries {
     ) -> Self {
         domains.fluid.validate_references(&domains.materials);
         domains
+            .crafting
+            .validate_references(&domains.production, &domains.materials);
+        domains
             .equipment
             .validate_references(&domains.capabilities, &domains.materials);
         domains
@@ -113,6 +133,9 @@ impl Registries {
             &domains.capabilities,
             &domains.materials,
         );
+        domains
+            .survival
+            .validate_references(&domains.materials, &domains.fluid);
         domains.thermal.validate_references(
             &domains.production,
             &domains.capabilities,
@@ -126,6 +149,14 @@ impl Registries {
             assert!(
                 !domains.thermal.has_process(process),
                 "process {} cannot own both ore-processing and thermal resolver semantics",
+                process.value()
+            );
+        }
+        for process in domains.crafting.process_ids() {
+            assert!(
+                !domains.ore_processing.has_process(process)
+                    && !domains.thermal.has_process(process),
+                "manual craft process {} cannot also own machine resolver semantics",
                 process.value()
             );
         }
@@ -166,6 +197,12 @@ impl Registries {
         &self.domains.capabilities
     }
 
+    /// Returns immutable manual shaping definitions.
+    #[must_use]
+    pub const fn crafting(&self) -> &CraftingRegistry {
+        &self.domains.crafting
+    }
+
     /// Returns immutable maintainable equipment definitions.
     #[must_use]
     pub const fn equipment(&self) -> &EquipmentRegistry {
@@ -200,6 +237,12 @@ impl Registries {
     #[must_use]
     pub const fn production(&self) -> &ProductionRegistry {
         &self.domains.production
+    }
+
+    /// Returns immutable physiology and edible/drinkable definitions.
+    #[must_use]
+    pub const fn survival(&self) -> &SurvivalRegistry {
+        &self.domains.survival
     }
 
     /// Returns immutable palette, texture, and block/object appearance definitions.

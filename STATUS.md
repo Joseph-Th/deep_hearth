@@ -4,16 +4,19 @@
 
 - Headless deterministic Rust simulation core with no renderer or engine dependency.
 - Immutable registry aggregate with separate authored-ID compatibility version.
-- Typed absolute `SimulationTick`, relative `TickSpan`, and deterministic periodic phase scheduling.
+- Typed absolute `SimulationTick`, relative `TickSpan`, deterministic periodic phase scheduling, and
+  an authored 96-day calendar projected into twelve months and four equal seasons without mutable
+  calendar counters.
 - Persisted independent RNG streams derived from the world seed.
-- Consequential production, inventory, structural, equipment, energy, fluid, geology, and geological
-  knowledge backing collections are private to their state owners. Synchronized indexes change only
-  through owner methods that update each related collection in one mutation boundary.
+- Consequential production, inventory, structural, equipment, energy, fluid, geology, geological
+  knowledge, and player-survival backing collections are private to their state owners. Synchronized
+  indexes change only through owner methods that update each related collection in one mutation
+  boundary.
 - Wide runtime and coordination records are grouped by ownership concern rather than accumulating
   flat field lists: root runtime systems, production-job identity/schedule/resources/equipment,
   registry presentation domains, screening resolution constraints, completion revision contracts,
   and gameplay-harness inputs/reports each have explicit nested profiles. The resulting persistent
-  layout is save schema 32 and remains current-schema-only; no historical layout shim or migration is
+  layout is save schema 33 and remains current-schema-only; no historical layout shim or migration is
   retained.
 - Explicit authoritative integer quantities for mass, aggregate mass, temperature, energy,
   pressure, area, length, acceleration, force, power, torque, angular speed, voltage, current,
@@ -36,7 +39,8 @@
 - Capacity-aware stockpiles with derived commodity totals, cached mass, inbound reservations,
   revision-bound atomic transfers between distinct stockpiles, deterministic splitting,
   compatible-fragment coalescing, and a persisted material-containment envelope for accepted
-  solid/liquid phases and maximum temperature.
+  solid/liquid phases, maximum temperature, and an explicit preservation multiplier used by
+  perishable content.
   Stockpile allocation requires that containment envelope explicitly; there is no compatibility
   allocator that silently chooses one. Every deposit, ingress, transfer, future production output,
   and exhaustive save audit rechecks phase and temperature compatibility.
@@ -90,6 +94,26 @@
   and deterministic stockpile-to-job occupancy indexing. Repeated equipment and stockpile busy checks
   use keyed lookups rather than scanning every active job. Physical resolvers consume the same exact
   lot selection they inspected rather than reselecting equivalent-looking matter at commit.
+- Manual shaping is a first-class resolver family that reuses the same fixed-feed production start,
+  reservation, due-tick, completion, persistence, and conservation path as machines. Built-in stone
+  knapping converts 1,000 mg of stone lump into an 800 mg tool form plus 200 mg of chips over 40
+  active ticks; clay forming converts 1,000 mg of clay lump into 1,000 mg of unfired pottery over 80
+  active ticks. Manual work requires a living initialized player, preserves input temperature and
+  pure material identity, consumes no invented machine resource, and is independently replay-audited
+  on load so forged duration or output snapshots are rejected.
+- Persistent player survival has explicit admission, owner revision, metabolic-energy reserve,
+  hydration reserve, normalized vitality, hunger/thirst assessments, deterministic basal depletion,
+  and starvation/dehydration vitality loss in the canonical tick pipeline. Survival remains absent
+  from bootstrap states until initialized, so non-player simulations do not acquire hidden upkeep.
+- Grain, berries, and meat are authored edible commodities with dietary energy and finite shelf life;
+  stockpile preservation extends that shelf life explicitly. Eating transfers an exact fresh pure-food
+  lot selection out of inventory under inventory/structural/survival revision checks, while the
+  biological owner retains the consumed material mass in bounded per-material accounting rather than
+  deleting it. Spoiled matter remains physical inventory but is no longer edible.
+- Water is an authored finite fluid identity and the survival registry marks it drinkable. Drinking
+  uses a reusable exact fluid-egress transaction, rechecks supported-fluid structural load, and moves
+  the withdrawn volume into bounded per-fluid biological ownership. World fluid-volume accounting
+  therefore remains exactly conservative even when the hydration reserve is already near full.
 - Typed authored capability requirements with physical value kinds and registry-reference validation.
   Canonical crusher and foundry content uses the same capability and production registries as runtime
   resolution; additional process content remains gated on corresponding physical providers and
@@ -193,8 +217,9 @@
 - Persistent finite fluid stores with monotonic runtime IDs/revisions, explicit capacity, homogeneous
   authored fluid identity, volume, temperature, optional structural support assignment, and a
   synchronized support-to-store reverse index. Fluid definitions are registry-owned, cross-reference
-  underlying material identity, and author constant bulk density for exact weight projection; the
-  built-in fluid registry remains intentionally empty until phase-aware world fluid content exists.
+  underlying material identity, and author constant bulk density for exact weight projection. The
+  built-in registry now contains water as a real finite fluid identity, while hydrology/world
+  generation still owns the unresolved question of where water physically comes from.
   Public runtime allocation creates empty capacity only, so the storage owner cannot manufacture
   water or other fluid. Revision-bound transfer commits conserve exact aggregate volume and clear
   zero-volume identities canonically. Supported transfers resolve both stores' final contents and all
@@ -549,8 +574,9 @@
   furnace, and casting mold; richer voxel/container equipment placement beyond a structural support
   owner; repair tools/labor/duration/access, richer spare-part suitability, replacement and waste
   transformations, discrete capability-disable policies, and broader authored maintenance/degradation
-  profiles. The jaw crusher now has a real replacement-stock maintenance resolver, but that narrow
-  service does not pretend unresolved tooling, labor, time, or chemistry already exist.
+  profiles. A conserved stone tool material form now exists as a knapping output, but it is not yet an
+  equipment capability provider. The jaw crusher has a real replacement-stock maintenance resolver,
+  but that narrow service does not pretend unresolved tooling, labor, time, or chemistry already exist.
 - Richer physical construction and demolition resolution: member orientation/end geometry,
   joints/connections, cutting and placement waste, tools, labor, duration, salvage fractions, debris
   transformation, and non-identity-preserving demolition outputs. Current prismatic geometry resolves
@@ -571,8 +597,10 @@
   wear, labor/skill, chemistry, and environmental constraints. Weighted particle-size classes and
   typed multi-stream ownership now support exact conservative classification where the authored
   aperture lies between resolved classes, but the simulation still refuses to invent a split through
-  an unresolved class. The canonical crush/grind/screen/pure-melt/pure-cast processes are registered;
-  additional gameplay processes remain unregistered until their corresponding physical gates exist.
+  an unresolved class. Canonical manual knapping/clay forming and
+  crush/grind/screen/pure-melt/pure-cast processes are registered; additional gameplay processes remain
+  unregistered until their corresponding physical gates exist. Unfired pottery deliberately stops
+  before firing because combustion, fuel heat transfer, and pit/kiln thermal ownership are unresolved.
 - Persistent mechanical-power networks and shaft/belt layout, rotational inertia/flywheels, slip and
   clutch state, steam/boilers, electrical networks, transformers, protection, and distribution
   topology, plus conserved primary energy-generation paths for finite stores. Directional finite
@@ -582,11 +610,13 @@
 - Pressure/gravity-resolved hydrology topology, terrain/surface/groundwater ownership, precipitation
   and runoff, pumps, irrigation, sanitation, wastewater, contamination/water-quality mixtures,
   temperature/pressure-dependent fluid properties, and a phase-aware bridge between conserved
-  material mass and hydraulic fluid volume. The current finite fluid owner now contributes real
-  support weight but remains a storage/conservation boundary, not a pathless movement or water-spawn
-  shortcut.
-- Agriculture, soil processes, ecology, genetics, creatures, workers, settlements, logistics, trade,
-  economy, migration, and other gameplay systems.
+  material mass and hydraulic fluid volume. The built-in water identity and current finite fluid
+  owner provide storage, drinking, conservation, and real support weight, but still provide no
+  pathless movement or water-spawn shortcut.
+- Agriculture, soil processes, ecology, genetics, creatures, hunting/combat, workers, settlements,
+  logistics, trade, economy, migration, and other gameplay systems. The calendar, seasons,
+  perishability, and food physiology are now foundations for agriculture rather than substitutes for
+  crop growth or ecology.
 - Save-file encoding/storage, compression, atomic filesystem writes, and cloud storage. Historical
   save-schema migration is intentionally unsupported rather than deferred.
 - Spatial/world performance benchmarks required before final chunk and streaming architecture.

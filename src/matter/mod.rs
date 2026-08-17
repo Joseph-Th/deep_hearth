@@ -13,6 +13,7 @@ pub struct MatterAccounting {
     structural: AggregateMass,
     stored: AggregateMass,
     in_process: AggregateMass,
+    metabolic: AggregateMass,
     total: AggregateMass,
 }
 
@@ -41,6 +42,12 @@ impl MatterAccounting {
         self.in_process
     }
 
+    /// Matter transferred from food inventory into the biological metabolism boundary.
+    #[must_use]
+    pub const fn metabolic(self) -> AggregateMass {
+        self.metabolic
+    }
+
     /// Total matter represented by the implemented authoritative matter owners.
     #[must_use]
     pub const fn total(self) -> AggregateMass {
@@ -55,6 +62,7 @@ pub enum MatterAccountingError {
     StructuralMassOverflow,
     StoredMassOverflow,
     InProcessMassOverflow,
+    MetabolicMassOverflow,
     TotalMassOverflow,
 }
 
@@ -72,6 +80,9 @@ impl Display for MatterAccountingError {
             }
             Self::InProcessMassOverflow => {
                 formatter.write_str("in-process world matter exceeds aggregate mass range")
+            }
+            Self::MetabolicMassOverflow => {
+                formatter.write_str("metabolic world matter exceeds aggregate mass range")
             }
             Self::TotalMassOverflow => {
                 formatter.write_str("total world matter exceeds aggregate mass range")
@@ -126,18 +137,28 @@ pub fn calculate_matter_accounting(
         }
     }
 
+    let mut metabolic = AggregateMass::ZERO;
+    for (_, mass) in state.survival().metabolic_matter() {
+        metabolic = metabolic
+            .checked_add(mass)
+            .ok_or(MatterAccountingError::MetabolicMassOverflow)?;
+    }
+
     let total = geological
         .checked_add(structural)
         .ok_or(MatterAccountingError::TotalMassOverflow)?
         .checked_add(stored)
         .ok_or(MatterAccountingError::TotalMassOverflow)?
         .checked_add(in_process)
+        .ok_or(MatterAccountingError::TotalMassOverflow)?
+        .checked_add(metabolic)
         .ok_or(MatterAccountingError::TotalMassOverflow)?;
     Ok(MatterAccounting {
         geological,
         structural,
         stored,
         in_process,
+        metabolic,
         total,
     })
 }

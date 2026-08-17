@@ -54,6 +54,10 @@ an absolute tick cannot be passed accidentally where a duration is required. The
 starts at 20 ticks per second; this is a technical cadence, not a promise that every subsystem
 updates at 20 Hz.
 
+`CalendarDefinition` is immutable registry content. It projects authoritative ticks into year,
+month, day, day-relative tick, and one of four seasons without introducing mutable calendar state.
+The built-in calendar uses 24,000 ticks per day, eight days per month, and twelve months per year.
+
 `PeriodicSchedule` provides deterministic clock-derived phase scheduling for static slow systems
 such as ecology, soil, weather, migration, and settlement economics without introducing callbacks or
 hidden mutable countdown state. Dynamic scheduled work such as production remains explicit persisted
@@ -64,8 +68,8 @@ records with dedicated indexes.
 `AppState` is the root of generated mutable state that must survive restart boundaries. It currently
 owns the world seed, authoritative clock, independent deterministic RNG streams, finite-energy
 stores, finite fluid stores, equipment records, structural records, finite geological deposits,
-acquired geological knowledge, inventory, and production. New subsystems add explicit owned state
-rather than turning `AppState` into a bag of unrelated maps.
+acquired geological knowledge, inventory, production, and optional initialized player survival. New
+subsystems add explicit owned state rather than turning `AppState` into a bag of unrelated maps.
 
 Runtime records use typed persistent IDs. Each subsystem owns its record collections and synchronized
 indexes; callers receive read-only views and canonical systems retain mutation access. State owner
@@ -96,6 +100,9 @@ into the runtime state surface.
 - `ProductionState` owns active jobs, generated job IDs, a due-tick index, synchronized exclusive
   energy-store-to-job and equipment-to-job occupancy indexes, a stockpile-to-job-set occupancy index,
   and an owner revision.
+- `SurvivalState` owns the admitted player's metabolic-energy, hydration, and vitality reserves plus
+  bounded per-material metabolic matter and per-fluid ingested-volume ownership. These biological
+  reservoirs keep eating and drinking conservative without retaining an unbounded meal history.
 - Validated transaction tokens bind to the exact owner revisions they checked, preventing stale
   commits after intervening mutation.
 
@@ -117,10 +124,11 @@ The core defines a current-schema semantic save envelope while deliberately leav
 storage to adapters. `CURRENT_SAVE_SCHEMA_VERSION` in `src/persistence/mod.rs` is the sole owner of
 the accepted save schema version. Authored identity/physics compatibility is tracked separately by
 `RegistrySchemaVersion`; the built-in content registry owns its current value in `src/content/mod.rs`.
-Core gravity, material phase/fusion semantics, physical form and particle-state policies, fluid
-identity/density definitions, directional energy-store semantics, and operation-specific resolver
-identities are part of that immutable registry contract because changing them can alter persisted
-physical consequences even when authored IDs are unchanged.
+Core gravity/calendar semantics, material phase/fusion semantics, physical form and particle-state
+policies, fluid identity/density definitions, survival physiology/food/drink definitions, directional
+energy-store semantics, and operation-specific resolver identities are part of that immutable registry
+contract because changing them can alter persisted physical consequences even when authored IDs are
+unchanged.
 
 Persistence is deliberately current-schema-only. `LoadedSaveEnvelope` represents the one payload
 shape this build supports, and `into_state` rejects any save-schema or registry-schema mismatch before
@@ -148,7 +156,10 @@ mass-specific work, carrier, condition-sensitive throughput, power-limited durat
 post-operation wear. Current-schema lot,
 output, and consumed-trace validation also rejects particle-size state that disagrees with the
 authored form policy. Screening jobs independently recompute their aperture partition, typed stream
-identities, exact output distributions, finite work, duration, and condition outcome.
+identities, exact output distributions, finite work, duration, and condition outcome. Manual shaping
+jobs independently replay their exact input identity/composition/temperature, duration, no-resource
+contract, and conserved output forms. Survival load validation bounds physiology and rejects forged
+non-food metabolic matter or non-drinkable ingested fluid identities.
 
 Filesystem layout, compression, atomic writes, and cloud storage remain adapter work. Historical
 save-schema migration is intentionally unsupported.
@@ -610,7 +621,7 @@ cubic meter. Density is fluid-specific rather than borrowed from the underlying 
 density and is part of registry compatibility because it changes persistent structural consequences.
 `FluidStoreRecord` owns finite volume, temperature, and one optional structural support assignment;
 `FluidState` owns the synchronized support-to-store reverse index. Runtime allocation creates empty
-capacity only.
+capacity only. Built-in water supplies an authored identity and density, not a world source.
 
 `StructuralLoadKind::Fluid` is exclusively owned by the fluid integration. For each structural
 support, exact `volume_uL * density_kg_per_m3` numerators are summed across every supported store
@@ -632,6 +643,19 @@ and `FluidTransferOutcome` exposes any resulting structural analysis. Transfers 
 identities or temperatures instead of inventing mixture chemistry or thermal equilibration. Pressure,
 gravity-driven routing, channels, pumps, temperature/pressure-dependent density, surface water,
 groundwater, and a mass/volume phase bridge remain future owners.
+
+Survival drinking uses a narrower internal egress transaction because the physical destination is the
+player rather than another store. It validates exact source volume, fluid identity, owner revision,
+and any supported-store load reduction before transferring that volume into `SurvivalState`'s
+per-fluid ingestion reservoir. Global fluid accounting includes both stores and biological ownership.
+
+Manual crafting is not an alternate inventory recipe system. `CraftingRegistry` authors fixed-feed,
+same-material shaping semantics and durations for no-machine work. `resolve_manual_craft` requires a
+living initialized player, binds ordinary production inputs, refuses mixed composition or mixed
+temperature rather than inventing chemistry/thermal equilibration, and then emits a normal
+`ProcessResolution`. Production owns the consumed matter while the work is in flight and inventory
+receives the conserved outputs at normal completion. Built-in knapping and unfired clay forming stop
+at the boundary where real firing/tool-use physics would be required.
 
 Thermal phase-change production builds on these boundaries. Pure-material melting combines sensible
 heating to the fusion point with authored latent heat and requires a liquid-capable destination.
@@ -774,8 +798,11 @@ demolition/salvage resolvers, environmental thermal fields/heat transport, vapor
 phase diagrams, combustion/emissions, chemical smelting/reduction, forging/machining, real
 equipment/tool/worker capability providers, persistent mechanical networks/inertia/slip,
 steam/boilers, electrical topology/transformers/protection, pressure/gravity-resolved hydrology and
-fluid networks, agriculture, ecology/genetics, creatures/workers, settlements/logistics/trade, and
-save-file storage adapters. Historical save-schema migration remains intentionally unsupported.
+fluid networks, agriculture/crop growth, ecology/genetics, creatures/hunting/combat, workers,
+settlements/logistics/trade, and save-file storage adapters. Calendar seasons, survival physiology,
+perishable food, finite drinking water, and manual knapping/clay forming are implemented foundations,
+not claims that those remaining world/ecology/technology owners already exist. Historical save-schema
+migration remains intentionally unsupported.
 
 New systems must integrate through owned records, immutable definitions, typed IDs/quantities,
 canonical mutations, dedicated errors, persistence semantics, invariant coverage, and behavioral

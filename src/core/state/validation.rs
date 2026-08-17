@@ -8,6 +8,7 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::{AggregateMass, Energy, Force, Mass};
 use crate::core::rng::RandomStateValidationError;
 use crate::core::time::{SimulationTick, WorldSeed};
+use crate::crafting::ManualCraftJobValidationError;
 use crate::energy::{EnergyValidationError, validate_loaded_energy};
 use crate::equipment::{
     EquipmentDefinitionId, EquipmentId, EquipmentValidationError, validate_loaded_equipment,
@@ -42,6 +43,7 @@ use crate::structural::{
     StructuralLoadKind, StructureValidationError, analyze_structure,
     calculate_aggregate_weight_force_ceiling, validate_loaded_structure,
 };
+use crate::survival::{SurvivalValidationError, validate_loaded_survival};
 use crate::thermal::{ThermalJobValidationError, validate_loaded_thermal_job};
 
 use super::AppState;
@@ -74,6 +76,7 @@ pub enum StateValidationError {
     GeologicalKnowledge(GeologicalKnowledgeValidationError),
     Inventory(InventoryValidationError),
     Production(ProductionValidationError),
+    Survival(SurvivalValidationError),
     UnknownStoredCommodity {
         stockpile: StockpileId,
         commodity: CommodityKey,
@@ -221,6 +224,7 @@ pub enum StateValidationError {
     ComminutionJob(ComminutionJobValidationError),
     ScreeningJob(ScreeningJobValidationError),
     ThermalJob(ThermalJobValidationError),
+    ManualCraftJob(ManualCraftJobValidationError),
     JobAlreadyDue {
         job: ProductionJobId,
         current: SimulationTick,
@@ -299,6 +303,7 @@ impl Display for StateValidationError {
             }
             Self::Inventory(error) => write!(formatter, "invalid inventory state: {error}"),
             Self::Production(error) => write!(formatter, "invalid production state: {error}"),
+            Self::Survival(error) => write!(formatter, "invalid survival state: {error}"),
             Self::UnknownStoredCommodity {
                 stockpile,
                 commodity,
@@ -593,6 +598,9 @@ impl Display for StateValidationError {
                 write!(formatter, "invalid screening production job: {error}")
             }
             Self::ThermalJob(error) => write!(formatter, "invalid thermal production job: {error}"),
+            Self::ManualCraftJob(error) => {
+                write!(formatter, "invalid manual crafting production job: {error}")
+            }
             Self::JobAlreadyDue { job, current, due } => write!(
                 formatter,
                 "production job {} is due at tick {} but current tick is {}",
@@ -667,9 +675,11 @@ impl Error for StateValidationError {
             Self::GeologicalKnowledge(error) => Some(error),
             Self::Inventory(error) => Some(error),
             Self::Production(error) => Some(error),
+            Self::Survival(error) => Some(error),
             Self::ComminutionJob(error) => Some(error),
             Self::ScreeningJob(error) => Some(error),
             Self::ThermalJob(error) => Some(error),
+            Self::ManualCraftJob(error) => Some(error),
             Self::JobOutputStorage { job: _job, error } => Some(error),
             Self::InvalidJobConsumedParticleSizeState { job: _job, error } => Some(error),
             Self::FluidStructuralLoad(error) => Some(error),
@@ -900,6 +910,13 @@ pub fn validate_loaded_state(
     .map_err(StateValidationError::GeologicalKnowledge)?;
     validate_loaded_production(&state.systems.production)
         .map_err(StateValidationError::Production)?;
+    validate_loaded_survival(
+        registries.survival(),
+        registries.materials(),
+        registries.fluid(),
+        &state.systems.survival,
+    )
+    .map_err(StateValidationError::Survival)?;
 
     validate_inventory_references(registries, state)?;
     validate_production_references(registries, state)?;
@@ -908,7 +925,7 @@ pub fn validate_loaded_state(
 }
 
 /// Asserts every cheap runtime invariant in debug builds.
-pub fn validate_invariants(_registries: &Registries, state: &AppState) {
+pub fn validate_invariants(registries: &Registries, state: &AppState) {
     debug_assert!(
         state.random.has_valid_core_stream(),
         "Runtime Invariant 11 (Serialization Completeness): core RNG stream must remain valid"
@@ -952,5 +969,12 @@ pub fn validate_invariants(_registries: &Registries, state: &AppState) {
             .earliest_due_tick()
             .is_none_or(|due| due > state.tick()),
         "Runtime Invariant 6 (Lifecycle Validity): no active production job may remain due"
+    );
+    debug_assert!(
+        state
+            .systems
+            .survival
+            .has_valid_player_bounds(registries.survival().physiology()),
+        "Runtime Invariant 6 (Lifecycle Validity): player survival quantities must remain within authored bounds"
     );
 }

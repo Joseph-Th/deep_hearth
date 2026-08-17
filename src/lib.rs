@@ -5,6 +5,7 @@
 pub mod capability;
 pub mod content;
 pub mod core;
+pub mod crafting;
 pub mod electrical;
 pub mod energy;
 pub mod equipment;
@@ -23,6 +24,7 @@ pub mod shader;
 pub mod simulation;
 pub mod spatial;
 pub mod structural;
+pub mod survival;
 pub mod texture;
 pub mod thermal;
 
