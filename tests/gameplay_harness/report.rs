@@ -1,6 +1,8 @@
 //! Gameplay-harness report records and concise human-readable aggregate output.
 
 use deep_hearth::core::quantity::Mass;
+use deep_hearth::maintenance::MaintenanceBand;
+use deep_hearth::registry::Registries;
 
 use super::ScenarioVariation;
 
@@ -39,13 +41,21 @@ pub(super) struct ScenarioReport {
 }
 
 impl ScenarioReport {
-    pub(super) fn new(variation: ScenarioVariation) -> Self {
+    pub(super) fn new(
+        variation: ScenarioVariation,
+        initial_maintenance_band: MaintenanceBand,
+    ) -> Self {
         Self {
             seed: variation.seed,
             policy: variation.policy,
             inputs: ScenarioInputReport {
                 ore_copper_ppm: variation.ore.ore_copper_ppm,
                 batch_mass: variation.ore.batch_mass,
+                initial_condition_ppm: variation
+                    .crusher
+                    .initial_crusher_condition
+                    .parts_per_million(),
+                initial_maintenance_band,
                 delivery_mass: variation.delivery.mass,
                 delivery_is_compact: variation.delivery.destination_is_compact,
             },
@@ -72,6 +82,8 @@ impl ScenarioReport {
 pub(super) struct ScenarioInputReport {
     pub(super) ore_copper_ppm: u32,
     pub(super) batch_mass: Mass,
+    pub(super) initial_condition_ppm: u32,
+    pub(super) initial_maintenance_band: MaintenanceBand,
     pub(super) delivery_mass: Mass,
     pub(super) delivery_is_compact: bool,
 }
@@ -97,7 +109,6 @@ pub(super) struct ScenarioStructureReport {
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct ScenarioChoiceReport {
     pub(super) chose_compact_support: bool,
-    pub(super) delivery_plan_changed_siting: bool,
     pub(super) used_small_drive: bool,
     pub(super) used_large_drive: bool,
     pub(super) large_drive_exhausted: bool,
@@ -120,6 +131,22 @@ pub(super) struct ScenarioProgressReport {
     pub(super) ore_frontier_visible: bool,
     pub(super) completed_batches: u8,
     pub(super) target_batches: u8,
+}
+
+pub(super) fn print_content_summary(registries: &Registries) {
+    let equipment = registries
+        .equipment()
+        .definitions()
+        .map(|definition| format!("{}:{}", definition.id().value(), definition.name()))
+        .collect::<Vec<_>>()
+        .join(",");
+    let processes = registries
+        .production()
+        .definitions()
+        .map(|definition| format!("{}:{}", definition.id().value(), definition.name()))
+        .collect::<Vec<_>>()
+        .join(",");
+    std::println!("CONTENT equipment=[{equipment}] processes=[{processes}]");
 }
 
 pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
@@ -154,6 +181,10 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
         .iter()
         .map(|report| u32::from(report.maintenance.services))
         .sum();
+    let mixed_ore_melt_rejections = reports
+        .iter()
+        .filter(|report| report.progress.ore_frontier_visible)
+        .count();
     let ore_grade_min = reports
         .iter()
         .map(|report| report.inputs.ore_copper_ppm)
@@ -174,6 +205,16 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
         .map(|report| report.inputs.batch_mass.milligrams())
         .max()
         .unwrap_or_else(|| unreachable!("nonempty reports have a batch-mass maximum"));
+    let initial_condition_min = reports
+        .iter()
+        .map(|report| report.inputs.initial_condition_ppm)
+        .min()
+        .unwrap_or_else(|| unreachable!("nonempty reports have an initial-condition minimum"));
+    let initial_condition_max = reports
+        .iter()
+        .map(|report| report.inputs.initial_condition_ppm)
+        .max()
+        .unwrap_or_else(|| unreachable!("nonempty reports have an initial-condition maximum"));
     let delivery_mass_min = reports
         .iter()
         .map(|report| report.inputs.delivery_mass.milligrams())
@@ -188,13 +229,25 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
         .iter()
         .filter(|report| report.inputs.delivery_is_compact)
         .count();
+    let initial_normal = reports
+        .iter()
+        .filter(|report| report.inputs.initial_maintenance_band == MaintenanceBand::Normal)
+        .count();
+    let initial_warning = reports
+        .iter()
+        .filter(|report| report.inputs.initial_maintenance_band == MaintenanceBand::Warning)
+        .count();
+    let initial_critical = reports
+        .iter()
+        .filter(|report| report.inputs.initial_maintenance_band == MaintenanceBand::Critical)
+        .count();
 
     std::println!(
-        "SAMPLE ore=[grade:{ore_grade_min}..{ore_grade_max}ppm batch:{batch_mass_min}..{batch_mass_max}mg] delivery=[mass:{delivery_mass_min}..{delivery_mass_max}mg compact:{compact_deliveries} reinforced:{}]",
+        "SAMPLE ore=[grade:{ore_grade_min}..{ore_grade_max}ppm batch:{batch_mass_min}..{batch_mass_max}mg] crusher_condition=[{initial_condition_min}..{initial_condition_max}ppm normal:{initial_normal} warning:{initial_warning} critical:{initial_critical}] delivery=[mass:{delivery_mass_min}..{delivery_mass_max}mg compact:{compact_deliveries} reinforced:{}]",
         reports.len() - compact_deliveries,
     );
     std::println!(
-        "HARNESS PASS mode={mode} scenarios={} orders={completed_orders}/{} batches={completed_batches}/{target_batches} pre_delivery={batches_before_delivery} stops=[structural:{} maintenance:{} energy:{}] material=[ore_prep:pass foundry:pass mixed_ore_bridge:blocked]",
+        "HARNESS PASS mode={mode} scenarios={} orders={completed_orders}/{} batches={completed_batches}/{target_batches} pre_delivery={batches_before_delivery} stops=[structural:{} maintenance:{} energy:{}] material=[ore_prep:pass foundry:pass mixed_ore_melt_rejected:{mixed_ore_melt_rejections}/{}]",
         reports.len(),
         reports.len(),
         reports
@@ -209,9 +262,10 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
             .iter()
             .filter(|report| report.limits.energy_stop)
             .count(),
+        reports.len(),
     );
     std::println!(
-        "SYSTEMS policy=[reserve:{} condition:{} speed:{}] control=[delivery_siting:{} delivery_deadline_power:{}] recovery=[relocations:{} resumed_wip:{recovered_work_in_process} stranded_wip:{} maintenance_services:{maintenance_services}] pressure=[structural:{} maintenance_warning:{}] bottlenecks=[energy_delivery:{} throughput:{}]",
+        "SYSTEMS policy=[reserve:{} condition:{} speed:{}] control=[compact_siting:{} delivery_deadline_power:{}] recovery=[relocations:{} resumed_wip:{recovered_work_in_process} stranded_wip:{} maintenance_services:{maintenance_services}] pressure=[structural:{} maintenance_warning:{}] bottlenecks=[energy_delivery:{} throughput:{}]",
         reports
             .iter()
             .filter(|report| report.policy.power_preference == PowerPreference::PreserveReserve)
@@ -226,7 +280,7 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
             .count(),
         reports
             .iter()
-            .filter(|report| report.choices.delivery_plan_changed_siting)
+            .filter(|report| report.choices.chose_compact_support)
             .count(),
         reports
             .iter()

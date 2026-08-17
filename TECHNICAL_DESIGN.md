@@ -729,17 +729,25 @@ load to agree exactly. Structural removal is rejected while equipment still refe
 Unmounting from failed debris is permitted so cleanup does not require resurrecting the structure;
 unloading never clears persisted crack/failure state.
 
-Mount/unmount also respects active production occupancy. A machine cannot move while an in-flight job
-owns it, and support/maintenance commits recheck that derived production occupancy immediately before
-mutation because job start does not increment the equipment owner revision. Provider resolution
-requires any assigned structural support to remain active. For mounted equipment, the resulting use
-token binds both the equipment and structural owner revisions plus the exact support assignment;
-process start validation and commit reject intervening structural changes before consuming matter or
-energy. A collapsed support therefore cannot authorize new production through a stale resolution. An
-operation that was already committed retains its durable matter, energy, equipment-condition,
-duration, and output snapshot; interrupting or partially recovering such work after a later support
-failure remains deferred until production has an explicit interruption/cancellation owner rather than
-silently destroying committed resources.
+Mount/unmount/relocation also respect active production occupancy. A machine cannot move while a
+running in-flight job owns it, and support/maintenance commits recheck that derived production
+occupancy immediately before mutation because job start does not increment the equipment owner
+revision. `validate_relocate_equipment` is the canonical direct move for already-mounted equipment:
+it plans source unloading and target loading together under one structural revision, exposes the
+resulting structural analysis before commit, and changes the equipment support index only if that
+whole structural batch can commit. Callers therefore never need to unmount speculatively just to learn
+whether a target support is viable. Relocation is allowed for a job suspended by unavailable support,
+because suspended work is awaiting physical recovery rather than actively using the machine.
+
+Provider resolution requires any assigned structural support to remain active. For mounted equipment,
+the resulting use token binds both the equipment and structural owner revisions plus the exact support
+assignment; process start validation and commit reject intervening structural changes before consuming
+matter or energy. A collapsed support therefore cannot authorize new production through a stale
+resolution. If support becomes unavailable after process start, production persists a suspension with
+the exact remaining active time and keeps its already-owned matter, energy, condition outcome, duration,
+and output snapshot. A later tick resumes that same job when its required equipment support is active
+again and schedules completion from the preserved remaining active time. This recovery path pauses
+work rather than silently destroying or re-resolving committed resources.
 
 ## 20. Cross-Subsystem Runtime Invariants and Boundaries
 

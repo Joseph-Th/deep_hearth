@@ -479,9 +479,12 @@
   execution contracts, probe setup, reporting, and deterministic seed-mixing modules instead of
   accumulating all support in the main scenario controller. Seed/configuration behavior is covered by
   focused named tests rather than one aggregated boolean contract test, and custom replay lists are
-  reported distinctly from generated organic scenarios. Isolated unit-test registry builders share one
-  test-only domain assembler and no longer inherit unrelated canonical gameplay content as that content
-  expands.
+  reported distinctly from generated organic scenarios. The exercise policy uses current canonical
+  projections instead of cloned-state compound-future previews, varies crusher starts across the full
+  non-failed condition range, and uses the production `validate_relocate_equipment` transaction for
+  atomic support moves and their structural consequences. Isolated unit-test registry builders share
+  one test-only domain assembler and no longer inherit unrelated canonical gameplay content as that
+  content expands.
 - Runtime state owners keep records, synchronized indexes, and owner mutation primitives in their
   state modules while descendant validation modules own exhaustive persistence audits without widening
   private mutation access. Production execution is organized behind one canonical facade with separate

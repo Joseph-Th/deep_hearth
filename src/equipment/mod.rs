@@ -21,7 +21,8 @@ pub use equipment_integration::{
 };
 pub use equipment_structural_integration::{
     EquipmentSupportCommitError, EquipmentSupportError, EquipmentSupportOutcome,
-    ValidatedEquipmentSupportChange, validate_mount_equipment, validate_unmount_equipment,
+    ValidatedEquipmentSupportChange, validate_mount_equipment, validate_relocate_equipment,
+    validate_unmount_equipment,
 };
 pub use repair_execution::{
     EquipmentMaintenanceRequest, EquipmentMaintenanceResolutionError, EquipmentRepairCommitError,

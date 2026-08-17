@@ -1,5 +1,6 @@
 //! Equipment-to-structure support integration; equipment owns support assignment while structural state owns the resulting aggregate load and failure consequences.
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -11,8 +12,9 @@ use crate::registry::Registries;
 use crate::structural::{
     StructuralAnalysis, StructuralCommitError, StructuralElementId, StructuralLifecycle,
     StructuralLoadKind, StructuralMutationError, StructuralMutationOutcome,
-    ValidatedStructuralMutation, calculate_aggregate_weight_force_ceiling,
-    validate_set_owned_structural_load,
+    ValidatedStructuralLoadBatch, ValidatedStructuralMutation,
+    calculate_aggregate_weight_force_ceiling, validate_set_owned_structural_load,
+    validate_set_owned_structural_loads,
 };
 
 use super::{EquipmentDefinitionId, EquipmentId};
@@ -247,12 +249,37 @@ pub struct ValidatedEquipmentSupportChange {
     after: Option<StructuralElementId>,
     expected_equipment_revision: u64,
     next_equipment_revision: u64,
-    structural: ValidatedStructuralMutation,
+    structural: ValidatedEquipmentStructuralChange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ValidatedEquipmentStructuralChange {
+    Single(ValidatedStructuralMutation),
+    Batch(ValidatedStructuralLoadBatch),
+}
+
+impl ValidatedEquipmentStructuralChange {
+    fn analysis(&self) -> &StructuralAnalysis {
+        match self {
+            Self::Single(structural) => structural.analysis(),
+            Self::Batch(structural) => structural.analysis(),
+        }
+    }
+
+    fn commit(
+        self,
+        state: &mut AppState,
+    ) -> Result<StructuralMutationOutcome, StructuralCommitError> {
+        match self {
+            Self::Single(structural) => structural.commit(state),
+            Self::Batch(structural) => structural.commit(state),
+        }
+    }
 }
 
 impl ValidatedEquipmentSupportChange {
     #[must_use]
-    pub const fn structural_analysis(&self) -> &StructuralAnalysis {
+    pub fn structural_analysis(&self) -> &StructuralAnalysis {
         self.structural.analysis()
     }
 
@@ -465,7 +492,7 @@ pub fn validate_mount_equipment(
         after: Some(element),
         expected_equipment_revision,
         next_equipment_revision,
-        structural,
+        structural: ValidatedEquipmentStructuralChange::Single(structural),
     })
 }
 
@@ -507,6 +534,87 @@ pub fn validate_unmount_equipment(
         equipment,
         before: Some(element),
         after: None,
+        expected_equipment_revision,
+        next_equipment_revision,
+        structural: ValidatedEquipmentStructuralChange::Single(structural),
+    })
+}
+
+/// Validates moving already-mounted equipment directly to another active structural member.
+///
+/// Source unloading and target loading are resolved as one structural batch, so callers can inspect
+/// the real relocation consequence before committing and never need to unmount speculatively.
+pub fn validate_relocate_equipment(
+    registries: &Registries,
+    state: &AppState,
+    equipment: EquipmentId,
+    target: StructuralElementId,
+) -> Result<ValidatedEquipmentSupportChange, EquipmentSupportError> {
+    let record = state
+        .equipment()
+        .get_equipment(equipment)
+        .ok_or(EquipmentSupportError::UnknownEquipment { equipment })?;
+    let source = record
+        .supported_by()
+        .ok_or(EquipmentSupportError::NotMounted { equipment })?;
+    if source == target {
+        return Err(EquipmentSupportError::AlreadyMounted {
+            equipment,
+            element: source,
+        });
+    }
+    validate_not_busy(state, equipment)?;
+
+    let target_record =
+        state
+            .structures()
+            .get_element(target)
+            .ok_or(EquipmentSupportError::Structure(
+                StructuralMutationError::UnknownElement { element: target },
+            ))?;
+    if target_record.lifecycle() != StructuralLifecycle::Active {
+        return Err(EquipmentSupportError::TargetNotActive {
+            element: target,
+            lifecycle: target_record.lifecycle(),
+        });
+    }
+
+    validate_existing_load(registries, state, source)?;
+    let target_mass = validate_existing_load(registries, state, target)?;
+    let source_mass = supported_mass(registries, state, source, Some(equipment))?;
+    let equipment_mass = resolve_definition_mass(registries, equipment, record.definition())?;
+    let target_mass = target_mass
+        .checked_add(AggregateMass::from_mass(equipment_mass))
+        .ok_or(EquipmentSupportError::AggregateMassOverflow { element: target })?;
+
+    let source_load = support_force(registries, source, source_mass)?;
+    let target_load = support_force(registries, target, target_mass)?;
+    let structural = validate_set_owned_structural_loads(
+        registries,
+        state,
+        StructuralLoadKind::Equipment,
+        BTreeMap::from([(source, source_load), (target, target_load)]),
+    )
+    .map_err(EquipmentSupportError::Structure)?;
+    let structural = match structural {
+        Some(structural) => ValidatedEquipmentStructuralChange::Batch(structural),
+        None => ValidatedEquipmentStructuralChange::Single(
+            validate_set_owned_structural_load(
+                registries,
+                state,
+                target,
+                StructuralLoadKind::Equipment,
+                target_load,
+            )
+            .map_err(EquipmentSupportError::Structure)?,
+        ),
+    };
+    let (expected_equipment_revision, next_equipment_revision) = next_equipment_revision(state)?;
+
+    Ok(ValidatedEquipmentSupportChange {
+        equipment,
+        before: Some(source),
+        after: Some(target),
         expected_equipment_revision,
         next_equipment_revision,
         structural,
@@ -691,6 +799,164 @@ mod tests {
                 .get_element(member)
                 .map(|record| { record.load(StructuralLoadKind::Equipment) }),
             Some(Force::ZERO)
+        );
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+
+    #[test]
+    fn relocation_remains_revision_bound_when_force_rounding_hides_both_load_deltas() {
+        let registries = make_registries(Mass::from_milligrams(1));
+        let mut state = AppState::new(WorldSeed::new(0x8300_0012));
+        let source = add_member(&registries, &mut state, 0);
+        let target = add_member(&registries, &mut state, 2);
+        activate_member(&registries, &mut state, source);
+        activate_member(&registries, &mut state, target);
+        let moved = add_test_equipment(&registries, &mut state);
+        let source_peer = add_test_equipment(&registries, &mut state);
+        let target_peer = add_test_equipment(&registries, &mut state);
+        for (equipment, support) in [
+            (moved, source),
+            (source_peer, source),
+            (target_peer, target),
+        ] {
+            let mount = validate_mount_equipment(&registries, &state, equipment, support)
+                .unwrap_or_else(|error| panic!("rounding relocation mount failed: {error}"));
+            commit_support(mount, &mut state);
+        }
+        let source_load = state
+            .structures()
+            .get_element(source)
+            .map(|record| record.load(StructuralLoadKind::Equipment))
+            .unwrap_or_else(|| panic!("rounding relocation source disappeared"));
+        let target_load = state
+            .structures()
+            .get_element(target)
+            .map(|record| record.load(StructuralLoadKind::Equipment))
+            .unwrap_or_else(|| panic!("rounding relocation target disappeared"));
+        assert_eq!(source_load, Force::from_millinewtons(1));
+        assert_eq!(target_load, Force::from_millinewtons(1));
+        let structural_revision = state.structures().revision();
+
+        let relocation = validate_relocate_equipment(&registries, &state, moved, target)
+            .unwrap_or_else(|error| panic!("rounding relocation validation failed: {error}"));
+        commit_support(relocation, &mut state);
+
+        assert_eq!(state.structures().revision(), structural_revision + 1);
+        assert_eq!(
+            state
+                .structures()
+                .get_element(source)
+                .map(|record| record.load(StructuralLoadKind::Equipment)),
+            Some(source_load)
+        );
+        assert_eq!(
+            state
+                .structures()
+                .get_element(target)
+                .map(|record| record.load(StructuralLoadKind::Equipment)),
+            Some(target_load)
+        );
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(moved)
+                .and_then(|record| record.supported_by()),
+            Some(target)
+        );
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+
+    #[test]
+    fn relocation_moves_equipment_and_structural_load_as_one_transaction() {
+        let registries = make_registries(Mass::from_milligrams(3_600_000_000));
+        let mut state = AppState::new(WorldSeed::new(0x8300_0010));
+        let source = add_member(&registries, &mut state, 0);
+        let target = add_member(&registries, &mut state, 2);
+        activate_member(&registries, &mut state, source);
+        activate_member(&registries, &mut state, target);
+        let equipment = add_test_equipment(&registries, &mut state);
+        let mount = validate_mount_equipment(&registries, &state, equipment, source)
+            .unwrap_or_else(|error| panic!("relocation source mount failed: {error}"));
+        commit_support(mount, &mut state);
+        let source_load = state
+            .structures()
+            .get_element(source)
+            .map(|record| record.load(StructuralLoadKind::Equipment))
+            .unwrap_or_else(|| panic!("relocation source support disappeared"));
+
+        let relocation = validate_relocate_equipment(&registries, &state, equipment, target)
+            .unwrap_or_else(|error| panic!("equipment relocation validation failed: {error}"));
+        assert!(
+            relocation
+                .structural_analysis()
+                .assessments()
+                .iter()
+                .any(|assessment| assessment.element() == target)
+        );
+        commit_support(relocation, &mut state);
+
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(equipment)
+                .and_then(|record| record.supported_by()),
+            Some(target)
+        );
+        assert_eq!(
+            state
+                .structures()
+                .get_element(source)
+                .map(|record| record.load(StructuralLoadKind::Equipment)),
+            Some(Force::ZERO)
+        );
+        assert_eq!(
+            state
+                .structures()
+                .get_element(target)
+                .map(|record| record.load(StructuralLoadKind::Equipment)),
+            Some(source_load)
+        );
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+
+    #[test]
+    fn stale_relocation_leaves_equipment_on_original_support() {
+        let registries = make_registries(Mass::from_milligrams(3_600_000_000));
+        let mut state = AppState::new(WorldSeed::new(0x8300_0011));
+        let source = add_member(&registries, &mut state, 0);
+        let target = add_member(&registries, &mut state, 2);
+        activate_member(&registries, &mut state, source);
+        activate_member(&registries, &mut state, target);
+        let equipment = add_test_equipment(&registries, &mut state);
+        let mount = validate_mount_equipment(&registries, &state, equipment, source)
+            .unwrap_or_else(|error| panic!("stale relocation source mount failed: {error}"));
+        commit_support(mount, &mut state);
+        let relocation = validate_relocate_equipment(&registries, &state, equipment, target)
+            .unwrap_or_else(|error| panic!("stale relocation validation failed: {error}"));
+
+        let snow = validate_set_structural_load(
+            &registries,
+            &state,
+            target,
+            StructuralLoadKind::Snow,
+            Force::from_millinewtons(1),
+        )
+        .unwrap_or_else(|error| panic!("stale relocation structure mutation failed: {error}"));
+        snow.commit(&mut state)
+            .unwrap_or_else(|error| panic!("stale relocation structure commit failed: {error}"));
+
+        assert!(matches!(
+            relocation.commit(&mut state),
+            Err(EquipmentSupportCommitError::Structure(
+                StructuralCommitError::StaleRevision { .. }
+            ))
+        ));
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(equipment)
+                .and_then(|record| record.supported_by()),
+            Some(source)
         );
         assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     }

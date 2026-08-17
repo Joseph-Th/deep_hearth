@@ -222,6 +222,11 @@ impl ProductionRegistry {
         self.definitions.get(&id)
     }
 
+    /// Iterates authored process definitions in stable process-ID order.
+    pub fn definitions(&self) -> impl Iterator<Item = &ProcessDefinition> {
+        self.definitions.values()
+    }
+
     pub(crate) fn validate_references(
         &self,
         materials: &MaterialRegistry,

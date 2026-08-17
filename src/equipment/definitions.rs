@@ -354,6 +354,11 @@ impl EquipmentRegistry {
         self.definitions.get(&id)
     }
 
+    /// Iterates authored equipment definitions in stable definition-ID order.
+    pub fn definitions(&self) -> impl Iterator<Item = &EquipmentDefinition> {
+        self.definitions.values()
+    }
+
     pub(crate) fn validate_references(
         &self,
         capabilities: &CapabilityRegistry,

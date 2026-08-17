@@ -28,7 +28,10 @@ use deep_hearth::content::gameplay_fixture::{
     seed_lot,
 };
 use probe_setup::{setup_foundry_probe, setup_ore_preparation_probe};
-use report::{PowerPreference, ScenarioPolicyVariation, ScenarioReport, print_harness_summary};
+use report::{
+    PowerPreference, ScenarioPolicyVariation, ScenarioReport, print_content_summary,
+    print_harness_summary,
+};
 use seed::mix64;
 
 const HARNESS_MODE: &str = "exercise";
@@ -54,7 +57,7 @@ use deep_hearth::equipment::{
     EquipmentDefinitionId, EquipmentId, EquipmentMaintenanceRequest,
     EquipmentMaintenanceResolutionError, EquipmentProviderError, EquipmentSupportError,
     add_equipment, resolve_equipment_maintenance, validate_equipment_repair,
-    validate_mount_equipment, validate_unmount_equipment,
+    validate_mount_equipment, validate_relocate_equipment,
 };
 use deep_hearth::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, add_stockpile,
@@ -176,11 +179,7 @@ impl ScenarioVariation {
         let batch_mass = minimum_batch + c % (maximum_batch - minimum_batch + 1);
         let planned_batches = 4 + (a % 3) as u8;
 
-        let thresholds = crusher_definition.maintenance_thresholds();
-        let warning = thresholds.warning_below().parts_per_million();
-        let first_normal = warning.saturating_add(1).min(CONDITION_PARTS_PER_MILLION);
-        let normal_span = CONDITION_PARTS_PER_MILLION - first_normal;
-        let initial_condition = first_normal + (e % u64::from(normal_span + 1)) as u32;
+        let initial_condition = 1 + (e % u64::from(CONDITION_PARTS_PER_MILLION)) as u32;
 
         let crusher_weight =
             calculate_weight_force_ceiling(crusher_definition.mass(), registries.core().gravity());
@@ -189,9 +188,9 @@ impl ScenarioVariation {
         let compact_target_ppm = target_low + (b % u64::from(target_high - target_low + 1)) as u32;
         let compact_area =
             support_area_for_utilization(registries, crusher_weight, compact_target_ppm);
-        let reinforced_area = scale_area(compact_area, 1_300_000 + (d % 500_001) as u32);
+        let reinforced_area = scale_area(compact_area, 1_150_000 + (d % 700_001) as u32);
         let reinforced_background_mass =
-            scale_mass(crusher_definition.mass(), 50_000 + (f % 200_001) as u32);
+            scale_mass(crusher_definition.mass(), 100_000 + (f % 900_001) as u32);
         let delivery_mass = scale_mass(crusher_definition.mass(), 150_000 + (g % 850_001) as u32);
         let power_preference = match j % 3 {
             0 => PowerPreference::PreserveReserve,
@@ -811,7 +810,6 @@ struct CrushChoiceContext {
     current_tick: u64,
     delivery_at_tick: u64,
     delivery_pending: bool,
-    planned_delivery_outage: bool,
 }
 
 fn resolve_crush_option(
@@ -924,7 +922,6 @@ fn choose_crush_option(
         current_tick,
         delivery_at_tick,
         delivery_pending,
-        planned_delivery_outage,
     } = context;
     match (small, large) {
         (None, None) => Err(CrushStopReason::EnergyUnavailable),
@@ -943,13 +940,6 @@ fn choose_crush_option(
                 Err(CrushStopReason::MaintenanceCritical)
             } else if small_after == MaintenanceBand::Critical {
                 Ok((large, "high power avoids critical machine condition", false))
-            } else if delivery_pending && planned_delivery_outage && current_tick < delivery_at_tick
-            {
-                Ok((
-                    large,
-                    "spend high-power reserve before the scheduled delivery may halt production",
-                    true,
-                ))
             } else if delivery_pending
                 && current_tick < delivery_at_tick
                 && current_tick
@@ -1256,28 +1246,6 @@ fn transfer_scheduled_delivery(
     .unwrap_or_else(|error| panic!("workshop scheduled delivery commit failed: {error}"));
 }
 
-fn preview_delivery_after_mount(
-    registries: &Registries,
-    state: &AppState,
-    ids: WorkshopIds,
-    mount: &deep_hearth::equipment::ValidatedEquipmentSupportChange,
-    mounted_support: StructuralElementId,
-    mass: Mass,
-) -> StructuralAssessment {
-    let mut preview = state.clone();
-    mount
-        .clone()
-        .commit(&mut preview)
-        .unwrap_or_else(|error| panic!("workshop delivery-plan mount preview failed: {error}"));
-    transfer_scheduled_delivery(registries, &mut preview, ids, mass);
-    let (compact, reinforced) = analyze_workshop_supports(registries, &preview, ids);
-    if mounted_support == ids.compact_support {
-        compact
-    } else {
-        reinforced
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CrusherRelocationOutcome {
     Relocated,
@@ -1292,28 +1260,23 @@ fn try_relocate_crusher(
     alternate_support: &mut StructuralElementId,
     report: &mut ScenarioReport,
 ) -> CrusherRelocationOutcome {
-    let mut preview = state.clone();
-    validate_unmount_equipment(registries, &preview, ids.crusher)
-        .unwrap_or_else(|error| panic!("crusher recovery preview unmount failed: {error}"))
-        .commit(&mut preview)
-        .unwrap_or_else(|error| panic!("crusher recovery preview unmount commit failed: {error}"));
-    let remount_preview = match validate_mount_equipment(
+    let relocation = match validate_relocate_equipment(
         registries,
-        &preview,
+        state,
         ids.crusher,
         *alternate_support,
     ) {
-        Ok(remount) => remount,
+        Ok(relocation) => relocation,
         Err(EquipmentSupportError::TargetNotActive { lifecycle, .. }) => {
             println!(
                 "  recovery blocked: alternate bay is {lifecycle:?} after the stored-matter delivery"
             );
             return CrusherRelocationOutcome::Blocked;
         }
-        Err(error) => panic!("crusher recovery preview remount failed: {error}"),
+        Err(error) => panic!("crusher recovery relocation validation failed: {error}"),
     };
     let preview_assessment =
-        structural_assessment(remount_preview.structural_analysis(), *alternate_support);
+        structural_assessment(relocation.structural_analysis(), *alternate_support);
     if preview_assessment.stage() == StructuralStage::Failed {
         println!(
             "  recovery blocked: mounting the crusher on the alternate bay would fail it at {}ppm utilization",
@@ -1323,17 +1286,11 @@ fn try_relocate_crusher(
     }
 
     let abandoned_support = *current_support;
-    validate_unmount_equipment(registries, state, ids.crusher)
-        .unwrap_or_else(|error| panic!("crusher recovery unmount failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("crusher recovery unmount commit failed: {error}"));
-    let remount = validate_mount_equipment(registries, state, ids.crusher, *alternate_support)
-        .unwrap_or_else(|error| panic!("crusher recovery remount failed: {error}"));
-    let assessment = structural_assessment(remount.structural_analysis(), *alternate_support);
+    let assessment = structural_assessment(relocation.structural_analysis(), *alternate_support);
     debug_assert_ne!(assessment.stage(), StructuralStage::Failed);
-    remount
+    relocation
         .commit(state)
-        .unwrap_or_else(|error| panic!("crusher recovery remount commit failed: {error}"));
+        .unwrap_or_else(|error| panic!("crusher recovery relocation commit failed: {error}"));
     println!(
         "  recovery: relocated crusher to alternate support -> {:?}/{}ppm utilization",
         assessment.stage(),
@@ -1446,14 +1403,9 @@ fn adapt_after_delivery(
     }
 
     if after.stage() == StructuralStage::Cracking || after.stage() == StructuralStage::Strained {
-        let mut preview = state.clone();
-        validate_unmount_equipment(registries, &preview, ids.crusher)
-            .unwrap_or_else(|error| panic!("crusher relocation preview unmount failed: {error}"))
-            .commit(&mut preview)
-            .unwrap_or_else(|error| panic!("crusher relocation preview commit failed: {error}"));
-        let alternate = match validate_mount_equipment(
+        let alternate = match validate_relocate_equipment(
             registries,
-            &preview,
+            state,
             ids.crusher,
             *runtime.alternate_support,
         ) {
@@ -1464,7 +1416,7 @@ fn adapt_after_delivery(
                 );
                 return;
             }
-            Err(error) => panic!("crusher relocation preview mount failed: {error}"),
+            Err(error) => panic!("crusher relocation prediction failed: {error}"),
         };
         let alternate_assessment =
             structural_assessment(alternate.structural_analysis(), *runtime.alternate_support);
@@ -1555,18 +1507,37 @@ fn apply_delivery_and_adapt(
 
 fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> ScenarioReport {
     let (mut state, ids) = setup_workshop(registries, variation);
-    schedule_delivery_from_current_gameplay(registries, &state, ids, &mut variation);
     let initial_matter = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| {
             panic!("gameplay harness initial matter accounting failed: {error}")
         })
         .total();
-    let mut report = ScenarioReport::new(variation);
-    let small_drive_batch_budget = variation.ore.planned_batches;
-    let maintenance_profile = registries
+    let crusher_definition = registries
         .equipment()
         .get_equipment(EQUIPMENT_JAW_CRUSHER)
-        .and_then(|definition| definition.maintenance_profile())
+        .unwrap_or_else(|| panic!("canonical crusher definition disappeared"));
+    let thresholds = crusher_definition.maintenance_thresholds();
+    let initial_band = thresholds.classify(variation.crusher.initial_crusher_condition);
+    let mut report = ScenarioReport::new(variation, initial_band);
+    if initial_band == MaintenanceBand::Critical {
+        report.limits.maintenance_warning = true;
+        println!(
+            "  initial maintenance gate: crusher begins at {}ppm/{initial_band:?}; service before planning powered work",
+            variation
+                .crusher
+                .initial_crusher_condition
+                .parts_per_million(),
+        );
+        assert_eq!(
+            service_crusher(registries, &mut state, ids, &mut report),
+            MaintenanceAttempt::Serviced,
+            "critical-start fixture must provide one real maintenance service"
+        );
+    }
+    schedule_delivery_from_current_gameplay(registries, &state, ids, &mut variation);
+    let small_drive_batch_budget = variation.ore.planned_batches;
+    let maintenance_profile = crusher_definition
+        .maintenance_profile()
         .unwrap_or_else(|| panic!("canonical crusher maintenance profile disappeared"));
     let delivery_target = if variation.delivery.destination_is_compact {
         "compact"
@@ -1608,49 +1579,19 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
         reinforced_mount.structural_analysis(),
         ids.reinforced_support,
     );
-    let compact_planned = preview_delivery_after_mount(
-        registries,
-        &state,
-        ids,
-        &compact_mount,
-        ids.compact_support,
-        variation.delivery.mass,
-    );
-    let reinforced_planned = preview_delivery_after_mount(
-        registries,
-        &state,
-        ids,
-        &reinforced_mount,
-        ids.reinforced_support,
-        variation.delivery.mass,
-    );
     println!(
-        "  support options: compact now={} after_delivery={}; reinforced now={} after_delivery={} (reinforced stored cargo={}mg)",
+        "  support options: compact={}; reinforced={} (reinforced stored cargo={}mg)",
         structural_label(compact_assessment),
-        structural_label(compact_planned),
         structural_label(reinforced_assessment),
-        structural_label(reinforced_planned),
         variation.structure.reinforced_background_mass.milligrams(),
     );
-    let compact_is_better_now = (
-        stage_rank(compact_assessment.stage()),
-        compact_assessment.utilization_ppm(),
-    ) < (
-        stage_rank(reinforced_assessment.stage()),
-        reinforced_assessment.utilization_ppm(),
-    );
     let compact_is_better = (
-        stage_rank(compact_planned.stage()),
-        compact_planned.utilization_ppm(),
         stage_rank(compact_assessment.stage()),
         compact_assessment.utilization_ppm(),
     ) < (
-        stage_rank(reinforced_planned.stage()),
-        reinforced_planned.utilization_ppm(),
         stage_rank(reinforced_assessment.stage()),
         reinforced_assessment.utilization_ppm(),
     );
-    report.choices.delivery_plan_changed_siting = compact_is_better != compact_is_better_now;
     let (mut current_support, mut alternate_support, selected_mount, support_name) =
         if compact_is_better {
             report.choices.chose_compact_support = true;
@@ -1673,32 +1614,14 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
     } else {
         reinforced_assessment
     };
-    let planned_delivery_outage = compact_planned.stage() == StructuralStage::Failed
-        && reinforced_planned.stage() == StructuralStage::Failed;
     assert_ne!(selected_assessment.stage(), StructuralStage::Failed);
-    if report.choices.delivery_plan_changed_siting {
-        println!(
-            "  decision: mount crusher on {support_name}; the scheduled delivery changes the choice from the best present-only margin"
-        );
-    } else {
-        println!(
-            "  decision: mount crusher on {support_name}; it has the best margin after the scheduled delivery"
-        );
-    }
-    if planned_delivery_outage {
-        println!(
-            "  risk: neither siting option survives the scheduled delivery; production before that transfer has extra value"
-        );
-    }
+    println!(
+        "  decision: mount crusher on {support_name}; it has the best currently observable structural margin. The scheduled delivery is handled from the resulting runtime state"
+    );
     selected_mount
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("selected crusher mount failed: {error}"));
 
-    let thresholds = registries
-        .equipment()
-        .get_equipment(EQUIPMENT_JAW_CRUSHER)
-        .unwrap_or_else(|| panic!("canonical crusher definition disappeared"))
-        .maintenance_thresholds();
     'batches: for batch_index in 0..variation.ore.planned_batches {
         if report.structure.structural_stop {
             println!(
@@ -1770,7 +1693,6 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
                     current_tick: state.tick().value(),
                     delivery_at_tick: variation.delivery.delivery_at_tick,
                     delivery_pending: !report.progress.delivery_applied,
-                    planned_delivery_outage,
                 },
             ) {
                 Ok(choice) => break choice,
@@ -1984,11 +1906,10 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
         .map(|stockpile| stockpile.stored_mass())
         .unwrap_or_else(|| panic!("maintenance replacement stockpile disappeared"));
     println!(
-        "  outcome: batches={}/{} before_delivery={} delivery_plan_changed_siting={} delivery_deadline_power={} suspended={} stranded_wip={} final_condition={}ppm/{:?} maintenance=[services:{} spent:{}mg remaining:{}mg] mechanical_reserve=[small:{}nJ high-power:{}nJ] active_support={:?}/cracked:{} ticks={}",
+        "  outcome: batches={}/{} before_delivery={} delivery_deadline_power={} suspended={} stranded_wip={} final_condition={}ppm/{:?} maintenance=[services:{} spent:{}mg remaining:{}mg] mechanical_reserve=[small:{}nJ high-power:{}nJ] active_support={:?}/cracked:{} ticks={}",
         report.progress.completed_batches,
         variation.ore.planned_batches,
         report.progress.batches_before_delivery,
-        report.choices.delivery_plan_changed_siting,
         report.choices.delivery_deadline_power_choice,
         report.structure.production_suspension,
         report.structure.stranded_work_in_process,
@@ -2664,6 +2585,7 @@ fn run_gameplay_harness() {
         plan.variation_label(),
         plan.replay_label(),
     );
+    print_content_summary(&registries);
     let probe_seed = plan
         .seeds()
         .iter()

@@ -91,13 +91,16 @@ harness uses the same production validators, resolutions, commits, and simulatio
 runtime behavior.
 
 The acting policy uses observable state and resolver projections. Hidden authoritative state may be
-used only for diagnostics and postcondition checks. Each scenario is deterministic from its printed
-seed and does not consume unrelated simulation randomness, while normal runs add a small fresh organic
-sample so the harness does not become one memorized script. A legal scenario may complete zero batches
-when an in-flight job is suspended before its first output; that is gameplay evidence, not a harness
-failure. Maintained seeds guarantee only stable input/policy diversity. Balance-dependent outcomes such
-as completion, maintenance pressure, structural damage, suspension, and relocation are reported as
-observations rather than frozen into aggregate pass/fail requirements.
+used only for diagnostics and postcondition checks. The policy does not clone `AppState` to simulate
+compound future mutations that normal callers cannot preview. It chooses from current canonical
+projections, knows scheduled-event timing supplied by the scenario, and reacts to the actual resulting
+state after that event. Each scenario is deterministic from its printed seed and does not consume
+unrelated simulation randomness, while normal runs add a small fresh organic sample so the harness
+does not become one memorized script. A legal scenario may complete zero batches when an in-flight job
+is suspended before its first output; that is gameplay evidence, not a harness failure. Maintained
+seeds guarantee only stable input/policy diversity. Balance-dependent outcomes such as completion,
+maintenance pressure, structural damage, suspension, and relocation are reported as observations
+rather than frozen into aggregate pass/fail requirements.
 
 Direct fixture-only starting-state injection is deliberately isolated in
 `src/content/gameplay_fixture.rs`. That feature-gated bridge may seed loose matter and stored energy or
@@ -117,7 +120,7 @@ artifact. Seed/configuration contracts are ordinary named tests with direct type
 one aggregated boolean-gap test, so failures point at the exact contract without adding another Cargo
 target.
 
-The maintained workshop loop covers delivery-informed structural siting, finite power choice,
+The maintained workshop loop covers current-state structural siting, finite power choice,
 active-tick wear, exact replacement-stock maintenance, inventory-owned stored-matter loading,
 persistent structural damage, production suspension, WIP recovery/stranding, and the current mixed-ore
 processing frontier. The timed disruption is no longer a synthetic weather/load write: a real bulk
@@ -127,10 +130,15 @@ to attempt that transfer; this is not presented as an implemented logistics sche
 priorities vary by seed within bounded deterministic choices: reserve conservation, projected machine
 condition, or
 completion time. Safety, ownership, support, energy, and maintenance gates remain canonical regardless
-of personality.
+of personality. Initial siting compares the canonical mount projections available in the current state;
+the policy does not pre-apply the future delivery in a private cloned world. The known delivery time can
+still influence a power choice when one real resolver projection finishes before the event and another
+does not. After delivery, relocation decisions use the game's atomic equipment-relocation validator,
+including its structural projection and commit, rather than a harness-only unmount/remount preview.
 
 Scenario physics follow current authored content. Crusher batch mass is chosen inside the current
-equipment limit; initial condition is derived from its current maintenance bands; support geometry,
+equipment limit; initial crusher condition varies across the full non-failed authored condition range,
+so normal, warning, and critical starts can occur without hard-coding their frequencies; support geometry,
 background stored cargo, and delivery mass scale from current equipment/material quantities; and the
 delivery tick is selected inside a work horizon derived from an actually resolved batch duration. The
 support generator deliberately spans a broad ordinary utilization range rather than targeting authored
@@ -144,8 +152,11 @@ requirements. The ore-preparation and foundry probes remain explicitly labeled c
 concentration/smelting provides a truthful bridge between those stages.
 
 `cargo test-gameplay` keeps successful harness output captured. `cargo test-gameplay-report` emits a
-replay-input line, sampled input ranges, compact outcome and systems summaries, and one scope line
-distinguishing exercised runtime behavior from bootstrap/deferred systems. Set
+replay-input line, the current authored equipment/process catalog in stable ID order, sampled input
+ranges, compact outcome and systems summaries, and one scope line distinguishing exercised runtime
+behavior from bootstrap/deferred systems. The catalog is registry-derived rather than a second
+hand-maintained harness list, so newly authored workshop content is visible to a cold agent even before
+the exercise policy grows a dedicated path for it. Set
 `DEEP_HEARTH_GAMEPLAY_VERBOSE` to any value
 before that report lane to emit the detailed decision trace. Seed controls are:
 
@@ -155,7 +166,7 @@ before that report lane to emit the detailed decision trace. Seed controls are:
   seed list for reproduction or deliberate sweeps.
 
 Seed lists fail on an empty or malformed entry rather than silently dropping it. Normal runs combine
-five fixed anchor scenarios with three organic scenarios derived from a fresh variation root. The
+five fixed anchor scenarios with four organic scenarios derived from a fresh variation root. The
 anchors preserve reproducible comparison and all three operating priorities; the organic sample gives
 each run slightly different physical conditions without enlarging the lane enough to hurt iteration.
 `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` reproduces any organic set exactly. Hard failures remain canonical

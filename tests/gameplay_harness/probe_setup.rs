@@ -7,7 +7,7 @@ use super::{
     ROOM_TEMPERATURE, add_solid_stockpile, mixed_ore_composition, seed_composed_lot,
     seed_energy_store_exact, seed_lot,
 };
-use deep_hearth::core::quantity::{Mass, Temperature};
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::energy::{EnergyStoreId, add_energy_store};
@@ -46,9 +46,13 @@ pub(super) struct OrePreparationProbeIds {
 pub(super) fn setup_foundry_probe(registries: &Registries, mass: Mass) -> (AppState, FoundryIds) {
     let mut state = AppState::new(WorldSeed::new(0xD33F_F001));
     let pure_copper_source = add_solid_stockpile(&mut state, mass, "foundry copper source");
-    let vessel_profile =
-        StockpileStorageProfile::new(false, true, Temperature::from_millikelvin(1_500_000))
-            .unwrap_or_else(|error| panic!("foundry probe molten storage profile failed: {error}"));
+    let molten_temperature = registries
+        .materials()
+        .get_material(MATERIAL_COPPER)
+        .and_then(|material| material.properties().thermal().melting_point())
+        .unwrap_or_else(|| panic!("foundry probe copper fusion definition disappeared"));
+    let vessel_profile = StockpileStorageProfile::new(false, true, molten_temperature)
+        .unwrap_or_else(|error| panic!("foundry probe molten storage profile failed: {error}"));
     let molten_vessel = add_stockpile(&mut state, mass, vessel_profile)
         .unwrap_or_else(|error| panic!("foundry probe molten vessel failed: {error}"));
     let cast_storage = add_solid_stockpile(&mut state, mass, "foundry cast storage");

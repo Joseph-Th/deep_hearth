@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::seed::mix64;
 
 const ANCHOR_SEEDS: [u64; 5] = [1, 4, 9, 19, 380];
-const ORGANIC_SCENARIO_COUNT: usize = 3;
+const ORGANIC_SCENARIO_COUNT: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum GameplayHarnessConfigError {
