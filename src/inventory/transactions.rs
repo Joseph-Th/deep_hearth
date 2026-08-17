@@ -86,6 +86,10 @@ impl ValidatedMaterialEgress {
         self.total_consumed
     }
 
+    pub(crate) const fn source(&self) -> StockpileId {
+        self.source
+    }
+
     pub(crate) fn consumed_inputs(&self) -> &[ConsumedMaterialTrace] {
         &self.consumed_inputs
     }

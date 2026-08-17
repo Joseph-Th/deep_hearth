@@ -12,6 +12,7 @@ use crate::energy::EnergyRegistry;
 use crate::equipment::EquipmentRegistry;
 use crate::fluid::FluidRegistry;
 use crate::material::MaterialRegistry;
+use crate::mining::MiningRegistry;
 use crate::ore_processing::OreProcessingRegistry;
 use crate::production::ProductionRegistry;
 use crate::shader::ShaderRegistry;
@@ -99,6 +100,7 @@ pub(crate) struct RegistryDomains {
     pub(crate) equipment: EquipmentRegistry,
     pub(crate) structural: StructuralRegistry,
     pub(crate) materials: MaterialRegistry,
+    pub(crate) mining: MiningRegistry,
     pub(crate) ore_processing: OreProcessingRegistry,
     pub(crate) thermal: ThermalRegistry,
     pub(crate) production: ProductionRegistry,
@@ -128,6 +130,7 @@ impl Registries {
         domains
             .production
             .validate_references(&domains.materials, &domains.capabilities);
+        domains.mining.validate_references(&domains.capabilities);
         domains.ore_processing.validate_references(
             &domains.production,
             &domains.capabilities,
@@ -219,6 +222,12 @@ impl Registries {
     #[must_use]
     pub const fn materials(&self) -> &MaterialRegistry {
         &self.domains.materials
+    }
+
+    /// Returns immutable physical mining method definitions.
+    #[must_use]
+    pub const fn mining(&self) -> &MiningRegistry {
+        &self.domains.mining
     }
 
     /// Returns immutable physical ore/material-preparation resolver definitions.

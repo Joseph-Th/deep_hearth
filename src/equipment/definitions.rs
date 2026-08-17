@@ -9,7 +9,7 @@ use crate::capability::{
 };
 use crate::core::quantity::Mass;
 use crate::maintenance::{Condition, MaintenanceThresholds};
-use crate::material::{CommodityKey, MaterialRegistry};
+use crate::material::{CommodityKey, MaterialInputSpec, MaterialRegistry};
 
 /// Stable authored identifier for one equipment definition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -25,6 +25,53 @@ impl EquipmentDefinitionId {
     #[must_use]
     pub const fn value(self) -> u32 {
         self.0
+    }
+}
+
+/// Exact pure material inputs required to materialize one equipment instance.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EquipmentAssemblyProfile {
+    inputs: Vec<MaterialInputSpec>,
+    input_mass: Mass,
+}
+
+impl EquipmentAssemblyProfile {
+    #[must_use]
+    pub fn new(mut inputs: Vec<MaterialInputSpec>) -> Self {
+        assert!(
+            !inputs.is_empty(),
+            "equipment assembly profile must contain material inputs"
+        );
+        inputs.sort();
+        for pair in inputs.windows(2) {
+            assert_ne!(
+                pair[0].commodity(),
+                pair[1].commodity(),
+                "equipment assembly profile contains duplicate commodity {}",
+                pair[0].commodity().value()
+            );
+        }
+        let mut input_mass = Mass::ZERO;
+        for input in &inputs {
+            assert!(
+                !input.mass().is_zero(),
+                "equipment assembly input mass must be nonzero"
+            );
+            input_mass = input_mass
+                .checked_add(input.mass())
+                .unwrap_or_else(|| panic!("equipment assembly input mass overflows"));
+        }
+        Self { inputs, input_mass }
+    }
+
+    #[must_use]
+    pub fn inputs(&self) -> &[MaterialInputSpec] {
+        &self.inputs
+    }
+
+    #[must_use]
+    pub const fn input_mass(&self) -> Mass {
+        self.input_mass
     }
 }
 
@@ -206,6 +253,7 @@ pub struct EquipmentDefinition {
     capability_condition_curves: BTreeMap<CapabilityId, CapabilityConditionCurve>,
     maintenance_thresholds: MaintenanceThresholds,
     maintenance_profile: Option<EquipmentMaintenanceProfile>,
+    assembly_profile: Option<EquipmentAssemblyProfile>,
 }
 
 impl EquipmentDefinition {
@@ -275,6 +323,7 @@ impl EquipmentDefinition {
             capability_condition_curves: curves_by_capability,
             maintenance_thresholds,
             maintenance_profile: None,
+            assembly_profile: None,
         }
     }
 
@@ -287,6 +336,13 @@ impl EquipmentDefinition {
             self.id.value()
         );
         self.maintenance_profile = Some(profile);
+        self
+    }
+
+    /// Adds the exact conserved commodity from which this equipment may be assembled at runtime.
+    #[must_use]
+    pub fn with_assembly_profile(mut self, profile: EquipmentAssemblyProfile) -> Self {
+        self.assembly_profile = Some(profile);
         self
     }
 
@@ -326,6 +382,11 @@ impl EquipmentDefinition {
     #[must_use]
     pub const fn maintenance_profile(&self) -> Option<EquipmentMaintenanceProfile> {
         self.maintenance_profile
+    }
+
+    #[must_use]
+    pub fn assembly_profile(&self) -> Option<&EquipmentAssemblyProfile> {
+        self.assembly_profile.as_ref()
     }
 }
 
@@ -398,6 +459,22 @@ impl EquipmentRegistry {
                     definition.id().value(),
                     maintenance.replacement().form().value()
                 );
+            }
+            if let Some(assembly) = definition.assembly_profile() {
+                assert_eq!(
+                    assembly.input_mass(),
+                    definition.mass(),
+                    "equipment definition {} assembly mass disagrees with authored equipment mass",
+                    definition.id().value()
+                );
+                for input in assembly.inputs() {
+                    assert!(
+                        materials.has_commodity(input.commodity()),
+                        "equipment definition {} assembly profile references missing commodity {}",
+                        definition.id().value(),
+                        input.commodity().value()
+                    );
+                }
             }
         }
     }

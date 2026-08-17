@@ -45,6 +45,50 @@ pub enum EquipmentValidationError {
         equipment: EquipmentId,
         definition: EquipmentDefinitionId,
     },
+    EmbodiedMassMismatch {
+        equipment: EquipmentId,
+        stored: Mass,
+        authored: Mass,
+    },
+    MissingAssemblyMaterial {
+        equipment: EquipmentId,
+    },
+    UnexpectedAssemblyMaterial {
+        equipment: EquipmentId,
+    },
+    ZeroEmbodiedTrace {
+        equipment: EquipmentId,
+    },
+    EmbodiedTraceMassOverflow {
+        equipment: EquipmentId,
+    },
+    EmbodiedTraceMassMismatch {
+        equipment: EquipmentId,
+        stored: Mass,
+        traced: Mass,
+    },
+    UnknownEmbodiedCommodity {
+        equipment: EquipmentId,
+        commodity: crate::material::CommodityKey,
+    },
+    ImpureEmbodiedMaterial {
+        equipment: EquipmentId,
+        commodity: crate::material::CommodityKey,
+    },
+    InvalidEmbodiedProvenanceRange {
+        equipment: EquipmentId,
+    },
+    EmbodiedProvenanceInFuture {
+        equipment: EquipmentId,
+        latest_created_at: SimulationTick,
+        current: SimulationTick,
+    },
+    AssemblyMaterialMismatch {
+        equipment: EquipmentId,
+        commodity: crate::material::CommodityKey,
+        stored: Mass,
+        authored: Mass,
+    },
     CreatedInFuture {
         equipment: EquipmentId,
         created_at: SimulationTick,
@@ -124,6 +168,95 @@ impl Display for EquipmentValidationError {
                 equipment.value(),
                 definition.value()
             ),
+            Self::EmbodiedMassMismatch {
+                equipment,
+                stored,
+                authored,
+            } => write!(
+                formatter,
+                "equipment {} owns {} mg but definition requires {} mg",
+                equipment.value(),
+                stored.milligrams(),
+                authored.milligrams()
+            ),
+            Self::MissingAssemblyMaterial { equipment } => write!(
+                formatter,
+                "equipment {} has an authored assembly profile but no persisted embodied material",
+                equipment.value()
+            ),
+            Self::UnexpectedAssemblyMaterial { equipment } => write!(
+                formatter,
+                "equipment {} persists assembled material but its definition has no assembly profile",
+                equipment.value()
+            ),
+            Self::ZeroEmbodiedTrace { equipment } => write!(
+                formatter,
+                "equipment {} contains a zero-mass embodied material trace",
+                equipment.value()
+            ),
+            Self::EmbodiedTraceMassOverflow { equipment } => write!(
+                formatter,
+                "equipment {} embodied material trace mass overflows",
+                equipment.value()
+            ),
+            Self::EmbodiedTraceMassMismatch {
+                equipment,
+                stored,
+                traced,
+            } => write!(
+                formatter,
+                "equipment {} stores {} mg embodied mass but traces own {} mg",
+                equipment.value(),
+                stored.milligrams(),
+                traced.milligrams()
+            ),
+            Self::UnknownEmbodiedCommodity {
+                equipment,
+                commodity,
+            } => write!(
+                formatter,
+                "equipment {} embodied material references unknown commodity {}",
+                equipment.value(),
+                commodity.value()
+            ),
+            Self::ImpureEmbodiedMaterial {
+                equipment,
+                commodity,
+            } => write!(
+                formatter,
+                "equipment {} embodied commodity {} is not pure authored material",
+                equipment.value(),
+                commodity.value()
+            ),
+            Self::InvalidEmbodiedProvenanceRange { equipment } => write!(
+                formatter,
+                "equipment {} embodied material has an invalid provenance range",
+                equipment.value()
+            ),
+            Self::EmbodiedProvenanceInFuture {
+                equipment,
+                latest_created_at,
+                current,
+            } => write!(
+                formatter,
+                "equipment {} embodied material provenance ends at tick {} after current tick {}",
+                equipment.value(),
+                latest_created_at.value(),
+                current.value()
+            ),
+            Self::AssemblyMaterialMismatch {
+                equipment,
+                commodity,
+                stored,
+                authored,
+            } => write!(
+                formatter,
+                "equipment {} owns {} mg of assembly commodity {} but definition requires {} mg",
+                equipment.value(),
+                stored.milligrams(),
+                commodity.value(),
+                authored.milligrams()
+            ),
             Self::CreatedInFuture {
                 equipment,
                 created_at,
@@ -143,6 +276,7 @@ impl Error for EquipmentValidationError {}
 
 pub(crate) fn validate_loaded_equipment(
     definitions: &EquipmentRegistry,
+    materials: &crate::material::MaterialRegistry,
     state: &EquipmentState,
     current_tick: SimulationTick,
 ) -> Result<(), EquipmentValidationError> {
@@ -193,11 +327,114 @@ pub(crate) fn validate_loaded_equipment(
                 element,
             });
         }
-        if definitions.get_equipment(record.definition).is_none() {
+        let Some(definition) = definitions.get_equipment(record.definition) else {
             return Err(EquipmentValidationError::UnknownDefinition {
                 equipment: record.id,
                 definition: record.definition,
             });
+        };
+        if record.embodied_mass != definition.mass() {
+            return Err(EquipmentValidationError::EmbodiedMassMismatch {
+                equipment: record.id,
+                stored: record.embodied_mass,
+                authored: definition.mass(),
+            });
+        }
+        match definition.assembly_profile() {
+            Some(assembly) => {
+                if record.embodied_material.is_empty() {
+                    return Err(EquipmentValidationError::MissingAssemblyMaterial {
+                        equipment: record.id,
+                    });
+                }
+                let mut traced_mass = Mass::ZERO;
+                let mut stored_by_commodity = std::collections::BTreeMap::new();
+                for trace in &record.embodied_material {
+                    if trace.mass().is_zero() {
+                        return Err(EquipmentValidationError::ZeroEmbodiedTrace {
+                            equipment: record.id,
+                        });
+                    }
+                    traced_mass = traced_mass.checked_add(trace.mass()).ok_or(
+                        EquipmentValidationError::EmbodiedTraceMassOverflow {
+                            equipment: record.id,
+                        },
+                    )?;
+                    let commodity = trace.profile().commodity();
+                    if !materials.has_commodity(commodity) {
+                        return Err(EquipmentValidationError::UnknownEmbodiedCommodity {
+                            equipment: record.id,
+                            commodity,
+                        });
+                    }
+                    if trace.profile().composition()
+                        != &crate::material::MaterialComposition::pure(commodity.material())
+                    {
+                        return Err(EquipmentValidationError::ImpureEmbodiedMaterial {
+                            equipment: record.id,
+                            commodity,
+                        });
+                    }
+                    let provenance = trace.provenance();
+                    if provenance.latest_created_at() < provenance.earliest_created_at() {
+                        return Err(EquipmentValidationError::InvalidEmbodiedProvenanceRange {
+                            equipment: record.id,
+                        });
+                    }
+                    if provenance.latest_created_at() > current_tick {
+                        return Err(EquipmentValidationError::EmbodiedProvenanceInFuture {
+                            equipment: record.id,
+                            latest_created_at: provenance.latest_created_at(),
+                            current: current_tick,
+                        });
+                    }
+                    let current = stored_by_commodity
+                        .get(&commodity)
+                        .copied()
+                        .unwrap_or(Mass::ZERO);
+                    let next = current.checked_add(trace.mass()).ok_or(
+                        EquipmentValidationError::EmbodiedTraceMassOverflow {
+                            equipment: record.id,
+                        },
+                    )?;
+                    stored_by_commodity.insert(commodity, next);
+                }
+                if traced_mass != record.embodied_mass {
+                    return Err(EquipmentValidationError::EmbodiedTraceMassMismatch {
+                        equipment: record.id,
+                        stored: record.embodied_mass,
+                        traced: traced_mass,
+                    });
+                }
+                for input in assembly.inputs() {
+                    let stored = stored_by_commodity
+                        .remove(&input.commodity())
+                        .unwrap_or(Mass::ZERO);
+                    if stored != input.mass() {
+                        return Err(EquipmentValidationError::AssemblyMaterialMismatch {
+                            equipment: record.id,
+                            commodity: input.commodity(),
+                            stored,
+                            authored: input.mass(),
+                        });
+                    }
+                }
+                if let Some((commodity, stored)) = stored_by_commodity.into_iter().next() {
+                    return Err(EquipmentValidationError::AssemblyMaterialMismatch {
+                        equipment: record.id,
+                        commodity,
+                        stored,
+                        authored: Mass::ZERO,
+                    });
+                }
+            }
+            None => {
+                if !record.embodied_material.is_empty() {
+                    return Err(EquipmentValidationError::UnexpectedAssemblyMaterial {
+                        equipment: record.id,
+                    });
+                }
+            }
         }
         if record.created_at > current_tick {
             return Err(EquipmentValidationError::CreatedInFuture {

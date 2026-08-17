@@ -25,9 +25,13 @@ use crate::inventory::{
     InventoryValidationError, MaterialLotId, StockpileId, StockpileStorageError,
     validate_loaded_inventory, validate_stockpile_storage,
 };
+use crate::labor::{PlayerWorkValidationError, validate_loaded_player_work};
 use crate::maintenance::Condition;
 use crate::material::{
     CommodityKey, MaterialId, ParticleSizeStateError, validate_material_particle_size_state,
+};
+use crate::mining::{
+    MiningReferenceError, MiningValidationError, validate_loaded_mining, validate_mining_references,
 };
 use crate::ore_processing::{
     ComminutionJobValidationError, ScreeningJobValidationError, validate_loaded_comminution_job,
@@ -76,6 +80,9 @@ pub enum StateValidationError {
     GeologicalKnowledge(GeologicalKnowledgeValidationError),
     Inventory(InventoryValidationError),
     Production(ProductionValidationError),
+    Mining(MiningValidationError),
+    MiningReference(MiningReferenceError),
+    PlayerWork(PlayerWorkValidationError),
     Survival(SurvivalValidationError),
     UnknownStoredCommodity {
         stockpile: StockpileId,
@@ -303,6 +310,11 @@ impl Display for StateValidationError {
             }
             Self::Inventory(error) => write!(formatter, "invalid inventory state: {error}"),
             Self::Production(error) => write!(formatter, "invalid production state: {error}"),
+            Self::Mining(error) => write!(formatter, "invalid mining state: {error}"),
+            Self::MiningReference(error) => {
+                write!(formatter, "invalid mining integration: {error}")
+            }
+            Self::PlayerWork(error) => write!(formatter, "invalid player-work state: {error}"),
             Self::Survival(error) => write!(formatter, "invalid survival state: {error}"),
             Self::UnknownStoredCommodity {
                 stockpile,
@@ -675,6 +687,9 @@ impl Error for StateValidationError {
             Self::GeologicalKnowledge(error) => Some(error),
             Self::Inventory(error) => Some(error),
             Self::Production(error) => Some(error),
+            Self::Mining(error) => Some(error),
+            Self::MiningReference(error) => Some(error),
+            Self::PlayerWork(error) => Some(error),
             Self::Survival(error) => Some(error),
             Self::ComminutionJob(error) => Some(error),
             Self::ScreeningJob(error) => Some(error),
@@ -884,6 +899,7 @@ pub fn validate_loaded_state(
         .map_err(StateValidationError::Fluid)?;
     validate_loaded_equipment(
         registries.equipment(),
+        registries.materials(),
         &state.systems.equipment,
         state.tick(),
     )
@@ -910,6 +926,8 @@ pub fn validate_loaded_state(
     .map_err(StateValidationError::GeologicalKnowledge)?;
     validate_loaded_production(&state.systems.production)
         .map_err(StateValidationError::Production)?;
+    validate_loaded_mining(&state.systems.mining, state.tick())
+        .map_err(StateValidationError::Mining)?;
     validate_loaded_survival(
         registries.survival(),
         registries.materials(),
@@ -920,6 +938,9 @@ pub fn validate_loaded_state(
 
     validate_inventory_references(registries, state)?;
     validate_production_references(registries, state)?;
+    validate_mining_references(registries, state).map_err(StateValidationError::MiningReference)?;
+    validate_loaded_player_work(registries.crafting(), state, &state.systems.player_work)
+        .map_err(StateValidationError::PlayerWork)?;
 
     Ok(())
 }
@@ -929,6 +950,10 @@ pub fn validate_invariants(registries: &Registries, state: &AppState) {
     debug_assert!(
         state.random.has_valid_core_stream(),
         "Runtime Invariant 11 (Serialization Completeness): core RNG stream must remain valid"
+    );
+    debug_assert!(
+        state.systems.mining.has_valid_id_cursor(),
+        "Runtime Invariant 8 (No Lost Runtime State): mining job ID cursor must remain nonzero"
     );
     debug_assert!(
         state.systems.energy.has_valid_id_cursor(),
@@ -969,6 +994,14 @@ pub fn validate_invariants(registries: &Registries, state: &AppState) {
             .earliest_due_tick()
             .is_none_or(|due| due > state.tick()),
         "Runtime Invariant 6 (Lifecycle Validity): no active production job may remain due"
+    );
+    debug_assert!(
+        state
+            .systems
+            .mining
+            .earliest_due_tick()
+            .is_none_or(|due| due > state.tick()),
+        "Runtime Invariant 6 (Lifecycle Validity): no working mining job may remain due"
     );
     debug_assert!(
         state

@@ -18,7 +18,9 @@ pub struct ExplicitEnergyAccounting {
     stored: Energy,
     geological_material_thermal: Energy,
     structural_material_thermal: Energy,
+    equipment_material_thermal: Energy,
     inventory_material_thermal: Energy,
+    mining_material_thermal: Energy,
     in_process_material_thermal: Energy,
     in_process_supplied: Energy,
 }
@@ -40,8 +42,18 @@ impl ExplicitEnergyAccounting {
     }
 
     #[must_use]
+    pub const fn equipment_material_thermal(self) -> Energy {
+        self.equipment_material_thermal
+    }
+
+    #[must_use]
     pub const fn inventory_material_thermal(self) -> Energy {
         self.inventory_material_thermal
+    }
+
+    #[must_use]
+    pub const fn mining_material_thermal(self) -> Energy {
+        self.mining_material_thermal
     }
 
     #[must_use]
@@ -59,7 +71,9 @@ impl ExplicitEnergyAccounting {
         self.stored
             .checked_add(self.geological_material_thermal)?
             .checked_add(self.structural_material_thermal)?
+            .checked_add(self.equipment_material_thermal)?
             .checked_add(self.inventory_material_thermal)?
+            .checked_add(self.mining_material_thermal)?
             .checked_add(self.in_process_material_thermal)?
             .checked_add(self.in_process_supplied)
     }
@@ -155,6 +169,34 @@ pub fn calculate_explicit_energy_accounting(
             .map_err(ExplicitEnergyAccountingError::MaterialThermal)?;
             add_energy(&mut accounting.structural_material_thermal, thermal)?;
         }
+    }
+
+    for equipment in state.equipment().equipment() {
+        for trace in equipment.embodied_material() {
+            let profile = trace.profile();
+            let thermal = calculate_material_thermal_energy(
+                registries.materials(),
+                trace.mass(),
+                profile.commodity(),
+                profile.composition(),
+                profile.temperature(),
+            )
+            .map_err(ExplicitEnergyAccountingError::MaterialThermal)?;
+            add_energy(&mut accounting.equipment_material_thermal, thermal)?;
+        }
+    }
+
+    for job in state.mining().jobs() {
+        let output = job.output();
+        let thermal = calculate_material_thermal_energy(
+            registries.materials(),
+            output.mass(),
+            output.commodity(),
+            output.composition(),
+            output.temperature(),
+        )
+        .map_err(ExplicitEnergyAccountingError::MaterialThermal)?;
+        add_energy(&mut accounting.mining_material_thermal, thermal)?;
     }
 
     for job in state.production().jobs() {

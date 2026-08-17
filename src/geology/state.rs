@@ -249,7 +249,7 @@ impl GeologyState {
         self.revision = next_revision;
     }
 
-    pub(super) fn apply_extraction(
+    pub(crate) fn apply_extraction(
         &mut self,
         deposit: GeologicalDepositId,
         remaining_after: Mass,

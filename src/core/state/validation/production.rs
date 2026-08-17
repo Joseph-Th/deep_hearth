@@ -268,6 +268,20 @@ pub(super) fn validate_production_references(
         }
     }
 
+    for job in state.systems.mining.jobs() {
+        let destination = job.destination();
+        let current = expected_reservations
+            .get(&destination)
+            .copied()
+            .unwrap_or(Mass::ZERO);
+        let expected = current.checked_add(job.output().mass()).ok_or(
+            StateValidationError::ReservedMassOverflow {
+                stockpile: destination,
+            },
+        )?;
+        expected_reservations.insert(destination, expected);
+    }
+
     for stockpile in state.systems.inventory.stockpiles() {
         let expected = expected_reservations
             .get(&stockpile.id())

@@ -1,5 +1,6 @@
 //! Maintainable capability-provider subsystem; definitions are immutable, state owns records, execution mutates, and integration resolves provider views.
 
+mod construction_execution;
 mod definitions;
 mod equipment_execution;
 mod equipment_integration;
@@ -7,14 +8,19 @@ mod equipment_structural_integration;
 mod repair_execution;
 mod state;
 
-pub use definitions::{
-    CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
-    EquipmentMaintenanceProfile, EquipmentRegistry,
+pub use construction_execution::{
+    EquipmentAssemblyCommitError, EquipmentAssemblyError, ValidatedEquipmentAssembly,
+    validate_assemble_equipment,
 };
+pub use definitions::{
+    CapabilityConditionCurve, CapabilityConditionPoint, EquipmentAssemblyProfile,
+    EquipmentDefinition, EquipmentDefinitionId, EquipmentMaintenanceProfile, EquipmentRegistry,
+};
+#[cfg(any(test, feature = "test-gameplay"))]
+pub use equipment_execution::{AddEquipmentError, add_equipment};
 pub use equipment_execution::{
-    AddEquipmentError, EquipmentConditionCommitError, EquipmentConditionPlan,
-    EquipmentConditionPlanError, add_equipment, apply_equipment_condition_plan,
-    decide_equipment_wear,
+    EquipmentConditionCommitError, EquipmentConditionPlan, EquipmentConditionPlanError,
+    apply_equipment_condition_plan, decide_equipment_wear,
 };
 pub use equipment_integration::{
     EquipmentProviderError, ResolvedEquipmentProvider, resolve_equipment_provider,

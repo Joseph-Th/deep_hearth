@@ -8,15 +8,19 @@ use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::inventory::StockpileId;
+use crate::labor::{
+    PlayerWork, PlayerWorkStartError, ValidatedPlayerWorkStart, validate_player_work_start,
+};
 use crate::material::{
     CommodityKey, MaterialComposition, MaterialLotSpec, MaterialLotSpecError, MaterialRegistry,
 };
 use crate::production::{
-    ProcessId, ProcessInputError, ProcessResolution, ProcessResolutionError, ProductionRegistry,
-    validate_process_inputs,
+    ProcessId, ProcessInputError, ProcessResolution, ProcessResolutionError, ProductionJobId,
+    ProductionRegistry, StartProcessCommitError, StartProcessError, ValidatedStartProcess,
+    validate_process_inputs, validate_start_manual_process,
 };
 use crate::registry::Registries;
-use crate::survival::{Vitality, assess_survival};
+use crate::survival::{SurvivalExertion, Vitality, assess_survival};
 
 mod validation;
 
@@ -55,6 +59,7 @@ pub struct ManualCraftDefinition {
     input: CommodityKey,
     input_mass: Mass,
     duration: TickSpan,
+    exertion: SurvivalExertion,
     outputs: Vec<ManualCraftOutput>,
 }
 
@@ -65,6 +70,7 @@ impl ManualCraftDefinition {
         input: CommodityKey,
         input_mass: Mass,
         duration: TickSpan,
+        exertion: SurvivalExertion,
         mut outputs: Vec<ManualCraftOutput>,
     ) -> Self {
         assert!(
@@ -108,6 +114,7 @@ impl ManualCraftDefinition {
             input,
             input_mass,
             duration,
+            exertion,
             outputs,
         }
     }
@@ -130,6 +137,11 @@ impl ManualCraftDefinition {
     #[must_use]
     pub const fn duration(&self) -> TickSpan {
         self.duration
+    }
+
+    #[must_use]
+    pub const fn exertion(&self) -> SurvivalExertion {
+        self.exertion
     }
 
     #[must_use]
@@ -332,6 +344,104 @@ pub fn resolve_manual_craft(
         .map_err(ManualCraftError::Resolution)
 }
 
+/// Failure while admitting manual shaping into production and exclusive player labor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StartManualCraftError {
+    Resolution(ManualCraftError),
+    Process(StartProcessError),
+    Work(PlayerWorkStartError),
+}
+
+impl Display for StartManualCraftError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Resolution(error) => write!(formatter, "manual craft resolution failed: {error}"),
+            Self::Process(error) => write!(formatter, "manual craft start failed: {error}"),
+            Self::Work(error) => write!(formatter, "manual craft labor is unavailable: {error}"),
+        }
+    }
+}
+
+impl Error for StartManualCraftError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Resolution(error) => Some(error),
+            Self::Process(error) => Some(error),
+            Self::Work(error) => Some(error),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ManualCraftCommitError {
+    Process(StartProcessCommitError),
+    Work(PlayerWorkStartError),
+}
+
+impl Display for ManualCraftCommitError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Process(error) => {
+                write!(formatter, "manual craft process commit failed: {error}")
+            }
+            Self::Work(error) => write!(formatter, "manual craft labor commit failed: {error}"),
+        }
+    }
+}
+
+impl Error for ManualCraftCommitError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Process(error) => Some(error),
+            Self::Work(error) => Some(error),
+        }
+    }
+}
+
+/// Consumed proof that both the process and the player's labor were available at validation time.
+#[must_use]
+pub struct ValidatedManualCraftStart {
+    process: ValidatedStartProcess,
+    work: ValidatedPlayerWorkStart,
+}
+
+impl ValidatedManualCraftStart {
+    pub fn commit(self, state: &mut AppState) -> Result<ProductionJobId, ManualCraftCommitError> {
+        self.work
+            .precheck(state)
+            .map_err(ManualCraftCommitError::Work)?;
+        let job = self
+            .process
+            .commit(state)
+            .map_err(ManualCraftCommitError::Process)?;
+        self.work.apply(state);
+        Ok(job)
+    }
+}
+
+/// Resolves and admits one manual craft while reserving the player's exclusive work time.
+pub fn validate_start_manual_craft(
+    registries: &Registries,
+    state: &AppState,
+    process: ProcessId,
+    source: StockpileId,
+    destination: StockpileId,
+) -> Result<ValidatedManualCraftStart, StartManualCraftError> {
+    let resolution = resolve_manual_craft(registries, state, process, source)
+        .map_err(StartManualCraftError::Resolution)?;
+    let process =
+        validate_start_manual_process(registries, state, &resolution, source, destination)
+            .map_err(StartManualCraftError::Process)?;
+    let work = validate_player_work_start(
+        state,
+        PlayerWork::ManualCraft {
+            job: process.job_id(),
+        },
+    )
+    .map_err(StartManualCraftError::Work)?;
+    Ok(ValidatedManualCraftStart { process, work })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,7 +454,7 @@ mod tests {
     use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
     use crate::matter::calculate_matter_accounting;
     use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
-    use crate::production::validate_start_process;
+    use crate::production::{StartProcessError, validate_start_process};
     use crate::simulation::advance_tick;
     use crate::survival::{assess_survival, initialize_player_survival};
 
@@ -383,16 +493,33 @@ mod tests {
         let resolution = resolve_manual_craft(&registries, &state, PROCESS_KNAP_STONE_TOOL, source)
             .unwrap_or_else(|error| panic!("stone knapping resolution failed: {error}"));
         assert_eq!(resolution.duration(), TickSpan::new(40));
-        let token = validate_start_process(&registries, &state, &resolution, source, destination)
-            .unwrap_or_else(|error| panic!("stone knapping start failed: {error}"));
+        assert_eq!(
+            validate_start_process(&registries, &state, &resolution, source, destination),
+            Err(StartProcessError::ManualCraftRequiresPlayerWork {
+                process: PROCESS_KNAP_STONE_TOOL,
+            })
+        );
+        let token = validate_start_manual_craft(
+            &registries,
+            &state,
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            destination,
+        )
+        .unwrap_or_else(|error| panic!("stone knapping start failed: {error}"));
         token
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("stone knapping commit failed: {error}"));
+        assert!(matches!(
+            state.player_work().active(),
+            Some(PlayerWork::ManualCraft { .. })
+        ));
 
         for _ in 0..resolution.duration().value() {
             advance_tick(&registries, &mut state)
                 .unwrap_or_else(|error| panic!("stone knapping tick failed: {error}"));
         }
+        assert_eq!(state.player_work().active(), None);
 
         let destination_record = state
             .inventory()
@@ -422,10 +549,14 @@ mod tests {
     #[test]
     fn manual_craft_load_audit_rejects_forged_duration() {
         let (registries, mut state, source, destination) = make_fixture();
-        let resolution = resolve_manual_craft(&registries, &state, PROCESS_KNAP_STONE_TOOL, source)
-            .unwrap_or_else(|error| panic!("manual craft tamper resolution failed: {error}"));
-        let token = validate_start_process(&registries, &state, &resolution, source, destination)
-            .unwrap_or_else(|error| panic!("manual craft tamper start failed: {error}"));
+        let token = validate_start_manual_craft(
+            &registries,
+            &state,
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            destination,
+        )
+        .unwrap_or_else(|error| panic!("manual craft tamper start failed: {error}"));
         let job = token
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("manual craft tamper commit failed: {error}"));

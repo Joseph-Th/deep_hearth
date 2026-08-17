@@ -11,7 +11,7 @@ use super::capabilities::{
     CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW, CAPABILITY_THERMAL_BATCH,
     CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
-use super::{FORM_LUMP, MATERIAL_CLAY, MATERIAL_STONE};
+use super::{FORM_LOG, FORM_LUMP, MATERIAL_CLAY, MATERIAL_STONE, MATERIAL_WOOD};
 
 pub const PROCESS_CRUSH_ORE: ProcessId = ProcessId::new(1);
 pub const PROCESS_MELT_PURE_COPPER: ProcessId = ProcessId::new(2);
@@ -21,6 +21,7 @@ pub const PROCESS_GRIND_CRUSHED_ORE: ProcessId = ProcessId::new(5);
 pub const PROCESS_FINE_GRIND_SCREEN_OVERSIZE: ProcessId = ProcessId::new(6);
 pub const PROCESS_KNAP_STONE_TOOL: ProcessId = ProcessId::new(7);
 pub const PROCESS_FORM_CLAY_VESSEL: ProcessId = ProcessId::new(8);
+pub const PROCESS_SHAPE_WOOD_HANDLE: ProcessId = ProcessId::new(9);
 
 pub(crate) fn build_production_registry() -> ProductionRegistry {
     let mut registry = ProductionRegistry::new();
@@ -136,6 +137,15 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
             "knap stone tool",
             vec![MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+                Mass::from_milligrams(1_000),
+            )],
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_SHAPE_WOOD_HANDLE,
+            "shape wood handle",
+            vec![MaterialInputSpec::new(
+                CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
                 Mass::from_milligrams(1_000),
             )],
             Vec::new(),

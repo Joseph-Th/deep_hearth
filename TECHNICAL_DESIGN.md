@@ -68,8 +68,9 @@ records with dedicated indexes.
 `AppState` is the root of generated mutable state that must survive restart boundaries. It currently
 owns the world seed, authoritative clock, independent deterministic RNG streams, finite-energy
 stores, finite fluid stores, equipment records, structural records, finite geological deposits,
-acquired geological knowledge, inventory, production, and optional initialized player survival. New
-subsystems add explicit owned state rather than turning `AppState` into a bag of unrelated maps.
+acquired geological knowledge, inventory, production, mining work-in-progress, exclusive player work,
+and optional initialized player survival. New subsystems add explicit owned state rather than turning
+`AppState` into a bag of unrelated maps.
 
 Runtime records use typed persistent IDs. Each subsystem owns its record collections and synchronized
 indexes; callers receive read-only views and canonical systems retain mutation access. State owner
@@ -87,8 +88,9 @@ into the runtime state surface.
 - `FluidState` owns finite homogeneous fluid stores, generated store IDs, exact volume and
   temperature, optional structural support assignments, a synchronized support-to-store reverse
   index, and an owner revision. Empty stores carry no residual fluid identity.
-- `EquipmentState` owns maintainable equipment instances, their structural support assignment, a
-  synchronized support-to-equipment reverse index, generated equipment IDs, and an owner revision.
+- `EquipmentState` owns maintainable equipment instances, exact embodied assembly traces for
+  gameplay-assembled equipment, their structural support assignment, a synchronized
+  support-to-equipment reverse index, generated equipment IDs, and an owner revision.
 - `StructureState` owns structural members, exact embodied material traces/mass, support/dependent
   indexes, source-separated loads including derived self-weight, damage, generated member IDs, and an
   owner revision.
@@ -100,6 +102,11 @@ into the runtime state surface.
 - `ProductionState` owns active jobs, generated job IDs, a due-tick index, synchronized exclusive
   energy-store-to-job and equipment-to-job occupancy indexes, a stockpile-to-job-set occupancy index,
   and an owner revision.
+- `MiningState` owns exact extracted material while hand/mining work is in progress, generated mining
+  job IDs, due-tick scheduling, and an exclusive equipment-to-mining-job occupancy index. A ready job
+  remains the owner of its output until an explicit claim transfers the reserved matter to inventory.
+- `PlayerWorkState` owns at most one active locally controlled-player job reference. It does not own a
+  second timer; manual-craft and mining durations remain authoritative in their respective job owners.
 - `SurvivalState` owns the admitted player's metabolic-energy, hydration, and vitality reserves plus
   bounded per-material metabolic matter and per-fluid ingested-volume ownership. These biological
   reservoirs keep eating and drinking conservative without retaining an unbounded meal history.
@@ -125,10 +132,10 @@ storage to adapters. `CURRENT_SAVE_SCHEMA_VERSION` in `src/persistence/mod.rs` i
 the accepted save schema version. Authored identity/physics compatibility is tracked separately by
 `RegistrySchemaVersion`; the built-in content registry owns its current value in `src/content/mod.rs`.
 Core gravity/calendar semantics, material phase/fusion semantics, physical form and particle-state
-policies, fluid identity/density definitions, survival physiology/food/drink definitions, directional
-energy-store semantics, and operation-specific resolver identities are part of that immutable registry
-contract because changing them can alter persisted physical consequences even when authored IDs are
-unchanged.
+policies, fluid identity/density definitions, survival physiology/food/drink definitions, manual-work
+exertion, mining method/capability semantics, equipment assembly inputs, directional energy-store
+semantics, and operation-specific resolver identities are part of that immutable registry contract
+because changing them can alter persisted physical consequences even when authored IDs are unchanged.
 
 Persistence is deliberately current-schema-only. `LoadedSaveEnvelope` represents the one payload
 shape this build supports, and `into_state` rejects any save-schema or registry-schema mismatch before
@@ -159,7 +166,11 @@ authored form policy. Screening jobs independently recompute their aperture part
 identities, exact output distributions, finite work, duration, and condition outcome. Manual shaping
 jobs independently replay their exact input identity/composition/temperature, duration, no-resource
 contract, and conserved output forms. Survival load validation bounds physiology and rejects forged
-non-food metabolic matter or non-drinkable ingested fluid identities.
+non-food metabolic matter or non-drinkable ingested fluid identities. Mining validation reconstructs
+due/equipment occupancy, validates exact WIP output and destination reservations against the original
+deposit/tool/method references, and player-work validation requires the active labor reference to
+match a real in-flight manual-craft or mining job. Assemblable equipment independently reconciles its
+persisted pure material/provenance traces to the authored multi-input assembly profile.
 
 Filesystem layout, compression, atomic writes, and cloud storage remain adapter work. Historical
 save-schema migration is intentionally unsupported.
@@ -399,9 +410,10 @@ authoritative deposit enumeration: external/player-facing adapters receive acqui
 knowledge instead of a hidden-truth escape hatch.
 
 `calculate_matter_accounting` recomputes implemented world matter from authoritative records. It
-counts remaining geological deposit mass, embodied structural mass, inventory lots, and in-flight
-production output snapshots. Consumed-input traces are history unless they are explicitly owned as
-structural embodiment; reserved inbound capacity is space rather than matter.
+counts remaining geological deposit mass, embodied structural/equipment mass, inventory lots,
+in-flight production output snapshots, mining work-in-progress, and biological matter ownership.
+Consumed-input traces are history unless they are explicitly owned as structural/equipment
+embodiment; reserved inbound capacity is space rather than matter.
 
 `GeologicalDepositRecord` stores a chunk-agnostic `VoxelBounds`, exact initial and remaining mass,
 commodity/form identity, absolute temperature, normalized composition, generated tick, and a
@@ -413,20 +425,19 @@ geometry. Overlapping geological bounds are
 therefore not prohibited by this foundation; a future geological model may use overlapping records
 for distinct structures or mineralization rather than forcing a premature one-record-per-voxel rule.
 
-Geological extraction is a revision-bound cross-owner transaction. An opaque `ExtractionResolution`
-must already exist before validation, so this foundation does not expose free instant mining. The
-transaction checks finite remaining mass and destination capacity, binds geology and inventory
-revisions, and also binds structure when the destination stockpile is supported. It then moves the
-exact mass, composition, form, temperature, and provenance into a material lot while applying the
-destination's final stored-matter load atomically. Inventory exposes only a crate-private validated
-ingress primitive for explicit source owners, preserving the existing prohibition on arbitrary
-gameplay matter insertion.
+There is no parallel direct geological-extraction transaction. Gameplay removal of geological matter
+is owned solely by the mining subsystem: start validation binds a real tool, exclusive player labor,
+finite deposit mass, extraction capability, hardness/batch limits, tool wear, and reserved destination
+capacity before moving the exact material profile into `MiningState`. Completion releases work/tool
+occupancy, while a separate claim moves that already-owned WIP into inventory. This keeps geology as
+truth rather than an alternate instant-mining API and preserves one canonical extraction path.
 
-Explicit modeled-energy accounting includes supported material sensible plus latent thermal energy
-still owned by geological deposits, structural members, inventory, and in-process matter, together
-with finite energy stores and energy retained by active production work. Extraction, construction,
-deconstruction, sensible heating, pure-material melting, and casting therefore change ownership
-without changing the modeled total when all represented sources and sinks are included.
+Explicit modeled-energy accounting includes sensible plus latent thermal energy still owned by
+geological deposits, structural members, assembled equipment traces, inventory, production WIP, and
+mining WIP, together with finite energy stores and energy retained by active production work. Mining,
+equipment assembly, construction, deconstruction, sensible heating, pure-material melting, and casting
+therefore change ownership without changing the modeled total when all represented sources and sinks
+are included.
 
 ## 14. Prospecting Knowledge
 
@@ -727,7 +738,7 @@ that matter and the occupied stockpile cannot be relocated mid-operation. Stockp
 a production source or destination cannot be moved to a different support while that job is active.
 
 Every canonical operation that changes stockpile stored mass participates in the same ownership
-invariant: bulk transfer, production start/completion, geological extraction, structural
+invariant: bulk transfer, production start/completion, mining output claim, structural
 construction/deconstruction, and test/bootstrap material seeding. Cross-owner tokens bind structural
 revisions whenever supported matter is involved, including zero-force-delta changes where conservative
 rounding leaves the stored contribution unchanged. Multi-stockpile or simultaneous-output changes use
@@ -773,6 +784,33 @@ and output snapshot. A later tick resumes that same job when its required equipm
 again and schedules completion from the preserved remaining active time. This recovery path pauses
 work rather than silently destroying or re-resolving committed resources.
 
+Gameplay equipment assembly is a separate inventory-to-equipment ownership transfer. An authored
+`EquipmentAssemblyProfile` contains exact `MaterialInputSpec` entries whose summed mass must equal the
+equipment definition mass. Validation selects those exact pure commodities from one stockpile,
+reconciles any supported-stockpile load change, and commits inventory egress plus equipment insertion
+under revision checks. The equipment record retains the resulting `ConsumedMaterialTrace` entries, so
+material identity, temperature, composition, and provenance survive the ownership transfer. Current
+load validation rejects missing, extra, impure, future-provenance, wrong-mass, or wrong-commodity
+assembly traces. The built-in stone pick therefore physically owns both its 800 mg knapped stone head
+and 200 mg shaped wood handle rather than collapsing them into an anonymous mass scalar.
+
+Player labor is an explicit exclusive owner. Manual crafting and mining acquire `PlayerWorkState`
+atomically with their authoritative job start and release it through the canonical tick when that job
+finishes active work. Survival does not duplicate work state: the tick projects authored
+`SurvivalExertion` from the active job and adds that incremental energy/hydration demand to basal
+physiology before either owner mutates. This creates a real time-and-metabolism cost for manual work
+without introducing an unsupported fatigue/rest model.
+
+Hand mining is an explicit conserved extraction owner. Start validation binds the geological deposit,
+mining-method definition, destination reservation, player labor, and a real equipment provider. It
+requires condition-sensitive mass flow, maximum batch mass, and maximum material-hardness capability;
+derives duration from throughput; applies deterministic active-tick wear; subtracts the exact geological
+mass only when inserting an equal `MaterialLotSpec` into `MiningState`; and reserves the destination
+mass atomically. Completion marks that WIP ready and releases equipment/labor. Claim separately moves
+the exact output into inventory and releases the reservation. Global matter and explicit material
+thermal-energy accounting include mining WIP and assembled-equipment traces, so neither ownership
+transition appears as creation or deletion.
+
 ## 20. Cross-Subsystem Runtime Invariants and Boundaries
 
 `validate_loaded_state(registries, state)` validates local owners plus cross-system relationships,
@@ -793,16 +831,20 @@ remains reproducible after load.
 
 The foundation intentionally leaves unresolved choices unresolved. Deferred areas include chunk
 storage/streaming, renderer/ECS/physics/networking, regional geological generation, physical
-prospecting resolvers and mining authorization/rates/waste streams, richer construction geometry and
+prospecting resolvers, richer mining access/voxel excavation/recovery/waste/drainage/risk, richer construction geometry and
 demolition/salvage resolvers, environmental thermal fields/heat transport, vaporization, mixed/alloy
 phase diagrams, combustion/emissions, chemical smelting/reduction, forging/machining, real
-equipment/tool/worker capability providers, persistent mechanical networks/inertia/slip,
+non-player worker capability providers, persistent mechanical networks/inertia/slip,
 steam/boilers, electrical topology/transformers/protection, pressure/gravity-resolved hydrology and
 fluid networks, agriculture/crop growth, ecology/genetics, creatures/hunting/combat, workers,
 settlements/logistics/trade, and save-file storage adapters. Calendar seasons, survival physiology,
-perishable food, finite drinking water, and manual knapping/clay forming are implemented foundations,
-not claims that those remaining world/ecology/technology owners already exist. Historical save-schema
-migration remains intentionally unsupported.
+perishable food, finite drinking water, manual knapping/handle shaping/clay forming, composite tool
+assembly, exclusive player labor, and tool-gated finite mining are implemented foundations, not claims
+that those remaining world/ecology/technology owners already exist. Prospecting remains specifically
+deferred because current geology stores finite deposit bounds/mass but no world-generation density
+field or voxel ore topology; deriving survey certainty from those bounds would manufacture spatial
+information that the knowledge model is designed not to invent. Historical save-schema migration
+remains intentionally unsupported.
 
 New systems must integrate through owned records, immutable definitions, typed IDs/quantities,
 canonical mutations, dedicated errors, persistence semantics, invariant coverage, and behavioral

@@ -11,6 +11,7 @@ use crate::core::state::AppState;
 pub struct MatterAccounting {
     geological: AggregateMass,
     structural: AggregateMass,
+    equipment: AggregateMass,
     stored: AggregateMass,
     in_process: AggregateMass,
     metabolic: AggregateMass,
@@ -28,6 +29,12 @@ impl MatterAccounting {
     #[must_use]
     pub const fn structural(self) -> AggregateMass {
         self.structural
+    }
+
+    /// Matter embodied in maintainable equipment and tools.
+    #[must_use]
+    pub const fn equipment(self) -> AggregateMass {
+        self.equipment
     }
 
     /// Matter currently owned by inventory lots.
@@ -60,6 +67,7 @@ impl MatterAccounting {
 pub enum MatterAccountingError {
     GeologicalMassOverflow,
     StructuralMassOverflow,
+    EquipmentMassOverflow,
     StoredMassOverflow,
     InProcessMassOverflow,
     MetabolicMassOverflow,
@@ -74,6 +82,9 @@ impl Display for MatterAccountingError {
             }
             Self::StructuralMassOverflow => {
                 formatter.write_str("structural world matter exceeds aggregate mass range")
+            }
+            Self::EquipmentMassOverflow => {
+                formatter.write_str("equipment world matter exceeds aggregate mass range")
             }
             Self::StoredMassOverflow => {
                 formatter.write_str("stored world matter exceeds aggregate mass range")
@@ -119,6 +130,13 @@ pub fn calculate_matter_accounting(
             .ok_or(MatterAccountingError::StructuralMassOverflow)?;
     }
 
+    let mut equipment = AggregateMass::ZERO;
+    for record in state.equipment().equipment() {
+        equipment = equipment
+            .checked_add(AggregateMass::from_mass(record.embodied_mass()))
+            .ok_or(MatterAccountingError::EquipmentMassOverflow)?;
+    }
+
     let mut stored = AggregateMass::ZERO;
     for lot in state.inventory().lots() {
         stored = stored
@@ -136,6 +154,11 @@ pub fn calculate_matter_accounting(
             }
         }
     }
+    for job in state.mining().jobs() {
+        in_process = in_process
+            .checked_add(AggregateMass::from_mass(job.output().mass()))
+            .ok_or(MatterAccountingError::InProcessMassOverflow)?;
+    }
 
     let mut metabolic = AggregateMass::ZERO;
     for (_, mass) in state.survival().metabolic_matter() {
@@ -147,6 +170,8 @@ pub fn calculate_matter_accounting(
     let total = geological
         .checked_add(structural)
         .ok_or(MatterAccountingError::TotalMassOverflow)?
+        .checked_add(equipment)
+        .ok_or(MatterAccountingError::TotalMassOverflow)?
         .checked_add(stored)
         .ok_or(MatterAccountingError::TotalMassOverflow)?
         .checked_add(in_process)
@@ -156,6 +181,7 @@ pub fn calculate_matter_accounting(
     Ok(MatterAccounting {
         geological,
         structural,
+        equipment,
         stored,
         in_process,
         metabolic,

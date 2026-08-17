@@ -11,7 +11,9 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
-use crate::material::{CompositionError, FormId, MaterialId, MaterialLotSpec};
+#[cfg(any(test, feature = "test-gameplay"))]
+use crate::material::MaterialLotSpec;
+use crate::material::{CompositionError, FormId, MaterialId};
 use crate::registry::Registries;
 
 use super::state::{
@@ -33,6 +35,7 @@ pub(crate) struct MaterialIngressEntry {
 
 impl MaterialIngressEntry {
     /// Converts a newly created lot specification into an ingress parcel with exact provenance.
+    #[cfg(any(test, feature = "test-gameplay"))]
     #[must_use]
     pub(crate) fn from_lot_spec(
         specification: MaterialLotSpec,

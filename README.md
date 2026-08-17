@@ -31,9 +31,12 @@ work and conservative particle-class partitioning, feed-size-constrained selecti
 physical thermal production for sensible heating,
 pure-material melting, and casting with explicit latent heat and finite heat sinks. Current-schema
 persistence revalidates cross-owner conservation and operation-specific physics, and deterministic
-soak coverage exercises the major ownership paths. Physical survey/mining authorization, alloy phase
-diagrams and chemical smelting, environmental heat transport, fluid networks, richer construction,
-and later labor/ecology/settlement systems remain unavailable until their real physical owners exist.
+soak coverage exercises the major ownership paths. Primitive progression now includes exclusive timed
+player work, exertion-aware manual shaping, conserved composite stone-pick assembly, and tool-gated
+finite mining with condition-sensitive throughput, hardness/batch limits, wear, reserved output, and
+explicit claim. Physical prospecting, alloy phase diagrams and chemical smelting, environmental heat
+transport, fluid networks, richer construction, agriculture/ecology, non-player workers, and
+settlement systems remain unavailable until their real physical owners exist.
 
 ## Documentation authority
 

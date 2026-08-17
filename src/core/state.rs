@@ -7,6 +7,8 @@ use crate::equipment::EquipmentState;
 use crate::fluid::FluidState;
 use crate::geology::{GeologicalKnowledgeState, GeologyState};
 use crate::inventory::InventoryState;
+use crate::labor::PlayerWorkState;
+use crate::mining::MiningState;
 use crate::production::ProductionState;
 use crate::structural::StructureState;
 use crate::survival::SurvivalState;
@@ -33,6 +35,8 @@ struct SystemState {
     geological_knowledge: GeologicalKnowledgeState,
     inventory: InventoryState,
     production: ProductionState,
+    mining: MiningState,
+    player_work: PlayerWorkState,
     survival: SurvivalState,
 }
 
@@ -60,6 +64,8 @@ impl AppState {
                 geological_knowledge: GeologicalKnowledgeState::new(),
                 inventory: InventoryState::new(),
                 production: ProductionState::new(),
+                mining: MiningState::new(),
+                player_work: PlayerWorkState::new(),
                 survival: SurvivalState::new(),
             },
         }
@@ -167,6 +173,26 @@ impl AppState {
 
     pub(crate) fn production_state_mut(&mut self) -> &mut ProductionState {
         &mut self.systems.production
+    }
+
+    /// Returns read-only durable geological extraction work.
+    #[must_use]
+    pub const fn mining(&self) -> &MiningState {
+        &self.systems.mining
+    }
+
+    pub(crate) fn mining_state_mut(&mut self) -> &mut MiningState {
+        &mut self.systems.mining
+    }
+
+    /// Returns the local player's exclusive active-work owner.
+    #[must_use]
+    pub const fn player_work(&self) -> &PlayerWorkState {
+        &self.systems.player_work
+    }
+
+    pub(crate) fn player_work_state_mut(&mut self) -> &mut PlayerWorkState {
+        &mut self.systems.player_work
     }
 
     /// Returns read-only authoritative player survival state.

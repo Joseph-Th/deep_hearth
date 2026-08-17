@@ -6,6 +6,8 @@ use std::fmt::{Display, Formatter};
 use crate::core::state::{AppState, apply_clock_advance, validate_invariants};
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::inventory::{StockpileId, StockpileStructuralLoadError};
+use crate::labor::{apply_player_work_tick, decide_player_work_tick, player_work_exertion};
+use crate::mining::{MiningJobId, apply_mining_tick, decide_mining_tick};
 use crate::production::{
     CompletionApplication, CompletionCommitError, CompletionPlanError, ProcessCompletion,
     ProductionAvailabilityChange, ProductionJobId, apply_completion_plan, decide_due_completions,
@@ -22,6 +24,7 @@ pub struct TickOutcome {
     tick: SimulationTick,
     production_availability_changes: Vec<ProductionAvailabilityChange>,
     production_completions: Vec<ProcessCompletion>,
+    ready_mining_jobs: Vec<MiningJobId>,
     survival: Option<SurvivalAssessment>,
 }
 
@@ -43,6 +46,12 @@ impl TickOutcome {
     #[must_use]
     pub fn production_completions(&self) -> &[ProcessCompletion] {
         &self.production_completions
+    }
+
+    /// Returns mining jobs whose labor phase finished this tick and can now be claimed.
+    #[must_use]
+    pub fn ready_mining_jobs(&self) -> &[MiningJobId] {
+        &self.ready_mining_jobs
     }
 
     /// Returns the post-tick player survival projection when survival has been initialized.
@@ -69,6 +78,14 @@ pub enum TickError {
     EnergyRevisionExhausted,
     /// Player survival cannot advance its persisted revision for this tick.
     SurvivalRevisionExhausted,
+    /// Authored basal and work energy costs cannot be represented together.
+    SurvivalEnergyCostOverflow,
+    /// Authored basal and work hydration losses cannot be represented together.
+    SurvivalHydrationCostOverflow,
+    /// Exclusive player-work ownership cannot release at this tick.
+    PlayerWorkRevisionExhausted,
+    /// Mining cannot advance its persisted scheduling revision for this tick.
+    MiningRevisionExhausted,
     /// A suspended operation cannot schedule its remaining active time within the world clock.
     ProductionResumeTickOverflow {
         job: ProductionJobId,
@@ -105,6 +122,17 @@ impl Display for TickError {
             }
             Self::SurvivalRevisionExhausted => {
                 formatter.write_str("survival state revision space is exhausted")
+            }
+            Self::SurvivalEnergyCostOverflow => {
+                formatter.write_str("combined survival energy cost overflows authoritative storage")
+            }
+            Self::SurvivalHydrationCostOverflow => formatter
+                .write_str("combined survival hydration loss overflows authoritative storage"),
+            Self::PlayerWorkRevisionExhausted => {
+                formatter.write_str("player-work revision space is exhausted")
+            }
+            Self::MiningRevisionExhausted => {
+                formatter.write_str("mining revision space is exhausted")
             }
             Self::ProductionResumeTickOverflow {
                 job,
@@ -212,7 +240,11 @@ impl Error for TickError {
             | Self::ProductionRevisionExhausted
             | Self::EquipmentRevisionExhausted
             | Self::EnergyRevisionExhausted
-            | Self::SurvivalRevisionExhausted => None,
+            | Self::SurvivalRevisionExhausted
+            | Self::SurvivalEnergyCostOverflow
+            | Self::SurvivalHydrationCostOverflow
+            | Self::PlayerWorkRevisionExhausted
+            | Self::MiningRevisionExhausted => None,
         }
     }
 }
@@ -254,9 +286,17 @@ pub fn advance_tick(
             }
             CompletionPlanError::StructuralLoad(error) => TickError::StructuralLoad(error),
         })?;
-    let survival_plan = decide_survival_tick(registries, state).map_err(|error| match error {
-        SurvivalTickError::RevisionExhausted => TickError::SurvivalRevisionExhausted,
-    })?;
+    let player_work_plan = decide_player_work_tick(state, next_tick)
+        .map_err(|_error| TickError::PlayerWorkRevisionExhausted)?;
+    let mining_plan = decide_mining_tick(state, next_tick)
+        .map_err(|_error| TickError::MiningRevisionExhausted)?;
+    let exertion = player_work_exertion(registries, state);
+    let survival_plan =
+        decide_survival_tick(registries, state, exertion).map_err(|error| match error {
+            SurvivalTickError::RevisionExhausted => TickError::SurvivalRevisionExhausted,
+            SurvivalTickError::EnergyCostOverflow => TickError::SurvivalEnergyCostOverflow,
+            SurvivalTickError::HydrationCostOverflow => TickError::SurvivalHydrationCostOverflow,
+        })?;
     let CompletionApplication {
         completions: production_completions,
         availability_changes: production_availability_changes,
@@ -278,6 +318,8 @@ pub fn advance_tick(
         }
         CompletionCommitError::Structure(error) => TickError::Structure(error),
     })?;
+    let ready_mining_jobs = apply_mining_tick(state, mining_plan);
+    apply_player_work_tick(state, player_work_plan);
     let survival = apply_survival_tick(state, survival_plan);
     apply_clock_advance(state, next_tick);
 
@@ -286,6 +328,7 @@ pub fn advance_tick(
         tick: next_tick,
         production_availability_changes,
         production_completions,
+        ready_mining_jobs,
         survival,
     })
 }

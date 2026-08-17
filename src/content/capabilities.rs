@@ -14,6 +14,9 @@ pub(crate) const CAPABILITY_SCREEN_FLOW: CapabilityId = CapabilityId::new(7);
 pub(crate) const CAPABILITY_SCREEN_BATCH: CapabilityId = CapabilityId::new(8);
 pub(crate) const CAPABILITY_GRINDER_FLOW: CapabilityId = CapabilityId::new(9);
 pub(crate) const CAPABILITY_GRINDER_BATCH: CapabilityId = CapabilityId::new(10);
+pub(crate) const CAPABILITY_MINING_FLOW: CapabilityId = CapabilityId::new(11);
+pub(crate) const CAPABILITY_MINING_MAX_BATCH: CapabilityId = CapabilityId::new(12);
+pub(crate) const CAPABILITY_MINING_MAX_HARDNESS: CapabilityId = CapabilityId::new(13);
 
 pub(crate) fn build_capability_registry() -> CapabilityRegistry {
     let mut registry = CapabilityRegistry::new();
@@ -67,6 +70,21 @@ pub(crate) fn build_capability_registry() -> CapabilityRegistry {
             CAPABILITY_GRINDER_BATCH,
             "grinder maximum batch mass",
             CapabilityValueKind::Mass,
+        ),
+        CapabilityDefinition::new(
+            CAPABILITY_MINING_FLOW,
+            "mining material throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        CapabilityDefinition::new(
+            CAPABILITY_MINING_MAX_BATCH,
+            "mining maximum batch mass",
+            CapabilityValueKind::Mass,
+        ),
+        CapabilityDefinition::new(
+            CAPABILITY_MINING_MAX_HARDNESS,
+            "mining maximum material hardness",
+            CapabilityValueKind::Pressure,
         ),
     ] {
         registry.register_capability(definition);

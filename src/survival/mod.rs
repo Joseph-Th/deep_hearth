@@ -16,8 +16,8 @@ pub use definitions::{
     PhysiologyDefinition, SurvivalRegistry,
 };
 pub use lifecycle::{
-    HungerState, HydrationState, InitializeSurvivalError, SurvivalAssessment, assess_survival,
-    initialize_player_survival,
+    HungerState, HydrationState, InitializeSurvivalError, SurvivalAssessment, SurvivalExertion,
+    assess_survival, initialize_player_survival,
 };
 pub use state::{PlayerSurvivalRecord, SurvivalState, Vitality};
 pub use validation::SurvivalValidationError;

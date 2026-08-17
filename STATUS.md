@@ -8,15 +8,15 @@
   an authored 96-day calendar projected into twelve months and four equal seasons without mutable
   calendar counters.
 - Persisted independent RNG streams derived from the world seed.
-- Consequential production, inventory, structural, equipment, energy, fluid, geology, geological
-  knowledge, and player-survival backing collections are private to their state owners. Synchronized
-  indexes change only through owner methods that update each related collection in one mutation
-  boundary.
+- Consequential production, mining, player-work, inventory, structural, equipment, energy, fluid,
+  geology, geological knowledge, and player-survival backing collections are private to their state
+  owners. Synchronized indexes change only through owner methods that update each related collection
+  in one mutation boundary.
 - Wide runtime and coordination records are grouped by ownership concern rather than accumulating
   flat field lists: root runtime systems, production-job identity/schedule/resources/equipment,
   registry presentation domains, screening resolution constraints, completion revision contracts,
   and gameplay-harness inputs/reports each have explicit nested profiles. The resulting persistent
-  layout is save schema 33 and remains current-schema-only; no historical layout shim or migration is
+  layout is save schema 35 and remains current-schema-only; no historical layout shim or migration is
   retained.
 - Explicit authoritative integer quantities for mass, aggregate mass, temperature, energy,
   pressure, area, length, acceleration, force, power, torque, angular speed, voltage, current,
@@ -53,7 +53,7 @@
   an in-flight production job may still complete after a later support collapse. Production occupancy
   prevents moving source/destination stockpiles while a job is active.
 - Every canonical stockpile-mass mutation keeps stored-matter load synchronized in the same validated
-  transaction: manual transfer, production start/completion, geological extraction, structural
+  transaction: manual transfer, production start/completion, mining output claim, structural
   construction/deconstruction, and test/bootstrap ingress. Multi-stockpile transfers and simultaneous
   production completions use one deterministic batch structural plan, so results do not depend on an
   intermediate mutation order. Supported operations bind the structural revision even when aggregate
@@ -71,11 +71,19 @@
   use the source boundary as a matter-spawn API. Geological ownership is explicitly solid-only,
   excludes processed particulate forms whose size state belongs to material-processing owners, and
   is independently revalidated on load.
-- Revision-bound geological extraction transfers exact conserved matter into inventory through a
-  crate-private validated ingress primitive. Extraction binds both geology and inventory revisions,
-  rejects stale or over-capacity commits without partial mutation, preserves physical material
-  profiles, updates a supported destination's derived stored-matter load atomically, and exposes no
-  public constructor for mining authorization before tool/labor/geometry physics exist.
+- Tool-gated mining owns the sole gameplay extraction boundary. A mining start validates a real equipment
+  provider, condition-sensitive mass flow, maximum batch mass, material hardness, destination
+  containment/capacity/support, exclusive player labor, and exact tool wear before moving matter.
+  Geological mass is reduced only as that same matter becomes mining-owned WIP, while inventory
+  reserves the eventual inbound mass. Completion releases the tool and player but does not teleport
+  matter; a separate claim transaction deposits the exact preserved material profile and releases the
+  reservation. Matter and modeled sensible thermal energy remain conserved while work is active.
+- The built-in primitive extraction chain is now concrete: 1,000 mg stone lump can be knapped into an
+  800 mg stone head plus 200 mg stone chips, 1,000 mg wood log can be shaped into a 200 mg handle plus
+  800 mg wood chips, and the head plus handle assemble into a 1,000 mg stone pick. The equipment owner
+  persists the exact consumed material/provenance traces for assemblable equipment and exhaustive load
+  validation reconciles those traces against the authored multi-input assembly profile. The stone pick
+  provides condition-sensitive mining throughput, maximum batch mass, and maximum material hardness.
 - Persistent geological knowledge is separate from authoritative deposit truth. Prospecting
   observations own stable IDs, spatial footprints, evidence provenance, bounded material-abundance
   estimates, observation time, a revision, and a synchronized material-to-observation index.
@@ -97,10 +105,17 @@
 - Manual shaping is a first-class resolver family that reuses the same fixed-feed production start,
   reservation, due-tick, completion, persistence, and conservation path as machines. Built-in stone
   knapping converts 1,000 mg of stone lump into an 800 mg tool form plus 200 mg of chips over 40
-  active ticks; clay forming converts 1,000 mg of clay lump into 1,000 mg of unfired pottery over 80
-  active ticks. Manual work requires a living initialized player, preserves input temperature and
+  active ticks; handle shaping converts 1,000 mg wood log into a 200 mg handle plus 800 mg chips over
+  40 active ticks; clay forming converts 1,000 mg of clay lump into 1,000 mg of unfired pottery over
+  80 active ticks. Manual work requires a living initialized player, preserves input temperature and
   pure material identity, consumes no invented machine resource, and is independently replay-audited
   on load so forged duration or output snapshots are rejected.
+- Persistent exclusive player work now prevents simultaneous manual crafting and mining. Active work
+  is referenced by typed durable job identity rather than a parallel countdown. The canonical tick
+  derives incremental authored exertion from that active work and adds it to basal metabolism, so
+  mining costs more metabolic energy and hydration per tick than idling while still using the single
+  survival owner. Work ownership is validated exhaustively against the referenced production/mining
+  job on load.
 - Persistent player survival has explicit admission, owner revision, metabolic-energy reserve,
   hydration reserve, normalized vitality, hunger/thirst assessments, deterministic basal depletion,
   and starvation/dehydration vitality loss in the canonical tick pipeline. Survival remains absent
@@ -122,7 +137,8 @@
   without disposable durability semantics.
 - Persistent maintainable equipment records with immutable physical mass and capability-provider
   definitions, revision-checked wear application, provider resolution, registry-reference validation,
-  save/load ownership, in-flight provider provenance, and exclusive operation occupancy.
+  save/load ownership, optional exact assembly-material/provenance traces, in-flight provider
+  provenance, and exclusive production/mining occupancy.
   Definitions may author deterministic piecewise-linear condition curves per typed capability;
   effective values are resolved on demand without allocating temporary profiles, and pristine values
   remain the single nominal source of truth. Maintenance mutation is rejected while an active
@@ -395,9 +411,10 @@
   energy depletion, equipment/energy reservations, duration-derived equipment wear, periodic
   exhaustive audits, matter conservation, modeled-energy conservation, and replay-identical final
   state.
-- Deterministic 2,000-step geological extraction soak with exact finite depletion, compatible-lot
-  coalescing, periodic exhaustive audits, matter and modeled sensible-energy conservation, and
-  replay-identical final state.
+- Deterministic 1,000-cycle hand-mining soak repeatedly transfers one finite copper deposit through
+  tool/labor-gated mining WIP and explicit claim, with condition wear, player exertion, an active-job
+  save/load continuation, periodic exhaustive audits, exact matter and modeled thermal-energy
+  conservation, compatible output coalescing, exact depletion, and replay-identical final state.
 - Deterministic 2,000-observation prospecting soak with synchronized material indexes, periodic
   exhaustive audits, stable persistence continuation, and replay-identical final state.
 - Deterministic 1,000-cycle construction/deconstruction soak repeatedly moves one finite material
@@ -563,20 +580,22 @@
   ownership, and physical prospecting resolvers for surface evidence, panning, sampling, drilling,
   assays, and geophysical instruments. The knowledge owner records resolved uncertainty but does not
   infer hidden deposits or manufacture survey accuracy.
-- Physical mining authorization including tools, labor, access geometry, extraction rate, recovery,
-  waste rock, tailings, drainage, and risk. The current finite-deposit owner and transfer transaction
-  are conservation foundations, not a mining gameplay shortcut.
+- Richer mining physics beyond the implemented hand-tool extraction owner: access geometry, cutting
+  faces/voxel excavation, waste-rock/recovery fractions, tailings, drainage, ground-control risk,
+  hauling, and mechanized excavation. Current mining already requires a real tool, exclusive player
+  labor, condition-sensitive extraction rate, batch and hardness gates, finite deposits, reserved
+  storage, tool wear, explicit completion/claim, and conserved WIP.
 - Thermal fields, environmental heat transport/losses, vaporization/boiling, mixed-material and
   alloy/solution phase diagrams, combustion, fuel networks, and emissions. Pure-material solid/liquid
   fusion and finite explicit thermal sinks are modeled; an implicit environment is deliberately not
   used as an infinite heat source or sink.
-- Broader equipment/tool/worker content beyond the canonical crusher, grinding mill, dry screen,
-  furnace, and casting mold; richer voxel/container equipment placement beyond a structural support
+- Broader equipment/tool/worker content beyond the canonical stone pick, crusher, grinding mill, dry
+  screen, furnace, and casting mold; richer voxel/container equipment placement beyond a structural support
   owner; repair tools/labor/duration/access, richer spare-part suitability, replacement and waste
   transformations, discrete capability-disable policies, and broader authored maintenance/degradation
-  profiles. A conserved stone tool material form now exists as a knapping output, but it is not yet an
-  equipment capability provider. The jaw crusher has a real replacement-stock maintenance resolver,
-  but that narrow service does not pretend unresolved tooling, labor, time, or chemistry already exist.
+  profiles. The stone pick is a real composite equipment provider assembled from conserved knapped
+  stone and shaped wood traces. The jaw crusher has a real replacement-stock maintenance resolver,
+  but that narrow service does not pretend unresolved repair tooling, labor, time, or chemistry already exist.
 - Richer physical construction and demolition resolution: member orientation/end geometry,
   joints/connections, cutting and placement waste, tools, labor, duration, salvage fractions, debris
   transformation, and non-identity-preserving demolition outputs. Current prismatic geometry resolves
@@ -613,7 +632,8 @@
   material mass and hydraulic fluid volume. The built-in water identity and current finite fluid
   owner provide storage, drinking, conservation, and real support weight, but still provide no
   pathless movement or water-spawn shortcut.
-- Agriculture, soil processes, ecology, genetics, creatures, hunting/combat, workers, settlements,
+- Agriculture, soil processes, ecology, genetics, creatures, hunting/combat, non-player workers,
+  settlements,
   logistics, trade, economy, migration, and other gameplay systems. The calendar, seasons,
   perishability, and food physiology are now foundations for agriculture rather than substitutes for
   crop growth or ecology.

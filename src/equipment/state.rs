@@ -6,7 +6,9 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
+use crate::inventory::ConsumedMaterialTrace;
 use crate::maintenance::Condition;
 use crate::structural::StructuralElementId;
 
@@ -35,6 +37,8 @@ pub struct EquipmentRecord {
     pub(super) id: EquipmentId,
     pub(super) definition: EquipmentDefinitionId,
     pub(super) condition: Condition,
+    pub(super) embodied_mass: Mass,
+    pub(super) embodied_material: Vec<ConsumedMaterialTrace>,
     pub(super) supported_by: Option<StructuralElementId>,
     pub(super) created_at: SimulationTick,
 }
@@ -93,6 +97,18 @@ impl EquipmentRecord {
     #[must_use]
     pub const fn condition(&self) -> Condition {
         self.condition
+    }
+
+    /// Returns conserved material mass currently owned by this equipment instance.
+    #[must_use]
+    pub const fn embodied_mass(&self) -> Mass {
+        self.embodied_mass
+    }
+
+    /// Exact physical/provenance traces transferred into this instance at gameplay assembly.
+    #[must_use]
+    pub fn embodied_material(&self) -> &[ConsumedMaterialTrace] {
+        &self.embodied_material
     }
 
     /// Returns the structural member currently carrying this equipment's weight, if assigned.
@@ -182,7 +198,7 @@ impl EquipmentState {
     }
 
     /// Applies one prevalidated condition change and advances the owner revision exactly once.
-    pub(super) fn apply_condition_change(
+    pub(crate) fn apply_condition_change(
         &mut self,
         equipment: EquipmentId,
         before: Condition,

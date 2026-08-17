@@ -5,20 +5,28 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
 use crate::maintenance::{Condition, ConditionPlan, decide_wear};
+use crate::mining::MiningJobId;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
+#[cfg(any(test, feature = "test-gameplay"))]
 use crate::registry::Registries;
 
+#[cfg(any(test, feature = "test-gameplay"))]
 use super::definitions::EquipmentDefinitionId;
-use super::state::{EquipmentId, EquipmentRecord};
+use super::state::EquipmentId;
+#[cfg(any(test, feature = "test-gameplay"))]
+use super::state::EquipmentRecord;
 
 /// Failure while allocating one persistent equipment instance.
+#[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AddEquipmentError {
     UnknownDefinition { definition: EquipmentDefinitionId },
+    RequiresAssembly { definition: EquipmentDefinitionId },
     IdExhausted,
     RevisionExhausted,
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Display for AddEquipmentError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -27,23 +35,33 @@ impl Display for AddEquipmentError {
                 "unknown equipment definition {}",
                 definition.value()
             ),
+            Self::RequiresAssembly { definition } => write!(
+                formatter,
+                "equipment definition {} requires conserved gameplay assembly",
+                definition.value()
+            ),
             Self::IdExhausted => formatter.write_str("equipment identifier space is exhausted"),
             Self::RevisionExhausted => formatter.write_str("equipment revision space is exhausted"),
         }
     }
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Error for AddEquipmentError {}
 
-/// Adds one equipment record after all identity and registry checks succeed.
+/// Adds one equipment record for tests and gameplay harness bootstrap fixtures.
+#[cfg(any(test, feature = "test-gameplay"))]
 pub fn add_equipment(
     registries: &Registries,
     state: &mut AppState,
     definition: EquipmentDefinitionId,
     condition: Condition,
 ) -> Result<EquipmentId, AddEquipmentError> {
-    if registries.equipment().get_equipment(definition).is_none() {
+    let Some(definition_record) = registries.equipment().get_equipment(definition) else {
         return Err(AddEquipmentError::UnknownDefinition { definition });
+    };
+    if definition_record.assembly_profile().is_some() {
+        return Err(AddEquipmentError::RequiresAssembly { definition });
     }
 
     let equipment_state = state.equipment();
@@ -60,6 +78,8 @@ pub fn add_equipment(
         id,
         definition,
         condition,
+        embodied_mass: definition_record.mass(),
+        embodied_material: Vec::new(),
         supported_by: None,
         created_at: state.tick(),
     };
@@ -106,6 +126,10 @@ pub enum EquipmentConditionPlanError {
         job: ProductionJobId,
         release: ProductionOccupancyRelease,
     },
+    EquipmentBusyMining {
+        equipment: EquipmentId,
+        job: MiningJobId,
+    },
     RevisionExhausted,
 }
 
@@ -122,6 +146,12 @@ impl Display for EquipmentConditionPlanError {
             } => write!(
                 formatter,
                 "equipment {} is occupied by production job {} {release}",
+                equipment.value(),
+                job.value()
+            ),
+            Self::EquipmentBusyMining { equipment, job } => write!(
+                formatter,
+                "equipment {} is occupied by mining job {}",
                 equipment.value(),
                 job.value()
             ),
@@ -147,6 +177,9 @@ fn decide_condition_change(
             job: job.id(),
             release: job.occupancy_release(),
         });
+    }
+    if let Some(job) = state.mining().get_equipment_occupant(equipment) {
+        return Err(EquipmentConditionPlanError::EquipmentBusyMining { equipment, job });
     }
     let next_revision = equipment_state
         .revision()
@@ -191,6 +224,10 @@ pub enum EquipmentConditionCommitError {
         job: ProductionJobId,
         release: ProductionOccupancyRelease,
     },
+    EquipmentBusyMining {
+        equipment: EquipmentId,
+        job: MiningJobId,
+    },
 }
 
 impl Display for EquipmentConditionCommitError {
@@ -224,6 +261,12 @@ impl Display for EquipmentConditionCommitError {
                 equipment.value(),
                 job.value()
             ),
+            Self::EquipmentBusyMining { equipment, job } => write!(
+                formatter,
+                "equipment {} became occupied by mining job {} before condition commit",
+                equipment.value(),
+                job.value()
+            ),
         }
     }
 }
@@ -247,6 +290,12 @@ pub fn apply_equipment_condition_plan(
             equipment: plan.equipment,
             job: job.id(),
             release: job.occupancy_release(),
+        });
+    }
+    if let Some(job) = state.mining().get_equipment_occupant(plan.equipment) {
+        return Err(EquipmentConditionCommitError::EquipmentBusyMining {
+            equipment: plan.equipment,
+            job,
         });
     }
 
@@ -279,6 +328,7 @@ mod tests {
         CapabilityDefinition, CapabilityId, CapabilityProfile, CapabilityValue, CapabilityValueKind,
     };
     use crate::content::make_test_registries_with_equipment;
+    use crate::content::{EQUIPMENT_STONE_PICK, build_registries};
     use crate::core::quantity::Mass;
     use crate::core::time::WorldSeed;
     use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId};
@@ -292,6 +342,26 @@ mod tests {
             Ok(condition) => condition,
             Err(error) => panic!("condition fixture failed: {error}"),
         }
+    }
+
+    #[test]
+    fn bootstrap_creation_cannot_bypass_authored_assembly() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(19));
+        let before = state.clone();
+
+        assert_eq!(
+            add_equipment(
+                &registries,
+                &mut state,
+                EQUIPMENT_STONE_PICK,
+                Condition::PRISTINE,
+            ),
+            Err(AddEquipmentError::RequiresAssembly {
+                definition: EQUIPMENT_STONE_PICK,
+            })
+        );
+        assert_eq!(state, before);
     }
 
     fn make_registries() -> Registries {

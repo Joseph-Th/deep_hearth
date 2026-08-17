@@ -35,6 +35,9 @@ pub enum StartProcessError {
     UnknownProcess {
         process: ProcessId,
     },
+    ManualCraftRequiresPlayerWork {
+        process: ProcessId,
+    },
     UnknownOutputMaterial {
         material: MaterialId,
     },
@@ -139,6 +142,10 @@ pub enum StartProcessError {
         job: ProductionJobId,
         release: ProductionOccupancyRelease,
     },
+    EquipmentBusyMining {
+        equipment: EquipmentId,
+        job: MiningJobId,
+    },
     StructuralLoad(StockpileStructuralLoadError),
 }
 
@@ -148,6 +155,11 @@ impl Display for StartProcessError {
             Self::UnknownProcess { process } => {
                 write!(formatter, "unknown process id {}", process.value())
             }
+            Self::ManualCraftRequiresPlayerWork { process } => write!(
+                formatter,
+                "manual craft process {} must start through the player-work boundary",
+                process.value()
+            ),
             Self::UnknownOutputMaterial { material } => {
                 write!(
                     formatter,
@@ -348,6 +360,12 @@ impl Display for StartProcessError {
                 equipment.value(),
                 job.value()
             ),
+            Self::EquipmentBusyMining { equipment, job } => write!(
+                formatter,
+                "equipment {} is occupied by mining job {}",
+                equipment.value(),
+                job.value()
+            ),
             Self::StructuralLoad(error) => {
                 write!(
                     formatter,
@@ -364,6 +382,7 @@ impl Error for StartProcessError {
             Self::DestinationStorage(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::UnknownProcess { process: _process } => None,
+            Self::ManualCraftRequiresPlayerWork { process: _process } => None,
             Self::UnknownOutputMaterial {
                 material: _material,
             }
@@ -450,6 +469,10 @@ impl Error for StartProcessError {
                 equipment: _equipment,
                 job: _job,
                 release: _release,
+            } => None,
+            Self::EquipmentBusyMining {
+                equipment: _equipment,
+                job: _job,
             } => None,
             Self::JobIdExhausted
             | Self::InventoryRevisionExhausted
@@ -550,6 +573,10 @@ pub struct ValidatedStartProcess {
 }
 
 impl ValidatedStartProcess {
+    pub(crate) const fn job_id(&self) -> ProductionJobId {
+        self.job.identity.id
+    }
+
     /// Commits input consumption, output reservation, and job insertion as one canonical operation.
     pub fn commit(self, state: &mut AppState) -> Result<ProductionJobId, StartProcessCommitError> {
         let Self {
@@ -681,12 +708,36 @@ pub fn validate_start_process(
             routes: 1,
         });
     };
-    validate_start_process_routed(
+    validate_start_process_routed_internal(
         registries,
         state,
         resolution,
         source,
         &[ProcessOutputRoute::new(stream.id(), destination)],
+        false,
+    )
+}
+
+pub(crate) fn validate_start_manual_process(
+    registries: &Registries,
+    state: &AppState,
+    resolution: &ProcessResolution,
+    source: StockpileId,
+    destination: StockpileId,
+) -> Result<ValidatedStartProcess, StartProcessError> {
+    let Some(stream) = resolution.single_output_stream() else {
+        return Err(StartProcessError::OutputRouteCountMismatch {
+            streams: resolution.output_streams().len(),
+            routes: 1,
+        });
+    };
+    validate_start_process_routed_internal(
+        registries,
+        state,
+        resolution,
+        source,
+        &[ProcessOutputRoute::new(stream.id(), destination)],
+        true,
     )
 }
 
@@ -701,6 +752,17 @@ pub fn validate_start_process_routed(
     source: StockpileId,
     routes: &[ProcessOutputRoute],
 ) -> Result<ValidatedStartProcess, StartProcessError> {
+    validate_start_process_routed_internal(registries, state, resolution, source, routes, false)
+}
+
+fn validate_start_process_routed_internal(
+    registries: &Registries,
+    state: &AppState,
+    resolution: &ProcessResolution,
+    source: StockpileId,
+    routes: &[ProcessOutputRoute],
+    allow_manual_craft: bool,
+) -> Result<ValidatedStartProcess, StartProcessError> {
     let process = resolution.process();
     if source != resolution.source() {
         return Err(StartProcessError::ResolutionSourceMismatch {
@@ -710,6 +772,9 @@ pub fn validate_start_process_routed(
     }
     if registries.production().get_process(process).is_none() {
         return Err(StartProcessError::UnknownProcess { process });
+    }
+    if !allow_manual_craft && registries.crafting().get_manual(process).is_some() {
+        return Err(StartProcessError::ManualCraftRequiresPlayerWork { process });
     }
     if routes.len() != resolution.output_streams().len() {
         return Err(StartProcessError::OutputRouteCountMismatch {
@@ -972,6 +1037,12 @@ pub fn validate_start_process_routed(
                     equipment: trace.equipment(),
                     job: job.id(),
                     release: job.occupancy_release(),
+                });
+            }
+            if let Some(job) = state.mining().get_equipment_occupant(trace.equipment()) {
+                return Err(StartProcessError::EquipmentBusyMining {
+                    equipment: trace.equipment(),
+                    job,
                 });
             }
             Some(trace)

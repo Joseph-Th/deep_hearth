@@ -24,6 +24,7 @@ use crate::inventory::{
 };
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, MaterialInputSpec};
+use crate::mining::MiningJobId;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
@@ -328,6 +329,10 @@ pub enum EquipmentRepairError {
         job: ProductionJobId,
         release: ProductionOccupancyRelease,
     },
+    EquipmentBusyMining {
+        equipment: EquipmentId,
+        job: MiningJobId,
+    },
     ConditionNotImproved {
         equipment: EquipmentId,
         before: Condition,
@@ -504,6 +509,12 @@ impl Display for EquipmentRepairError {
                 equipment.value(),
                 job.value()
             ),
+            Self::EquipmentBusyMining { equipment, job } => write!(
+                formatter,
+                "equipment {} is occupied by mining job {} and cannot be repaired",
+                equipment.value(),
+                job.value()
+            ),
             Self::ConditionNotImproved {
                 equipment,
                 before,
@@ -552,6 +563,10 @@ impl Error for EquipmentRepairError {
                 job: _job,
                 release: _release,
             } => None,
+            Self::EquipmentBusyMining {
+                equipment: _equipment,
+                job: _job,
+            } => None,
             Self::ConditionNotImproved {
                 equipment: _equipment,
                 before: _before,
@@ -581,6 +596,10 @@ pub enum EquipmentRepairCommitError {
         equipment: EquipmentId,
         job: ProductionJobId,
         release: ProductionOccupancyRelease,
+    },
+    EquipmentBusyMining {
+        equipment: EquipmentId,
+        job: MiningJobId,
     },
     StaleInventoryRevision {
         expected: u64,
@@ -622,6 +641,12 @@ impl Display for EquipmentRepairCommitError {
                 equipment.value(),
                 job.value()
             ),
+            Self::EquipmentBusyMining { equipment, job } => write!(
+                formatter,
+                "equipment {} became occupied by mining job {} before repair commit",
+                equipment.value(),
+                job.value()
+            ),
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
                 "validated equipment repair expected inventory revision {expected} but current revision is {actual}"
@@ -658,6 +683,10 @@ impl Error for EquipmentRepairCommitError {
                 equipment: _equipment,
                 job: _job,
                 release: _release,
+            } => None,
+            Self::EquipmentBusyMining {
+                equipment: _equipment,
+                job: _job,
             } => None,
         }
     }
@@ -722,6 +751,12 @@ impl ValidatedEquipmentRepair {
             return Err(EquipmentRepairCommitError::StaleEquipmentRevision {
                 expected: self.expected_equipment_revision,
                 actual: actual_revision,
+            });
+        }
+        if let Some(job) = state.mining().get_equipment_occupant(self.equipment) {
+            return Err(EquipmentRepairCommitError::EquipmentBusyMining {
+                equipment: self.equipment,
+                job,
             });
         }
         let Some(record) = state.equipment().get_equipment(self.equipment) else {
@@ -835,6 +870,9 @@ pub fn validate_equipment_repair(
             expected_revision: resolution.expected_equipment_revision,
             actual_revision: actual_equipment_revision,
         });
+    }
+    if let Some(job) = state.mining().get_equipment_occupant(equipment) {
+        return Err(EquipmentRepairError::EquipmentBusyMining { equipment, job });
     }
     if record.condition() != resolution.condition_before {
         return Err(EquipmentRepairError::ConditionChangedSinceResolution {

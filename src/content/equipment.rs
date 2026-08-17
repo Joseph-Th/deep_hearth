@@ -1,27 +1,31 @@
 //! Built-in workshop equipment definitions.
 
 use crate::capability::{CapabilityProfile, CapabilityValue};
-use crate::core::quantity::{Mass, MassFlow, Power, Temperature};
+use crate::core::quantity::{Mass, MassFlow, Power, Pressure, Temperature};
 use crate::equipment::{
-    CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
-    EquipmentMaintenanceProfile, EquipmentRegistry,
+    CapabilityConditionCurve, CapabilityConditionPoint, EquipmentAssemblyProfile,
+    EquipmentDefinition, EquipmentDefinitionId, EquipmentMaintenanceProfile, EquipmentRegistry,
 };
 use crate::maintenance::{Condition, MaintenanceThresholds};
-use crate::material::CommodityKey;
+use crate::material::{CommodityKey, MaterialInputSpec};
 
 use super::capabilities::{
     CAPABILITY_COOLING_POWER, CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW,
     CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW, CAPABILITY_HEATING_POWER,
+    CAPABILITY_MINING_FLOW, CAPABILITY_MINING_MAX_BATCH, CAPABILITY_MINING_MAX_HARDNESS,
     CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW, CAPABILITY_THERMAL_BATCH,
     CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
-use super::materials::{FORM_INGOT, MATERIAL_COPPER};
+use super::materials::{
+    FORM_HANDLE, FORM_INGOT, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+};
 
 pub const EQUIPMENT_JAW_CRUSHER: EquipmentDefinitionId = EquipmentDefinitionId::new(1);
 pub const EQUIPMENT_ELECTRIC_FURNACE: EquipmentDefinitionId = EquipmentDefinitionId::new(2);
 pub const EQUIPMENT_CASTING_MOLD: EquipmentDefinitionId = EquipmentDefinitionId::new(3);
 pub const EQUIPMENT_DRY_SCREEN: EquipmentDefinitionId = EquipmentDefinitionId::new(4);
 pub const EQUIPMENT_GRINDING_MILL: EquipmentDefinitionId = EquipmentDefinitionId::new(5);
+pub const EQUIPMENT_STONE_PICK: EquipmentDefinitionId = EquipmentDefinitionId::new(6);
 
 fn condition(parts_per_million: u32) -> Condition {
     match Condition::new(parts_per_million) {
@@ -65,6 +69,19 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             CapabilityConditionPoint::new(
                 condition(600_000),
                 CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(20)),
+            ),
+        ],
+    );
+    let mining_curve = CapabilityConditionCurve::new(
+        CAPABILITY_MINING_FLOW,
+        vec![
+            CapabilityConditionPoint::new(
+                Condition::FAILED,
+                CapabilityValue::MassFlow(MassFlow::ZERO),
+            ),
+            CapabilityConditionPoint::new(
+                condition(500_000),
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(10)),
             ),
         ],
     );
@@ -187,5 +204,36 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             thresholds(),
             vec![grinder_curve],
         ),
+        EquipmentDefinition::new_with_capability_condition_curves(
+            EQUIPMENT_STONE_PICK,
+            "knapped stone pick",
+            Mass::from_milligrams(1_000),
+            profile([
+                (
+                    CAPABILITY_MINING_FLOW,
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(20)),
+                ),
+                (
+                    CAPABILITY_MINING_MAX_BATCH,
+                    CapabilityValue::Mass(Mass::from_milligrams(200)),
+                ),
+                (
+                    CAPABILITY_MINING_MAX_HARDNESS,
+                    CapabilityValue::Pressure(Pressure::from_pascals(500_000_000)),
+                ),
+            ]),
+            thresholds(),
+            vec![mining_curve],
+        )
+        .with_assembly_profile(EquipmentAssemblyProfile::new(vec![
+            MaterialInputSpec::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(800),
+            ),
+            MaterialInputSpec::new(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200),
+            ),
+        ])),
     ])
 }

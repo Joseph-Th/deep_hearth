@@ -23,6 +23,7 @@ use crate::inventory::{
     validate_stockpile_stored_mass_changes, validate_stockpile_support_for_new_inbound,
 };
 use crate::material::{FormId, MaterialId};
+use crate::mining::MiningJobId;
 use crate::registry::Registries;
 use crate::structural::{StructuralCommitError, StructuralElementId, StructuralLifecycle};
 
@@ -49,6 +50,7 @@ pub(crate) use completion::{
     CompletionApplication, CompletionCommitError, CompletionPlanError, apply_completion_plan,
     decide_due_completions,
 };
+pub(crate) use start::validate_start_manual_process;
 
 #[cfg(test)]
 mod tests {

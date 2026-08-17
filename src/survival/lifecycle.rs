@@ -18,6 +18,42 @@ pub enum HungerState {
     Starving,
 }
 
+/// Additional per-tick physiological cost of the player's current physical work.
+///
+/// Basal metabolism remains authored by `PhysiologyDefinition`; work owners contribute only the
+/// incremental cost above rest so simulation can combine them without creating a second metabolism
+/// path.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SurvivalExertion {
+    energy_cost_per_tick: Energy,
+    hydration_loss_per_tick: Volume,
+}
+
+impl SurvivalExertion {
+    pub const REST: Self = Self {
+        energy_cost_per_tick: Energy::ZERO,
+        hydration_loss_per_tick: Volume::ZERO,
+    };
+
+    #[must_use]
+    pub const fn new(energy_cost_per_tick: Energy, hydration_loss_per_tick: Volume) -> Self {
+        Self {
+            energy_cost_per_tick,
+            hydration_loss_per_tick,
+        }
+    }
+
+    #[must_use]
+    pub const fn energy_cost_per_tick(self) -> Energy {
+        self.energy_cost_per_tick
+    }
+
+    #[must_use]
+    pub const fn hydration_loss_per_tick(self) -> Volume {
+        self.hydration_loss_per_tick
+    }
+}
+
 /// Qualitative hydration state derived from authored physiology thresholds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HydrationState {
@@ -151,6 +187,8 @@ fn assess_record(registries: &Registries, player: PlayerSurvivalRecord) -> Survi
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SurvivalTickError {
     RevisionExhausted,
+    EnergyCostOverflow,
+    HydrationCostOverflow,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -164,6 +202,7 @@ pub(crate) struct SurvivalTickPlan {
 pub(crate) fn decide_survival_tick(
     registries: &Registries,
     state: &AppState,
+    exertion: SurvivalExertion,
 ) -> Result<Option<SurvivalTickPlan>, SurvivalTickError> {
     let Some(before) = state.survival().player().copied() else {
         return Ok(None);
@@ -172,13 +211,21 @@ pub(crate) fn decide_survival_tick(
         return Ok(None);
     }
     let physiology = registries.survival().physiology();
+    let energy_cost = physiology
+        .basal_energy_cost_per_tick()
+        .checked_add(exertion.energy_cost_per_tick())
+        .ok_or(SurvivalTickError::EnergyCostOverflow)?;
+    let hydration_loss = physiology
+        .hydration_loss_per_tick()
+        .checked_add(exertion.hydration_loss_per_tick())
+        .ok_or(SurvivalTickError::HydrationCostOverflow)?;
     let energy_after = before
         .metabolic_energy()
-        .checked_sub(physiology.basal_energy_cost_per_tick())
+        .checked_sub(energy_cost)
         .unwrap_or(Energy::ZERO);
     let hydration_after = before
         .hydration()
-        .checked_sub(physiology.hydration_loss_per_tick())
+        .checked_sub(hydration_loss)
         .unwrap_or(Volume::ZERO);
     let mut vitality_loss = 0_u32;
     if energy_after.is_zero() {
@@ -226,6 +273,41 @@ mod tests {
     use crate::core::time::WorldSeed;
 
     #[test]
+    fn work_exertion_adds_exactly_to_basal_survival_cost() {
+        let registries = build_registries();
+        let mut resting = AppState::new(WorldSeed::new(0x5100_0002));
+        initialize_player_survival(&registries, &mut resting)
+            .unwrap_or_else(|error| panic!("resting survival initialization failed: {error}"));
+        let mut working = resting.clone();
+        let exertion = SurvivalExertion::new(
+            Energy::from_nanojoules(7_000_000_000_000),
+            Volume::from_microliters(900),
+        );
+
+        let resting_plan = decide_survival_tick(&registries, &resting, SurvivalExertion::REST)
+            .unwrap_or_else(|error| panic!("resting survival tick failed: {error:?}"));
+        let working_plan = decide_survival_tick(&registries, &working, exertion)
+            .unwrap_or_else(|error| panic!("working survival tick failed: {error:?}"));
+        let resting_after = apply_survival_tick(&mut resting, resting_plan)
+            .unwrap_or_else(|| panic!("resting survival player disappeared"));
+        let working_after = apply_survival_tick(&mut working, working_plan)
+            .unwrap_or_else(|| panic!("working survival player disappeared"));
+
+        assert_eq!(
+            resting_after
+                .metabolic_energy()
+                .checked_sub(working_after.metabolic_energy()),
+            Some(exertion.energy_cost_per_tick())
+        );
+        assert_eq!(
+            resting_after
+                .hydration()
+                .checked_sub(working_after.hydration()),
+            Some(exertion.hydration_loss_per_tick())
+        );
+    }
+
+    #[test]
     fn survival_initialization_and_tick_are_deterministic_and_visible() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5100_0001));
@@ -234,7 +316,7 @@ mod tests {
         let before = assess_survival(&registries, &state)
             .unwrap_or_else(|| panic!("initialized survival record is missing"));
 
-        let plan = decide_survival_tick(&registries, &state)
+        let plan = decide_survival_tick(&registries, &state, SurvivalExertion::REST)
             .unwrap_or_else(|error| panic!("survival tick failed: {error:?}"))
             .unwrap_or_else(|| panic!("survival tick did not produce a plan"));
         let after = apply_survival_tick(&mut state, Some(plan))

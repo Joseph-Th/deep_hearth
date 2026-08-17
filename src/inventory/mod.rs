@@ -2,6 +2,7 @@
 
 #[cfg(any(test, feature = "test-gameplay"))]
 mod fixture;
+mod inbound_reservation;
 mod ingress;
 mod reserved_ingress;
 mod selection;
@@ -14,6 +15,9 @@ mod transactions;
 
 #[cfg(feature = "test-gameplay")]
 pub(crate) use fixture::{deposit_composed_lot_for_fixture, deposit_lot_for_fixture};
+pub(crate) use inbound_reservation::{
+    InboundReservationError, ValidatedInboundReservation, validate_inbound_reservation,
+};
 pub(crate) use ingress::{
     MaterialIngressEntry, MaterialIngressError, ValidatedMaterialIngress, apply_material_ingress,
     validate_material_ingress,
