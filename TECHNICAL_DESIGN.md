@@ -356,24 +356,27 @@ reservation release, lot insertion/coalescing, and the single inventory cursor/r
 plan/apply boundary. Production keeps job scheduling and routing but does not manipulate inventory ID
 cursors or revision bookkeeping.
 
-`validate_transfer_bulk` plus the consumed `ValidatedTransferBulk::commit` performs revision-bound
-movement between distinct stockpiles. A same-stockpile request is rejected as an invalid transfer;
-source-equals-destination production reservations use their separate production transaction path.
-If either stockpile is structurally supported, transfer validation computes
-both final stored masses and analyzes the complete final stored-matter load arrangement under one
-structural revision before matter moves. The transaction remains bound to that structural revision
-even when aggregate mass-to-force rounding leaves the numeric load unchanged. Partial transfers split
-lots in stable ID order without averaging physical properties away. Newly created compatible
-fragments can coalesce into the lowest-ID compatible destination lot. Every canonical ingress and
-production-output reservation rechecks destination containment.
+`validate_transfer_bulk` performs deterministic commodity selection through the inventory selection
+owner, then delegates destination admission and mutation planning to the same exact-relocation
+pipeline used by physical resolvers. The consumed `ValidatedTransferBulk::commit` is a public wrapper
+over that one relocation commit implementation rather than a second lot-movement path. A
+same-stockpile request is rejected as an invalid transfer; source-equals-destination production
+reservations use their separate production transaction path. If either stockpile is structurally
+supported, relocation validation computes both final stored masses and analyzes the complete final
+stored-matter load arrangement under one structural revision before matter moves. The transaction
+remains bound to that structural revision even when aggregate mass-to-force rounding leaves the
+numeric load unchanged. Partial transfers split lots in stable ID order without averaging physical
+properties away. Newly created compatible fragments can coalesce into the lowest-ID compatible
+destination lot. Every canonical ingress and production-output reservation rechecks destination
+containment.
 
-Cross-owner systems that physically inspect exact lot slices before deciding an outcome use a
-crate-private exact-relocation transaction rather than `validate_transfer_bulk`. It consumes the
-already-bound `ConsumptionSelection`, preserves each selected profile and provenance exactly, assigns
-distinct deterministic IDs for multiple partial slices, validates destination containment/capacity,
-and plans source/destination stored-matter loads together. Reserved inbound capacity participates in
-the space check but never in structural weight. This primitive does not select material itself and is
-therefore not an arbitrary gameplay movement API.
+Cross-owner systems that physically inspect exact lot slices before deciding an outcome enter the
+same crate-private exact-relocation pipeline with their already-bound `ConsumptionSelection`, rather
+than asking the public bulk-transfer boundary to select material again. Exact relocation preserves
+each selected profile and provenance, assigns distinct deterministic IDs for multiple partial slices,
+validates destination containment/capacity, and plans source/destination stored-matter loads together.
+Reserved inbound capacity participates in the space check but never in structural weight. This
+primitive does not select material itself and is therefore not an arbitrary gameplay movement API.
 
 There is intentionally no public arbitrary inventory-deposit API. Tests can seed inventory through
 `#[cfg(test)]` fixtures. World generation has a separately named geological source boundary that

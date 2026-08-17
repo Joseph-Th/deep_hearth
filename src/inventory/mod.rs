@@ -5,6 +5,8 @@ mod selection;
 mod state;
 mod storage_validation;
 mod structural_integration;
+#[cfg(any(test, feature = "test-gameplay"))]
+mod test_support;
 mod transactions;
 
 pub use selection::MaterialLotSelection;
@@ -50,10 +52,10 @@ pub(crate) use transactions::{
 };
 
 #[cfg(test)]
-pub(crate) use transactions::{
+pub(crate) use test_support::{
     MaterialFixtureError, deposit_bulk_for_test, deposit_lot_spec_for_test,
 };
 #[cfg(any(test, feature = "test-gameplay"))]
-pub(crate) use transactions::{
+pub(crate) use test_support::{
     add_solid_stockpile_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
 };

@@ -473,12 +473,12 @@ fn select_input_lot_slices(
 
 #[cfg(test)]
 mod tests {
-    use super::super::transactions::{add_solid_stockpile_for_test, deposit_lot_for_test};
     use super::*;
     use crate::content::{FORM_LOG, MATERIAL_WOOD, build_registries};
     use crate::core::quantity::Temperature;
     use crate::core::state::AppState;
     use crate::core::time::WorldSeed;
+    use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 
     #[test]
     fn explicit_selection_binds_partial_lot_without_mutation() {

@@ -483,7 +483,11 @@
   state modules while descendant validation modules own exhaustive persistence audits without widening
   private mutation access. Production execution is organized behind one canonical facade with separate
   start-admission and in-flight completion modules; thermal process code likewise separates immutable
-  resolver registration, sensible-heating resolution, and persistence replay validation.
+  resolver registration, sensible-heating resolution, and persistence replay validation. Inventory
+  fixture/bootstrap helpers now live in a dedicated conditional support module instead of the
+  production transaction module. Public bulk stockpile transfer performs deterministic selection and
+  then delegates admission, split-ID planning, structural-load planning, and commit to the same exact
+  relocation pipeline used by physical resolvers, removing the former parallel transfer mutation path.
 - `TESTING.md` and `.cargo/config.toml` expose maintained fast, soak, gameplay, shader, full, release,
   lint, check, and documentation lanes. Long-horizon soaks are explicit ignored
   unit tests, so fast and soak execution reuse one default-feature unit-test artifact instead of

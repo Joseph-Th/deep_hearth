@@ -5,17 +5,17 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
-#[cfg(any(test, feature = "test-gameplay"))]
+#[cfg(test)]
 use crate::core::quantity::Temperature;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
+#[cfg(test)]
+use crate::material::MaterialComposition;
 #[cfg(test)]
 use crate::material::MaterialPhase;
 use crate::material::{
     CommodityKey, CompositionError, FormId, MaterialId, MaterialInputSpec, MaterialLotSpec,
 };
-#[cfg(any(test, feature = "test-gameplay"))]
-use crate::material::{MaterialComposition, MaterialLotSpecError};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
@@ -23,11 +23,12 @@ use crate::structural::StructuralCommitError;
 use super::reserved_ingress::{
     ReservedDepositRequest, apply_reserved_deposits, decide_reserved_deposits,
 };
-use super::selection::ConsumptionSelection;
+use super::selection::{
+    ConsumptionSelection, ConsumptionSelectionError, validate_consumption_selection,
+};
 #[cfg(test)]
 use super::selection::{
     apply_consumption_reservation, validate_consumption_reservation_from_selection,
-    validate_consumption_selection,
 };
 use super::state::{
     ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, MaterialLotProfile,
@@ -40,9 +41,6 @@ use super::{
     StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedStockpileStructuralLoad,
     validate_stockpile_stored_mass_changes,
 };
-
-#[cfg(test)]
-const TEST_REFERENCE_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 
 /// Failure while allocating a new stockpile record.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -625,48 +623,6 @@ pub(crate) fn apply_material_batch_ingress(
 
 impl Error for AddStockpileError {}
 
-/// Failure while constructing or committing a canonical material fixture.
-#[cfg(any(test, feature = "test-gameplay"))]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MaterialFixtureError {
-    Specification(MaterialLotSpecError),
-    Ingress(MaterialIngressError),
-    StructuralLoad(StockpileStructuralLoadError),
-    StructuralCommit(StructuralCommitError),
-}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-impl Display for MaterialFixtureError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Specification(error) => write!(formatter, "invalid material fixture: {error}"),
-            Self::Ingress(error) => write!(formatter, "material fixture ingress failed: {error}"),
-            Self::StructuralLoad(error) => {
-                write!(
-                    formatter,
-                    "material fixture cannot update stored-matter support load: {error}"
-                )
-            }
-            Self::StructuralCommit(error) => write!(
-                formatter,
-                "material fixture could not commit stored-matter structural load: {error}"
-            ),
-        }
-    }
-}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-impl Error for MaterialFixtureError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Specification(error) => Some(error),
-            Self::Ingress(error) => Some(error),
-            Self::StructuralLoad(error) => Some(error),
-            Self::StructuralCommit(error) => Some(error),
-        }
-    }
-}
-
 /// Crate-internal failure while validating matter entering inventory from an explicit owner.
 ///
 /// This boundary is intentionally not public. Source systems such as geology must prove ownership
@@ -952,81 +908,20 @@ impl Error for TransferCommitError {
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedTransferBulk {
-    expected_revision: u64,
-    next_revision: u64,
-    source: StockpileId,
-    destination: StockpileId,
-    commodity: CommodityKey,
-    mass: Mass,
-    slices: Vec<LotSlice>,
-    split_lot_id: Option<MaterialLotId>,
-    next_lot_id_after: Option<u64>,
-    structural: Option<ValidatedStockpileStructuralLoad>,
+    relocation: ValidatedMaterialRelocation,
 }
 
 impl ValidatedTransferBulk {
     /// Atomically commits this already validated transfer and consumes the proof token.
     pub fn commit(self, state: &mut AppState) -> Result<(), TransferCommitError> {
-        let Self {
-            expected_revision,
-            next_revision,
-            source,
-            destination,
-            commodity,
-            mass,
-            slices,
-            split_lot_id,
-            next_lot_id_after,
-            structural,
-        } = self;
-
-        let actual_inventory_revision = state.inventory().revision();
-        if actual_inventory_revision != expected_revision {
-            return Err(TransferCommitError::StaleInventoryRevision {
-                expected: expected_revision,
-                actual: actual_inventory_revision,
-            });
-        }
-        if let Some(structural) = structural {
-            structural
-                .commit(state)
-                .map_err(TransferCommitError::Structure)?;
-        }
-
-        let inventories = state.inventory_state_mut();
-
-        apply_aggregate_withdraw(inventories, source, commodity, mass);
-        apply_aggregate_deposit(inventories, destination, commodity, mass);
-
-        let mut split_id = split_lot_id;
-        for slice in slices {
-            let lot_mass = match inventories.get_lot(slice.lot) {
-                Some(lot) => lot.mass,
-                None => panic!(
-                    "validated transfer references missing material lot {}",
-                    slice.lot.value()
-                ),
-            };
-            if slice.mass == lot_mass {
-                apply_move_full_lot(inventories, slice.lot, source, destination);
-            } else {
-                let allocated = match split_id.take() {
-                    Some(id) => id,
-                    None => panic!("validated partial transfer is missing its allocated lot ID"),
-                };
-                apply_split_lot(inventories, slice.lot, allocated, destination, slice.mass);
+        self.relocation.commit(state).map_err(|error| match error {
+            MaterialRelocationCommitError::StaleInventoryRevision { expected, actual } => {
+                TransferCommitError::StaleInventoryRevision { expected, actual }
             }
-        }
-
-        if split_id.is_some() {
-            panic!("validated transfer allocated an unused split lot ID");
-        }
-        if let Some(next_lot_id) = next_lot_id_after {
-            inventories.apply_lot_cursor_and_revision(next_lot_id, next_revision);
-        } else {
-            inventories.apply_revision(next_revision);
-        }
-        Ok(())
+            MaterialRelocationCommitError::Structure(error) => {
+                TransferCommitError::Structure(error)
+            }
+        })
     }
 }
 
@@ -1062,14 +957,6 @@ pub fn add_stockpile(
 
     inventories.insert_stockpile(record, next_id, next_revision);
     Ok(id)
-}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-pub(crate) fn add_solid_stockpile_for_test(
-    state: &mut AppState,
-    capacity: Mass,
-) -> Result<StockpileId, AddStockpileError> {
-    add_stockpile(state, capacity, StockpileStorageProfile::solid_only())
 }
 
 /// Validates inventory admission for matter already owned and conserved by another subsystem.
@@ -1217,103 +1104,6 @@ pub(crate) fn apply_material_ingress(
     resulting_lot
 }
 
-/// Deposits explicitly sourced matter after validating references and capacity.
-#[cfg(test)]
-pub(crate) fn deposit_bulk_for_test(
-    registries: &Registries,
-    state: &mut AppState,
-    stockpile: StockpileId,
-    commodity: CommodityKey,
-    mass: Mass,
-) -> Result<(), MaterialFixtureError> {
-    deposit_lot_for_test(
-        registries,
-        state,
-        stockpile,
-        commodity,
-        mass,
-        TEST_REFERENCE_TEMPERATURE,
-    )
-    .map(|_| ())
-}
-
-/// Seeds one explicit homogeneous lot for behavioral tests that need controlled thermal state.
-#[cfg(any(test, feature = "test-gameplay"))]
-pub(crate) fn deposit_lot_for_test(
-    registries: &Registries,
-    state: &mut AppState,
-    stockpile: StockpileId,
-    commodity: CommodityKey,
-    mass: Mass,
-    temperature: Temperature,
-) -> Result<MaterialLotId, MaterialFixtureError> {
-    deposit_composed_lot_for_test(
-        registries,
-        state,
-        stockpile,
-        commodity,
-        mass,
-        temperature,
-        MaterialComposition::pure(commodity.material()),
-    )
-}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-pub(crate) fn deposit_composed_lot_for_test(
-    registries: &Registries,
-    state: &mut AppState,
-    stockpile: StockpileId,
-    commodity: CommodityKey,
-    mass: Mass,
-    temperature: Temperature,
-    composition: MaterialComposition,
-) -> Result<MaterialLotId, MaterialFixtureError> {
-    let specification =
-        MaterialLotSpec::with_composition(commodity, mass, temperature, composition)
-            .map_err(MaterialFixtureError::Specification)?;
-    deposit_lot_spec_for_test(registries, state, stockpile, specification)
-}
-
-/// Seeds one already-validated lot specification through canonical inventory ingress.
-#[cfg(any(test, feature = "test-gameplay"))]
-pub(crate) fn deposit_lot_spec_for_test(
-    registries: &Registries,
-    state: &mut AppState,
-    stockpile: StockpileId,
-    specification: MaterialLotSpec,
-) -> Result<MaterialLotId, MaterialFixtureError> {
-    let mass = specification.mass();
-    let ingress = validate_material_ingress(
-        registries,
-        state.inventory(),
-        stockpile,
-        specification,
-        state.tick(),
-    )
-    .map_err(MaterialFixtureError::Ingress)?;
-    let record = state
-        .inventory()
-        .get_stockpile(stockpile)
-        .unwrap_or_else(|| panic!("validated test ingress destination disappeared"));
-    let stored_after = record
-        .stored_mass()
-        .checked_add(mass)
-        .unwrap_or_else(|| panic!("validated test ingress overflowed stored mass"));
-    let structural = validate_stockpile_stored_mass_changes(
-        registries,
-        state,
-        [StockpileStoredMassChange::new(stockpile, stored_after)],
-    )
-    .map_err(MaterialFixtureError::StructuralLoad)?;
-    if let Some(structural) = structural {
-        structural
-            .commit(state)
-            .map_err(MaterialFixtureError::StructuralCommit)?;
-    }
-
-    Ok(apply_material_ingress(state.inventory_state_mut(), ingress))
-}
-
 /// Validates a multi-record transfer without mutating either stockpile.
 pub fn validate_transfer_bulk(
     registries: &Registries,
@@ -1332,179 +1122,70 @@ pub fn validate_transfer_bulk(
     if mass.is_zero() {
         return Err(TransferError::ZeroMass);
     }
+    let input = MaterialInputSpec::new(commodity, mass);
+    let selection = validate_consumption_selection(state.inventory(), source, &[input])
+        .map_err(map_transfer_selection_error)?;
+    let relocation =
+        validate_material_relocation_from_selection(registries, state, destination, selection)
+            .map_err(map_transfer_relocation_error)?;
+    Ok(ValidatedTransferBulk { relocation })
+}
 
-    let inventories = state.inventory();
-    let Some(source_record) = inventories.get_stockpile(source) else {
-        return Err(TransferError::UnknownStockpile { stockpile: source });
-    };
-    let available = source_record.get_mass(commodity);
-    if available < mass {
-        return Err(TransferError::InsufficientMass {
-            stockpile: source,
+fn map_transfer_selection_error(error: ConsumptionSelectionError) -> TransferError {
+    match error {
+        ConsumptionSelectionError::UnknownStockpile { stockpile } => {
+            TransferError::UnknownStockpile { stockpile }
+        }
+        ConsumptionSelectionError::InsufficientMass {
+            stockpile,
             commodity,
             available,
-            requested: mass,
-        });
-    }
-
-    let Some(destination_record) = inventories.get_stockpile(destination) else {
-        return Err(TransferError::UnknownStockpile {
-            stockpile: destination,
-        });
-    };
-
-    if source == destination {
-        return Err(TransferError::SameStockpile { stockpile: source });
-    }
-
-    let slices = select_lot_slices(inventories, source_record, commodity, mass);
-    for slice in &slices {
-        let lot = match inventories.get_lot(slice.lot) {
-            Some(lot) => lot,
-            None => panic!("validated transfer source lot disappeared during validation"),
-        };
-        validate_stockpile_storage(
-            registries,
-            destination_record,
-            destination,
-            lot.commodity(),
-            lot.composition(),
-            lot.temperature(),
-            lot.particle_size_distribution(),
-        )
-        .map_err(TransferError::Storage)?;
-    }
-    validate_destination_capacity(destination_record, destination, mass)?;
-    destination_record
-        .get_mass(commodity)
-        .checked_add(mass)
-        .ok_or(TransferError::MassOverflow {
-            stockpile: destination,
-        })?;
-
-    let Some(next_revision) = inventories.revision().checked_add(1) else {
-        return Err(TransferError::RevisionExhausted);
-    };
-    let needs_split = slices.last().is_some_and(|slice| {
-        inventories
-            .get_lot(slice.lot)
-            .is_some_and(|lot| slice.mass < lot.mass)
-    });
-    let (split_lot_id, next_lot_id_after) = if needs_split {
-        let id = MaterialLotId::new(inventories.next_lot_id());
-        let Some(next_id) = inventories.next_lot_id().checked_add(1) else {
-            return Err(TransferError::LotIdExhausted);
-        };
-        (Some(id), Some(next_id))
-    } else {
-        (None, None)
-    };
-    let source_after =
-        source_record
-            .stored_mass()
-            .checked_sub(mass)
-            .ok_or(TransferError::InsufficientMass {
-                stockpile: source,
-                commodity,
-                available: source_record.stored_mass(),
-                requested: mass,
-            })?;
-    let destination_after =
-        destination_record
-            .stored_mass()
-            .checked_add(mass)
-            .ok_or(TransferError::MassOverflow {
-                stockpile: destination,
-            })?;
-    let structural = validate_stockpile_stored_mass_changes(
-        registries,
-        state,
-        [
-            StockpileStoredMassChange::new(source, source_after),
-            StockpileStoredMassChange::new(destination, destination_after),
-        ],
-    )
-    .map_err(TransferError::StructuralLoad)?;
-
-    Ok(ValidatedTransferBulk {
-        expected_revision: inventories.revision(),
-        next_revision,
-        source,
-        destination,
-        commodity,
-        mass,
-        slices,
-        split_lot_id,
-        next_lot_id_after,
-        structural,
-    })
-}
-
-fn select_lot_slices(
-    inventories: &InventoryState,
-    source: &StockpileRecord,
-    commodity: CommodityKey,
-    requested: Mass,
-) -> Vec<LotSlice> {
-    let mut remaining = requested;
-    let mut slices = Vec::new();
-    for lot_id in &source.lot_ids {
-        if remaining.is_zero() {
-            break;
-        }
-        let lot = match inventories.get_lot(*lot_id) {
-            Some(lot) => lot,
-            None => panic!(
-                "runtime invariant broken: stockpile {} indexes missing lot {}",
-                source.id.value(),
-                lot_id.value()
-            ),
-        };
-        if lot.commodity() != commodity {
-            continue;
-        }
-        let take = if lot.mass <= remaining {
-            lot.mass
-        } else {
-            remaining
-        };
-        slices.push(LotSlice {
-            lot: *lot_id,
-            mass: take,
-        });
-        remaining = match remaining.checked_sub(take) {
-            Some(value) => value,
-            None => panic!("lot selection underflow after validated availability check"),
-        };
-    }
-    assert!(
-        remaining.is_zero(),
-        "inventory aggregate/index invariant broken during lot selection"
-    );
-    slices
-}
-
-fn validate_destination_capacity(
-    record: &StockpileRecord,
-    stockpile: StockpileId,
-    requested: Mass,
-) -> Result<(), TransferError> {
-    let committed = record
-        .stored_mass
-        .checked_add(record.reserved_inbound)
-        .ok_or(TransferError::MassOverflow { stockpile })?;
-    let after = committed
-        .checked_add(requested)
-        .ok_or(TransferError::MassOverflow { stockpile })?;
-    if after > record.capacity {
-        return Err(TransferError::CapacityExceeded {
+            requested,
+        } => TransferError::InsufficientMass {
             stockpile,
-            capacity: record.capacity,
+            commodity,
+            available,
+            requested,
+        },
+        ConsumptionSelectionError::MassOverflow { stockpile } => {
+            TransferError::MassOverflow { stockpile }
+        }
+    }
+}
+
+fn map_transfer_relocation_error(error: MaterialRelocationError) -> TransferError {
+    match error {
+        MaterialRelocationError::StaleSelection { expected, actual } => {
+            unreachable!(
+                "bulk transfer selection revision {expected} cannot become stale at revision {actual} between synchronous selection and relocation validation"
+            )
+        }
+        MaterialRelocationError::UnknownSource { stockpile }
+        | MaterialRelocationError::UnknownDestination { stockpile } => {
+            TransferError::UnknownStockpile { stockpile }
+        }
+        MaterialRelocationError::SameStockpile { stockpile } => {
+            TransferError::SameStockpile { stockpile }
+        }
+        MaterialRelocationError::DestinationStorage(error) => TransferError::Storage(error),
+        MaterialRelocationError::DestinationMassOverflow { stockpile } => {
+            TransferError::MassOverflow { stockpile }
+        }
+        MaterialRelocationError::DestinationCapacityExceeded {
+            stockpile,
+            capacity,
             committed,
             requested,
-        });
+        } => TransferError::CapacityExceeded {
+            stockpile,
+            capacity,
+            committed,
+            requested,
+        },
+        MaterialRelocationError::LotIdExhausted => TransferError::LotIdExhausted,
+        MaterialRelocationError::RevisionExhausted => TransferError::RevisionExhausted,
+        MaterialRelocationError::StructuralLoad(error) => TransferError::StructuralLoad(error),
     }
-    Ok(())
 }
 
 /// Validates relocation of the exact lot slices already bound by a physical resolver.
@@ -1680,7 +1361,10 @@ mod tests {
         MATERIAL_SLAG, MATERIAL_WOOD, build_registries,
     };
     use crate::core::time::WorldSeed;
-    use crate::inventory::{add_solid_stockpile_for_test, validate_loaded_inventory};
+    use crate::inventory::{
+        MaterialFixtureError, add_solid_stockpile_for_test, deposit_bulk_for_test,
+        deposit_composed_lot_for_test, deposit_lot_for_test, validate_loaded_inventory,
+    };
     use crate::material::CompositionComponent;
     use crate::matter::calculate_matter_accounting;
 
