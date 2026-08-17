@@ -15,7 +15,7 @@ use crate::inventory::{
     apply_material_egress, validate_material_egress_from_selection,
     validate_stockpile_stored_mass_changes,
 };
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 use crate::inventory::{
     ExplicitConsumptionSelectionError, MaterialLotSelection,
     validate_explicit_consumption_selection,
@@ -164,14 +164,14 @@ impl StructuralConstructionResolution {
     }
 }
 
-/// Test-side binding failure standing in for a future physical construction resolver.
-#[cfg(test)]
+/// Harness-side binding failure standing in for a future physical construction resolver.
+#[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum StructuralConstructionBindingError {
     Inventory(ExplicitConsumptionSelectionError),
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) fn bind_structural_construction_selection(
     state: &AppState,
     element: StructuralElementId,
@@ -601,7 +601,7 @@ pub fn validate_structural_construction(
     })
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) fn materialize_structural_element_for_test(
     registries: &Registries,
     state: &mut AppState,

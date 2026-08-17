@@ -15,6 +15,10 @@
 
 use std::env;
 
+mod configuration;
+
+use configuration::{ScenarioSeedPlan, configuration_contract_gaps, scenario_seeds};
+
 const HARNESS_MODE: &str = "exercise";
 
 fn has_verbose_output() -> bool {
@@ -416,69 +420,6 @@ fn condition(parts_per_million: u32) -> Condition {
         Ok(value) => value,
         Err(error) => panic!("gameplay harness condition is invalid: {error}"),
     }
-}
-
-fn parse_seed(raw: &str) -> Option<u64> {
-    let trimmed = raw.trim();
-    if let Some(hex) = trimmed
-        .strip_prefix("0x")
-        .or_else(|| trimmed.strip_prefix("0X"))
-    {
-        u64::from_str_radix(hex, 16).ok()
-    } else {
-        trimmed.parse().ok()
-    }
-}
-
-/// Fixed default for the extra uncurated exploratory probe. A constant so the normal harness run
-/// is reproducible; override with `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED` for extra coverage.
-const DEFAULT_EXPLORATORY_SEED: u64 = 0xD33D_1A5E_BEEF_5EED;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum GameplayHarnessConfigError {
-    InvalidExploratorySeed,
-    EmptyScenarioSeedList,
-    InvalidScenarioSeed { index: usize },
-}
-
-fn resolve_exploratory_seed(raw: Option<&str>) -> Result<u64, GameplayHarnessConfigError> {
-    match raw {
-        Some(text) => parse_seed(text).ok_or(GameplayHarnessConfigError::InvalidExploratorySeed),
-        None => Ok(DEFAULT_EXPLORATORY_SEED),
-    }
-}
-
-fn scenario_seeds_from(
-    scenario_raw: Option<&str>,
-    exploratory_raw: Option<&str>,
-) -> Result<(Vec<u64>, bool), GameplayHarnessConfigError> {
-    if let Some(raw) = scenario_raw {
-        if raw.trim().is_empty() {
-            return Err(GameplayHarnessConfigError::EmptyScenarioSeedList);
-        }
-        let mut seeds = Vec::new();
-        for (index, token) in raw.split(',').enumerate() {
-            let seed = parse_seed(token)
-                .ok_or(GameplayHarnessConfigError::InvalidScenarioSeed { index })?;
-            seeds.push(seed);
-        }
-        return Ok((seeds, false));
-    }
-
-    // Stable coverage seeds exercise structural outage, maintenance stop, announced-load-informed
-    // siting, successful relocation after a load-estimate miss, and relocation without prior support
-    // failure across differing player priorities. The exploratory seed then probes one additional
-    // uncurated combination. It is fixed by default so the run is reproducible, overridable via
-    // `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED` for extra coverage.
-    let mut seeds = vec![1, 4, 5, 23, 957];
-    seeds.push(resolve_exploratory_seed(exploratory_raw)?);
-    Ok((seeds, true))
-}
-
-fn scenario_seeds() -> Result<(Vec<u64>, bool), GameplayHarnessConfigError> {
-    let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
-    let exploratory_raw = env::var("DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED").ok();
-    scenario_seeds_from(scenario_raw.as_deref(), exploratory_raw.as_deref())
 }
 
 fn bounds(x: i64) -> VoxelBounds {
@@ -2973,11 +2914,17 @@ fn scenario_contract_gaps(reports: &[ScenarioReport]) -> Vec<String> {
     gaps
 }
 
-#[test]
-fn gameplay_harness_agent_experience_matrix() {
+/// Runs the maintained headless workshop exercise and fails with named contract gaps.
+///
+/// This entry point exists only with the `test-gameplay` feature so the dedicated integration target
+/// can exercise gameplay behavior without compiling every crate unit-test body into the same binary.
+pub fn run_gameplay_harness() {
     let registries = build_registries();
     assert_canonical_gameplay_content(&registries);
-    let (seeds, enforce_coverage_matrix) = scenario_seeds()
+    let ScenarioSeedPlan {
+        seeds,
+        coverage_seed_count,
+    } = scenario_seeds()
         .unwrap_or_else(|error| panic!("gameplay harness configuration failed: {error:?}"));
     let probe_seed = seeds
         .iter()
@@ -3046,9 +2993,9 @@ fn gameplay_harness_agent_experience_matrix() {
             .into_iter()
             .map(|gap| format!("foundry: {gap}")),
     );
-    if enforce_coverage_matrix {
+    if coverage_seed_count > 0 {
         gaps.extend(
-            coverage_gaps(&reports)
+            coverage_gaps(&reports[..coverage_seed_count])
                 .into_iter()
                 .map(|gap| format!("coverage: {gap}")),
         );
@@ -3125,87 +3072,8 @@ fn gameplay_harness_agent_experience_matrix() {
     );
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{
-        DEFAULT_EXPLORATORY_SEED, GameplayHarnessConfigError, PowerPreference, ScenarioVariation,
-        parse_seed, resolve_exploratory_seed, scenario_seeds_from,
-    };
-
-    #[test]
-    fn parse_seed_accepts_decimal_and_hexadecimal() {
-        assert_eq!(parse_seed("  42  "), Some(42));
-        assert_eq!(parse_seed("0x2A"), Some(42));
-        assert_eq!(parse_seed("0X2a"), Some(42));
-        assert_eq!(parse_seed("18446744073709551615"), Some(u64::MAX));
-        assert_eq!(parse_seed("0xFFFFFFFFFFFFFFFF"), Some(u64::MAX));
-        assert_eq!(parse_seed(""), None);
-        assert_eq!(parse_seed("not-a-seed"), None);
-        assert_eq!(parse_seed("0x"), None);
-    }
-
-    #[test]
-    fn exploratory_seed_uses_fixed_default_without_override() {
-        assert_eq!(resolve_exploratory_seed(None), Ok(DEFAULT_EXPLORATORY_SEED));
-    }
-
-    #[test]
-    fn exploratory_seed_accepts_explicit_override() {
-        assert_eq!(resolve_exploratory_seed(Some("0xBAD")), Ok(0xBAD));
-        assert_eq!(resolve_exploratory_seed(Some("2997")), Ok(2997));
-    }
-
-    #[test]
-    fn exploratory_seed_rejects_invalid_override() {
-        assert_eq!(
-            resolve_exploratory_seed(Some("nope")),
-            Err(GameplayHarnessConfigError::InvalidExploratorySeed)
-        );
-    }
-
-    #[test]
-    fn explicit_seed_list_rejects_invalid_entries_instead_of_dropping_them() {
-        assert_eq!(
-            scenario_seeds_from(Some("1,nope,4"), None),
-            Err(GameplayHarnessConfigError::InvalidScenarioSeed { index: 1 })
-        );
-        assert_eq!(
-            scenario_seeds_from(Some(""), None),
-            Err(GameplayHarnessConfigError::EmptyScenarioSeedList)
-        );
-    }
-
-    #[test]
-    fn explicit_seed_list_is_exact_and_disables_default_matrix_contract() {
-        assert_eq!(
-            scenario_seeds_from(Some("1, 0x2A,3"), Some("ignored")),
-            Ok((vec![1, 42, 3], false))
-        );
-    }
-
-    #[test]
-    fn generated_scenarios_span_distinct_player_priorities_without_unbounded_variation() {
-        let mut saw_preserve_reserve = false;
-        let mut saw_protect_condition = false;
-        let mut saw_finish_sooner = false;
-        let mut minimum_confidence = u32::MAX;
-        let mut maximum_confidence = 0_u32;
-
-        for seed in 1_u64..=64 {
-            let policy = ScenarioVariation::from_seed(seed).policy;
-            assert!((450_000..=1_000_000).contains(&policy.load_confidence_ppm));
-            minimum_confidence = minimum_confidence.min(policy.load_confidence_ppm);
-            maximum_confidence = maximum_confidence.max(policy.load_confidence_ppm);
-            match policy.power_preference {
-                PowerPreference::PreserveReserve => saw_preserve_reserve = true,
-                PowerPreference::ProtectCondition => saw_protect_condition = true,
-                PowerPreference::FinishSooner => saw_finish_sooner = true,
-            }
-        }
-
-        assert!(saw_preserve_reserve);
-        assert!(saw_protect_condition);
-        assert!(saw_finish_sooner);
-        assert!(minimum_confidence < maximum_confidence);
-    }
+#[doc(hidden)]
+#[must_use]
+pub fn gameplay_harness_configuration_contract_gaps() -> Vec<&'static str> {
+    configuration_contract_gaps()
 }

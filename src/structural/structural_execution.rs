@@ -1434,9 +1434,11 @@ mod tests {
         link_test_support(&registries, &mut state, deck, support);
         activate_test_element(&registries, &mut state, deck);
 
+        let mut unrelated_elements = Vec::with_capacity(256);
         for index in 0_i64..256 {
             let unrelated = make_test_element(&registries, &mut state, 10 + index, 0, true);
             activate_test_element(&registries, &mut state, unrelated);
+            unrelated_elements.push(unrelated);
         }
 
         let token = match validate_set_structural_load(
@@ -1459,7 +1461,12 @@ mod tests {
         assert_eq!(assessed, vec![support, deck]);
         assert!(token.analysis().damage_events().is_empty());
         commit_test_mutation(token, &mut state);
-        assert_eq!(state.structures().elements().count(), 258);
+        assert!(unrelated_elements.into_iter().all(|element| {
+            state
+                .structures()
+                .get_element(element)
+                .is_some_and(|record| record.lifecycle() == StructuralLifecycle::Active)
+        }));
     }
 
     #[test]

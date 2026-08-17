@@ -110,7 +110,7 @@ fn allocate_energy_store(
     Ok(id)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) fn add_energy_store_with_initial_for_test(
     registries: &Registries,
     state: &mut AppState,

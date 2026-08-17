@@ -5,15 +5,17 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 use crate::core::quantity::Temperature;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
+#[cfg(test)]
+use crate::material::MaterialPhase;
 use crate::material::{
     CommodityKey, CompositionError, FormId, MaterialId, MaterialInputSpec, MaterialLotSpec,
 };
-#[cfg(test)]
-use crate::material::{MaterialComposition, MaterialLotSpecError, MaterialPhase};
+#[cfg(any(test, feature = "test-gameplay"))]
+use crate::material::{MaterialComposition, MaterialLotSpecError};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
@@ -624,7 +626,7 @@ pub(crate) fn apply_material_batch_ingress(
 impl Error for AddStockpileError {}
 
 /// Failure while constructing or committing a canonical material fixture.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum MaterialFixtureError {
     Specification(MaterialLotSpecError),
@@ -633,7 +635,7 @@ pub(crate) enum MaterialFixtureError {
     StructuralCommit(StructuralCommitError),
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Display for MaterialFixtureError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -653,7 +655,7 @@ impl Display for MaterialFixtureError {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Error for MaterialFixtureError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
@@ -1062,7 +1064,7 @@ pub fn add_stockpile(
     Ok(id)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) fn add_solid_stockpile_for_test(
     state: &mut AppState,
     capacity: Mass,
@@ -1236,7 +1238,7 @@ pub(crate) fn deposit_bulk_for_test(
 }
 
 /// Seeds one explicit homogeneous lot for behavioral tests that need controlled thermal state.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) fn deposit_lot_for_test(
     registries: &Registries,
     state: &mut AppState,
@@ -1256,7 +1258,7 @@ pub(crate) fn deposit_lot_for_test(
     )
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) fn deposit_composed_lot_for_test(
     registries: &Registries,
     state: &mut AppState,
@@ -1273,7 +1275,7 @@ pub(crate) fn deposit_composed_lot_for_test(
 }
 
 /// Seeds one already-validated lot specification through canonical inventory ingress.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) fn deposit_lot_spec_for_test(
     registries: &Registries,
     state: &mut AppState,

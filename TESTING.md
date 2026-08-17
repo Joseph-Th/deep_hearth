@@ -34,19 +34,24 @@ simulation contract.
 | --- | --- | --- |
 | `cargo test-fast` | Ordinary deterministic behavior, errors, persistence, and integrations | Default features; soak bodies are not compiled |
 | `cargo test-soak` | Long-horizon deterministic conservation/invariant scenarios | Adds `test-soak` and runs only `soak` tests |
-| `cargo test-gameplay` | Workshop exercise harness plus harness configuration contracts | Adds `test-gameplay` |
-| `cargo test-gameplay-report` | One workshop matrix with concise human-readable summary | Adds `test-gameplay` |
+| `cargo test-gameplay` | Harness configuration contracts plus workshop exercise | Dedicated integration target; library unit-test bodies are not compiled |
+| `cargo test-gameplay-report` | One workshop matrix with concise human-readable summary | Same dedicated integration target with captured output disabled |
 | `cargo test-shaders` | Naga parse/semantic validation of assembled WGSL without compiling the crate unit-test harness | Adds `test-shader-validation` |
 | `cargo test-check` | Silent all-target compilation of the default feature set | Default features |
 | `cargo test-lint` | Clippy with warnings denied | Default features |
 | `cargo test-lint-all` | Cross-cutting/release Clippy audit | All test features |
-| `cargo test-all` | Complete debug library inventory including specialized lanes | All test features |
-| `cargo test-release` | Complete optimized library inventory | All test features |
+| `cargo test-all` | Complete debug test inventory including dedicated integration targets | All test features |
+| `cargo test-release` | Complete optimized test inventory | All test features |
 | `cargo test-doc` | Documentation build without dependencies | Default features |
 
 The `test-soak`, `test-gameplay`, and `test-shader-validation` features exist only to control test
 compilation. They do not change default runtime behavior. Naga remains absent from the default
 dependency graph and ordinary core test build.
+
+`cargo test-ci-core` is an internal CI composition rather than an edit-loop command. It compiles the
+crate unit-test binary once with `test-soak` enabled and runs both ordinary and soak tests from that
+single artifact. This avoids paying the dominant unit-test codegen/link cost twice in CI while keeping
+`cargo test-fast` and `cargo test-soak` independently targetable during development.
 
 ## Test organization and assertions
 
@@ -83,6 +88,12 @@ maintained matrix owns aggregate experience claims such as completed/incomplete 
 frontier, relocation/recovery, and policy diversity rather than requiring every seed to exhibit every
 behavior.
 
+The gameplay exercise is an integration-test target rather than a crate unit test. This keeps its
+large policy/scenario implementation out of the monolithic unit-test binary and lets gameplay work
+rebuild against the normal library without compiling hundreds of unrelated test bodies. The same
+integration target runs lightweight seed/configuration contracts first, so those checks remain in the
+ordinary gameplay CI lane without forcing a feature-enabled crate unit-test build.
+
 The maintained workshop loop covers announced-load-informed structural siting, finite power choice,
 active-tick wear, exact replacement-stock maintenance, external structural disruption, persistent
 structural damage, production suspension, WIP recovery/stranding, and the current mixed-ore processing
@@ -109,26 +120,27 @@ emit the detailed decision trace. Seed controls are:
   list for reproduction or deliberate sweeps.
 
 Seed lists fail on an empty or malformed entry rather than silently dropping it. When the maintained
-matrix is used, its assertion reports named coverage gaps. Explicit custom seed lists prove only the
-universal per-scenario contracts and do not inherit the maintained matrix's aggregate coverage claim.
+matrix is used, aggregate coverage is proven only by its five curated coverage seeds; the exploratory
+seed cannot mask a lost maintained behavior. Explicit custom seed lists prove only the universal
+per-scenario contracts and do not inherit the maintained matrix's aggregate coverage claim.
 
 ## CI and completion gates
 
 Pull requests and pushes to `main` run independent jobs so unrelated compilation does not serially
-extend the feedback path:
+extend the feedback path, while lanes that require the same expensive unit-test artifact are combined:
 
 1. **Quality**: format and default-feature Clippy.
-2. **Core**: ordinary fast tests only.
-3. **Soak**: feature-gated long-horizon ownership/invariant tests.
-4. **Gameplay**: the feature-gated gameplay harness lane.
-5. **Shaders**: the feature-gated Naga WGSL validation lane.
+2. **Core + Soak**: ordinary and long-horizon tests from one `test-soak` unit-test build.
+3. **Gameplay**: the dedicated feature-gated gameplay integration target.
+4. **Shaders**: the feature-gated Naga WGSL validation lane.
 
 Jobs use locked dependencies, a pinned Rust toolchain, source-aware per-lane build caches, incremental
 compilation, bounded timeouts, and concurrency cancellation for superseded runs. Cache keys retain the
 dependency/toolchain prefix while advancing with source changes, so a lane can reuse its previous
 incremental build instead of freezing the target cache at the first commit after a lockfile change.
-The ordinary CI gate intentionally does not rebuild the entire project in release mode or generate
-documentation on every change.
+Core and soak deliberately share one test artifact, and gameplay deliberately does not compile the
+crate unit-test harness. The ordinary CI gate intentionally does not rebuild the entire project in
+release mode or generate documentation on every change.
 
 Before committing, run:
 

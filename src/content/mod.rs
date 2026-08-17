@@ -4,7 +4,7 @@ mod capabilities;
 mod energy;
 mod equipment;
 mod fluid;
-#[cfg(all(test, feature = "test-gameplay"))]
+#[cfg(feature = "test-gameplay")]
 mod gameplay_harness;
 mod materials;
 mod ore_processing;
@@ -18,6 +18,8 @@ use crate::core::quantity::Acceleration;
 use crate::registry::{
     CoreDefinitions, Registries, RegistryDomains, RegistryPresentation, RegistrySchemaVersion,
 };
+#[cfg(feature = "test-gameplay")]
+pub use gameplay_harness::{gameplay_harness_configuration_contract_gaps, run_gameplay_harness};
 
 #[cfg(test)]
 use crate::capability::{CapabilityDefinition, CapabilityRegistry};

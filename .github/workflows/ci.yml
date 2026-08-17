@@ -42,27 +42,7 @@ jobs:
         run: cargo test-lint
 
   core:
-    name: Fast tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.97.0
-      - uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: ${{ runner.os }}-rust-1.97.0-core-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'assets/**/*.wgsl') }}
-          restore-keys: |
-            ${{ runner.os }}-rust-1.97.0-core-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
-      - name: Fast tests
-        run: cargo test-fast
-
-  soak:
-    name: Soak tests
+    name: Core and soak tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -75,11 +55,11 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-rust-1.97.0-soak-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'assets/**/*.wgsl') }}
+          key: ${{ runner.os }}-rust-1.97.0-core-soak-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-${{ hashFiles('src/**/*.rs', 'assets/**/*.wgsl') }}
           restore-keys: |
-            ${{ runner.os }}-rust-1.97.0-soak-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
-      - name: Soak tests
-        run: cargo test-soak
+            ${{ runner.os }}-rust-1.97.0-core-soak-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.cargo/config.toml') }}-
+      - name: Core and soak tests
+        run: cargo test-ci-core
 
   gameplay:
     name: Gameplay harness

@@ -51,6 +51,9 @@ pub(crate) use transactions::{
 
 #[cfg(test)]
 pub(crate) use transactions::{
-    MaterialFixtureError, add_solid_stockpile_for_test, deposit_bulk_for_test,
-    deposit_composed_lot_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
+    MaterialFixtureError, deposit_bulk_for_test, deposit_lot_spec_for_test,
+};
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) use transactions::{
+    add_solid_stockpile_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
 };

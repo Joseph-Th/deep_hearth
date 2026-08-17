@@ -10,6 +10,11 @@ name = "validate-shaders"
 path = "src/bin/validate_shaders.rs"
 required-features = ["test-shader-validation"]
 
+[[test]]
+name = "gameplay_harness"
+path = "tests/gameplay_harness.rs"
+required-features = ["test-gameplay"]
+
 [features]
 default = []
 test-soak = []

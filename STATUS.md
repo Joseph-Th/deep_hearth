@@ -416,6 +416,10 @@
   `DEEP_HEARTH_GAMEPLAY_EXPLORATORY_SEED` overrides that exploratory seed with an exact decimal or
   hex seed, and `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex seed lists for replay or
   wider sweeps. Explicit seed lists fail on malformed entries rather than silently dropping them.
+  The five maintained seeds alone own aggregate coverage; the exploratory seed cannot hide a lost
+  maintained behavior. The exercise runs as a dedicated integration target, so gameplay iteration
+  builds the normal library plus one dedicated test target instead of compiling the full crate
+  unit-test harness; lightweight seed/configuration contracts run in that same target.
   Routine harness tests keep success output captured; the report lane emits a compact outcome line plus
   a system-interaction line, while `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace.
   The compact report includes completed work orders, terminal causes, announced-load-informed control

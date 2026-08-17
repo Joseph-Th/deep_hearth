@@ -24,7 +24,7 @@ pub use transfer_execution::{
     EnergyTransferResolution, ValidatedEnergyTransfer, validate_energy_transfer,
 };
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use storage_execution::add_energy_store_with_initial_for_test;
 
 pub(crate) use state::validate_loaded_energy;
