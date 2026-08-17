@@ -74,8 +74,8 @@ cargo test-shaders    # when WGSL/shader assembly changed
 ordinary pre-commit sequence already type-checks production code through Clippy and compiles the full
 default-feature unit-test target through `cargo test-fast`.
 
-`TESTING.md` owns lane selection, harness output, and the parallel CI gate. Release hardening is kept
-out of the ordinary pull-request path and remains explicit:
+`TESTING.md` owns lane selection, harness output, and local verification gates. GitHub Actions and
+hosted runners are prohibited. Release hardening remains explicit:
 
 ```text
 cargo test-lint-all

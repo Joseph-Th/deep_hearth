@@ -6,7 +6,9 @@ Read before changing code. Current work is in STATUS.md.
 
 This repository follows [`../STANDARDS.md`](../STANDARDS.md). The applicable profiles are Universal, Stateful Application, and Deterministic System.
 
-`STANDARDS.md` supplies portfolio defaults; this file owns Deep Hearth's repository-local coding law. `TESTING.md` owns test selection, harness modes, and CI lanes, `STATUS.md` owns current implemented scope, `TECHNICAL_DESIGN.md` owns project-specific technical design where referenced, and `GAME_DESIGN.md` owns product intent. If current authorities, tests, and implementation conflict, treat the conflict as a defect to reconcile rather than choosing whichever description is convenient.
+`STANDARDS.md` supplies portfolio defaults; this file owns Deep Hearth's repository-local coding law. `TESTING.md` owns test selection, harness modes, and local validation lanes, `STATUS.md` owns current implemented scope, `TECHNICAL_DESIGN.md` owns project-specific technical design where referenced, and `GAME_DESIGN.md` owns product intent. If current authorities, tests, and implementation conflict, treat the conflict as a defect to reconcile rather than choosing whichever description is convenient.
+
+Repository verification is local. Do not add, invoke, recommend, or depend on GitHub Actions or hosted runners.
 
 Before implementation, a cold agent must be able to identify current scope, authoritative owner, canonical operation, persistence/observation boundary when applicable, narrowest proving test, and completion gate. If that route is not discoverable, improve the owning documentation as part of the change.
 

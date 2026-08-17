@@ -58,7 +58,7 @@ all-target Clippy first pays substantial duplicate compilation cost without addi
 Use `cargo test-lint-all` when test/harness lint coverage is material to the change or for release
 hardening.
 
-`cargo test-ci-core` is an internal CI composition rather than an edit-loop command. It compiles the
+`cargo test-ci-core` is a legacy-named local aggregate command rather than an edit-loop command. It compiles the
 crate unit-test binary once and runs ordinary plus ignored soak tests from that single artifact. Local
 `cargo test-fast` and `cargo test-soak` select different execution subsets without changing Cargo
 features, so running them back to back does not require a second unit-test binary.
@@ -178,33 +178,21 @@ anchor/organic/custom counts, variation root when applicable, and all exact scen
 failure is replayable. Explicit custom seed lists are labeled as custom, run the same per-scenario
 contracts, and do not claim aggregate outcome coverage.
 
-## CI and completion gates
+## Local CI and completion gates
 
-Pull requests and pushes to `main` keep expensive validation lanes independent so unrelated compilation
-does not serially extend the feedback path. Pull requests use one cheap preflight job that checks out
-the repository once, unit-tests the changed-path classifier, and emits the complete build plan.
-Irrelevant downstream jobs are skipped before runner allocation, toolchain installation, checkout, or
-cache restore. Documentation-only changes therefore avoid every Rust build. Harness-only changes run
-rustfmt without production-library Clippy, and specialized gameplay/shader jobs skip known-unrelated
-subsystem changes. The classifier uses only the Python standard library and treats unknown/new paths as
-relevant, so the optimization fails safe rather than silently excluding new dependencies. Pushes to
-`main` bypass the preflight entirely and start every lane directly as the post-merge backstop.
+Verification runs in the developer workspace. GitHub Actions and hosted runners are prohibited. Use the
+repository-owned Cargo aliases directly; no pull-request job, scheduled workflow, or remote runner owns
+the validation contract.
 
-1. **Quality**: format and default-feature Clippy.
-2. **Core + Soak**: ordinary and ignored long-horizon tests from one default-feature unit-test build.
-3. **Gameplay**: the dedicated feature-gated gameplay integration target.
-4. **Shaders**: the feature-gated Naga WGSL validation lane.
+1. **Routine**: `cargo fmt --check`, `cargo test-lint`, and `cargo test-fast`.
+2. **Core + Soak**: add `cargo test-soak` when long-horizon ownership or invariants changed.
+3. **Gameplay**: add `cargo test-gameplay` when workshop behavior or content changed.
+4. **Shaders**: add `cargo test-shaders` when WGSL or shader assembly changed.
+5. **Cross-cutting**: use `cargo test-all` when the complete debug inventory is required.
 
-Jobs use locked dependencies, a pinned Rust toolchain, one shared Cargo dependency cache, source-aware
-target caches, incremental compilation, bounded timeouts, and concurrency cancellation for superseded
-runs. Core and gameplay caches cross-restore the common target directory so dependency artifacts and
-feature-compatible incremental work can be reused even though gameplay enables its bootstrap-only
-feature. Target keys still include the source trees each lane actually compiles, and restore prefixes
-reuse prior artifacts after source changes. Splitting dependency downloads from target artifacts avoids
-storing the same Cargo registry payload in every lane cache. Core and soak deliberately share one test
-artifact, and gameplay deliberately does not compile the crate unit-test harness. The ordinary CI gate
-intentionally does not rebuild the entire project in release mode or generate documentation on every
-change.
+Local Cargo incremental state may be reused naturally between these commands. Core and soak deliberately
+share one test artifact, and gameplay deliberately does not compile the crate unit-test harness. Release
+hardening and documentation remain explicit local commands rather than background or scheduled work.
 
 Before committing, run:
 
