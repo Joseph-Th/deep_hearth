@@ -411,14 +411,15 @@
   maintaining shadow equipment/process definitions. Canonical built-in content includes the jaw
   crusher, grinding mill, dry screen, electric furnace, cooled casting mold, two mechanical drive
   envelopes, electrical buffer, thermal sink, ore crushing, same-form grinding, exact dry screening,
-  pure-copper melting, and pure-copper casting used by the harness. Normal exercise-mode runs combine
-  five deterministic anchor seeds with three organic exploratory seeds generated from a fresh replay
-  root. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` reproduces any organic set from an exact decimal or hex
-  root, and `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex seed lists for reproduction or
-  wider sweeps. Explicit seed lists fail on malformed entries rather than silently dropping them. The
-  anchors guarantee stable comparison and all three operating priorities; balance-dependent outcomes
-  are reported rather than frozen into aggregate pass/fail coverage. Every run reports its exact root
-  and replay seeds. The exercise source lives under `tests/gameplay_harness/` as a dedicated integration
+  pure-copper melting, and pure-copper casting used by the harness. The required exercise gate runs
+  five deterministic anchor seeds. The ignored report lane adds four deterministic exploratory seeds
+  derived from a maintained replay root; `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` can replace that root
+  with an exact decimal or hex value, and `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex seed
+  lists for reproduction or wider sweeps. Explicit seed lists fail on malformed entries rather than
+  silently dropping them. The anchors guarantee stable comparison and all three operating priorities;
+  balance-dependent outcomes are reported rather than frozen into aggregate pass/fail coverage. Every
+  run reports its exact root and replay seeds. The exercise source lives under
+  `tests/gameplay_harness/` as a dedicated integration
   target rather than library code, so harness-only edits rebuild the dedicated target against the
   cached core library instead of invalidating the feature-enabled library or compiling the crate
   unit-test harness. Seed/configuration contracts share that one specialized target instead of creating
@@ -428,7 +429,7 @@
   The compact report exposes sampled ore/delivery input ranges alongside completed work orders,
   terminal causes, delivery-informed control decisions, structural/WIP recovery, maintenance services,
   system pressure, and bottleneck prevalence
-  so each fresh sample is useful as gameplay feedback rather than only a pass/fail result. Starting
+  so each sampled matrix is useful as gameplay feedback rather than only a pass/fail result. Starting
   conditions vary ore grade, batch size, crusher condition, one finite crusher-service replacement
   stock, two competing structural bays, real background stored cargo, a scheduled supported-stockpile
   delivery, and finite mechanical work reserves. Batch size and initial condition are derived from
@@ -504,14 +505,16 @@
   builds. The ordinary Clippy lane checks production library code only; `test-fast` then compiles and
   executes the full default-feature unit-test target, avoiding an all-target Clippy build immediately
   before the same large test target is compiled for execution. The all-target/all-feature Clippy lane
-  remains explicit hardening. The large gameplay exercise is integration-test source rather than
-  library code, and the Naga parser dependency remains behind its dedicated test feature. GitHub CI runs
-  format/lint, combined core/soak tests, gameplay, and shader validation in parallel with a shared
-  dependency cache, source-aware per-lane target caches, and superseded-run cancellation instead of one
-  serial release-sized gate. Pull requests use a unit-tested fail-safe changed-path classifier to skip
-  documentation-only and known-unrelated specialized builds before installing Rust or restoring build
-  caches; pushes to `main` still run every lane. Test binaries and one-shot validation binaries omit
-  debug symbols to reduce codegen/link time without changing ordinary dev-profile debugging behavior.
+  remains explicit hardening. Gameplay remains a dedicated feature-gated integration target so its
+  bootstrap-only state injection is absent from ordinary production builds. The required gameplay gate
+  uses deterministic maintained anchors, while replayable organic sampling is an explicit ignored report
+  lane. The Naga parser dependency remains behind its own dedicated test feature. Pull-request CI uses
+  one unit-tested fail-safe preflight classifier, then runs only relevant format/lint, combined
+  core/soak, gameplay, and shader jobs in parallel. Irrelevant PR jobs are skipped before runner
+  allocation or checkout, and core plus gameplay target caches cross-restore common
+  dependency/incremental artifacts. Pushes to `main` bypass preflight and start every lane directly as
+  the post-merge backstop. Test binaries and one-shot validation binaries omit debug symbols to reduce
+  codegen/link time without changing ordinary dev-profile debugging behavior.
 - Current default validation keeps `cargo check` silent and Clippy warnings denied.
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
   as variants evolve instead of relying on review to catch silent fallback behavior.

@@ -36,8 +36,8 @@ simulation contract.
 | --- | --- | --- |
 | `cargo test-fast` | Ordinary deterministic behavior, errors, persistence, and integrations | Default-feature unit-test artifact; ignored long-horizon tests do not run |
 | `cargo test-soak` | Long-horizon deterministic conservation/invariant scenarios | Reuses the default-feature unit-test artifact and runs only ignored tests |
-| `cargo test-gameplay` | Seed/replay configuration contracts plus maintained workshop exercise | Dedicated integration target; library unit-test bodies are not compiled |
-| `cargo test-gameplay-report` | One workshop matrix with concise human-readable summary | Same dedicated integration target with captured output disabled |
+| `cargo test-gameplay` | Deterministic seed/replay contracts plus the maintained anchor workshop matrix | Dedicated integration target with `test-gameplay`; library unit-test bodies are not compiled |
+| `cargo test-gameplay-report` | Exploratory anchor-plus-organic workshop report with concise human-readable summary | Same feature-gated integration target, ignored by the gate and run with captured output disabled |
 | `cargo test-shaders` | Naga parse/semantic validation of assembled WGSL without compiling the crate unit-test harness | Adds `test-shader-validation` |
 | `cargo test-check` | Silent all-target compilation of the default feature set | Default features |
 | `cargo test-lint` | Production-library Clippy with warnings denied | Default-feature library only; avoids lint-compiling the large unit-test target before `test-fast` compiles it normally |
@@ -46,10 +46,11 @@ simulation contract.
 | `cargo test-release` | Complete optimized test inventory | All test features |
 | `cargo test-doc` | Documentation build without dependencies | Default features |
 
-The `test-gameplay` and `test-shader-validation` features exist only to expose specialized test
-boundaries. They do not change default runtime behavior. Naga remains absent from the default
-dependency graph and ordinary core test build. Soaks intentionally use no feature because feature
-splitting forced a second full unit-test codegen/link step after ordinary tests.
+`test-gameplay` exists only to expose the controlled bootstrap adapter required by the integration
+harness; that adapter remains absent from ordinary production builds and delegates to canonical runtime
+transactions. `test-shader-validation` likewise exists only to expose Naga-backed WGSL validation.
+Neither specialized boundary enters the ordinary edit-loop build. Soaks intentionally use no feature
+so fast and soak execution reuse one unit-test artifact.
 
 `cargo test-lint` deliberately does not lint-compile test targets in the ordinary loop. `cargo
 test-fast` immediately compiles and executes the complete default-feature unit-test target, so running
@@ -95,12 +96,12 @@ used only for diagnostics and postcondition checks. The policy does not clone `A
 compound future mutations that normal callers cannot preview. It chooses from current canonical
 projections, knows scheduled-event timing supplied by the scenario, and reacts to the actual resulting
 state after that event. Each scenario is deterministic from its printed seed and does not consume
-unrelated simulation randomness, while normal runs add a small fresh organic sample so the harness
-does not become one memorized script. A legal scenario may complete zero batches when an in-flight job
-is suspended before its first output; that is gameplay evidence, not a harness failure. Maintained
-seeds guarantee only stable input/policy diversity. Balance-dependent outcomes such as completion,
-maintenance pressure, structural damage, suspension, and relocation are reported as observations
-rather than frozen into aggregate pass/fail requirements.
+unrelated simulation randomness. The required gate runs only maintained anchors; the explicit report
+lane adds a small organic sample so exploratory review is not limited to one memorized script. A legal
+scenario may complete zero batches when an in-flight job is suspended before its first output; that is
+gameplay evidence, not a harness failure. Maintained seeds guarantee only stable input/policy diversity.
+Balance-dependent outcomes such as completion, maintenance pressure, structural damage, suspension,
+and relocation are reported as observations rather than frozen into aggregate pass/fail requirements.
 
 Direct fixture-only starting-state injection is deliberately isolated in
 `src/content/gameplay_fixture.rs`. That feature-gated bridge may seed loose matter and stored energy or
@@ -151,41 +152,43 @@ currently unavailable direct routes as observations, but do not freeze those abs
 requirements. The ore-preparation and foundry probes remain explicitly labeled capability checks until
 concentration/smelting provides a truthful bridge between those stages.
 
-`cargo test-gameplay` keeps successful harness output captured. `cargo test-gameplay-report` emits a
-replay-input line, the current authored equipment/process catalog in stable ID order, sampled input
-ranges, compact outcome and systems summaries, and one scope line distinguishing exercised runtime
-behavior from bootstrap/deferred systems. The catalog is registry-derived rather than a second
-hand-maintained harness list, so newly authored workshop content is visible to a cold agent even before
-the exercise policy grows a dedicated path for it. Set
+`cargo test-gameplay` is deterministic by default and keeps successful harness output captured. It runs
+the five maintained anchor scenarios plus seed/configuration contracts and capability probes. This is
+the required gameplay gate. `cargo test-gameplay-report` runs the ignored exploratory report instead;
+it adds four organic scenarios, emits a replay-input line, the current authored equipment/process
+catalog in stable ID order, sampled input ranges, compact outcome and systems summaries, and one scope
+line distinguishing exercised runtime behavior from bootstrap/deferred systems. The catalog is
+registry-derived rather than a second hand-maintained harness list, so newly authored workshop content
+is visible without maintaining a duplicate list. Set
 `DEEP_HEARTH_GAMEPLAY_VERBOSE` to any value
 before that report lane to emit the detailed decision trace. Seed controls are:
 
-- `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED`: reproduces the normal organic scenario set from one exact
-  decimal or hexadecimal root seed;
+- `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED`: extends the gate or report with four deterministic organic
+  scenarios derived from one exact decimal or hexadecimal root seed; when omitted, the report uses a
+  fixed maintained exploratory root so full and report lanes remain replayable;
 - `DEEP_HEARTH_GAMEPLAY_SEEDS`: replaces the anchor-plus-organic plan with an exact comma-separated
   seed list for reproduction or deliberate sweeps.
 
-Seed lists fail on an empty or malformed entry rather than silently dropping it. Normal runs combine
-five fixed anchor scenarios with four organic scenarios derived from a fresh variation root. The
-anchors preserve reproducible comparison and all three operating priorities; the organic sample gives
-each run slightly different physical conditions without enlarging the lane enough to hurt iteration.
-`DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` reproduces any organic set exactly. Hard failures remain canonical
-execution/invariant failures and capability-probe conservation failures, not required balance outcomes.
-The input line prints the plan source, anchor/organic/custom counts, variation root when applicable,
-and all exact scenario seeds so every failure is replayable. Explicit custom seed lists are labeled as
-custom rather than organic, run the same per-scenario contracts, and do not claim aggregate outcome
-coverage.
+Seed lists fail on an empty or malformed entry rather than silently dropping it. The anchors preserve
+reproducible comparison and all three operating priorities. Organic sampling is deliberately outside
+the required gate and defaults to a maintained root, so CI workload and results never depend on
+wall-clock entropy. Hard failures remain canonical execution/invariant failures and capability-probe
+conservation failures, not required balance outcomes. The input line prints the plan source,
+anchor/organic/custom counts, variation root when applicable, and all exact scenario seeds so every
+failure is replayable. Explicit custom seed lists are labeled as custom, run the same per-scenario
+contracts, and do not claim aggregate outcome coverage.
 
 ## CI and completion gates
 
-Pull requests and pushes to `main` run independent jobs so unrelated compilation does not serially
-extend the feedback path, while lanes that require the same expensive unit-test artifact are combined.
-On pull requests each job first performs a cheap changed-path scope check. Documentation-only changes
-do not install a Rust toolchain or restore build caches. Harness-only changes run rustfmt but skip
-production-library Clippy, and specialized gameplay/shader jobs skip known-unrelated subsystem changes.
-The classifier is a standard-library Python script with its own millisecond unit tests; unknown/new
-paths default to running specialized validation, so the optimization fails safe rather than silently
-excluding new dependencies. Pushes to `main` run all lanes as the post-merge backstop.
+Pull requests and pushes to `main` keep expensive validation lanes independent so unrelated compilation
+does not serially extend the feedback path. Pull requests use one cheap preflight job that checks out
+the repository once, unit-tests the changed-path classifier, and emits the complete build plan.
+Irrelevant downstream jobs are skipped before runner allocation, toolchain installation, checkout, or
+cache restore. Documentation-only changes therefore avoid every Rust build. Harness-only changes run
+rustfmt without production-library Clippy, and specialized gameplay/shader jobs skip known-unrelated
+subsystem changes. The classifier uses only the Python standard library and treats unknown/new paths as
+relevant, so the optimization fails safe rather than silently excluding new dependencies. Pushes to
+`main` bypass the preflight entirely and start every lane directly as the post-merge backstop.
 
 1. **Quality**: format and default-feature Clippy.
 2. **Core + Soak**: ordinary and ignored long-horizon tests from one default-feature unit-test build.
@@ -193,13 +196,15 @@ excluding new dependencies. Pushes to `main` run all lanes as the post-merge bac
 4. **Shaders**: the feature-gated Naga WGSL validation lane.
 
 Jobs use locked dependencies, a pinned Rust toolchain, one shared Cargo dependency cache, source-aware
-per-lane target caches, incremental compilation, bounded timeouts, and concurrency cancellation for
-superseded runs. Target keys include the source trees each lane actually compiles, including gameplay
-integration sources, while restore prefixes reuse the previous incremental artifact after source
-changes. Splitting dependency downloads from target artifacts avoids storing the same Cargo registry
-payload in every lane cache. Core and soak deliberately share one test artifact, and gameplay
-deliberately does not compile the crate unit-test harness. The ordinary CI gate intentionally does not
-rebuild the entire project in release mode or generate documentation on every change.
+target caches, incremental compilation, bounded timeouts, and concurrency cancellation for superseded
+runs. Core and gameplay caches cross-restore the common target directory so dependency artifacts and
+feature-compatible incremental work can be reused even though gameplay enables its bootstrap-only
+feature. Target keys still include the source trees each lane actually compiles, and restore prefixes
+reuse prior artifacts after source changes. Splitting dependency downloads from target artifacts avoids
+storing the same Cargo registry payload in every lane cache. Core and soak deliberately share one test
+artifact, and gameplay deliberately does not compile the crate unit-test harness. The ordinary CI gate
+intentionally does not rebuild the entire project in release mode or generate documentation on every
+change.
 
 Before committing, run:
 

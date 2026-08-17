@@ -1556,7 +1556,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("accounting failed: {error:?}"))
             .total();
 
-        assert!(
+        assert_eq!(
             validate_transfer_bulk(
                 &registries,
                 &state,
@@ -1564,11 +1564,15 @@ mod tests {
                 destination,
                 wood_log(),
                 Mass::from_milligrams(11),
-            )
-            .is_err(),
-            "over-available transfer must fail validation"
+            ),
+            Err(TransferError::InsufficientMass {
+                stockpile: source,
+                commodity: wood_log(),
+                available: Mass::from_milligrams(10),
+                requested: Mass::from_milligrams(11),
+            })
         );
-        assert!(
+        assert_eq!(
             validate_transfer_bulk(
                 &registries,
                 &state,
@@ -1576,9 +1580,13 @@ mod tests {
                 destination,
                 wood_log(),
                 Mass::from_milligrams(9),
-            )
-            .is_err(),
-            "over-capacity transfer must fail validation"
+            ),
+            Err(TransferError::CapacityExceeded {
+                stockpile: destination,
+                capacity: Mass::from_milligrams(5),
+                committed: Mass::ZERO,
+                requested: Mass::from_milligrams(9),
+            })
         );
         assert_eq!(state, before, "failed validation must not mutate inventory");
 

@@ -111,7 +111,7 @@ fn allocate_energy_store(
 }
 
 #[cfg(any(test, feature = "test-gameplay"))]
-pub(crate) fn add_energy_store_with_initial_for_test(
+pub(crate) fn add_energy_store_with_initial_for_fixture(
     registries: &Registries,
     state: &mut AppState,
     definition: EnergyStoreDefinitionId,
@@ -700,7 +700,7 @@ mod tests {
         let before = state.clone();
 
         assert_eq!(
-            add_energy_store_with_initial_for_test(
+            add_energy_store_with_initial_for_fixture(
                 &registries,
                 &mut state,
                 STORE_DEFINITION,
@@ -738,7 +738,7 @@ mod tests {
     fn validated_supply_consumes_exact_energy_and_preserves_trace() {
         let registries = registries();
         let mut state = AppState::new(WorldSeed::new(0x9300_0002));
-        let store = match add_energy_store_with_initial_for_test(
+        let store = match add_energy_store_with_initial_for_fixture(
             &registries,
             &mut state,
             STORE_DEFINITION,
@@ -785,7 +785,7 @@ mod tests {
     fn stale_supply_is_rejected_after_independent_energy_mutation() {
         let registries = registries();
         let mut state = AppState::new(WorldSeed::new(0x9300_0003));
-        let store = match add_energy_store_with_initial_for_test(
+        let store = match add_energy_store_with_initial_for_fixture(
             &registries,
             &mut state,
             STORE_DEFINITION,
@@ -823,7 +823,7 @@ mod tests {
     fn supply_rejects_insufficient_energy_without_mutation() {
         let registries = registries();
         let mut state = AppState::new(WorldSeed::new(0x9300_0004));
-        let store = match add_energy_store_with_initial_for_test(
+        let store = match add_energy_store_with_initial_for_fixture(
             &registries,
             &mut state,
             STORE_DEFINITION,
@@ -866,7 +866,7 @@ mod tests {
     fn sink_only_store_rejects_energy_supply_binding_without_mutation() {
         let registries = sink_registries();
         let mut state = AppState::new(WorldSeed::new(0x9300_0007));
-        let store = match add_energy_store_with_initial_for_test(
+        let store = match add_energy_store_with_initial_for_fixture(
             &registries,
             &mut state,
             STORE_DEFINITION,
@@ -888,7 +888,7 @@ mod tests {
     fn sink_binding_reserves_exact_capacity_and_is_revision_bound() {
         let registries = sink_registries();
         let mut state = AppState::new(WorldSeed::new(0x9300_0008));
-        let store = match add_energy_store_with_initial_for_test(
+        let store = match add_energy_store_with_initial_for_fixture(
             &registries,
             &mut state,
             STORE_DEFINITION,
@@ -930,7 +930,7 @@ mod tests {
     fn sink_rejects_capacity_overrun_without_mutation() {
         let registries = sink_registries();
         let mut state = AppState::new(WorldSeed::new(0x9300_0009));
-        let store = match add_energy_store_with_initial_for_test(
+        let store = match add_energy_store_with_initial_for_fixture(
             &registries,
             &mut state,
             STORE_DEFINITION,

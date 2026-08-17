@@ -1,15 +1,19 @@
 //! Fungible matter storage with passive state, deterministic selection, and validated mutation pipelines.
 
+#[cfg(any(test, feature = "test-gameplay"))]
+mod fixture;
 mod ingress;
 mod reserved_ingress;
 mod selection;
 mod state;
 mod storage_validation;
 mod structural_integration;
-#[cfg(any(test, feature = "test-gameplay"))]
+#[cfg(test)]
 mod test_support;
 mod transactions;
 
+#[cfg(feature = "test-gameplay")]
+pub(crate) use fixture::{deposit_composed_lot_for_fixture, deposit_lot_for_fixture};
 pub(crate) use ingress::{
     MaterialIngressEntry, MaterialIngressError, ValidatedMaterialIngress, apply_material_ingress,
     validate_material_ingress,
@@ -55,9 +59,6 @@ pub(crate) use transactions::{
 
 #[cfg(test)]
 pub(crate) use test_support::{
-    MaterialFixtureError, deposit_bulk_for_test, deposit_lot_spec_for_test,
-};
-#[cfg(any(test, feature = "test-gameplay"))]
-pub(crate) use test_support::{
-    add_solid_stockpile_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
+    MaterialFixtureError, add_solid_stockpile_for_test, deposit_bulk_for_test,
+    deposit_composed_lot_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
 };

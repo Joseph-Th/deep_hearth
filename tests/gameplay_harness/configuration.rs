@@ -1,11 +1,16 @@
 //! Replayable gameplay-harness seed parsing and deterministic scenario-plan configuration.
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use super::seed::mix64;
 
 const ANCHOR_SEEDS: [u64; 5] = [1, 4, 9, 19, 380];
 const ORGANIC_SCENARIO_COUNT: usize = 4;
+const DEFAULT_EXPLORATORY_VARIATION_SEED: u64 = 0xE7A1_0A7E_5EED_2026;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ScenarioPlanMode {
+    Gate,
+    Explore,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum GameplayHarnessConfigError {
@@ -16,6 +21,7 @@ pub(super) enum GameplayHarnessConfigError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ScenarioSeedSource {
+    Anchors,
     AnchorOrganic,
     Custom,
 }
@@ -23,6 +29,7 @@ enum ScenarioSeedSource {
 impl ScenarioSeedSource {
     const fn label(self) -> &'static str {
         match self {
+            Self::Anchors => "anchors",
             Self::AnchorOrganic => "anchor+organic",
             Self::Custom => "custom",
         }
@@ -52,16 +59,16 @@ impl ScenarioSeedPlan {
 
     pub(super) fn organic_seed_count(&self) -> usize {
         match self.source {
+            ScenarioSeedSource::Anchors | ScenarioSeedSource::Custom => 0,
             ScenarioSeedSource::AnchorOrganic => {
                 self.seeds.len().saturating_sub(self.anchor_seed_count)
             }
-            ScenarioSeedSource::Custom => 0,
         }
     }
 
     pub(super) fn custom_seed_count(&self) -> usize {
         match self.source {
-            ScenarioSeedSource::AnchorOrganic => 0,
+            ScenarioSeedSource::Anchors | ScenarioSeedSource::AnchorOrganic => 0,
             ScenarioSeedSource::Custom => self.seeds.len(),
         }
     }
@@ -93,19 +100,10 @@ fn parse_seed(raw: &str) -> Option<u64> {
     }
 }
 
-fn generated_variation_seed() -> u64 {
-    let elapsed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let nanos = elapsed.as_nanos();
-    let folded_time = nanos as u64 ^ (nanos >> 64) as u64;
-    mix64(folded_time ^ u64::from(std::process::id()))
-}
-
 fn resolve_variation_seed(raw: Option<&str>) -> Result<u64, GameplayHarnessConfigError> {
     match raw {
         Some(text) => parse_seed(text).ok_or(GameplayHarnessConfigError::InvalidVariationSeed),
-        None => Ok(generated_variation_seed()),
+        None => Ok(DEFAULT_EXPLORATORY_VARIATION_SEED),
     }
 }
 
@@ -121,6 +119,7 @@ fn append_organic_seeds(seeds: &mut Vec<u64>, root: u64) {
 }
 
 pub(super) fn scenario_seeds_from(
+    mode: ScenarioPlanMode,
     scenario_raw: Option<&str>,
     variation_raw: Option<&str>,
 ) -> Result<ScenarioSeedPlan, GameplayHarnessConfigError> {
@@ -143,6 +142,15 @@ pub(super) fn scenario_seeds_from(
     }
 
     let mut seeds = ANCHOR_SEEDS.to_vec();
+    if mode == ScenarioPlanMode::Gate && variation_raw.is_none() {
+        return Ok(ScenarioSeedPlan {
+            source: ScenarioSeedSource::Anchors,
+            seeds,
+            anchor_seed_count: ANCHOR_SEEDS.len(),
+            variation_seed: None,
+        });
+    }
+
     let variation_seed = resolve_variation_seed(variation_raw)?;
     append_organic_seeds(&mut seeds, variation_seed);
     Ok(ScenarioSeedPlan {
@@ -174,18 +182,18 @@ mod tests {
             Err(GameplayHarnessConfigError::InvalidVariationSeed)
         );
         assert_eq!(
-            scenario_seeds_from(Some("1,nope,4"), None),
+            scenario_seeds_from(ScenarioPlanMode::Gate, Some("1,nope,4"), None),
             Err(GameplayHarnessConfigError::InvalidScenarioSeed { index: 1 })
         );
         assert_eq!(
-            scenario_seeds_from(Some(""), None),
+            scenario_seeds_from(ScenarioPlanMode::Gate, Some(""), None),
             Err(GameplayHarnessConfigError::EmptyScenarioSeedList)
         );
     }
 
     #[test]
     fn custom_seed_list_is_exact_and_ignores_variation_seed() {
-        let plan = scenario_seeds_from(Some("1, 0x2A,3"), Some("ignored"))
+        let plan = scenario_seeds_from(ScenarioPlanMode::Gate, Some("1, 0x2A,3"), Some("ignored"))
             .unwrap_or_else(|error| panic!("custom seed plan failed: {error:?}"));
 
         assert_eq!(plan.seeds(), [1, 42, 3]);
@@ -197,10 +205,22 @@ mod tests {
     }
 
     #[test]
-    fn variation_root_replays_distinct_organic_scenarios_after_anchors() {
-        let first = scenario_seeds_from(None, Some("0xBAD"))
+    fn default_gate_uses_only_maintained_anchor_scenarios() {
+        let plan = scenario_seeds_from(ScenarioPlanMode::Gate, None, None)
+            .unwrap_or_else(|error| panic!("default gate seed plan failed: {error:?}"));
+
+        assert_eq!(plan.source, ScenarioSeedSource::Anchors);
+        assert_eq!(plan.seeds(), ANCHOR_SEEDS);
+        assert_eq!(plan.anchor_seed_count(), ANCHOR_SEEDS.len());
+        assert_eq!(plan.organic_seed_count(), 0);
+        assert_eq!(plan.variation_seed, None);
+    }
+
+    #[test]
+    fn explicit_variation_root_replays_distinct_organic_scenarios_after_anchors() {
+        let first = scenario_seeds_from(ScenarioPlanMode::Explore, None, Some("0xBAD"))
             .unwrap_or_else(|error| panic!("first organic seed plan failed: {error:?}"));
-        let second = scenario_seeds_from(None, Some("0xBAD"))
+        let second = scenario_seeds_from(ScenarioPlanMode::Explore, None, Some("0xBAD"))
             .unwrap_or_else(|error| panic!("second organic seed plan failed: {error:?}"));
 
         assert_eq!(first, second);
@@ -215,5 +235,21 @@ mod tests {
                 .all(|seed| !ANCHOR_SEEDS.contains(seed))
         );
         assert_eq!(first.variation_seed, Some(0xBAD));
+    }
+
+    #[test]
+    fn default_exploration_is_replayable_without_environment_configuration() {
+        let first = scenario_seeds_from(ScenarioPlanMode::Explore, None, None)
+            .unwrap_or_else(|error| panic!("first default exploration failed: {error:?}"));
+        let second = scenario_seeds_from(ScenarioPlanMode::Explore, None, None)
+            .unwrap_or_else(|error| panic!("second default exploration failed: {error:?}"));
+
+        assert_eq!(first, second);
+        assert_eq!(first.source, ScenarioSeedSource::AnchorOrganic);
+        assert_eq!(
+            first.variation_seed,
+            Some(DEFAULT_EXPLORATORY_VARIATION_SEED)
+        );
+        assert_eq!(first.organic_seed_count(), ORGANIC_SCENARIO_COUNT);
     }
 }

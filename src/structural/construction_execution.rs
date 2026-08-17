@@ -639,7 +639,7 @@ pub fn validate_structural_construction(
     })
 }
 
-#[cfg(any(test, feature = "test-gameplay"))]
+#[cfg(test)]
 pub(crate) fn materialize_structural_element_for_test(
     registries: &Registries,
     state: &mut AppState,

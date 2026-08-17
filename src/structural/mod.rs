@@ -53,7 +53,9 @@ pub(crate) use structural_execution::{
     validate_set_owned_structural_loads,
 };
 
-#[cfg(any(test, feature = "test-gameplay"))]
+#[cfg(feature = "test-gameplay")]
+pub(crate) use construction_execution::bind_structural_construction_selection;
+#[cfg(test)]
 pub(crate) use construction_execution::materialize_structural_element_for_test;
 #[cfg(test)]
 pub(crate) use deconstruction_execution::make_test_deconstruction_resolution;

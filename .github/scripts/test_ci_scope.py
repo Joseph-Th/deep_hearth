@@ -2,20 +2,20 @@
 
 import unittest
 
-from ci_scope import should_run
+from ci_scope import build_plan, should_run
 
 
 class CiScopeTests(unittest.TestCase):
     def test_documentation_only_changes_skip_all_rust_builds(self) -> None:
         paths = ["README.md", "STATUS.md", "TECHNICAL_DESIGN.md"]
-        for lane in ("quality", "lint", "core", "gameplay", "shaders"):
+        for lane in ("format", "lint", "core", "gameplay", "shaders"):
             with self.subTest(lane=lane):
                 self.assertFalse(should_run(lane, paths))
 
     def test_quality_and_core_cover_their_complete_compile_inputs(self) -> None:
-        self.assertTrue(should_run("quality", ["src/inventory/mod.rs"]))
-        self.assertTrue(should_run("quality", ["tests/gameplay_harness/main.rs"]))
-        self.assertFalse(should_run("quality", ["assets/shaders/surface.wgsl"]))
+        self.assertTrue(should_run("format", ["src/inventory/mod.rs"]))
+        self.assertTrue(should_run("format", ["tests/gameplay_harness/main.rs"]))
+        self.assertFalse(should_run("format", ["assets/shaders/surface.wgsl"]))
         self.assertTrue(should_run("lint", ["src/inventory/mod.rs"]))
         self.assertFalse(should_run("lint", ["tests/gameplay_harness/main.rs"]))
         self.assertTrue(should_run("lint", [".cargo/config.toml"]))
@@ -42,6 +42,42 @@ class CiScopeTests(unittest.TestCase):
     def test_any_relevant_path_enables_the_lane(self) -> None:
         self.assertTrue(should_run("gameplay", ["README.md", "src/production/state.rs"]))
         self.assertTrue(should_run("shaders", ["README.md", "Cargo.toml"]))
+
+    def test_plan_classifies_one_path_set_for_every_lane(self) -> None:
+        self.assertEqual(
+            build_plan(["tests/gameplay_harness/report.rs"]),
+            {
+                "format": True,
+                "lint": False,
+                "core": False,
+                "gameplay": True,
+                "shaders": False,
+            },
+        )
+
+    def test_gameplay_only_bootstrap_source_avoids_default_rust_builds(self) -> None:
+        self.assertEqual(
+            build_plan(["src/content/gameplay_fixture.rs"]),
+            {
+                "format": True,
+                "lint": False,
+                "core": False,
+                "gameplay": True,
+                "shaders": False,
+            },
+        )
+
+    def test_shared_test_fixture_source_still_runs_core_and_gameplay(self) -> None:
+        self.assertEqual(
+            build_plan(["src/inventory/fixture.rs"]),
+            {
+                "format": True,
+                "lint": False,
+                "core": True,
+                "gameplay": True,
+                "shaders": False,
+            },
+        )
 
 
 if __name__ == "__main__":

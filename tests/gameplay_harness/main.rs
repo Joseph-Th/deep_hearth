@@ -1,13 +1,13 @@
 //! Headless workshop gameplay harness over the same canonical content registries used by the game.
 //!
 //! The harness deliberately varies physical initial conditions and player priorities, then lets a
-//! small operational policy react only to observed state and resolver projections. Normal
-//! exercise-mode runs combine a deterministic anchor matrix with a small replayable set of organic
-//! exploratory scenarios rooted at a fresh run seed. Their physical ranges are
-//! derived from the current authored content rather than copied balance constants.
-//! `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` reproduces one organic scenario set from an exact decimal or
-//! `0x` hexadecimal root seed. Each scenario schedules a real material transfer into supported
-//! storage, so ordinary inventory ownership can change structural margin while production is active.
+//! small operational policy react only to observed state and resolver projections. The required gate
+//! runs a deterministic anchor matrix. The explicit report lane adds a small replayable set of organic
+//! exploratory scenarios whose physical ranges are derived from current authored content rather than
+//! copied balance constants. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` reproduces one organic scenario set
+//! from an exact decimal or `0x` hexadecimal root seed. Each scenario schedules a real material
+//! transfer into supported storage, so ordinary inventory ownership can change structural margin while
+//! production is active.
 //! Faster machinery can therefore change how much work is secured before that planned logistics event.
 //! `DEEP_HEARTH_GAMEPLAY_SEEDS` replaces the whole matrix with an exact comma-separated decimal or
 //! `0x` hexadecimal seed list; malformed entries are rejected instead of ignored. Detailed trace
@@ -21,7 +21,7 @@ mod probe_setup;
 mod report;
 mod seed;
 
-use configuration::scenario_seeds_from;
+use configuration::{ScenarioPlanMode, scenario_seeds_from};
 use contracts::{anchor_diversity_gaps, scenario_contract_gaps};
 use deep_hearth::content::gameplay_fixture::{
     materialize_structure, seed_composed_lot, seed_energy_store as bootstrap_seed_energy_store,
@@ -728,9 +728,10 @@ fn service_crusher(
     ) {
         Ok(resolution) => resolution,
         Err(EquipmentMaintenanceResolutionError::InsufficientReplacementMaterial {
+            stockpile: _stockpile,
+            commodity: _commodity,
             available,
             required,
-            ..
         }) => {
             report.maintenance.supply_exhausted = true;
             println!(
@@ -844,7 +845,9 @@ fn resolve_crush_option(
             resolved,
         }),
         Err(ComminutionResolutionError::Energy(EnergySupplyError::InsufficientEnergy {
-            ..
+            store: _store,
+            available: _available,
+            requested: _requested,
         })) => None,
         Err(error) => panic!("gameplay harness {name} drive resolution failed: {error}"),
     }
@@ -1034,7 +1037,9 @@ fn advance_job_until_completion_or_suspension(
                     change,
                     ProductionAvailabilityChange::Suspended {
                         job: changed_job,
-                        ..
+                        reason: _reason,
+                        suspended_at: _suspended_at,
+                        remaining_active_time: _remaining_active_time,
                     } if *changed_job == job
                 )
             })
@@ -1103,11 +1108,21 @@ fn crush_batch(
                     ProductionAvailabilityChange::Suspended {
                         job: changed_job,
                         reason,
+                        suspended_at: _suspended_at,
                         remaining_active_time,
-                        ..
                     } if changed_job == job => Some((reason, remaining_active_time)),
-                    ProductionAvailabilityChange::Suspended { .. }
-                    | ProductionAvailabilityChange::Resumed { .. } => None,
+                    ProductionAvailabilityChange::Suspended {
+                        job: _job,
+                        reason: _reason,
+                        suspended_at: _suspended_at,
+                        remaining_active_time: _remaining_active_time,
+                    } => None,
+                    ProductionAvailabilityChange::Resumed {
+                        job: _job,
+                        reason: _reason,
+                        resumed_at: _resumed_at,
+                        scheduled_completion: _scheduled_completion,
+                    } => None,
                 })
                 .unwrap_or_else(|| {
                     panic!("failed crusher support did not suspend its in-flight production job")
@@ -1146,7 +1161,8 @@ fn crush_batch(
                         ProductionAvailabilityChange::Resumed {
                             job: changed_job,
                             reason: ProductionSuspensionReason::EquipmentSupportUnavailable { equipment },
-                            ..
+                            resumed_at: _resumed_at,
+                            scheduled_completion: _scheduled_completion,
                         } if *changed_job == job && *equipment == ids.crusher
                     )
                 });
@@ -1267,7 +1283,10 @@ fn try_relocate_crusher(
         *alternate_support,
     ) {
         Ok(relocation) => relocation,
-        Err(EquipmentSupportError::TargetNotActive { lifecycle, .. }) => {
+        Err(EquipmentSupportError::TargetNotActive {
+            element: _element,
+            lifecycle,
+        }) => {
             println!(
                 "  recovery blocked: alternate bay is {lifecycle:?} after the stored-matter delivery"
             );
@@ -1367,7 +1386,11 @@ fn adapt_after_delivery(
             runtime.report.structure.support_failure_blocked_production = matches!(
                 blocked,
                 Err(ComminutionResolutionError::Equipment(
-                    EquipmentProviderError::StructuralSupportNotActive { .. }
+                    EquipmentProviderError::StructuralSupportNotActive {
+                        equipment: _equipment,
+                        element: _element,
+                        lifecycle: _lifecycle,
+                    }
                 ))
             );
             println!(
@@ -1410,7 +1433,10 @@ fn adapt_after_delivery(
             *runtime.alternate_support,
         ) {
             Ok(alternate) => alternate,
-            Err(EquipmentSupportError::TargetNotActive { lifecycle, .. }) => {
+            Err(EquipmentSupportError::TargetNotActive {
+                element: _element,
+                lifecycle,
+            }) => {
                 println!(
                     "  decision: remain on current support; alternate bay is {lifecycle:?} after the stored-matter delivery"
                 );
@@ -1871,7 +1897,9 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
         report.progress.ore_frontier_visible = matches!(
             blocked_melt,
             Err(MeltingResolutionError::Batch(
-                MeltingBatchError::ImpureInput { .. }
+                MeltingBatchError::ImpureInput {
+                    commodity: _commodity,
+                }
             ))
         );
         println!(
@@ -2226,7 +2254,8 @@ fn run_ore_preparation_capability_probe(registries: &Registries, seed: u64) -> V
     let direct_screen_status = match &direct_screen {
         Ok(_) => "available",
         Err(ScreeningResolutionError::Batch(ScreeningBatchError::UnresolvedParticleClass {
-            ..
+            aperture: _aperture,
+            class: _class,
         })) => "requires-classification",
         Err(error) => panic!("direct-screen route failed unexpectedly: {error}"),
     };
@@ -2244,7 +2273,10 @@ fn run_ore_preparation_capability_probe(registries: &Registries, seed: u64) -> V
     let direct_fine_grind_status = match &direct_fine_grind {
         Ok(_) => "available",
         Err(ComminutionResolutionError::Batch(
-            ComminutionBatchError::InputParticleSizeOutsideOperatingRange { .. },
+            ComminutionBatchError::InputParticleSizeOutsideOperatingRange {
+                required: _required,
+                found: _found,
+            },
         )) => "outside-authored-feed-range",
         Err(error) => panic!("direct fine-grind route failed unexpectedly: {error}"),
     };
@@ -2565,16 +2597,13 @@ fn run_ore_preparation_capability_probe(registries: &Registries, seed: u64) -> V
         .collect()
 }
 
-/// Runs the maintained headless workshop exercise and fails with named contract gaps.
-///
-/// This entry point exists only with the `test-gameplay` feature so the dedicated integration target
-/// can exercise gameplay behavior without compiling every crate unit-test body into the same binary.
-fn run_gameplay_harness() {
+/// Runs the headless workshop exercise and fails with named contract gaps.
+fn run_gameplay_harness(mode: ScenarioPlanMode) {
     let registries = build_registries();
     assert_canonical_gameplay_content(&registries);
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
-    let plan = scenario_seeds_from(scenario_raw.as_deref(), variation_raw.as_deref())
+    let plan = scenario_seeds_from(mode, scenario_raw.as_deref(), variation_raw.as_deref())
         .unwrap_or_else(|error| panic!("gameplay harness configuration failed: {error:?}"));
     std::println!(
         "HARNESS INPUT plan={} anchors={} organic={} custom={} variation_seed={} replay={}",
@@ -2645,6 +2674,12 @@ fn run_gameplay_harness() {
 }
 
 #[test]
-fn gameplay_harness_agent_experience_matrix() {
-    run_gameplay_harness();
+fn gameplay_harness_gate() {
+    run_gameplay_harness(ScenarioPlanMode::Gate);
+}
+
+#[test]
+#[ignore = "exploratory gameplay report"]
+fn gameplay_harness_exploratory_report() {
+    run_gameplay_harness(ScenarioPlanMode::Explore);
 }
