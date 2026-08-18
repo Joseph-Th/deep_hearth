@@ -719,9 +719,9 @@ mod tests {
     use super::*;
     use crate::content::{
         EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_PICK, FORM_HANDLE,
-        FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_ORE, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE,
-        MATERIAL_WOOD, MINING_METHOD_HAND_PICK, PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE,
-        build_registries,
+        FORM_LOG, FORM_LUMP, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER,
+        MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK, PROCESS_KNAP_STONE_TOOL,
+        PROCESS_SHAPE_WOOD_HANDLE, build_registries,
     };
     use crate::core::quantity::{Temperature, Volume};
     use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -803,7 +803,7 @@ mod tests {
                 Mass::from_milligrams(200_000),
             ),
             (
-                CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
                 Mass::from_milligrams(20_000),
             ),
         ] {
@@ -977,7 +977,7 @@ mod tests {
     }
 
     #[test]
-    fn copper_reinforcement_turns_processed_metal_into_more_capable_extraction() {
+    fn copper_reinforcement_turns_cold_worked_native_metal_into_more_capable_extraction() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0xA11E_0004));
         initialize_player_survival(&registries, &mut state)
@@ -993,7 +993,7 @@ mod tests {
             Mass::from_milligrams(1_020_000)
         );
         assert!(reinforced_record.embodied_material().iter().any(|trace| {
-            trace.profile().commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_INGOT)
+            trace.profile().commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)
                 && trace.mass() == Mass::from_milligrams(20_000)
         }));
 

@@ -1,7 +1,9 @@
 //! Exact power-to-energy integration across simulation ticks with explicit fractional remainder ownership.
 
 mod accounting;
+mod construction_execution;
 mod definitions;
+mod disassembly_execution;
 mod state;
 mod storage_execution;
 mod transfer_execution;
@@ -9,9 +11,17 @@ mod transfer_execution;
 pub use accounting::{
     ExplicitEnergyAccounting, ExplicitEnergyAccountingError, calculate_explicit_energy_accounting,
 };
+pub use construction_execution::{
+    EnergyStoreAssemblyCommitError, EnergyStoreAssemblyError, ValidatedEnergyStoreAssembly,
+    validate_assemble_energy_store,
+};
 
 pub use definitions::{
     EnergyCarrier, EnergyRegistry, EnergyStoreDefinition, EnergyStoreDefinitionId,
+};
+pub use disassembly_execution::{
+    EnergyStoreDisassemblyCommitError, EnergyStoreDisassemblyError, EnergyStoreDisassemblyOutcome,
+    ValidatedEnergyStoreDisassembly, validate_disassemble_energy_store,
 };
 pub use state::{EnergyState, EnergyStoreId, EnergyStoreRecord, EnergyValidationError};
 pub use storage_execution::{

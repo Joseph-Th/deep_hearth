@@ -633,9 +633,9 @@ mod tests {
     use crate::content::{
         ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
         EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_STONE_HAND_CRANK, FORM_FLYWHEEL,
-        FORM_HANDLE, FORM_INGOT, FORM_LOG, FORM_LUMP, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
-        MATERIAL_STONE, MATERIAL_WOOD, PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE,
-        build_registries,
+        FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_REINFORCEMENT, MANUAL_POWER_HAND_CRANK,
+        MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_SHAPE_STONE_FLYWHEEL,
+        PROCESS_SHAPE_WOOD_HANDLE, build_registries,
     };
     use crate::core::quantity::{Mass, Temperature};
     use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -686,7 +686,7 @@ mod tests {
                 Mass::from_milligrams(200_000),
             )),
             with_copper.then_some((
-                CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
                 Mass::from_milligrams(20_000),
             )),
         ]

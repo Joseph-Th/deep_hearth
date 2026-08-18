@@ -561,21 +561,127 @@ pub fn validate_start_manual_craft(
 mod tests {
     use super::*;
     use crate::content::{
-        FORM_CHIP, FORM_LUMP, FORM_TOOL, MATERIAL_STONE, PROCESS_KNAP_STONE_TOOL, build_registries,
+        FORM_CHIP, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL,
+        MATERIAL_COPPER, MATERIAL_STONE, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+        PROCESS_KNAP_STONE_TOOL, build_registries,
     };
     use crate::core::quantity::{Energy, Temperature};
     use crate::core::state::{StateValidationError, validate_loaded_state};
     use crate::core::time::WorldSeed;
-    use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
+    use crate::inventory::{
+        add_solid_stockpile_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
+    };
     use crate::labor::{PlayerWorkValidationError, calculate_player_work_resource_budget};
+    use crate::material::{CompositionComponent, MaterialComposition};
     use crate::matter::calculate_matter_accounting;
     use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
-    use crate::production::{StartProcessError, validate_start_process};
+    use crate::production::{ProcessInputError, StartProcessError, validate_start_process};
     use crate::simulation::advance_tick;
     use crate::survival::{assess_survival, initialize_player_survival};
 
     fn stone_lump() -> CommodityKey {
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
+    }
+
+    #[test]
+    fn native_copper_reinforcement_rejects_ordinary_ore_form_without_inventing_separation() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0xC4AF_7009));
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("native copper survival setup failed: {error}"));
+        let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
+            .unwrap_or_else(|error| panic!("native copper source failed: {error}"));
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
+            .unwrap_or_else(|error| panic!("native copper destination failed: {error}"));
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+            Mass::from_milligrams(20_000),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("ordinary copper ore fixture failed: {error}"));
+        let before = state.clone();
+
+        assert_eq!(
+            validate_start_manual_craft(
+                &registries,
+                &state,
+                ManualCraftStartRequest::single(
+                    PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+                    source,
+                    destination,
+                ),
+            )
+            .err(),
+            Some(StartManualCraftError::Resolution(ManualCraftError::Input(
+                ProcessInputError::InsufficientMass {
+                    stockpile: source,
+                    commodity: CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+                    available: Mass::ZERO,
+                    requested: Mass::from_milligrams(20_000),
+                }
+            )))
+        );
+        assert_eq!(state, before);
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(destination)
+                .map(|stockpile| {
+                    stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT))
+                }),
+            Some(Mass::ZERO)
+        );
+    }
+
+    #[test]
+    fn native_copper_reinforcement_rejects_contaminated_native_metal() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0xC4AF_7010));
+        initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("contaminated native copper survival setup failed: {error}")
+        });
+        let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
+            .unwrap_or_else(|error| panic!("contaminated native copper source failed: {error}"));
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
+            .unwrap_or_else(|error| {
+                panic!("contaminated native copper destination failed: {error}")
+            });
+        let mixed = MaterialComposition::new(vec![
+            CompositionComponent::new(MATERIAL_COPPER, 900_000),
+            CompositionComponent::new(MATERIAL_STONE, 100_000),
+        ])
+        .unwrap_or_else(|error| panic!("contaminated native copper composition failed: {error}"));
+        deposit_composed_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+            Mass::from_milligrams(20_000),
+            Temperature::from_millikelvin(293_150),
+            mixed,
+        )
+        .unwrap_or_else(|error| panic!("contaminated native copper fixture failed: {error}"));
+        let before = state.clone();
+
+        assert_eq!(
+            validate_start_manual_craft(
+                &registries,
+                &state,
+                ManualCraftStartRequest::single(
+                    PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+                    source,
+                    destination,
+                ),
+            )
+            .err(),
+            Some(StartManualCraftError::Resolution(
+                ManualCraftError::UnsupportedComposition
+            ))
+        );
+        assert_eq!(state, before);
     }
 
     fn make_fixture() -> (Registries, AppState, StockpileId, StockpileId) {

@@ -1,14 +1,18 @@
-//! Built-in finite workshop energy-source and sink definitions.
+//! Built-in finite mechanical, electrical, and thermal energy-storage definitions.
 
-use crate::core::quantity::{Energy, Power};
+use crate::core::quantity::{Energy, Mass, Power};
 use crate::energy::{
     EnergyCarrier, EnergyRegistry, EnergyStoreDefinition, EnergyStoreDefinitionId,
 };
+use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
+
+use super::materials::{FORM_FLYWHEEL, FORM_HANDLE, MATERIAL_STONE, MATERIAL_WOOD};
 
 pub const ENERGY_MECHANICAL_SMALL_DRIVE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(1);
 pub const ENERGY_MECHANICAL_LARGE_DRIVE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(2);
 pub const ENERGY_ELECTRICAL_BUFFER: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(3);
 pub const ENERGY_THERMAL_SINK: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(4);
+pub const ENERGY_STONE_FLYWHEEL_DRIVE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(5);
 
 pub(crate) fn build_energy_registry() -> EnergyRegistry {
     EnergyRegistry::new([
@@ -43,5 +47,23 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             Power::from_microwatts(1_000_000_000_000),
             Power::ZERO,
         ),
+        EnergyStoreDefinition::new_with_transfer_limits(
+            ENERGY_STONE_FLYWHEEL_DRIVE,
+            "stone flywheel accumulator",
+            EnergyCarrier::Mechanical,
+            Energy::from_nanojoules(500_000_000_000),
+            Power::from_microwatts(100_000_000),
+            Power::from_microwatts(500_000_000),
+        )
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+                Mass::from_milligrams(900_000),
+            ),
+            MaterialInputSpec::new(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200_000),
+            ),
+        ])),
     ])
 }

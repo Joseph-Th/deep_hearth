@@ -9,7 +9,7 @@ use crate::capability::{
 };
 use crate::core::quantity::Mass;
 use crate::maintenance::{Condition, MaintenanceThresholds};
-use crate::material::{CommodityKey, MaterialInputSpec, MaterialRegistry};
+use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialRegistry};
 
 /// Stable authored identifier for one equipment definition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -25,53 +25,6 @@ impl EquipmentDefinitionId {
     #[must_use]
     pub const fn value(self) -> u32 {
         self.0
-    }
-}
-
-/// Exact pure material inputs required to materialize one equipment instance.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EquipmentAssemblyProfile {
-    inputs: Vec<MaterialInputSpec>,
-    input_mass: Mass,
-}
-
-impl EquipmentAssemblyProfile {
-    #[must_use]
-    pub fn new(mut inputs: Vec<MaterialInputSpec>) -> Self {
-        assert!(
-            !inputs.is_empty(),
-            "equipment assembly profile must contain material inputs"
-        );
-        inputs.sort();
-        for pair in inputs.windows(2) {
-            assert_ne!(
-                pair[0].commodity(),
-                pair[1].commodity(),
-                "equipment assembly profile contains duplicate commodity {}",
-                pair[0].commodity().value()
-            );
-        }
-        let mut input_mass = Mass::ZERO;
-        for input in &inputs {
-            assert!(
-                !input.mass().is_zero(),
-                "equipment assembly input mass must be nonzero"
-            );
-            input_mass = input_mass
-                .checked_add(input.mass())
-                .unwrap_or_else(|| panic!("equipment assembly input mass overflows"));
-        }
-        Self { inputs, input_mass }
-    }
-
-    #[must_use]
-    pub fn inputs(&self) -> &[MaterialInputSpec] {
-        &self.inputs
-    }
-
-    #[must_use]
-    pub const fn input_mass(&self) -> Mass {
-        self.input_mass
     }
 }
 
@@ -253,7 +206,36 @@ pub struct EquipmentDefinition {
     capability_condition_curves: BTreeMap<CapabilityId, CapabilityConditionCurve>,
     maintenance_thresholds: MaintenanceThresholds,
     maintenance_profile: Option<EquipmentMaintenanceProfile>,
-    assembly_profile: Option<EquipmentAssemblyProfile>,
+    assembly_profile: Option<MaterialAssemblyProfile>,
+    upgrade_profile: Option<EquipmentUpgradeProfile>,
+}
+
+/// Authored additive conversion from one existing equipment class into this definition.
+///
+/// An upgrade owns only the newly added matter. The base instance keeps its identity, condition,
+/// creation history, and already-embodied material; runtime validation appends the exact consumed
+/// traces and changes only the immutable-definition reference and total embodied mass.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EquipmentUpgradeProfile {
+    from: EquipmentDefinitionId,
+    additions: MaterialAssemblyProfile,
+}
+
+impl EquipmentUpgradeProfile {
+    #[must_use]
+    pub fn new(from: EquipmentDefinitionId, additions: MaterialAssemblyProfile) -> Self {
+        Self { from, additions }
+    }
+
+    #[must_use]
+    pub const fn from(&self) -> EquipmentDefinitionId {
+        self.from
+    }
+
+    #[must_use]
+    pub const fn additions(&self) -> &MaterialAssemblyProfile {
+        &self.additions
+    }
 }
 
 impl EquipmentDefinition {
@@ -324,6 +306,7 @@ impl EquipmentDefinition {
             maintenance_thresholds,
             maintenance_profile: None,
             assembly_profile: None,
+            upgrade_profile: None,
         }
     }
 
@@ -341,8 +324,21 @@ impl EquipmentDefinition {
 
     /// Adds the exact conserved commodity from which this equipment may be assembled at runtime.
     #[must_use]
-    pub fn with_assembly_profile(mut self, profile: EquipmentAssemblyProfile) -> Self {
+    pub fn with_assembly_profile(mut self, profile: MaterialAssemblyProfile) -> Self {
         self.assembly_profile = Some(profile);
+        self
+    }
+
+    /// Adds one additive, material-conserving upgrade route from an existing equipment definition.
+    #[must_use]
+    pub fn with_upgrade_profile(mut self, profile: EquipmentUpgradeProfile) -> Self {
+        assert_ne!(
+            profile.from(),
+            self.id,
+            "equipment definition {} cannot upgrade from itself",
+            self.id.value()
+        );
+        self.upgrade_profile = Some(profile);
         self
     }
 
@@ -385,8 +381,13 @@ impl EquipmentDefinition {
     }
 
     #[must_use]
-    pub fn assembly_profile(&self) -> Option<&EquipmentAssemblyProfile> {
+    pub fn assembly_profile(&self) -> Option<&MaterialAssemblyProfile> {
         self.assembly_profile.as_ref()
+    }
+
+    #[must_use]
+    pub fn upgrade_profile(&self) -> Option<&EquipmentUpgradeProfile> {
+        self.upgrade_profile.as_ref()
     }
 }
 
@@ -467,14 +468,97 @@ impl EquipmentRegistry {
                     "equipment definition {} assembly mass disagrees with authored equipment mass",
                     definition.id().value()
                 );
-                for input in assembly.inputs() {
-                    assert!(
-                        materials.has_commodity(input.commodity()),
-                        "equipment definition {} assembly profile references missing commodity {}",
-                        definition.id().value(),
+                assert!(
+                    assembly
+                        .validate_infrastructure_references(materials)
+                        .is_ok(),
+                    "equipment definition {} assembly profile must use existing consolidated solid commodities",
+                    definition.id().value()
+                );
+            }
+        }
+
+        for target in self.definitions.values() {
+            let Some(upgrade) = target.upgrade_profile() else {
+                continue;
+            };
+            let base = self.definitions.get(&upgrade.from()).unwrap_or_else(|| {
+                panic!(
+                    "equipment definition {} upgrade references missing base definition {}",
+                    target.id().value(),
+                    upgrade.from().value()
+                )
+            });
+            assert!(
+                upgrade
+                    .additions()
+                    .validate_infrastructure_references(materials)
+                    .is_ok(),
+                "equipment definition {} upgrade additions must use existing consolidated solid commodities",
+                target.id().value()
+            );
+            let base_assembly = base.assembly_profile().unwrap_or_else(|| {
+                panic!(
+                    "equipment definition {} upgrade base {} has no material assembly profile",
+                    target.id().value(),
+                    base.id().value()
+                )
+            });
+            let target_assembly = target.assembly_profile().unwrap_or_else(|| {
+                panic!(
+                    "equipment definition {} has an upgrade profile but no material assembly profile",
+                    target.id().value()
+                )
+            });
+            let expected_mass = base
+                .mass()
+                .checked_add(upgrade.additions().input_mass())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "equipment definition {} upgrade mass overflows",
+                        target.id().value()
+                    )
+                });
+            assert_eq!(
+                target.mass(),
+                expected_mass,
+                "equipment definition {} upgrade mass must equal base mass plus additive material",
+                target.id().value()
+            );
+
+            let mut expected_inputs = std::collections::BTreeMap::new();
+            for input in base_assembly
+                .inputs()
+                .iter()
+                .chain(upgrade.additions().inputs())
+            {
+                let previous = expected_inputs
+                    .get(&input.commodity())
+                    .copied()
+                    .unwrap_or(Mass::ZERO);
+                let combined = previous.checked_add(input.mass()).unwrap_or_else(|| {
+                    panic!(
+                        "equipment definition {} upgrade material quantity overflows for commodity {}",
+                        target.id().value(),
                         input.commodity().value()
-                    );
-                }
+                    )
+                });
+                expected_inputs.insert(input.commodity(), combined);
+            }
+            assert_eq!(
+                expected_inputs.len(),
+                target_assembly.inputs().len(),
+                "equipment definition {} upgrade target assembly has extra or missing commodities",
+                target.id().value()
+            );
+            for input in target_assembly.inputs() {
+                assert_eq!(
+                    expected_inputs.get(&input.commodity()).copied(),
+                    Some(input.mass()),
+                    "equipment definition {} upgrade target assembly disagrees with base plus additive material for commodity {}",
+                    target.id().value(),
+                    input.commodity().value()
+                );
             }
         }
     }

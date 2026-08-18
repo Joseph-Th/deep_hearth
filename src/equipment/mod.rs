@@ -2,19 +2,25 @@
 
 mod construction_execution;
 mod definitions;
+mod disassembly_execution;
 mod equipment_execution;
 mod equipment_integration;
 mod equipment_structural_integration;
 mod repair_execution;
 mod state;
+mod upgrade_execution;
 
 pub use construction_execution::{
     EquipmentAssemblyCommitError, EquipmentAssemblyError, ValidatedEquipmentAssembly,
     validate_assemble_equipment,
 };
 pub use definitions::{
-    CapabilityConditionCurve, CapabilityConditionPoint, EquipmentAssemblyProfile,
-    EquipmentDefinition, EquipmentDefinitionId, EquipmentMaintenanceProfile, EquipmentRegistry,
+    CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
+    EquipmentMaintenanceProfile, EquipmentRegistry, EquipmentUpgradeProfile,
+};
+pub use disassembly_execution::{
+    EquipmentDisassemblyCommitError, EquipmentDisassemblyError, EquipmentDisassemblyOutcome,
+    ValidatedEquipmentDisassembly, validate_disassemble_equipment,
 };
 #[cfg(any(test, feature = "test-gameplay"))]
 pub use equipment_execution::{AddEquipmentError, add_equipment};
@@ -38,6 +44,10 @@ pub use repair_execution::{
 };
 pub use state::{
     EquipmentId, EquipmentOperationTrace, EquipmentRecord, EquipmentState, EquipmentValidationError,
+};
+pub use upgrade_execution::{
+    EquipmentUpgradeCommitError, EquipmentUpgradeError, ValidatedEquipmentUpgrade,
+    validate_upgrade_equipment,
 };
 
 pub(crate) use equipment_integration::{ValidatedEquipmentUse, resolve_equipment_capability};

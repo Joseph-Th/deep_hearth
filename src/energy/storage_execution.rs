@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::{Energy, Power};
+use crate::core::quantity::{Energy, Mass, Power};
 use crate::core::state::AppState;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
@@ -32,6 +32,7 @@ fn get_energy_store_occupant(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AddEnergyStoreError {
     UnknownDefinition { definition: EnergyStoreDefinitionId },
+    RequiresAssembly { definition: EnergyStoreDefinitionId },
     InitialEnergyExceedsCapacity { initial: Energy, capacity: Energy },
     IdExhausted,
     RevisionExhausted,
@@ -43,6 +44,11 @@ impl Display for AddEnergyStoreError {
             Self::UnknownDefinition { definition } => write!(
                 formatter,
                 "unknown energy store definition {}",
+                definition.value()
+            ),
+            Self::RequiresAssembly { definition } => write!(
+                formatter,
+                "energy store definition {} requires conserved material construction",
                 definition.value()
             ),
             Self::InitialEnergyExceedsCapacity { initial, capacity } => write!(
@@ -70,6 +76,12 @@ pub fn add_energy_store(
     state: &mut AppState,
     definition: EnergyStoreDefinitionId,
 ) -> Result<EnergyStoreId, AddEnergyStoreError> {
+    let Some(authored) = registries.energy().get_store(definition) else {
+        return Err(AddEnergyStoreError::UnknownDefinition { definition });
+    };
+    if authored.assembly_profile().is_some() {
+        return Err(AddEnergyStoreError::RequiresAssembly { definition });
+    }
     allocate_energy_store(registries, state, definition, Energy::ZERO)
 }
 
@@ -102,6 +114,8 @@ fn allocate_energy_store(
         id,
         definition,
         stored: initial,
+        embodied_mass: Mass::ZERO,
+        embodied_material: Vec::new(),
         created_at: state.tick(),
     };
 

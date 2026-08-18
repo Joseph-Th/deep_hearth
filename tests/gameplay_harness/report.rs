@@ -350,6 +350,6 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
             .count(),
     );
     std::println!(
-        "SCOPE exercised=[survival-costed primitive crafting,mining,manual power,canonical comminution,power choice,wear,maintenance,structural siting,supported-stockpile delivery,failure recovery] bootstrap=[raw starting matter,finite geological deposit,industrial equipment,scenario stored energy,constructed bays] deferred=[world resource generation/prospecting acquisition path,construction authorization,concentration/smelting bridge]"
+        "SCOPE exercised=[survival-costed primitive crafting,mining,native-copper cold-working,in-place equipment reinforcement,material-backed primitive infrastructure construction,manual power,canonical comminution,power choice,wear,maintenance,structural siting,supported-stockpile delivery,failure recovery] bootstrap=[raw starting matter,finite geological deposit,industrial workshop equipment,scenario stored energy,constructed bays] deferred=[world resource generation/prospecting acquisition path,industrial construction authorization,mixed-ore concentration/smelting bridge,worn-equipment salvage]"
     );
 }

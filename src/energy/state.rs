@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::Energy;
+use crate::core::quantity::{Energy, Mass};
 use crate::core::time::SimulationTick;
+use crate::inventory::ConsumedMaterialTrace;
 
 use super::definitions::EnergyStoreDefinitionId;
 
@@ -32,6 +33,8 @@ pub struct EnergyStoreRecord {
     pub(super) id: EnergyStoreId,
     pub(super) definition: EnergyStoreDefinitionId,
     pub(super) stored: Energy,
+    pub(super) embodied_mass: Mass,
+    pub(super) embodied_material: Vec<ConsumedMaterialTrace>,
     pub(super) created_at: SimulationTick,
 }
 
@@ -49,6 +52,18 @@ impl EnergyStoreRecord {
     #[must_use]
     pub const fn stored(&self) -> Energy {
         self.stored
+    }
+
+    /// Conserved matter physically embodied in this storage instance.
+    #[must_use]
+    pub const fn embodied_mass(&self) -> Mass {
+        self.embodied_mass
+    }
+
+    /// Exact material/provenance traces transferred into this store at construction.
+    #[must_use]
+    pub fn embodied_material(&self) -> &[ConsumedMaterialTrace] {
+        &self.embodied_material
     }
 
     #[must_use]
@@ -154,6 +169,26 @@ impl EnergyState {
                 panic!("prevalidated energy transfer destination disappeared before commit")
             })
             .stored = destination_after;
+        self.revision = next_revision;
+    }
+
+    /// Removes one prevalidated empty energy store without rewinding its ID cursor.
+    pub(super) fn remove_store(
+        &mut self,
+        store: EnergyStoreId,
+        expected_revision: u64,
+        next_revision: u64,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        let record = self.records.get(&store).unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: energy store {} disappeared before disassembly",
+                store.value()
+            )
+        });
+        assert_eq!(record.stored, Energy::ZERO);
+        assert!(self.records.remove(&store).is_some());
         self.revision = next_revision;
     }
 

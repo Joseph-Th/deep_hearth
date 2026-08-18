@@ -110,7 +110,13 @@ structural bays because acquisition/construction authorizers are not implemented
 harness uses the same production validators, resolutions, commits, and simulation ticks as normal
 runtime behavior. The workshop matrix evaluates constrained operation and recovery, while the
 primitive progression probe separately follows the early-game fantasy through survival-costed manual
-crafting, finite mining, manual power generation, stored work, and mechanized comminution.
+crafting, finite mining of both mineralized ore and a distinct native-metal occurrence,
+native-copper cold-working, in-place equipment reinforcement, repeated component shaping,
+material-backed power-storage construction, primitive-machine assembly, manual
+power generation, stored work, and mechanized comminution. The probe compares equal-mass extraction
+before/after pick reinforcement and the same exact energy charge before/after crank reinforcement;
+focused unit coverage separately proves ordinary ore form cannot enter that route and contaminated
+native-metal composition is rejected as well.
 
 The acting policy uses observable state and resolver projections. Hidden authoritative state may be
 used only for diagnostics and postcondition checks. The policy does not clone `AppState` to simulate
@@ -175,13 +181,21 @@ currently unavailable direct routes as observations, but do not freeze those abs
 requirements. The ore-preparation and foundry probes remain explicitly labeled capability checks until
 concentration/smelting provides a truthful bridge between those stages.
 
+Assembly/recovery tests keep reversibility honest. Additive equipment-upgrade tests require stable
+runtime identity, creation time, accumulated condition, existing material traces, matter accounting,
+save/load validity, and stale-token rejection. Pristine equipment disassembly must restore exact
+embodied traces without ID reuse, while any wear blocks exact recovery. Material-backed energy-store
+disassembly has the analogous conservation/ID contract and rejects even a minimally charged store so
+container removal cannot become an energy sink.
+
 `cargo test-gameplay` is deterministic by default and keeps successful harness output captured. It runs
-the five maintained anchor scenarios plus seed/configuration contracts and two separately named
-capability-probe tests. The split makes each expensive behavior slice directly targetable without
+the five maintained anchor scenarios plus seed/configuration contracts, the primitive progression
+probe, and two separately named capability-probe tests. The split makes each expensive behavior slice directly targetable without
 rerunning unrelated harness execution:
 
 ```text
 cargo test-gameplay-scenarios
+cargo test-gameplay-progression
 cargo test-gameplay-ore
 cargo test-gameplay-foundry
 ```

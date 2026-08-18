@@ -3,11 +3,11 @@
 use crate::capability::{CapabilityProfile, CapabilityValue};
 use crate::core::quantity::{Mass, MassFlow, Power, Pressure, Temperature};
 use crate::equipment::{
-    CapabilityConditionCurve, CapabilityConditionPoint, EquipmentAssemblyProfile,
-    EquipmentDefinition, EquipmentDefinitionId, EquipmentMaintenanceProfile, EquipmentRegistry,
+    CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
+    EquipmentMaintenanceProfile, EquipmentRegistry, EquipmentUpgradeProfile,
 };
 use crate::maintenance::{Condition, MaintenanceThresholds};
-use crate::material::{CommodityKey, MaterialInputSpec};
+use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
 use super::capabilities::{
     CAPABILITY_COOLING_POWER, CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW,
@@ -17,8 +17,8 @@ use super::capabilities::{
     CAPABILITY_THERMAL_BATCH, CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
 use super::materials::{
-    FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE,
-    MATERIAL_WOOD,
+    FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 pub const EQUIPMENT_JAW_CRUSHER: EquipmentDefinitionId = EquipmentDefinitionId::new(1);
@@ -31,6 +31,7 @@ pub const EQUIPMENT_STONE_HAND_CRANK: EquipmentDefinitionId = EquipmentDefinitio
 pub const EQUIPMENT_COPPER_REINFORCED_PICK: EquipmentDefinitionId = EquipmentDefinitionId::new(8);
 pub const EQUIPMENT_COPPER_REINFORCED_HAND_CRANK: EquipmentDefinitionId =
     EquipmentDefinitionId::new(9);
+pub const EQUIPMENT_STONE_CRUSHER: EquipmentDefinitionId = EquipmentDefinitionId::new(10);
 
 fn condition(parts_per_million: u32) -> Condition {
     match Condition::new(parts_per_million) {
@@ -74,6 +75,19 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             CapabilityConditionPoint::new(
                 condition(600_000),
                 CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(2_000_000)),
+            ),
+        ],
+    );
+    let stone_crusher_curve = CapabilityConditionCurve::new(
+        CAPABILITY_CRUSHER_FLOW,
+        vec![
+            CapabilityConditionPoint::new(
+                Condition::FAILED,
+                CapabilityValue::MassFlow(MassFlow::ZERO),
+            ),
+            CapabilityConditionPoint::new(
+                condition(600_000),
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(200_000)),
             ),
         ],
     );
@@ -263,7 +277,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             thresholds(),
             vec![mining_curve],
         )
-        .with_assembly_profile(EquipmentAssemblyProfile::new(vec![
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
                 Mass::from_milligrams(800_000),
@@ -284,7 +298,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             thresholds(),
             vec![hand_crank_curve],
         )
-        .with_assembly_profile(EquipmentAssemblyProfile::new(vec![
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
                 Mass::from_milligrams(900_000),
@@ -315,7 +329,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             thresholds(),
             vec![reinforced_mining_curve],
         )
-        .with_assembly_profile(EquipmentAssemblyProfile::new(vec![
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
                 Mass::from_milligrams(800_000),
@@ -325,10 +339,17 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 Mass::from_milligrams(200_000),
             ),
             MaterialInputSpec::new(
-                CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
                 Mass::from_milligrams(20_000),
             ),
-        ])),
+        ]))
+        .with_upgrade_profile(EquipmentUpgradeProfile::new(
+            EQUIPMENT_STONE_PICK,
+            MaterialAssemblyProfile::new(vec![MaterialInputSpec::new(
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                Mass::from_milligrams(20_000),
+            )]),
+        )),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
             "copper-reinforced stone hand crank",
@@ -340,7 +361,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             thresholds(),
             vec![reinforced_hand_crank_curve],
         )
-        .with_assembly_profile(EquipmentAssemblyProfile::new(vec![
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
                 Mass::from_milligrams(900_000),
@@ -350,8 +371,42 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 Mass::from_milligrams(200_000),
             ),
             MaterialInputSpec::new(
-                CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
                 Mass::from_milligrams(20_000),
+            ),
+        ]))
+        .with_upgrade_profile(EquipmentUpgradeProfile::new(
+            EQUIPMENT_STONE_HAND_CRANK,
+            MaterialAssemblyProfile::new(vec![MaterialInputSpec::new(
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                Mass::from_milligrams(20_000),
+            )]),
+        )),
+        EquipmentDefinition::new_with_capability_condition_curves(
+            EQUIPMENT_STONE_CRUSHER,
+            "stone toggle crusher",
+            Mass::from_milligrams(3_000_000),
+            profile([
+                (
+                    CAPABILITY_CRUSHER_FLOW,
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(400_000)),
+                ),
+                (
+                    CAPABILITY_CRUSHER_BATCH,
+                    CapabilityValue::Mass(Mass::from_milligrams(1_000_000)),
+                ),
+            ]),
+            thresholds(),
+            vec![stone_crusher_curve],
+        )
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(2_400_000),
+            ),
+            MaterialInputSpec::new(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(600_000),
             ),
         ])),
     ])

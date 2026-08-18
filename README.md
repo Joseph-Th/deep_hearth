@@ -32,10 +32,15 @@ physical thermal production for sensible heating,
 pure-material melting, and casting with explicit latent heat and finite heat sinks. Current-schema
 persistence revalidates cross-owner conservation and operation-specific physics, and deterministic
 soak coverage exercises the major ownership paths. Primitive progression now includes exclusive timed
-player work, exertion-aware manual shaping, conserved composite stone-pick assembly, and tool-gated
-finite mining with condition-sensitive throughput, hardness/batch limits, wear, reserved output, and
-explicit claim. Physical prospecting, alloy phase diagrams and chemical smelting, environmental heat
-transport, fluid networks, richer construction, agriculture/ecology, non-player workers, and
+player work, exertion-aware manual shaping, conserved composite stone-tool assembly, tool-gated finite
+mining with condition-sensitive throughput/hardness/batch limits, distinct native-metal occurrences,
+cold-worked additive copper reinforcement that preserves existing wear, materially constructed
+flywheel work storage, direct manual charging, and a player-built primitive crusher that converts
+accumulated hand work into a shorter mechanized comminution burst. Pristine equipment and empty
+material-backed stores can reverse assembly into their exact embodied traces without resetting IDs;
+worn-equipment salvage remains unresolved rather than becoming a free repair path. Physical
+prospecting, mineralized-ore concentration and chemical smelting, alloy phase diagrams, environmental
+heat transport, fluid networks, richer construction, agriculture/ecology, non-player workers, and
 settlement systems remain unavailable until their real physical owners exist.
 
 ## Documentation authority

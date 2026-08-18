@@ -106,11 +106,18 @@ new systems integrate; this file owns whether a capability currently exists or i
   persists the exact consumed material/provenance traces for assemblable equipment and exhaustive load
   validation reconciles those traces against the authored multi-input assembly profile. The stone pick
   provides condition-sensitive mining throughput, maximum batch mass, and maximum material hardness.
-  Processed copper now feeds back into that gathering loop without pretending forging exists: an 800 g
-  knapped stone head, 200 g wood handle, and 20 g copper ingot assemble into a 1.02 kg
-  copper-reinforced stone pick. It raises pristine mining flow from 20 to 30 g/s, maximum batch mass
-  from 200 to 300 g, and maximum material hardness from 500 to 750 MPa while retaining normal
-  condition-sensitive degradation and exact embodied-material provenance.
+  Native copper now feeds back into that gathering loop without pretending mineral separation,
+  smelting, or forging exists. It is an explicit solid `native metal` form distinct from mineralized
+  `ore`. Manual cold-working converts exactly 20 g of pure native-copper matter into a 20 g
+  reinforcement form over 40 active ticks. Ordinary ore is ineligible by form and contaminated
+  native-metal lots are rejected by the normal pure-composition gate, so mineralized ore cannot
+  bypass the missing metallurgical bridge. Equipment definitions
+  may author an additive `EquipmentUpgradeProfile`: the existing stone pick consumes one such
+  reinforcement in place, keeps the same equipment ID, creation history, current wear, and original
+  stone/wood traces, and becomes the 1.02 kg copper-reinforced pick. Its pristine mining flow rises
+  from 20 to 30 g/s, maximum batch mass from 200 to 300 g, and maximum material hardness from 500 to
+  750 MPa. Registry validation proves that every additive target assembly is exactly its base assembly
+  plus the authored new matter.
 - Persistent geological knowledge is separate from authoritative deposit truth. Prospecting
   observations own stable IDs, spatial footprints, evidence provenance, bounded material-abundance
   estimates, observation time, a revision, and a synchronized material-to-observation index.
@@ -162,15 +169,21 @@ new systems integrate; this file owns whether a capability currently exists or i
   reconstructs its required duration and wear result, while production starts, energy transfers,
   repairs, support moves, and generic condition changes recheck this occupancy at commit so stale
   tokens cannot mutate resources after the player begins cranking.
-- The built-in primitive mechanical bridge is concrete: a 900 g shaped stone flywheel plus a 200 g
-  wood handle assemble into a 1.1 kg stone hand crank with 50 W pristine output. Its direct-power
-  method can charge the 200 kJ small mechanical drive through that drive's 50 W input envelope; the
-  same store can later discharge machine work at up to 1 kW. A second 20 g copper ingot can instead
-  reinforce the same flywheel and handle into a 1.12 kg crank with 100 W pristine output. The 400 kJ
-  upgraded mechanical drive accepts up to 500 W and can discharge at 20 kW. Copper therefore creates a real early allocation choice
-  between better extraction and faster manual charging, while component envelopes still determine
-  throughput. The hand crank remains deliberately limited player labor rather than a substitute for
-  future shafts, belts, wind/water machines, animal power, or engines.
+- The built-in primitive mechanical bridge is now materially self-contained instead of borrowing
+  fixture infrastructure. A 900 g shaped stone flywheel plus a 200 g wood handle assemble into a
+  1.1 kg stone hand crank with 50 W pristine output. A second flywheel plus handle can be transferred
+  into a 1.1 kg stone flywheel accumulator that stores 500 J, accepts 100 W, and can discharge 500 W;
+  its exact material/provenance traces remain owned by the energy store and are replay-audited on
+  load. Three knapped stone heads plus three shaped wood members assemble into a 3 kg stone toggle
+  crusher with 400 g/s pristine flow and a 1 kg batch envelope. The same canonical ore-crushing
+  resolver therefore becomes available through infrastructure the player physically built rather
+  than a spawned industrial machine. A second 20 g cold-worked native-copper reinforcement can
+  upgrade the already-owned hand crank to 100 W without resetting its condition, halving the
+  maintained 200 J primitive charging case from 80 to 40 active ticks while leaving the energy
+  requirement unchanged. The larger 200 kJ/400 kJ workshop drives remain later setup infrastructure
+  until their own construction chains exist. Component envelopes continue to determine throughput.
+  The hand crank remains deliberately limited player labor rather than a substitute for future shafts,
+  belts, wind/water machines, animal power, or engines.
 - Persistent player survival has explicit admission, owner revision, metabolic-energy reserve,
   hydration reserve, normalized vitality, recent Grain/Fruit/Protein nutrition reserves,
   hunger/thirst assessments, deterministic basal depletion, and starvation/dehydration vitality loss
@@ -236,15 +249,34 @@ new systems integrate; this file owns whether a capability currently exists or i
   revisions through start validation and commit, while support and maintenance commits recheck
   production occupancy immediately before mutation. Exhaustive load validation audits both index
   directions and the independently derived structural force.
+- Exact equipment assembly reversal is implemented only where physical history can remain exact.
+  Idle, unmounted, pristine equipment may be disassembled into its original embodied
+  material/provenance traces under inventory, equipment, and supported-destination structural
+  revision checks. Equipment IDs remain monotonic and are never reused. Any accumulated wear blocks
+  this path because returning pristine shaped components would erase degradation and create a free
+  repair cycle. Worn-equipment salvage, partial recovery, scrap forms, and condition-dependent yield
+  remain deliberately unresolved.
 
 ### Energy, structures, fluids, and mechanical physics
 
 - Persistent finite-energy stores with typed electrical/thermal/mechanical carriers, immutable
   capacity and independent input/output power envelopes, monotonic runtime IDs/revisions, exact
-  consumed- and released-energy provenance, and registry-aware persistence validation. Public runtime
-  allocation creates empty stores only; arbitrary energy seeding remains test/bootstrap-only, while
-  direct player-powered mechanical generation crosses its explicit labor/equipment boundary and
-  writes finite energy only at completion. Source-only, sink-only, and bidirectional stores are explicit.
+  consumed- and released-energy provenance, and registry-aware persistence validation. Store
+  definitions may now author an exact shared `MaterialAssemblyProfile`. Such stores cannot use the
+  empty-allocation shortcut: construction selects exact pure inventory matter, preserves provenance,
+  updates any source structural load, and transfers that matter into persistent energy-store
+  embodiment. Exhaustive load validation independently reconciles the traces and authored masses, and
+  global matter accounting includes embodied store mass. Definitions without an assembly profile may
+  still allocate empty capacity for unresolved/setup infrastructure; arbitrary stored-energy seeding
+  remains test/bootstrap-only. Direct player-powered mechanical generation crosses its explicit
+  labor/equipment boundary and writes finite energy only at completion. Source-only, sink-only, and
+  bidirectional stores are explicit.
+  Empty, idle, material-backed stores may reverse construction into their exact embodied traces. A
+  store containing even 1 nJ, or reserved by production/direct manual power, cannot be disassembled,
+  so recovery cannot delete stored work or invalidate an active owner. Store IDs remain monotonic.
+  Energy stores do not yet own spatial/support assignment, so their conserved embodied mass is not
+  currently projected as structural weight; a future placement/support integration must add an
+  explicit energy-storage load owner rather than aliasing the equipment-owned load channel.
   Active jobs reserve every participating source or sink exclusively through a synchronized
   `EnergyStoreId`-to-job occupancy index, replacing repeated active-job scans with deterministic keyed
   lookup while exhaustive load validation reconstructs and checks the index. Released process heat
@@ -598,10 +630,21 @@ new systems integrate; this file owns whether a capability currently exists or i
   conserved-value effect even though it cannot yet change a downstream processing choice. The harness
   identifies the missing concentration/smelting bridge. A primitive-progression probe now exercises
   the central early fantasy through canonical survival-costed knapping, handle shaping, pick
-  assembly, finite hand mining, crank assembly, manual charging, and crusher use. Its maintained case
-  mines 200 g of ore, charges the exact 200 J needed for that batch in 80 active ticks, then expends
-  the stored work through the crusher in 4 ticks, exposing a 20x time-leverage transition while
-  checking survival cost, persistence, and exact matter conservation. A separate ore-preparation capability probe
+  assembly, mineralized-ore extraction, separate native-copper extraction, cold-working, in-place pick
+  reinforcement, a second mineralized-ore extraction,
+  crank assembly, conserved flywheel-store construction, in-place crank reinforcement,
+  primitive-crusher assembly, manual charging, and crusher use. Its maintained case mines 200 g of a
+  70% copper / 30% stone-gangue ore in 200 active ticks with the stone pick, then separately extracts a
+  40 g pure native-copper occurrence in 43 ticks. Those 40 g become two 20 g reinforcements; the same
+  worn pick is upgraded without repair and mines the next 200 g of the original mineralized ore in
+  142 ticks. The 1.1 kg accumulator and 3 kg crusher
+  remain fully embodied investments. The base crank projects 80 ticks for the exact 200 J charge;
+  reinforcement reduces the same charge to 40 ticks, after which the stone crusher spends that work
+  in 10 ticks. The probe checks that reinforcement preserves wear/identity, energy cost is unchanged,
+  survival cost remains real, persistence validates, and world matter remains exactly conserved.
+  Focused crafting coverage separately proves ordinary ore form cannot enter the native-metal
+  cold-work process and contaminated native-metal composition is also rejected. A separate
+  ore-preparation capability probe
   derives a legal half-to-full-scale mixed-ore batch from current authored equipment limits and
   screen-class representability, then runs canonical crushing, grinding, screening, and any nonzero oversize
   regrind. Direct crusher-to-screen and crusher-to-fine-grind availability are reported as current
@@ -616,7 +659,9 @@ new systems integrate; this file owns whether a capability currently exists or i
   canonical workshop now operates on roughly 10–20 kg batches rather than milligram-scale samples;
   comminution work, thermal power, finite store capacities, and primitive tool quantities were
   rescaled together, and this authored-physics change advances the registry schema without adding a
-  compatibility path. Matter,
+  compatibility path. The player-buildable energy-store embodiment also advances the current-only
+  save schema because finite stores now persist exact embodied matter/provenance; no migration path is
+  retained. Matter,
   equipment, initial energy, and structural bays remain explicit setup fixtures until their physical
   acquisition/construction authorizers exist; experienced post-setup mutations use canonical runtime
   transactions. Gameplay-harness support is split by responsibility across bootstrap, configuration,
@@ -697,8 +742,9 @@ new systems integrate; this file owns whether a capability currently exists or i
 - Richer mining physics beyond the implemented hand-tool extraction owner: access geometry, cutting
   faces/voxel excavation, waste-rock/recovery fractions, tailings, drainage, ground-control risk,
   hauling, and mechanized excavation. Current mining already requires a real tool, exclusive player
-  labor, condition-sensitive extraction rate, batch and hardness gates, finite deposits, reserved
-  storage, tool wear, explicit completion/claim, and conserved WIP.
+  labor, condition-sensitive extraction rate, batch and host-material hardness gates, finite deposits,
+  reserved storage, tool wear, explicit completion/claim, and conserved WIP. Mixed composition is
+  conserved but is not converted into a fabricated composite-rock hardness formula.
 - Thermal fields, environmental heat transport/losses, vaporization/boiling, mixed-material and
   alloy/solution phase diagrams, combustion, fuel networks, and emissions. Pure-material solid/liquid
   fusion and finite explicit thermal sinks are modeled; an implicit environment is deliberately not
@@ -709,7 +755,8 @@ new systems integrate; this file owns whether a capability currently exists or i
   owner; repair tools/labor/duration/access, richer spare-part suitability, replacement and waste
   transformations, discrete capability-disable policies, and broader authored maintenance/degradation
   profiles. The primitive and copper-reinforced tools are real composite equipment providers assembled
-  from conserved material traces. The jaw crusher has a real replacement-stock maintenance resolver,
+  or additively upgraded from conserved material traces. Exact pristine disassembly exists, but
+  condition-dependent worn-equipment salvage and scrap transformation do not. The jaw crusher has a real replacement-stock maintenance resolver,
   but that narrow service does not pretend unresolved repair tooling, labor, time, or chemistry already exist.
 - Richer physical construction and demolition resolution: member orientation/end geometry,
   joints/connections, cutting and placement waste, tools, labor, duration, salvage fractions, debris
@@ -741,6 +788,10 @@ new systems integrate; this file owns whether a capability currently exists or i
   input/output envelopes, process-released-heat sinks, and an opaque conserved same-carrier storage
   relocation boundary now exist, but no topology resolver can construct that transfer and no free
   charging/generation API is exposed.
+- Spatial placement/support ownership for finite energy stores is also deferred. Material-backed
+  stores own and conserve their physical construction mass, but only inventory, structures,
+  equipment, and fluids currently project dedicated support loads. A future energy-storage support
+  integration must add an explicit owner/load channel rather than aliasing its weight to equipment.
 - Pressure/gravity-resolved hydrology topology, terrain/surface/groundwater ownership, precipitation
   and runoff, pumps, irrigation, sanitation, wastewater, contamination/water-quality mixtures,
   temperature/pressure-dependent fluid properties, and a phase-aware bridge between conserved

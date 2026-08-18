@@ -884,8 +884,13 @@ pub fn validate_loaded_state(
         });
     }
 
-    validate_loaded_energy(registries.energy(), &state.systems.energy, state.tick())
-        .map_err(StateValidationError::Energy)?;
+    validate_loaded_energy(
+        registries.energy(),
+        registries.materials(),
+        &state.systems.energy,
+        state.tick(),
+    )
+    .map_err(StateValidationError::Energy)?;
     validate_loaded_fluid(registries.fluid(), &state.systems.fluid, state.tick())
         .map_err(StateValidationError::Fluid)?;
     validate_loaded_equipment(

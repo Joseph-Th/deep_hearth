@@ -12,13 +12,13 @@ use crate::texture::{
 use super::equipment::{
     EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
     EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE,
-    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_HAND_CRANK,
-    EQUIPMENT_STONE_PICK,
+    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_CRUSHER,
+    EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
 };
 use super::materials::{
     FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED, FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_LOG,
-    FORM_LUMP, FORM_MOLTEN, FORM_ORE, FORM_TOOL, MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG,
-    MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_LUMP, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL,
+    MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 const RAMP_WOOD: PaletteRampId = PaletteRampId::new(1);
@@ -79,6 +79,9 @@ pub const OBJECT_STONE_PICK: ObjectAppearanceId = ObjectAppearanceId::new(19);
 pub const OBJECT_STONE_HAND_CRANK: ObjectAppearanceId = ObjectAppearanceId::new(20);
 pub const OBJECT_COPPER_REINFORCED_PICK: ObjectAppearanceId = ObjectAppearanceId::new(21);
 pub const OBJECT_COPPER_REINFORCED_HAND_CRANK: ObjectAppearanceId = ObjectAppearanceId::new(22);
+pub const OBJECT_STONE_CRUSHER: ObjectAppearanceId = ObjectAppearanceId::new(23);
+pub const OBJECT_COPPER_REINFORCEMENT: ObjectAppearanceId = ObjectAppearanceId::new(24);
+pub const OBJECT_NATIVE_COPPER: ObjectAppearanceId = ObjectAppearanceId::new(25);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(
@@ -400,6 +403,21 @@ fn build_object_appearances() -> Vec<ObjectAppearanceDefinition> {
             "copper-reinforced stone hand crank",
             &[TEXTURE_STONE, TEXTURE_COPPER_HAMMERED, TEXTURE_WOOD_SIDE],
         ),
+        object(
+            OBJECT_STONE_CRUSHER,
+            "stone toggle crusher",
+            &[TEXTURE_STONE, TEXTURE_WOOD_SIDE],
+        ),
+        object(
+            OBJECT_COPPER_REINFORCEMENT,
+            "cold-worked copper reinforcement",
+            &[TEXTURE_COPPER_HAMMERED],
+        ),
+        object(
+            OBJECT_NATIVE_COPPER,
+            "native copper",
+            &[TEXTURE_COPPER_HAMMERED, TEXTURE_COPPER_ORE],
+        ),
     ]
 }
 
@@ -442,6 +460,16 @@ fn build_commodity_bindings() -> Vec<CommodityAppearanceBinding> {
             CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
             Some(BLOCK_COPPER),
             Some(OBJECT_COPPER_INGOT),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            None,
+            Some(OBJECT_COPPER_REINFORCEMENT),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+            None,
+            Some(OBJECT_NATIVE_COPPER),
         ),
         CommodityAppearanceBinding::new(
             CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
@@ -500,6 +528,7 @@ fn build_equipment_bindings() -> Vec<EquipmentAppearanceBinding> {
         EquipmentAppearanceBinding::new(EQUIPMENT_GRINDING_MILL, OBJECT_GRINDING_MILL),
         EquipmentAppearanceBinding::new(EQUIPMENT_STONE_PICK, OBJECT_STONE_PICK),
         EquipmentAppearanceBinding::new(EQUIPMENT_STONE_HAND_CRANK, OBJECT_STONE_HAND_CRANK),
+        EquipmentAppearanceBinding::new(EQUIPMENT_STONE_CRUSHER, OBJECT_STONE_CRUSHER),
         EquipmentAppearanceBinding::new(
             EQUIPMENT_COPPER_REINFORCED_PICK,
             OBJECT_COPPER_REINFORCED_PICK,

@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 41;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 42;
 
 /// Borrowed versioned save payload suitable for any Serde encoding adapter.
 #[derive(Debug, Serialize)]
@@ -1039,6 +1039,28 @@ mod tests {
             decoded.into_state(&registries),
             Err(LoadError::UnsupportedSchemaVersion {
                 found: 40,
+                supported: CURRENT_SAVE_SCHEMA_VERSION,
+            })
+        );
+    }
+
+    #[test]
+    fn current_save_rejects_pre_energy_store_embodiment_schema() {
+        let registries = build_registries();
+        let state = AppState::new(WorldSeed::new(0x5700_0023));
+        let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| {
+                panic!("energy-store embodiment schema fixture failed serialization: {error}")
+            });
+        encoded["schema_version"] = serde_json::json!(41_u32);
+        let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap_or_else(|error| {
+            panic!("energy-store embodiment schema fixture failed decode: {error}")
+        });
+
+        assert_eq!(
+            decoded.into_state(&registries),
+            Err(LoadError::UnsupportedSchemaVersion {
+                found: 41,
                 supported: CURRENT_SAVE_SCHEMA_VERSION,
             })
         );

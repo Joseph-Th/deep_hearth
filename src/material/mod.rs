@@ -1,10 +1,12 @@
 //! Material identities, authored definitions, phase policy, and registry facade.
 
+mod assembly;
 mod composition;
 mod lot;
 mod particle;
 mod volume;
 
+pub use assembly::MaterialAssemblyProfile;
 pub use composition::{
     CompositionComponent, CompositionConstraint, CompositionConstraintError, CompositionError,
     MaterialComposition,

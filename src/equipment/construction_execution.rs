@@ -39,6 +39,10 @@ pub enum EquipmentAssemblyError {
         stockpile: StockpileId,
     },
     ImpureAssemblyMaterial,
+    StaleInventorySelection {
+        expected: u64,
+        actual: u64,
+    },
     SourceBusy {
         stockpile: StockpileId,
         job: ProductionJobId,
@@ -87,6 +91,10 @@ impl Display for EquipmentAssemblyError {
             Self::ImpureAssemblyMaterial => formatter.write_str(
                 "equipment assembly requires pure matter matching the authored input material",
             ),
+            Self::StaleInventorySelection { expected, actual } => write!(
+                formatter,
+                "equipment assembly material selection expected inventory revision {expected} but current revision is {actual}"
+            ),
             Self::SourceBusy {
                 stockpile,
                 job,
@@ -127,6 +135,10 @@ impl Error for EquipmentAssemblyError {
             }
             | Self::SourceMassOverflow { stockpile: _ }
             | Self::ImpureAssemblyMaterial
+            | Self::StaleInventorySelection {
+                expected: _,
+                actual: _,
+            }
             | Self::SourceBusy {
                 stockpile: _,
                 job: _,
@@ -298,8 +310,8 @@ pub fn validate_assemble_equipment(
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {
             match error {
-                crate::inventory::MaterialEgressError::StaleSelection { .. } => {
-                    EquipmentAssemblyError::SourceMassOverflow { stockpile: source }
+                crate::inventory::MaterialEgressError::StaleSelection { expected, actual } => {
+                    EquipmentAssemblyError::StaleInventorySelection { expected, actual }
                 }
                 crate::inventory::MaterialEgressError::RevisionExhausted => {
                     EquipmentAssemblyError::InventoryRevisionExhausted

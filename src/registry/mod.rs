@@ -122,6 +122,7 @@ impl Registries {
         core: CoreDefinitions,
         domains: RegistryDomains,
     ) -> Self {
+        domains.energy.validate_references(&domains.materials);
         domains.fluid.validate_references(&domains.materials);
         domains
             .crafting

@@ -818,18 +818,36 @@ and output snapshot. A later tick resumes that same job when its required equipm
 again and schedules completion from the preserved remaining active time. This recovery path pauses
 work rather than silently destroying or re-resolving committed resources.
 
-Gameplay equipment assembly is a separate inventory-to-equipment ownership transfer. An authored
-`EquipmentAssemblyProfile` contains exact `MaterialInputSpec` entries whose summed mass must equal the
+Gameplay physical-object assembly uses a shared owner-neutral `MaterialAssemblyProfile` containing
+exact `MaterialInputSpec` entries. Equipment definitions require the summed assembly mass to equal the
 equipment definition mass. Validation selects those exact pure commodities from one stockpile,
 reconciles any supported-stockpile load change, and commits inventory egress plus equipment insertion
 under revision checks. The equipment record retains the resulting `ConsumedMaterialTrace` entries, so
 material identity, temperature, composition, and provenance survive the ownership transfer. Current
-load validation rejects missing, extra, impure, future-provenance, wrong-mass, or wrong-commodity
-assembly traces. The built-in stone pick therefore physically owns both its 800 g knapped stone head
+registry construction requires every infrastructure assembly input and additive upgrade input to be a
+registered consolidated solid form: liquid forms and forms that require explicit particle-size state
+cannot become a rigid object without a future container, binder, compaction, sintering, or other
+physical transformation owner. Load validation rejects missing, extra, impure, future-provenance,
+wrong-mass, or wrong-commodity assembly traces. The built-in stone pick therefore physically owns both its 800 g knapped stone head
 and 200 g shaped wood handle rather than collapsing them into an anonymous mass scalar. The first
-copper extraction upgrade uses that same boundary rather than inventing forging: a
-`copper-reinforced stone pick` owns the same head and handle plus one 20 g copper-ingot reinforcement,
-and its authored capability envelope raises mining throughput, batch size, and maximum hardness.
+copper extraction upgrade uses a narrower truthful native-metal boundary rather than inventing ore
+separation, smelting, or forging. Native metal is a dedicated solid material form distinct from
+`FORM_ORE`. Manual crafting can cold-work 20 g of pure copper in `FORM_NATIVE_METAL` into an equal
+20 g reinforcement form. Ordinary ore therefore fails fixed-input binding categorically, while a
+contaminated native-metal lot still fails the normal pure-composition gate.
+`EquipmentUpgradeProfile` then authorizes an additive transition from one equipment definition to
+another. Registry construction proves the target mass and full assembly profile equal the base
+equipment plus the authored additions. Runtime upgrade validation selects only those added pure
+materials, rejects mounted or production/mining/manual-power-occupied equipment, binds inventory and
+equipment revisions, and commits by retaining the same equipment ID, creation time, condition, and
+existing embodied traces while appending the new traces and target definition. Upgrade therefore
+cannot masquerade as repair. The built-in copper-reinforced pick and hand crank both use this path.
+
+Equipment assembly has an exact reversal only while no degradation information would be lost. An
+idle, unmounted `Condition::PRISTINE` instance may transfer all embodied traces back into one inventory
+destination under inventory/equipment/structural revision checks and is then removed without rewinding
+the equipment ID cursor. Any wear rejects the operation because the current material model cannot
+encode degraded recovered components; general salvage remains a separate future resolver.
 
 Player labor is an explicit exclusive owner. Manual crafting and mining acquire `PlayerWorkState`
 atomically with their authoritative job start and release it through the canonical tick when that job
@@ -855,17 +873,45 @@ become authoritative together at the completion tick, after which normal energy 
 the stored work. This intentionally models the first human-to-machine bridge without selecting
 shaft/belt topology or pretending that hand power is automation.
 
-Built-in primitive power demonstrates component bottlenecks explicitly. The stone crank can provide
-50 W and the copper-reinforced crank 100 W. The small mechanical drive accepts at most 50 W, stores
-200 kJ, and can discharge at 1 kW; the upgraded drive accepts 500 W, stores 400 kJ, and can discharge
-at 20 kW. This asymmetric storage boundary lets survival-costed human input accumulate slowly and
-later execute a shorter burst of machine work without manufacturing energy. This is the intended progression rule for later networks:
-throughput is constrained by the weakest participating physical envelope, not an abstract tier flag.
+Built-in primitive power demonstrates component bottlenecks and infrastructure embodiment explicitly.
+The stone crank can provide 50 W and the copper-reinforced crank 100 W. A player-buildable stone
+flywheel accumulator owns a 900 g stone flywheel plus 200 g wood member, accepts at most 100 W, stores
+500 J, and can discharge at 500 W. A 3 kg stone toggle crusher is likewise assembled from exact shaped
+stone/wood matter and uses the existing crushing resolver at 400 g/s pristine flow. Survival-costed
+human input can therefore accumulate slowly and later execute a shorter burst of machine work, but
+only after the player has materially invested in both storage and machinery. The larger 200 kJ small
+workshop drive and 400 kJ upgraded drive remain later infrastructure with 1 kW and 20 kW discharge
+envelopes respectively. This is the intended progression rule for later networks: throughput is
+constrained by the weakest participating physical envelope, not an abstract tier flag.
+
+Energy-store definitions can also use `MaterialAssemblyProfile`. Their canonical construction
+transaction transfers exact pure material traces out of inventory under inventory/energy/structural
+revision checks and creates an empty store whose physical matter remains owned by `EnergyState`.
+Definitions with an assembly profile are rejected by the generic empty-store allocator. Persistence
+reconciles embodied mass, exact commodities, purity, provenance time bounds, authored input
+quantities, and—for the currently non-upgradable store body—requires every embodied trace's represented
+material creation history to end no later than the store's own construction tick. Global matter
+accounting includes this energy-storage embodiment so construction is an
+ownership transition rather than matter deletion. Definitions without an assembly profile remain
+available as empty setup/deferred-infrastructure stores.
+
+Material-backed energy-store construction is similarly reversible only while the store is empty and
+idle. Validation rejects any nonzero stored energy plus production or direct-manual-power occupancy,
+then plans exact embodied-trace ingress and any destination `StoredMatter` structural-load change.
+Commit removes the store without rewinding its ID cursor and restores the exact traces. This is not an
+energy sink: even 1 nJ prevents dismantling. Energy stores currently have no spatial/support assignment
+owner of their own, so embodied store mass participates in world matter accounting but not structural
+weight; future placement must add a dedicated energy-storage load integration rather than writing the
+equipment-owned channel.
 
 Hand mining is an explicit conserved extraction owner. Start validation binds the geological deposit,
 mining-method definition, destination reservation, player labor, and a real equipment provider. It
 requires condition-sensitive mass flow, maximum batch mass, and maximum material-hardness capability;
-derives duration from throughput; applies deterministic active-tick wear; subtracts the exact geological
+the current hardness gate uses the deposit commodity's authored host-material hardness. Normalized
+composition remains conserved matter/value information but does not imply an invented weighted or
+maximum-component rock-hardness law; composite host-rock/geomechanical resolution belongs to richer
+future geology/mining physics.
+It derives duration from throughput; applies deterministic active-tick wear; subtracts the exact geological
 mass only when inserting an equal `MaterialLotSpec` into `MiningState`; and reserves the destination
 mass atomically. Completion marks that WIP ready and releases equipment/labor. Claim separately moves
 the exact output into inventory and releases the reservation. Global matter and explicit material

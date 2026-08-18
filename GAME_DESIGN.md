@@ -80,11 +80,35 @@ reserves, and tool wear remain the limiting inputs. Wind, water, animals, engine
 systems should progressively replace that attention while preserving the need to generate, transmit,
 store, and spend real work.
 
+Mechanization should require embodied infrastructure rather than appear as free capacity. A useful
+machine, accumulator, shaft, structure, or network represents matter the player acquired and shaped,
+space they committed, and maintenance or operating obligations they accepted. The payoff for that
+investment should be a visible change in scale, throughput, attention, or reliability. Do not add an
+intermediate crafting step merely to lengthen a progression chain.
+
 Material progression should feed back into the player's existing problems instead of creating an
 isolated collection of higher-tier outputs. The first useful metal can reinforce tools and primitive
 power equipment before full metalworking exists. Better components also remain subject to the rest of
 their physical path: a stronger crank cannot charge faster than its storage or transmission can
 accept, and a better mining tool still depends on labor, deposit access, storage, and wear.
+
+Early metal exceptions must remain physically legible. A genuinely native/pure metal occurrence may
+support direct cold working before furnaces and reduction chemistry exist; mineralized or mixed ore
+must not inherit that shortcut merely because the host commodity is called an ore. When a material
+upgrade is additive, prefer improving the tool or machine the player already owns over forcing a full
+recraft of unchanged components. Upgrading must preserve accumulated wear unless the operation also
+pays for and physically resolves repair.
+
+Infrastructure investment should also be recoverable where the physical state is still exactly
+reversible. Unused pristine assemblies and empty storage may be dismantled back into their exact
+owned components when no degradation or stored resource would be erased. Used equipment, damaged
+structures, contaminated vessels, charged storage, and other changed states require real salvage,
+repair, discharge, or waste mechanics rather than a dismantle button that resets history.
+
+Discovery gates should likewise turn effort into information. Exploration, prospecting, surveying,
+and experimentation may remain uncertain, but successful actions should materially narrow the
+player's next decision or expose a useful tradeoff. Repeating opaque searches without improving the
+decision state is time consumption, not systemic difficulty.
 
 ### 2.4 Systems Should Interlock
 

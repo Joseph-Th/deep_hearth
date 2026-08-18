@@ -3,8 +3,9 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Energy;
+use crate::core::quantity::{Energy, Mass};
 use crate::core::time::SimulationTick;
+use crate::material::{CommodityKey, MaterialComposition, MaterialRegistry};
 
 use super::super::definitions::{EnergyRegistry, EnergyStoreDefinitionId};
 use super::{EnergyState, EnergyStoreId};
@@ -25,6 +26,54 @@ pub enum EnergyValidationError {
         store: EnergyStoreId,
         stored: Energy,
         capacity: Energy,
+    },
+    MissingAssemblyMaterial {
+        store: EnergyStoreId,
+    },
+    UnexpectedAssemblyMaterial {
+        store: EnergyStoreId,
+    },
+    UnexpectedEmbodiedMass {
+        store: EnergyStoreId,
+        stored: Mass,
+    },
+    ZeroEmbodiedTrace {
+        store: EnergyStoreId,
+    },
+    EmbodiedTraceMassOverflow {
+        store: EnergyStoreId,
+    },
+    EmbodiedTraceMassMismatch {
+        store: EnergyStoreId,
+        stored: Mass,
+        traced: Mass,
+    },
+    UnknownEmbodiedCommodity {
+        store: EnergyStoreId,
+        commodity: CommodityKey,
+    },
+    ImpureEmbodiedMaterial {
+        store: EnergyStoreId,
+        commodity: CommodityKey,
+    },
+    InvalidEmbodiedProvenanceRange {
+        store: EnergyStoreId,
+    },
+    EmbodiedProvenanceInFuture {
+        store: EnergyStoreId,
+        latest_created_at: SimulationTick,
+        current: SimulationTick,
+    },
+    EmbodiedProvenanceAfterConstruction {
+        store: EnergyStoreId,
+        latest_created_at: SimulationTick,
+        created_at: SimulationTick,
+    },
+    AssemblyMaterialMismatch {
+        store: EnergyStoreId,
+        commodity: CommodityKey,
+        stored: Mass,
+        authored: Mass,
     },
     CreatedInFuture {
         store: EnergyStoreId,
@@ -60,6 +109,95 @@ impl Display for EnergyValidationError {
                 stored.nanojoules(),
                 capacity.nanojoules()
             ),
+            Self::MissingAssemblyMaterial { store } => write!(
+                formatter,
+                "energy store {} has an authored assembly profile but no persisted embodied material",
+                store.value()
+            ),
+            Self::UnexpectedAssemblyMaterial { store } => write!(
+                formatter,
+                "energy store {} persists assembled material but its definition has no assembly profile",
+                store.value()
+            ),
+            Self::UnexpectedEmbodiedMass { store, stored } => write!(
+                formatter,
+                "energy store {} persists {} mg embodied mass without an assembly profile",
+                store.value(),
+                stored.milligrams()
+            ),
+            Self::ZeroEmbodiedTrace { store } => write!(
+                formatter,
+                "energy store {} contains a zero-mass embodied material trace",
+                store.value()
+            ),
+            Self::EmbodiedTraceMassOverflow { store } => write!(
+                formatter,
+                "energy store {} embodied material trace mass overflows",
+                store.value()
+            ),
+            Self::EmbodiedTraceMassMismatch {
+                store,
+                stored,
+                traced,
+            } => write!(
+                formatter,
+                "energy store {} stores {} mg embodied mass but traces own {} mg",
+                store.value(),
+                stored.milligrams(),
+                traced.milligrams()
+            ),
+            Self::UnknownEmbodiedCommodity { store, commodity } => write!(
+                formatter,
+                "energy store {} embodied material references unknown commodity {}",
+                store.value(),
+                commodity.value()
+            ),
+            Self::ImpureEmbodiedMaterial { store, commodity } => write!(
+                formatter,
+                "energy store {} embodied commodity {} is not pure authored material",
+                store.value(),
+                commodity.value()
+            ),
+            Self::InvalidEmbodiedProvenanceRange { store } => write!(
+                formatter,
+                "energy store {} embodied material has an invalid provenance range",
+                store.value()
+            ),
+            Self::EmbodiedProvenanceInFuture {
+                store,
+                latest_created_at,
+                current,
+            } => write!(
+                formatter,
+                "energy store {} embodied material provenance ends at tick {} after current tick {}",
+                store.value(),
+                latest_created_at.value(),
+                current.value()
+            ),
+            Self::EmbodiedProvenanceAfterConstruction {
+                store,
+                latest_created_at,
+                created_at,
+            } => write!(
+                formatter,
+                "energy store {} embodied material provenance ends at tick {} after the store was constructed at tick {}",
+                store.value(),
+                latest_created_at.value(),
+                created_at.value()
+            ),
+            Self::AssemblyMaterialMismatch {
+                store,
+                commodity,
+                stored,
+                authored,
+            } => write!(
+                formatter,
+                "energy store {} owns {} mg of assembly commodity {} but definition requires {} mg",
+                store.value(),
+                stored.milligrams(),
+                commodity.value(),
+                authored.milligrams()
+            ),
             Self::CreatedInFuture {
                 store,
                 created_at,
@@ -79,6 +217,7 @@ impl Error for EnergyValidationError {}
 
 pub(crate) fn validate_loaded_energy(
     registry: &EnergyRegistry,
+    materials: &MaterialRegistry,
     state: &EnergyState,
     current: SimulationTick,
 ) -> Result<(), EnergyValidationError> {
@@ -104,6 +243,116 @@ pub(crate) fn validate_loaded_energy(
                 stored: record.stored,
                 capacity: definition.capacity(),
             });
+        }
+        match definition.assembly_profile() {
+            Some(assembly) => {
+                if record.embodied_material.is_empty() {
+                    return Err(EnergyValidationError::MissingAssemblyMaterial {
+                        store: record.id,
+                    });
+                }
+                let mut traced_mass = Mass::ZERO;
+                let mut stored_by_commodity = std::collections::BTreeMap::new();
+                for trace in &record.embodied_material {
+                    if trace.mass().is_zero() {
+                        return Err(EnergyValidationError::ZeroEmbodiedTrace { store: record.id });
+                    }
+                    traced_mass = traced_mass.checked_add(trace.mass()).ok_or(
+                        EnergyValidationError::EmbodiedTraceMassOverflow { store: record.id },
+                    )?;
+                    let commodity = trace.profile().commodity();
+                    if !materials.has_commodity(commodity) {
+                        return Err(EnergyValidationError::UnknownEmbodiedCommodity {
+                            store: record.id,
+                            commodity,
+                        });
+                    }
+                    if trace.profile().composition()
+                        != &MaterialComposition::pure(commodity.material())
+                    {
+                        return Err(EnergyValidationError::ImpureEmbodiedMaterial {
+                            store: record.id,
+                            commodity,
+                        });
+                    }
+                    let provenance = trace.provenance();
+                    if provenance.latest_created_at() < provenance.earliest_created_at() {
+                        return Err(EnergyValidationError::InvalidEmbodiedProvenanceRange {
+                            store: record.id,
+                        });
+                    }
+                    if provenance.latest_created_at() > current {
+                        return Err(EnergyValidationError::EmbodiedProvenanceInFuture {
+                            store: record.id,
+                            latest_created_at: provenance.latest_created_at(),
+                            current,
+                        });
+                    }
+                    if provenance.latest_created_at() > record.created_at {
+                        return Err(EnergyValidationError::EmbodiedProvenanceAfterConstruction {
+                            store: record.id,
+                            latest_created_at: provenance.latest_created_at(),
+                            created_at: record.created_at,
+                        });
+                    }
+                    let stored = stored_by_commodity
+                        .get(&commodity)
+                        .copied()
+                        .unwrap_or(Mass::ZERO);
+                    let next = stored.checked_add(trace.mass()).ok_or(
+                        EnergyValidationError::EmbodiedTraceMassOverflow { store: record.id },
+                    )?;
+                    stored_by_commodity.insert(commodity, next);
+                }
+                if traced_mass != record.embodied_mass {
+                    return Err(EnergyValidationError::EmbodiedTraceMassMismatch {
+                        store: record.id,
+                        stored: record.embodied_mass,
+                        traced: traced_mass,
+                    });
+                }
+                if record.embodied_mass != assembly.input_mass() {
+                    return Err(EnergyValidationError::EmbodiedTraceMassMismatch {
+                        store: record.id,
+                        stored: assembly.input_mass(),
+                        traced: record.embodied_mass,
+                    });
+                }
+                for input in assembly.inputs() {
+                    let stored = stored_by_commodity
+                        .remove(&input.commodity())
+                        .unwrap_or(Mass::ZERO);
+                    if stored != input.mass() {
+                        return Err(EnergyValidationError::AssemblyMaterialMismatch {
+                            store: record.id,
+                            commodity: input.commodity(),
+                            stored,
+                            authored: input.mass(),
+                        });
+                    }
+                }
+                if let Some((commodity, stored)) = stored_by_commodity.into_iter().next() {
+                    return Err(EnergyValidationError::AssemblyMaterialMismatch {
+                        store: record.id,
+                        commodity,
+                        stored,
+                        authored: Mass::ZERO,
+                    });
+                }
+            }
+            None => {
+                if !record.embodied_material.is_empty() {
+                    return Err(EnergyValidationError::UnexpectedAssemblyMaterial {
+                        store: record.id,
+                    });
+                }
+                if !record.embodied_mass.is_zero() {
+                    return Err(EnergyValidationError::UnexpectedEmbodiedMass {
+                        store: record.id,
+                        stored: record.embodied_mass,
+                    });
+                }
+            }
         }
         if record.created_at > current {
             return Err(EnergyValidationError::CreatedInFuture {

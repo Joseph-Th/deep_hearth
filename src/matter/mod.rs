@@ -12,6 +12,7 @@ pub struct MatterAccounting {
     geological: AggregateMass,
     structural: AggregateMass,
     equipment: AggregateMass,
+    energy_storage: AggregateMass,
     stored: AggregateMass,
     in_process: AggregateMass,
     metabolic: AggregateMass,
@@ -35,6 +36,12 @@ impl MatterAccounting {
     #[must_use]
     pub const fn equipment(self) -> AggregateMass {
         self.equipment
+    }
+
+    /// Matter embodied in finite energy-storage infrastructure.
+    #[must_use]
+    pub const fn energy_storage(self) -> AggregateMass {
+        self.energy_storage
     }
 
     /// Matter currently owned by inventory lots.
@@ -68,6 +75,7 @@ pub enum MatterAccountingError {
     GeologicalMassOverflow,
     StructuralMassOverflow,
     EquipmentMassOverflow,
+    EnergyStorageMassOverflow,
     StoredMassOverflow,
     InProcessMassOverflow,
     MetabolicMassOverflow,
@@ -85,6 +93,9 @@ impl Display for MatterAccountingError {
             }
             Self::EquipmentMassOverflow => {
                 formatter.write_str("equipment world matter exceeds aggregate mass range")
+            }
+            Self::EnergyStorageMassOverflow => {
+                formatter.write_str("energy-storage world matter exceeds aggregate mass range")
             }
             Self::StoredMassOverflow => {
                 formatter.write_str("stored world matter exceeds aggregate mass range")
@@ -137,6 +148,13 @@ pub fn calculate_matter_accounting(
             .ok_or(MatterAccountingError::EquipmentMassOverflow)?;
     }
 
+    let mut energy_storage = AggregateMass::ZERO;
+    for record in state.energy().stores() {
+        energy_storage = energy_storage
+            .checked_add(AggregateMass::from_mass(record.embodied_mass()))
+            .ok_or(MatterAccountingError::EnergyStorageMassOverflow)?;
+    }
+
     let mut stored = AggregateMass::ZERO;
     for lot in state.inventory().lots() {
         stored = stored
@@ -172,6 +190,8 @@ pub fn calculate_matter_accounting(
         .ok_or(MatterAccountingError::TotalMassOverflow)?
         .checked_add(equipment)
         .ok_or(MatterAccountingError::TotalMassOverflow)?
+        .checked_add(energy_storage)
+        .ok_or(MatterAccountingError::TotalMassOverflow)?
         .checked_add(stored)
         .ok_or(MatterAccountingError::TotalMassOverflow)?
         .checked_add(in_process)
@@ -182,6 +202,7 @@ pub fn calculate_matter_accounting(
         geological,
         structural,
         equipment,
+        energy_storage,
         stored,
         in_process,
         metabolic,

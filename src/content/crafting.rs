@@ -7,9 +7,11 @@ use crate::material::CommodityKey;
 use crate::survival::SurvivalExertion;
 
 use super::{
-    FORM_CHIP, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_TOOL, FORM_UNFIRED_POTTERY,
-    MATERIAL_CLAY, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_FORM_CLAY_VESSEL,
-    PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE,
+    FORM_CHIP, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL,
+    FORM_REINFORCEMENT, FORM_TOOL, FORM_UNFIRED_POTTERY, MATERIAL_CLAY, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+    PROCESS_FORM_CLAY_VESSEL, PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_STONE_FLYWHEEL,
+    PROCESS_SHAPE_WOOD_HANDLE,
 };
 
 pub(crate) fn build_crafting_registry() -> CraftingRegistry {
@@ -87,6 +89,20 @@ pub(crate) fn build_crafting_registry() -> CraftingRegistry {
                     Mass::from_milligrams(100_000),
                 ),
             ],
+        ),
+        ManualCraftDefinition::new(
+            PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+            CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+            Mass::from_milligrams(20_000),
+            TickSpan::new(40),
+            SurvivalExertion::new(
+                Energy::from_nanojoules(1_000_000_000_000),
+                Volume::from_microliters(250),
+            ),
+            vec![ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                Mass::from_milligrams(20_000),
+            )],
         ),
     ])
 }

@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Energy, Power};
+use crate::material::{MaterialAssemblyProfile, MaterialRegistry};
 
 /// Stable authored identity for one energy-store class.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -43,6 +44,7 @@ pub struct EnergyStoreDefinition {
     capacity: Energy,
     max_input_power: Power,
     max_output_power: Power,
+    assembly_profile: Option<MaterialAssemblyProfile>,
 }
 
 impl EnergyStoreDefinition {
@@ -87,7 +89,15 @@ impl EnergyStoreDefinition {
             capacity,
             max_input_power,
             max_output_power,
+            assembly_profile: None,
         }
+    }
+
+    /// Adds the exact conserved matter required to construct this store in gameplay.
+    #[must_use]
+    pub fn with_assembly_profile(mut self, profile: MaterialAssemblyProfile) -> Self {
+        self.assembly_profile = Some(profile);
+        self
     }
 
     #[must_use]
@@ -119,6 +129,11 @@ impl EnergyStoreDefinition {
     pub const fn max_output_power(&self) -> Power {
         self.max_output_power
     }
+
+    #[must_use]
+    pub fn assembly_profile(&self) -> Option<&MaterialAssemblyProfile> {
+        self.assembly_profile.as_ref()
+    }
 }
 
 /// Immutable deterministic authored lookup table for finite energy stores.
@@ -144,5 +159,24 @@ impl EnergyRegistry {
     #[must_use]
     pub fn get_store(&self, id: EnergyStoreDefinitionId) -> Option<&EnergyStoreDefinition> {
         self.definitions.get(&id)
+    }
+
+    /// Iterates authored storage definitions in stable ID order.
+    pub fn definitions(&self) -> impl Iterator<Item = &EnergyStoreDefinition> {
+        self.definitions.values()
+    }
+
+    pub(crate) fn validate_references(&self, materials: &MaterialRegistry) {
+        for definition in self.definitions.values() {
+            if let Some(assembly) = definition.assembly_profile() {
+                assert!(
+                    assembly
+                        .validate_infrastructure_references(materials)
+                        .is_ok(),
+                    "energy store definition {} assembly profile must use existing consolidated solid commodities",
+                    definition.id().value()
+                );
+            }
+        }
     }
 }

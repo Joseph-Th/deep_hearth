@@ -29,6 +29,16 @@ impl EquipmentId {
     }
 }
 
+/// Complete owner-local payload for one prevalidated additive equipment upgrade.
+pub(super) struct EquipmentUpgradeMutation {
+    pub(super) equipment: EquipmentId,
+    pub(super) expected_definition: EquipmentDefinitionId,
+    pub(super) target_definition: EquipmentDefinitionId,
+    pub(super) expected_embodied_mass: Mass,
+    pub(super) target_embodied_mass: Mass,
+    pub(super) additions: Vec<ConsumedMaterialTrace>,
+}
+
 /// Persistent mutable state of one maintainable equipment instance.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EquipmentRecord {
@@ -277,6 +287,83 @@ impl EquipmentState {
             };
             record.condition = outcome.after;
         }
+        self.revision = next_revision;
+    }
+
+    /// Applies one additive equipment-definition upgrade without replacing runtime identity.
+    pub(super) fn apply_upgrade(
+        &mut self,
+        mutation: EquipmentUpgradeMutation,
+        expected_revision: u64,
+        next_revision: u64,
+    ) {
+        let EquipmentUpgradeMutation {
+            equipment,
+            expected_definition,
+            target_definition,
+            expected_embodied_mass,
+            target_embodied_mass,
+            additions,
+        } = mutation;
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        assert!(
+            !additions.is_empty(),
+            "equipment upgrade additions must be nonempty"
+        );
+        let record = self.records.get_mut(&equipment).unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: equipment {} disappeared before upgrade",
+                equipment.value()
+            )
+        });
+        assert_eq!(record.definition, expected_definition);
+        assert_eq!(record.embodied_mass, expected_embodied_mass);
+        assert!(
+            record.supported_by.is_none(),
+            "validated equipment upgrade cannot mutate mounted equipment"
+        );
+        let added_mass = additions.iter().fold(Mass::ZERO, |total, trace| {
+            total
+                .checked_add(trace.mass())
+                .unwrap_or_else(|| panic!("validated equipment upgrade addition mass overflowed"))
+        });
+        assert_eq!(
+            expected_embodied_mass.checked_add(added_mass),
+            Some(target_embodied_mass)
+        );
+        record.definition = target_definition;
+        record.embodied_mass = target_embodied_mass;
+        record.embodied_material.extend(additions);
+        self.revision = next_revision;
+    }
+
+    /// Removes one prevalidated unmounted equipment instance without rewinding its ID cursor.
+    pub(super) fn remove_equipment(
+        &mut self,
+        equipment: EquipmentId,
+        expected_revision: u64,
+        next_revision: u64,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        let record = self.records.get(&equipment).unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: equipment {} disappeared before disassembly",
+                equipment.value()
+            )
+        });
+        assert!(
+            record.supported_by.is_none(),
+            "validated equipment disassembly cannot remove mounted equipment"
+        );
+        assert!(
+            self.equipment_by_support
+                .values()
+                .all(|supported| !supported.contains(&equipment)),
+            "validated unmounted equipment remained in the support reverse index"
+        );
+        assert!(self.records.remove(&equipment).is_some());
         self.revision = next_revision;
     }
 
