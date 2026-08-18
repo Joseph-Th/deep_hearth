@@ -12,11 +12,11 @@ use crate::maintenance::calculate_condition_after_active_ticks;
 use crate::registry::Registries;
 use crate::survival::Vitality;
 
-use super::power_physics::{
-    ManualPowerResourceBudgetError, calculate_manual_power_resource_budget,
-    calculate_metabolic_duration, metabolic_output_per_tick,
+use super::power_physics::{calculate_metabolic_duration, metabolic_output_per_tick};
+use super::{
+    PlayerWork, PlayerWorkResourceBudgetError, PlayerWorkState,
+    calculate_player_work_resource_budget,
 };
-use super::{PlayerWork, PlayerWorkState};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerWorkValidationError {
@@ -25,6 +25,7 @@ pub enum PlayerWorkValidationError {
     ManualCraftProcessMismatch,
     MiningJobMissing,
     MiningJobNotWorking,
+    MiningMethodMissing,
     ManualCraftMissingWork,
     MultiplePlayerJobs,
     MiningMissingWork,
@@ -44,11 +45,11 @@ pub enum PlayerWorkValidationError {
     ManualPowerDurationMismatch,
     ManualPowerConditionMismatch,
     ManualPowerResourceDoubleBooked,
-    ManualPowerPlayerDead,
-    ManualPowerMetabolicCostOverflow,
-    ManualPowerInsufficientMetabolicEnergy { available: Energy, required: Energy },
-    ManualPowerHydrationCostOverflow,
-    ManualPowerInsufficientHydration { available: Volume, required: Volume },
+    PlayerDead,
+    MetabolicCostOverflow,
+    InsufficientMetabolicEnergy { available: Energy, required: Energy },
+    HydrationCostOverflow,
+    InsufficientHydration { available: Volume, required: Volume },
 }
 
 impl Display for PlayerWorkValidationError {
@@ -65,6 +66,9 @@ impl Display for PlayerWorkValidationError {
             }
             Self::MiningJobNotWorking => {
                 formatter.write_str("player work references mining that is no longer active")
+            }
+            Self::MiningMethodMissing => {
+                formatter.write_str("player mining work references a missing authored method")
             }
             Self::ManualCraftMissingWork => {
                 formatter.write_str("active manual crafting job does not own player labor")
@@ -118,30 +122,30 @@ impl Display for PlayerWorkValidationError {
             Self::ManualPowerResourceDoubleBooked => formatter.write_str(
                 "manual power equipment or destination is simultaneously owned elsewhere",
             ),
-            Self::ManualPowerPlayerDead => {
-                formatter.write_str("manual power work remains active for a dead player")
+            Self::PlayerDead => {
+                formatter.write_str("player-owned work remains active for a dead player")
             }
-            Self::ManualPowerMetabolicCostOverflow => formatter.write_str(
-                "manual power remaining metabolic cost exceeds authoritative energy range",
+            Self::MetabolicCostOverflow => formatter.write_str(
+                "remaining player-work metabolic cost exceeds authoritative energy range",
             ),
-            Self::ManualPowerInsufficientMetabolicEnergy {
+            Self::InsufficientMetabolicEnergy {
                 available,
                 required,
             } => write!(
                 formatter,
-                "manual power needs {} nJ to finish but player retains only {} nJ metabolic energy",
+                "player work needs {} nJ to finish but player retains only {} nJ metabolic energy",
                 required.nanojoules(),
                 available.nanojoules()
             ),
-            Self::ManualPowerHydrationCostOverflow => formatter.write_str(
-                "manual power remaining hydration cost exceeds authoritative volume range",
+            Self::HydrationCostOverflow => formatter.write_str(
+                "remaining player-work hydration cost exceeds authoritative volume range",
             ),
-            Self::ManualPowerInsufficientHydration {
+            Self::InsufficientHydration {
                 available,
                 required,
             } => write!(
                 formatter,
-                "manual power needs {} uL hydration to finish but player retains only {} uL",
+                "player work needs {} uL hydration to finish but player retains only {} uL",
                 required.microliters(),
                 available.microliters()
             ),
@@ -186,17 +190,27 @@ pub(crate) fn validate_loaded_player_work(
         .player()
         .copied()
         .ok_or(PlayerWorkValidationError::WorkWithoutPlayer)?;
+    if player.vitality() == Vitality::ZERO {
+        return Err(PlayerWorkValidationError::PlayerDead);
+    }
     match work {
         PlayerWork::ManualCraft { job } => {
             let Some(record) = state.production().get_job(job) else {
                 return Err(PlayerWorkValidationError::ManualCraftJobMissing);
             };
-            if crafting.get_manual(record.process()).is_none() {
+            let Some(definition) = crafting.get_manual(record.process()) else {
                 return Err(PlayerWorkValidationError::ManualCraftProcessMismatch);
-            }
+            };
             if manual_jobs.as_slice() != [job] {
                 return Err(PlayerWorkValidationError::ManualCraftMissingWork);
             }
+            validate_remaining_resources(
+                registries,
+                player.metabolic_energy(),
+                player.hydration(),
+                definition.exertion(),
+                TickSpan::new(record.completes_at().value() - state.tick().value()),
+            )?;
         }
         PlayerWork::Mining { job } => {
             let Some(record) = state.mining().get_job(job) else {
@@ -208,6 +222,17 @@ pub(crate) fn validate_loaded_player_work(
             if mining_jobs.as_slice() != [job] {
                 return Err(PlayerWorkValidationError::MiningMissingWork);
             }
+            let method = registries
+                .mining()
+                .get_method(record.method())
+                .ok_or(PlayerWorkValidationError::MiningMethodMissing)?;
+            validate_remaining_resources(
+                registries,
+                player.metabolic_energy(),
+                player.hydration(),
+                method.exertion(),
+                TickSpan::new(record.completes_at().value() - state.tick().value()),
+            )?;
         }
         PlayerWork::ManualPower { work } => {
             if !manual_jobs.is_empty() || !mining_jobs.is_empty() {
@@ -320,41 +345,50 @@ pub(crate) fn validate_loaded_player_work(
             if work.condition_after() != required_condition {
                 return Err(PlayerWorkValidationError::ManualPowerConditionMismatch);
             }
-            if player.vitality() == Vitality::ZERO {
-                return Err(PlayerWorkValidationError::ManualPowerPlayerDead);
-            }
             let remaining_ticks = work.completes_at().value() - state.tick().value();
-            let physiology = registries.survival().physiology();
-            let resource_budget = calculate_manual_power_resource_budget(
-                physiology,
+            validate_remaining_resources(
+                registries,
+                player.metabolic_energy(),
+                player.hydration(),
                 method.exertion(),
                 TickSpan::new(remaining_ticks),
-            )
-            .map_err(|error| match error {
-                ManualPowerResourceBudgetError::EnergyOverflow => {
-                    PlayerWorkValidationError::ManualPowerMetabolicCostOverflow
-                }
-                ManualPowerResourceBudgetError::HydrationOverflow => {
-                    PlayerWorkValidationError::ManualPowerHydrationCostOverflow
-                }
-            })?;
-            if player.metabolic_energy() < resource_budget.metabolic_energy() {
-                return Err(
-                    PlayerWorkValidationError::ManualPowerInsufficientMetabolicEnergy {
-                        available: player.metabolic_energy(),
-                        required: resource_budget.metabolic_energy(),
-                    },
-                );
-            }
-            if player.hydration() < resource_budget.hydration() {
-                return Err(
-                    PlayerWorkValidationError::ManualPowerInsufficientHydration {
-                        available: player.hydration(),
-                        required: resource_budget.hydration(),
-                    },
-                );
-            }
+            )?;
         }
+    }
+    Ok(())
+}
+
+fn validate_remaining_resources(
+    registries: &Registries,
+    available_energy: Energy,
+    available_hydration: Volume,
+    exertion: crate::survival::SurvivalExertion,
+    duration: TickSpan,
+) -> Result<(), PlayerWorkValidationError> {
+    let budget = calculate_player_work_resource_budget(
+        registries.survival().physiology(),
+        exertion,
+        duration,
+    )
+    .map_err(|error| match error {
+        PlayerWorkResourceBudgetError::EnergyOverflow => {
+            PlayerWorkValidationError::MetabolicCostOverflow
+        }
+        PlayerWorkResourceBudgetError::HydrationOverflow => {
+            PlayerWorkValidationError::HydrationCostOverflow
+        }
+    })?;
+    if available_energy < budget.metabolic_energy() {
+        return Err(PlayerWorkValidationError::InsufficientMetabolicEnergy {
+            available: available_energy,
+            required: budget.metabolic_energy(),
+        });
+    }
+    if available_hydration < budget.hydration() {
+        return Err(PlayerWorkValidationError::InsufficientHydration {
+            available: available_hydration,
+            required: budget.hydration(),
+        });
     }
     Ok(())
 }

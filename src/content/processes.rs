@@ -50,7 +50,7 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
                 CapabilityRequirement::new(
                     CAPABILITY_HEATING_POWER,
                     CapabilityComparison::AtLeast,
-                    CapabilityValue::Power(Power::from_microwatts(1_000_000)),
+                    CapabilityValue::Power(Power::from_microwatts(100_000_000_000)),
                 ),
                 CapabilityRequirement::new(
                     CAPABILITY_THERMAL_MAX_TEMPERATURE,
@@ -71,7 +71,7 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
                 CapabilityRequirement::new(
                     CAPABILITY_COOLING_POWER,
                     CapabilityComparison::AtLeast,
-                    CapabilityValue::Power(Power::from_microwatts(1_000_000)),
+                    CapabilityValue::Power(Power::from_microwatts(100_000_000_000)),
                 ),
                 CapabilityRequirement::new(
                     CAPABILITY_THERMAL_MAX_TEMPERATURE,
@@ -138,7 +138,7 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
             "knap stone tool",
             vec![MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-                Mass::from_milligrams(1_000),
+                Mass::from_milligrams(1_000_000),
             )],
             Vec::new(),
         ),
@@ -147,7 +147,7 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
             "shape wood handle",
             vec![MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-                Mass::from_milligrams(1_000),
+                Mass::from_milligrams(1_000_000),
             )],
             Vec::new(),
         ),
@@ -156,7 +156,7 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
             "form clay vessel",
             vec![MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
-                Mass::from_milligrams(1_000),
+                Mass::from_milligrams(1_000_000),
             )],
             Vec::new(),
         ),
@@ -165,7 +165,7 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
             "shape stone flywheel",
             vec![MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-                Mass::from_milligrams(1_000),
+                Mass::from_milligrams(1_000_000),
             )],
             Vec::new(),
         ),

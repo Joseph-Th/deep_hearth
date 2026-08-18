@@ -17,7 +17,7 @@ pub(crate) fn build_crafting_registry() -> CraftingRegistry {
         ManualCraftDefinition::new(
             PROCESS_KNAP_STONE_TOOL,
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-            Mass::from_milligrams(1_000),
+            Mass::from_milligrams(1_000_000),
             TickSpan::new(40),
             SurvivalExertion::new(
                 Energy::from_nanojoules(1_000_000_000_000),
@@ -26,18 +26,18 @@ pub(crate) fn build_crafting_registry() -> CraftingRegistry {
             vec![
                 ManualCraftOutput::new(
                     CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-                    Mass::from_milligrams(800),
+                    Mass::from_milligrams(800_000),
                 ),
                 ManualCraftOutput::new(
                     CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
-                    Mass::from_milligrams(200),
+                    Mass::from_milligrams(200_000),
                 ),
             ],
         ),
         ManualCraftDefinition::new(
             PROCESS_FORM_CLAY_VESSEL,
             CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
-            Mass::from_milligrams(1_000),
+            Mass::from_milligrams(1_000_000),
             TickSpan::new(80),
             SurvivalExertion::new(
                 Energy::from_nanojoules(750_000_000_000),
@@ -45,13 +45,13 @@ pub(crate) fn build_crafting_registry() -> CraftingRegistry {
             ),
             vec![ManualCraftOutput::new(
                 CommodityKey::new(MATERIAL_CLAY, FORM_UNFIRED_POTTERY),
-                Mass::from_milligrams(1_000),
+                Mass::from_milligrams(1_000_000),
             )],
         ),
         ManualCraftDefinition::new(
             PROCESS_SHAPE_WOOD_HANDLE,
             CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            Mass::from_milligrams(1_000),
+            Mass::from_milligrams(1_000_000),
             TickSpan::new(40),
             SurvivalExertion::new(
                 Energy::from_nanojoules(750_000_000_000),
@@ -60,18 +60,18 @@ pub(crate) fn build_crafting_registry() -> CraftingRegistry {
             vec![
                 ManualCraftOutput::new(
                     CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-                    Mass::from_milligrams(200),
+                    Mass::from_milligrams(200_000),
                 ),
                 ManualCraftOutput::new(
                     CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
-                    Mass::from_milligrams(800),
+                    Mass::from_milligrams(800_000),
                 ),
             ],
         ),
         ManualCraftDefinition::new(
             PROCESS_SHAPE_STONE_FLYWHEEL,
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-            Mass::from_milligrams(1_000),
+            Mass::from_milligrams(1_000_000),
             TickSpan::new(60),
             SurvivalExertion::new(
                 Energy::from_nanojoules(1_000_000_000_000),
@@ -80,11 +80,11 @@ pub(crate) fn build_crafting_registry() -> CraftingRegistry {
             vec![
                 ManualCraftOutput::new(
                     CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-                    Mass::from_milligrams(900),
+                    Mass::from_milligrams(900_000),
                 ),
                 ManualCraftOutput::new(
                     CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
-                    Mass::from_milligrams(100),
+                    Mass::from_milligrams(100_000),
                 ),
             ],
         ),

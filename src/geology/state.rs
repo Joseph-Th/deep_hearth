@@ -1,9 +1,9 @@
 //! Persistent finite geological deposits; child validation audits durable geological ownership.
 
 use std::collections::BTreeMap;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 use std::error::Error;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::SimulationTick;
 use crate::material::{CommodityKey, MaterialComposition};
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 use crate::material::{CompositionError, MaterialId};
 use crate::spatial::VoxelBounds;
 
@@ -59,7 +59,7 @@ impl GeneratedDepositSpec {
     ///
     /// Production code deliberately has no constructor until a real geological generator can
     /// establish this source authorization without exposing arbitrary matter creation.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-gameplay"))]
     pub(crate) fn new(
         bounds: VoxelBounds,
         commodity: CommodityKey,
@@ -114,7 +114,7 @@ impl GeneratedDepositSpec {
 }
 
 /// Invalid generated-deposit specification before registry resolution.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum GeneratedDepositSpecError {
     ZeroMass,
@@ -122,7 +122,7 @@ pub(crate) enum GeneratedDepositSpecError {
     MissingHostMaterial { host: MaterialId },
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Display for GeneratedDepositSpecError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -144,7 +144,7 @@ impl Display for GeneratedDepositSpecError {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Error for GeneratedDepositSpecError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {

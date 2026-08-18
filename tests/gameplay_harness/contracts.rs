@@ -5,6 +5,7 @@
 //! canonical execution and stable maintained-input contracts.
 
 use super::report::{PowerPreference, ScenarioReport};
+use deep_hearth::maintenance::MaintenanceBand;
 
 pub(super) fn assert_scenario_contracts(reports: &[ScenarioReport]) {
     for report in reports {
@@ -29,4 +30,22 @@ pub(super) fn assert_anchor_diversity(reports: &[ScenarioReport]) {
             "maintained gameplay anchors are missing the {name} player priority"
         );
     }
+    for band in [
+        MaintenanceBand::Normal,
+        MaintenanceBand::Warning,
+        MaintenanceBand::Critical,
+    ] {
+        assert!(
+            reports
+                .iter()
+                .any(|report| report.inputs.initial_maintenance_band == band),
+            "maintained gameplay anchors are missing the {band:?} initial maintenance band"
+        );
+    }
+    assert!(
+        reports
+            .iter()
+            .any(|report| report.choices.delivery_deadline_power_choice),
+        "maintained gameplay anchors are missing a case where stored power changes what can finish before a scheduled delivery"
+    );
 }

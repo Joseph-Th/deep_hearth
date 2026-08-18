@@ -162,8 +162,8 @@ impl MiningState {
         self.equipment_occupancy.get(&equipment).copied()
     }
 
-    pub(crate) fn has_jobs_due_at(&self, tick: SimulationTick) -> bool {
-        self.due_jobs.contains_key(&tick)
+    pub(crate) fn jobs_due_at(&self, tick: SimulationTick) -> Option<&BTreeSet<MiningJobId>> {
+        self.due_jobs.get(&tick)
     }
 
     pub(crate) fn insert_job(

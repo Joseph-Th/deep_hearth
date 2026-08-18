@@ -46,7 +46,7 @@ pub(crate) fn validate_mining_references(
         let Some(equipment) = state.equipment().get_equipment(job.equipment()) else {
             return Err(MiningReferenceError::UnknownEquipment { job: job.id() });
         };
-        if job.is_working() && equipment.condition() != job.equipment_condition_after() {
+        if job.is_working() && equipment.condition() != job.equipment_condition_before() {
             return Err(MiningReferenceError::EquipmentConditionMismatch { job: job.id() });
         }
         let output = job.output();

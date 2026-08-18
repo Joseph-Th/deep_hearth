@@ -537,11 +537,21 @@ pub fn validate_start_manual_craft(
     let process =
         validate_start_manual_process(registries, state, &resolution, craft.source(), destination)
             .map_err(StartManualCraftError::Process)?;
+    let exertion = registries
+        .crafting()
+        .get_manual(craft.process)
+        .unwrap_or_else(|| {
+            panic!("runtime invariant broken: resolved manual craft definition disappeared")
+        })
+        .exertion();
     let work = validate_player_work_start(
+        registries,
         state,
         PlayerWork::ManualCraft {
             job: process.job_id(),
         },
+        resolution.duration(),
+        exertion,
     )
     .map_err(StartManualCraftError::Work)?;
     Ok(ValidatedManualCraftStart { process, work })
@@ -553,10 +563,11 @@ mod tests {
     use crate::content::{
         FORM_CHIP, FORM_LUMP, FORM_TOOL, MATERIAL_STONE, PROCESS_KNAP_STONE_TOOL, build_registries,
     };
-    use crate::core::quantity::Temperature;
+    use crate::core::quantity::{Energy, Temperature};
     use crate::core::state::{StateValidationError, validate_loaded_state};
     use crate::core::time::WorldSeed;
     use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
+    use crate::labor::{PlayerWorkValidationError, calculate_player_work_resource_budget};
     use crate::matter::calculate_matter_accounting;
     use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
     use crate::production::{StartProcessError, validate_start_process};
@@ -572,16 +583,17 @@ mod tests {
         let mut state = AppState::new(WorldSeed::new(0xC4AF_7001));
         initialize_player_survival(&registries, &mut state)
             .unwrap_or_else(|error| panic!("manual craft survival initialization failed: {error}"));
-        let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000))
+        let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
             .unwrap_or_else(|error| panic!("manual craft source fixture failed: {error}"));
-        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000))
-            .unwrap_or_else(|error| panic!("manual craft destination fixture failed: {error}"));
+        let destination =
+            add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
+                .unwrap_or_else(|error| panic!("manual craft destination fixture failed: {error}"));
         deposit_lot_for_test(
             &registries,
             &mut state,
             source,
             stone_lump(),
-            Mass::from_milligrams(1_000),
+            Mass::from_milligrams(1_000_000),
             Temperature::from_millikelvin(293_150),
         )
         .unwrap_or_else(|error| panic!("manual craft stone fixture failed: {error}"));
@@ -634,11 +646,11 @@ mod tests {
             .unwrap_or_else(|| panic!("stone knapping destination disappeared"));
         assert_eq!(
             destination_record.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_TOOL)),
-            Mass::from_milligrams(800)
+            Mass::from_milligrams(800_000)
         );
         assert_eq!(
             destination_record.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_CHIP)),
-            Mass::from_milligrams(200)
+            Mass::from_milligrams(200_000)
         );
         let matter_after = calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("manual craft final accounting failed: {error}"));
@@ -651,6 +663,110 @@ mod tests {
         );
         validate_loaded_state(&registries, &state)
             .unwrap_or_else(|error| panic!("stone knapping final audit failed: {error}"));
+    }
+
+    #[test]
+    fn manual_craft_requires_enough_metabolic_reserve_to_finish() {
+        let (registries, state, source, destination) = make_fixture();
+        let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| panic!("manual craft reserve serialization failed: {error}"));
+        encoded["state"]["systems"]["survival"]["player"]["metabolic_energy"] =
+            serde_json::json!(1_u64);
+        let loaded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+            .unwrap_or_else(|error| panic!("manual craft low-reserve decode failed: {error}"));
+        let low_reserve = loaded
+            .into_state(&registries)
+            .unwrap_or_else(|error| panic!("manual craft low-reserve load failed: {error}"));
+        let before = low_reserve.clone();
+
+        assert!(matches!(
+            validate_start_manual_craft(
+                &registries,
+                &low_reserve,
+                ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
+            ),
+            Err(StartManualCraftError::Work(
+                PlayerWorkStartError::InsufficientMetabolicEnergy { .. }
+            ))
+        ));
+        assert_eq!(low_reserve, before);
+    }
+
+    #[test]
+    fn manual_craft_commit_rejects_intervening_survival_change() {
+        let (registries, mut state, source, destination) = make_fixture();
+        let token = validate_start_manual_craft(
+            &registries,
+            &state,
+            ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
+        )
+        .unwrap_or_else(|error| panic!("manual craft survival-stale validation failed: {error}"));
+        let expected = state.survival().revision();
+        advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("manual craft survival-stale tick failed: {error}"));
+        let before = state.clone();
+
+        assert_eq!(
+            token.commit(&mut state),
+            Err(ManualCraftCommitError::Work(
+                PlayerWorkCommitError::StaleSurvivalRevision {
+                    expected,
+                    actual: state.survival().revision(),
+                }
+            ))
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn active_manual_craft_save_requires_enough_metabolic_energy_to_finish() {
+        let (registries, mut state, source, destination) = make_fixture();
+        let token = validate_start_manual_craft(
+            &registries,
+            &state,
+            ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
+        )
+        .unwrap_or_else(|error| panic!("manual craft save reserve start failed: {error}"));
+        let job = token
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("manual craft save reserve commit failed: {error}"));
+        let record = state
+            .production()
+            .get_job(job)
+            .unwrap_or_else(|| panic!("manual craft save reserve job disappeared"));
+        let remaining = TickSpan::new(record.completes_at().value() - state.tick().value());
+        let exertion = registries
+            .crafting()
+            .get_manual(PROCESS_KNAP_STONE_TOOL)
+            .unwrap_or_else(|| panic!("manual craft save reserve definition disappeared"))
+            .exertion();
+        let required = calculate_player_work_resource_budget(
+            registries.survival().physiology(),
+            exertion,
+            remaining,
+        )
+        .unwrap_or_else(|error| panic!("manual craft save reserve budget failed: {error:?}"))
+        .metabolic_energy();
+        assert!(required > Energy::from_nanojoules(1));
+
+        let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| {
+                panic!("manual craft save reserve serialization failed: {error}")
+            });
+        encoded["state"]["systems"]["survival"]["player"]["metabolic_energy"] =
+            serde_json::json!(1_u64);
+        let tampered: LoadedSaveEnvelope = serde_json::from_value(encoded)
+            .unwrap_or_else(|error| panic!("manual craft save reserve decode failed: {error}"));
+
+        assert_eq!(
+            tampered.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+                PlayerWorkValidationError::InsufficientMetabolicEnergy {
+                    available: Energy::from_nanojoules(1),
+                    required,
+                }
+            )))
+        );
     }
 
     #[test]
@@ -732,7 +848,7 @@ mod tests {
             &mut state,
             source,
             stone_lump(),
-            Mass::from_milligrams(1_000),
+            Mass::from_milligrams(1_000_000),
             Temperature::from_millikelvin(293_150),
         )
         .unwrap_or_else(|error| panic!("batch craft second stone fixture failed: {error}"));
@@ -742,7 +858,7 @@ mod tests {
         let resolution = resolve_manual_craft(&registries, &state, craft)
             .unwrap_or_else(|error| panic!("batch craft resolution failed: {error}"));
 
-        assert_eq!(resolution.input_mass(), Mass::from_milligrams(2_000));
+        assert_eq!(resolution.input_mass(), Mass::from_milligrams(2_000_000));
         assert_eq!(resolution.duration(), TickSpan::new(80));
         assert_eq!(
             resolution
@@ -753,11 +869,11 @@ mod tests {
             vec![
                 (
                     CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-                    Mass::from_milligrams(1_600),
+                    Mass::from_milligrams(1_600_000),
                 ),
                 (
                     CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
-                    Mass::from_milligrams(400),
+                    Mass::from_milligrams(400_000),
                 ),
             ]
         );

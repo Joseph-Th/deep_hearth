@@ -110,7 +110,9 @@ into the runtime state surface.
 - `PlayerWorkState` owns at most one active locally controlled-player operation. Manual-craft and
   mining variants reference their authoritative production/mining job and therefore do not duplicate
   a timer. Direct manual-power work instead owns its one authoritative method/equipment/output/schedule
-  record because there is intentionally no parallel production job for turning a hand crank.
+  record because there is intentionally no parallel production job for turning a hand crank. Shared
+  player-work admission binds both labor and survival revisions and budgets basal plus authored
+  exertion energy/hydration across the complete active duration before any variant can start.
 - `SurvivalState` owns the admitted player's metabolic-energy, hydration, vitality, and bounded recent
   Grain/Fruit/Protein nutrition reserves plus bounded per-material metabolic matter and per-fluid
   ingested-volume ownership. Nutrition is compact continuation state rather than an unbounded meal
@@ -179,14 +181,17 @@ identities, exact output distributions, finite work, duration, and condition out
 jobs independently replay their exact input identity/composition/temperature, integral fixed-recipe
 batch count, scaled duration, no-resource contract, and conserved output forms. Survival load
 validation bounds physiology and recent nutrition and rejects forged non-food metabolic matter or
-non-drinkable ingested fluid identities. Player-work replay also reconstructs direct manual-power
-duration from the condition-sensitive equipment Power capability, destination input envelope, and
-metabolic conversion ceiling; it rechecks the persisted equipment trace, finite output capacity,
-carrier, schedule, and wear outcome. Mining validation reconstructs
+non-drinkable ingested fluid identities. Player-work replay reconstructs the remaining basal-plus-
+exertion metabolic-energy and hydration budget for manual crafting, mining, and direct power,
+rejecting active work that the persisted player can no longer physically finish. Direct manual-power
+replay also reconstructs duration from the condition-sensitive equipment Power capability,
+destination input envelope, and metabolic conversion ceiling; it rechecks the persisted equipment
+trace, finite output capacity, carrier, schedule, and wear outcome. Mining validation reconstructs
 due/equipment occupancy, validates exact WIP output and destination reservations against the original
-deposit/tool/method references, and player-work validation requires the active labor reference to
-match a real in-flight manual-craft or mining job. Assemblable equipment independently reconciles its
-persisted pure material/provenance traces to the authored multi-input assembly profile.
+deposit/tool/method references, requires working equipment to remain at its recorded pre-operation
+condition until completion applies wear, and player-work validation requires the active labor
+reference to match a real in-flight manual-craft or mining job. Assemblable equipment independently
+reconciles its persisted pure material/provenance traces to the authored multi-input assembly profile.
 
 Filesystem layout, compression, atomic writes, and cloud storage remain adapter work. Historical
 save-schema migration is intentionally unsupported.
@@ -820,10 +825,10 @@ reconciles any supported-stockpile load change, and commits inventory egress plu
 under revision checks. The equipment record retains the resulting `ConsumedMaterialTrace` entries, so
 material identity, temperature, composition, and provenance survive the ownership transfer. Current
 load validation rejects missing, extra, impure, future-provenance, wrong-mass, or wrong-commodity
-assembly traces. The built-in stone pick therefore physically owns both its 800 mg knapped stone head
-and 200 mg shaped wood handle rather than collapsing them into an anonymous mass scalar. The first
+assembly traces. The built-in stone pick therefore physically owns both its 800 g knapped stone head
+and 200 g shaped wood handle rather than collapsing them into an anonymous mass scalar. The first
 copper extraction upgrade uses that same boundary rather than inventing forging: a
-`copper-reinforced stone pick` owns the same head and handle plus one 20 mg copper-ingot reinforcement,
+`copper-reinforced stone pick` owns the same head and handle plus one 20 g copper-ingot reinforcement,
 and its authored capability envelope raises mining throughput, batch size, and maximum hardness.
 
 Player labor is an explicit exclusive owner. Manual crafting and mining acquire `PlayerWorkState`
@@ -850,11 +855,11 @@ become authoritative together at the completion tick, after which normal energy 
 the stored work. This intentionally models the first human-to-machine bridge without selecting
 shaft/belt topology or pretending that hand power is automation.
 
-Built-in primitive power demonstrates component bottlenecks explicitly. The 10 microwatt stone crank
-and 10 microwatt small drive match one another. A copper-reinforced crank can provide 20 microwatts,
-but remains limited to 10 microwatts when charging that small drive. The upgraded mechanical drive is
-bidirectional at 200 microwatts, so the reinforced crank's higher capability becomes useful without
-changing the requested energy quantity. This is the intended progression rule for later networks:
+Built-in primitive power demonstrates component bottlenecks explicitly. The stone crank can provide
+50 W and the copper-reinforced crank 100 W. The small mechanical drive accepts at most 50 W, stores
+200 kJ, and can discharge at 1 kW; the upgraded drive accepts 500 W, stores 400 kJ, and can discharge
+at 20 kW. This asymmetric storage boundary lets survival-costed human input accumulate slowly and
+later execute a shorter burst of machine work without manufacturing energy. This is the intended progression rule for later networks:
 throughput is constrained by the weakest participating physical envelope, not an abstract tier flag.
 
 Hand mining is an explicit conserved extraction owner. Start validation binds the geological deposit,

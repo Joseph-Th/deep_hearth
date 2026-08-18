@@ -52,6 +52,7 @@ simulation contract.
 | `cargo test-soak` | Long-horizon deterministic conservation/invariant scenarios | Reuses the default-feature unit-test artifact and runs only ignored tests |
 | `cargo test-gameplay` | Deterministic seed/replay contracts plus the maintained anchor workshop matrix | Dedicated integration target with `test-gameplay`; library unit-test bodies are not compiled |
 | `cargo test-gameplay-scenarios` | Maintained workshop scenario matrix only | Reuses the dedicated gameplay artifact |
+| `cargo test-gameplay-progression` | Primitive survival/craft/mine/manual-power/mechanization progression probe only | Reuses the dedicated gameplay artifact |
 | `cargo test-gameplay-ore` | Ore-preparation capability probe only | Reuses the dedicated gameplay artifact |
 | `cargo test-gameplay-foundry` | Foundry capability probe only | Reuses the dedicated gameplay artifact |
 | `cargo test-gameplay-report` | Exploratory anchor-plus-organic workshop report with concise human-readable summary | Same feature-gated integration target, ignored by the gate and run with captured output disabled |
@@ -102,12 +103,14 @@ narrow test cannot provide. Do not ignore ordinary behavioral tests.
 
 ## Gameplay harness
 
-The workshop harness is an **exercise-mode** automated behavior evaluation. It deliberately chooses
+The gameplay harness is an **exercise-mode** automated behavior evaluation. It deliberately chooses
 legal situations that cover important physical consequences; it is not evidence that an ordinary
 human player will make the same choices. Setup may arrange matter, equipment, finite energy, and
 structural bays because acquisition/construction authorizers are not implemented. After setup, the
 harness uses the same production validators, resolutions, commits, and simulation ticks as normal
-runtime behavior.
+runtime behavior. The workshop matrix evaluates constrained operation and recovery, while the
+primitive progression probe separately follows the early-game fantasy through survival-costed manual
+crafting, finite mining, manual power generation, stored work, and mechanized comminution.
 
 The acting policy uses observable state and resolver projections. Hidden authoritative state may be
 used only for diagnostics and postcondition checks. The policy does not clone `AppState` to simulate
@@ -117,7 +120,9 @@ state after that event. Each scenario is deterministic from its printed seed and
 unrelated simulation randomness. The required gate runs only maintained anchors; the explicit report
 lane adds a small organic sample so exploratory review is not limited to one memorized script. A legal
 scenario may complete zero batches when an in-flight job is suspended before its first output; that is
-gameplay evidence, not a harness failure. Maintained seeds guarantee only stable input/policy diversity.
+gameplay evidence, not a harness failure. Maintained anchors guarantee operating-priority diversity,
+coverage of all three initial maintenance bands, and one case where delivery timing makes the faster
+finite-power source strategically relevant. Aggregate balance outcomes remain observations.
 Balance-dependent outcomes such as completion, maintenance pressure, structural damage, suspension,
 and relocation are reported as observations rather than frozen into aggregate pass/fail requirements.
 

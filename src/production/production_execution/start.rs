@@ -542,13 +542,36 @@ impl Error for StartProcessError {
 /// Failure when a validated process start is committed after either owning state has changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartProcessCommitError {
-    StaleProductionRevision { expected: u64, actual: u64 },
-    StaleInventoryRevision { expected: u64, actual: u64 },
-    StaleEnergyRevision { expected: u64, actual: u64 },
-    StaleEquipmentRevision { expected: u64, actual: u64 },
-    StaleStructureRevision { expected: u64, actual: u64 },
-    EnergyStoreBusyManualPower { store: crate::energy::EnergyStoreId },
-    EquipmentBusyManualPower { equipment: EquipmentId },
+    StaleProductionRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleInventoryRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleEnergyRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleEquipmentRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleStructureRevision {
+        expected: u64,
+        actual: u64,
+    },
+    EnergyStoreBusyManualPower {
+        store: crate::energy::EnergyStoreId,
+    },
+    EquipmentBusyMining {
+        equipment: EquipmentId,
+        job: MiningJobId,
+    },
+    EquipmentBusyManualPower {
+        equipment: EquipmentId,
+    },
     Structure(StructuralCommitError),
 }
 
@@ -579,6 +602,12 @@ impl Display for StartProcessCommitError {
                 formatter,
                 "validated process start energy store {} is occupied by direct player-powered generation",
                 store.value()
+            ),
+            Self::EquipmentBusyMining { equipment, job } => write!(
+                formatter,
+                "validated process start equipment {} is occupied by mining job {}",
+                equipment.value(),
+                job.value()
             ),
             Self::EquipmentBusyManualPower { equipment } => write!(
                 formatter,
@@ -618,6 +647,10 @@ impl Error for StartProcessCommitError {
                 actual: _actual,
             } => None,
             Self::EnergyStoreBusyManualPower { store: _store } => None,
+            Self::EquipmentBusyMining {
+                equipment: _equipment,
+                job: _job,
+            } => None,
             Self::EquipmentBusyManualPower {
                 equipment: _equipment,
             } => None,
@@ -676,15 +709,21 @@ impl ValidatedStartProcess {
                 return Err(StartProcessCommitError::EnergyStoreBusyManualPower { store });
             }
         }
-        if let Some(provider) = job.equipment_provider()
-            && state
+        if let Some(provider) = job.equipment_provider() {
+            let equipment = provider.equipment();
+            if let Some(mining_job) = state.mining().get_equipment_occupant(equipment) {
+                return Err(StartProcessCommitError::EquipmentBusyMining {
+                    equipment,
+                    job: mining_job,
+                });
+            }
+            if state
                 .player_work()
-                .get_manual_power_equipment_occupant(provider.equipment())
+                .get_manual_power_equipment_occupant(equipment)
                 .is_some()
-        {
-            return Err(StartProcessCommitError::EquipmentBusyManualPower {
-                equipment: provider.equipment(),
-            });
+            {
+                return Err(StartProcessCommitError::EquipmentBusyManualPower { equipment });
+            }
         }
 
         let actual_production_revision = state.production().revision();

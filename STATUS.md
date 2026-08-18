@@ -87,16 +87,16 @@
   reserves the eventual inbound mass. Completion releases the tool and player but does not teleport
   matter; a separate claim transaction deposits the exact preserved material profile and releases the
   reservation. Matter and modeled sensible thermal energy remain conserved while work is active.
-- The built-in primitive extraction chain is now concrete: 1,000 mg stone lump can be knapped into an
-  800 mg stone head plus 200 mg stone chips, 1,000 mg wood log can be shaped into a 200 mg handle plus
-  800 mg wood chips, and the head plus handle assemble into a 1,000 mg stone pick. The equipment owner
+- The built-in primitive extraction chain is now concrete at human-scale quantities: a 1 kg stone
+  lump can be knapped into an 800 g stone head plus 200 g stone chips, a 1 kg wood log can be shaped
+  into a 200 g handle plus 800 g wood chips, and the head plus handle assemble into a 1 kg stone pick. The equipment owner
   persists the exact consumed material/provenance traces for assemblable equipment and exhaustive load
   validation reconciles those traces against the authored multi-input assembly profile. The stone pick
   provides condition-sensitive mining throughput, maximum batch mass, and maximum material hardness.
-  Processed copper now feeds back into that gathering loop without pretending forging exists: an 800 mg
-  knapped stone head, 200 mg wood handle, and 20 mg copper ingot assemble into a 1,020 mg
-  copper-reinforced stone pick. It raises pristine mining flow from 20 to 30 mg/s, maximum batch mass
-  from 200 to 300 mg, and maximum material hardness from 500 to 750 MPa while retaining normal
+  Processed copper now feeds back into that gathering loop without pretending forging exists: an 800 g
+  knapped stone head, 200 g wood handle, and 20 g copper ingot assemble into a 1.02 kg
+  copper-reinforced stone pick. It raises pristine mining flow from 20 to 30 g/s, maximum batch mass
+  from 200 to 300 g, and maximum material hardness from 500 to 750 MPa while retaining normal
   condition-sensitive degradation and exact embodied-material provenance.
 - Persistent geological knowledge is separate from authoritative deposit truth. Prospecting
   observations own stable IDs, spatial footprints, evidence provenance, bounded material-abundance
@@ -118,9 +118,9 @@
   lot selection they inspected rather than reselecting equivalent-looking matter at commit.
 - Manual shaping is a first-class resolver family that reuses the same fixed-feed production start,
   reservation, due-tick, completion, persistence, and conservation path as machines. Built-in stone
-  knapping converts 1,000 mg of stone lump into an 800 mg tool form plus 200 mg of chips over 40
-  active ticks; handle shaping converts 1,000 mg wood log into a 200 mg handle plus 800 mg chips over
-  40 active ticks; clay forming converts 1,000 mg of clay lump into 1,000 mg of unfired pottery over
+  knapping converts 1 kg of stone lump into an 800 g tool form plus 200 g of chips over 40 active
+  ticks; handle shaping converts a 1 kg wood log into a 200 g handle plus 800 g chips over 40 active
+  ticks; clay forming converts 1 kg of clay lump into 1 kg of unfired pottery over
   80 active ticks. Manual work requires a living initialized player, preserves input temperature and
   pure material identity, consumes no invented machine resource, and is independently replay-audited
   on load so forged duration or output snapshots are rejected. Fixed manual recipes can now be
@@ -128,8 +128,8 @@
   duration scale exactly with the requested count while one player-work job owns the whole run, so
   batching removes repeated command entry without discounting matter, time, or survival exertion.
   Persistence infers and replays that count from conserved input mass rather than storing a second
-  source of truth. Built-in shaping now also turns a 1,000 mg stone lump into a 900 mg flywheel plus
-  100 mg chips over 60 active ticks for the primitive power chain.
+  source of truth. Built-in shaping also turns a 1 kg stone lump into a 900 g flywheel plus 100 g
+  chips over 60 active ticks for the primitive power chain.
 - Persistent exclusive player work now prevents simultaneous manual crafting, mining, and direct
   player-powered generation. Crafting/mining work references its authoritative job owner; direct
   power owns one durable method/equipment/destination/schedule record because no second process job
@@ -137,20 +137,21 @@
   active work and adds it to basal metabolism. Player-powered generation also binds a real equipment
   provider, condition-sensitive Power capability, finite compatible energy destination, destination
   input-power envelope, authored metabolic-efficiency ceiling, and active-tick equipment wear. Exact
-  mechanical energy enters the store only when the work completes. Admission binds the survival
-  revision and requires enough current metabolic-energy and hydration reserve to fund the entire
-  scheduled interval including basal upkeep, so survival's zero-floor cannot turn exhaustion into
-  free mechanical work. Persistence independently reconstructs the remaining resource budget,
-  required duration, and wear result, while production starts, energy transfers,
+  mechanical energy enters the store only when the work completes. The shared player-work admission
+  boundary binds the survival revision for manual crafting, mining, and direct power and requires
+  enough current metabolic-energy and hydration reserve to fund each operation's entire scheduled
+  interval including basal upkeep. This prevents work from continuing through starvation or
+  dehydration after its physical labor source is no longer viable. Persistence independently
+  reconstructs each active work variant's remaining resource budget; direct-power replay additionally
+  reconstructs its required duration and wear result, while production starts, energy transfers,
   repairs, support moves, and generic condition changes recheck this occupancy at commit so stale
   tokens cannot mutate resources after the player begins cranking.
-- The built-in primitive mechanical bridge is concrete: a 900 mg shaped stone flywheel plus a 200 mg
-  wood handle assemble into a 1,100 mg stone hand crank. Its direct-power method can charge the small
-  mechanical drive, which is now explicitly bidirectional at 10 microwatts input/output instead of a
-  source-only bootstrap store. A second 20 mg copper ingot can instead reinforce the same flywheel and
-  handle into a 1,120 mg crank with 20 microwatts pristine output. The small drive still bottlenecks
-  that crank to 10 microwatts, while the upgraded mechanical drive is now bidirectional at 200
-  microwatts and can accept its full output. Copper therefore creates a real early allocation choice
+- The built-in primitive mechanical bridge is concrete: a 900 g shaped stone flywheel plus a 200 g
+  wood handle assemble into a 1.1 kg stone hand crank with 50 W pristine output. Its direct-power
+  method can charge the 200 kJ small mechanical drive through that drive's 50 W input envelope; the
+  same store can later discharge machine work at up to 1 kW. A second 20 g copper ingot can instead
+  reinforce the same flywheel and handle into a 1.12 kg crank with 100 W pristine output. The 400 kJ
+  upgraded mechanical drive accepts up to 500 W and can discharge at 20 kW. Copper therefore creates a real early allocation choice
   between better extraction and faster manual charging, while component envelopes still determine
   throughput. The hand crank remains deliberately limited player labor rather than a substitute for
   future shafts, belts, wind/water machines, animal power, or engines.
@@ -515,7 +516,9 @@
   derived from a maintained replay root; `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` can replace that root
   with an exact decimal or hex value, and `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex seed
   lists for reproduction or wider sweeps. Explicit seed lists fail on malformed entries rather than
-  silently dropping them. The anchors guarantee stable comparison and all three operating priorities;
+  silently dropping them. The anchors guarantee stable comparison, all three operating priorities,
+  Normal/Warning/Critical initial maintenance bands, and one timing case where high-power work can
+  finish a batch before the scheduled delivery;
   balance-dependent outcomes are reported rather than frozen into aggregate pass/fail coverage. Every
   run reports its exact root and replay seeds. The exercise source lives under
   `tests/gameplay_harness/` as a dedicated integration
@@ -523,8 +526,8 @@
   cached core library instead of invalidating the feature-enabled library or compiling the crate
   unit-test harness. Seed/configuration contracts share that one specialized target instead of creating
   another Cargo artifact. Routine harness tests keep success output captured; the report lane emits
-  replay inputs, compact outcome/system summaries, and an explicit exercised/bootstrap/deferred scope
-  line, while `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace.
+  replay inputs, one concise `EXPERIENCE` line per scenario, compact outcome/system summaries, and an
+  explicit exercised/bootstrap/deferred scope line, while `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace.
   The compact report exposes sampled ore/delivery input ranges alongside completed work orders,
   terminal causes, delivery-informed control decisions, structural/WIP recovery, maintenance services,
   system pressure, and bottleneck prevalence
@@ -545,9 +548,10 @@
   selects one bounded operating priority: conserve high-power
   reserve, protect projected equipment condition, or minimize batch completion time. These priorities
   choose only among legal resolver outputs and never override critical-condition, maintenance, support,
-  energy, or ownership gates. The low-power drive is seeded with exactly enough work for the planned
-  order, while the high-power drive remains an optional scarce reserve rather than a hidden completion
-  requirement. When projected wear would cross the critical boundary the policy resolves and commits
+  energy, or ownership gates. Each order now receives a finite low-power work budget that is one or
+  two batches short of the target plus a scarce high-power reserve covering that required gap and at
+  most one extra acceleration batch. Completing the order therefore requires deliberate use of both
+  storage envelopes without turning the fast reserve into an unlimited shortcut. When projected wear would cross the critical boundary the policy resolves and commits
   real authored maintenance if replacement stock remains, then reevaluates the power choice with
   restored condition. Replacement stock is finite and spent matter remains owned rather than
   disappearing. Lack of usable stored work is reported separately from maintenance supply exhaustion.
@@ -559,11 +563,16 @@
   exposes delivery mass/target/timing, player priority, remaining work reserve, condition band, support
   state, completed work before delivery, suspended/stranded work-in-process, contained copper floor,
   and crushed ore particle-size
-  classes rather than reducing experience coverage to booleans. Ore grade therefore has an honest
+  classes and per-drive batch counts rather than reducing experience coverage to booleans. Ore grade therefore has an honest
   conserved-value effect even though it cannot yet change a downstream processing choice. The harness
-  identifies the missing concentration/smelting bridge. A separate ore-preparation capability probe
-  derives a legal mixed-ore batch from current authored equipment limits and screen-class
-  representability, then runs canonical crushing, grinding, screening, and any nonzero oversize
+  identifies the missing concentration/smelting bridge. A primitive-progression probe now exercises
+  the central early fantasy through canonical survival-costed knapping, handle shaping, pick
+  assembly, finite hand mining, crank assembly, manual charging, and crusher use. Its maintained case
+  mines 200 g of ore, charges the exact 200 J needed for that batch in 80 active ticks, then expends
+  the stored work through the crusher in 4 ticks, exposing a 20x time-leverage transition while
+  checking survival cost, persistence, and exact matter conservation. A separate ore-preparation capability probe
+  derives a legal half-to-full-scale mixed-ore batch from current authored equipment limits and
+  screen-class representability, then runs canonical crushing, grinding, screening, and any nonzero oversize
   regrind. Direct crusher-to-screen and crusher-to-fine-grind availability are reported as current
   observations rather than frozen requirements. Routing follows the resolver's actual nonzero output
   streams, particle checks compare against authored process distributions/apertures, and the probe
@@ -572,7 +581,11 @@
   state. Pure-copper melt/cast uses a seed-varied legal batch derived from the authored furnace/mold
   limits and is exercised once as a
   separately labeled downstream
-  capability probe, not repeated per scenario or presented as a continuous ore-to-metal loop. Matter,
+  capability probe, not repeated per scenario or presented as a continuous ore-to-metal loop. The
+  canonical workshop now operates on roughly 10–20 kg batches rather than milligram-scale samples;
+  comminution work, thermal power, finite store capacities, and primitive tool quantities were
+  rescaled together, and this authored-physics change advances the registry schema without adding a
+  compatibility path. Matter,
   equipment, initial energy, and structural bays remain explicit setup fixtures until their physical
   acquisition/construction authorizers exist; experienced post-setup mutations use canonical runtime
   transactions. Gameplay-harness support is split by responsibility across bootstrap, configuration,
@@ -603,8 +616,11 @@
   failures identify the exact authored capability and value-kind mismatch, and missing material
   definitions are reported as material-reference failures rather than deposit failures. Due mining
   buckets are consumed directly into stable tick outcomes instead of cloning their job-ID sets during
-  planning. This persistent layout change advances the current-only save schema; no historical mining
-  layout decoder or migration path is retained.
+  planning. Mining equipment remains at its pre-operation condition while exclusively occupied and
+  applies recorded wear atomically at the exact completion tick, matching other timed equipment
+  operations instead of front-loading future wear at admission. That in-flight semantic change
+  advances the current-only save schema; no historical mining-state decoder or migration path is
+  retained.
 - Player labor now distinguishes admission failures from commit-time conflicts. Revision-bound work
   tokens report an explicit stale revision when labor ownership changed after validation, including
   the case where intervening work has already finished, instead of misreporting the stale token as an

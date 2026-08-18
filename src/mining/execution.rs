@@ -7,7 +7,10 @@ use crate::capability::{CapabilityId, CapabilityValue, CapabilityValueKind};
 use crate::core::quantity::{Mass, MassFlow, Pressure};
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
-use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
+use crate::equipment::{
+    EquipmentId, EquipmentOperationConditionOutcome, EquipmentProviderError,
+    resolve_equipment_provider,
+};
 use crate::geology::{GeologicalDepositId, GeologicalDepositLifecycle};
 use crate::inventory::{
     InboundReservationError, ReservedDepositPlan, ReservedDepositPlanError, ReservedDepositRequest,
@@ -98,7 +101,6 @@ pub enum MiningStartError {
     InventoryRevisionExhausted,
     DestinationSupport(StockpileStructuralLoadError),
     GeologyRevisionExhausted,
-    EquipmentRevisionExhausted,
     MiningIdExhausted,
     MiningRevisionExhausted,
     Work(PlayerWorkStartError),
@@ -172,7 +174,7 @@ struct RevisionTransition {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MiningStartRevisions {
     geology: RevisionTransition,
-    equipment: RevisionTransition,
+    equipment: u64,
     mining: RevisionTransition,
     structure: Option<u64>,
 }
@@ -194,9 +196,9 @@ impl ValidatedMiningStart {
                 actual: state.inventory().revision(),
             });
         }
-        if state.equipment().revision() != self.revisions.equipment.expected {
+        if state.equipment().revision() != self.revisions.equipment {
             return Err(MiningStartCommitError::StaleEquipment {
-                expected: self.revisions.equipment.expected,
+                expected: self.revisions.equipment,
                 actual: state.equipment().revision(),
             });
         }
@@ -238,12 +240,6 @@ impl ValidatedMiningStart {
             self.record.deposit(),
             self.remaining_after,
             self.revisions.geology.next,
-        );
-        state.equipment_state_mut().apply_condition_change(
-            self.record.equipment(),
-            self.record.equipment_condition_before(),
-            self.record.equipment_condition_after(),
-            self.revisions.equipment.next,
         );
         state.mining_state_mut().insert_job(
             self.record,
@@ -445,9 +441,6 @@ pub fn validate_start_mining(
         },
     )?;
     let expected_equipment_revision = state.equipment().revision();
-    let next_equipment_revision = expected_equipment_revision
-        .checked_add(1)
-        .ok_or(MiningStartError::EquipmentRevisionExhausted)?;
     let expected_mining_revision = state.mining().revision();
     let next_mining_revision = expected_mining_revision
         .checked_add(1)
@@ -457,18 +450,21 @@ pub fn validate_start_mining(
         .checked_add(1)
         .ok_or(MiningStartError::MiningIdExhausted)?;
     let job = MiningJobId::new(job_value);
-    let work = validate_player_work_start(state, PlayerWork::Mining { job })
-        .map_err(MiningStartError::Work)?;
+    let work = validate_player_work_start(
+        registries,
+        state,
+        PlayerWork::Mining { job },
+        duration,
+        method_def.exertion(),
+    )
+    .map_err(MiningStartError::Work)?;
     Ok(ValidatedMiningStart {
         revisions: MiningStartRevisions {
             geology: RevisionTransition {
                 expected: expected_geology_revision,
                 next: next_geology_revision,
             },
-            equipment: RevisionTransition {
-                expected: expected_equipment_revision,
-                next: next_equipment_revision,
-            },
+            equipment: expected_equipment_revision,
             mining: RevisionTransition {
                 expected: expected_mining_revision,
                 next: next_mining_revision,
@@ -503,7 +499,8 @@ pub fn validate_start_mining(
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MiningTickError {
-    RevisionExhausted,
+    MiningRevisionExhausted,
+    EquipmentRevisionExhausted,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -511,23 +508,55 @@ pub(crate) struct MiningTickPlan {
     expected_revision: u64,
     next_revision: u64,
     ready_at: SimulationTick,
+    equipment_outcomes: Vec<EquipmentOperationConditionOutcome>,
 }
 
 pub(crate) fn decide_mining_tick(
     state: &AppState,
     next_tick: SimulationTick,
 ) -> Result<Option<MiningTickPlan>, MiningTickError> {
-    if !state.mining().has_jobs_due_at(next_tick) {
+    let Some(due_jobs) = state.mining().jobs_due_at(next_tick) else {
         return Ok(None);
-    }
+    };
     let expected_revision = state.mining().revision();
     let next_revision = expected_revision
         .checked_add(1)
-        .ok_or(MiningTickError::RevisionExhausted)?;
+        .ok_or(MiningTickError::MiningRevisionExhausted)?;
+    let mut equipment_outcomes = Vec::with_capacity(due_jobs.len());
+    for &job in due_jobs {
+        let record = state
+            .mining()
+            .get_job(job)
+            .unwrap_or_else(|| panic!("runtime invariant broken: due mining job disappeared"));
+        let equipment = state
+            .equipment()
+            .get_equipment(record.equipment())
+            .unwrap_or_else(|| panic!("runtime invariant broken: mining equipment disappeared"));
+        assert_eq!(
+            equipment.condition(),
+            record.equipment_condition_before(),
+            "mining occupancy must prevent equipment condition mutation while work is active"
+        );
+        if record.equipment_condition_after() != record.equipment_condition_before() {
+            equipment_outcomes.push(EquipmentOperationConditionOutcome::new(
+                record.equipment(),
+                record.equipment_condition_before(),
+                record.equipment_condition_after(),
+            ));
+        }
+    }
+    if !equipment_outcomes.is_empty() {
+        state
+            .equipment()
+            .revision()
+            .checked_add(2)
+            .ok_or(MiningTickError::EquipmentRevisionExhausted)?;
+    }
     Ok(Some(MiningTickPlan {
         expected_revision,
         next_revision,
         ready_at: next_tick,
+        equipment_outcomes,
     }))
 }
 
@@ -538,6 +567,19 @@ pub(crate) fn apply_mining_tick(
     let Some(plan) = plan else {
         return Vec::new();
     };
+    if !plan.equipment_outcomes.is_empty() {
+        let expected_equipment_revision = state.equipment().revision();
+        let next_equipment_revision = expected_equipment_revision
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("prevalidated mining equipment revision exhausted"));
+        state
+            .equipment_state_mut()
+            .apply_operation_condition_outcomes(
+                expected_equipment_revision,
+                next_equipment_revision,
+                &plan.equipment_outcomes,
+            );
+    }
     state.mining_state_mut().mark_due_jobs_ready(
         plan.expected_revision,
         plan.next_revision,
@@ -681,8 +723,8 @@ mod tests {
         MATERIAL_WOOD, MINING_METHOD_HAND_PICK, PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE,
         build_registries,
     };
-    use crate::core::quantity::Temperature;
-    use crate::core::state::validate_loaded_state;
+    use crate::core::quantity::{Temperature, Volume};
+    use crate::core::state::{StateValidationError, validate_loaded_state};
     use crate::core::time::WorldSeed;
     use crate::crafting::{
         ManualCraftStartRequest, StartManualCraftError, validate_start_manual_craft,
@@ -691,11 +733,14 @@ mod tests {
     use crate::equipment::{add_equipment, validate_assemble_equipment};
     use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
     use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
-    use crate::labor::{PlayerWork, PlayerWorkStartError};
+    use crate::labor::{
+        PlayerWork, PlayerWorkStartError, PlayerWorkValidationError,
+        calculate_player_work_resource_budget,
+    };
     use crate::maintenance::Condition;
     use crate::material::{CommodityKey, MaterialComposition};
     use crate::matter::calculate_matter_accounting;
-    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+    use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
     use crate::simulation::advance_tick;
     use crate::spatial::{VoxelBounds, VoxelCoord};
     use crate::survival::{assess_survival, initialize_player_survival};
@@ -706,7 +751,7 @@ mod tests {
         GeneratedDepositSpec::new(
             bounds,
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
-            Mass::from_milligrams(1_000),
+            Mass::from_milligrams(1_000_000),
             Temperature::from_millikelvin(300_000),
             MaterialComposition::pure(MATERIAL_COPPER),
         )
@@ -714,16 +759,16 @@ mod tests {
     }
 
     fn assemble_pick_for_test(registries: &Registries, state: &mut AppState) -> EquipmentId {
-        let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_000))
+        let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_000_000))
             .unwrap_or_else(|error| panic!("pick assembly source failed: {error}"));
         for (commodity, mass) in [
             (
                 CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-                Mass::from_milligrams(800),
+                Mass::from_milligrams(800_000),
             ),
             (
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-                Mass::from_milligrams(200),
+                Mass::from_milligrams(200_000),
             ),
         ] {
             deposit_lot_for_test(
@@ -746,20 +791,20 @@ mod tests {
         registries: &Registries,
         state: &mut AppState,
     ) -> EquipmentId {
-        let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_020))
+        let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_020_000))
             .unwrap_or_else(|error| panic!("reinforced pick assembly source failed: {error}"));
         for (commodity, mass) in [
             (
                 CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-                Mass::from_milligrams(800),
+                Mass::from_milligrams(800_000),
             ),
             (
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-                Mass::from_milligrams(200),
+                Mass::from_milligrams(200_000),
             ),
             (
                 CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
-                Mass::from_milligrams(20),
+                Mass::from_milligrams(20_000),
             ),
         ] {
             deposit_lot_for_test(
@@ -785,7 +830,7 @@ mod tests {
         initialize_player_survival(&registries, &mut state)
             .unwrap_or_else(|error| panic!("hardness survival initialization failed: {error}"));
         let pick = assemble_pick_for_test(&registries, &mut state);
-        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
             .unwrap_or_else(|error| panic!("hardness destination failed: {error}"));
         let bounds = VoxelBounds::new(VoxelCoord::new(8, -8, 0), VoxelCoord::new(9, -7, 1))
             .unwrap_or_else(|error| panic!("hardness bounds failed: {error}"));
@@ -795,7 +840,7 @@ mod tests {
             GeneratedDepositSpec::new(
                 bounds,
                 CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-                Mass::from_milligrams(100),
+                Mass::from_milligrams(100_000),
                 Temperature::from_millikelvin(300_000),
                 MaterialComposition::pure(MATERIAL_STONE),
             )
@@ -810,7 +855,7 @@ mod tests {
             deposit,
             destination,
             pick,
-            Mass::from_milligrams(100),
+            Mass::from_milligrams(100_000),
         )
         .err()
         .unwrap_or_else(|| panic!("stone pick unexpectedly mined material above its hardness"));
@@ -828,7 +873,106 @@ mod tests {
                 .get_deposit(deposit)
                 .unwrap_or_else(|| panic!("hardness deposit disappeared"))
                 .remaining_mass(),
-            Mass::from_milligrams(100)
+            Mass::from_milligrams(100_000)
+        );
+    }
+
+    #[test]
+    fn mining_requires_enough_hydration_reserve_to_finish() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0xA11E_0005));
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("mining reserve survival setup failed: {error}"));
+        let pick = assemble_pick_for_test(&registries, &mut state);
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+            .unwrap_or_else(|error| panic!("mining reserve destination failed: {error}"));
+        let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+            .unwrap_or_else(|error| panic!("mining reserve deposit failed: {error}"));
+        let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| panic!("mining reserve serialization failed: {error}"));
+        encoded["state"]["systems"]["survival"]["player"]["hydration"] = serde_json::json!(1_u64);
+        let loaded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+            .unwrap_or_else(|error| panic!("mining low-hydration decode failed: {error}"));
+        let low_reserve = loaded
+            .into_state(&registries)
+            .unwrap_or_else(|error| panic!("mining low-hydration load failed: {error}"));
+        let before = low_reserve.clone();
+
+        assert!(matches!(
+            validate_start_mining(
+                &registries,
+                &low_reserve,
+                MINING_METHOD_HAND_PICK,
+                deposit,
+                destination,
+                pick,
+                Mass::from_milligrams(100_000),
+            ),
+            Err(MiningStartError::Work(
+                PlayerWorkStartError::InsufficientHydration { .. }
+            ))
+        ));
+        assert_eq!(low_reserve, before);
+    }
+
+    #[test]
+    fn active_mining_save_requires_enough_hydration_to_finish_remaining_work() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0xA11E_0006));
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("mining save reserve survival setup failed: {error}"));
+        let pick = assemble_pick_for_test(&registries, &mut state);
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+            .unwrap_or_else(|error| panic!("mining save reserve destination failed: {error}"));
+        let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+            .unwrap_or_else(|error| panic!("mining save reserve deposit failed: {error}"));
+        let token = validate_start_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        )
+        .unwrap_or_else(|error| panic!("mining save reserve start failed: {error}"));
+        let job = token
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("mining save reserve commit failed: {error}"));
+        let record = state
+            .mining()
+            .get_job(job)
+            .unwrap_or_else(|| panic!("mining save reserve job disappeared"));
+        let remaining =
+            crate::core::time::TickSpan::new(record.completes_at().value() - state.tick().value());
+        let exertion = registries
+            .mining()
+            .get_method(MINING_METHOD_HAND_PICK)
+            .unwrap_or_else(|| panic!("mining save reserve method disappeared"))
+            .exertion();
+        let required = calculate_player_work_resource_budget(
+            registries.survival().physiology(),
+            exertion,
+            remaining,
+        )
+        .unwrap_or_else(|error| panic!("mining save reserve budget failed: {error:?}"))
+        .hydration();
+        assert!(required > Volume::from_microliters(1));
+
+        let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| panic!("mining save reserve serialization failed: {error}"));
+        encoded["state"]["systems"]["survival"]["player"]["hydration"] = serde_json::json!(1_u64);
+        let tampered: LoadedSaveEnvelope = serde_json::from_value(encoded)
+            .unwrap_or_else(|error| panic!("mining save reserve decode failed: {error}"));
+
+        assert_eq!(
+            tampered.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+                PlayerWorkValidationError::InsufficientHydration {
+                    available: Volume::from_microliters(1),
+                    required,
+                }
+            )))
         );
     }
 
@@ -846,18 +990,18 @@ mod tests {
             .unwrap_or_else(|| panic!("reinforced pick disappeared after assembly"));
         assert_eq!(
             reinforced_record.embodied_mass(),
-            Mass::from_milligrams(1_020)
+            Mass::from_milligrams(1_020_000)
         );
         assert!(reinforced_record.embodied_material().iter().any(|trace| {
             trace.profile().commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_INGOT)
-                && trace.mass() == Mass::from_milligrams(20)
+                && trace.mass() == Mass::from_milligrams(20_000)
         }));
 
-        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(300))
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(300_000))
             .unwrap_or_else(|error| panic!("reinforced mining destination failed: {error}"));
         let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
             .unwrap_or_else(|error| panic!("reinforced mining deposit failed: {error}"));
-        let requested = Mass::from_milligrams(250);
+        let requested = Mass::from_milligrams(250_000);
 
         assert_eq!(
             validate_start_mining(
@@ -871,7 +1015,7 @@ mod tests {
             )
             .err(),
             Some(MiningStartError::BatchTooLarge {
-                maximum: Mass::from_milligrams(200),
+                maximum: Mass::from_milligrams(200_000),
                 requested,
             })
         );
@@ -902,7 +1046,7 @@ mod tests {
                 .get_deposit(deposit)
                 .unwrap_or_else(|| panic!("reinforced mining deposit disappeared"))
                 .remaining_mass(),
-            Mass::from_milligrams(750)
+            Mass::from_milligrams(750_000)
         );
         validate_loaded_state(&registries, &state)
             .unwrap_or_else(|error| panic!("reinforced mining state audit failed: {error}"));
@@ -956,7 +1100,7 @@ mod tests {
                 .get_deposit(deposit)
                 .unwrap_or_else(|| panic!("missing-capability deposit disappeared"))
                 .remaining_mass(),
-            Mass::from_milligrams(1_000)
+            Mass::from_milligrams(1_000_000)
         );
     }
 
@@ -967,19 +1111,20 @@ mod tests {
         initialize_player_survival(&registries, &mut state)
             .unwrap_or_else(|error| panic!("mining survival initialization failed: {error}"));
 
-        let stone_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(3_000))
-            .unwrap_or_else(|error| panic!("mining primitive-material source failed: {error}"));
-        let shaped = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000))
+        let stone_source =
+            add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(3_000_000))
+                .unwrap_or_else(|error| panic!("mining primitive-material source failed: {error}"));
+        let shaped = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
             .unwrap_or_else(|error| panic!("mining shaped stockpile failed: {error}"));
         let ore_destination =
-            add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000))
+            add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
                 .unwrap_or_else(|error| panic!("mining ore destination failed: {error}"));
         deposit_lot_for_test(
             &registries,
             &mut state,
             stone_source,
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-            Mass::from_milligrams(2_000),
+            Mass::from_milligrams(2_000_000),
             Temperature::from_millikelvin(293_150),
         )
         .unwrap_or_else(|error| panic!("mining stone ingress failed: {error}"));
@@ -988,7 +1133,7 @@ mod tests {
             &mut state,
             stone_source,
             CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            Mass::from_milligrams(1_000),
+            Mass::from_milligrams(1_000_000),
             Temperature::from_millikelvin(293_150),
         )
         .unwrap_or_else(|error| panic!("mining handle wood ingress failed: {error}"));
@@ -1035,15 +1180,18 @@ mod tests {
             .equipment()
             .get_equipment(pick)
             .unwrap_or_else(|| panic!("assembled stone pick disappeared"));
-        assert_eq!(pick_record.embodied_mass(), Mass::from_milligrams(1_000));
+        assert_eq!(
+            pick_record.embodied_mass(),
+            Mass::from_milligrams(1_000_000)
+        );
         assert_eq!(pick_record.embodied_material().len(), 2);
         assert!(pick_record.embodied_material().iter().any(|trace| {
             trace.profile().commodity() == CommodityKey::new(MATERIAL_STONE, FORM_TOOL)
-                && trace.mass() == Mass::from_milligrams(800)
+                && trace.mass() == Mass::from_milligrams(800_000)
         }));
         assert!(pick_record.embodied_material().iter().any(|trace| {
             trace.profile().commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE)
-                && trace.mass() == Mass::from_milligrams(200)
+                && trace.mass() == Mass::from_milligrams(200_000)
         }));
 
         let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
@@ -1057,6 +1205,11 @@ mod tests {
             .unwrap_or_else(|| panic!("mining initial energy total overflowed"));
         let survival_before_mining = assess_survival(&registries, &state)
             .unwrap_or_else(|| panic!("mining survival state disappeared before work"));
+        let pick_condition_before = state
+            .equipment()
+            .get_equipment(pick)
+            .unwrap_or_else(|| panic!("mining pick disappeared before work"))
+            .condition();
 
         let mining = validate_start_mining(
             &registries,
@@ -1065,19 +1218,33 @@ mod tests {
             deposit,
             ore_destination,
             pick,
-            Mass::from_milligrams(100),
+            Mass::from_milligrams(100_000),
         )
         .unwrap_or_else(|error| panic!("mining start validation failed: {error}"));
         let job = mining
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("mining start commit failed: {error}"));
+        let pick_condition_after = state
+            .mining()
+            .get_job(job)
+            .unwrap_or_else(|| panic!("mining job disappeared after start"))
+            .equipment_condition_after();
+        assert!(pick_condition_after < pick_condition_before);
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(pick)
+                .unwrap_or_else(|| panic!("mining pick disappeared after start"))
+                .condition(),
+            pick_condition_before
+        );
         assert_eq!(
             state
                 .geology()
                 .get_deposit(deposit)
                 .unwrap_or_else(|| panic!("mining deposit disappeared"))
                 .remaining_mass(),
-            Mass::from_milligrams(900)
+            Mass::from_milligrams(900_000)
         );
         assert_eq!(
             state
@@ -1085,7 +1252,7 @@ mod tests {
                 .get_stockpile(ore_destination)
                 .unwrap_or_else(|| panic!("mining destination disappeared"))
                 .reserved_inbound(),
-            Mass::from_milligrams(100)
+            Mass::from_milligrams(100_000)
         );
         assert_eq!(
             calculate_matter_accounting(&state)
@@ -1133,6 +1300,14 @@ mod tests {
             &[job]
         );
         assert_eq!(state.player_work().active(), None);
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(pick)
+                .unwrap_or_else(|| panic!("mining pick disappeared after work"))
+                .condition(),
+            pick_condition_after
+        );
         let survival_after_mining = assess_survival(&registries, &state)
             .unwrap_or_else(|| panic!("mining survival state disappeared after work"));
         let physiology = registries.survival().physiology();
@@ -1174,7 +1349,7 @@ mod tests {
             .unwrap_or_else(|| panic!("mining destination disappeared after claim"));
         assert_eq!(
             destination.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_ORE)),
-            Mass::from_milligrams(100)
+            Mass::from_milligrams(100_000)
         );
         assert_eq!(destination.reserved_inbound(), Mass::ZERO);
         assert_eq!(
@@ -1208,8 +1383,9 @@ mod tests {
         initialize_player_survival(&registries, &mut state)
             .unwrap_or_else(|error| panic!("mining soak survival initialization failed: {error}"));
         let pick = assemble_pick_for_test(&registries, &mut state);
-        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000))
-            .unwrap_or_else(|error| panic!("mining soak destination failed: {error}"));
+        let destination =
+            add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+                .unwrap_or_else(|error| panic!("mining soak destination failed: {error}"));
         let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
             .unwrap_or_else(|error| panic!("mining soak deposit failed: {error}"));
         let initial_matter = calculate_matter_accounting(&state)
@@ -1228,7 +1404,7 @@ mod tests {
                 deposit,
                 destination,
                 pick,
-                Mass::from_milligrams(1),
+                Mass::from_milligrams(1_000),
             )
             .unwrap_or_else(|error| panic!("mining soak start failed at step {step}: {error}"))
             .commit(&mut state)
@@ -1301,7 +1477,7 @@ mod tests {
             .unwrap_or_else(|| panic!("mining soak destination disappeared"));
         assert_eq!(
             destination_record.stored_mass(),
-            Mass::from_milligrams(1_000)
+            Mass::from_milligrams(1_000_000)
         );
         assert_eq!(state.inventory().lot_ids(destination).count(), 1);
         assert_eq!(state.mining().jobs().count(), 0);

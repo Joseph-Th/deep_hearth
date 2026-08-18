@@ -13,12 +13,14 @@ use crate::core::state::AppState;
 use crate::energy::{
     EnergyStoreDefinitionId, EnergyStoreId, add_energy_store_with_initial_for_fixture,
 };
+use crate::geology::{GeneratedDepositSpec, GeologicalDepositId, insert_generated_deposit};
 use crate::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, add_stockpile,
     deposit_composed_lot_for_fixture, deposit_lot_for_fixture,
 };
 use crate::material::{CommodityKey, FormId, MaterialComposition};
 use crate::registry::Registries;
+use crate::spatial::VoxelBounds;
 use crate::structural::{
     StructuralElementId, bind_structural_construction_selection,
     resolve_structural_material_requirement, validate_structural_construction,
@@ -32,6 +34,23 @@ pub fn seed_energy_store(
 ) -> EnergyStoreId {
     add_energy_store_with_initial_for_fixture(registries, state, definition, amount)
         .unwrap_or_else(|error| panic!("gameplay bootstrap energy seed failed: {error}"))
+}
+
+pub fn seed_geological_deposit(
+    registries: &Registries,
+    state: &mut AppState,
+    bounds: VoxelBounds,
+    commodity: CommodityKey,
+    mass: Mass,
+    temperature: Temperature,
+    composition: MaterialComposition,
+) -> GeologicalDepositId {
+    let spec = GeneratedDepositSpec::new(bounds, commodity, mass, temperature, composition)
+        .unwrap_or_else(|error| {
+            panic!("gameplay bootstrap geological specification failed: {error}")
+        });
+    insert_generated_deposit(registries, state, spec)
+        .unwrap_or_else(|error| panic!("gameplay bootstrap geological deposit failed: {error}"))
 }
 
 pub fn seed_lot(

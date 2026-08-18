@@ -18,6 +18,7 @@ use std::env;
 mod configuration;
 mod contracts;
 mod probe_setup;
+mod progression_probe;
 mod report;
 mod seed;
 
@@ -28,6 +29,7 @@ use deep_hearth::content::gameplay_fixture::{
     seed_lot,
 };
 use probe_setup::{setup_foundry_probe, setup_ore_preparation_probe};
+use progression_probe::run_primitive_progression_probe;
 use report::{
     PowerPreference, ScenarioPolicyVariation, ScenarioReport, print_content_summary,
     print_harness_summary,
@@ -128,6 +130,7 @@ struct ScenarioOreVariation {
 #[derive(Clone, Copy, Debug)]
 struct ScenarioCrusherVariation {
     initial_crusher_condition: Condition,
+    small_drive_batch_budget: u8,
     large_drive_batch_budget: u8,
 }
 
@@ -143,10 +146,11 @@ struct ScenarioDeliveryVariation {
     mass: Mass,
     destination_is_compact: bool,
     delivery_at_tick: u64,
+    force_power_deadline: bool,
 }
 
 impl ScenarioVariation {
-    fn from_seed(registries: &Registries, seed: u64) -> Self {
+    fn from_seed(registries: &Registries, seed: u64, anchor_index: Option<usize>) -> Self {
         let a = mix64(seed);
         let b = mix64(a);
         let c = mix64(b);
@@ -179,7 +183,28 @@ impl ScenarioVariation {
         let batch_mass = minimum_batch + c % (maximum_batch - minimum_batch + 1);
         let planned_batches = 4 + (a % 3) as u8;
 
-        let initial_condition = 1 + (e % u64::from(CONDITION_PARTS_PER_MILLION)) as u32;
+        let thresholds = crusher_definition.maintenance_thresholds();
+        let initial_condition = match anchor_index.map(|index| index % 3) {
+            Some(0) => {
+                let warning = thresholds.warning_below().parts_per_million();
+                warning + (CONDITION_PARTS_PER_MILLION - warning).div_ceil(2)
+            }
+            Some(1) => {
+                let critical = thresholds.critical_below().parts_per_million();
+                let warning = thresholds.warning_below().parts_per_million();
+                critical + (warning - critical).div_ceil(2)
+            }
+            Some(2) => thresholds
+                .critical_below()
+                .parts_per_million()
+                .div_ceil(2)
+                .max(1),
+            None => 1 + (e % u64::from(CONDITION_PARTS_PER_MILLION)) as u32,
+            Some(_) => unreachable!("anchor condition modulo is exhaustive"),
+        };
+        let required_large_batches = 1 + (h % 2) as u8;
+        let small_drive_batch_budget = planned_batches - required_large_batches;
+        let large_drive_batch_budget = required_large_batches + ((h >> 1) & 1) as u8;
 
         let crusher_weight =
             calculate_weight_force_ceiling(crusher_definition.mass(), registries.core().gravity());
@@ -207,7 +232,8 @@ impl ScenarioVariation {
             },
             crusher: ScenarioCrusherVariation {
                 initial_crusher_condition: condition(initial_condition),
-                large_drive_batch_budget: 1 + (h % u64::from(planned_batches)) as u8,
+                small_drive_batch_budget,
+                large_drive_batch_budget,
             },
             structure: ScenarioStructureVariation {
                 compact_support_area: compact_area,
@@ -218,6 +244,7 @@ impl ScenarioVariation {
                 mass: delivery_mass,
                 destination_is_compact: i.is_multiple_of(2),
                 delivery_at_tick: 0,
+                force_power_deadline: anchor_index == Some(0),
             },
             policy: ScenarioPolicyVariation { power_preference },
         }
@@ -664,7 +691,7 @@ fn setup_workshop(
         .unwrap_or_else(|| panic!("canonical crusher process definition disappeared"));
     let batch_energy =
         calculate_mass_specific_energy(variation.ore.batch_mass, comminution.specific_energy());
-    let small_drive_batch_budget = variation.ore.planned_batches;
+    let small_drive_batch_budget = variation.crusher.small_drive_batch_budget;
     let small_drive_energy =
         Energy::from_nanojoules(batch_energy.nanojoules() * u128::from(small_drive_batch_budget));
     let small_drive = seed_energy_store_exact(
@@ -859,28 +886,44 @@ fn schedule_delivery_from_current_gameplay(
     ids: WorkshopIds,
     variation: &mut ScenarioVariation,
 ) {
-    let reference_duration = resolve_crush_option(
+    let small = resolve_crush_option(
         registries,
         state,
         ids,
         variation.ore.batch_mass,
         "small",
         ids.small_drive,
-    )
-    .or_else(|| {
-        resolve_crush_option(
-            registries,
-            state,
-            ids,
-            variation.ore.batch_mass,
-            "large",
-            ids.large_drive,
-        )
-    })
-    .map(|option| option.resolved.process_resolution().duration().value())
-    .unwrap_or_else(|| {
-        panic!("gameplay harness has no powered reference batch for delivery timing")
-    });
+    );
+    let large = resolve_crush_option(
+        registries,
+        state,
+        ids,
+        variation.ore.batch_mass,
+        "large",
+        ids.large_drive,
+    );
+    if variation.delivery.force_power_deadline
+        && let (Some(small), Some(large)) = (&small, &large)
+    {
+        let small_duration = small.resolved.process_resolution().duration().value();
+        let large_duration = large.resolved.process_resolution().duration().value();
+        if large_duration < small_duration {
+            variation.delivery.delivery_at_tick = state
+                .tick()
+                .value()
+                .checked_add(large_duration + (small_duration - large_duration).div_ceil(2))
+                .unwrap_or_else(|| {
+                    panic!("gameplay harness maintained delivery deadline overflowed")
+                });
+            return;
+        }
+    }
+    let reference_duration = small
+        .or(large)
+        .map(|option| option.resolved.process_resolution().duration().value())
+        .unwrap_or_else(|| {
+            panic!("gameplay harness has no powered reference batch for delivery timing")
+        });
     assert!(
         reference_duration > 0,
         "nonzero gameplay batch must take at least one tick"
@@ -1561,7 +1604,7 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
         );
     }
     schedule_delivery_from_current_gameplay(registries, &state, ids, &mut variation);
-    let small_drive_batch_budget = variation.ore.planned_batches;
+    let small_drive_batch_budget = variation.crusher.small_drive_batch_budget;
     let maintenance_profile = crusher_definition
         .maintenance_profile()
         .unwrap_or_else(|| panic!("canonical crusher maintenance profile disappeared"));
@@ -1752,9 +1795,9 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
         report.choices.delivery_deadline_power_choice |= deadline_driven;
         println!("  decision: use {} drive because {reason}", selected.name);
         if selected.store == ids.small_drive {
-            report.choices.used_small_drive = true;
+            report.choices.small_drive_batches += 1;
         } else if selected.store == ids.large_drive {
-            report.choices.used_large_drive = true;
+            report.choices.large_drive_batches += 1;
         }
         let outcome = crush_batch(
             registries,
@@ -1953,7 +1996,7 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
         state.tick().value(),
     );
     println!(
-        "  report: structural_change={} damage_debt={} support_block={} relocation={} structural_stop={} production_suspension={} stranded_wip={} small_drive={} large_drive={} large_exhausted={} energy_limit={} throughput_limit={} maintenance_warning={} maintenance_services={} maintenance_supply_exhausted={} maintenance_stop={} energy_stop={} ore_frontier={}",
+        "  report: structural_change={} damage_debt={} support_block={} relocation={} structural_stop={} production_suspension={} stranded_wip={} small_drive_batches={} large_drive_batches={} large_exhausted={} energy_limit={} throughput_limit={} maintenance_warning={} maintenance_services={} maintenance_supply_exhausted={} maintenance_stop={} energy_stop={} ore_frontier={}",
         report.structure.structural_consequence,
         report.structure.structural_damage_debt,
         report.structure.support_failure_blocked_production,
@@ -1961,8 +2004,8 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
         report.structure.structural_stop,
         report.structure.production_suspension,
         report.structure.stranded_work_in_process,
-        report.choices.used_small_drive,
-        report.choices.used_large_drive,
+        report.choices.small_drive_batches,
+        report.choices.large_drive_batches,
         report.choices.large_drive_exhausted,
         report.limits.energy_bottleneck,
         report.limits.throughput_bottleneck,
@@ -1997,7 +2040,8 @@ fn foundry_probe_mass(registries: &Registries, seed: u64) -> Mass {
     );
     let maximum = melt_maximum.milligrams().min(cast_maximum.milligrams());
     assert!(maximum > 0, "foundry probe requires a nonzero legal batch");
-    Mass::from_milligrams(1 + mix64(seed ^ 0xF0A1_DA7A) % maximum.min(12))
+    let minimum = maximum.div_ceil(2);
+    Mass::from_milligrams(minimum + mix64(seed ^ 0xF0A1_DA7A) % (maximum - minimum + 1))
 }
 
 fn ore_preparation_probe_parameters(registries: &Registries, seed: u64) -> (Mass, u32) {
@@ -2071,7 +2115,9 @@ fn ore_preparation_probe_parameters(registries: &Registries, seed: u64) -> (Mass
         maximum_units > 0,
         "authored screen partition cannot be represented within the equipment batch limits"
     );
-    let unit_count = 1 + mix64(seed ^ 0x0AE5_1A5E) % maximum_units.min(3);
+    let minimum_units = maximum_units.div_ceil(2);
+    let unit_count =
+        minimum_units + mix64(seed ^ 0x0AE5_1A5E) % (maximum_units - minimum_units + 1);
     let batch_mass = Mass::from_milligrams(representable_unit * unit_count);
     let copper_ppm = 300_000 + (mix64(seed ^ 0xC0FF_EE11) % 400_001) as u32;
     (batch_mass, copper_ppm)
@@ -2156,6 +2202,12 @@ fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
     assert!(
         cast_mass_is_conserved,
         "foundry capability probe did not conserve cast output mass"
+    );
+    std::println!(
+        "FOUNDRY batch={}mg melt={}t cast={}t matter=conserved",
+        mass.milligrams(),
+        melt_duration.value(),
+        cast_duration.value(),
     );
 }
 
@@ -2398,12 +2450,12 @@ fn run_ore_preparation_capability_probe(registries: &Registries, seed: u64) {
         .classes()
         .iter()
         .all(|class| class.range().maximum_diameter() <= screen_definition.aperture());
-    let (fine_energy, final_grinder_projection, oversize_profile_is_preserved) =
+    let (fine_energy, fine_duration_ticks, final_grinder_projection, oversize_profile_is_preserved) =
         if screened_oversize_mass.is_zero() {
             println!(
                 "  regrind oversize: skipped because the authored screen produced no oversize"
             );
-            (Energy::ZERO, grinder_condition, true)
+            (Energy::ZERO, 0, grinder_condition, true)
         } else {
             let oversize_lot = stockpile_first_lot(&state, ids.oversize_storage);
             let oversize_before_regrind = state
@@ -2463,6 +2515,7 @@ fn run_ore_preparation_capability_probe(registries: &Registries, seed: u64) {
             assert_eq!(validate_loaded_state(registries, &state), Ok(()));
             (
                 fine_energy,
+                fine_duration.value(),
                 final_grinder_projection,
                 oversize_profile_is_preserved,
             )
@@ -2590,6 +2643,15 @@ fn run_ore_preparation_capability_probe(registries: &Registries, seed: u64) {
             "ore-preparation capability contract failed: {name}"
         );
     }
+    std::println!(
+        "ORE_PREP batch={}mg copper={}ppm stages=[crush:{}t grind:{}t screen:{}t regrind:{}t] matter=conserved energy=resolved",
+        batch_mass.milligrams(),
+        copper_ppm,
+        crush_duration.value(),
+        grind_duration.value(),
+        screen_duration.value(),
+        fine_duration_ticks,
+    );
 }
 
 /// Runs the headless workshop scenario matrix with optional exploratory capability output.
@@ -2629,14 +2691,22 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
         "WORKSHOP FANTASY: turn a constrained physical workshop into reliable production by reading structural margin, power reserve, machine condition, material state, and a planned material transfer."
     );
     println!(
-        "LOOP SCOPE: the scenario matrix chooses when to attempt a canonical supported-stockpile transfer; it does not claim a logistics scheduler exists. It also experiences varied player priorities, comminution, finite stored work, power-versus-time tradeoffs, wear, finite replacement-stock maintenance, inventory-owned structural load changes, production suspension, and recovery. Resource acquisition, energy generation, and construction authorization remain outside this workshop setup. Separate ore-preparation and foundry probes validate existing downstream capabilities without pretending the mixed-ore chain is complete."
+        "LOOP SCOPE: the scenario matrix chooses when to attempt a canonical supported-stockpile transfer; it does not claim a logistics scheduler exists. It experiences varied player priorities, comminution, finite stored work, power-versus-time tradeoffs, wear, finite replacement-stock maintenance, inventory-owned structural load changes, production suspension, and recovery. A separate primitive progression probe experiences survival-costed crafting, mining, manual power generation, and the conversion of stored player work into mechanized throughput. Ore-preparation and foundry probes validate existing downstream capabilities without pretending the mixed-ore chain is complete."
     );
 
+    let anchor_seed_count = plan.anchor_seed_count();
     let reports: Vec<_> = plan
         .seeds()
         .iter()
         .copied()
-        .map(|seed| ScenarioVariation::from_seed(&registries, seed))
+        .enumerate()
+        .map(|(index, seed)| {
+            ScenarioVariation::from_seed(
+                &registries,
+                seed,
+                (index < anchor_seed_count).then_some(index),
+            )
+        })
         .map(|variation| run_scenario(&registries, variation))
         .collect();
     assert_scenario_contracts(&reports);
@@ -2644,6 +2714,7 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
         assert_anchor_diversity(&reports[..plan.anchor_seed_count()]);
     }
     if include_probes {
+        run_primitive_progression_probe(&registries, probe_seed ^ 0x5052_4F47_5245_5353);
         run_ore_preparation_capability_probe(&registries, probe_seed);
         run_foundry_capability_probe(&registries, probe_seed);
     }
@@ -2660,6 +2731,13 @@ fn gameplay_ore_preparation_probe() {
     let registries = build_registries();
     assert_canonical_gameplay_content(&registries);
     run_ore_preparation_capability_probe(&registries, 0xD33F_C01D_0A11);
+}
+
+#[test]
+fn gameplay_primitive_progression_probe() {
+    let registries = build_registries();
+    assert_canonical_gameplay_content(&registries);
+    run_primitive_progression_probe(&registries, 0xD33F_C01D_5052);
 }
 
 #[test]

@@ -10,7 +10,7 @@ use crate::labor::{
     ManualPowerOutcome, ManualPowerTickError, apply_manual_power_tick, apply_player_work_tick,
     decide_manual_power_tick, decide_player_work_tick, player_work_exertion,
 };
-use crate::mining::{MiningJobId, apply_mining_tick, decide_mining_tick};
+use crate::mining::{MiningJobId, MiningTickError, apply_mining_tick, decide_mining_tick};
 use crate::production::{
     CompletionApplication, CompletionCommitError, CompletionPlanError, ProcessCompletion,
     ProductionAvailabilityChange, ProductionJobId, apply_completion_plan, decide_due_completions,
@@ -319,8 +319,10 @@ pub fn advance_tick(
                 TickError::ManualPowerEquipmentRevisionExhausted
             }
         })?;
-    let mining_plan = decide_mining_tick(state, next_tick)
-        .map_err(|_error| TickError::MiningRevisionExhausted)?;
+    let mining_plan = decide_mining_tick(state, next_tick).map_err(|error| match error {
+        MiningTickError::MiningRevisionExhausted => TickError::MiningRevisionExhausted,
+        MiningTickError::EquipmentRevisionExhausted => TickError::EquipmentRevisionExhausted,
+    })?;
     let exertion = player_work_exertion(registries, state);
     let survival_plan =
         decide_survival_tick(registries, state, exertion).map_err(|error| match error {

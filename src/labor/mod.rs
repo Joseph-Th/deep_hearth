@@ -6,6 +6,7 @@ mod power_execution;
 mod power_physics;
 mod state;
 mod validation;
+mod work_resources;
 
 pub use definitions::{LaborRegistry, ManualPowerDefinition, ManualPowerMethodId};
 pub use lifecycle::{PlayerWorkCommitError, PlayerWorkStartError};
@@ -24,3 +25,6 @@ pub(crate) use power_execution::{
     ManualPowerTickError, apply_manual_power_tick, decide_manual_power_tick,
 };
 pub(crate) use validation::validate_loaded_player_work;
+pub(crate) use work_resources::{
+    PlayerWorkResourceBudgetError, calculate_player_work_resource_budget,
+};

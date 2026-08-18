@@ -73,7 +73,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             ),
             CapabilityConditionPoint::new(
                 condition(600_000),
-                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(20)),
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(2_000_000)),
             ),
         ],
     );
@@ -83,7 +83,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             CapabilityConditionPoint::new(Condition::FAILED, CapabilityValue::Power(Power::ZERO)),
             CapabilityConditionPoint::new(
                 condition(500_000),
-                CapabilityValue::Power(Power::from_microwatts(10)),
+                CapabilityValue::Power(Power::from_microwatts(50_000_000)),
             ),
         ],
     );
@@ -96,7 +96,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             ),
             CapabilityConditionPoint::new(
                 condition(500_000),
-                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(15)),
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(15_000)),
             ),
         ],
     );
@@ -109,7 +109,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             ),
             CapabilityConditionPoint::new(
                 condition(500_000),
-                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(10)),
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(10_000)),
             ),
         ],
     );
@@ -122,7 +122,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             ),
             CapabilityConditionPoint::new(
                 condition(600_000),
-                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(10)),
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1_000_000)),
             ),
         ],
     );
@@ -135,7 +135,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             ),
             CapabilityConditionPoint::new(
                 condition(600_000),
-                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(40)),
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(4_000_000)),
             ),
         ],
     );
@@ -145,7 +145,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             CapabilityConditionPoint::new(Condition::FAILED, CapabilityValue::Power(Power::ZERO)),
             CapabilityConditionPoint::new(
                 condition(500_000),
-                CapabilityValue::Power(Power::from_microwatts(5)),
+                CapabilityValue::Power(Power::from_microwatts(25_000_000)),
             ),
         ],
     );
@@ -157,11 +157,11 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             profile([
                 (
                     CAPABILITY_CRUSHER_FLOW,
-                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(40)),
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(4_000_000)),
                 ),
                 (
                     CAPABILITY_CRUSHER_BATCH,
-                    CapabilityValue::Mass(Mass::from_milligrams(20)),
+                    CapabilityValue::Mass(Mass::from_milligrams(20_000_000)),
                 ),
             ]),
             thresholds(),
@@ -175,7 +175,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             profile([
                 (
                     CAPABILITY_HEATING_POWER,
-                    CapabilityValue::Power(Power::from_microwatts(20_000_000)),
+                    CapabilityValue::Power(Power::from_microwatts(2_000_000_000_000)),
                 ),
                 (
                     CAPABILITY_THERMAL_MAX_TEMPERATURE,
@@ -183,7 +183,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 ),
                 (
                     CAPABILITY_THERMAL_BATCH,
-                    CapabilityValue::Mass(Mass::from_milligrams(20)),
+                    CapabilityValue::Mass(Mass::from_milligrams(20_000_000)),
                 ),
             ]),
             thresholds(),
@@ -195,7 +195,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             profile([
                 (
                     CAPABILITY_COOLING_POWER,
-                    CapabilityValue::Power(Power::from_microwatts(10_000_000)),
+                    CapabilityValue::Power(Power::from_microwatts(1_000_000_000_000)),
                 ),
                 (
                     CAPABILITY_THERMAL_MAX_TEMPERATURE,
@@ -203,7 +203,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 ),
                 (
                     CAPABILITY_THERMAL_BATCH,
-                    CapabilityValue::Mass(Mass::from_milligrams(20)),
+                    CapabilityValue::Mass(Mass::from_milligrams(20_000_000)),
                 ),
             ]),
             thresholds(),
@@ -215,11 +215,11 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             profile([
                 (
                     CAPABILITY_SCREEN_FLOW,
-                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(80)),
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(8_000_000)),
                 ),
                 (
                     CAPABILITY_SCREEN_BATCH,
-                    CapabilityValue::Mass(Mass::from_milligrams(20)),
+                    CapabilityValue::Mass(Mass::from_milligrams(20_000_000)),
                 ),
             ]),
             thresholds(),
@@ -232,11 +232,11 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             profile([
                 (
                     CAPABILITY_GRINDER_FLOW,
-                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(20)),
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(2_000_000)),
                 ),
                 (
                     CAPABILITY_GRINDER_BATCH,
-                    CapabilityValue::Mass(Mass::from_milligrams(20)),
+                    CapabilityValue::Mass(Mass::from_milligrams(20_000_000)),
                 ),
             ]),
             thresholds(),
@@ -245,15 +245,15 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_STONE_PICK,
             "knapped stone pick",
-            Mass::from_milligrams(1_000),
+            Mass::from_milligrams(1_000_000),
             profile([
                 (
                     CAPABILITY_MINING_FLOW,
-                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(20)),
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(20_000)),
                 ),
                 (
                     CAPABILITY_MINING_MAX_BATCH,
-                    CapabilityValue::Mass(Mass::from_milligrams(200)),
+                    CapabilityValue::Mass(Mass::from_milligrams(200_000)),
                 ),
                 (
                     CAPABILITY_MINING_MAX_HARDNESS,
@@ -266,20 +266,20 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
         .with_assembly_profile(EquipmentAssemblyProfile::new(vec![
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-                Mass::from_milligrams(800),
+                Mass::from_milligrams(800_000),
             ),
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-                Mass::from_milligrams(200),
+                Mass::from_milligrams(200_000),
             ),
         ])),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_STONE_HAND_CRANK,
             "stone hand crank",
-            Mass::from_milligrams(1_100),
+            Mass::from_milligrams(1_100_000),
             profile([(
                 CAPABILITY_MANUAL_POWER_OUTPUT,
-                CapabilityValue::Power(Power::from_microwatts(10)),
+                CapabilityValue::Power(Power::from_microwatts(50_000_000)),
             )]),
             thresholds(),
             vec![hand_crank_curve],
@@ -287,25 +287,25 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
         .with_assembly_profile(EquipmentAssemblyProfile::new(vec![
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-                Mass::from_milligrams(900),
+                Mass::from_milligrams(900_000),
             ),
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-                Mass::from_milligrams(200),
+                Mass::from_milligrams(200_000),
             ),
         ])),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_COPPER_REINFORCED_PICK,
             "copper-reinforced stone pick",
-            Mass::from_milligrams(1_020),
+            Mass::from_milligrams(1_020_000),
             profile([
                 (
                     CAPABILITY_MINING_FLOW,
-                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(30)),
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(30_000)),
                 ),
                 (
                     CAPABILITY_MINING_MAX_BATCH,
-                    CapabilityValue::Mass(Mass::from_milligrams(300)),
+                    CapabilityValue::Mass(Mass::from_milligrams(300_000)),
                 ),
                 (
                     CAPABILITY_MINING_MAX_HARDNESS,
@@ -318,24 +318,24 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
         .with_assembly_profile(EquipmentAssemblyProfile::new(vec![
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-                Mass::from_milligrams(800),
+                Mass::from_milligrams(800_000),
             ),
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-                Mass::from_milligrams(200),
+                Mass::from_milligrams(200_000),
             ),
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
-                Mass::from_milligrams(20),
+                Mass::from_milligrams(20_000),
             ),
         ])),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
             "copper-reinforced stone hand crank",
-            Mass::from_milligrams(1_120),
+            Mass::from_milligrams(1_120_000),
             profile([(
                 CAPABILITY_MANUAL_POWER_OUTPUT,
-                CapabilityValue::Power(Power::from_microwatts(20)),
+                CapabilityValue::Power(Power::from_microwatts(100_000_000)),
             )]),
             thresholds(),
             vec![reinforced_hand_crank_curve],
@@ -343,15 +343,15 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
         .with_assembly_profile(EquipmentAssemblyProfile::new(vec![
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-                Mass::from_milligrams(900),
+                Mass::from_milligrams(900_000),
             ),
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-                Mass::from_milligrams(200),
+                Mass::from_milligrams(200_000),
             ),
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
-                Mass::from_milligrams(20),
+                Mass::from_milligrams(20_000),
             ),
         ])),
     ])

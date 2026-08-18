@@ -4,9 +4,9 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::capability::{CapabilityValue, CapabilityValueKind};
-use crate::core::quantity::{Energy, Power, Volume};
+use crate::core::quantity::{Energy, Power};
 use crate::core::state::AppState;
-use crate::core::time::{SimulationTick, TickSpan};
+use crate::core::time::SimulationTick;
 use crate::energy::{
     EnergyCarrier, EnergySinkError, EnergyStoreId, EnergyStoreRecord,
     apply_released_energy_outcomes, calculate_power_duration_ceiling, validate_energy_sink,
@@ -16,12 +16,9 @@ use crate::maintenance::calculate_condition_after_active_ticks;
 use crate::mining::MiningJobId;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
-use crate::survival::Vitality;
 
 use super::power_physics::{
-    ManualPowerMetabolicDurationError, ManualPowerResourceBudgetError,
-    calculate_manual_power_resource_budget, calculate_metabolic_duration,
-    metabolic_output_per_tick,
+    ManualPowerMetabolicDurationError, calculate_metabolic_duration, metabolic_output_per_tick,
 };
 use super::{
     ManualPowerMethodId, ManualPowerWork, PlayerWork, PlayerWorkCommitError, PlayerWorkStartError,
@@ -60,8 +57,6 @@ pub enum ManualPowerError {
     UnknownMethod {
         method: ManualPowerMethodId,
     },
-    SurvivalNotInitialized,
-    PlayerDead,
     Work(PlayerWorkStartError),
     Equipment(EquipmentProviderError),
     EquipmentBusyProduction {
@@ -106,22 +101,6 @@ pub enum ManualPowerError {
         method: ManualPowerMethodId,
         energy: Energy,
     },
-    MetabolicCostOverflow {
-        method: ManualPowerMethodId,
-        duration: TickSpan,
-    },
-    InsufficientMetabolicEnergy {
-        available: Energy,
-        required: Energy,
-    },
-    HydrationCostOverflow {
-        method: ManualPowerMethodId,
-        duration: TickSpan,
-    },
-    InsufficientHydration {
-        available: Volume,
-        required: Volume,
-    },
     CompletionTickOverflow {
         method: ManualPowerMethodId,
     },
@@ -133,10 +112,6 @@ impl Display for ManualPowerError {
             Self::UnknownMethod { method } => {
                 write!(formatter, "unknown manual power method {}", method.value())
             }
-            Self::SurvivalNotInitialized => {
-                formatter.write_str("manual power requires initialized player survival")
-            }
-            Self::PlayerDead => formatter.write_str("dead player cannot provide manual power"),
             Self::Work(error) => write!(formatter, "manual power labor admission failed: {error}"),
             Self::Equipment(error) => write!(formatter, "manual power equipment failed: {error}"),
             Self::EquipmentBusyProduction {
@@ -216,36 +191,6 @@ impl Display for ManualPowerError {
                 method.value(),
                 energy.nanojoules()
             ),
-            Self::MetabolicCostOverflow { method, duration } => write!(
-                formatter,
-                "manual power method {} metabolic cost overflows across {} active ticks",
-                method.value(),
-                duration.value()
-            ),
-            Self::InsufficientMetabolicEnergy {
-                available,
-                required,
-            } => write!(
-                formatter,
-                "manual power requires {} nJ of metabolic reserve but only {} nJ is available",
-                required.nanojoules(),
-                available.nanojoules()
-            ),
-            Self::HydrationCostOverflow { method, duration } => write!(
-                formatter,
-                "manual power method {} hydration cost overflows across {} active ticks",
-                method.value(),
-                duration.value()
-            ),
-            Self::InsufficientHydration {
-                available,
-                required,
-            } => write!(
-                formatter,
-                "manual power requires {} uL of hydration reserve but only {} uL is available",
-                required.microliters(),
-                available.microliters()
-            ),
             Self::CompletionTickOverflow { method } => write!(
                 formatter,
                 "manual power method {} completion exceeds the world clock range",
@@ -262,8 +207,6 @@ impl Error for ManualPowerError {
             Self::Equipment(error) => Some(error),
             Self::EnergySink(error) => Some(error),
             Self::UnknownMethod { method: _ }
-            | Self::SurvivalNotInitialized
-            | Self::PlayerDead
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::MissingPowerCapability { .. }
@@ -274,10 +217,6 @@ impl Error for ManualPowerError {
             | Self::PowerDuration { .. }
             | Self::MetabolicConversionTooSmall { .. }
             | Self::MetabolicDurationOverflow { .. }
-            | Self::MetabolicCostOverflow { .. }
-            | Self::InsufficientMetabolicEnergy { .. }
-            | Self::HydrationCostOverflow { .. }
-            | Self::InsufficientHydration { .. }
             | Self::CompletionTickOverflow { .. } => None,
         }
     }
@@ -287,10 +226,6 @@ impl Error for ManualPowerError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManualPowerCommitError {
     Work(PlayerWorkCommitError),
-    StaleSurvivalRevision {
-        expected: u64,
-        actual: u64,
-    },
     StaleEquipmentRevision {
         expected: u64,
         actual: u64,
@@ -323,10 +258,6 @@ impl Display for ManualPowerCommitError {
             Self::Work(error) => write!(
                 formatter,
                 "manual power labor changed after validation: {error}"
-            ),
-            Self::StaleSurvivalRevision { expected, actual } => write!(
-                formatter,
-                "manual power expected survival revision {expected} but current revision is {actual}"
             ),
             Self::StaleEquipmentRevision { expected, actual } => write!(
                 formatter,
@@ -366,8 +297,7 @@ impl Error for ManualPowerCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Work(error) => Some(error),
-            Self::StaleSurvivalRevision { .. }
-            | Self::StaleEquipmentRevision { .. }
+            Self::StaleEquipmentRevision { .. }
             | Self::StaleEnergyRevision { .. }
             | Self::StaleStructureRevision { .. }
             | Self::EquipmentBusyProduction { .. }
@@ -382,7 +312,6 @@ impl Error for ManualPowerCommitError {
 pub struct ValidatedManualPowerStart {
     work_start: ValidatedPlayerWorkStart,
     work: ManualPowerWork,
-    expected_survival_revision: u64,
     expected_equipment_revision: u64,
     expected_energy_revision: u64,
     expected_structure_revision: Option<u64>,
@@ -398,12 +327,6 @@ impl ValidatedManualPowerStart {
         self.work_start
             .precheck(state)
             .map_err(ManualPowerCommitError::Work)?;
-        if state.survival().revision() != self.expected_survival_revision {
-            return Err(ManualPowerCommitError::StaleSurvivalRevision {
-                expected: self.expected_survival_revision,
-                actual: state.survival().revision(),
-            });
-        }
         if state.equipment().revision() != self.expected_equipment_revision {
             return Err(ManualPowerCommitError::StaleEquipmentRevision {
                 expected: self.expected_equipment_revision,
@@ -459,14 +382,6 @@ pub fn validate_start_manual_power(
     state: &AppState,
     request: ManualPowerRequest,
 ) -> Result<ValidatedManualPowerStart, ManualPowerError> {
-    let player = state
-        .survival()
-        .player()
-        .copied()
-        .ok_or(ManualPowerError::SurvivalNotInitialized)?;
-    if player.vitality() == Vitality::ZERO {
-        return Err(ManualPowerError::PlayerDead);
-    }
     let definition = registries
         .labor()
         .get_manual_power(request.method)
@@ -551,35 +466,6 @@ pub fn validate_start_manual_power(
             }
         })?;
     let duration = std::cmp::max(power_duration, metabolic_duration);
-    let physiology = registries.survival().physiology();
-    let resource_budget =
-        calculate_manual_power_resource_budget(physiology, definition.exertion(), duration)
-            .map_err(|error| match error {
-                ManualPowerResourceBudgetError::EnergyOverflow => {
-                    ManualPowerError::MetabolicCostOverflow {
-                        method: request.method,
-                        duration,
-                    }
-                }
-                ManualPowerResourceBudgetError::HydrationOverflow => {
-                    ManualPowerError::HydrationCostOverflow {
-                        method: request.method,
-                        duration,
-                    }
-                }
-            })?;
-    if player.metabolic_energy() < resource_budget.metabolic_energy() {
-        return Err(ManualPowerError::InsufficientMetabolicEnergy {
-            available: player.metabolic_energy(),
-            required: resource_budget.metabolic_energy(),
-        });
-    }
-    if player.hydration() < resource_budget.hydration() {
-        return Err(ManualPowerError::InsufficientHydration {
-            available: player.hydration(),
-            required: resource_budget.hydration(),
-        });
-    }
     let completes_at = state.tick().checked_add_span(duration).ok_or(
         ManualPowerError::CompletionTickOverflow {
             method: request.method,
@@ -599,12 +485,17 @@ pub fn validate_start_manual_power(
         state.tick(),
         completes_at,
     );
-    let work_start = validate_player_work_start(state, PlayerWork::ManualPower { work })
-        .map_err(ManualPowerError::Work)?;
+    let work_start = validate_player_work_start(
+        registries,
+        state,
+        PlayerWork::ManualPower { work },
+        duration,
+        definition.exertion(),
+    )
+    .map_err(ManualPowerError::Work)?;
     Ok(ValidatedManualPowerStart {
         work_start,
         work,
-        expected_survival_revision: state.survival().revision(),
         expected_equipment_revision: equipment_use.expected_equipment_revision(),
         expected_energy_revision: state.energy().revision(),
         expected_structure_revision: equipment_use.expected_structure_revision(),
@@ -779,24 +670,24 @@ mod tests {
         with_copper: bool,
     ) -> EquipmentId {
         let capacity = if with_copper {
-            Mass::from_milligrams(1_120)
+            Mass::from_milligrams(1_120_000)
         } else {
-            Mass::from_milligrams(1_100)
+            Mass::from_milligrams(1_100_000)
         };
         let source = add_solid_stockpile_for_test(state, capacity)
             .unwrap_or_else(|error| panic!("crank comparison source failed: {error}"));
         for (commodity, mass) in [
             Some((
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-                Mass::from_milligrams(900),
+                Mass::from_milligrams(900_000),
             )),
             Some((
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-                Mass::from_milligrams(200),
+                Mass::from_milligrams(200_000),
             )),
             with_copper.then_some((
                 CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
-                Mass::from_milligrams(20),
+                Mass::from_milligrams(20_000),
             )),
         ]
         .into_iter()
@@ -844,7 +735,7 @@ mod tests {
                 .unwrap_or_else(|error| {
                     panic!("reinforced crank comparison drive failed: {error}")
                 });
-        let requested = Energy::from_nanojoules(5_000);
+        let requested = Energy::from_nanojoules(25_000_000_000);
 
         let bottlenecked = validate_start_manual_power(
             &registries,
@@ -914,16 +805,16 @@ mod tests {
         let mut state = AppState::new(WorldSeed::new(0x1A80_0001));
         initialize_player_survival(&registries, &mut state)
             .unwrap_or_else(|error| panic!("manual power survival initialization failed: {error}"));
-        let raw = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000))
+        let raw = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
             .unwrap_or_else(|error| panic!("manual power raw stockpile failed: {error}"));
-        let shaped = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000))
+        let shaped = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
             .unwrap_or_else(|error| panic!("manual power shaped stockpile failed: {error}"));
         deposit_lot_for_test(
             &registries,
             &mut state,
             raw,
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-            Mass::from_milligrams(1_000),
+            Mass::from_milligrams(1_000_000),
             Temperature::from_millikelvin(293_150),
         )
         .unwrap_or_else(|error| panic!("manual power stone fixture failed: {error}"));
@@ -932,7 +823,7 @@ mod tests {
             &mut state,
             raw,
             CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            Mass::from_milligrams(1_000),
+            Mass::from_milligrams(1_000_000),
             Temperature::from_millikelvin(293_150),
         )
         .unwrap_or_else(|error| panic!("manual power wood fixture failed: {error}"));
@@ -984,6 +875,7 @@ mod tests {
             .unwrap_or_else(|| panic!("assembled hand crank disappeared"))
             .condition();
 
+        let requested = Energy::from_nanojoules(25_000_000_000);
         let base_save = serde_json::to_value(SaveEnvelope::new(&registries, &state))
             .unwrap_or_else(|error| panic!("manual power reserve serialization failed: {error}"));
         let mut low_energy = base_save.clone();
@@ -998,14 +890,11 @@ mod tests {
             validate_start_manual_power(
                 &registries,
                 &low_energy,
-                ManualPowerRequest::new(
-                    MANUAL_POWER_HAND_CRANK,
-                    crank,
-                    drive,
-                    Energy::from_nanojoules(5_000),
-                ),
+                ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested,),
             ),
-            Err(ManualPowerError::InsufficientMetabolicEnergy { .. })
+            Err(ManualPowerError::Work(
+                PlayerWorkStartError::InsufficientMetabolicEnergy { .. }
+            ))
         ));
 
         let mut low_hydration = base_save;
@@ -1020,47 +909,36 @@ mod tests {
             validate_start_manual_power(
                 &registries,
                 &low_hydration,
-                ManualPowerRequest::new(
-                    MANUAL_POWER_HAND_CRANK,
-                    crank,
-                    drive,
-                    Energy::from_nanojoules(5_000),
-                ),
+                ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested,),
             ),
-            Err(ManualPowerError::InsufficientHydration { .. })
+            Err(ManualPowerError::Work(
+                PlayerWorkStartError::InsufficientHydration { .. }
+            ))
         ));
 
         let mut stale_survival_state = state.clone();
         let stale_survival = validate_start_manual_power(
             &registries,
             &stale_survival_state,
-            ManualPowerRequest::new(
-                MANUAL_POWER_HAND_CRANK,
-                crank,
-                drive,
-                Energy::from_nanojoules(5_000),
-            ),
+            ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested),
         )
         .unwrap_or_else(|error| panic!("stale-survival manual power setup failed: {error}"));
         advance_tick(&registries, &mut stale_survival_state)
             .unwrap_or_else(|error| panic!("stale-survival setup tick failed: {error}"));
         assert_eq!(
             stale_survival.commit(&mut stale_survival_state),
-            Err(ManualPowerCommitError::StaleSurvivalRevision {
-                expected: state.survival().revision(),
-                actual: stale_survival_state.survival().revision(),
-            })
+            Err(ManualPowerCommitError::Work(
+                PlayerWorkCommitError::StaleSurvivalRevision {
+                    expected: state.survival().revision(),
+                    actual: stale_survival_state.survival().revision(),
+                }
+            ))
         );
 
         let token = validate_start_manual_power(
             &registries,
             &state,
-            ManualPowerRequest::new(
-                MANUAL_POWER_HAND_CRANK,
-                crank,
-                drive,
-                Energy::from_nanojoules(5_000),
-            ),
+            ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested),
         )
         .unwrap_or_else(|error| panic!("manual power validation failed: {error}"));
         let work = token.work();
@@ -1124,16 +1002,13 @@ mod tests {
                 .unwrap_or_else(|error| panic!("manual power completion tick failed: {error}"))
                 .manual_power();
         }
-        assert_eq!(
-            completion.map(ManualPowerOutcome::energy),
-            Some(Energy::from_nanojoules(5_000))
-        );
+        assert_eq!(completion.map(ManualPowerOutcome::energy), Some(requested));
         assert_eq!(
             loaded
                 .energy()
                 .get_store(drive)
                 .map(EnergyStoreRecord::stored),
-            Some(Energy::from_nanojoules(5_000))
+            Some(requested)
         );
         assert_eq!(loaded.player_work().active(), None);
         assert!(
@@ -1152,15 +1027,11 @@ mod tests {
                 .metabolic_energy()
                 < survival_before.metabolic_energy()
         );
-        let generated_supply =
-            validate_energy_supply(&registries, &loaded, drive, Energy::from_nanojoules(5_000))
-                .unwrap_or_else(|error| {
-                    panic!("generated mechanical energy was not consumable: {error}")
-                });
-        assert_eq!(
-            generated_supply.trace().energy(),
-            Energy::from_nanojoules(5_000)
-        );
+        let generated_supply = validate_energy_supply(&registries, &loaded, drive, requested)
+            .unwrap_or_else(|error| {
+                panic!("generated mechanical energy was not consumable: {error}")
+            });
+        assert_eq!(generated_supply.trace().energy(), requested);
         validate_loaded_state(&registries, &loaded)
             .unwrap_or_else(|error| panic!("manual power final audit failed: {error}"));
     }

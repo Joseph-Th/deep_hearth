@@ -11,7 +11,7 @@ pub use execution::{
     ValidatedMiningClaim, ValidatedMiningStart, validate_claim_mining_output,
     validate_start_mining,
 };
-pub(crate) use execution::{apply_mining_tick, decide_mining_tick};
+pub(crate) use execution::{MiningTickError, apply_mining_tick, decide_mining_tick};
 pub(crate) use state::validate_loaded_mining;
 pub use state::{MiningJobId, MiningJobRecord, MiningState, MiningValidationError};
 pub use validation::MiningReferenceError;

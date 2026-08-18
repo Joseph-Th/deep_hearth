@@ -109,8 +109,8 @@ pub(super) struct ScenarioStructureReport {
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct ScenarioChoiceReport {
     pub(super) chose_compact_support: bool,
-    pub(super) used_small_drive: bool,
-    pub(super) used_large_drive: bool,
+    pub(super) small_drive_batches: u8,
+    pub(super) large_drive_batches: u8,
     pub(super) large_drive_exhausted: bool,
     pub(super) delivery_deadline_power_choice: bool,
 }
@@ -241,6 +241,44 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
         .iter()
         .filter(|report| report.inputs.initial_maintenance_band == MaintenanceBand::Critical)
         .count();
+    let small_drive_batches: u32 = reports
+        .iter()
+        .map(|report| u32::from(report.choices.small_drive_batches))
+        .sum();
+    let large_drive_batches: u32 = reports
+        .iter()
+        .map(|report| u32::from(report.choices.large_drive_batches))
+        .sum();
+
+    for report in reports {
+        let outcome = if report.structure.structural_stop {
+            "structural-stop"
+        } else if report.limits.maintenance_stop {
+            "maintenance-stop"
+        } else if report.limits.energy_stop {
+            "energy-stop"
+        } else if report.progress.completed_batches == report.progress.target_batches {
+            "complete"
+        } else {
+            "partial"
+        };
+        std::println!(
+            "EXPERIENCE seed=0x{:016X} start={:?} policy={} batches={}/{} drive_batches=[small:{} large:{}] delivery_before={} maintenance={} relocation={} suspension={} stranded={} outcome={}",
+            report.seed,
+            report.inputs.initial_maintenance_band,
+            report.policy.power_preference.label(),
+            report.progress.completed_batches,
+            report.progress.target_batches,
+            report.choices.small_drive_batches,
+            report.choices.large_drive_batches,
+            report.progress.batches_before_delivery,
+            report.maintenance.services,
+            report.structure.support_relocation,
+            report.structure.production_suspension,
+            report.structure.stranded_work_in_process,
+            outcome,
+        );
+    }
 
     std::println!(
         "SAMPLE ore=[grade:{ore_grade_min}..{ore_grade_max}ppm batch:{batch_mass_min}..{batch_mass_max}mg] crusher_condition=[{initial_condition_min}..{initial_condition_max}ppm normal:{initial_normal} warning:{initial_warning} critical:{initial_critical}] delivery=[mass:{delivery_mass_min}..{delivery_mass_max}mg compact:{compact_deliveries} reinforced:{}]",
@@ -265,7 +303,7 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
         reports.len(),
     );
     std::println!(
-        "SYSTEMS policy=[reserve:{} condition:{} speed:{}] control=[compact_siting:{} delivery_deadline_power:{}] recovery=[relocations:{} resumed_wip:{recovered_work_in_process} stranded_wip:{} maintenance_services:{maintenance_services}] pressure=[structural:{} maintenance_warning:{}] bottlenecks=[energy_delivery:{} throughput:{}]",
+        "SYSTEMS policy=[reserve:{} condition:{} speed:{}] work=[small_drive_batches:{small_drive_batches} high_power_batches:{large_drive_batches}] control=[compact_siting:{} delivery_deadline_power:{}] recovery=[relocations:{} resumed_wip:{recovered_work_in_process} stranded_wip:{} maintenance_services:{maintenance_services}] pressure=[structural:{} maintenance_warning:{}] bottlenecks=[energy_delivery:{} throughput:{}]",
         reports
             .iter()
             .filter(|report| report.policy.power_preference == PowerPreference::PreserveReserve)
@@ -312,6 +350,6 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
             .count(),
     );
     std::println!(
-        "SCOPE exercised=[canonical comminution,power choice,wear,maintenance,structural siting,supported-stockpile delivery,failure recovery] bootstrap=[starting matter,stored energy,equipment,constructed bays] deferred=[resource acquisition,energy generation,construction authorization,concentration/smelting bridge]"
+        "SCOPE exercised=[survival-costed primitive crafting,mining,manual power,canonical comminution,power choice,wear,maintenance,structural siting,supported-stockpile delivery,failure recovery] bootstrap=[raw starting matter,finite geological deposit,industrial equipment,scenario stored energy,constructed bays] deferred=[world resource generation/prospecting acquisition path,construction authorization,concentration/smelting bridge]"
     );
 }
