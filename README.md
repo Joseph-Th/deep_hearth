@@ -51,6 +51,29 @@ Read these documents before changing the project. Each question has one owning d
 | What is currently implemented and what is deliberately deferred? | `STATUS.md` |
 | What gameplay intent and progression is intended? | `GAME_DESIGN.md` |
 
+## Task routing
+
+Use this map to find the owner before reading implementation broadly. The table routes change
+classes only; formulas, physical contracts, persistence semantics, and invariants remain in the
+owning source and current architecture/design documents.
+
+| Change class | Start with | Additional authority | First proving route |
+| --- | --- | --- | --- |
+| Authored definitions, recipes, capabilities, or registry validation | `src/content/`, `src/registry/`, `src/capability/` | `STATUS.md` when supported scope changes | Narrowest exact owner test via `cargo test-fast <qualified-test-name> -- --exact` |
+| Core state, identity, time, deterministic RNG, or simulation order | `src/core/`, `src/simulation/` | `ARCHITECTURE.md` | Narrowest exact owner test; add `--soak` when long-horizon invariants change |
+| Matter, material properties, composition, or inventory custody | `src/matter/`, `src/material/`, `src/inventory/` | `TECHNICAL_DESIGN.md` | Narrowest exact owner test |
+| Equipment capability, condition, maintenance, or durable tool ownership | `src/equipment/`, `src/maintenance/`, `src/capability/` | `TECHNICAL_DESIGN.md` | Narrowest exact owner test |
+| Production, crafting, mining, geology, or ore processing | `src/production/`, `src/crafting/`, `src/mining/`, `src/geology/`, `src/ore_processing/` | `TECHNICAL_DESIGN.md` | Narrowest exact owner test; add `--gameplay` when workshop behavior/content changes |
+| Energy, electrical, rotational/mechanical, fluid, or thermal physics | `src/energy/`, `src/electrical/`, `src/mechanical/`, `src/fluid/`, `src/thermal/` | `TECHNICAL_DESIGN.md` | Narrowest exact owner test |
+| Structural load/failure or spatial ownership | `src/structural/`, `src/spatial/` | `TECHNICAL_DESIGN.md` | Narrowest exact owner test; add `--soak` for long-horizon structural integration |
+| Player labor, work lifecycle, exertion, or survival resources | `src/labor/`, `src/survival/` | `TECHNICAL_DESIGN.md`, `GAME_DESIGN.md` when progression intent changes | Narrowest exact owner test; add `--gameplay` when player workshop behavior changes |
+| Save/load shape, durable validation, or deterministic continuation | `src/persistence/` plus the affected state owner | `ARCHITECTURE.md`, `STATUS.md` when compatibility/scope changes | Narrowest persistence/owner test; add `--soak` when continuation-sensitive behavior changes |
+| Texture baking, WGSL, or renderer-neutral visual contracts | `src/texture/`, `src/shader/` | `TECHNICAL_DESIGN.md` | `cargo test-shaders` plus any affected owner test |
+| Test lanes, harness behavior, CI, or documentation routing | `TESTING.md`, `.cargo/config.toml`, `ci.py` | Owning test/tool source | Smallest affected lane; add `python ci.py gate --docs` for documentation contracts |
+
+If a change spans several rows, keep one canonical owner for each consequential fact and review the
+cross-owner transaction in `ARCHITECTURE.md` rather than introducing a convenience mutation path.
+
 The ordinary edit loop is intentionally small:
 
 ```text
