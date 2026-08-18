@@ -421,6 +421,7 @@ pub(crate) fn decide_due_completions(
             .map_err(CompletionPlanError::StructuralLoad)?
     };
     let inventory_deposits = decide_reserved_deposits(
+        registries,
         state.inventory(),
         tick,
         reserved_deposit_requests,

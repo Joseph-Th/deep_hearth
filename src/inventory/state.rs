@@ -266,9 +266,11 @@ impl MaterialLotId {
 
 /// Runtime properties that determine whether two newly created lots are fungible.
 ///
-/// Physical properties that determine process interchangeability belong here. Historical state that
-/// can be merged conservatively, such as storage exposure, remains outside this profile so compatible
-/// fragments can coalesce without erasing the worst represented history.
+/// Physical properties that determine process interchangeability belong here. Historical state stays
+/// outside this profile. Age-sensitive commodities only coalesce when projected storage exposure is
+/// identical, preserving exact perishability cohorts instead of aging newer matter to match older
+/// matter. Commodities without authored age-dependent behavior may coalesce conservatively across
+/// exposure histories to keep lot fragmentation bounded.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MaterialLotProfile {
     pub(super) commodity: CommodityKey,

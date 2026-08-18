@@ -18,6 +18,7 @@ use crate::material::{CommodityKey, FormId, MaterialId, MaterialInputSpec};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
+use super::coalescing::LotMergePolicy;
 #[cfg(test)]
 use super::ingress::{
     MaterialIngressEntry, MaterialIngressError, apply_material_ingress, validate_material_ingress,
@@ -73,6 +74,7 @@ pub(crate) struct ValidatedMaterialReform {
     target: CommodityKey,
     total_mass: Mass,
     allocated_lot_ids: Vec<MaterialLotId>,
+    merge_policy: LotMergePolicy,
     next_lot_id: u64,
     structural: Option<ValidatedStockpileStructuralLoad>,
 }
@@ -122,6 +124,7 @@ impl ValidatedMaterialReform {
                     provenance: trace.provenance(),
                     storage_history: MaterialStorageHistory::new(current_tick),
                 },
+                self.merge_policy,
                 current_tick,
                 destination_preservation_multiplier_ppm,
             );
@@ -329,6 +332,7 @@ pub(crate) fn validate_material_reform_from_selection(
         target,
         total_mass: total_consumed,
         allocated_lot_ids,
+        merge_policy: LotMergePolicy::for_commodity(registries, target),
         next_lot_id,
         structural,
     })
@@ -373,6 +377,7 @@ pub(crate) struct ValidatedMaterialRelocation {
     inputs: Vec<MaterialInputSpec>,
     lot_slices: Vec<LotSlice>,
     split_lot_ids: Vec<Option<MaterialLotId>>,
+    merge_policies: Vec<LotMergePolicy>,
     next_lot_id_after: Option<u64>,
     total_mass: Mass,
     structural: Option<ValidatedStockpileStructuralLoad>,
@@ -426,7 +431,12 @@ impl ValidatedMaterialRelocation {
                 input.mass(),
             );
         }
-        for (slice, split_lot_id) in self.lot_slices.into_iter().zip(self.split_lot_ids) {
+        for ((slice, split_lot_id), merge_policy) in self
+            .lot_slices
+            .into_iter()
+            .zip(self.split_lot_ids)
+            .zip(self.merge_policies)
+        {
             let lot_mass = match inventories.get_lot(slice.lot) {
                 Some(lot) => lot.mass,
                 None => panic!(
@@ -457,6 +467,7 @@ impl ValidatedMaterialRelocation {
                     self.destination,
                     slice.mass,
                     storage_transition,
+                    merge_policy,
                 );
             }
         }
@@ -1110,6 +1121,7 @@ pub(crate) fn validate_material_relocation_from_selection(
     .map_err(MaterialRelocationError::StructuralLoad)?;
 
     let mut split_lot_ids = Vec::with_capacity(lot_slices.len());
+    let mut merge_policies = Vec::with_capacity(lot_slices.len());
     let mut next_lot_id = inventories.next_lot_id();
     let mut allocated_any = false;
     for slice in &lot_slices {
@@ -1120,6 +1132,7 @@ pub(crate) fn validate_material_relocation_from_selection(
                 slice.lot.value()
             ),
         };
+        merge_policies.push(LotMergePolicy::for_commodity(registries, lot.commodity()));
         if slice.mass == lot.mass {
             split_lot_ids.push(None);
         } else {
@@ -1144,6 +1157,7 @@ pub(crate) fn validate_material_relocation_from_selection(
         inputs,
         lot_slices,
         split_lot_ids,
+        merge_policies,
         next_lot_id_after,
         total_mass: total_consumed,
         structural,
@@ -2010,6 +2024,7 @@ mod tests {
         );
         let created_at = state.tick();
         let deposit_plan = decide_reserved_deposits(
+            &registries,
             state.inventory(),
             created_at,
             vec![ReservedDepositRequest::new(

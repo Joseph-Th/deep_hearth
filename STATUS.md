@@ -56,9 +56,11 @@ new systems integrate; this file owns whether a capability currently exists or i
   preservation multiplier used by
   perishable content. Material lots also retain compact ambient-equivalent storage exposure and the
   last storage-transition tick. Relocation accrues exposure under the source profile before switching
-  storage, so better preservation slows only future spoilage instead of rewriting prior age. Partial
-  compatible fragments coalesce conservatively at the older represented exposure, preventing
-  splitting/merging from manufacturing freshness. Exhaustive load validation rejects future storage
+  storage, so better preservation slows only future spoilage instead of rewriting prior age.
+  Compatible age-sensitive commodities coalesce only within equal projected-exposure cohorts, so
+  fresh food is never aged merely because older matching food already occupies the destination.
+  Commodities without authored age-dependent behavior retain conservative oldest-exposure coalescing
+  to bound long-horizon lot fragmentation. Exhaustive load validation rejects future storage
   transitions or unrepresentable exposure projections.
   Stockpile allocation requires that containment envelope explicitly; there is no compatibility
   allocator that silently chooses one. Every deposit, ingress, transfer, future production output,
@@ -378,11 +380,15 @@ new systems integrate; this file owns whether a capability currently exists or i
   distribution envelope without coarsening represented fines. Input and output forms may therefore
   be identical for real grinding distinctions. Mass, normalized composition, and temperature remain
   exact. Runtime equipment condition can derate throughput, while finite source output power can
-  independently bottleneck the operation; authoritative duration uses the slower limit and therefore
-  drives active-tick wear. Resolved comminution exposes independent throughput- and energy-limited
-  durations, a typed current bottleneck, and exact condition-before/condition-after projections.
-  Persisted jobs recompute the exact authored particle distribution, work energy, carrier,
-  power-limited duration, and wear from their committed traces. The canonical jaw crusher remains a
+  independently bottleneck elapsed time. Authoritative duration uses the slower throughput/energy
+  limit, while abrasive condition wear is charged only for the throughput-limited material-processing
+  duty rather than idle time waiting on weak power delivery. Resolved comminution exposes independent
+  throughput- and energy-limited durations, a typed current bottleneck, and exact
+  condition-before/condition-after projections. Persisted jobs recompute the exact authored particle
+  distribution, work energy, carrier, both durations, and processing-duty wear from their committed
+  traces. This authored in-flight wear-contract change advances the current-only registry schema, so
+  states created under the superseded wall-clock-wear semantics are rejected rather than migrated.
+  The canonical jaw crusher remains a
   single unresolved 500-10000 um class rather than fabricating a within-envelope mass curve without
   authored data. Canonical content now also includes a separate grinding mill and same-form grinding
   process with its own typed throughput/batch capabilities. Grinding reduces that crusher envelope to
@@ -394,7 +400,7 @@ new systems integrate; this file owns whether a capability currently exists or i
   be represented without hard-coding equipment IDs or introducing arbitrary process unlocks.
 - Selected-batch dry screening is a reusable ore-processing resolver with an exact authored aperture,
   typed undersize/oversize output streams, runtime equipment throughput and maximum-batch limits,
-  finite work energy, power-limited duration, and active-tick wear. Screening aggregates identical
+  finite work energy, power-limited elapsed duration, and processing-duty wear. Screening aggregates identical
   physical input profiles before converting class weights to whole-milligram stream masses so lot
   fragmentation cannot change yield. A class wholly at or below the aperture is undersize and a
   class wholly above it is oversize; an aperture intersecting an unresolved class is rejected rather
@@ -403,7 +409,7 @@ new systems integrate; this file owns whether a capability currently exists or i
   remainder into the wrong stream. Persisted screening jobs recompute stream identities, exact
   outputs, energy, duration, and equipment condition. Canonical content now registers a workshop dry
   screen and a 2 mm dry-screening process with separate throughput and batch capabilities, finite
-  mechanical work, condition-sensitive throughput, and active-tick wear. Direct crusher-to-screen
+  mechanical work, condition-sensitive throughput, and processing-duty wear. Direct crusher-to-screen
   processing still fails because the jaw crusher emits one unresolved 0.5-10 mm class. The canonical
   grinding mill is now the physical bridge: its 0.5-2 mm and 2.001-4 mm classes lie wholly on opposite
   sides of the screen aperture, allowing exact routed undersize/oversize ownership. A second
@@ -583,7 +589,7 @@ new systems integrate; this file owns whether a capability currently exists or i
   printed before execution, and can be fixed separately with `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` and
   `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED`. `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex world
   seed lists for reproduction or wider sweeps. Explicit seed lists fail on malformed entries rather than
-  silently dropping them. The anchors guarantee stable comparison, all three power priorities, both
+  silently dropping them. The anchors guarantee stable comparison, both power priorities, both
   maintenance styles, both structural-risk styles, Normal/Warning/Critical initial maintenance bands,
   and one timing case where high-power work can finish a batch before the scheduled delivery;
   balance-dependent outcomes are reported rather than frozen into aggregate pass/fail coverage. Every
@@ -594,21 +600,27 @@ new systems integrate; this file owns whether a capability currently exists or i
   unit-test harness. Seed/configuration contracts share that one specialized target instead of creating
   another Cargo artifact. Routine harness tests keep success output captured; the report lane emits
   replay inputs, one concise `EXPERIENCE` line per scenario, compact outcome/system summaries, and an
-  explicit exercised/bootstrap/deferred scope line, while `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace. The compact
+  explicit exercised/observed/unobserved/bootstrap/deferred scope line, while
+  `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace. The compact
   content summary separates authored definitions from runtime-assemblable equipment/energy and upgrade
   routes so controlled industrial fixtures are not presented as currently reachable progression.
   The compact report exposes sampled ore/delivery input ranges alongside completed work orders,
-  terminal causes, delivery-informed control decisions, structural/WIP recovery, maintenance services,
-  final machine condition, remaining power/maintenance reserves, and exact per-batch bottleneck counts
-  so each sampled matrix is useful as gameplay feedback rather than only a pass/fail result. Starting
+  terminal causes, discretionary/deadline/forced power decisions, structural/WIP recovery, maintenance
+  services, elapsed time, metabolic/hydration cost, final machine condition, remaining
+  power/maintenance reserves, and exact per-batch bottleneck counts so each sampled matrix is useful as
+  gameplay feedback rather than only a pass/fail result. Starting
   conditions vary ore grade, batch size, crusher condition, one finite crusher-service replacement
   stock, two competing structural bays, real background stored cargo, a scheduled supported-stockpile
-  delivery, and finite mechanical work reserves. Batch size and initial condition are derived from
-  current authored crusher capabilities and maintenance bands. Both structural bays are generated as
-  initially legal crusher locations at ordinary utilization; the occupied bay is sized from its actual
-  crusher-plus-background load instead of assuming a scaled area remains valid. Background cargo and
-  delivery mass scale from current equipment/material quantities, while delivery timing is selected
-  within a horizon derived from a real resolved batch duration. Bootstrap-only matter/energy seeding
+  delivery, and finite mechanical work reserves. The workshop player has ordinary persistent survival
+  state, so every simulation tick also spends authored basal metabolic energy and hydration. Batch size
+  and initial condition are derived from current authored crusher capabilities and maintenance bands. Both structural bays use materialized
+  2 m wood members and are generated as initially legal crusher locations at ordinary utilization, so
+  embodied support mass and self-weight remain real. The occupied bay is sized from its actual
+  crusher-plus-background load instead of assuming a scaled area remains valid. Background cargo scales
+  from current equipment/material quantities; scheduled delivery mass spans roughly 20-160% of crusher
+  mass, broad enough for ordinary logistics to produce strain, cracking, occasional collapse, and WIP
+  recovery through the same structural rules without targeting authored failure thresholds. Delivery
+  timing is selected within a horizon derived from a real resolved batch duration. Bootstrap-only matter/energy seeding
   and structural materialization are isolated in one setup module and cannot be called by the acting
   policy. After setup the timed structural disruption is an actual `validate_transfer_bulk` transaction
   into a mounted stockpile, so inventory owns the resulting `StoredMatter` load and normal support
@@ -618,13 +630,14 @@ new systems integrate; this file owns whether a capability currently exists or i
   selects bounded operating priorities for power, maintenance timing, and structural risk. A
   preserve-margin policy uses the known scheduled delivery to keep the crusher off the receiving bay;
   a reactive policy chooses from current structural margin and accepts later relocation/recovery if the
-  delivery makes that choice harmful. Power policy conserves high-power reserve, protects projected
-  equipment condition, or minimizes batch completion time. These priorities choose only among legal
-  resolver outputs and never override critical-condition, maintenance, support, energy, or ownership
-  gates. Each order now receives a finite low-power work budget that is one or
-  two batches short of the target plus a scarce high-power reserve covering that required gap and at
-  most one extra acceleration batch. Completing the order therefore requires deliberate use of both
-  storage envelopes without turning the fast reserve into an unlimited shortcut. When projected wear would cross the critical boundary the policy resolves and commits
+  delivery makes that choice harmful. Power policy either conserves the scarce high-power reserve or
+  minimizes batch completion time; machine-care preference belongs to the separate maintenance policy
+  instead of pretending energy source changes wear for equal material work. These priorities choose only
+  among legal resolver outputs and never override critical-condition, maintenance, support, energy, or
+  ownership gates. Each order now receives enough low-power stored work to finish the complete order
+  plus a scarce high-power reserve covering only one or two batches. The fast reserve is therefore an
+  optional accelerator with a real opportunity cost, although a known delivery deadline may make
+  spending it strategically necessary. When projected wear would cross the critical boundary the policy resolves and commits
   real authored maintenance if replacement stock remains, then reevaluates the power choice with
   restored condition. Replacement stock is finite and becomes same-material copper scrap, so the spent
   output remains owned but cannot be reused as another replacement ingot. Lack of usable stored work is
@@ -657,6 +670,12 @@ new systems integrate; this file owns whether a capability currently exists or i
   occupied by the longer mining operation. The accumulator and crusher remain fully embodied
   investments. The probe checks that reinforcement preserves wear/identity, energy cost is unchanged,
   survival cost remains real, persistence validates, and world matter remains exactly conserved.
+  A separate survival-provisioning probe derives meal quantities from current physiology and food
+  definitions, varies a bounded preservation profile/storage horizon, compares ambient versus preserved
+  food age, consumes a real Grain/Fruit/Protein meal, drinks finite authored water, and verifies both
+  matter and fluid ownership remain conserved. Focused survival/progression/ore/foundry probes each run
+  one maintained case plus one fresh organic physical sample by default; the physical variation seed
+  reproduces the organic case and an explicit gameplay seed list replaces the focused sample exactly.
   Focused crafting coverage separately proves ordinary ore form cannot enter the native-metal
   cold-work process and contaminated native-metal composition is also rejected. A separate
   ore-preparation capability probe
@@ -692,7 +711,9 @@ new systems integrate; this file owns whether a capability currently exists or i
   distinctly from generated organic scenarios. The exercise policy uses current canonical
   projections instead of cloned-state compound-future previews, varies crusher starts across the full
   non-failed condition range, and uses the production `validate_relocate_equipment` transaction for
-  atomic support moves and their structural consequences. Isolated unit-test registry builders share
+  atomic support moves and their structural consequences. Matched-world comparisons include elapsed
+  ticks and survival expenditure so successful completion does not hide meaningful policy utility
+  differences. Isolated unit-test registry builders share
   one test-only domain assembler and no longer inherit unrelated canonical gameplay content as that
   content expands.
 
@@ -741,9 +762,12 @@ new systems integrate; this file owns whether a capability currently exists or i
   explicit scope flags rather than brittle changed-file inference. A library-only `check-fast` alias
   provides intermediate compile/type feedback without linking the monolithic unit-test harness.
   Gameplay remains one dedicated feature-gated integration target, but its maintained scenario matrix,
-  ore-preparation probe, and foundry probe have direct aliases so one failing concern can be rerun
-  without repeating the others. Bounded replayable organic sampling is present in the required workshop
-  gate as well as the larger explicit report lane,
+  survival provisioning, primitive progression, ore-preparation probe, and foundry probe have direct
+  aliases so one failing concern can be rerun without repeating the others. A fail-closed local alias
+  contract lists the integration target's real tests and ignored subset before maintained gameplay CI,
+  rejecting missing/renamed selectors, ignored-status drift, or uncontracted filtered aliases instead
+  of accepting Cargo's zero-match success behavior. Bounded replayable organic sampling is present in
+  the required workshop gate, each focused probe, and the larger explicit report lane,
   and the Naga parser
   dependency remains behind its dedicated validation feature. Test binaries and one-shot validation
   binaries omit debug symbols to reduce codegen/link time without changing ordinary dev-profile

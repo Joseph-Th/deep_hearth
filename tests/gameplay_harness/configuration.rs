@@ -16,6 +16,18 @@ pub(super) enum ScenarioPlanMode {
     Explore,
 }
 
+fn parse_scenario_seed_list(raw: &str) -> Result<Vec<u64>, GameplayHarnessConfigError> {
+    if raw.trim().is_empty() {
+        return Err(GameplayHarnessConfigError::EmptyScenarioSeedList);
+    }
+    raw.split(',')
+        .enumerate()
+        .map(|(index, token)| {
+            parse_seed(token).ok_or(GameplayHarnessConfigError::InvalidScenarioSeed { index })
+        })
+        .collect()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum GameplayHarnessConfigError {
     InvalidVariationSeed,
@@ -179,15 +191,7 @@ pub(super) fn scenario_seeds_from(
     let behavior_seed_root = resolve_behavior_seed(behavior_raw, default_behavior_seed)?;
 
     if let Some(raw) = scenario_raw {
-        if raw.trim().is_empty() {
-            return Err(GameplayHarnessConfigError::EmptyScenarioSeedList);
-        }
-        let mut world_seeds = Vec::new();
-        for (index, token) in raw.split(',').enumerate() {
-            let seed = parse_seed(token)
-                .ok_or(GameplayHarnessConfigError::InvalidScenarioSeed { index })?;
-            world_seeds.push(seed);
-        }
+        let world_seeds = parse_scenario_seed_list(raw)?;
         return Ok(ScenarioSeedPlan {
             source: ScenarioSeedSource::Custom,
             cases: pair_worlds_with_behavior(world_seeds, 0, behavior_seed_root),
@@ -211,6 +215,30 @@ pub(super) fn scenario_seeds_from(
         variation_seed: Some(variation_seed),
         behavior_seed_root,
     })
+}
+
+/// Resolves a focused probe into one maintained anchor plus one fresh organic sample by default.
+///
+/// `DEEP_HEARTH_GAMEPLAY_SEEDS` remains the exact override for deliberate replay/sweeps. Otherwise
+/// the same physical variation root used by the scenario matrix deterministically derives the
+/// organic probe sample, with a probe-specific salt preventing different probes from collapsing to
+/// the same case.
+pub(super) fn focused_probe_seeds_from(
+    scenario_raw: Option<&str>,
+    variation_raw: Option<&str>,
+    default_variation_seed: u64,
+    maintained_seed: u64,
+    probe_salt: u64,
+) -> Result<Vec<u64>, GameplayHarnessConfigError> {
+    if let Some(raw) = scenario_raw {
+        return parse_scenario_seed_list(raw);
+    }
+    let root = resolve_variation_seed(variation_raw, default_variation_seed)?;
+    let mut organic = mix64(root ^ probe_salt);
+    while organic == maintained_seed {
+        organic = mix64(organic);
+    }
+    Ok(vec![maintained_seed, organic])
 }
 
 #[cfg(test)]
@@ -403,5 +431,26 @@ mod tests {
                 .map(|case| case.behavior_seed)
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn focused_probe_default_keeps_one_anchor_and_adds_one_replayable_organic_case() {
+        let first = focused_probe_seeds_from(None, Some("0xBAD"), 1, 0x1111, 0x2222)
+            .unwrap_or_else(|error| panic!("first focused probe plan failed: {error:?}"));
+        let second = focused_probe_seeds_from(None, Some("0xBAD"), 9, 0x1111, 0x2222)
+            .unwrap_or_else(|error| panic!("second focused probe plan failed: {error:?}"));
+
+        assert_eq!(first, second);
+        assert_eq!(first.len(), 2);
+        assert_eq!(first[0], 0x1111);
+        assert_ne!(first[1], first[0]);
+    }
+
+    #[test]
+    fn focused_probe_custom_seed_list_is_exact() {
+        let seeds = focused_probe_seeds_from(Some("1,0x2A,3"), Some("ignored"), 9, 0x1111, 0x2222)
+            .unwrap_or_else(|error| panic!("custom focused probe plan failed: {error:?}"));
+
+        assert_eq!(seeds, [1, 42, 3]);
     }
 }

@@ -113,9 +113,8 @@ impl ScenarioVariation {
             None => 1 + (e % u64::from(CONDITION_PARTS_PER_MILLION)) as u32,
             Some(_) => unreachable!("anchor condition modulo is exhaustive"),
         };
-        let required_large_batches = 1 + (h % 2) as u8;
-        let small_drive_batch_budget = planned_batches - required_large_batches;
-        let large_drive_batch_budget = required_large_batches + ((h >> 1) & 1) as u8;
+        let small_drive_batch_budget = planned_batches;
+        let large_drive_batch_budget = 1 + (h % 2) as u8;
 
         let crusher_weight =
             calculate_weight_force_ceiling(crusher_definition.mass(), registries.core().gravity());
@@ -137,15 +136,14 @@ impl ScenarioVariation {
             calculate_weight_force_ceiling(reinforced_loaded_mass, registries.core().gravity()),
             reinforced_target_ppm,
         );
-        let delivery_mass = scale_mass(crusher_definition.mass(), 150_000 + (g % 850_001) as u32);
+        let delivery_mass = scale_mass(crusher_definition.mass(), 200_000 + (g % 1_400_001) as u32);
         let behavior_a = mix64(behavior_seed);
         let behavior_b = mix64(behavior_a);
         let behavior_c = mix64(behavior_b);
-        let power_preference = match behavior_a % 3 {
+        let power_preference = match behavior_a % 2 {
             0 => PowerPreference::PreserveReserve,
-            1 => PowerPreference::ProtectCondition,
-            2 => PowerPreference::FinishSooner,
-            _ => unreachable!("modulo three must be exhaustive"),
+            1 => PowerPreference::FinishSooner,
+            _ => unreachable!("modulo two must be exhaustive"),
         };
         let maintenance_preference = if behavior_b.is_multiple_of(2) {
             MaintenancePreference::ServiceAtWarning

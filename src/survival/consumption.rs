@@ -1016,7 +1016,9 @@ mod tests {
     use crate::core::quantity::{AggregateMass, AggregateVolume, Temperature};
     use crate::core::state::{apply_clock_advance, validate_loaded_state};
     use crate::core::time::{SimulationTick, WorldSeed};
-    use crate::fluid::{add_fluid_store_with_contents_for_test, calculate_fluid_volume_accounting};
+    use crate::fluid::{
+        add_fluid_store_with_contents_for_fixture, calculate_fluid_volume_accounting,
+    };
     use crate::inventory::{
         StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile, deposit_lot_for_test,
         validate_transfer_bulk,
@@ -1383,7 +1385,7 @@ mod tests {
     }
 
     #[test]
-    fn partial_transfer_merge_keeps_the_older_food_exposure() {
+    fn partial_transfer_preserves_distinct_food_storage_age_cohorts() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5A70_0008));
         let ambient = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000))
@@ -1441,10 +1443,29 @@ mod tests {
                 .inventory()
                 .get_lot(destination_lot)
                 .map(|lot| lot.mass()),
-            Some(Mass::from_milligrams(30))
+            Some(Mass::from_milligrams(20))
         );
         assert_eq!(
             assess_food_freshness(&registries, &state, destination_lot),
+            Ok(FoodFreshness::Fresh {
+                age: TickSpan::new(4_000),
+                remaining: TickSpan::new(276_000),
+            })
+        );
+        let transferred_lot = state
+            .inventory()
+            .lot_ids(preserved)
+            .find(|lot| *lot != destination_lot)
+            .unwrap_or_else(|| panic!("older transferred berry cohort disappeared"));
+        assert_eq!(
+            state
+                .inventory()
+                .get_lot(transferred_lot)
+                .map(|lot| lot.mass()),
+            Some(Mass::from_milligrams(10))
+        );
+        assert_eq!(
+            assess_food_freshness(&registries, &state, transferred_lot),
             Ok(FoodFreshness::Fresh {
                 age: TickSpan::new(72_000),
                 remaining: TickSpan::new(72_000),
@@ -1459,7 +1480,7 @@ mod tests {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5A70_0003));
         initialize_and_spend_reserves(&registries, &mut state);
-        let store = add_fluid_store_with_contents_for_test(
+        let store = add_fluid_store_with_contents_for_fixture(
             &registries,
             &mut state,
             Volume::from_microliters(10_000),

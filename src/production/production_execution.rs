@@ -641,7 +641,7 @@ mod tests {
     }
 
     #[test]
-    fn compatible_production_outputs_coalesce_and_preserve_provenance_range() {
+    fn compatible_nonperishable_production_outputs_coalesce_and_preserve_provenance_range() {
         let registries = make_test_registries();
         let mut state = AppState::new(WorldSeed::new(141));
         let source = add_test_stockpile(&mut state, 100);
@@ -682,10 +682,10 @@ mod tests {
 
         let lot_ids: Vec<_> = state.inventory().lot_ids(destination).collect();
         assert_eq!(lot_ids.len(), 1);
-        let lot = match state.inventory().get_lot(lot_ids[0]) {
-            Some(lot) => lot,
-            None => panic!("coalesced lot disappeared"),
-        };
+        let lot = state
+            .inventory()
+            .get_lot(lot_ids[0])
+            .unwrap_or_else(|| panic!("coalesced production output disappeared"));
         assert_eq!(lot.mass(), Mass::from_milligrams(20));
         assert_eq!(lot.created_at(), SimulationTick::new(1));
         assert_eq!(lot.latest_created_at(), SimulationTick::new(2));

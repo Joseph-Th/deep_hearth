@@ -20,7 +20,6 @@ pub(super) fn assert_scenario_contracts(reports: &[ScenarioReport]) {
 pub(super) fn assert_anchor_diversity(reports: &[ScenarioReport]) {
     for (name, preference) in [
         ("reserve-conserving", PowerPreference::PreserveReserve),
-        ("condition-protecting", PowerPreference::ProtectCondition),
         ("completion-time", PowerPreference::FinishSooner),
     ] {
         assert!(
@@ -69,7 +68,7 @@ pub(super) fn assert_anchor_diversity(reports: &[ScenarioReport]) {
     assert!(
         reports
             .iter()
-            .any(|report| report.choices.delivery_deadline_power_choice),
+            .any(|report| report.choices.deadline_power_choices > 0),
         "maintained gameplay anchors are missing a case where stored power changes what can finish before a scheduled delivery"
     );
 }

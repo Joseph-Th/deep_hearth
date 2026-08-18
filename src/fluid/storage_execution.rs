@@ -100,8 +100,8 @@ fn allocate_fluid_store(
     Ok(id)
 }
 
-#[cfg(test)]
-pub(crate) fn add_fluid_store_with_contents_for_test(
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) fn add_fluid_store_with_contents_for_fixture(
     registries: &Registries,
     state: &mut AppState,
     capacity: Volume,
@@ -678,7 +678,7 @@ mod tests {
         volume: u64,
         temperature: Temperature,
     ) -> FluidStoreId {
-        match add_fluid_store_with_contents_for_test(
+        match add_fluid_store_with_contents_for_fixture(
             registries,
             state,
             Volume::from_microliters(capacity),

@@ -693,7 +693,7 @@ mod tests {
     };
 
     use super::super::storage_execution::{
-        add_fluid_store, add_fluid_store_with_contents_for_test,
+        add_fluid_store, add_fluid_store_with_contents_for_fixture,
         make_test_fluid_transfer_resolution, validate_fluid_transfer,
     };
 
@@ -753,7 +753,7 @@ mod tests {
         state: &mut AppState,
         volume_microliters: u64,
     ) -> FluidStoreId {
-        match add_fluid_store_with_contents_for_test(
+        match add_fluid_store_with_contents_for_fixture(
             registries,
             state,
             Volume::from_microliters(volume_microliters),

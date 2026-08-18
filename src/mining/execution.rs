@@ -636,6 +636,7 @@ pub fn validate_claim_mining_output(
         .ok_or(MiningClaimError::NotReady { job })?;
     let mass = record.output().mass();
     let inventory = decide_reserved_deposits(
+        registries,
         state.inventory(),
         ready_at,
         vec![ReservedDepositRequest::new(

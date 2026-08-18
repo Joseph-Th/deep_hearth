@@ -490,9 +490,9 @@ pub fn resolve_comminution_process(
     .map_err(ComminutionResolutionError::EnergyDuration)?;
     let duration = std::cmp::max(throughput_duration, energy_duration);
     let condition_after = calculate_condition_after_active_ticks(
-        definition.condition_wear_ppm_per_active_tick(),
+        definition.condition_wear_ppm_per_processing_tick(),
         provider.condition(),
-        duration,
+        throughput_duration,
     );
     let equipment_use = provider.validated_use();
     let resolution = inputs
@@ -862,9 +862,9 @@ pub(crate) fn validate_loaded_comminution_job(
         });
     }
     let required_condition_after = calculate_condition_after_active_ticks(
-        definition.condition_wear_ppm_per_active_tick(),
+        definition.condition_wear_ppm_per_processing_tick(),
         provider.condition(),
-        required_duration,
+        throughput_duration,
     );
     let stored_condition_after = job
         .equipment_condition_after()
@@ -1494,7 +1494,7 @@ mod tests {
     }
 
     #[test]
-    fn comminution_duration_uses_slower_finite_energy_delivery() {
+    fn weak_energy_delivery_extends_time_without_fabricating_processing_wear() {
         let fixture = make_fixture_with_registries(
             make_registries_with_energy(EnergyCarrier::Mechanical, Power::from_microwatts(1)),
             WorldSeed::new(0x9700_0004),
@@ -1513,11 +1513,13 @@ mod tests {
         assert_eq!(resolved.required_energy(), Energy::from_nanojoules(2_000));
         assert_eq!(resolved.available_power(), Power::from_microwatts(1));
         assert_eq!(resolved.condition_before(), Condition::PRISTINE);
-        assert_eq!(resolved.condition_after(), condition(960_000));
+        assert_eq!(resolved.throughput_duration(), TickSpan::new(2));
+        assert_eq!(resolved.energy_duration(), TickSpan::new(40));
+        assert_eq!(resolved.condition_after(), condition(998_000));
         assert_eq!(resolved.process_resolution().duration(), TickSpan::new(40));
         assert_eq!(
             resolved.process_resolution().equipment_condition_after(),
-            Some(condition(960_000))
+            Some(condition(998_000))
         );
     }
 

@@ -16,6 +16,7 @@ use crate::material::MaterialLotSpec;
 use crate::material::{CompositionError, FormId, MaterialId};
 use crate::registry::Registries;
 
+use super::coalescing::LotMergePolicy;
 use super::state::{
     ConsumedMaterialTrace, InventoryState, MaterialLotId, MaterialLotProfile,
     MaterialLotProvenance, MaterialLotRecord, MaterialStorageHistory, StockpileId,
@@ -219,6 +220,7 @@ pub(crate) struct ValidatedMaterialIngress {
     destination: StockpileId,
     entries: Vec<MaterialIngressEntry>,
     allocated_lot_ids: Vec<MaterialLotId>,
+    merge_policies: Vec<LotMergePolicy>,
     next_lot_id: u64,
     current_tick: SimulationTick,
 }
@@ -355,6 +357,10 @@ pub(crate) fn validate_material_ingress(
     }
 
     let mut allocated_lot_ids = Vec::with_capacity(entries.len());
+    let merge_policies = entries
+        .iter()
+        .map(|entry| LotMergePolicy::for_commodity(registries, entry.profile.commodity()))
+        .collect::<Vec<_>>();
     let mut next_lot_id = state.next_lot_id();
     for _entry in &entries {
         allocated_lot_ids.push(MaterialLotId::new(next_lot_id));
@@ -373,6 +379,7 @@ pub(crate) fn validate_material_ingress(
         destination,
         entries,
         allocated_lot_ids,
+        merge_policies,
         next_lot_id,
         current_tick,
     })
@@ -389,6 +396,7 @@ pub(crate) fn apply_material_ingress(
         destination,
         entries,
         allocated_lot_ids,
+        merge_policies,
         next_lot_id,
         current_tick,
     } = ingress;
@@ -402,6 +410,11 @@ pub(crate) fn apply_material_ingress(
         allocated_lot_ids.len(),
         "validated material ingress must allocate one candidate lot id per parcel"
     );
+    debug_assert_eq!(
+        entries.len(),
+        merge_policies.len(),
+        "validated material ingress must bind one lot merge policy per parcel"
+    );
 
     let preservation_multiplier_ppm = state
         .get_stockpile(destination)
@@ -410,7 +423,11 @@ pub(crate) fn apply_material_ingress(
         .preservation_multiplier_ppm();
 
     let mut resulting_lots = Vec::with_capacity(entries.len());
-    for (entry, allocated_lot_id) in entries.into_iter().zip(allocated_lot_ids) {
+    for ((entry, allocated_lot_id), merge_policy) in entries
+        .into_iter()
+        .zip(allocated_lot_ids)
+        .zip(merge_policies)
+    {
         let resulting = apply_insert_or_merge_new_lot(
             state,
             MaterialLotRecord {
@@ -421,6 +438,7 @@ pub(crate) fn apply_material_ingress(
                 provenance: entry.provenance,
                 storage_history: MaterialStorageHistory::new(current_tick),
             },
+            merge_policy,
             current_tick,
             preservation_multiplier_ppm,
         );

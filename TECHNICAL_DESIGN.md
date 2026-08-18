@@ -421,10 +421,12 @@ remains bound to that structural revision even when aggregate mass-to-force roun
 numeric load unchanged. Partial transfers split lots in stable ID order without averaging physical
 properties away. A relocation rebases the transferred lot's storage exposure at the source's current
 preservation rate before changing owners. Newly created compatible fragments can coalesce into the
-lowest-ID compatible destination lot; when histories differ, the merged lot retains the greater
-ambient-equivalent age at the merge tick, preventing compaction from laundering freshness. Newly
-created output starts a new storage history at its creation tick. Every canonical ingress and
-production-output reservation rechecks destination containment.
+lowest-ID compatible destination lot. Commodities with authored age-dependent behavior require equal
+projected storage exposure before coalescing, preserving distinct freshness cohorts instead of aging
+newer matter to match older matter. Other commodities retain conservative greater-age compaction to
+bound fragmentation without affecting current gameplay semantics. Newly created output starts a new
+storage history at its creation tick. Every canonical ingress and production-output reservation
+rechecks destination containment.
 
 Cross-owner systems that physically inspect exact lot slices before deciding an outcome enter the
 same crate-private exact-relocation pipeline with their already-bound `ConsumptionSelection`, rather
@@ -525,9 +527,10 @@ author an admissible particulate feed envelope. Every selected input trace must 
 range before the output reduction is evaluated, and the registry requires constrained processes to
 use particulate input forms and to admit at least the authored reducing output relationship. This
 models mill operating/feed limits as physical process semantics instead of hard-coded machine IDs or
-technology tiers. Authoritative duration is the slower of
-equipment throughput and source output power, so weak power infrastructure reduces throughput and
-increases active-tick wear. The canonical jaw crusher establishes one conservative 500-10000 um class.
+technology tiers. Authoritative elapsed duration is the slower of equipment throughput and source
+output power. Weak power infrastructure therefore delays completion, while comminution wear is derived
+from throughput-limited material-processing duty and does not increase merely because the same fixed
+work is delivered more slowly. The canonical jaw crusher establishes one conservative 500-10000 um class.
 A separate grinding mill uses distinct typed capabilities to reduce that same-form material to two
 equal-weight classes, 500-2000 um and 2001-4000 um. Screening remains a separate resolver because it
 may classify only size classes wholly on one side of its aperture; direct crusher output therefore
@@ -540,9 +543,10 @@ smelting, alloying, tooling, labor, and skill remain separate future resolvers.
 `ResolvedComminution` exposes the exact observed equipment condition and predicted post-operation
 condition alongside throughput-limited duration, energy-limited duration, required work energy,
 available power, effective processing rate, and typed bottleneck. Player-facing decision layers can
-therefore compare slower resource-conserving operation against faster lower-wear operation from the
-same authoritative resolution that will later be committed, rather than duplicating wear or duration
-math in an adapter.
+therefore compare conserving a scarce high-power reserve against reducing elapsed/survival time from the
+same authoritative resolution that will later be committed. Equal material-processing work on the same
+equipment projects equal abrasion even when energy-delivery time differs, so adapters do not invent a
+false wear advantage for faster power.
 
 Production is closed-mass in the implemented core: resolved output mass must equal authored input
 mass. Slag, tailings, wastewater, gas, and similar losses must therefore be explicit material streams
@@ -575,7 +579,7 @@ authorization systems exist for each operation. Canonical content currently regi
 crusher's ore-comminution process, a same-form grinding process, a 2 mm dry-screening process, and the
 selective oversize fine-grinding pass plus the pure-copper melt/cast path because concrete equipment
 and finite energy owners exist for those operations. Crusher, grinder, and screen each have distinct
-typed throughput/batch capabilities, condition-sensitive throughput, active-tick wear, and exact
+typed throughput/batch capabilities, condition-sensitive throughput, processing-duty wear, and exact
 mechanical work requirements. The chain does not fabricate concentration: crushing preserves one
 unresolved class, grinding authors a finer
 resolved size distribution, screening changes only size-class ownership, and the constrained regrind

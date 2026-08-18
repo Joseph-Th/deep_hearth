@@ -43,8 +43,12 @@ pub(super) struct OrePreparationProbeIds {
     pub(super) drive: EnergyStoreId,
 }
 
-pub(super) fn setup_foundry_probe(registries: &Registries, mass: Mass) -> (AppState, FoundryIds) {
-    let mut state = AppState::new(WorldSeed::new(0xD33F_F001));
+pub(super) fn setup_foundry_probe(
+    registries: &Registries,
+    seed: u64,
+    mass: Mass,
+) -> (AppState, FoundryIds) {
+    let mut state = AppState::new(WorldSeed::new(seed));
     let pure_copper_source = add_solid_stockpile(&mut state, mass, "foundry copper source");
     let molten_temperature = registries
         .materials()
@@ -108,10 +112,11 @@ pub(super) fn setup_foundry_probe(registries: &Registries, mass: Mass) -> (AppSt
 
 pub(super) fn setup_ore_preparation_probe(
     registries: &Registries,
+    seed: u64,
     batch_mass: Mass,
     copper_ppm: u32,
 ) -> (AppState, OrePreparationProbeIds) {
-    let mut state = AppState::new(WorldSeed::new(0xD33F_0A11));
+    let mut state = AppState::new(WorldSeed::new(seed));
     let ore_source = add_solid_stockpile(&mut state, batch_mass, "ore preparation source");
     let crushed_storage =
         add_solid_stockpile(&mut state, batch_mass, "ore preparation crushed storage");

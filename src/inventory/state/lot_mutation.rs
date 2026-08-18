@@ -4,9 +4,11 @@ use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
 use crate::material::CommodityKey;
 
+use crate::inventory::coalescing::LotMergePolicy;
+
 use super::{
-    InventoryState, MaterialLotId, MaterialLotProfile, MaterialLotRecord, StockpileId,
-    StockpileRecord,
+    InventoryState, MaterialLotId, MaterialLotProfile, MaterialLotRecord, MaterialStorageHistory,
+    StockpileId, StockpileRecord,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,10 +96,19 @@ pub(in crate::inventory) fn apply_aggregate_withdraw(
 pub(in crate::inventory) fn apply_insert_or_merge_new_lot(
     state: &mut InventoryState,
     lot: MaterialLotRecord,
+    merge_policy: LotMergePolicy,
     at: SimulationTick,
     destination_preservation_multiplier_ppm: u32,
 ) -> MaterialLotId {
-    let compatible = find_compatible_lot(state, lot.stockpile, &lot.profile);
+    let compatible = find_mergeable_lot(
+        state,
+        lot.stockpile,
+        &lot.profile,
+        lot.storage_history,
+        at,
+        destination_preservation_multiplier_ppm,
+        merge_policy,
+    );
 
     let Some(existing_id) = compatible else {
         let id = lot.id;
@@ -112,6 +123,7 @@ pub(in crate::inventory) fn apply_insert_or_merge_new_lot(
         lot,
         at,
         destination_preservation_multiplier_ppm,
+        merge_policy,
     );
     existing_id
 }
@@ -160,6 +172,7 @@ pub(in crate::inventory) fn apply_split_lot(
     destination: StockpileId,
     transferred: Mass,
     storage: LotStorageTransition,
+    merge_policy: LotMergePolicy,
 ) {
     let (source_mass, source_profile, source_provenance, source_storage_history) =
         match state.lots.get(&source_lot) {
@@ -198,13 +211,22 @@ pub(in crate::inventory) fn apply_split_lot(
             .rebase(storage.at, storage.source_preservation_multiplier_ppm)
             .unwrap_or_else(|| panic!("validated split-lot transfer has invalid storage history")),
     };
-    if let Some(existing_id) = find_compatible_lot(state, destination, &split.profile) {
+    if let Some(existing_id) = find_mergeable_lot(
+        state,
+        destination,
+        &split.profile,
+        split.storage_history,
+        storage.at,
+        storage.destination_preservation_multiplier_ppm,
+        merge_policy,
+    ) {
         apply_merge_lot_record(
             state,
             existing_id,
             split,
             storage.at,
             storage.destination_preservation_multiplier_ppm,
+            merge_policy,
         );
     } else {
         apply_insert_lot_record(state, split);
@@ -269,18 +291,41 @@ fn apply_insert_lot_record(state: &mut InventoryState, lot: MaterialLotRecord) {
     );
 }
 
-fn find_compatible_lot(
+fn find_mergeable_lot(
     state: &InventoryState,
     stockpile: StockpileId,
     profile: &MaterialLotProfile,
+    storage_history: MaterialStorageHistory,
+    at: SimulationTick,
+    preservation_multiplier_ppm: u32,
+    merge_policy: LotMergePolicy,
 ) -> Option<MaterialLotId> {
+    let incoming_age = storage_history
+        .project(at, preservation_multiplier_ppm)
+        .unwrap_or_else(|| panic!("validated incoming lot has invalid storage history"));
     state
         .lot_ids_for_commodity(stockpile, profile.commodity())
         .find(|id| {
-            state
-                .lots
-                .get(id)
-                .is_some_and(|existing| &existing.profile == profile)
+            state.lots.get(id).is_some_and(|existing| {
+                if &existing.profile != profile {
+                    return false;
+                }
+                match merge_policy {
+                    LotMergePolicy::OldestStorageExposure => true,
+                    LotMergePolicy::ExactStorageExposure => {
+                        existing
+                            .storage_history
+                            .project(at, preservation_multiplier_ppm)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "validated destination lot {} has invalid storage history",
+                                    id.value()
+                                )
+                            })
+                            == incoming_age
+                    }
+                }
+            })
         })
 }
 
@@ -290,6 +335,7 @@ fn apply_merge_lot_record(
     lot: MaterialLotRecord,
     at: SimulationTick,
     destination_preservation_multiplier_ppm: u32,
+    merge_policy: LotMergePolicy,
 ) {
     let existing = match state.lots.get_mut(&existing_id) {
         Some(existing) => existing,
@@ -318,6 +364,15 @@ fn apply_merge_lot_record(
         .storage_history
         .project(at, destination_preservation_multiplier_ppm)
         .unwrap_or_else(|| panic!("validated incoming lot has invalid storage history"));
-    existing.storage_history =
-        super::MaterialStorageHistory::with_ambient_age_parts(existing_age.max(incoming_age), at);
+    let merged_age = match merge_policy {
+        LotMergePolicy::OldestStorageExposure => existing_age.max(incoming_age),
+        LotMergePolicy::ExactStorageExposure => {
+            assert_eq!(
+                existing_age, incoming_age,
+                "age-sensitive material lots with different storage exposure must remain distinct"
+            );
+            existing_age
+        }
+    };
+    existing.storage_history = MaterialStorageHistory::with_ambient_age_parts(merged_age, at);
 }

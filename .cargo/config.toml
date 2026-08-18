@@ -14,7 +14,10 @@ test-fast = "test --quiet --locked --lib"
 test-soak = "test --quiet --locked --lib --features test-soak -- --ignored"
 test-all = "test --quiet --locked --lib --features test-soak -- --include-ignored"
 test-gameplay = "test --quiet --locked --test gameplay_harness --features test-gameplay"
+# Filtered gameplay aliases are fail-closed by tools/check_gameplay_aliases.py in the maintained
+# gameplay verification lane. Keep selectors exact so a focused command cannot broaden silently.
 test-gameplay-scenarios = "test --quiet --locked --test gameplay_harness --features test-gameplay gameplay_harness_gate -- --exact"
+test-gameplay-survival = "test --quiet --locked --test gameplay_harness --features test-gameplay gameplay_survival_provisioning_probe -- --exact"
 test-gameplay-progression = "test --quiet --locked --test gameplay_harness --features test-gameplay gameplay_primitive_progression_probe -- --exact"
 test-gameplay-ore = "test --quiet --locked --test gameplay_harness --features test-gameplay gameplay_ore_preparation_probe -- --exact"
 test-gameplay-foundry = "test --quiet --locked --test gameplay_harness --features test-gameplay gameplay_foundry_probe -- --exact"

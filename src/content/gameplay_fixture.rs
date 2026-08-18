@@ -1,18 +1,20 @@
 //! External starting-state boundary for the gameplay exercise.
 //!
-//! Deep Hearth does not yet own world acquisition for loose matter, stored-energy generation, or a
-//! player-facing structural construction authorizer. The gameplay harness therefore has to arrange
-//! those facts before the acting policy starts. Keep every direct bootstrap-only mutation in this
-//! module so the exercise itself cannot accidentally treat a fixture shortcut as player behavior.
+//! Deep Hearth does not yet own world acquisition for loose matter, potable fluid, stored-energy
+//! generation, or a player-facing structural construction authorizer. The gameplay harness therefore
+//! has to arrange those facts before the acting policy starts. Keep every direct bootstrap-only
+//! mutation in this module so the exercise itself cannot accidentally treat a fixture shortcut as
+//! player behavior.
 //!
 //! Once setup returns, gameplay code must use the same runtime resolvers, validators, commits, and
 //! simulation ticks as the game core.
 
-use crate::core::quantity::{Energy, Mass, Temperature};
+use crate::core::quantity::{Energy, Mass, Temperature, Volume};
 use crate::core::state::AppState;
 use crate::energy::{
     EnergyStoreDefinitionId, EnergyStoreId, add_energy_store_with_initial_for_fixture,
 };
+use crate::fluid::{FluidDefinitionId, FluidStoreId, add_fluid_store_with_contents_for_fixture};
 use crate::geology::{GeneratedDepositSpec, GeologicalDepositId, insert_generated_deposit};
 use crate::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, add_stockpile,
@@ -34,6 +36,25 @@ pub fn seed_energy_store(
 ) -> EnergyStoreId {
     add_energy_store_with_initial_for_fixture(registries, state, definition, amount)
         .unwrap_or_else(|error| panic!("gameplay bootstrap energy seed failed: {error}"))
+}
+
+pub fn seed_fluid_store(
+    registries: &Registries,
+    state: &mut AppState,
+    capacity: Volume,
+    definition: FluidDefinitionId,
+    volume: Volume,
+    temperature: Temperature,
+) -> FluidStoreId {
+    add_fluid_store_with_contents_for_fixture(
+        registries,
+        state,
+        capacity,
+        definition,
+        volume,
+        temperature,
+    )
+    .unwrap_or_else(|error| panic!("gameplay bootstrap fluid seed failed: {error}"))
 }
 
 pub fn seed_geological_deposit(

@@ -1,5 +1,6 @@
 //! Fungible matter storage with passive state, deterministic selection, and validated mutation pipelines.
 
+mod coalescing;
 #[cfg(any(test, feature = "test-gameplay"))]
 mod fixture;
 mod inbound_reservation;

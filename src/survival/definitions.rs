@@ -333,9 +333,19 @@ impl SurvivalRegistry {
         self.foods.get(&commodity)
     }
 
+    /// Iterates authored edible commodities in stable commodity-key order.
+    pub fn foods(&self) -> impl Iterator<Item = &FoodDefinition> {
+        self.foods.values()
+    }
+
     #[must_use]
     pub fn get_drink(&self, fluid: FluidDefinitionId) -> Option<&DrinkDefinition> {
         self.drinks.get(&fluid)
+    }
+
+    /// Iterates authored drinkable fluids in stable definition-ID order.
+    pub fn drinks(&self) -> impl Iterator<Item = &DrinkDefinition> {
+        self.drinks.values()
     }
 
     #[must_use]

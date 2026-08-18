@@ -590,9 +590,9 @@ pub fn resolve_screening_process(
     .map_err(ScreeningResolutionError::EnergyDuration)?;
     let duration = std::cmp::max(throughput_duration, energy_duration);
     let condition_after = calculate_condition_after_active_ticks(
-        definition.condition_wear_ppm_per_active_tick(),
+        definition.condition_wear_ppm_per_processing_tick(),
         provider.condition(),
-        duration,
+        throughput_duration,
     );
     let equipment_use = provider.validated_use();
     let resolution = inputs
@@ -976,9 +976,9 @@ pub(crate) fn validate_loaded_screening_job(
         });
     }
     let required_condition_after = calculate_condition_after_active_ticks(
-        definition.condition_wear_ppm_per_active_tick(),
+        definition.condition_wear_ppm_per_processing_tick(),
         provider.condition(),
-        required_duration,
+        throughput_duration,
     );
     let stored_condition_after = job
         .equipment_condition_after()
@@ -1052,7 +1052,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("screening composition fixture failed: {error}"))
     }
 
-    fn registries(aperture: Length) -> Registries {
+    fn registries_with_power(aperture: Length, max_output_power: Power) -> Registries {
         let capabilities = CapabilityProfile::new([
             (
                 FLOW_CAPABILITY,
@@ -1105,7 +1105,7 @@ mod tests {
                 "test screen mechanical buffer",
                 EnergyCarrier::Mechanical,
                 Energy::from_nanojoules(1_000_000),
-                Power::from_microwatts(100),
+                max_output_power,
             ),
             process,
             ScreeningProcessDefinition::new(
@@ -1124,6 +1124,11 @@ mod tests {
         )
     }
 
+    #[cfg(feature = "test-soak")]
+    fn registries(aperture: Length) -> Registries {
+        registries_with_power(aperture, Power::from_microwatts(100))
+    }
+
     struct Fixture {
         registries: Registries,
         state: AppState,
@@ -1133,8 +1138,8 @@ mod tests {
         energy: EnergyStoreId,
     }
 
-    fn fixture(aperture: Length) -> Fixture {
-        let registries = registries(aperture);
+    fn fixture_with_power(aperture: Length, max_output_power: Power) -> Fixture {
+        let registries = registries_with_power(aperture, max_output_power);
         let mut state = AppState::new(WorldSeed::new(0x9710_0001));
         let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
             .unwrap_or_else(|error| panic!("screening source fixture failed: {error}"));
@@ -1165,6 +1170,10 @@ mod tests {
             equipment,
             energy,
         }
+    }
+
+    fn fixture(aperture: Length) -> Fixture {
+        fixture_with_power(aperture, Power::from_microwatts(100))
     }
 
     fn resolve(fixture: &Fixture) -> Result<ResolvedScreening, ScreeningResolutionError> {
@@ -1217,6 +1226,24 @@ mod tests {
             .unwrap_or_else(|| panic!("screening coarse output lost particle-size state"));
         assert_eq!(fines_distribution.classes().len(), 1);
         assert_eq!(coarse_distribution.classes().len(), 2);
+    }
+
+    #[test]
+    fn weak_screen_power_extends_time_without_fabricating_processing_wear() {
+        let fixture =
+            fixture_with_power(Length::from_micrometers(2_000), Power::from_microwatts(1));
+        let resolved = resolve(&fixture)
+            .unwrap_or_else(|error| panic!("power-limited screening resolution failed: {error}"));
+
+        assert_eq!(resolved.throughput_duration(), TickSpan::new(1));
+        assert_eq!(resolved.energy_duration(), TickSpan::new(20));
+        assert_eq!(resolved.process_resolution().duration(), TickSpan::new(20));
+        assert_eq!(resolved.condition_before(), Condition::PRISTINE);
+        assert_eq!(
+            resolved.condition_after(),
+            Condition::new(999_000)
+                .unwrap_or_else(|error| panic!("screening wear fixture failed: {error}"))
+        );
     }
 
     #[test]

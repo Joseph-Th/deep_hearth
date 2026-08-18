@@ -24,6 +24,7 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
             ("format", ["cargo", "fmt", "--check"]),
             ("clippy all", cargo("test-lint-all")),
             ("core + soak", cargo("test-all")),
+            ("gameplay selectors", [sys.executable, "tools/check_gameplay_aliases.py"]),
             ("gameplay", cargo("test-gameplay")),
             ("shaders", cargo("test-shaders")),
             ("docs", cargo("test-doc")),
@@ -44,6 +45,7 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
     if args.lint:
         plan.append(("clippy", cargo("test-lint")))
     if gameplay:
+        plan.append(("gameplay selectors", [sys.executable, "tools/check_gameplay_aliases.py"]))
         plan.append(("gameplay", cargo("test-gameplay")))
     if shaders:
         plan.append(("shaders", cargo("test-shaders")))
