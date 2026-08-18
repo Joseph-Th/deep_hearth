@@ -1,6 +1,13 @@
 # Status
 
+**Document role:** Detailed implemented-capability and deliberate-deferral inventory. Use
+[`README.md`](README.md#task-routing) to find the owning subsystem, then read only the relevant
+subsection here. `ARCHITECTURE.md` and `TECHNICAL_DESIGN.md` own how the implementation works and how
+new systems integrate; this file owns whether a capability currently exists or is explicitly deferred.
+
 ## Current Foundation
+
+### Runtime core and cross-cutting foundations
 
 - Headless deterministic Rust simulation core with no renderer or engine dependency.
 - Immutable registry aggregate with separate authored-ID compatibility version.
@@ -23,6 +30,9 @@
 - Explicit authoritative integer quantities for mass, aggregate mass, temperature, energy,
   pressure, area, length, acceleration, force, power, torque, angular speed, voltage, current,
   resistance, volume, aggregate volume, and volumetric flow.
+
+### Matter, materials, inventory, and geological ownership
+
 - Typed material/form definitions with density, thermal, mechanical, and electrical properties,
   explicit solid/liquid form phase, explicit particulate-state policy, and optional authored fusion
   temperature/latent heat.
@@ -72,6 +82,9 @@
   cursor/revision together; production no longer reads or writes inventory ID bookkeeping directly.
   Test/bootstrap lot seeding also delegates to the same validated material-ingress path as source-owned
   production transactions; raw lot insertion remains private to inventory's lot-mutation owner.
+
+### Geology, mining, and prospecting
+
 - Persistent finite geological deposits with chunk-independent bounds, exact initial/remaining mass,
   material form, normalized composition, temperature, generation provenance, depletion lifecycle,
   generated IDs, owner revision, and exhaustive registry/state validation. Authoritative deposit
@@ -110,6 +123,9 @@
   ranking uses quantitative abundance width and spatial footprint instead of technology tiers.
   Regional geological-map projections are deterministic and omit materials known only outside the
   requested area.
+
+### Production, player work, and survival
+
 - Closed-mass timed production with explicit fixed-feed versus selected-batch input policies,
   deterministic exact-lot binding, durable consumed-input traces, operation-specific resolved output
   snapshots, revision-bound start tokens, due-tick indexing, exclusive equipment occupancy indexing,
@@ -177,6 +193,9 @@
   uses a reusable exact fluid-egress transaction, rechecks supported-fluid structural load, and moves
   the withdrawn volume into bounded per-fluid biological ownership. World fluid-volume accounting
   therefore remains exactly conservative even when the hydration reserve is already near full.
+
+### Capabilities, equipment, and maintenance
+
 - Typed authored capability requirements with physical value kinds and registry-reference validation.
   Canonical crusher and foundry content uses the same capability and production registries as runtime
   resolution; additional process content remains gated on corresponding physical providers and
@@ -217,6 +236,9 @@
   revisions through start validation and commit, while support and maintenance commits recheck
   production occupancy immediately before mutation. Exhaustive load validation audits both index
   directions and the independently derived structural force.
+
+### Energy, structures, fluids, and mechanical physics
+
 - Persistent finite-energy stores with typed electrical/thermal/mechanical carriers, immutable
   capacity and independent input/output power envelopes, monotonic runtime IDs/revisions, exact
   consumed- and released-energy provenance, and registry-aware persistence validation. Public runtime
@@ -310,6 +332,9 @@
 - Typed material mass throughput in milligrams per second plus exact whole-tick duration resolution
   provides a shared rate foundation for crushers, grinders, conveyors, and later continuous material
   equipment without abusing batch mass or floating-point rates.
+
+### Ore processing and thermal production
+
 - Selected-batch comminution is the first ore-processing resolver. It accepts exact solid lot slices,
   requires authored equipment throughput, maximum batch mass, energy carrier, and exact
   mass-specific work, then reserves that work from a finite energy source. Each comminution
@@ -395,6 +420,9 @@
   wear-audit contract even when wall-clock completion moves because of downtime. Other occupied
   resources remain exclusive and report an explicit `AwaitingResume` release horizon rather than a
   stale pre-failure due tick.
+
+### Runtime integration, persistence, spatial, and renderer-neutral assets
+
 - Canonical top-level tick pipeline with non-allocating keyed/cursor per-tick invariants and
   exhaustive save/load audits. Full-record, geometry, support-index, production scheduling, and
   occupancy scans stay off the tick hot path and are reconstructed by authoritative validation instead.
@@ -457,6 +485,9 @@
   48 KiB and every assembled program is parsed and semantically validated in the default-off
   `test-shader-validation` lane, leaving ordinary core test builds and the default shipping crate free
   of the Naga dependency.
+
+### Long-horizon verification and gameplay evaluation
+
 - Deterministic 10,000-tick mixed-system soak with repeated production/transfers, varying structural
   snow load on a persistently cracked supported deck, full-state replay equality, periodic exhaustive
   audits, matter-conservation checks, and lot-fragmentation ceiling.
@@ -598,6 +629,9 @@
   atomic support moves and their structural consequences. Isolated unit-test registry builders share
   one test-only domain assembler and no longer inherit unrelated canonical gameplay content as that
   content expands.
+
+### Source organization and repository policy
+
 - Runtime state owners keep records, synchronized indexes, and owner mutation primitives in their
   state modules while descendant validation modules own exhaustive persistence audits without widening
   private mutation access. Production execution is organized behind one canonical facade with separate
@@ -721,11 +755,3 @@
 - Save-file encoding/storage, compression, atomic filesystem writes, and cloud storage. Historical
   save-schema migration is intentionally unsupported rather than deferred.
 - Spatial/world performance benchmarks required before final chunk and streaming architecture.
-
-## Foundation Direction
-
-New gameplay work should add one owning subsystem at a time with immutable registry definitions,
-typed persistent IDs and quantities, dedicated errors, canonical mutations, explicit invariants,
-persistence semantics, and behavioral/soak coverage. Cross-system integration belongs in the visible
-simulation pipeline or an explicitly named integration module. Do not add simplified production
-recipes or generic technology tiers before the physical systems that authorize them exist.
