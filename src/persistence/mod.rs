@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 39;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 40;
 
 /// Borrowed versioned save payload suitable for any Serde encoding adapter.
 #[derive(Debug, Serialize)]
@@ -45,11 +45,12 @@ impl LoadedSaveEnvelope {
         let Self {
             schema_version,
             registry_schema_version,
-            state,
+            mut state,
         } = self;
 
         validate_versions(schema_version, registry_schema_version, registries)?;
 
+        state.rebuild_derived_indexes();
         validate_loaded_state(registries, &state).map_err(LoadError::InvalidState)?;
         Ok(state)
     }
@@ -564,6 +565,14 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("save serialization unexpectedly failed: {error}"),
         };
+        let encoded_value: serde_json::Value = match serde_json::from_slice(&encoded) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("serialized save failed JSON inspection: {error}"),
+        };
+        let inventory = &encoded_value["state"]["systems"]["inventory"];
+        assert!(inventory.get("lot_indexes").is_none());
+        let stockpile_value = &inventory["stockpiles"][stockpile.value().to_string()];
+        assert!(stockpile_value.get("lot_ids").is_none());
         let decoded: LoadedSaveEnvelope = match serde_json::from_slice(&encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("save deserialization unexpectedly failed: {error}"),
@@ -574,6 +583,7 @@ mod tests {
         };
 
         assert_eq!(loaded, state);
+        assert_eq!(loaded.inventory().lot_ids(stockpile).count(), 1);
         let reencoded = match serde_json::to_vec(&SaveEnvelope::new(&registries, &loaded)) {
             Ok(encoded) => encoded,
             Err(error) => panic!("loaded save reserialization unexpectedly failed: {error}"),

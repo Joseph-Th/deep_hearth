@@ -123,20 +123,18 @@ pub(in crate::inventory) fn apply_move_full_lot(
     destination: StockpileId,
     storage: LotStorageTransition,
 ) {
-    let removed = get_stockpile_mut_or_panic(state, source)
-        .lot_ids
-        .remove(&lot);
-    assert!(
-        removed,
-        "validated source stockpile must index moved material lot"
-    );
-    let inserted = get_stockpile_mut_or_panic(state, destination)
-        .lot_ids
-        .insert(lot);
-    assert!(
-        inserted,
-        "destination stockpile must not already index moved material lot"
-    );
+    let commodity = state
+        .lots
+        .get(&lot)
+        .unwrap_or_else(|| {
+            panic!(
+                "validated transfer references missing material lot {}",
+                lot.value()
+            )
+        })
+        .commodity();
+    state.remove_lot_index(source, commodity, lot);
+    state.insert_lot_index(destination, commodity, lot);
     let record = match state.lots.get_mut(&lot) {
         Some(record) => record,
         None => panic!(
@@ -214,18 +212,15 @@ pub(in crate::inventory) fn apply_split_lot(
 }
 
 pub(in crate::inventory) fn apply_consume_lot_slice(state: &mut InventoryState, slice: LotSlice) {
-    let (source_stockpile, source_mass) = match state.lots.get(&slice.lot) {
-        Some(lot) => (lot.stockpile, lot.mass),
+    let (source_stockpile, source_mass, commodity) = match state.lots.get(&slice.lot) {
+        Some(lot) => (lot.stockpile, lot.mass, lot.commodity()),
         None => panic!(
             "validated consumption references missing material lot {}",
             slice.lot.value()
         ),
     };
     if slice.mass == source_mass {
-        let removed = get_stockpile_mut_or_panic(state, source_stockpile)
-            .lot_ids
-            .remove(&slice.lot);
-        assert!(removed, "consumed full lot must exist in owner index");
+        state.remove_lot_index(source_stockpile, commodity, slice.lot);
         let removed = state.lots.remove(&slice.lot);
         assert!(
             removed.is_some(),
@@ -265,13 +260,8 @@ fn apply_insert_lot(state: &mut InventoryState, lot: MaterialLotRecord) {
 fn apply_insert_lot_record(state: &mut InventoryState, lot: MaterialLotRecord) {
     let id = lot.id;
     let stockpile = lot.stockpile;
-    let inserted = get_stockpile_mut_or_panic(state, stockpile)
-        .lot_ids
-        .insert(id);
-    assert!(
-        inserted,
-        "validated material lot ID must be unique in owner index"
-    );
+    let commodity = lot.commodity();
+    state.insert_lot_index(stockpile, commodity, id);
     let replaced = state.lots.insert(id, lot);
     assert!(
         replaced.is_none(),
@@ -284,19 +274,14 @@ fn find_compatible_lot(
     stockpile: StockpileId,
     profile: &MaterialLotProfile,
 ) -> Option<MaterialLotId> {
-    let owner = match state.stockpiles.get(&stockpile) {
-        Some(owner) => owner,
-        None => panic!(
-            "runtime invariant broken: missing destination stockpile {}",
-            stockpile.value()
-        ),
-    };
-    owner.lot_ids.iter().copied().find(|id| {
-        state
-            .lots
-            .get(id)
-            .is_some_and(|existing| &existing.profile == profile)
-    })
+    state
+        .lot_ids_for_commodity(stockpile, profile.commodity())
+        .find(|id| {
+            state
+                .lots
+                .get(id)
+                .is_some_and(|existing| &existing.profile == profile)
+        })
 }
 
 fn apply_merge_lot_record(

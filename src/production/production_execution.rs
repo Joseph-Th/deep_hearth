@@ -269,7 +269,7 @@ mod tests {
             destination_record.get_mass(charcoal_lump()),
             Mass::from_milligrams(10)
         );
-        let output_lots: Vec<_> = destination_record.lot_ids().collect();
+        let output_lots: Vec<_> = state.inventory().lot_ids(destination).collect();
         assert_eq!(output_lots.len(), 1);
         let output_lot = match state.inventory().get_lot(output_lots[0]) {
             Some(lot) => lot,
@@ -680,11 +680,7 @@ mod tests {
             panic!("second completion failed: {error}");
         }
 
-        let record = match state.inventory().get_stockpile(destination) {
-            Some(record) => record,
-            None => panic!("destination disappeared"),
-        };
-        let lot_ids: Vec<_> = record.lot_ids().collect();
+        let lot_ids: Vec<_> = state.inventory().lot_ids(destination).collect();
         assert_eq!(lot_ids.len(), 1);
         let lot = match state.inventory().get_lot(lot_ids[0]) {
             Some(lot) => lot,
@@ -847,7 +843,7 @@ mod tests {
             destination_record.get_mass(charcoal_lump()),
             Mass::from_milligrams(10)
         );
-        let lot_id = match destination_record.lot_ids().next() {
+        let lot_id = match state.inventory().lot_ids(destination).next() {
             Some(id) => id,
             None => panic!("committed output lot is missing"),
         };

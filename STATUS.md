@@ -38,10 +38,12 @@
   canonical non-overlapping diameter bounds and relative mass weights; a single class preserves the
   conservative meaning of an unresolved size envelope without inventing an internal yield curve.
   Particle-size state is part of lot fungibility rather than a detached ore-processing annotation.
-- Capacity-aware stockpiles with derived commodity totals, cached mass, inbound reservations,
-  revision-bound atomic transfers between distinct stockpiles, deterministic splitting,
-  compatible-fragment coalescing, and a persisted material-containment envelope for accepted
-  solid/liquid phases, maximum temperature, and an explicit preservation multiplier used by
+- Capacity-aware stockpiles with derived commodity totals, cached mass, inbound reservations, and a
+  runtime commodity-keyed lot-routing index rebuilt deterministically from authoritative lots on
+  load. Revision-bound atomic transfers between distinct stockpiles use stable-ID splitting and
+  compatible-fragment coalescing without scanning unrelated commodities. Stockpiles persist a
+  material-containment envelope for accepted solid/liquid phases, maximum temperature, and an explicit
+  preservation multiplier used by
   perishable content. Material lots also retain compact ambient-equivalent storage exposure and the
   last storage-transition tick. Relocation accrues exposure under the source profile before switching
   storage, so better preservation slows only future spoilage instead of rewriting prior age. Partial

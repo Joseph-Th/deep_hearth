@@ -1295,12 +1295,15 @@ mod tests {
                 .lifecycle(),
             GeologicalDepositLifecycle::Depleted
         );
-        let destination = state
+        let destination_record = state
             .inventory()
             .get_stockpile(destination)
             .unwrap_or_else(|| panic!("mining soak destination disappeared"));
-        assert_eq!(destination.stored_mass(), Mass::from_milligrams(1_000));
-        assert_eq!(destination.lot_ids().count(), 1);
+        assert_eq!(
+            destination_record.stored_mass(),
+            Mass::from_milligrams(1_000)
+        );
+        assert_eq!(state.inventory().lot_ids(destination).count(), 1);
         assert_eq!(state.mining().jobs().count(), 0);
         assert_eq!(state.player_work().active(), None);
         assert_eq!(

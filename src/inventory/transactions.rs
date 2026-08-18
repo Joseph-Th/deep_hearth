@@ -645,7 +645,6 @@ pub fn add_stockpile(
         supported_by: None,
         stored_mass: Mass::ZERO,
         reserved_inbound: Mass::ZERO,
-        lot_ids: std::collections::BTreeSet::new(),
         contents: BTreeMap::new(),
     };
 
@@ -1251,11 +1250,7 @@ mod tests {
             Temperature::from_millikelvin(800_000)
         );
 
-        let destination_record = match state.inventory().get_stockpile(destination) {
-            Some(record) => record,
-            None => panic!("destination disappeared"),
-        };
-        let destination_lots: Vec<_> = destination_record.lot_ids().collect();
+        let destination_lots: Vec<_> = state.inventory().lot_ids(destination).collect();
         assert_eq!(destination_lots.len(), 2);
         let split = match destination_lots.into_iter().find(|id| *id != cool) {
             Some(id) => id,
@@ -1379,7 +1374,7 @@ mod tests {
             destination_record.get_mass(wood_log()),
             Mass::from_milligrams(6)
         );
-        assert_eq!(destination_record.lot_ids().count(), 1);
+        assert_eq!(state.inventory().lot_ids(destination).count(), 1);
         assert_eq!(state.inventory().lots().count(), 2);
         assert_eq!(
             validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
@@ -1442,11 +1437,7 @@ mod tests {
         };
         assert_eq!(source_lot.mass(), Mass::from_milligrams(6));
         assert_eq!(source_lot.composition(), &composition);
-        let destination_record = match state.inventory().get_stockpile(destination) {
-            Some(record) => record,
-            None => panic!("destination disappeared"),
-        };
-        let split_id = match destination_record.lot_ids().next() {
+        let split_id = match state.inventory().lot_ids(destination).next() {
             Some(id) => id,
             None => panic!("destination split lot missing"),
         };

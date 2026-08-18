@@ -329,8 +329,8 @@ impl MaterialLotProvenance {
 /// One homogeneous batch of matter whose local runtime properties must remain distinguishable.
 ///
 /// Lots are the authoritative source for matter identity, mass, thermal state, and ownership.
-/// Stockpile commodity totals and lot-ID collections are derived indexes maintained atomically by
-/// the inventory transaction module.
+/// Stockpile commodity totals and runtime lot-routing indexes are derived state maintained
+/// atomically by the inventory owner.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MaterialLotRecord {
     pub(super) id: MaterialLotId,
@@ -408,7 +408,6 @@ pub struct StockpileRecord {
     pub(super) supported_by: Option<StructuralElementId>,
     pub(super) stored_mass: Mass,
     pub(super) reserved_inbound: Mass,
-    pub(super) lot_ids: BTreeSet<MaterialLotId>,
     pub(super) contents: BTreeMap<CommodityKey, Mass>,
 }
 
@@ -444,11 +443,6 @@ impl StockpileRecord {
         self.reserved_inbound
     }
 
-    /// Iterates owned lot IDs in stable persistent-ID order.
-    pub fn lot_ids(&self) -> impl Iterator<Item = MaterialLotId> + '_ {
-        self.lot_ids.iter().copied()
-    }
-
     /// Returns currently stored mass for one exact material/form key.
     #[must_use]
     pub fn get_mass(&self, commodity: CommodityKey) -> Mass {
@@ -469,6 +463,8 @@ pub struct InventoryState {
     next_lot_id: u64,
     stockpiles: BTreeMap<StockpileId, StockpileRecord>,
     lots: BTreeMap<MaterialLotId, MaterialLotRecord>,
+    #[serde(skip)]
+    lot_indexes: BTreeMap<StockpileId, StockpileLotIndex>,
     stockpiles_by_support: BTreeMap<StructuralElementId, BTreeSet<StockpileId>>,
 }
 
@@ -481,6 +477,7 @@ impl InventoryState {
             next_lot_id: 1,
             stockpiles: BTreeMap::new(),
             lots: BTreeMap::new(),
+            lot_indexes: BTreeMap::new(),
             stockpiles_by_support: BTreeMap::new(),
         }
     }
@@ -546,6 +543,70 @@ impl InventoryState {
     /// Iterates all material lots deterministically by stable runtime ID.
     pub fn lots(&self) -> impl Iterator<Item = &MaterialLotRecord> {
         self.lots.values()
+    }
+
+    /// Iterates one stockpile's owned lots in stable persistent-ID order.
+    pub fn lot_ids(&self, stockpile: StockpileId) -> impl Iterator<Item = MaterialLotId> + '_ {
+        self.lot_indexes
+            .get(&stockpile)
+            .into_iter()
+            .flat_map(StockpileLotIndex::lot_ids)
+    }
+
+    pub(super) fn lot_ids_for_commodity(
+        &self,
+        stockpile: StockpileId,
+        commodity: CommodityKey,
+    ) -> impl Iterator<Item = MaterialLotId> + '_ {
+        self.lot_indexes
+            .get(&stockpile)
+            .into_iter()
+            .flat_map(move |index| index.lot_ids_for_commodity(commodity))
+    }
+
+    pub(super) fn insert_lot_index(
+        &mut self,
+        stockpile: StockpileId,
+        commodity: CommodityKey,
+        lot: MaterialLotId,
+    ) {
+        self.lot_indexes
+            .entry(stockpile)
+            .or_default()
+            .insert(lot, commodity);
+    }
+
+    pub(super) fn remove_lot_index(
+        &mut self,
+        stockpile: StockpileId,
+        commodity: CommodityKey,
+        lot: MaterialLotId,
+    ) {
+        let remove_entry = {
+            let index = self
+                .lot_indexes
+                .get_mut(&stockpile)
+                .unwrap_or_else(|| panic!("runtime invariant broken: missing stockpile lot index"));
+            index.remove(lot, commodity);
+            index.is_empty()
+        };
+        if remove_entry {
+            self.lot_indexes.remove(&stockpile);
+        }
+    }
+
+    pub(crate) fn rebuild_derived_indexes(&mut self) {
+        let mut lot_indexes = BTreeMap::<StockpileId, StockpileLotIndex>::new();
+        for lot in self.lots.values() {
+            if !self.stockpiles.contains_key(&lot.stockpile) {
+                continue;
+            }
+            lot_indexes
+                .entry(lot.stockpile)
+                .or_default()
+                .insert(lot.id, lot.commodity());
+        }
+        self.lot_indexes = lot_indexes;
     }
 
     /// Iterates stockpiles assigned to one structural support in stable stockpile-ID order.
@@ -614,7 +675,9 @@ impl InventoryState {
     }
 }
 
+mod lot_index;
 mod validation;
 
+use lot_index::StockpileLotIndex;
 pub use validation::InventoryValidationError;
 pub(crate) use validation::validate_loaded_inventory;

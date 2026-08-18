@@ -165,6 +165,10 @@ impl AppState {
         &mut self.systems.inventory
     }
 
+    pub(crate) fn rebuild_derived_indexes(&mut self) {
+        self.systems.inventory.rebuild_derived_indexes();
+    }
+
     /// Returns read-only authoritative production scheduling state.
     #[must_use]
     pub const fn production(&self) -> &ProductionState {

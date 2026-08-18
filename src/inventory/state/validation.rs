@@ -13,7 +13,9 @@ use crate::material::{
 };
 use crate::structural::StructuralElementId;
 
-use super::{InventoryState, MaterialLotId, StockpileId, StockpileStorageProfileError};
+use super::{
+    InventoryState, MaterialLotId, StockpileId, StockpileLotIndex, StockpileStorageProfileError,
+};
 
 /// Persistent-state validation failure for the inventory owner.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -110,18 +112,8 @@ pub enum InventoryValidationError {
         lot: MaterialLotId,
         stockpile: StockpileId,
     },
-    LotMissingFromOwnerIndex {
-        lot: MaterialLotId,
+    LotIndexMismatch {
         stockpile: StockpileId,
-    },
-    UnknownIndexedLot {
-        stockpile: StockpileId,
-        lot: MaterialLotId,
-    },
-    IndexedLotOwnedElsewhere {
-        stockpile: StockpileId,
-        lot: MaterialLotId,
-        actual_owner: StockpileId,
     },
     CommodityMassMismatch {
         stockpile: StockpileId,
@@ -321,28 +313,10 @@ impl Display for InventoryValidationError {
                 lot.value(),
                 stockpile.value()
             ),
-            Self::LotMissingFromOwnerIndex { lot, stockpile } => write!(
+            Self::LotIndexMismatch { stockpile } => write!(
                 formatter,
-                "material lot {} is absent from owner stockpile {} lot index",
-                lot.value(),
+                "stockpile {} derived lot index disagrees with authoritative lot ownership or commodity identity",
                 stockpile.value()
-            ),
-            Self::UnknownIndexedLot { stockpile, lot } => write!(
-                formatter,
-                "stockpile {} indexes missing material lot {}",
-                stockpile.value(),
-                lot.value()
-            ),
-            Self::IndexedLotOwnedElsewhere {
-                stockpile,
-                lot,
-                actual_owner,
-            } => write!(
-                formatter,
-                "stockpile {} indexes material lot {} owned by stockpile {}",
-                stockpile.value(),
-                lot.value(),
-                actual_owner.value()
             ),
             Self::CommodityMassMismatch {
                 stockpile,
@@ -458,6 +432,7 @@ pub(crate) fn validate_loaded_inventory(
         })?;
     }
 
+    let mut expected_lot_indexes = BTreeMap::<StockpileId, StockpileLotIndex>::new();
     let mut calculated_by_stockpile =
         BTreeMap::<StockpileId, (Mass, BTreeMap<CommodityKey, Mass>)>::new();
     for (key, lot) in &state.lots {
@@ -572,12 +547,10 @@ pub(crate) fn validate_loaded_inventory(
                 },
             );
         }
-        if !owner.lot_ids.contains(key) {
-            return Err(InventoryValidationError::LotMissingFromOwnerIndex {
-                lot: *key,
-                stockpile: lot.stockpile,
-            });
-        }
+        expected_lot_indexes
+            .entry(lot.stockpile)
+            .or_default()
+            .insert(*key, lot.commodity());
 
         let aggregate = calculated_by_stockpile
             .entry(lot.stockpile)
@@ -626,22 +599,6 @@ pub(crate) fn validate_loaded_inventory(
                 return Err(InventoryValidationError::MissingSupportIndex {
                     stockpile: *key,
                     element: support,
-                });
-            }
-        }
-
-        for lot_id in &record.lot_ids {
-            let Some(lot) = state.lots.get(lot_id) else {
-                return Err(InventoryValidationError::UnknownIndexedLot {
-                    stockpile: *key,
-                    lot: *lot_id,
-                });
-            };
-            if lot.stockpile != *key {
-                return Err(InventoryValidationError::IndexedLotOwnedElsewhere {
-                    stockpile: *key,
-                    lot: *lot_id,
-                    actual_owner: lot.stockpile,
                 });
             }
         }
@@ -698,6 +655,21 @@ pub(crate) fn validate_loaded_inventory(
         if committed > record.capacity {
             return Err(InventoryValidationError::CapacityExceeded { stockpile: *key });
         }
+    }
+    if state.lot_indexes != expected_lot_indexes {
+        let stockpile = match state
+            .lot_indexes
+            .keys()
+            .chain(expected_lot_indexes.keys())
+            .find(|stockpile| {
+                state.lot_indexes.get(stockpile) != expected_lot_indexes.get(stockpile)
+            })
+            .copied()
+        {
+            Some(stockpile) => stockpile,
+            None => panic!("unequal lot-index maps must have a differing key"),
+        };
+        return Err(InventoryValidationError::LotIndexMismatch { stockpile });
     }
     for (element, stockpiles) in &state.stockpiles_by_support {
         if element.value() == 0 {

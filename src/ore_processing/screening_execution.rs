@@ -1522,24 +1522,8 @@ mod tests {
                 .stored_mass(),
             Mass::from_milligrams(1_800)
         );
-        assert_eq!(
-            state
-                .inventory()
-                .get_stockpile(undersize)
-                .unwrap_or_else(|| panic!("screening soak undersize storage disappeared"))
-                .lot_ids()
-                .count(),
-            1
-        );
-        assert_eq!(
-            state
-                .inventory()
-                .get_stockpile(oversize)
-                .unwrap_or_else(|| panic!("screening soak oversize storage disappeared"))
-                .lot_ids()
-                .count(),
-            1
-        );
+        assert_eq!(state.inventory().lot_ids(undersize).count(), 1);
+        assert_eq!(state.inventory().lot_ids(oversize).count(), 1);
         state
     }
 

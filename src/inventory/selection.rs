@@ -422,8 +422,8 @@ fn select_input_lot_slices(
     let mut available = Mass::ZERO;
     let mut slices = Vec::new();
 
-    for lot_id in &source.lot_ids {
-        let lot = match inventories.get_lot(*lot_id) {
+    for lot_id in inventories.lot_ids_for_commodity(source.id, input.commodity()) {
+        let lot = match inventories.get_lot(lot_id) {
             Some(lot) => lot,
             None => panic!(
                 "runtime invariant broken: stockpile {} indexes missing lot {}",
@@ -431,11 +431,11 @@ fn select_input_lot_slices(
                 lot_id.value()
             ),
         };
-        if lot.commodity() != input.commodity() || !input.is_satisfied_by(lot.composition()) {
+        if !input.is_satisfied_by(lot.composition()) {
             continue;
         }
 
-        let already_selected = selected_by_lot.get(lot_id).copied().unwrap_or(Mass::ZERO);
+        let already_selected = selected_by_lot.get(&lot_id).copied().unwrap_or(Mass::ZERO);
         let free = match lot.mass.checked_sub(already_selected) {
             Some(value) => value,
             None => panic!("input allocator selected more mass than material lot contains"),
@@ -450,14 +450,14 @@ fn select_input_lot_slices(
 
         let take = if free <= remaining { free } else { remaining };
         slices.push(LotSlice {
-            lot: *lot_id,
+            lot: lot_id,
             mass: take,
         });
         let selected_after = match already_selected.checked_add(take) {
             Some(value) => value,
             None => panic!("input allocator selection overflowed material lot mass"),
         };
-        selected_by_lot.insert(*lot_id, selected_after);
+        selected_by_lot.insert(lot_id, selected_after);
         remaining = match remaining.checked_sub(take) {
             Some(value) => value,
             None => panic!("input allocator underflowed remaining requested mass"),

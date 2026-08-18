@@ -792,8 +792,8 @@ fn stage_rank(stage: StructuralStage) -> u8 {
 fn stockpile_first_lot(state: &AppState, stockpile: StockpileId) -> MaterialLotId {
     state
         .inventory()
-        .get_stockpile(stockpile)
-        .and_then(|record| record.lot_ids().next())
+        .lot_ids(stockpile)
+        .next()
         .unwrap_or_else(|| panic!("gameplay harness expected output lot is missing"))
 }
 
@@ -2501,17 +2501,13 @@ fn run_ore_preparation_capability_probe(registries: &Registries, seed: u64) {
         .get_stockpile(ids.oversize_storage)
         .map(|stockpile| stockpile.stored_mass())
         .unwrap_or_else(|| panic!("ore preparation oversize storage disappeared"));
-    let undersize_stockpile = state
-        .inventory()
-        .get_stockpile(ids.undersize_storage)
-        .unwrap_or_else(|| panic!("ore preparation undersize storage disappeared"));
-    let composition_preserved = undersize_stockpile.lot_ids().all(|lot| {
+    let composition_preserved = state.inventory().lot_ids(ids.undersize_storage).all(|lot| {
         state
             .inventory()
             .get_lot(lot)
             .is_some_and(|lot| lot.composition() == &output_composition)
     });
-    let final_distribution_is_fine = undersize_stockpile.lot_ids().all(|lot| {
+    let final_distribution_is_fine = state.inventory().lot_ids(ids.undersize_storage).all(|lot| {
         state
             .inventory()
             .get_lot(lot)

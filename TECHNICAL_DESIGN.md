@@ -80,9 +80,11 @@ keeps load validation close to the owner without widening mutation visibility or
 into the runtime state surface.
 
 - `InventoryState` owns stockpiles, persistent material lots, generated stockpile/lot IDs, derived
-  commodity totals, cached stored mass, inbound reservations, persisted phase/temperature containment
-  profiles, optional structural support assignments, the synchronized support-to-stockpile reverse
-  index, and an owner revision.
+  commodity totals, cached stored mass, inbound reservations, a runtime stockpile/commodity lot-routing
+  index, persisted phase/temperature containment profiles, optional structural support assignments,
+  the synchronized support-to-stockpile reverse index, and an owner revision. The lot-routing index is
+  omitted from persistence and rebuilt deterministically from authoritative lot ownership before load
+  validation.
 - `EnergyState` owns finite energy stores, generated store IDs, and an owner revision. Store behavior
   is defined by immutable carrier, capacity, and independent input/output power envelopes.
 - `FluidState` owns finite homogeneous fluid stores, generated store IDs, exact volume and
@@ -154,10 +156,11 @@ decoders are intentionally not retained.
 A current-schema load must:
 
 1. Validate save and registry schema versions.
-2. Validate every subsystem's local persisted invariants.
-3. Resolve every persisted authored/runtime reference.
-4. Validate cross-owner reservations, lifecycle, provenance, and in-process conservation.
-5. Reject corrupted state before returning `AppState` to runtime use.
+2. Rebuild explicitly runtime-only derived indexes from authoritative persisted records.
+3. Validate every subsystem's local persisted invariants, including rebuilt-index agreement.
+4. Resolve every persisted authored/runtime reference.
+5. Validate cross-owner reservations, lifecycle, provenance, and in-process conservation.
+6. Reject corrupted state before returning `AppState` to runtime use.
 
 Persistence tests cover deterministic continuation, mixed composition, independent RNG continuation,
 tampered RNG roots, tampered in-process consumed mass, stable immediate JSON reserialization,
@@ -271,6 +274,8 @@ Performance begins with ownership and access patterns rather than premature micr
   Exhaustive validation reconstructs every expected index from durable job traces and rejects
   disagreement.
 - Stockpiles maintain cheap derived mass/commodity caches and update them atomically with lot state.
+  Inventory lot routing is separately indexed by stockpile and commodity, so exact input selection and
+  compatible-lot coalescing skip unrelated commodities while preserving stable lot-ID order.
 - Fluid stores index support membership bidirectionally, so transfer-time structural recomputation
   visits only stores sharing affected supports rather than scanning all hydraulic storage.
 - Output capacity is reserved at process start so completion does not discover a late full-destination
@@ -382,10 +387,14 @@ age plus the tick of the last storage transition. Freshness projects additional 
 current stockpile preservation multiplier, so entering better storage slows subsequent decay without
 retroactively changing earlier exposure.
 
-Stockpiles maintain derived deterministic indexes/caches for lot IDs, per-commodity mass, total
-stored mass, capacity, reserved inbound mass, and a persisted containment profile declaring accepted
-material phases plus maximum material temperature. A stockpile may also own one optional structural
-support assignment. `InventoryState` maintains the synchronized support-to-stockpile reverse index;
+Stockpile records maintain derived per-commodity mass and total stored-mass caches, capacity, reserved
+inbound mass, and a persisted containment profile declaring accepted material phases plus maximum
+material temperature. `InventoryState` separately owns a deterministic runtime lot-routing index keyed
+by stockpile and commodity. Exact input selection and compatible-lot coalescing therefore inspect only
+relevant lots in stable ID order. That index is not serialized; load reconstructs it from authoritative
+lot ownership and commodity identity before exhaustive validation. A stockpile may also own one
+optional structural support assignment. `InventoryState` maintains the synchronized
+support-to-stockpile reverse index;
 `StructuralLoadKind::StoredMatter` is derived from the aggregate stored mass of all stockpiles on a
 support, converted to force once under registry-authored gravity. Aggregating mass before conversion
 avoids per-container rounding creating artificial weight. Reserved inbound capacity is space, not
