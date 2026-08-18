@@ -12,7 +12,7 @@ This file is the execution card for repository work. [ARCHITECTURE.md](ARCHITECT
 6. Use [TESTING.md](TESTING.md) for the narrowest exact test and the required specialized/completion lanes.
 7. Update the one document that owns any changed contract.
 
-This project applies the Universal, Stateful Application, and Deterministic System portfolio profiles. If current authorities, tests, and implementation conflict, reconcile the owner instead of choosing a convenient description.
+This project applies the Universal, Stateful Application, Deterministic System, and Automated Behavior Evaluation portfolio profiles. If current authorities, tests, and implementation conflict, reconcile the owner instead of choosing a convenient description.
 
 ## Project guardrails
 
