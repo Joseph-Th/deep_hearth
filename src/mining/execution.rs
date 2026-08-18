@@ -3,8 +3,8 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::capability::{CapabilityId, CapabilityValue, CapabilityValueKind};
-use crate::core::quantity::{Mass, MassFlow, Pressure};
+use crate::capability::{CapabilityId, CapabilityValueKind};
+use crate::core::quantity::{Mass, Pressure};
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::equipment::{
@@ -23,13 +23,13 @@ use crate::labor::{
     PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ValidatedPlayerWorkStart,
     validate_player_work_start,
 };
-use crate::maintenance::calculate_condition_after_active_ticks;
 use crate::material::{MaterialId, MaterialLotSpec, MaterialLotSpecError};
-use crate::ore_processing::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
+use crate::ore_processing::MassFlowDurationError;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
+use super::physics::{MiningPhysicsError, resolve_mining_physics};
 use super::state::{MiningJobIdentity, MiningJobResources, MiningJobSchedule};
 use super::{MiningJobId, MiningJobRecord, MiningMethodId};
 
@@ -113,6 +113,36 @@ impl Display for MiningStartError {
 }
 
 impl Error for MiningStartError {}
+
+impl From<MiningPhysicsError> for MiningStartError {
+    fn from(error: MiningPhysicsError) -> Self {
+        match error {
+            MiningPhysicsError::MissingCapability { capability } => {
+                Self::MissingCapability { capability }
+            }
+            MiningPhysicsError::CapabilityKindMismatch {
+                capability,
+                expected,
+                found,
+            } => Self::CapabilityKindMismatch {
+                capability,
+                expected,
+                found,
+            },
+            MiningPhysicsError::UnknownMaterialDefinition { material } => {
+                Self::UnknownMaterialDefinition { material }
+            }
+            MiningPhysicsError::BatchTooLarge { maximum, requested } => {
+                Self::BatchTooLarge { maximum, requested }
+            }
+            MiningPhysicsError::MaterialTooHard { hardness, maximum } => {
+                Self::MaterialTooHard { hardness, maximum }
+            }
+            MiningPhysicsError::ZeroThroughput => Self::ZeroThroughput,
+            MiningPhysicsError::Duration(error) => Self::Duration(error),
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MiningStartCommitError {
@@ -301,84 +331,22 @@ pub fn validate_start_mining(
     if let Some(job) = state.mining().get_equipment_occupant(equipment) {
         return Err(MiningStartError::EquipmentBusyMining { equipment, job });
     }
-    let flow_capability = method_def.mass_flow_capability();
-    let flow_value =
-        provider
-            .get_capability(flow_capability)
-            .ok_or(MiningStartError::MissingCapability {
-                capability: flow_capability,
-            })?;
-    let CapabilityValue::MassFlow(flow) = flow_value else {
-        return Err(MiningStartError::CapabilityKindMismatch {
-            capability: flow_capability,
-            expected: CapabilityValueKind::MassFlow,
-            found: flow_value.kind(),
-        });
-    };
-    let batch_capability = method_def.max_batch_mass_capability();
-    let batch_value =
-        provider
-            .get_capability(batch_capability)
-            .ok_or(MiningStartError::MissingCapability {
-                capability: batch_capability,
-            })?;
-    let CapabilityValue::Mass(max_batch) = batch_value else {
-        return Err(MiningStartError::CapabilityKindMismatch {
-            capability: batch_capability,
-            expected: CapabilityValueKind::Mass,
-            found: batch_value.kind(),
-        });
-    };
-    let hardness_capability = method_def.max_hardness_capability();
-    let hardness_value = provider.get_capability(hardness_capability).ok_or(
-        MiningStartError::MissingCapability {
-            capability: hardness_capability,
-        },
-    )?;
-    let CapabilityValue::Pressure(max_hardness) = hardness_value else {
-        return Err(MiningStartError::CapabilityKindMismatch {
-            capability: hardness_capability,
-            expected: CapabilityValueKind::Pressure,
-            found: hardness_value.kind(),
-        });
-    };
-    if flow == MassFlow::ZERO {
-        return Err(MiningStartError::ZeroThroughput);
-    }
-    if mass > max_batch {
-        return Err(MiningStartError::BatchTooLarge {
-            maximum: max_batch,
-            requested: mass,
-        });
-    }
-    let material_id = deposit_record.commodity().material();
-    let material = registries.materials().get_material(material_id).ok_or(
-        MiningStartError::UnknownMaterialDefinition {
-            material: material_id,
-        },
-    )?;
-    let hardness = Pressure::from_pascals(
-        u64::from(material.properties().mechanical().hardness_mpa()) * 1_000_000,
-    );
-    if hardness > max_hardness {
-        return Err(MiningStartError::MaterialTooHard {
-            hardness,
-            maximum: max_hardness,
-        });
-    }
-    let duration =
-        calculate_mass_flow_duration_ceiling(flow, mass, registries.core().ticks_per_second())
-            .map_err(MiningStartError::Duration)?;
+    let physics = resolve_mining_physics(
+        registries,
+        method_def,
+        provider.definition(),
+        provider.condition(),
+        deposit_record.commodity().material(),
+        mass,
+    )
+    .map_err(MiningStartError::from)?;
+    let duration = physics.duration();
     let completes_at = state
         .tick()
         .checked_add_span(duration)
         .ok_or(MiningStartError::CompletionTickOverflow)?;
-    let condition_before = provider.condition();
-    let condition_after = calculate_condition_after_active_ticks(
-        method_def.condition_wear_ppm_per_active_tick(),
-        condition_before,
-        duration,
-    );
+    let condition_after = physics.condition_after();
+    let equipment_trace = provider.validated_use().trace();
     let output = MaterialLotSpec::with_composition(
         deposit_record.commodity(),
         mass,
@@ -483,9 +451,8 @@ pub fn validate_start_mining(
             },
             MiningJobResources {
                 destination,
-                equipment,
+                equipment_trace,
                 output,
-                equipment_condition_before: condition_before,
                 equipment_condition_after: condition_after,
             },
             MiningJobSchedule {
@@ -730,7 +697,9 @@ mod tests {
         ManualCraftStartRequest, StartManualCraftError, validate_start_manual_craft,
     };
     use crate::energy::calculate_explicit_energy_accounting;
-    use crate::equipment::{add_equipment, validate_assemble_equipment};
+    use crate::equipment::{
+        add_equipment, validate_assemble_equipment, validate_upgrade_equipment,
+    };
     use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
     use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
     use crate::labor::{
@@ -740,6 +709,7 @@ mod tests {
     use crate::maintenance::Condition;
     use crate::material::{CommodityKey, MaterialComposition};
     use crate::matter::calculate_matter_accounting;
+    use crate::mining::MiningJobValidationError;
     use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
     use crate::simulation::advance_tick;
     use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -756,6 +726,206 @@ mod tests {
             MaterialComposition::pure(MATERIAL_COPPER),
         )
         .unwrap_or_else(|error| panic!("mining test deposit failed: {error}"))
+    }
+
+    #[test]
+    fn loaded_mining_job_reconstructs_authored_condition_outcome() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0xA11E_0021));
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("mining wear-audit survival setup failed: {error}"));
+        let pick = assemble_pick_for_test(&registries, &mut state);
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+            .unwrap_or_else(|error| panic!("mining wear-audit destination failed: {error}"));
+        let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+            .unwrap_or_else(|error| panic!("mining wear-audit deposit failed: {error}"));
+        let job = validate_start_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        )
+        .unwrap_or_else(|error| panic!("mining wear-audit start failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("mining wear-audit commit failed: {error}"));
+        let required = state
+            .mining()
+            .get_job(job)
+            .unwrap_or_else(|| panic!("mining wear-audit job disappeared"))
+            .equipment_condition_after();
+        let forged = Condition::new(required.parts_per_million().saturating_add(1))
+            .unwrap_or_else(|error| panic!("mining forged condition failed: {error}"));
+        assert_ne!(forged, required);
+
+        let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| panic!("mining wear-audit serialization failed: {error}"));
+        encoded["state"]["systems"]["mining"]["jobs"][job.value().to_string()]["resources"]["equipment_condition_after"] =
+            serde_json::json!(forged.parts_per_million());
+        let tampered: LoadedSaveEnvelope = serde_json::from_value(encoded)
+            .unwrap_or_else(|error| panic!("mining wear-audit tamper decode failed: {error}"));
+
+        assert_eq!(
+            tampered.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::MiningJob(
+                MiningJobValidationError::ConditionOutcomeMismatch {
+                    job,
+                    stored: forged,
+                    required,
+                }
+            )))
+        );
+    }
+
+    #[test]
+    fn ready_mining_job_keeps_historical_tool_physics_after_tool_upgrade() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0xA11E_0023));
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("mining trace survival setup failed: {error}"));
+        let pick = assemble_pick_for_test(&registries, &mut state);
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+            .unwrap_or_else(|error| panic!("mining trace destination failed: {error}"));
+        let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+            .unwrap_or_else(|error| panic!("mining trace deposit failed: {error}"));
+        let job = validate_start_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        )
+        .unwrap_or_else(|error| panic!("mining trace start failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("mining trace start commit failed: {error}"));
+        let duration = state
+            .mining()
+            .get_job(job)
+            .map(|record| record.completes_at().value() - record.started_at().value())
+            .unwrap_or_else(|| panic!("mining trace job disappeared"));
+        for _ in 0..duration {
+            advance_tick(&registries, &mut state)
+                .unwrap_or_else(|error| panic!("mining trace completion failed: {error}"));
+        }
+        assert!(
+            state
+                .mining()
+                .get_job(job)
+                .is_some_and(|record| record.ready_at().is_some())
+        );
+
+        let reinforcement_source =
+            add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000)).unwrap_or_else(
+                |error| panic!("mining trace reinforcement source failed: {error}"),
+            );
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            reinforcement_source,
+            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            Mass::from_milligrams(20_000),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("mining trace reinforcement failed: {error}"));
+        validate_upgrade_equipment(
+            &registries,
+            &state,
+            pick,
+            EQUIPMENT_COPPER_REINFORCED_PICK,
+            reinforcement_source,
+        )
+        .unwrap_or_else(|error| panic!("mining trace upgrade failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("mining trace upgrade commit failed: {error}"));
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(pick)
+                .map(|record| record.definition()),
+            Some(EQUIPMENT_COPPER_REINFORCED_PICK)
+        );
+        assert_eq!(
+            state
+                .mining()
+                .get_job(job)
+                .map(MiningJobRecord::equipment_definition),
+            Some(EQUIPMENT_STONE_PICK)
+        );
+        validate_loaded_state(&registries, &state)
+            .unwrap_or_else(|error| panic!("mining trace post-upgrade audit failed: {error}"));
+
+        let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| panic!("mining trace serialization failed: {error}"));
+        let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+            .unwrap_or_else(|error| panic!("mining trace decode failed: {error}"));
+        let loaded = decoded
+            .into_state(&registries)
+            .unwrap_or_else(|error| panic!("mining trace load failed: {error}"));
+        assert_eq!(loaded, state);
+    }
+
+    #[test]
+    fn loaded_ready_mining_job_reconstructs_authored_duration() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0xA11E_0022));
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("mining duration-audit survival setup failed: {error}"));
+        let pick = assemble_pick_for_test(&registries, &mut state);
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+            .unwrap_or_else(|error| panic!("mining duration-audit destination failed: {error}"));
+        let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+            .unwrap_or_else(|error| panic!("mining duration-audit deposit failed: {error}"));
+        let job = validate_start_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        )
+        .unwrap_or_else(|error| panic!("mining duration-audit start failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("mining duration-audit commit failed: {error}"));
+        let record = state
+            .mining()
+            .get_job(job)
+            .unwrap_or_else(|| panic!("mining duration-audit job disappeared"));
+        let required = crate::core::time::TickSpan::new(
+            record.completes_at().value() - record.started_at().value(),
+        );
+        for _ in 0..required.value() {
+            advance_tick(&registries, &mut state)
+                .unwrap_or_else(|error| panic!("mining duration-audit completion failed: {error}"));
+        }
+        let ready = state
+            .mining()
+            .get_job(job)
+            .unwrap_or_else(|| panic!("ready mining duration-audit job disappeared"));
+        assert!(ready.ready_at().is_some());
+        let forged_started_at = ready.started_at().value() + 1;
+
+        let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| panic!("mining duration-audit serialization failed: {error}"));
+        encoded["state"]["systems"]["mining"]["jobs"][job.value().to_string()]["schedule"]["started_at"] =
+            serde_json::json!(forged_started_at);
+        let tampered: LoadedSaveEnvelope = serde_json::from_value(encoded)
+            .unwrap_or_else(|error| panic!("mining duration-audit tamper decode failed: {error}"));
+
+        assert_eq!(
+            tampered.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::MiningJob(
+                MiningJobValidationError::DurationMismatch {
+                    job,
+                    stored: crate::core::time::TickSpan::new(required.value() - 1),
+                    required,
+                }
+            )))
+        );
     }
 
     fn assemble_pick_for_test(registries: &Registries, state: &mut AppState) -> EquipmentId {
@@ -1377,6 +1547,7 @@ mod tests {
         assert_eq!(restored, state);
     }
 
+    #[cfg(feature = "test-soak")]
     fn run_mining_soak(seed: WorldSeed) -> AppState {
         let registries = build_registries();
         let mut state = AppState::new(seed);
@@ -1497,6 +1668,7 @@ mod tests {
         state
     }
 
+    #[cfg(feature = "test-soak")]
     #[test]
     #[ignore = "long-horizon soak"]
     fn mining_soak_preserves_depletion_conservation_persistence_and_replay() {

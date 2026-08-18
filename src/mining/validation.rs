@@ -1,61 +1,231 @@
-//! Cross-owner persistence validation for mining work-in-progress.
+//! Cross-owner persistence validation for mining job semantics and resource references.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::capability::{CapabilityId, CapabilityValueKind};
+use crate::core::quantity::{Mass, Pressure};
 use crate::core::state::AppState;
+use crate::core::time::TickSpan;
+use crate::equipment::EquipmentDefinitionId;
 use crate::inventory::validate_stockpile_storage;
+use crate::maintenance::Condition;
+use crate::material::MaterialId;
+use crate::ore_processing::MassFlowDurationError;
 use crate::registry::Registries;
 
 use super::MiningJobId;
+use super::physics::{MiningPhysicsError, resolve_mining_physics};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum MiningReferenceError {
-    UnknownMethod { job: MiningJobId },
-    UnknownDeposit { job: MiningJobId },
-    UnknownDestination { job: MiningJobId },
-    UnknownEquipment { job: MiningJobId },
-    EquipmentConditionMismatch { job: MiningJobId },
-    OutputProfileMismatch { job: MiningJobId },
-    OutputStorageInvalid { job: MiningJobId },
-    EquipmentAlsoUsedByProduction { job: MiningJobId },
+pub enum MiningJobValidationError {
+    UnknownMethod {
+        job: MiningJobId,
+    },
+    UnknownDeposit {
+        job: MiningJobId,
+    },
+    UnknownDestination {
+        job: MiningJobId,
+    },
+    WorkingEquipmentMissing {
+        job: MiningJobId,
+    },
+    UnknownEquipmentDefinition {
+        job: MiningJobId,
+        definition: EquipmentDefinitionId,
+    },
+    WorkingEquipmentDefinitionMismatch {
+        job: MiningJobId,
+        expected: EquipmentDefinitionId,
+        actual: EquipmentDefinitionId,
+    },
+    WorkingEquipmentMounted {
+        job: MiningJobId,
+    },
+    EquipmentConditionMismatch {
+        job: MiningJobId,
+    },
+    OutputProfileMismatch {
+        job: MiningJobId,
+    },
+    OutputStorageInvalid {
+        job: MiningJobId,
+    },
+    EquipmentAlsoUsedByProduction {
+        job: MiningJobId,
+    },
+    MissingCapability {
+        job: MiningJobId,
+        capability: CapabilityId,
+    },
+    CapabilityKindMismatch {
+        job: MiningJobId,
+        capability: CapabilityId,
+        expected: CapabilityValueKind,
+        found: CapabilityValueKind,
+    },
+    UnknownMaterialDefinition {
+        job: MiningJobId,
+        material: MaterialId,
+    },
+    BatchTooLarge {
+        job: MiningJobId,
+        maximum: Mass,
+        requested: Mass,
+    },
+    MaterialTooHard {
+        job: MiningJobId,
+        hardness: Pressure,
+        maximum: Pressure,
+    },
+    ZeroThroughput {
+        job: MiningJobId,
+    },
+    Duration {
+        job: MiningJobId,
+        error: MassFlowDurationError,
+    },
+    InvalidSchedule {
+        job: MiningJobId,
+    },
+    DurationMismatch {
+        job: MiningJobId,
+        stored: TickSpan,
+        required: TickSpan,
+    },
+    ConditionOutcomeMismatch {
+        job: MiningJobId,
+        stored: Condition,
+        required: Condition,
+    },
 }
 
-impl Display for MiningReferenceError {
+impl Display for MiningJobValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "invalid mining reference: {self:?}")
+        write!(formatter, "invalid mining job: {self:?}")
     }
 }
 
-impl Error for MiningReferenceError {}
+impl Error for MiningJobValidationError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Duration { error, .. } => Some(error),
+            Self::UnknownMethod { .. }
+            | Self::UnknownDeposit { .. }
+            | Self::UnknownDestination { .. }
+            | Self::WorkingEquipmentMissing { .. }
+            | Self::UnknownEquipmentDefinition { .. }
+            | Self::WorkingEquipmentDefinitionMismatch { .. }
+            | Self::WorkingEquipmentMounted { .. }
+            | Self::EquipmentConditionMismatch { .. }
+            | Self::OutputProfileMismatch { .. }
+            | Self::OutputStorageInvalid { .. }
+            | Self::EquipmentAlsoUsedByProduction { .. }
+            | Self::MissingCapability { .. }
+            | Self::CapabilityKindMismatch { .. }
+            | Self::UnknownMaterialDefinition { .. }
+            | Self::BatchTooLarge { .. }
+            | Self::MaterialTooHard { .. }
+            | Self::ZeroThroughput { .. }
+            | Self::InvalidSchedule { .. }
+            | Self::DurationMismatch { .. }
+            | Self::ConditionOutcomeMismatch { .. } => None,
+        }
+    }
+}
 
-pub(crate) fn validate_mining_references(
+fn map_physics_error(job: MiningJobId, error: MiningPhysicsError) -> MiningJobValidationError {
+    match error {
+        MiningPhysicsError::MissingCapability { capability } => {
+            MiningJobValidationError::MissingCapability { job, capability }
+        }
+        MiningPhysicsError::CapabilityKindMismatch {
+            capability,
+            expected,
+            found,
+        } => MiningJobValidationError::CapabilityKindMismatch {
+            job,
+            capability,
+            expected,
+            found,
+        },
+        MiningPhysicsError::UnknownMaterialDefinition { material } => {
+            MiningJobValidationError::UnknownMaterialDefinition { job, material }
+        }
+        MiningPhysicsError::BatchTooLarge { maximum, requested } => {
+            MiningJobValidationError::BatchTooLarge {
+                job,
+                maximum,
+                requested,
+            }
+        }
+        MiningPhysicsError::MaterialTooHard { hardness, maximum } => {
+            MiningJobValidationError::MaterialTooHard {
+                job,
+                hardness,
+                maximum,
+            }
+        }
+        MiningPhysicsError::ZeroThroughput => MiningJobValidationError::ZeroThroughput { job },
+        MiningPhysicsError::Duration(error) => MiningJobValidationError::Duration { job, error },
+    }
+}
+
+pub(crate) fn validate_loaded_mining_jobs(
     registries: &Registries,
     state: &AppState,
-) -> Result<(), MiningReferenceError> {
+) -> Result<(), MiningJobValidationError> {
     for job in state.mining().jobs() {
-        if registries.mining().get_method(job.method()).is_none() {
-            return Err(MiningReferenceError::UnknownMethod { job: job.id() });
+        let method = registries
+            .mining()
+            .get_method(job.method())
+            .ok_or(MiningJobValidationError::UnknownMethod { job: job.id() })?;
+        let deposit = state
+            .geology()
+            .get_deposit(job.deposit())
+            .ok_or(MiningJobValidationError::UnknownDeposit { job: job.id() })?;
+        let destination = state
+            .inventory()
+            .get_stockpile(job.destination())
+            .ok_or(MiningJobValidationError::UnknownDestination { job: job.id() })?;
+        let equipment_definition = registries
+            .equipment()
+            .get_equipment(job.equipment_definition())
+            .ok_or(MiningJobValidationError::UnknownEquipmentDefinition {
+                job: job.id(),
+                definition: job.equipment_definition(),
+            })?;
+
+        if job.is_working() {
+            let equipment = state
+                .equipment()
+                .get_equipment(job.equipment())
+                .ok_or(MiningJobValidationError::WorkingEquipmentMissing { job: job.id() })?;
+            if equipment.definition() != job.equipment_definition() {
+                return Err(
+                    MiningJobValidationError::WorkingEquipmentDefinitionMismatch {
+                        job: job.id(),
+                        expected: job.equipment_definition(),
+                        actual: equipment.definition(),
+                    },
+                );
+            }
+            if equipment.supported_by().is_some() {
+                return Err(MiningJobValidationError::WorkingEquipmentMounted { job: job.id() });
+            }
+            if equipment.condition() != job.equipment_condition_before() {
+                return Err(MiningJobValidationError::EquipmentConditionMismatch { job: job.id() });
+            }
         }
-        let Some(deposit) = state.geology().get_deposit(job.deposit()) else {
-            return Err(MiningReferenceError::UnknownDeposit { job: job.id() });
-        };
-        let Some(destination) = state.inventory().get_stockpile(job.destination()) else {
-            return Err(MiningReferenceError::UnknownDestination { job: job.id() });
-        };
-        let Some(equipment) = state.equipment().get_equipment(job.equipment()) else {
-            return Err(MiningReferenceError::UnknownEquipment { job: job.id() });
-        };
-        if job.is_working() && equipment.condition() != job.equipment_condition_before() {
-            return Err(MiningReferenceError::EquipmentConditionMismatch { job: job.id() });
-        }
+
         let output = job.output();
         if output.commodity() != deposit.commodity()
             || output.temperature() != deposit.temperature()
             || output.composition() != deposit.composition()
             || output.particle_size_distribution().is_some()
         {
-            return Err(MiningReferenceError::OutputProfileMismatch { job: job.id() });
+            return Err(MiningJobValidationError::OutputProfileMismatch { job: job.id() });
         }
         if validate_stockpile_storage(
             registries,
@@ -68,7 +238,7 @@ pub(crate) fn validate_mining_references(
         )
         .is_err()
         {
-            return Err(MiningReferenceError::OutputStorageInvalid { job: job.id() });
+            return Err(MiningJobValidationError::OutputStorageInvalid { job: job.id() });
         }
         if job.is_working()
             && state
@@ -76,7 +246,38 @@ pub(crate) fn validate_mining_references(
                 .get_equipment_occupant(job.equipment())
                 .is_some()
         {
-            return Err(MiningReferenceError::EquipmentAlsoUsedByProduction { job: job.id() });
+            return Err(MiningJobValidationError::EquipmentAlsoUsedByProduction { job: job.id() });
+        }
+
+        let physics = resolve_mining_physics(
+            registries,
+            method,
+            equipment_definition,
+            job.equipment_condition_before(),
+            output.commodity().material(),
+            output.mass(),
+        )
+        .map_err(|error| map_physics_error(job.id(), error))?;
+        let stored_duration = TickSpan::new(
+            job.completes_at()
+                .value()
+                .checked_sub(job.started_at().value())
+                .filter(|duration| *duration > 0)
+                .ok_or(MiningJobValidationError::InvalidSchedule { job: job.id() })?,
+        );
+        if stored_duration != physics.duration() {
+            return Err(MiningJobValidationError::DurationMismatch {
+                job: job.id(),
+                stored: stored_duration,
+                required: physics.duration(),
+            });
+        }
+        if job.equipment_condition_after() != physics.condition_after() {
+            return Err(MiningJobValidationError::ConditionOutcomeMismatch {
+                job: job.id(),
+                stored: job.equipment_condition_after(),
+                required: physics.condition_after(),
+            });
         }
     }
     Ok(())

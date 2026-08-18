@@ -604,28 +604,33 @@ rounds toward the degraded endpoint. Runtime equipment providers resolve these e
 demand without allocation. Uncurved capabilities remain nominal. Presence-only capabilities cannot
 use continuous condition curves because the capability model has no numeric absence state; any
 future capability-disable behavior must be an explicit discrete policy. Pure wear plans clamp at the
-physical failed bound without deleting the owning record.
+physical failed bound without deleting the owning record. Canonical productive-rate curves for the
+crusher, grinder, dry screen, hand tools, hand cranks, electric furnace, and casting mold reach zero
+at failed condition, so a failed rate-bearing machine cannot continue productive work at nominal rate.
 
 Equipment maintenance is resolved from immutable equipment-definition policy into the existing
 conserved cross-owner repair transaction rather than a public condition increment. An optional
-`EquipmentMaintenanceProfile` names one exact replacement commodity and mass plus a restored
-condition that must return the equipment to its normal band. Registry construction validates the
-profile's material/form references. `resolve_equipment_maintenance` reads the current equipment
-definition and condition, rejects unnecessary service, and deterministically selects the authored
-replacement quantity from an explicit source stockpile. It produces the opaque
+`EquipmentMaintenanceProfile` names one exact replacement commodity and mass, one same-material spent
+commodity with a distinct physical form, plus a restored condition that must return the equipment to
+its normal band. Registry construction validates both material/form references and rejects profiles
+that would leave the replacement commodity reusable after service. `resolve_equipment_maintenance`
+reads the current equipment definition and condition, rejects unnecessary service, and deterministically
+selects the authored replacement quantity from an explicit source stockpile. It produces the opaque
 `EquipmentRepairResolution`, which still has no public constructor.
 
 Repair transaction validation binds the equipment owner revision and observed pre-repair `Condition`,
 requires a strictly improved final `Condition`, rejects active production occupancy, and delegates the
-exact selected matter movement to the inventory relocation primitive. Commit rechecks equipment
-revision, condition, and production occupancy before allowing any material mutation, then relocates
-the exact selected matter into an explicit spent-material stockpile and finally applies the infallible
-condition improvement. If the maintenance source or spent destination is structurally supported, both
-final `StoredMatter` loads are analyzed in the same validated relocation. The current resolver models
-replacement-stock consumption but intentionally preserves spent material identity, temperature,
-composition, particulate state, and provenance rather than inventing wear chemistry. Tools, workers,
-skill, service duration, access, lubrication chemistry, salvage/waste transformation, and maintenance
 automation remain future physical extensions.
+exact selected matter change to the inventory reform primitive. That primitive permits only a physical
+form change within the same material identity, preserves exact mass, composition, temperature,
+particulate state, and provenance, validates the target form's destination storage, and plans source
+and destination structural-load changes together. Commit rechecks equipment revision, condition, and
+production occupancy before allowing any material mutation, reforms the exact replacement traces into
+the authored spent form in the explicit spent-material stockpile, and finally applies the infallible
+condition improvement. The built-in jaw crusher therefore turns consumed copper-ingot replacement
+stock into copper scrap rather than leaving another reusable ingot. Tools, workers, skill, service
+duration, access, lubrication chemistry, scrap recovery, and maintenance automation remain future
+physical extensions.
 
 The current engineering modules provide scalar conservation foundations without prematurely choosing
 network topology:
@@ -916,7 +921,11 @@ mass only when inserting an equal `MaterialLotSpec` into `MiningState`; and rese
 mass atomically. Completion marks that WIP ready and releases equipment/labor. Claim separately moves
 the exact output into inventory and releases the reservation. Global matter and explicit material
 thermal-energy accounting include mining WIP and assembled-equipment traces, so neither ownership
-transition appears as creation or deletion.
+transition appears as creation or deletion. Persistence validation replays the same mining capability,
+host-hardness, batch, duration, and wear physics from a persisted historical equipment operation trace
+and rejects a job whose saved schedule or condition outcome cannot be reproduced. Working jobs must
+still match that live equipment definition and condition; ready jobs no longer depend on later tool
+upgrades or other post-completion equipment state.
 
 ## 20. Cross-Subsystem Runtime Invariants and Boundaries
 

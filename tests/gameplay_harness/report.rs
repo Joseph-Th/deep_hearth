@@ -1,10 +1,10 @@
 //! Gameplay-harness report records and concise human-readable aggregate output.
 
-use deep_hearth::core::quantity::Mass;
+use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::maintenance::MaintenanceBand;
 use deep_hearth::registry::Registries;
 
-use super::ScenarioVariation;
+use super::scenario::ScenarioVariation;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PowerPreference {
@@ -23,14 +23,47 @@ impl PowerPreference {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum MaintenancePreference {
+    ServiceAtWarning,
+    ServiceAtCritical,
+}
+
+impl MaintenancePreference {
+    pub(super) const fn label(self) -> &'static str {
+        match self {
+            Self::ServiceAtWarning => "service-warning",
+            Self::ServiceAtCritical => "service-critical",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum StructuralPreference {
+    PreserveMargin,
+    MoveOnlyForFailure,
+}
+
+impl StructuralPreference {
+    pub(super) const fn label(self) -> &'static str {
+        match self {
+            Self::PreserveMargin => "preserve-margin",
+            Self::MoveOnlyForFailure => "failure-only",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ScenarioPolicyVariation {
     pub(super) power_preference: PowerPreference,
+    pub(super) maintenance_preference: MaintenancePreference,
+    pub(super) structural_preference: StructuralPreference,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ScenarioReport {
-    pub(super) seed: u64,
+    pub(super) world_seed: u64,
+    pub(super) behavior_seed: u64,
     pub(super) policy: ScenarioPolicyVariation,
     pub(super) inputs: ScenarioInputReport,
     pub(super) structure: ScenarioStructureReport,
@@ -38,6 +71,7 @@ pub(super) struct ScenarioReport {
     pub(super) maintenance: ScenarioMaintenanceReport,
     pub(super) limits: ScenarioLimitReport,
     pub(super) progress: ScenarioProgressReport,
+    pub(super) resources: ScenarioResourceReport,
 }
 
 impl ScenarioReport {
@@ -46,7 +80,8 @@ impl ScenarioReport {
         initial_maintenance_band: MaintenanceBand,
     ) -> Self {
         Self {
-            seed: variation.seed,
+            world_seed: variation.world_seed,
+            behavior_seed: variation.behavior_seed,
             policy: variation.policy,
             inputs: ScenarioInputReport {
                 ore_copper_ppm: variation.ore.ore_copper_ppm,
@@ -74,8 +109,17 @@ impl ScenarioReport {
                 completed_batches: 0,
                 target_batches: variation.ore.planned_batches,
             },
+            resources: ScenarioResourceReport::default(),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct ScenarioResourceReport {
+    pub(super) final_condition_ppm: u32,
+    pub(super) small_drive_remaining: Energy,
+    pub(super) large_drive_remaining: Energy,
+    pub(super) maintenance_stock_remaining: Mass,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -117,8 +161,9 @@ pub(super) struct ScenarioChoiceReport {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct ScenarioLimitReport {
-    pub(super) energy_bottleneck: bool,
-    pub(super) throughput_bottleneck: bool,
+    pub(super) energy_bottleneck_batches: u8,
+    pub(super) throughput_bottleneck_batches: u8,
+    pub(super) balanced_bottleneck_batches: u8,
     pub(super) maintenance_warning: bool,
     pub(super) maintenance_stop: bool,
     pub(super) energy_stop: bool,
@@ -133,11 +178,83 @@ pub(super) struct ScenarioProgressReport {
     pub(super) target_batches: u8,
 }
 
-pub(super) fn print_content_summary(registries: &Registries) {
+pub(super) fn print_content_summary(registries: &Registries, include_catalog: bool) {
+    let equipment_count = registries.equipment().definitions().count();
+    let runtime_assemblable_equipment = registries
+        .equipment()
+        .definitions()
+        .filter(|definition| definition.assembly_profile().is_some())
+        .count();
+    let equipment_upgrade_routes = registries
+        .equipment()
+        .definitions()
+        .filter(|definition| definition.upgrade_profile().is_some())
+        .count();
+    let energy_count = registries.energy().definitions().count();
+    let runtime_assemblable_energy = registries
+        .energy()
+        .definitions()
+        .filter(|definition| definition.assembly_profile().is_some())
+        .count();
+    let process_count = registries.production().definitions().count();
+    let manual_process_count = registries.crafting().definitions().count();
+    let machine_process_count = process_count.saturating_sub(manual_process_count);
+    let mining_method_count = registries.mining().definitions().count();
+    std::println!(
+        "CONTENT registry_schema={} equipment=[authored:{} runtime_assemblable:{} upgrade_routes:{}] energy=[authored:{} runtime_assemblable:{}] processes=[authored:{} manual:{} machine:{}] mining_methods={}",
+        registries.schema_version().value(),
+        equipment_count,
+        runtime_assemblable_equipment,
+        equipment_upgrade_routes,
+        energy_count,
+        runtime_assemblable_energy,
+        process_count,
+        manual_process_count,
+        machine_process_count,
+        mining_method_count,
+    );
+    if !include_catalog {
+        return;
+    }
+
     let equipment = registries
         .equipment()
         .definitions()
-        .map(|definition| format!("{}:{}", definition.id().value(), definition.name()))
+        .map(|definition| {
+            let acquisition = match (
+                definition.assembly_profile().is_some(),
+                definition.upgrade_profile().is_some(),
+            ) {
+                (true, true) => "assemble+upgrade",
+                (true, false) => "assemble",
+                (false, true) => "upgrade-only",
+                (false, false) => "no-runtime-acquisition",
+            };
+            format!(
+                "{}:{}:{}",
+                definition.id().value(),
+                definition.name(),
+                acquisition
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let energy = registries
+        .energy()
+        .definitions()
+        .map(|definition| {
+            let acquisition = if definition.assembly_profile().is_some() {
+                "assemble"
+            } else {
+                "no-runtime-acquisition"
+            };
+            format!(
+                "{}:{}:{}",
+                definition.id().value(),
+                definition.name(),
+                acquisition
+            )
+        })
         .collect::<Vec<_>>()
         .join(",");
     let processes = registries
@@ -146,10 +263,16 @@ pub(super) fn print_content_summary(registries: &Registries) {
         .map(|definition| format!("{}:{}", definition.id().value(), definition.name()))
         .collect::<Vec<_>>()
         .join(",");
-    std::println!("CONTENT equipment=[{equipment}] processes=[{processes}]");
+    std::println!(
+        "CONTENT CATALOG equipment=[{equipment}] energy=[{energy}] processes=[{processes}]"
+    );
 }
 
-pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
+pub(super) fn print_harness_summary(
+    mode: &str,
+    reports: &[ScenarioReport],
+    capability_probes_executed: bool,
+) {
     assert!(
         !reports.is_empty(),
         "gameplay harness produced no scenario reports"
@@ -249,6 +372,18 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
         .iter()
         .map(|report| u32::from(report.choices.large_drive_batches))
         .sum();
+    let energy_bottleneck_batches: u32 = reports
+        .iter()
+        .map(|report| u32::from(report.limits.energy_bottleneck_batches))
+        .sum();
+    let throughput_bottleneck_batches: u32 = reports
+        .iter()
+        .map(|report| u32::from(report.limits.throughput_bottleneck_batches))
+        .sum();
+    let balanced_bottleneck_batches: u32 = reports
+        .iter()
+        .map(|report| u32::from(report.limits.balanced_bottleneck_batches))
+        .sum();
 
     for report in reports {
         let outcome = if report.structure.structural_stop {
@@ -263,10 +398,13 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
             "partial"
         };
         std::println!(
-            "EXPERIENCE seed=0x{:016X} start={:?} policy={} batches={}/{} drive_batches=[small:{} large:{}] delivery_before={} maintenance={} relocation={} suspension={} stranded={} outcome={}",
-            report.seed,
+            "EXPERIENCE world=0x{:016X} behavior=0x{:016X} start={:?} policy=[power:{} maintenance:{} structure:{}] batches={}/{} drive_batches=[small:{} large:{}] delivery_before={} maintenance={} relocation={} suspension={} stranded={} final=[condition:{}ppm small:{}nJ large:{}nJ maintenance:{}mg] outcome={}",
+            report.world_seed,
+            report.behavior_seed,
             report.inputs.initial_maintenance_band,
             report.policy.power_preference.label(),
+            report.policy.maintenance_preference.label(),
+            report.policy.structural_preference.label(),
             report.progress.completed_batches,
             report.progress.target_batches,
             report.choices.small_drive_batches,
@@ -276,6 +414,10 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
             report.structure.support_relocation,
             report.structure.production_suspension,
             report.structure.stranded_work_in_process,
+            report.resources.final_condition_ppm,
+            report.resources.small_drive_remaining.nanojoules(),
+            report.resources.large_drive_remaining.nanojoules(),
+            report.resources.maintenance_stock_remaining.milligrams(),
             outcome,
         );
     }
@@ -284,8 +426,13 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
         "SAMPLE ore=[grade:{ore_grade_min}..{ore_grade_max}ppm batch:{batch_mass_min}..{batch_mass_max}mg] crusher_condition=[{initial_condition_min}..{initial_condition_max}ppm normal:{initial_normal} warning:{initial_warning} critical:{initial_critical}] delivery=[mass:{delivery_mass_min}..{delivery_mass_max}mg compact:{compact_deliveries} reinforced:{}]",
         reports.len() - compact_deliveries,
     );
+    let capability_probe_status = if capability_probes_executed {
+        "ore-prep+foundry:pass"
+    } else {
+        "not-run"
+    };
     std::println!(
-        "HARNESS PASS mode={mode} scenarios={} orders={completed_orders}/{} batches={completed_batches}/{target_batches} pre_delivery={batches_before_delivery} stops=[structural:{} maintenance:{} energy:{}] material=[ore_prep:pass foundry:pass mixed_ore_melt_rejected:{mixed_ore_melt_rejections}/{}]",
+        "HARNESS PASS mode={mode} scenarios={} orders={completed_orders}/{} batches={completed_batches}/{target_batches} pre_delivery={batches_before_delivery} stops=[structural:{} maintenance:{} energy:{}] material=[mixed_ore_melt_rejected:{mixed_ore_melt_rejections}/{} capability_probes:{capability_probe_status}]",
         reports.len(),
         reports.len(),
         reports
@@ -303,7 +450,7 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
         reports.len(),
     );
     std::println!(
-        "SYSTEMS policy=[reserve:{} condition:{} speed:{}] work=[small_drive_batches:{small_drive_batches} high_power_batches:{large_drive_batches}] control=[compact_siting:{} delivery_deadline_power:{}] recovery=[relocations:{} resumed_wip:{recovered_work_in_process} stranded_wip:{} maintenance_services:{maintenance_services}] pressure=[structural:{} maintenance_warning:{}] bottlenecks=[energy_delivery:{} throughput:{}]",
+        "SYSTEMS policy=[power:reserve:{} condition:{} speed:{} maintenance:warning:{} critical:{} structure:margin:{} failure_only:{}] work=[small_drive_batches:{small_drive_batches} high_power_batches:{large_drive_batches}] control=[compact_siting:{} delivery_deadline_power:{}] recovery=[relocations:{} resumed_wip:{recovered_work_in_process} stranded_wip:{} maintenance_services:{maintenance_services}] pressure=[structural:{} maintenance_warning:{}] bottlenecks=[energy_delivery_batches:{energy_bottleneck_batches} throughput_batches:{throughput_bottleneck_batches} balanced_batches:{balanced_bottleneck_batches}]",
         reports
             .iter()
             .filter(|report| report.policy.power_preference == PowerPreference::PreserveReserve)
@@ -315,6 +462,30 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
         reports
             .iter()
             .filter(|report| report.policy.power_preference == PowerPreference::FinishSooner)
+            .count(),
+        reports
+            .iter()
+            .filter(|report| {
+                report.policy.maintenance_preference == MaintenancePreference::ServiceAtWarning
+            })
+            .count(),
+        reports
+            .iter()
+            .filter(|report| {
+                report.policy.maintenance_preference == MaintenancePreference::ServiceAtCritical
+            })
+            .count(),
+        reports
+            .iter()
+            .filter(|report| {
+                report.policy.structural_preference == StructuralPreference::PreserveMargin
+            })
+            .count(),
+        reports
+            .iter()
+            .filter(|report| {
+                report.policy.structural_preference == StructuralPreference::MoveOnlyForFailure
+            })
             .count(),
         reports
             .iter()
@@ -340,16 +511,14 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
             .iter()
             .filter(|report| report.limits.maintenance_warning)
             .count(),
-        reports
-            .iter()
-            .filter(|report| report.limits.energy_bottleneck)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.limits.throughput_bottleneck)
-            .count(),
     );
-    std::println!(
-        "SCOPE exercised=[survival-costed primitive crafting,mining,native-copper cold-working,in-place equipment reinforcement,material-backed primitive infrastructure construction,manual power,canonical comminution,power choice,wear,maintenance,structural siting,supported-stockpile delivery,failure recovery] bootstrap=[raw starting matter,finite geological deposit,industrial workshop equipment,scenario stored energy,constructed bays] deferred=[world resource generation/prospecting acquisition path,industrial construction authorization,mixed-ore concentration/smelting bridge,worn-equipment salvage]"
-    );
+    if capability_probes_executed {
+        std::println!(
+            "SCOPE exercised=[survival-costed primitive crafting,mining,native-copper cold-working,in-place equipment reinforcement,material-backed primitive infrastructure construction,manual power,autonomous-machine+player-work overlap,canonical comminution,power choice,wear,maintenance-to-scrap,structural siting,supported-stockpile delivery,failure recovery,matched-world policy counterfactuals,ore-preparation-capability,pure-copper-foundry-capability] bootstrap=[raw starting matter,finite geological deposit,industrial workshop equipment,scenario stored energy,constructed bays,pure-copper probe input] deferred=[world resource generation/prospecting acquisition path,industrial construction authorization,mixed-ore concentration/smelting bridge,worn-equipment salvage,scrap recovery]"
+        );
+    } else {
+        std::println!(
+            "SCOPE exercised=[canonical comminution,power choice,wear,maintenance,structural siting,supported-stockpile delivery,failure recovery] separate_targets_not_run=[primitive-progression,ore-preparation-capability,pure-copper-foundry-capability] bootstrap=[industrial workshop equipment,scenario stored energy,constructed bays,starting workshop matter] deferred=[world resource generation/prospecting acquisition path,industrial construction authorization,mixed-ore concentration/smelting bridge,worn-equipment salvage]"
+        );
+    }
 }

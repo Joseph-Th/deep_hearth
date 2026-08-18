@@ -226,18 +226,21 @@ new systems integrate; this file owns whether a capability currently exists or i
   exact post-operation condition and completion applies wear atomically under the equipment owner's
   revision, with simultaneous due outcomes sharing one revision advance. Continuous condition curves
   reject presence-only capabilities; discrete capability loss remains an explicit future policy
-  rather than fake numeric interpolation.
+  rather than fake numeric interpolation. The canonical productive-rate curves for crushers, mills,
+  screens, hand tools, hand cranks, the electric furnace, and the casting mold reach zero at failed
+  condition rather than allowing failed equipment to remain fully productive.
 - Resource-backed equipment maintenance replaces the former arbitrary condition-increase path.
-  Equipment definitions can author one replacement commodity/mass and a service target in the normal
-  condition band. Runtime maintenance resolution selects that exact conserved stock from an explicit
-  source and binds it into the opaque repair resolution; registry construction validates the authored
-  material/form references. Canonical validation relocates those exact traces into an explicit spent
-  destination without changing composition, temperature, particle-size state, or provenance; source
-  and destination `StoredMatter` structural loads are planned together, and both equipment and
+  Equipment definitions author one replacement commodity/mass, a distinct same-material spent form,
+  and a service target in the normal condition band. Runtime maintenance resolution selects that exact
+  conserved stock from an explicit source and binds both the spent form and service target into the
+  opaque repair resolution. Canonical validation reforms those exact traces into the spent form while
+  preserving material identity, mass, composition, temperature, particle-size state, and provenance;
+  source and destination `StoredMatter` structural loads are planned together, and both equipment and
   inventory revisions are rechecked before commit. Repair also rechecks derived production occupancy
-  immediately before material moves because job start does not advance the equipment owner revision.
-  The canonical jaw crusher currently consumes 50,000 mg of copper-ingot replacement stock and
-  restores to 900,000 ppm condition. Tools, workers, service duration, access, and replacement/waste
+  immediately before material changes because job start does not advance the equipment owner revision.
+  The canonical jaw crusher currently consumes 50,000 mg of copper-ingot replacement stock, leaves
+  50,000 mg of copper scrap that cannot satisfy another ingot replacement request, and restores to
+  900,000 ppm condition. Tools, workers, service duration, access, scrap recovery, and maintenance
   chemistry remain deliberately unresolved rather than being faked inside the transaction.
 - Persistent equipment-to-structure support assignment with revision-bound two-owner mount/unmount
   transactions and a synchronized support-to-equipment reverse index. Mounted equipment mass is
@@ -254,8 +257,8 @@ new systems integrate; this file owns whether a capability currently exists or i
   material/provenance traces under inventory, equipment, and supported-destination structural
   revision checks. Equipment IDs remain monotonic and are never reused. Any accumulated wear blocks
   this path because returning pristine shaped components would erase degradation and create a free
-  repair cycle. Worn-equipment salvage, partial recovery, scrap forms, and condition-dependent yield
-  remain deliberately unresolved.
+  repair cycle. Worn-equipment salvage, partial recovery, recovery of maintenance scrap, and
+  condition-dependent salvage yield remain deliberately unresolved.
 
 ### Energy, structures, fluids, and mechanical physics
 
@@ -575,31 +578,35 @@ new systems integrate; this file owns whether a capability currently exists or i
   crusher, grinding mill, dry screen, electric furnace, cooled casting mold, two mechanical drive
   envelopes, electrical buffer, thermal sink, ore crushing, same-form grinding, exact dry screening,
   pure-copper melting, and pure-copper casting used by the harness. The required exercise gate runs
-  five deterministic anchor seeds. The ignored report lane adds four deterministic exploratory seeds
-  derived from a maintained replay root; `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` can replace that root
-  with an exact decimal or hex value, and `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex seed
-  lists for reproduction or wider sweeps. Explicit seed lists fail on malformed entries rather than
-  silently dropping them. The anchors guarantee stable comparison, all three operating priorities,
-  Normal/Warning/Critical initial maintenance bands, and one timing case where high-power work can
-  finish a batch before the scheduled delivery;
+  five maintained anchor world/behavior pairs plus two fresh bounded organic cases; the ignored report
+  lane uses four fresh organic cases. World/scenario and automated-player behavior roots are independent,
+  printed before execution, and can be fixed separately with `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` and
+  `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED`. `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex world
+  seed lists for reproduction or wider sweeps. Explicit seed lists fail on malformed entries rather than
+  silently dropping them. The anchors guarantee stable comparison, all three power priorities, both
+  maintenance styles, both structural-risk styles, Normal/Warning/Critical initial maintenance bands,
+  and one timing case where high-power work can finish a batch before the scheduled delivery;
   balance-dependent outcomes are reported rather than frozen into aggregate pass/fail coverage. Every
-  run reports its exact root and replay seeds. The exercise source lives under
+  run reports its exact roots and `world@behavior` replay pairs. The exercise source lives under
   `tests/gameplay_harness/` as a dedicated integration
   target rather than library code, so harness-only edits rebuild the dedicated target against the
   cached core library instead of invalidating the feature-enabled library or compiling the crate
   unit-test harness. Seed/configuration contracts share that one specialized target instead of creating
   another Cargo artifact. Routine harness tests keep success output captured; the report lane emits
   replay inputs, one concise `EXPERIENCE` line per scenario, compact outcome/system summaries, and an
-  explicit exercised/bootstrap/deferred scope line, while `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace.
+  explicit exercised/bootstrap/deferred scope line, while `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace. The compact
+  content summary separates authored definitions from runtime-assemblable equipment/energy and upgrade
+  routes so controlled industrial fixtures are not presented as currently reachable progression.
   The compact report exposes sampled ore/delivery input ranges alongside completed work orders,
   terminal causes, delivery-informed control decisions, structural/WIP recovery, maintenance services,
-  system pressure, and bottleneck prevalence
+  final machine condition, remaining power/maintenance reserves, and exact per-batch bottleneck counts
   so each sampled matrix is useful as gameplay feedback rather than only a pass/fail result. Starting
   conditions vary ore grade, batch size, crusher condition, one finite crusher-service replacement
   stock, two competing structural bays, real background stored cargo, a scheduled supported-stockpile
   delivery, and finite mechanical work reserves. Batch size and initial condition are derived from
-  current authored crusher capabilities and maintenance bands. Support geometry spans a broad ordinary
-  utilization range derived from current material strength and crusher weight; background cargo and
+  current authored crusher capabilities and maintenance bands. Both structural bays are generated as
+  initially legal crusher locations at ordinary utilization; the occupied bay is sized from its actual
+  crusher-plus-background load instead of assuming a scaled area remains valid. Background cargo and
   delivery mass scale from current equipment/material quantities, while delivery timing is selected
   within a horizon derived from a real resolved batch duration. Bootstrap-only matter/energy seeding
   and structural materialization are isolated in one setup module and cannot be called by the acting
@@ -608,16 +615,20 @@ new systems integrate; this file owns whether a capability currently exists or i
   analysis owns any strain, cracking, failure, suspension, or recovery. The harness chooses the
   transfer tick; this does not claim an implemented logistics scheduler. Wider seed sweeps remain
   explicit diagnostic exercises rather than a fixed gate or frozen balance claim. Each seed also
-  selects one bounded operating priority: conserve high-power
-  reserve, protect projected equipment condition, or minimize batch completion time. These priorities
-  choose only among legal resolver outputs and never override critical-condition, maintenance, support,
-  energy, or ownership gates. Each order now receives a finite low-power work budget that is one or
+  selects bounded operating priorities for power, maintenance timing, and structural risk. A
+  preserve-margin policy uses the known scheduled delivery to keep the crusher off the receiving bay;
+  a reactive policy chooses from current structural margin and accepts later relocation/recovery if the
+  delivery makes that choice harmful. Power policy conserves high-power reserve, protects projected
+  equipment condition, or minimizes batch completion time. These priorities choose only among legal
+  resolver outputs and never override critical-condition, maintenance, support, energy, or ownership
+  gates. Each order now receives a finite low-power work budget that is one or
   two batches short of the target plus a scarce high-power reserve covering that required gap and at
   most one extra acceleration batch. Completing the order therefore requires deliberate use of both
   storage envelopes without turning the fast reserve into an unlimited shortcut. When projected wear would cross the critical boundary the policy resolves and commits
   real authored maintenance if replacement stock remains, then reevaluates the power choice with
-  restored condition. Replacement stock is finite and spent matter remains owned rather than
-  disappearing. Lack of usable stored work is reported separately from maintenance supply exhaustion.
+  restored condition. Replacement stock is finite and becomes same-material copper scrap, so the spent
+  output remains owned but cannot be reused as another replacement ingot. Lack of usable stored work is
+  reported separately from maintenance supply exhaustion.
   The scheduled delivery can occur during production. If its inventory-owned load merely strains the
   active support, the committed job can finish and the player may then relocate; if the support fails,
   the production job suspends with exact remaining active time and conserved work-in-process. Recovery
@@ -628,19 +639,23 @@ new systems integrate; this file owns whether a capability currently exists or i
   and crushed ore particle-size
   classes and per-drive batch counts rather than reducing experience coverage to booleans. Ore grade therefore has an honest
   conserved-value effect even though it cannot yet change a downstream processing choice. The harness
-  identifies the missing concentration/smelting bridge. A primitive-progression probe now exercises
+  identifies the missing concentration/smelting bridge. Workshop mineralized ore uses copper plus stone
+  host material, matching the mining path instead of using downstream slag as natural gangue. A
+  primitive-progression probe now exercises
   the central early fantasy through canonical survival-costed knapping, handle shaping, pick
   assembly, mineralized-ore extraction, separate native-copper extraction, cold-working, in-place pick
   reinforcement, a second mineralized-ore extraction,
   crank assembly, conserved flywheel-store construction, in-place crank reinforcement,
-  primitive-crusher assembly, manual charging, and crusher use. Its maintained case mines 200 g of a
-  70% copper / 30% stone-gangue ore in 200 active ticks with the stone pick, then separately extracts a
-  40 g pure native-copper occurrence in 43 ticks. Those 40 g become two 20 g reinforcements; the same
-  worn pick is upgraded without repair and mines the next 200 g of the original mineralized ore in
-  142 ticks. The 1.1 kg accumulator and 3 kg crusher
-  remain fully embodied investments. The base crank projects 80 ticks for the exact 200 J charge;
-  reinforcement reduces the same charge to 40 ticks, after which the stone crusher spends that work
-  in 10 ticks. The probe checks that reinforcement preserves wear/identity, energy cost is unchanged,
+  primitive-crusher assembly, manual charging, and crusher use. It now derives required component
+  quantities and producing manual processes from current assembly/upgrade/crafting registries instead
+  of copying recipe batch counts. Its equal-mass mining sample varies between half and all of the current
+  stone-pick legal batch, ore grade varies within a bounded copper/stone range, and native-copper demand
+  is derived from the current upgrade additions. The same worn pick is upgraded without repair and mines
+  an equal second mass; the crank comparison requests the same exact stored work before and after
+  reinforcement. After the crusher is powered, the probe starts another real mining job while the
+  crusher works autonomously and verifies that machine production completes while player labor remains
+  occupied by the longer mining operation. The accumulator and crusher remain fully embodied
+  investments. The probe checks that reinforcement preserves wear/identity, energy cost is unchanged,
   survival cost remains real, persistence validates, and world matter remains exactly conserved.
   Focused crafting coverage separately proves ordinary ore form cannot enter the native-metal
   cold-work process and contaminated native-metal composition is also rejected. A separate
@@ -665,10 +680,16 @@ new systems integrate; this file owns whether a capability currently exists or i
   equipment, initial energy, and structural bays remain explicit setup fixtures until their physical
   acquisition/construction authorizers exist; experienced post-setup mutations use canonical runtime
   transactions. Gameplay-harness support is split by responsibility across bootstrap, configuration,
-  execution contracts, probe setup, reporting, and deterministic seed-mixing modules instead of
+  execution contracts, probe setup, deterministic scenario generation, reporting, and seed-mixing
+  modules instead of
   accumulating all support in the main scenario controller. Seed/configuration behavior is covered by
-  focused named tests rather than one aggregated boolean contract test, and custom replay lists are
-  reported distinctly from generated organic scenarios. The exercise policy uses current canonical
+  focused named tests rather than one aggregated boolean contract test, including explicit contracts
+  proving behavior seeds cannot mutate physical scenario inputs and world seeds cannot mutate player
+  policy. The exploratory report also runs a bounded matched-world agency panel: the same physical
+  world is replayed under four legal policy bundles and compared by completion, power use, maintenance,
+  relocation/suspension, final condition, and remaining reserves. This distinguishes genuine player
+  leverage from differences caused merely by unrelated world seeds. Custom replay lists are reported
+  distinctly from generated organic scenarios. The exercise policy uses current canonical
   projections instead of cloned-state compound-future previews, varies crusher starts across the full
   non-failed condition range, and uses the production `validate_relocate_equipment` transaction for
   atomic support moves and their structural consequences. Isolated unit-test registry builders share
@@ -693,7 +714,10 @@ new systems integrate; this file owns whether a capability currently exists or i
 - Mining work-in-process groups persistent identity, resources, and schedule state instead of keeping
   an oversized flat record. Mining start tokens likewise group owner revision transitions, capability
   failures identify the exact authored capability and value-kind mismatch, and missing material
-  definitions are reported as material-reference failures rather than deposit failures. Due mining
+  definitions are reported as material-reference failures rather than deposit failures. Mining WIP
+  persists the equipment definition and pre-work condition as one historical operation trace, so
+  exhaustive validation can replay authored duration and wear without binding completed work to a
+  tool that was legitimately upgraded after its occupancy ended. Due mining
   buckets are consumed directly into stable tick outcomes instead of cloning their job-ID sets during
   planning. Mining equipment remains at its pre-operation condition while exclusively occupied and
   applies recorded wear atomically at the exact completion tick, matching other timed equipment
@@ -706,17 +730,20 @@ new systems integrate; this file owns whether a capability currently exists or i
   active busy job.
 - `TESTING.md`, `.cargo/config.toml`, and the repository-local `ci.py` expose maintained fast, soak,
   gameplay, shader, full, hardening, release, lint, check, and documentation lanes without hosted CI.
-  Long-horizon soaks are explicit ignored unit tests, so fast and soak execution reuse one
-  default-feature unit-test artifact. `test-all` now runs ordinary plus ignored core tests in that same
-  artifact instead of paying for an all-feature rebuild; the all-feature inventory remains an explicit
-  hardening lane. The ordinary Clippy lane checks production library code only before normal tests
-  compile the test target. `ci.py` keeps the solo-developer gate concise by capturing successful Cargo
-  noise, printing one timed status line per stage, surfacing native output only on failure, and requiring
+  Long-horizon soak bodies are behind the dedicated `test-soak` feature, so ordinary unit-test builds
+  do not type-check or codegen those large fixtures. `test-all` builds that feature once when ordinary
+  plus soak coverage is requested. Hardening uses all-target/all-feature Clippy for combined-feature
+  type/lint coverage, then executes the maintained core+soak, gameplay, shader, and documentation
+  artifacts instead of building a redundant monolithic all-feature test artifact. Rust compiler warnings
+  are denied package-wide, allowing the routine gate to avoid a second Clippy compile; production-library
+  Clippy is available through `--lint`. `ci.py` keeps the solo-developer gate concise by capturing successful Cargo noise,
+  printing one timed status line per stage, surfacing native output only on failure, and requiring
   explicit scope flags rather than brittle changed-file inference. A library-only `check-fast` alias
   provides intermediate compile/type feedback without linking the monolithic unit-test harness.
   Gameplay remains one dedicated feature-gated integration target, but its maintained scenario matrix,
   ore-preparation probe, and foundry probe have direct aliases so one failing concern can be rerun
-  without repeating the others. Replayable organic sampling remains an explicit ignored report lane,
+  without repeating the others. Bounded replayable organic sampling is present in the required workshop
+  gate as well as the larger explicit report lane,
   and the Naga parser
   dependency remains behind its dedicated validation feature. Test binaries and one-shot validation
   binaries omit debug symbols to reduce codegen/link time without changing ordinary dev-profile
@@ -744,7 +771,9 @@ new systems integrate; this file owns whether a capability currently exists or i
   hauling, and mechanized excavation. Current mining already requires a real tool, exclusive player
   labor, condition-sensitive extraction rate, batch and host-material hardness gates, finite deposits,
   reserved storage, tool wear, explicit completion/claim, and conserved WIP. Mixed composition is
-  conserved but is not converted into a fabricated composite-rock hardness formula.
+  conserved but is not converted into a fabricated composite-rock hardness formula. Loaded mining
+  jobs replay the same authored extraction rate, batch, hardness, duration, and wear semantics rather
+  than trusting persisted derived outcomes.
 - Thermal fields, environmental heat transport/losses, vaporization/boiling, mixed-material and
   alloy/solution phase diagrams, combustion, fuel networks, and emissions. Pure-material solid/liquid
   fusion and finite explicit thermal sinks are modeled; an implicit environment is deliberately not

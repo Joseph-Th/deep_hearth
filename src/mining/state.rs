@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::core::time::SimulationTick;
-use crate::equipment::EquipmentId;
+use crate::equipment::{EquipmentDefinitionId, EquipmentId, EquipmentOperationTrace};
 use crate::geology::GeologicalDepositId;
 use crate::inventory::StockpileId;
 use crate::maintenance::Condition;
@@ -39,9 +39,8 @@ pub(super) struct MiningJobIdentity {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct MiningJobResources {
     pub(super) destination: StockpileId,
-    pub(super) equipment: EquipmentId,
+    pub(super) equipment_trace: EquipmentOperationTrace,
     pub(super) output: MaterialLotSpec,
-    pub(super) equipment_condition_before: Condition,
     pub(super) equipment_condition_after: Condition,
 }
 
@@ -90,7 +89,11 @@ impl MiningJobRecord {
     }
     #[must_use]
     pub const fn equipment(&self) -> EquipmentId {
-        self.resources.equipment
+        self.resources.equipment_trace.equipment()
+    }
+    #[must_use]
+    pub const fn equipment_definition(&self) -> EquipmentDefinitionId {
+        self.resources.equipment_trace.definition()
     }
     #[must_use]
     pub const fn started_at(&self) -> SimulationTick {
@@ -106,7 +109,7 @@ impl MiningJobRecord {
     }
     #[must_use]
     pub const fn equipment_condition_before(&self) -> Condition {
-        self.resources.equipment_condition_before
+        self.resources.equipment_trace.condition()
     }
     #[must_use]
     pub const fn equipment_condition_after(&self) -> Condition {
@@ -173,18 +176,13 @@ impl MiningState {
         next_revision: u64,
     ) {
         assert!(record.schedule.ready_at.is_none());
-        assert!(
-            !self
-                .equipment_occupancy
-                .contains_key(&record.resources.equipment)
-        );
+        assert!(!self.equipment_occupancy.contains_key(&record.equipment()));
         let id = record.identity.id;
         self.due_jobs
             .entry(record.schedule.completes_at)
             .or_default()
             .insert(id);
-        self.equipment_occupancy
-            .insert(record.resources.equipment, id);
+        self.equipment_occupancy.insert(record.equipment(), id);
         assert!(self.jobs.insert(id, record).is_none());
         self.next_job_id = next_job_id;
         self.revision = next_revision;
@@ -210,7 +208,7 @@ impl MiningState {
                 .unwrap_or_else(|| panic!("validated mining job disappeared"));
             assert!(record.schedule.ready_at.is_none());
             record.schedule.ready_at = Some(ready_at);
-            let removed = self.equipment_occupancy.remove(&record.resources.equipment);
+            let removed = self.equipment_occupancy.remove(&record.equipment());
             assert_eq!(removed, Some(id));
             ready.push(id);
         }

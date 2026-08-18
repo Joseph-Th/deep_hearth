@@ -51,10 +51,10 @@ pub struct EquipmentRecord {
     pub(super) created_at: SimulationTick,
 }
 
-/// Persistent provenance of the equipment instance that authorized an in-flight operation.
+/// Persistent provenance of the equipment instance that authorized a timed operation.
 ///
-/// Production owns exclusivity while the job is active; this trace preserves the provider
-/// definition and condition that were validated at operation resolution time.
+/// The operation owner enforces exclusivity while work is active; this trace preserves the provider
+/// definition and condition that were validated at resolution time for deterministic replay.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EquipmentOperationTrace {
     equipment: EquipmentId,

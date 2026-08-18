@@ -36,9 +36,11 @@ player work, exertion-aware manual shaping, conserved composite stone-tool assem
 mining with condition-sensitive throughput/hardness/batch limits, distinct native-metal occurrences,
 cold-worked additive copper reinforcement that preserves existing wear, materially constructed
 flywheel work storage, direct manual charging, and a player-built primitive crusher that converts
-accumulated hand work into a shorter mechanized comminution burst. Pristine equipment and empty
-material-backed stores can reverse assembly into their exact embodied traces without resetting IDs;
-worn-equipment salvage remains unresolved rather than becoming a free repair path. Physical
+accumulated hand work into autonomous comminution while the player can continue other labor. Authored
+machine maintenance consumes finite replacement stock into a distinct same-material scrap form rather
+than returning reusable replacement parts. Pristine equipment and empty material-backed stores can
+reverse assembly into their exact embodied traces without resetting IDs; worn-equipment salvage and
+scrap recovery remain unresolved rather than becoming free repair paths. Physical
 prospecting, mineralized-ore concentration and chemical smelting, alloy phase diagrams, environmental
 heat transport, fluid networks, richer construction, agriculture/ecology, non-player workers, and
 settlement systems remain unavailable until their real physical owners exist.
@@ -93,14 +95,16 @@ changed:
 
 ```text
 python ci.py gate
+python ci.py gate --lint       # when a Clippy checkpoint is useful
 python ci.py gate --soak       # when long-horizon ownership/invariants changed
 python ci.py gate --gameplay   # when workshop behavior/content changed
 python ci.py gate --shaders    # when WGSL/shader assembly changed
 ```
 
 `cargo test-check` remains available when an all-target compile-only diagnostic is useful, but the
-ordinary pre-commit sequence already type-checks production code through Clippy and compiles the full
-default-feature unit-test target through `cargo test-fast`.
+ordinary pre-commit sequence compiles production and default-feature unit-test code with Rust warnings
+denied through `cargo test-fast`. Clippy remains an explicit local lint checkpoint rather than a
+mandatory second compile in every gate.
 
 `TESTING.md` owns lane selection, harness output, and local verification gates. GitHub Actions and
 hosted runners are prohibited. Release hardening remains explicit:

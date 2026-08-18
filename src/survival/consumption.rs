@@ -23,7 +23,7 @@ use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
 use super::state::{PlayerSurvivalRecord, player_record};
-use super::{FoodCategory, SurvivalAssessment, Vitality, assess_survival};
+use super::{FoodCategory, Vitality};
 
 /// Read-only perishability state for one food lot in its current storage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1007,15 +1007,6 @@ impl ValidatedDrink {
     }
 }
 
-/// Returns the post-action survival assessment for callers that need one consolidated projection.
-#[must_use]
-pub fn survival_after_action(
-    registries: &Registries,
-    state: &AppState,
-) -> Option<SurvivalAssessment> {
-    assess_survival(registries, state)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1033,6 +1024,7 @@ mod tests {
     use crate::matter::calculate_matter_accounting;
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
     use crate::simulation::advance_tick;
+    use crate::survival::assess_survival;
     use crate::survival::{NUTRITION_PARTS_PER_MILLION, initialize_player_survival};
 
     fn initialize_and_spend_reserves(registries: &Registries, state: &mut AppState) {

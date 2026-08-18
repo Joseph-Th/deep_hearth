@@ -23,7 +23,8 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
         return [
             ("format", ["cargo", "fmt", "--check"]),
             ("clippy all", cargo("test-lint-all")),
-            ("all-feature tests", cargo("test-all-features")),
+            ("core + soak", cargo("test-all")),
+            ("gameplay", cargo("test-gameplay")),
             ("shaders", cargo("test-shaders")),
             ("docs", cargo("test-doc")),
         ]
@@ -35,12 +36,13 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
 
     plan = [
         ("format", ["cargo", "fmt", "--check"]),
-        ("clippy", cargo("test-lint")),
         (
             "core + soak" if soak else "core",
             cargo("test-all" if soak else "test-fast"),
         ),
     ]
+    if args.lint:
+        plan.append(("clippy", cargo("test-lint")))
     if gameplay:
         plan.append(("gameplay", cargo("test-gameplay")))
     if shaders:
@@ -93,7 +95,12 @@ def parse_args() -> argparse.Namespace:
         nargs="?",
         choices=("gate", "full", "hardening"),
         default="gate",
-        help="gate is the ordinary pre-commit path; full adds soak and gameplay coverage",
+        help="gate is the fast local correctness path; full adds soak and gameplay coverage",
+    )
+    parser.add_argument(
+        "--lint",
+        action="store_true",
+        help="add production-library Clippy; hardening always runs all-target/all-feature Clippy",
     )
     parser.add_argument("--soak", action="store_true", help="include ignored core soak tests")
     parser.add_argument("--gameplay", action="store_true", help="include the gameplay harness")

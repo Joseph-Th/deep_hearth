@@ -33,6 +33,7 @@ pub const FORM_HANDLE: FormId = FormId::new(12);
 pub const FORM_FLYWHEEL: FormId = FormId::new(13);
 pub const FORM_REINFORCEMENT: FormId = FormId::new(14);
 pub const FORM_NATIVE_METAL: FormId = FormId::new(15);
+pub const FORM_SCRAP: FormId = FormId::new(16);
 
 pub(crate) fn build_material_registry() -> MaterialRegistry {
     let mut registry = MaterialRegistry::new();
@@ -88,6 +89,12 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
     registry.register_form(FormDefinition::new(
         FORM_NATIVE_METAL,
         "native metal",
+        MaterialPhase::Solid,
+        ParticleSizeStatePolicy::Untracked,
+    ));
+    registry.register_form(FormDefinition::new(
+        FORM_SCRAP,
+        "scrap",
         MaterialPhase::Solid,
         ParticleSizeStatePolicy::Untracked,
     ));

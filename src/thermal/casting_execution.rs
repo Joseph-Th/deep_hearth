@@ -1730,6 +1730,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "test-soak")]
     #[test]
     #[ignore = "long-horizon soak"]
     fn casting_soak_preserves_conservation_and_replay() {

@@ -3,14 +3,16 @@
 # not enter ordinary edit-loop builds. Specialized lanes opt into those features explicitly.
 check-fast = "check --quiet --locked --lib"
 test-check = "check --locked --all-targets"
-# The ordinary lint gate checks production code only. `test-fast` compiles and executes the complete
-# default-feature unit-test target immediately afterward, while `test-lint-all` remains the explicit
+# The optional fast lint checkpoint checks production code only. Routine correctness feedback comes
+# from `test-fast` with Rust warnings denied package-wide; `test-lint-all` remains the explicit
 # all-target/all-feature Clippy audit for cross-cutting and release hardening.
 test-lint = "clippy --locked --lib -- -D warnings"
 test-lint-all = "clippy --locked --all-targets --all-features -- -D warnings"
 test-fast = "test --quiet --locked --lib"
-test-soak = "test --quiet --locked --lib -- --ignored"
-test-all = "test --quiet --locked --lib -- --include-ignored"
+# Soak-only code is feature-gated out of the ordinary unit-test artifact so daily edits do not
+# type-check/codegen long-horizon fixtures. The explicit soak/all lanes pay that cost only on demand.
+test-soak = "test --quiet --locked --lib --features test-soak -- --ignored"
+test-all = "test --quiet --locked --lib --features test-soak -- --include-ignored"
 test-gameplay = "test --quiet --locked --test gameplay_harness --features test-gameplay"
 test-gameplay-scenarios = "test --quiet --locked --test gameplay_harness --features test-gameplay gameplay_harness_gate -- --exact"
 test-gameplay-progression = "test --quiet --locked --test gameplay_harness --features test-gameplay gameplay_primitive_progression_probe -- --exact"

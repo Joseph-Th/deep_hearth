@@ -17,7 +17,7 @@ use super::equipment::{
 };
 use super::materials::{
     FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED, FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_LOG,
-    FORM_LUMP, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL,
+    FORM_LUMP, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_SCRAP, FORM_TOOL,
     MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
 };
 
@@ -82,6 +82,7 @@ pub const OBJECT_COPPER_REINFORCED_HAND_CRANK: ObjectAppearanceId = ObjectAppear
 pub const OBJECT_STONE_CRUSHER: ObjectAppearanceId = ObjectAppearanceId::new(23);
 pub const OBJECT_COPPER_REINFORCEMENT: ObjectAppearanceId = ObjectAppearanceId::new(24);
 pub const OBJECT_NATIVE_COPPER: ObjectAppearanceId = ObjectAppearanceId::new(25);
+pub const OBJECT_COPPER_SCRAP: ObjectAppearanceId = ObjectAppearanceId::new(26);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(
@@ -418,6 +419,11 @@ fn build_object_appearances() -> Vec<ObjectAppearanceDefinition> {
             "native copper",
             &[TEXTURE_COPPER_HAMMERED, TEXTURE_COPPER_ORE],
         ),
+        object(
+            OBJECT_COPPER_SCRAP,
+            "copper scrap",
+            &[TEXTURE_WORKING_METAL, TEXTURE_COPPER_HAMMERED],
+        ),
     ]
 }
 
@@ -470,6 +476,11 @@ fn build_commodity_bindings() -> Vec<CommodityAppearanceBinding> {
             CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
             None,
             Some(OBJECT_NATIVE_COPPER),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+            None,
+            Some(OBJECT_COPPER_SCRAP),
         ),
         CommodityAppearanceBinding::new(
             CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),

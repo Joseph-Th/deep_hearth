@@ -1301,6 +1301,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "test-soak")]
     fn commit_one_melt(
         registries: &Registries,
         state: &mut AppState,
@@ -1681,6 +1682,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "test-soak")]
     #[test]
     #[ignore = "long-horizon soak"]
     fn small_melt_soak_preserves_conservation_and_deterministic_replay() {

@@ -528,6 +528,7 @@ mod tests {
         assert_eq!(loaded, state);
     }
 
+    #[cfg(feature = "test-soak")]
     fn run_prospecting_soak(seed: WorldSeed) -> AppState {
         let registries = build_registries();
         let mut state = AppState::new(seed);
@@ -574,6 +575,7 @@ mod tests {
         state
     }
 
+    #[cfg(feature = "test-soak")]
     #[test]
     #[ignore = "long-horizon soak"]
     fn prospecting_soak_preserves_indexes_persistence_invariants_and_replay() {

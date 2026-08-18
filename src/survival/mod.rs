@@ -9,7 +9,7 @@ mod validation;
 pub use consumption::{
     DrinkCommitError, DrinkError, DrinkOutcome, EatCommitError, EatError, EatOutcome,
     EatPortionOutcome, FoodFreshness, FoodFreshnessError, NutritionGain, ValidatedDrink,
-    ValidatedEat, assess_food_freshness, survival_after_action, validate_drink, validate_eat,
+    ValidatedEat, assess_food_freshness, validate_drink, validate_eat,
 };
 pub use definitions::{
     DrinkDefinition, FoodCategory, FoodDefinition, HydrationDefinition, MetabolismDefinition,

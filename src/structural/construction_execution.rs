@@ -710,10 +710,12 @@ mod tests {
     };
     use crate::matter::calculate_matter_accounting;
 
+    #[cfg(feature = "test-soak")]
     use crate::simulation::advance_tick;
     use crate::spatial::{VoxelBounds, VoxelCoord};
     use crate::structural::{add_structural_element, validate_activate_structural_element};
 
+    #[cfg(feature = "test-soak")]
     use crate::structural::{
         make_test_deconstruction_resolution, validate_structural_deconstruction,
     };
@@ -1280,6 +1282,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "test-soak")]
     fn run_construction_ownership_soak(seed: WorldSeed) -> AppState {
         let registries = build_registries();
         let mut state = AppState::new(seed);
@@ -1403,6 +1406,7 @@ mod tests {
         state
     }
 
+    #[cfg(feature = "test-soak")]
     #[test]
     #[ignore = "long-horizon soak"]
     fn construction_deconstruction_soak_preserves_conservation_and_replay() {

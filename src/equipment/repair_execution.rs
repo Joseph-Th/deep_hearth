@@ -1,9 +1,9 @@
 //! Authored equipment maintenance resolution and conserved repair transaction boundary.
 //!
 //! Equipment definitions may author one replacement-material maintenance profile. Runtime resolution
-//! selects that exact commodity from a requested source and binds the profile's restored condition.
-//! The canonical transaction then moves the selected matter into an explicit spent-material
-//! destination while condition improves. Labor, tooling, access, and maintenance duration can extend
+//! selects that exact commodity from a requested source and binds the profile's restored condition and
+//! spent-material form. The canonical transaction reforms the selected matter into that non-reusable
+//! spent form while condition improves. Labor, tooling, access, and maintenance duration can extend
 //! this physical resolver when those owners exist without reopening a free condition mutation path.
 
 use std::error::Error;
@@ -12,10 +12,10 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::{
-    ConsumptionSelection, ConsumptionSelectionError, MaterialRelocationCommitError,
-    MaterialRelocationError, StockpileId, StockpileStorageError, StockpileStructuralLoadError,
-    ValidatedMaterialRelocation, validate_consumption_selection,
-    validate_material_relocation_from_selection,
+    ConsumptionSelection, ConsumptionSelectionError, MaterialReformCommitError,
+    MaterialReformError, StockpileId, StockpileStorageError, StockpileStructuralLoadError,
+    ValidatedMaterialReform, validate_consumption_selection,
+    validate_material_reform_from_selection,
 };
 #[cfg(test)]
 use crate::inventory::{
@@ -44,6 +44,7 @@ pub struct EquipmentRepairResolution {
     condition_before: Condition,
     condition_after: Condition,
     material: ConsumptionSelection,
+    spent: CommodityKey,
     spent_destination: StockpileId,
 }
 
@@ -235,6 +236,7 @@ pub fn resolve_equipment_maintenance(
         condition_before,
         condition_after: profile.restored_condition(),
         material,
+        spent: profile.spent(),
         spent_destination: request.spent_destination,
     })
 }
@@ -266,6 +268,11 @@ impl EquipmentRepairResolution {
     }
 
     #[must_use]
+    pub const fn spent_commodity(&self) -> CommodityKey {
+        self.spent
+    }
+
+    #[must_use]
     pub const fn material_mass(&self) -> Mass {
         self.material.total_consumed()
     }
@@ -294,12 +301,18 @@ pub(crate) fn bind_equipment_repair_for_test(
         .ok_or(EquipmentRepairBindingError::UnknownEquipment { equipment })?;
     let material = validate_explicit_consumption_selection(state.inventory(), source, selections)
         .map_err(EquipmentRepairBindingError::Inventory)?;
+    let spent = material
+        .consumed_inputs()
+        .first()
+        .map(|trace| trace.profile().commodity())
+        .unwrap_or_else(|| unreachable!("explicit repair selection is nonempty"));
     Ok(EquipmentRepairResolution {
         equipment,
         expected_equipment_revision: state.equipment().revision(),
         condition_before: record.condition(),
         condition_after,
         material,
+        spent,
         spent_destination,
     })
 }
@@ -361,6 +374,16 @@ pub enum EquipmentRepairMaterialError {
     SpentDestinationIsSource {
         stockpile: StockpileId,
     },
+    UnknownSpentMaterial {
+        material: crate::material::MaterialId,
+    },
+    UnknownSpentForm {
+        form: crate::material::FormId,
+    },
+    SpentMaterialChanged {
+        source: crate::material::MaterialId,
+        target: crate::material::MaterialId,
+    },
     SpentStorage(StockpileStorageError),
     SpentMassOverflow {
         stockpile: StockpileId,
@@ -397,6 +420,22 @@ impl Display for EquipmentRepairMaterialError {
                 formatter,
                 "spent maintenance material must leave source stockpile {}",
                 stockpile.value()
+            ),
+            Self::UnknownSpentMaterial { material } => write!(
+                formatter,
+                "spent maintenance output references unknown material {}",
+                material.value()
+            ),
+            Self::UnknownSpentForm { form } => write!(
+                formatter,
+                "spent maintenance output references unknown form {}",
+                form.value()
+            ),
+            Self::SpentMaterialChanged { source, target } => write!(
+                formatter,
+                "equipment maintenance cannot change material identity from {} to {}",
+                source.value(),
+                target.value()
             ),
             Self::SpentStorage(error) => {
                 write!(
@@ -456,6 +495,14 @@ impl Error for EquipmentRepairMaterialError {
             | Self::SpentMassOverflow {
                 stockpile: _stockpile,
             } => None,
+            Self::UnknownSpentMaterial {
+                material: _material,
+            }
+            | Self::SpentMaterialChanged {
+                source: _material,
+                target: _,
+            } => None,
+            Self::UnknownSpentForm { form: _form } => None,
             Self::SpentCapacityExceeded {
                 stockpile: _stockpile,
                 capacity: _capacity,
@@ -714,7 +761,7 @@ impl Error for EquipmentRepairCommitError {
     }
 }
 
-/// Successful repair outcome after exact maintenance matter is relocated to its spent destination.
+/// Successful repair outcome after exact maintenance matter is reformed into its spent output.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EquipmentRepairOutcome {
@@ -755,7 +802,7 @@ pub struct ValidatedEquipmentRepair {
     condition_after: Condition,
     expected_equipment_revision: u64,
     next_equipment_revision: u64,
-    material: ValidatedMaterialRelocation,
+    material: ValidatedMaterialReform,
 }
 
 impl ValidatedEquipmentRepair {
@@ -831,27 +878,36 @@ impl ValidatedEquipmentRepair {
     }
 }
 
-fn map_material_error(error: MaterialRelocationError) -> EquipmentRepairMaterialError {
+fn map_material_error(error: MaterialReformError) -> EquipmentRepairMaterialError {
     match error {
-        MaterialRelocationError::StaleSelection { expected, actual } => {
+        MaterialReformError::StaleSelection { expected, actual } => {
             EquipmentRepairMaterialError::StaleSelection { expected, actual }
         }
-        MaterialRelocationError::UnknownSource { stockpile } => {
+        MaterialReformError::UnknownSource { stockpile } => {
             EquipmentRepairMaterialError::UnknownSource { stockpile }
         }
-        MaterialRelocationError::UnknownDestination { stockpile } => {
+        MaterialReformError::UnknownDestination { stockpile } => {
             EquipmentRepairMaterialError::UnknownSpentDestination { stockpile }
         }
-        MaterialRelocationError::SameStockpile { stockpile } => {
+        MaterialReformError::SameStockpile { stockpile } => {
             EquipmentRepairMaterialError::SpentDestinationIsSource { stockpile }
         }
-        MaterialRelocationError::DestinationStorage(error) => {
+        MaterialReformError::UnknownTargetMaterial { material } => {
+            EquipmentRepairMaterialError::UnknownSpentMaterial { material }
+        }
+        MaterialReformError::UnknownTargetForm { form } => {
+            EquipmentRepairMaterialError::UnknownSpentForm { form }
+        }
+        MaterialReformError::MaterialChanged { source, target } => {
+            EquipmentRepairMaterialError::SpentMaterialChanged { source, target }
+        }
+        MaterialReformError::DestinationStorage(error) => {
             EquipmentRepairMaterialError::SpentStorage(error)
         }
-        MaterialRelocationError::DestinationMassOverflow { stockpile } => {
+        MaterialReformError::DestinationMassOverflow { stockpile } => {
             EquipmentRepairMaterialError::SpentMassOverflow { stockpile }
         }
-        MaterialRelocationError::DestinationCapacityExceeded {
+        MaterialReformError::DestinationCapacityExceeded {
             stockpile,
             capacity,
             committed,
@@ -862,24 +918,22 @@ fn map_material_error(error: MaterialRelocationError) -> EquipmentRepairMaterial
             committed,
             requested,
         },
-        MaterialRelocationError::LotIdExhausted => EquipmentRepairMaterialError::LotIdExhausted,
-        MaterialRelocationError::RevisionExhausted => {
+        MaterialReformError::LotIdExhausted => EquipmentRepairMaterialError::LotIdExhausted,
+        MaterialReformError::RevisionExhausted => {
             EquipmentRepairMaterialError::InventoryRevisionExhausted
         }
-        MaterialRelocationError::StructuralLoad(error) => {
+        MaterialReformError::StructuralLoad(error) => {
             EquipmentRepairMaterialError::StructuralLoad(error)
         }
     }
 }
 
-fn map_material_commit_error(error: MaterialRelocationCommitError) -> EquipmentRepairCommitError {
+fn map_material_commit_error(error: MaterialReformCommitError) -> EquipmentRepairCommitError {
     match error {
-        MaterialRelocationCommitError::StaleInventoryRevision { expected, actual } => {
+        MaterialReformCommitError::StaleInventoryRevision { expected, actual } => {
             EquipmentRepairCommitError::StaleInventoryRevision { expected, actual }
         }
-        MaterialRelocationCommitError::Structure(error) => {
-            EquipmentRepairCommitError::Structure(error)
-        }
+        MaterialReformCommitError::Structure(error) => EquipmentRepairCommitError::Structure(error),
     }
 }
 
@@ -949,10 +1003,11 @@ pub fn validate_equipment_repair(
         .revision()
         .checked_add(1)
         .ok_or(EquipmentRepairError::EquipmentRevisionExhausted)?;
-    let material = validate_material_relocation_from_selection(
+    let material = validate_material_reform_from_selection(
         registries,
         state,
         resolution.spent_destination,
+        resolution.spent,
         resolution.material,
     )
     .map_err(map_material_error)
@@ -975,7 +1030,7 @@ mod tests {
         CapabilityDefinition, CapabilityId, CapabilityProfile, CapabilityValue, CapabilityValueKind,
     };
     use crate::content::{
-        FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        FORM_CHIP, FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
         make_test_registries_with_equipment, make_test_registries_with_sensible_heating,
     };
     use crate::core::quantity::{AggregateMass, Area, Energy, Force, Length, Power, Temperature};
@@ -991,6 +1046,7 @@ mod tests {
         apply_equipment_condition_plan, decide_equipment_wear,
     };
 
+    #[cfg(feature = "test-soak")]
     use crate::inventory::validate_transfer_bulk;
     use crate::inventory::{
         MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test,
@@ -1052,6 +1108,7 @@ mod tests {
             .with_maintenance_profile(EquipmentMaintenanceProfile::new(
                 CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
                 Mass::from_milligrams(7),
+                CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
                 condition(700_000),
             )),
         )
@@ -1187,6 +1244,11 @@ mod tests {
             .unwrap_or_else(|error| {
                 panic!("maintenance resolver equipment fixture failed: {error}")
             });
+        let second_equipment =
+            add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
+                .unwrap_or_else(|error| {
+                    panic!("second maintenance resolver equipment fixture failed: {error}")
+                });
         let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
             .unwrap_or_else(|error| panic!("maintenance resolver source fixture failed: {error}"));
         let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
@@ -1202,6 +1264,10 @@ mod tests {
         assert_eq!(resolution.equipment(), equipment);
         assert_eq!(resolution.material_source(), source);
         assert_eq!(resolution.spent_destination(), spent);
+        assert_eq!(
+            resolution.spent_commodity(),
+            CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)
+        );
         assert_eq!(resolution.material_mass(), Mass::from_milligrams(7));
         assert_eq!(resolution.condition_before(), condition(500_000));
         assert_eq!(resolution.condition_after(), condition(700_000));
@@ -1226,6 +1292,38 @@ mod tests {
                 .get_stockpile(spent)
                 .map(|record| record.stored_mass()),
             Some(Mass::from_milligrams(7))
+        );
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(spent)
+                .map(|record| record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_LOG))),
+            Some(Mass::ZERO),
+            "spent maintenance output must not remain reusable replacement stock"
+        );
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(spent)
+                .map(|record| record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP))),
+            Some(Mass::from_milligrams(7)),
+            "maintenance must conserve the selected matter in the authored spent form"
+        );
+        assert_eq!(
+            resolve_equipment_maintenance(
+                &registries,
+                &state,
+                EquipmentMaintenanceRequest::new(second_equipment, spent, source),
+            ),
+            Err(
+                EquipmentMaintenanceResolutionError::InsufficientReplacementMaterial {
+                    stockpile: spent,
+                    commodity: CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+                    available: Mass::ZERO,
+                    required: Mass::from_milligrams(7),
+                }
+            ),
+            "spent maintenance output must not service another worn machine"
         );
     }
 
@@ -1822,6 +1920,7 @@ mod tests {
         assert_eq!(state, before);
     }
 
+    #[cfg(feature = "test-soak")]
     #[test]
     #[ignore = "long-horizon soak"]
     fn equipment_repair_soak_preserves_resource_conservation_and_replay() {

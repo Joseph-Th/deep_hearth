@@ -2,6 +2,7 @@
 
 mod definitions;
 mod execution;
+mod physics;
 mod state;
 mod validation;
 
@@ -14,5 +15,5 @@ pub use execution::{
 pub(crate) use execution::{MiningTickError, apply_mining_tick, decide_mining_tick};
 pub(crate) use state::validate_loaded_mining;
 pub use state::{MiningJobId, MiningJobRecord, MiningState, MiningValidationError};
-pub use validation::MiningReferenceError;
-pub(crate) use validation::validate_mining_references;
+pub use validation::MiningJobValidationError;
+pub(crate) use validation::validate_loaded_mining_jobs;

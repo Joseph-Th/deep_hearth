@@ -27,7 +27,8 @@ use crate::labor::{PlayerWorkValidationError, validate_loaded_player_work};
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, MaterialId, ParticleSizeStateError};
 use crate::mining::{
-    MiningReferenceError, MiningValidationError, validate_loaded_mining, validate_mining_references,
+    MiningJobValidationError, MiningValidationError, validate_loaded_mining,
+    validate_loaded_mining_jobs,
 };
 use crate::ore_processing::{ComminutionJobValidationError, ScreeningJobValidationError};
 use crate::production::{
@@ -72,7 +73,7 @@ pub enum StateValidationError {
     Inventory(InventoryValidationError),
     Production(ProductionValidationError),
     Mining(MiningValidationError),
-    MiningReference(MiningReferenceError),
+    MiningJob(MiningJobValidationError),
     PlayerWork(PlayerWorkValidationError),
     Survival(SurvivalValidationError),
     UnknownStoredCommodity {
@@ -302,9 +303,7 @@ impl Display for StateValidationError {
             Self::Inventory(error) => write!(formatter, "invalid inventory state: {error}"),
             Self::Production(error) => write!(formatter, "invalid production state: {error}"),
             Self::Mining(error) => write!(formatter, "invalid mining state: {error}"),
-            Self::MiningReference(error) => {
-                write!(formatter, "invalid mining integration: {error}")
-            }
+            Self::MiningJob(error) => write!(formatter, "invalid mining job: {error}"),
             Self::PlayerWork(error) => write!(formatter, "invalid player-work state: {error}"),
             Self::Survival(error) => write!(formatter, "invalid survival state: {error}"),
             Self::UnknownStoredCommodity {
@@ -679,7 +678,7 @@ impl Error for StateValidationError {
             Self::Inventory(error) => Some(error),
             Self::Production(error) => Some(error),
             Self::Mining(error) => Some(error),
-            Self::MiningReference(error) => Some(error),
+            Self::MiningJob(error) => Some(error),
             Self::PlayerWork(error) => Some(error),
             Self::Survival(error) => Some(error),
             Self::ComminutionJob(error) => Some(error),
@@ -938,7 +937,7 @@ pub fn validate_loaded_state(
 
     validate_inventory_references(registries, state)?;
     validate_production_references(registries, state)?;
-    validate_mining_references(registries, state).map_err(StateValidationError::MiningReference)?;
+    validate_loaded_mining_jobs(registries, state).map_err(StateValidationError::MiningJob)?;
     validate_loaded_player_work(registries, state, &state.systems.player_work)
         .map_err(StateValidationError::PlayerWork)?;
 

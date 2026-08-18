@@ -18,15 +18,30 @@ pub enum MiningValidationError {
     ZeroOutputMass {
         job: MiningJobId,
     },
+    JobStartedInFuture {
+        job: MiningJobId,
+        started: SimulationTick,
+        current: SimulationTick,
+    },
+    CompletionNotAfterStart {
+        job: MiningJobId,
+        started: SimulationTick,
+        completes: SimulationTick,
+    },
     WorkingJobAlreadyDue {
         job: MiningJobId,
         due: SimulationTick,
         current: SimulationTick,
     },
-    ReadyBeforeCompletion {
+    ReadyTickMismatch {
         job: MiningJobId,
         ready: SimulationTick,
         due: SimulationTick,
+    },
+    ReadyInFuture {
+        job: MiningJobId,
+        ready: SimulationTick,
+        current: SimulationTick,
     },
     DueIndexMismatch,
     EquipmentOccupancyMismatch,
@@ -63,6 +78,20 @@ pub(crate) fn validate_loaded_mining(
                 job: job.identity.id,
             });
         }
+        if job.schedule.started_at > current {
+            return Err(MiningValidationError::JobStartedInFuture {
+                job: job.identity.id,
+                started: job.schedule.started_at,
+                current,
+            });
+        }
+        if job.schedule.completes_at <= job.schedule.started_at {
+            return Err(MiningValidationError::CompletionNotAfterStart {
+                job: job.identity.id,
+                started: job.schedule.started_at,
+                completes: job.schedule.completes_at,
+            });
+        }
         match job.schedule.ready_at {
             None => {
                 if job.schedule.completes_at <= current {
@@ -77,20 +106,27 @@ pub(crate) fn validate_loaded_mining(
                     .or_default()
                     .insert(job.identity.id);
                 if expected_equipment
-                    .insert(job.resources.equipment, job.identity.id)
+                    .insert(job.equipment(), job.identity.id)
                     .is_some()
                 {
                     return Err(MiningValidationError::EquipmentDoubleBooked {
-                        equipment: job.resources.equipment,
+                        equipment: job.equipment(),
                     });
                 }
             }
             Some(ready) => {
-                if ready < job.schedule.completes_at {
-                    return Err(MiningValidationError::ReadyBeforeCompletion {
+                if ready != job.schedule.completes_at {
+                    return Err(MiningValidationError::ReadyTickMismatch {
                         job: job.identity.id,
                         ready,
                         due: job.schedule.completes_at,
+                    });
+                }
+                if ready > current {
+                    return Err(MiningValidationError::ReadyInFuture {
+                        job: job.identity.id,
+                        ready,
+                        current,
                     });
                 }
             }

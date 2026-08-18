@@ -1,6 +1,6 @@
 //! Built-in workshop equipment definitions.
 
-use crate::capability::{CapabilityProfile, CapabilityValue};
+use crate::capability::{CapabilityId, CapabilityProfile, CapabilityValue};
 use crate::core::quantity::{Mass, MassFlow, Power, Pressure, Temperature};
 use crate::equipment::{
     CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
@@ -17,8 +17,8 @@ use super::capabilities::{
     CAPABILITY_THERMAL_BATCH, CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
 use super::materials::{
-    FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_REINFORCEMENT, FORM_SCRAP, FORM_TOOL,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 pub const EQUIPMENT_JAW_CRUSHER: EquipmentDefinitionId = EquipmentDefinitionId::new(1);
@@ -44,6 +44,7 @@ fn crusher_maintenance() -> EquipmentMaintenanceProfile {
     EquipmentMaintenanceProfile::new(
         CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
         Mass::from_milligrams(50_000),
+        CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
         condition(900_000),
     )
 }
@@ -56,7 +57,7 @@ fn thresholds() -> MaintenanceThresholds {
 }
 
 fn profile(
-    entries: impl IntoIterator<Item = (crate::capability::CapabilityId, CapabilityValue)>,
+    entries: impl IntoIterator<Item = (CapabilityId, CapabilityValue)>,
 ) -> CapabilityProfile {
     match CapabilityProfile::new(entries) {
         Ok(profile) => profile,
@@ -64,104 +65,93 @@ fn profile(
     }
 }
 
+fn mass_flow_condition_curve(
+    capability: CapabilityId,
+    degraded_condition_ppm: u32,
+    degraded_flow: MassFlow,
+) -> CapabilityConditionCurve {
+    CapabilityConditionCurve::new(
+        capability,
+        vec![
+            CapabilityConditionPoint::new(
+                Condition::FAILED,
+                CapabilityValue::MassFlow(MassFlow::ZERO),
+            ),
+            CapabilityConditionPoint::new(
+                condition(degraded_condition_ppm),
+                CapabilityValue::MassFlow(degraded_flow),
+            ),
+        ],
+    )
+}
+
+fn power_condition_curve(
+    capability: CapabilityId,
+    degraded_condition_ppm: u32,
+    degraded_power: Power,
+) -> CapabilityConditionCurve {
+    CapabilityConditionCurve::new(
+        capability,
+        vec![
+            CapabilityConditionPoint::new(Condition::FAILED, CapabilityValue::Power(Power::ZERO)),
+            CapabilityConditionPoint::new(
+                condition(degraded_condition_ppm),
+                CapabilityValue::Power(degraded_power),
+            ),
+        ],
+    )
+}
+
 pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
-    let crusher_curve = CapabilityConditionCurve::new(
+    let crusher_curve = mass_flow_condition_curve(
         CAPABILITY_CRUSHER_FLOW,
-        vec![
-            CapabilityConditionPoint::new(
-                Condition::FAILED,
-                CapabilityValue::MassFlow(MassFlow::ZERO),
-            ),
-            CapabilityConditionPoint::new(
-                condition(600_000),
-                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(2_000_000)),
-            ),
-        ],
+        600_000,
+        MassFlow::from_milligrams_per_second(2_000_000),
     );
-    let stone_crusher_curve = CapabilityConditionCurve::new(
+    let stone_crusher_curve = mass_flow_condition_curve(
         CAPABILITY_CRUSHER_FLOW,
-        vec![
-            CapabilityConditionPoint::new(
-                Condition::FAILED,
-                CapabilityValue::MassFlow(MassFlow::ZERO),
-            ),
-            CapabilityConditionPoint::new(
-                condition(600_000),
-                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(200_000)),
-            ),
-        ],
+        600_000,
+        MassFlow::from_milligrams_per_second(200_000),
     );
-    let reinforced_hand_crank_curve = CapabilityConditionCurve::new(
+    let reinforced_hand_crank_curve = power_condition_curve(
         CAPABILITY_MANUAL_POWER_OUTPUT,
-        vec![
-            CapabilityConditionPoint::new(Condition::FAILED, CapabilityValue::Power(Power::ZERO)),
-            CapabilityConditionPoint::new(
-                condition(500_000),
-                CapabilityValue::Power(Power::from_microwatts(50_000_000)),
-            ),
-        ],
+        500_000,
+        Power::from_microwatts(50_000_000),
     );
-    let reinforced_mining_curve = CapabilityConditionCurve::new(
+    let reinforced_mining_curve = mass_flow_condition_curve(
         CAPABILITY_MINING_FLOW,
-        vec![
-            CapabilityConditionPoint::new(
-                Condition::FAILED,
-                CapabilityValue::MassFlow(MassFlow::ZERO),
-            ),
-            CapabilityConditionPoint::new(
-                condition(500_000),
-                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(15_000)),
-            ),
-        ],
+        500_000,
+        MassFlow::from_milligrams_per_second(15_000),
     );
-    let mining_curve = CapabilityConditionCurve::new(
+    let mining_curve = mass_flow_condition_curve(
         CAPABILITY_MINING_FLOW,
-        vec![
-            CapabilityConditionPoint::new(
-                Condition::FAILED,
-                CapabilityValue::MassFlow(MassFlow::ZERO),
-            ),
-            CapabilityConditionPoint::new(
-                condition(500_000),
-                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(10_000)),
-            ),
-        ],
+        500_000,
+        MassFlow::from_milligrams_per_second(10_000),
     );
-    let grinder_curve = CapabilityConditionCurve::new(
+    let grinder_curve = mass_flow_condition_curve(
         CAPABILITY_GRINDER_FLOW,
-        vec![
-            CapabilityConditionPoint::new(
-                Condition::FAILED,
-                CapabilityValue::MassFlow(MassFlow::ZERO),
-            ),
-            CapabilityConditionPoint::new(
-                condition(600_000),
-                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1_000_000)),
-            ),
-        ],
+        600_000,
+        MassFlow::from_milligrams_per_second(1_000_000),
     );
-    let screen_curve = CapabilityConditionCurve::new(
+    let screen_curve = mass_flow_condition_curve(
         CAPABILITY_SCREEN_FLOW,
-        vec![
-            CapabilityConditionPoint::new(
-                Condition::FAILED,
-                CapabilityValue::MassFlow(MassFlow::ZERO),
-            ),
-            CapabilityConditionPoint::new(
-                condition(600_000),
-                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(4_000_000)),
-            ),
-        ],
+        600_000,
+        MassFlow::from_milligrams_per_second(4_000_000),
     );
-    let hand_crank_curve = CapabilityConditionCurve::new(
+    let hand_crank_curve = power_condition_curve(
         CAPABILITY_MANUAL_POWER_OUTPUT,
-        vec![
-            CapabilityConditionPoint::new(Condition::FAILED, CapabilityValue::Power(Power::ZERO)),
-            CapabilityConditionPoint::new(
-                condition(500_000),
-                CapabilityValue::Power(Power::from_microwatts(25_000_000)),
-            ),
-        ],
+        500_000,
+        Power::from_microwatts(25_000_000),
+    );
+    let furnace_curve = power_condition_curve(
+        CAPABILITY_HEATING_POWER,
+        600_000,
+        Power::from_microwatts(1_000_000_000_000),
+    );
+    let casting_mold_curve = power_condition_curve(
+        CAPABILITY_COOLING_POWER,
+        600_000,
+        Power::from_microwatts(500_000_000_000),
     );
     EquipmentRegistry::new([
         EquipmentDefinition::new_with_capability_condition_curves(
@@ -182,7 +172,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             vec![crusher_curve],
         )
         .with_maintenance_profile(crusher_maintenance()),
-        EquipmentDefinition::new(
+        EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_ELECTRIC_FURNACE,
             "workshop electric furnace",
             Mass::from_milligrams(500_000_000),
@@ -201,8 +191,9 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 ),
             ]),
             thresholds(),
+            vec![furnace_curve],
         ),
-        EquipmentDefinition::new(
+        EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_CASTING_MOLD,
             "workshop cooled casting mold",
             Mass::from_milligrams(100_000_000),
@@ -221,6 +212,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 ),
             ]),
             thresholds(),
+            vec![casting_mold_curve],
         ),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_DRY_SCREEN,
@@ -410,4 +402,27 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             ),
         ])),
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::equipment::resolve_equipment_capability;
+
+    #[test]
+    fn failed_thermal_equipment_has_no_productive_heat_transfer_rate() {
+        let registry = build_equipment_registry();
+        for (equipment, capability) in [
+            (EQUIPMENT_ELECTRIC_FURNACE, CAPABILITY_HEATING_POWER),
+            (EQUIPMENT_CASTING_MOLD, CAPABILITY_COOLING_POWER),
+        ] {
+            let definition = registry
+                .get_equipment(equipment)
+                .unwrap_or_else(|| panic!("built-in thermal equipment disappeared"));
+            assert_eq!(
+                resolve_equipment_capability(definition, Condition::FAILED, capability),
+                Some(CapabilityValue::Power(Power::ZERO))
+            );
+        }
+    }
 }

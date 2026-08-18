@@ -67,6 +67,10 @@ impl<'state> ResolvedEquipmentProvider<'state> {
         self.definition.mass()
     }
 
+    pub(crate) const fn definition(&self) -> &'state EquipmentDefinition {
+        self.definition
+    }
+
     #[must_use]
     pub fn get_capability(&self, capability: CapabilityId) -> Option<CapabilityValue> {
         resolve_equipment_capability(self.definition, self.record.condition(), capability)

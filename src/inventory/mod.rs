@@ -56,9 +56,9 @@ pub(crate) use structural_integration::{
     validate_stockpile_stored_mass_changes, validate_stockpile_support_for_new_inbound,
 };
 pub(crate) use transactions::{
-    MaterialEgressError, MaterialRelocationCommitError, MaterialRelocationError,
-    ValidatedMaterialEgress, ValidatedMaterialRelocation, apply_material_egress,
-    validate_material_egress_from_selection, validate_material_relocation_from_selection,
+    MaterialEgressError, MaterialReformCommitError, MaterialReformError, ValidatedMaterialEgress,
+    ValidatedMaterialReform, apply_material_egress, validate_material_egress_from_selection,
+    validate_material_reform_from_selection,
 };
 
 #[cfg(test)]

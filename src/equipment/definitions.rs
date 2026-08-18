@@ -38,6 +38,7 @@ impl EquipmentDefinitionId {
 pub struct EquipmentMaintenanceProfile {
     replacement: CommodityKey,
     replacement_mass: Mass,
+    spent: CommodityKey,
     restored_condition: Condition,
 }
 
@@ -46,6 +47,7 @@ impl EquipmentMaintenanceProfile {
     pub fn new(
         replacement: CommodityKey,
         replacement_mass: Mass,
+        spent: CommodityKey,
         restored_condition: Condition,
     ) -> Self {
         assert!(
@@ -56,9 +58,19 @@ impl EquipmentMaintenanceProfile {
             restored_condition > Condition::FAILED,
             "equipment maintenance restored condition must be above failed"
         );
+        assert_eq!(
+            replacement.material(),
+            spent.material(),
+            "equipment maintenance may change form but cannot change material identity"
+        );
+        assert_ne!(
+            replacement, spent,
+            "equipment maintenance spent output must differ from reusable replacement stock"
+        );
         Self {
             replacement,
             replacement_mass,
+            spent,
             restored_condition,
         }
     }
@@ -71,6 +83,11 @@ impl EquipmentMaintenanceProfile {
     #[must_use]
     pub const fn replacement_mass(self) -> Mass {
         self.replacement_mass
+    }
+
+    #[must_use]
+    pub const fn spent(self) -> CommodityKey {
+        self.spent
     }
 
     #[must_use]
@@ -444,22 +461,20 @@ impl EquipmentRegistry {
                 );
             }
             if let Some(maintenance) = definition.maintenance_profile() {
-                assert!(
-                    materials
-                        .get_material(maintenance.replacement().material())
-                        .is_some(),
-                    "equipment definition {} maintenance profile references missing material {}",
-                    definition.id().value(),
-                    maintenance.replacement().material().value()
-                );
-                assert!(
-                    materials
-                        .get_form(maintenance.replacement().form())
-                        .is_some(),
-                    "equipment definition {} maintenance profile references missing form {}",
-                    definition.id().value(),
-                    maintenance.replacement().form().value()
-                );
+                for commodity in [maintenance.replacement(), maintenance.spent()] {
+                    assert!(
+                        materials.get_material(commodity.material()).is_some(),
+                        "equipment definition {} maintenance profile references missing material {}",
+                        definition.id().value(),
+                        commodity.material().value()
+                    );
+                    assert!(
+                        materials.get_form(commodity.form()).is_some(),
+                        "equipment definition {} maintenance profile references missing form {}",
+                        definition.id().value(),
+                        commodity.form().value()
+                    );
+                }
             }
             if let Some(assembly) = definition.assembly_profile() {
                 assert_eq!(

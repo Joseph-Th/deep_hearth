@@ -24,7 +24,6 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Energy, Mass, Temperature};
-use crate::inventory::MaterialLotRecord;
 use crate::material::{
     CommodityKey, CompositionError, FormId, MaterialComposition, MaterialId, MaterialPhase,
     MaterialPhaseStateError, MaterialRegistry, validate_material_phase_state,
@@ -467,22 +466,6 @@ pub fn calculate_material_thermal_energy(
                 .ok_or(MaterialThermalEnergyError::ArithmeticOverflow)
         }
     }
-}
-
-/// Convenience calculation for one authoritative material lot.
-pub fn calculate_lot_sensible_heat(
-    materials: &MaterialRegistry,
-    lot: &MaterialLotRecord,
-    target: Temperature,
-) -> Result<SensibleHeat, PhaseSensibleHeatError> {
-    calculate_phase_sensible_heat(
-        materials,
-        lot.mass(),
-        lot.commodity(),
-        lot.composition(),
-        lot.temperature(),
-        target,
-    )
 }
 
 #[cfg(test)]
