@@ -49,7 +49,7 @@ pub(crate) use selection::{
     apply_consumption_reservation, validate_consumption_reservation_from_selection,
     validate_consumption_selection, validate_explicit_consumption_selection,
 };
-pub(crate) use state::validate_loaded_inventory;
+pub(crate) use state::{STORAGE_AGE_PARTS_PER_TICK, validate_loaded_inventory};
 pub(crate) use storage_validation::validate_stockpile_storage;
 pub(crate) use structural_integration::{
     StockpileStoredMassChange, ValidatedStockpileStructuralLoad, resolve_stockpile_stored_loads,

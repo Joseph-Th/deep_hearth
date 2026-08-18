@@ -903,8 +903,12 @@ pub fn validate_loaded_state(
         registries.core().gravity(),
     )
     .map_err(StateValidationError::Structure)?;
-    validate_loaded_inventory(registries.materials(), &state.systems.inventory)
-        .map_err(StateValidationError::Inventory)?;
+    validate_loaded_inventory(
+        registries.materials(),
+        &state.systems.inventory,
+        state.tick(),
+    )
+    .map_err(StateValidationError::Inventory)?;
 
     validate_structural_integrations(registries, state)?;
     validate_loaded_geology(registries.materials(), &state.systems.geology, state.tick())
@@ -930,7 +934,7 @@ pub fn validate_loaded_state(
     validate_inventory_references(registries, state)?;
     validate_production_references(registries, state)?;
     validate_mining_references(registries, state).map_err(StateValidationError::MiningReference)?;
-    validate_loaded_player_work(registries.crafting(), state, &state.systems.player_work)
+    validate_loaded_player_work(registries, state, &state.systems.player_work)
         .map_err(StateValidationError::PlayerWork)?;
 
     Ok(())
@@ -993,6 +997,13 @@ pub fn validate_invariants(registries: &Registries, state: &AppState) {
             .earliest_due_tick()
             .is_none_or(|due| due > state.tick()),
         "Runtime Invariant 6 (Lifecycle Validity): no working mining job may remain due"
+    );
+    debug_assert!(
+        state
+            .systems
+            .player_work
+            .has_valid_inline_schedule(state.tick()),
+        "Runtime Invariant 6 (Lifecycle Validity): active direct player-power work must have a current unfinished schedule"
     );
     debug_assert!(
         state

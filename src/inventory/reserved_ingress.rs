@@ -6,7 +6,7 @@ use crate::material::MaterialLotSpec;
 
 use super::state::{
     InventoryState, MaterialLotId, MaterialLotProfile, MaterialLotProvenance, MaterialLotRecord,
-    StockpileId, apply_insert_or_merge_new_lot, get_stockpile_mut_or_panic,
+    MaterialStorageHistory, StockpileId, apply_insert_or_merge_new_lot, get_stockpile_mut_or_panic,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -152,6 +152,12 @@ pub(crate) fn apply_reserved_deposits(state: &mut InventoryState, plan: Reserved
             };
         }
 
+        let preservation_multiplier_ppm = state
+            .get_stockpile(destination)
+            .unwrap_or_else(|| panic!("reserved output destination disappeared"))
+            .storage_profile()
+            .preservation_multiplier_ppm();
+
         for (output, lot_id) in outputs.into_iter().zip(lot_ids) {
             apply_insert_or_merge_new_lot(
                 state,
@@ -169,7 +175,10 @@ pub(crate) fn apply_reserved_deposits(state: &mut InventoryState, plan: Reserved
                         earliest_created_at: created_at,
                         latest_created_at: created_at,
                     },
+                    storage_history: MaterialStorageHistory::new(created_at),
                 },
+                created_at,
+                preservation_multiplier_ppm,
             );
         }
     }

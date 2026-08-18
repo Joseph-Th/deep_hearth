@@ -11,6 +11,7 @@ use crate::crafting::CraftingRegistry;
 use crate::energy::EnergyRegistry;
 use crate::equipment::EquipmentRegistry;
 use crate::fluid::FluidRegistry;
+use crate::labor::LaborRegistry;
 use crate::material::MaterialRegistry;
 use crate::mining::MiningRegistry;
 use crate::ore_processing::OreProcessingRegistry;
@@ -97,6 +98,7 @@ pub(crate) struct RegistryDomains {
     pub(crate) fluid: FluidRegistry,
     pub(crate) capabilities: CapabilityRegistry,
     pub(crate) crafting: CraftingRegistry,
+    pub(crate) labor: LaborRegistry,
     pub(crate) equipment: EquipmentRegistry,
     pub(crate) structural: StructuralRegistry,
     pub(crate) materials: MaterialRegistry,
@@ -124,6 +126,7 @@ impl Registries {
         domains
             .crafting
             .validate_references(&domains.production, &domains.materials);
+        domains.labor.validate_references(&domains.capabilities);
         domains
             .equipment
             .validate_references(&domains.capabilities, &domains.materials);
@@ -204,6 +207,12 @@ impl Registries {
     #[must_use]
     pub const fn crafting(&self) -> &CraftingRegistry {
         &self.domains.crafting
+    }
+
+    /// Returns immutable direct player-labor conversion definitions.
+    #[must_use]
+    pub const fn labor(&self) -> &LaborRegistry {
+        &self.domains.labor
     }
 
     /// Returns immutable maintainable equipment definitions.

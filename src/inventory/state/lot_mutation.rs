@@ -1,6 +1,7 @@
 //! Child mutation layer of `InventoryState`, used only after transaction validation.
 
 use crate::core::quantity::Mass;
+use crate::core::time::SimulationTick;
 use crate::material::CommodityKey;
 
 use super::{
@@ -12,6 +13,28 @@ use super::{
 pub(in crate::inventory) struct LotSlice {
     pub(in crate::inventory) lot: MaterialLotId,
     pub(in crate::inventory) mass: Mass,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::inventory) struct LotStorageTransition {
+    at: SimulationTick,
+    source_preservation_multiplier_ppm: u32,
+    destination_preservation_multiplier_ppm: u32,
+}
+
+impl LotStorageTransition {
+    #[must_use]
+    pub(in crate::inventory) const fn new(
+        at: SimulationTick,
+        source_preservation_multiplier_ppm: u32,
+        destination_preservation_multiplier_ppm: u32,
+    ) -> Self {
+        Self {
+            at,
+            source_preservation_multiplier_ppm,
+            destination_preservation_multiplier_ppm,
+        }
+    }
 }
 
 pub(in crate::inventory) fn apply_aggregate_deposit(
@@ -71,6 +94,8 @@ pub(in crate::inventory) fn apply_aggregate_withdraw(
 pub(in crate::inventory) fn apply_insert_or_merge_new_lot(
     state: &mut InventoryState,
     lot: MaterialLotRecord,
+    at: SimulationTick,
+    destination_preservation_multiplier_ppm: u32,
 ) -> MaterialLotId {
     let compatible = find_compatible_lot(state, lot.stockpile, &lot.profile);
 
@@ -81,7 +106,13 @@ pub(in crate::inventory) fn apply_insert_or_merge_new_lot(
     };
 
     apply_aggregate_deposit(state, lot.stockpile, lot.commodity(), lot.mass);
-    apply_merge_lot_record(state, existing_id, lot);
+    apply_merge_lot_record(
+        state,
+        existing_id,
+        lot,
+        at,
+        destination_preservation_multiplier_ppm,
+    );
     existing_id
 }
 
@@ -90,6 +121,7 @@ pub(in crate::inventory) fn apply_move_full_lot(
     lot: MaterialLotId,
     source: StockpileId,
     destination: StockpileId,
+    storage: LotStorageTransition,
 ) {
     let removed = get_stockpile_mut_or_panic(state, source)
         .lot_ids
@@ -116,6 +148,10 @@ pub(in crate::inventory) fn apply_move_full_lot(
         record.stockpile, source,
         "validated lot owner changed before commit"
     );
+    record.storage_history = record
+        .storage_history
+        .rebase(storage.at, storage.source_preservation_multiplier_ppm)
+        .unwrap_or_else(|| panic!("validated full-lot transfer has invalid storage history"));
     record.stockpile = destination;
 }
 
@@ -125,14 +161,21 @@ pub(in crate::inventory) fn apply_split_lot(
     new_lot: MaterialLotId,
     destination: StockpileId,
     transferred: Mass,
+    storage: LotStorageTransition,
 ) {
-    let (source_mass, source_profile, source_provenance) = match state.lots.get(&source_lot) {
-        Some(lot) => (lot.mass, lot.profile.clone(), lot.provenance),
-        None => panic!(
-            "validated partial transfer references missing material lot {}",
-            source_lot.value()
-        ),
-    };
+    let (source_mass, source_profile, source_provenance, source_storage_history) =
+        match state.lots.get(&source_lot) {
+            Some(lot) => (
+                lot.mass,
+                lot.profile.clone(),
+                lot.provenance,
+                lot.storage_history,
+            ),
+            None => panic!(
+                "validated partial transfer references missing material lot {}",
+                source_lot.value()
+            ),
+        };
     assert!(
         transferred < source_mass,
         "partial transfer must leave positive mass in its source lot"
@@ -153,9 +196,18 @@ pub(in crate::inventory) fn apply_split_lot(
         mass: transferred,
         profile: source_profile,
         provenance: source_provenance,
+        storage_history: source_storage_history
+            .rebase(storage.at, storage.source_preservation_multiplier_ppm)
+            .unwrap_or_else(|| panic!("validated split-lot transfer has invalid storage history")),
     };
     if let Some(existing_id) = find_compatible_lot(state, destination, &split.profile) {
-        apply_merge_lot_record(state, existing_id, split);
+        apply_merge_lot_record(
+            state,
+            existing_id,
+            split,
+            storage.at,
+            storage.destination_preservation_multiplier_ppm,
+        );
     } else {
         apply_insert_lot_record(state, split);
     }
@@ -251,6 +303,8 @@ fn apply_merge_lot_record(
     state: &mut InventoryState,
     existing_id: MaterialLotId,
     lot: MaterialLotRecord,
+    at: SimulationTick,
+    destination_preservation_multiplier_ppm: u32,
 ) {
     let existing = match state.lots.get_mut(&existing_id) {
         Some(existing) => existing,
@@ -271,4 +325,14 @@ fn apply_merge_lot_record(
         existing.provenance.latest_created_at,
         lot.provenance.latest_created_at,
     );
+    let existing_age = existing
+        .storage_history
+        .project(at, destination_preservation_multiplier_ppm)
+        .unwrap_or_else(|| panic!("validated destination lot has invalid storage history"));
+    let incoming_age = lot
+        .storage_history
+        .project(at, destination_preservation_multiplier_ppm)
+        .unwrap_or_else(|| panic!("validated incoming lot has invalid storage history"));
+    existing.storage_history =
+        super::MaterialStorageHistory::with_ambient_age_parts(existing_age.max(incoming_age), at);
 }

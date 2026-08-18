@@ -49,6 +49,13 @@ pub(crate) fn player_work_exertion(registries: &Registries, state: &AppState) ->
                 })
                 .exertion()
         }
+        PlayerWork::ManualPower { work } => registries
+            .labor()
+            .get_manual_power(work.method())
+            .unwrap_or_else(|| {
+                panic!("runtime invariant broken: player power work has no method definition")
+            })
+            .exertion(),
     }
 }
 
@@ -171,6 +178,7 @@ pub(crate) fn decide_player_work_tick(
             });
             record.is_working() && record.completes_at() == next_tick
         }
+        PlayerWork::ManualPower { work } => work.completes_at() == next_tick,
     };
     if !releases_now {
         return Ok(None);

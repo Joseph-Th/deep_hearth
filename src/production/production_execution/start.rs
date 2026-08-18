@@ -147,6 +147,9 @@ pub enum StartProcessError {
         job: ProductionJobId,
         release: ProductionOccupancyRelease,
     },
+    EnergyStoreBusyManualPower {
+        store: crate::energy::EnergyStoreId,
+    },
     ResolvedEquipmentMissing {
         equipment: EquipmentId,
     },
@@ -178,6 +181,9 @@ pub enum StartProcessError {
     EquipmentBusyMining {
         equipment: EquipmentId,
         job: MiningJobId,
+    },
+    EquipmentBusyManualPower {
+        equipment: EquipmentId,
     },
     StructuralLoad(StockpileStructuralLoadError),
 }
@@ -343,6 +349,11 @@ impl Display for StartProcessError {
                 store.value(),
                 job.value()
             ),
+            Self::EnergyStoreBusyManualPower { store } => write!(
+                formatter,
+                "energy store {} is occupied by direct player-powered generation",
+                store.value()
+            ),
             Self::ResolvedEquipmentMissing { equipment } => write!(
                 formatter,
                 "resolved process equipment {} no longer exists",
@@ -398,6 +409,11 @@ impl Display for StartProcessError {
                 "equipment {} is occupied by mining job {}",
                 equipment.value(),
                 job.value()
+            ),
+            Self::EquipmentBusyManualPower { equipment } => write!(
+                formatter,
+                "equipment {} is occupied by direct player-powered generation",
+                equipment.value()
             ),
             Self::StructuralLoad(error) => {
                 write!(
@@ -475,6 +491,7 @@ impl Error for StartProcessError {
                 job: _job,
                 release: _release,
             } => None,
+            Self::EnergyStoreBusyManualPower { store: _store } => None,
             Self::ResolvedEquipmentMissing {
                 equipment: _equipment,
             }
@@ -507,6 +524,9 @@ impl Error for StartProcessError {
                 equipment: _equipment,
                 job: _job,
             } => None,
+            Self::EquipmentBusyManualPower {
+                equipment: _equipment,
+            } => None,
             Self::JobIdExhausted
             | Self::InventoryRevisionExhausted
             | Self::ProductionRevisionExhausted
@@ -527,6 +547,8 @@ pub enum StartProcessCommitError {
     StaleEnergyRevision { expected: u64, actual: u64 },
     StaleEquipmentRevision { expected: u64, actual: u64 },
     StaleStructureRevision { expected: u64, actual: u64 },
+    EnergyStoreBusyManualPower { store: crate::energy::EnergyStoreId },
+    EquipmentBusyManualPower { equipment: EquipmentId },
     Structure(StructuralCommitError),
 }
 
@@ -552,6 +574,16 @@ impl Display for StartProcessCommitError {
             Self::StaleStructureRevision { expected, actual } => write!(
                 formatter,
                 "validated process start expected structural revision {expected} but current revision is {actual}"
+            ),
+            Self::EnergyStoreBusyManualPower { store } => write!(
+                formatter,
+                "validated process start energy store {} is occupied by direct player-powered generation",
+                store.value()
+            ),
+            Self::EquipmentBusyManualPower { equipment } => write!(
+                formatter,
+                "validated process start equipment {} is occupied by direct player-powered generation",
+                equipment.value()
             ),
             Self::Structure(error) => write!(
                 formatter,
@@ -584,6 +616,10 @@ impl Error for StartProcessCommitError {
             | Self::StaleStructureRevision {
                 expected: _expected,
                 actual: _actual,
+            } => None,
+            Self::EnergyStoreBusyManualPower { store: _store } => None,
+            Self::EquipmentBusyManualPower {
+                equipment: _equipment,
             } => None,
         }
     }
@@ -625,6 +661,31 @@ impl ValidatedStartProcess {
             structural_load,
         } = self;
         let job_id = job.id();
+
+        for store in job
+            .consumed_energy()
+            .map(|trace| trace.source())
+            .into_iter()
+            .chain(job.released_energy().map(|trace| trace.destination()))
+        {
+            if state
+                .player_work()
+                .get_manual_power_energy_occupant(store)
+                .is_some()
+            {
+                return Err(StartProcessCommitError::EnergyStoreBusyManualPower { store });
+            }
+        }
+        if let Some(provider) = job.equipment_provider()
+            && state
+                .player_work()
+                .get_manual_power_equipment_occupant(provider.equipment())
+                .is_some()
+        {
+            return Err(StartProcessCommitError::EquipmentBusyManualPower {
+                equipment: provider.equipment(),
+            });
+        }
 
         let actual_production_revision = state.production().revision();
         if actual_production_revision != expected_production_revision {
@@ -1000,6 +1061,13 @@ fn validate_start_process_routed_internal(
                 release: job.occupancy_release(),
             });
         }
+        if state
+            .player_work()
+            .get_manual_power_energy_occupant(store)
+            .is_some()
+        {
+            return Err(StartProcessError::EnergyStoreBusyManualPower { store });
+        }
     }
     let equipment_use = resolution.equipment_use();
     let equipment_provider = match equipment_use {
@@ -1076,6 +1144,15 @@ fn validate_start_process_routed_internal(
                 return Err(StartProcessError::EquipmentBusyMining {
                     equipment: trace.equipment(),
                     job,
+                });
+            }
+            if state
+                .player_work()
+                .get_manual_power_equipment_occupant(trace.equipment())
+                .is_some()
+            {
+                return Err(StartProcessError::EquipmentBusyManualPower {
+                    equipment: trace.equipment(),
                 });
             }
             Some(trace)

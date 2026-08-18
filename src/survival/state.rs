@@ -8,7 +8,9 @@ use crate::core::quantity::{AggregateMass, AggregateVolume, Energy, Volume};
 use crate::fluid::FluidDefinitionId;
 use crate::material::MaterialId;
 
-use super::PhysiologyDefinition;
+use super::{FoodCategory, PhysiologyDefinition};
+
+pub const NUTRITION_PARTS_PER_MILLION: u32 = 1_000_000;
 
 /// Player vitality in normalized parts per million.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -28,12 +30,78 @@ impl Vitality {
     }
 }
 
+/// Persistent recent dietary contribution by broad food category.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NutritionReserves {
+    grain: u32,
+    fruit: u32,
+    protein: u32,
+}
+
+impl NutritionReserves {
+    pub const FULL: Self = Self {
+        grain: NUTRITION_PARTS_PER_MILLION,
+        fruit: NUTRITION_PARTS_PER_MILLION,
+        protein: NUTRITION_PARTS_PER_MILLION,
+    };
+
+    #[must_use]
+    pub const fn get(self, category: FoodCategory) -> u32 {
+        match category {
+            FoodCategory::Grain => self.grain,
+            FoodCategory::Fruit => self.fruit,
+            FoodCategory::Protein => self.protein,
+        }
+    }
+
+    #[must_use]
+    pub const fn quality_ppm(self) -> u32 {
+        ((self.grain as u64 + self.fruit as u64 + self.protein as u64) / 3) as u32
+    }
+
+    pub(crate) fn add(self, category: FoodCategory, gain: u32) -> (Self, u32) {
+        let before = self.get(category);
+        let after = before.saturating_add(gain).min(NUTRITION_PARTS_PER_MILLION);
+        let mut next = self;
+        match category {
+            FoodCategory::Grain => next.grain = after,
+            FoodCategory::Fruit => next.fruit = after,
+            FoodCategory::Protein => next.protein = after,
+        }
+        (next, after - before)
+    }
+
+    pub(crate) fn decay(self, amount: u32) -> Self {
+        Self {
+            grain: self.grain.saturating_sub(amount),
+            fruit: self.fruit.saturating_sub(amount),
+            protein: self.protein.saturating_sub(amount),
+        }
+    }
+
+    pub(crate) const fn has_valid_bounds(self) -> bool {
+        self.grain <= NUTRITION_PARTS_PER_MILLION
+            && self.fruit <= NUTRITION_PARTS_PER_MILLION
+            && self.protein <= NUTRITION_PARTS_PER_MILLION
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn from_parts_per_million(grain: u32, fruit: u32, protein: u32) -> Self {
+        Self {
+            grain,
+            fruit,
+            protein,
+        }
+    }
+}
+
 /// Persistent survival quantities for the single locally controlled player.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlayerSurvivalRecord {
     metabolic_energy: Energy,
     hydration: Volume,
     vitality: Vitality,
+    nutrition: NutritionReserves,
 }
 
 impl PlayerSurvivalRecord {
@@ -50,6 +118,11 @@ impl PlayerSurvivalRecord {
     #[must_use]
     pub const fn vitality(self) -> Vitality {
         self.vitality
+    }
+
+    #[must_use]
+    pub const fn nutrition(self) -> NutritionReserves {
+        self.nutrition
     }
 }
 
@@ -88,6 +161,7 @@ impl SurvivalState {
             player.metabolic_energy() <= physiology.maximum_metabolic_energy()
                 && player.hydration() <= physiology.maximum_hydration()
                 && player.vitality().parts_per_million() <= Vitality::MAXIMUM.parts_per_million()
+                && player.nutrition().has_valid_bounds()
         })
     }
 
@@ -147,11 +221,12 @@ impl SurvivalState {
         expected_revision: u64,
         next_revision: u64,
         player: PlayerSurvivalRecord,
-        material: MaterialId,
-        next_metabolic_mass: AggregateMass,
+        next_metabolic_masses: Vec<(MaterialId, AggregateMass)>,
     ) {
         self.apply_player(expected_revision, next_revision, player);
-        self.metabolic_matter.insert(material, next_metabolic_mass);
+        for (material, mass) in next_metabolic_masses {
+            self.metabolic_matter.insert(material, mass);
+        }
     }
 
     pub(crate) fn apply_fluid_ingestion(
@@ -171,10 +246,12 @@ pub(crate) const fn player_record(
     metabolic_energy: Energy,
     hydration: Volume,
     vitality: Vitality,
+    nutrition: NutritionReserves,
 ) -> PlayerSurvivalRecord {
     PlayerSurvivalRecord {
         metabolic_energy,
         hydration,
         vitality,
+        nutrition,
     }
 }

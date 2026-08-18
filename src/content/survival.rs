@@ -5,7 +5,7 @@ use crate::core::time::TickSpan;
 use crate::material::CommodityKey;
 use crate::survival::{
     DrinkDefinition, FoodCategory, FoodDefinition, HydrationDefinition, MetabolismDefinition,
-    PhysiologyDefinition, SurvivalRegistry,
+    NutritionDefinition, PhysiologyDefinition, SurvivalRegistry,
 };
 
 use super::{FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES, MATERIAL_GRAIN, MATERIAL_MEAT};
@@ -22,6 +22,7 @@ fn physiology() -> PhysiologyDefinition {
             Volume::from_microliters(1_000_000),
             Volume::from_microliters(125),
         ),
+        NutritionDefinition::new(5, 10),
         25,
         50,
     )

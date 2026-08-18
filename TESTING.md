@@ -6,14 +6,27 @@ validation dependencies unless that coverage is relevant.
 
 ## Daily workflow
 
-Run the narrowest qualified test while changing one behavior, then use the fast lane before moving
-on. Long-horizon soak tests compile into the same unit-test artifact but are marked ignored, so the
-fast lane does not execute them and a subsequent soak run reuses the existing build:
+Run the narrowest qualified test while changing one behavior. Do not reflexively run the whole fast
+lane after every edit: use it as a checkpoint when a coherent slice is complete, and let the local CI
+gate be the final pre-commit repetition. Long-horizon soak tests compile into the same unit-test
+artifact but are marked ignored, so a later soak run reuses the existing build:
 
 ```text
-cargo test <qualified-test-name> -- --exact
-cargo test-fast
+cargo check-fast                                  # mechanical/type feedback
+cargo test-fast <qualified-test-name> -- --exact  # behavior feedback
+cargo test-fast                                   # coherent checkpoint
+python ci.py gate                                 # once before commit
 ```
+
+`cargo check-fast` is intentionally library-only and does not build the monolithic unit-test harness.
+Use it for compile/type feedback when an edit has not yet reached a behavior checkpoint. An exact test
+is still required for changed behavior; the check alias exists to avoid paying test codegen/link cost
+for intermediate mechanical edits.
+
+`python ci.py gate` is the concise local pre-commit wrapper. It runs format, production-library
+Clippy, and the fast core tests, captures successful Cargo noise, prints one timed line per stage, and
+shows native command output only when a stage fails. Scope is explicit rather than inferred from git
+diffs: add `--soak`, `--gameplay`, `--shaders`, or `--docs` when those contracts changed.
 
 When a change touches a specialized boundary, add its maintained lane:
 
@@ -34,15 +47,20 @@ simulation contract.
 
 | Command | Purpose | Compile scope |
 | --- | --- | --- |
+| `cargo check-fast` | Fast compile/type feedback during mechanical edits | Default-feature production library only; no test harness link |
 | `cargo test-fast` | Ordinary deterministic behavior, errors, persistence, and integrations | Default-feature unit-test artifact; ignored long-horizon tests do not run |
 | `cargo test-soak` | Long-horizon deterministic conservation/invariant scenarios | Reuses the default-feature unit-test artifact and runs only ignored tests |
 | `cargo test-gameplay` | Deterministic seed/replay contracts plus the maintained anchor workshop matrix | Dedicated integration target with `test-gameplay`; library unit-test bodies are not compiled |
+| `cargo test-gameplay-scenarios` | Maintained workshop scenario matrix only | Reuses the dedicated gameplay artifact |
+| `cargo test-gameplay-ore` | Ore-preparation capability probe only | Reuses the dedicated gameplay artifact |
+| `cargo test-gameplay-foundry` | Foundry capability probe only | Reuses the dedicated gameplay artifact |
 | `cargo test-gameplay-report` | Exploratory anchor-plus-organic workshop report with concise human-readable summary | Same feature-gated integration target, ignored by the gate and run with captured output disabled |
 | `cargo test-shaders` | Naga parse/semantic validation of assembled WGSL without compiling the crate unit-test harness | Adds `test-shader-validation` |
 | `cargo test-check` | Silent all-target compilation of the default feature set | Default features |
 | `cargo test-lint` | Production-library Clippy with warnings denied | Default-feature library only; avoids lint-compiling the large unit-test target before `test-fast` compiles it normally |
 | `cargo test-lint-all` | Cross-cutting/release Clippy audit | All test features |
-| `cargo test-all` | Complete debug test inventory including dedicated integration targets | All test features |
+| `cargo test-all` | Ordinary plus ignored core/soak tests in one invocation | Same default-feature unit-test artifact as `test-fast`; avoids an all-feature rebuild |
+| `cargo test-all-features` | Explicit all-feature debug hardening | All test features; intentionally outside the ordinary gate |
 | `cargo test-release` | Complete optimized test inventory | All test features |
 | `cargo test-doc` | Documentation build without dependencies | Default features |
 
@@ -58,10 +76,10 @@ all-target Clippy first pays substantial duplicate compilation cost without addi
 Use `cargo test-lint-all` when test/harness lint coverage is material to the change or for release
 hardening.
 
-`cargo test-ci-core` is a legacy-named local aggregate command rather than an edit-loop command. It compiles the
-crate unit-test binary once and runs ordinary plus ignored soak tests from that single artifact. Local
-`cargo test-fast` and `cargo test-soak` select different execution subsets without changing Cargo
-features, so running them back to back does not require a second unit-test binary.
+When both ordinary and soak coverage are needed, prefer one `cargo test-all` invocation (or `python
+ci.py gate --soak`) instead of running `test-fast` and `test-soak` separately. Both subsets still share
+one default-feature unit-test artifact; the combined lane additionally avoids launching the same test
+binary twice.
 
 ## Test organization and assertions
 
@@ -153,8 +171,18 @@ requirements. The ore-preparation and foundry probes remain explicitly labeled c
 concentration/smelting provides a truthful bridge between those stages.
 
 `cargo test-gameplay` is deterministic by default and keeps successful harness output captured. It runs
-the five maintained anchor scenarios plus seed/configuration contracts and capability probes. This is
-the required gameplay gate. `cargo test-gameplay-report` runs the ignored exploratory report instead;
+the five maintained anchor scenarios plus seed/configuration contracts and two separately named
+capability-probe tests. The split makes each expensive behavior slice directly targetable without
+rerunning unrelated harness execution:
+
+```text
+cargo test-gameplay-scenarios
+cargo test-gameplay-ore
+cargo test-gameplay-foundry
+```
+
+Together these are the required gameplay gate. `cargo test-gameplay-report` runs the ignored
+exploratory report instead;
 it adds four organic scenarios, emits a replay-input line, the current authored equipment/process
 catalog in stable ID order, sampled input ranges, compact outcome and systems summaries, and one scope
 line distinguishing exercised runtime behavior from bootstrap/deferred systems. The catalog is
@@ -181,14 +209,18 @@ contracts, and do not claim aggregate outcome coverage.
 ## Local CI and completion gates
 
 Verification runs in the developer workspace. GitHub Actions and hosted runners are prohibited. Use the
-repository-owned Cargo aliases directly; no pull-request job, scheduled workflow, or remote runner owns
-the validation contract.
+repository-owned `ci.py` runner or the Cargo aliases directly; no pull-request job, scheduled workflow,
+or remote runner owns the validation contract. The runner deliberately does not inspect changed files
+or guess scope: explicit flags are faster to understand and cannot silently omit a relevant lane.
 
-1. **Routine**: `cargo fmt --check`, `cargo test-lint`, and `cargo test-fast`.
-2. **Core + Soak**: add `cargo test-soak` when long-horizon ownership or invariants changed.
-3. **Gameplay**: add `cargo test-gameplay` when workshop behavior or content changed.
-4. **Shaders**: add `cargo test-shaders` when WGSL or shader assembly changed.
-5. **Cross-cutting**: use `cargo test-all` when the complete debug inventory is required.
+1. **Routine**: `python ci.py gate`.
+2. **Core + Soak**: `python ci.py gate --soak` (uses one `cargo test-all` core artifact).
+3. **Gameplay**: add `--gameplay` when workshop behavior or content changed.
+4. **Shaders**: add `--shaders` when WGSL or shader assembly changed.
+5. **Cross-cutting local completion**: `python ci.py full` runs core+soak and gameplay without pulling
+   shader/parser or documentation builds into unrelated work. Add `--shaders` or `--docs` only when
+   those contracts changed.
+6. **Explicit hardening**: `python ci.py hardening` pays for all-target/all-feature Clippy and tests.
 
 Local Cargo incremental state may be reused naturally between these commands. Core and soak deliberately
 share one test artifact, and gameplay deliberately does not compile the crate unit-test harness. Release
@@ -197,21 +229,25 @@ hardening and documentation remain explicit local commands rather than backgroun
 Before committing, run:
 
 ```text
-cargo fmt --check
-cargo test-lint
-cargo test-fast
+python ci.py gate
 ```
+
+If `cargo test-fast` was just run as the final checkpoint, there is no value in immediately running it
+a second time before continuing to code. Finish the change first, then run the gate once. Cargo's
+incremental cache still makes a recent checkpoint useful to the later gate without turning verification
+into a ritual after every edit.
 
 `cargo test-check` remains available as an all-target compile-only diagnostic, but it is not part of
 the normal pre-commit sequence. Production code is type-checked by `cargo test-lint`; default-feature
 unit-test code is compiled and executed by `cargo test-fast`.
 
-Also run `cargo test-soak`, `cargo test-gameplay`, or `cargo test-shaders` when the changed contract is
-owned by that lane. Use `cargo test-all` when a cross-cutting change needs the complete debug inventory.
+Also add `--soak`, `--gameplay`, `--shaders`, or `--docs` when the changed contract is owned by that
+lane. Use `python ci.py full` when a cross-cutting change needs every maintained local lane. The
+all-feature build is not part of that normal full path because it duplicates feature combinations
+already covered by the specialized targets; reserve it for explicit hardening.
 Release hardening is deliberately separate:
 
 ```text
-cargo test-lint-all
-cargo test-release
-cargo test-doc
+python ci.py hardening
+cargo test-release     # only when optimized-build behavior matters
 ```

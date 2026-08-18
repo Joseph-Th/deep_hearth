@@ -196,6 +196,9 @@ pub enum EnergySupplyError {
         job: ProductionJobId,
         release: ProductionOccupancyRelease,
     },
+    StoreBusyManualPower {
+        store: EnergyStoreId,
+    },
 }
 
 impl Display for EnergySupplyError {
@@ -237,6 +240,11 @@ impl Display for EnergySupplyError {
                 store.value(),
                 job.value()
             ),
+            Self::StoreBusyManualPower { store } => write!(
+                formatter,
+                "energy store {} is reserved by direct player-powered generation",
+                store.value()
+            ),
         }
     }
 }
@@ -271,6 +279,13 @@ pub fn validate_energy_supply(
             job,
             release,
         });
+    }
+    if state
+        .player_work()
+        .get_manual_power_energy_occupant(store)
+        .is_some()
+    {
+        return Err(EnergySupplyError::StoreBusyManualPower { store });
     }
     if record.stored() < requested {
         return Err(EnergySupplyError::InsufficientEnergy {
@@ -362,6 +377,9 @@ pub enum EnergySinkError {
         job: ProductionJobId,
         release: ProductionOccupancyRelease,
     },
+    StoreBusyManualPower {
+        store: EnergyStoreId,
+    },
     CapacityOverflow {
         store: EnergyStoreId,
     },
@@ -400,6 +418,11 @@ impl Display for EnergySinkError {
                 "energy store {} is reserved by production job {} {release}",
                 store.value(),
                 job.value()
+            ),
+            Self::StoreBusyManualPower { store } => write!(
+                formatter,
+                "energy store {} is reserved by direct player-powered generation",
+                store.value()
             ),
             Self::CapacityOverflow { store } => write!(
                 formatter,
@@ -453,6 +476,13 @@ pub fn validate_energy_sink(
             job,
             release,
         });
+    }
+    if state
+        .player_work()
+        .get_manual_power_energy_occupant(store)
+        .is_some()
+    {
+        return Err(EnergySinkError::StoreBusyManualPower { store });
     }
     let after = record
         .stored()

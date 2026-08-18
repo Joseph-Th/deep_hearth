@@ -88,10 +88,16 @@ pub enum EnergyTransferError {
         job: ProductionJobId,
         release: ProductionOccupancyRelease,
     },
+    SourceBusyManualPower {
+        store: EnergyStoreId,
+    },
     DestinationBusy {
         store: EnergyStoreId,
         job: ProductionJobId,
         release: ProductionOccupancyRelease,
+    },
+    DestinationBusyManualPower {
+        store: EnergyStoreId,
     },
     InsufficientSourceEnergy {
         store: EnergyStoreId,
@@ -164,6 +170,11 @@ impl Display for EnergyTransferError {
                 store.value(),
                 job.value()
             ),
+            Self::SourceBusyManualPower { store } => write!(
+                formatter,
+                "source energy store {} is reserved by direct player-powered generation",
+                store.value()
+            ),
             Self::DestinationBusy {
                 store,
                 job,
@@ -173,6 +184,11 @@ impl Display for EnergyTransferError {
                 "destination energy store {} is reserved by production job {} {release}",
                 store.value(),
                 job.value()
+            ),
+            Self::DestinationBusyManualPower { store } => write!(
+                formatter,
+                "destination energy store {} is reserved by direct player-powered generation",
+                store.value()
             ),
             Self::InsufficientSourceEnergy {
                 store,
@@ -282,12 +298,26 @@ pub fn validate_energy_transfer(
             release,
         });
     }
+    if state
+        .player_work()
+        .get_manual_power_energy_occupant(source)
+        .is_some()
+    {
+        return Err(EnergyTransferError::SourceBusyManualPower { store: source });
+    }
     if let Some((job, release)) = get_energy_store_occupant(state, destination) {
         return Err(EnergyTransferError::DestinationBusy {
             store: destination,
             job,
             release,
         });
+    }
+    if state
+        .player_work()
+        .get_manual_power_energy_occupant(destination)
+        .is_some()
+    {
+        return Err(EnergyTransferError::DestinationBusyManualPower { store: destination });
     }
     if source_record.stored() < energy {
         return Err(EnergyTransferError::InsufficientSourceEnergy {
@@ -354,6 +384,8 @@ fn get_energy_store_occupant(
 pub enum EnergyTransferCommitError {
     StaleEnergyRevision { expected: u64, actual: u64 },
     StaleProductionRevision { expected: u64, actual: u64 },
+    SourceBusyManualPower { store: EnergyStoreId },
+    DestinationBusyManualPower { store: EnergyStoreId },
     SourceChanged { store: EnergyStoreId },
     DestinationChanged { store: EnergyStoreId },
 }
@@ -368,6 +400,16 @@ impl Display for EnergyTransferCommitError {
             Self::StaleProductionRevision { expected, actual } => write!(
                 formatter,
                 "validated energy transfer expected production revision {expected} but current revision is {actual}"
+            ),
+            Self::SourceBusyManualPower { store } => write!(
+                formatter,
+                "energy transfer source {} became reserved by direct player-powered generation",
+                store.value()
+            ),
+            Self::DestinationBusyManualPower { store } => write!(
+                formatter,
+                "energy transfer destination {} became reserved by direct player-powered generation",
+                store.value()
             ),
             Self::SourceChanged { store } => write!(
                 formatter,
@@ -440,6 +482,23 @@ impl ValidatedEnergyTransfer {
             destination,
             energy,
         } = resolution;
+
+        if state
+            .player_work()
+            .get_manual_power_energy_occupant(source)
+            .is_some()
+        {
+            return Err(EnergyTransferCommitError::SourceBusyManualPower { store: source });
+        }
+        if state
+            .player_work()
+            .get_manual_power_energy_occupant(destination)
+            .is_some()
+        {
+            return Err(EnergyTransferCommitError::DestinationBusyManualPower {
+                store: destination,
+            });
+        }
 
         let actual_energy_revision = state.energy().revision();
         if actual_energy_revision != expected_energy_revision {

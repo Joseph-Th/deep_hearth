@@ -28,6 +28,8 @@ pub use transfer_execution::{
 pub(crate) use storage_execution::add_energy_store_with_initial_for_fixture;
 #[cfg(test)]
 pub(crate) use storage_execution::add_energy_store_with_initial_for_fixture as add_energy_store_with_initial_for_test;
+#[cfg(test)]
+pub(crate) use transfer_execution::make_test_energy_transfer_resolution;
 
 pub(crate) use state::validate_loaded_energy;
 pub(crate) use storage_execution::{

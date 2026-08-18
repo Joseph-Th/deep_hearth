@@ -10,12 +10,15 @@ use crate::texture::{
 };
 
 use super::equipment::{
-    EQUIPMENT_CASTING_MOLD, EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE,
-    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER,
+    EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+    EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE,
+    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_HAND_CRANK,
+    EQUIPMENT_STONE_PICK,
 };
 use super::materials::{
-    FORM_CONCENTRATE, FORM_CRUSHED, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE,
-    MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_WOOD,
+    FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED, FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_LOG,
+    FORM_LUMP, FORM_MOLTEN, FORM_ORE, FORM_TOOL, MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG,
+    MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 const RAMP_WOOD: PaletteRampId = PaletteRampId::new(1);
@@ -46,6 +49,7 @@ pub const TEXTURE_MACHINE_PANEL: TextureId = TextureId::new(9);
 pub const TEXTURE_WORKING_METAL: TextureId = TextureId::new(10);
 pub const TEXTURE_REFRACTORY: TextureId = TextureId::new(11);
 pub const TEXTURE_SCREEN_MESH: TextureId = TextureId::new(12);
+pub const TEXTURE_STONE: TextureId = TextureId::new(13);
 
 pub const BLOCK_TIMBER: BlockAppearanceId = BlockAppearanceId::new(1);
 pub const BLOCK_CHARCOAL: BlockAppearanceId = BlockAppearanceId::new(2);
@@ -60,11 +64,21 @@ pub const OBJECT_CRUSHED_ORE: ObjectAppearanceId = ObjectAppearanceId::new(4);
 pub const OBJECT_COPPER_INGOT: ObjectAppearanceId = ObjectAppearanceId::new(5);
 pub const OBJECT_MOLTEN_COPPER: ObjectAppearanceId = ObjectAppearanceId::new(6);
 pub const OBJECT_SLAG: ObjectAppearanceId = ObjectAppearanceId::new(7);
+pub const OBJECT_STONE_LUMP: ObjectAppearanceId = ObjectAppearanceId::new(8);
+pub const OBJECT_WOOD_HANDLE: ObjectAppearanceId = ObjectAppearanceId::new(9);
 pub const OBJECT_JAW_CRUSHER: ObjectAppearanceId = ObjectAppearanceId::new(10);
 pub const OBJECT_ELECTRIC_FURNACE: ObjectAppearanceId = ObjectAppearanceId::new(11);
 pub const OBJECT_CASTING_MOLD: ObjectAppearanceId = ObjectAppearanceId::new(12);
 pub const OBJECT_DRY_SCREEN: ObjectAppearanceId = ObjectAppearanceId::new(13);
 pub const OBJECT_GRINDING_MILL: ObjectAppearanceId = ObjectAppearanceId::new(14);
+pub const OBJECT_STONE_TOOL: ObjectAppearanceId = ObjectAppearanceId::new(15);
+pub const OBJECT_STONE_CHIP: ObjectAppearanceId = ObjectAppearanceId::new(16);
+pub const OBJECT_WOOD_CHIP: ObjectAppearanceId = ObjectAppearanceId::new(17);
+pub const OBJECT_STONE_FLYWHEEL: ObjectAppearanceId = ObjectAppearanceId::new(18);
+pub const OBJECT_STONE_PICK: ObjectAppearanceId = ObjectAppearanceId::new(19);
+pub const OBJECT_STONE_HAND_CRANK: ObjectAppearanceId = ObjectAppearanceId::new(20);
+pub const OBJECT_COPPER_REINFORCED_PICK: ObjectAppearanceId = ObjectAppearanceId::new(21);
+pub const OBJECT_COPPER_REINFORCED_HAND_CRANK: ObjectAppearanceId = ObjectAppearanceId::new(22);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(
@@ -256,6 +270,13 @@ fn build_textures() -> Vec<TextureDefinition> {
             TextureAlphaMode::Cutout,
             screen_pattern(),
         ),
+        texture(
+            TEXTURE_STONE,
+            "worked stone",
+            &[RAMP_STONE, RAMP_SOOT],
+            TextureAlphaMode::Opaque,
+            refractory_pattern(),
+        ),
     ]
 }
 
@@ -320,6 +341,12 @@ fn build_object_appearances() -> Vec<ObjectAppearanceDefinition> {
             &[TEXTURE_MOLTEN_COPPER],
         ),
         object(OBJECT_SLAG, "slag lump", &[TEXTURE_SLAG]),
+        object(OBJECT_STONE_LUMP, "stone lump", &[TEXTURE_STONE]),
+        object(
+            OBJECT_WOOD_HANDLE,
+            "wood handle",
+            &[TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END],
+        ),
         object(
             OBJECT_JAW_CRUSHER,
             "jaw crusher",
@@ -348,6 +375,30 @@ fn build_object_appearances() -> Vec<ObjectAppearanceDefinition> {
             OBJECT_GRINDING_MILL,
             "grinding mill",
             &[TEXTURE_MACHINE_PANEL, TEXTURE_WORKING_METAL],
+        ),
+        object(OBJECT_STONE_TOOL, "worked stone tool", &[TEXTURE_STONE]),
+        object(OBJECT_STONE_CHIP, "stone chips", &[TEXTURE_STONE]),
+        object(OBJECT_WOOD_CHIP, "wood chips", &[TEXTURE_WOOD_SIDE]),
+        object(OBJECT_STONE_FLYWHEEL, "stone flywheel", &[TEXTURE_STONE]),
+        object(
+            OBJECT_STONE_PICK,
+            "knapped stone pick",
+            &[TEXTURE_STONE, TEXTURE_WOOD_SIDE],
+        ),
+        object(
+            OBJECT_STONE_HAND_CRANK,
+            "stone hand crank",
+            &[TEXTURE_STONE, TEXTURE_WOOD_SIDE],
+        ),
+        object(
+            OBJECT_COPPER_REINFORCED_PICK,
+            "copper-reinforced stone pick",
+            &[TEXTURE_STONE, TEXTURE_COPPER_HAMMERED, TEXTURE_WOOD_SIDE],
+        ),
+        object(
+            OBJECT_COPPER_REINFORCED_HAND_CRANK,
+            "copper-reinforced stone hand crank",
+            &[TEXTURE_STONE, TEXTURE_COPPER_HAMMERED, TEXTURE_WOOD_SIDE],
         ),
     ]
 }
@@ -407,6 +458,36 @@ fn build_commodity_bindings() -> Vec<CommodityAppearanceBinding> {
             None,
             Some(OBJECT_SLAG),
         ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            None,
+            Some(OBJECT_STONE_LUMP),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            None,
+            Some(OBJECT_STONE_TOOL),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            None,
+            Some(OBJECT_STONE_CHIP),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+            None,
+            Some(OBJECT_STONE_FLYWHEEL),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            None,
+            Some(OBJECT_WOOD_HANDLE),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+            None,
+            Some(OBJECT_WOOD_CHIP),
+        ),
     ]
 }
 
@@ -417,6 +498,16 @@ fn build_equipment_bindings() -> Vec<EquipmentAppearanceBinding> {
         EquipmentAppearanceBinding::new(EQUIPMENT_CASTING_MOLD, OBJECT_CASTING_MOLD),
         EquipmentAppearanceBinding::new(EQUIPMENT_DRY_SCREEN, OBJECT_DRY_SCREEN),
         EquipmentAppearanceBinding::new(EQUIPMENT_GRINDING_MILL, OBJECT_GRINDING_MILL),
+        EquipmentAppearanceBinding::new(EQUIPMENT_STONE_PICK, OBJECT_STONE_PICK),
+        EquipmentAppearanceBinding::new(EQUIPMENT_STONE_HAND_CRANK, OBJECT_STONE_HAND_CRANK),
+        EquipmentAppearanceBinding::new(
+            EQUIPMENT_COPPER_REINFORCED_PICK,
+            OBJECT_COPPER_REINFORCED_PICK,
+        ),
+        EquipmentAppearanceBinding::new(
+            EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+            OBJECT_COPPER_REINFORCED_HAND_CRANK,
+        ),
     ]
 }
 
@@ -762,7 +853,7 @@ mod tests {
     use super::*;
     use crate::texture::TEXTURE_MIP_LEVEL_COUNT;
 
-    const BUILT_IN_TEXTURES: [TextureId; 12] = [
+    const BUILT_IN_TEXTURES: [TextureId; 13] = [
         TEXTURE_WOOD_SIDE,
         TEXTURE_WOOD_END,
         TEXTURE_CHARCOAL,
@@ -775,6 +866,7 @@ mod tests {
         TEXTURE_WORKING_METAL,
         TEXTURE_REFRACTORY,
         TEXTURE_SCREEN_MESH,
+        TEXTURE_STONE,
     ];
 
     #[test]

@@ -34,9 +34,9 @@ use super::selection::{
     apply_consumption_reservation, validate_consumption_reservation_from_selection,
 };
 use super::state::{
-    ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, StockpileId, StockpileRecord,
-    StockpileStorageProfile, apply_aggregate_deposit, apply_aggregate_withdraw,
-    apply_consume_lot_slice, apply_move_full_lot, apply_split_lot,
+    ConsumedMaterialTrace, InventoryState, LotSlice, LotStorageTransition, MaterialLotId,
+    StockpileId, StockpileRecord, StockpileStorageProfile, apply_aggregate_deposit,
+    apply_aggregate_withdraw, apply_consume_lot_slice, apply_move_full_lot, apply_split_lot,
 };
 use super::storage_validation::{
     CommodityReferenceError, StockpileStorageError, validate_commodity_reference,
@@ -128,6 +128,24 @@ impl ValidatedMaterialRelocation {
                 actual,
             });
         }
+        let current_tick = state.tick();
+        let source_preservation_multiplier_ppm = state
+            .inventory()
+            .get_stockpile(self.source)
+            .unwrap_or_else(|| panic!("validated material relocation source disappeared"))
+            .storage_profile()
+            .preservation_multiplier_ppm();
+        let destination_preservation_multiplier_ppm = state
+            .inventory()
+            .get_stockpile(self.destination)
+            .unwrap_or_else(|| panic!("validated material relocation destination disappeared"))
+            .storage_profile()
+            .preservation_multiplier_ppm();
+        let storage_transition = LotStorageTransition::new(
+            current_tick,
+            source_preservation_multiplier_ppm,
+            destination_preservation_multiplier_ppm,
+        );
         if let Some(structural) = self.structural {
             structural
                 .commit(state)
@@ -154,7 +172,13 @@ impl ValidatedMaterialRelocation {
             };
             if slice.mass == lot_mass {
                 debug_assert!(split_lot_id.is_none());
-                apply_move_full_lot(inventories, slice.lot, self.source, self.destination);
+                apply_move_full_lot(
+                    inventories,
+                    slice.lot,
+                    self.source,
+                    self.destination,
+                    storage_transition,
+                );
             } else {
                 let split_lot_id = match split_lot_id {
                     Some(split_lot_id) => split_lot_id,
@@ -168,6 +192,7 @@ impl ValidatedMaterialRelocation {
                     split_lot_id,
                     self.destination,
                     slice.mass,
+                    storage_transition,
                 );
             }
         }
@@ -758,6 +783,18 @@ pub(crate) fn validate_material_relocation_from_selection(
         )
         .map_err(MaterialRelocationError::DestinationStorage)?;
     }
+    let source_preservation_multiplier_ppm = source_record
+        .storage_profile()
+        .preservation_multiplier_ppm();
+    debug_assert!(lot_slices.iter().all(|slice| {
+        inventories
+            .get_lot(slice.lot)
+            .and_then(|lot| {
+                lot.storage_history()
+                    .rebase(state.tick(), source_preservation_multiplier_ppm)
+            })
+            .is_some()
+    }));
     let committed = destination_record
         .stored_mass
         .checked_add(destination_record.reserved_inbound)
@@ -945,7 +982,7 @@ mod tests {
         );
         assert_eq!(state, before_hot_rejection);
         assert_eq!(
-            validate_loaded_inventory(registries.materials(), state.inventory()),
+            validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
             Ok(())
         );
     }
@@ -1136,7 +1173,7 @@ mod tests {
             Mass::from_milligrams(12)
         );
         assert_eq!(
-            validate_loaded_inventory(registries.materials(), state.inventory()),
+            validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
             Ok(())
         );
     }
@@ -1234,7 +1271,7 @@ mod tests {
             Temperature::from_millikelvin(800_000)
         );
         assert_eq!(
-            validate_loaded_inventory(registries.materials(), state.inventory()),
+            validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
             Ok(())
         );
     }
@@ -1345,7 +1382,7 @@ mod tests {
         assert_eq!(destination_record.lot_ids().count(), 1);
         assert_eq!(state.inventory().lots().count(), 2);
         assert_eq!(
-            validate_loaded_inventory(registries.materials(), state.inventory()),
+            validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
             Ok(())
         );
     }
@@ -1428,7 +1465,7 @@ mod tests {
             300_000
         );
         assert_eq!(
-            validate_loaded_inventory(registries.materials(), state.inventory()),
+            validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
             Ok(())
         );
     }
@@ -1457,7 +1494,7 @@ mod tests {
             "{label}: lot total disagrees with stockpile aggregate total"
         );
         assert_eq!(
-            validate_loaded_inventory(registries.materials(), state.inventory()),
+            validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
             Ok(())
         );
     }

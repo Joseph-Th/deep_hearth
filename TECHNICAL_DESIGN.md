@@ -105,11 +105,20 @@ into the runtime state surface.
 - `MiningState` owns exact extracted material while hand/mining work is in progress, generated mining
   job IDs, due-tick scheduling, and an exclusive equipment-to-mining-job occupancy index. A ready job
   remains the owner of its output until an explicit claim transfers the reserved matter to inventory.
-- `PlayerWorkState` owns at most one active locally controlled-player job reference. It does not own a
-  second timer; manual-craft and mining durations remain authoritative in their respective job owners.
-- `SurvivalState` owns the admitted player's metabolic-energy, hydration, and vitality reserves plus
-  bounded per-material metabolic matter and per-fluid ingested-volume ownership. These biological
-  reservoirs keep eating and drinking conservative without retaining an unbounded meal history.
+- `PlayerWorkState` owns at most one active locally controlled-player operation. Manual-craft and
+  mining variants reference their authoritative production/mining job and therefore do not duplicate
+  a timer. Direct manual-power work instead owns its one authoritative method/equipment/output/schedule
+  record because there is intentionally no parallel production job for turning a hand crank.
+- `SurvivalState` owns the admitted player's metabolic-energy, hydration, vitality, and bounded recent
+  Grain/Fruit/Protein nutrition reserves plus bounded per-material metabolic matter and per-fluid
+  ingested-volume ownership. Nutrition is compact continuation state rather than an unbounded meal
+  history: one eating transaction may bind several explicit food-lot selections, sort them into stable
+  order, validate each portion's freshness/composition, and transfer all selected matter atomically.
+  Nutrition credit is distributed across the meal's authored categories in proportion to energy
+  actually absorbed, with deterministic integer remainder assignment; the canonical tick decays all
+  categories, and their average can support vitality recovery only while energy and hydration remain
+  above their warning thresholds. The physical matter/fluid reservoirs keep eating and drinking
+  conservative independently of this dietary projection.
 - Validated transaction tokens bind to the exact owner revisions they checked, preventing stale
   commits after intervening mutation.
 
@@ -132,9 +141,9 @@ storage to adapters. `CURRENT_SAVE_SCHEMA_VERSION` in `src/persistence/mod.rs` i
 the accepted save schema version. Authored identity/physics compatibility is tracked separately by
 `RegistrySchemaVersion`; the built-in content registry owns its current value in `src/content/mod.rs`.
 Core gravity/calendar semantics, material phase/fusion semantics, physical form and particle-state
-policies, fluid identity/density definitions, survival physiology/food/drink definitions, manual-work
-exertion, mining method/capability semantics, equipment assembly inputs, directional energy-store
-semantics, and operation-specific resolver identities are part of that immutable registry contract
+policies, fluid identity/density definitions, survival physiology/nutrition/food/drink definitions,
+manual-work exertion and direct-power conversion definitions, mining method/capability semantics,
+equipment assembly inputs, directional energy-store semantics, and operation-specific resolver identities are part of that immutable registry contract
 because changing them can alter persisted physical consequences even when authored IDs are unchanged.
 
 Persistence is deliberately current-schema-only. `LoadedSaveEnvelope` represents the one payload
@@ -164,9 +173,13 @@ post-operation wear. Current-schema lot,
 output, and consumed-trace validation also rejects particle-size state that disagrees with the
 authored form policy. Screening jobs independently recompute their aperture partition, typed stream
 identities, exact output distributions, finite work, duration, and condition outcome. Manual shaping
-jobs independently replay their exact input identity/composition/temperature, duration, no-resource
-contract, and conserved output forms. Survival load validation bounds physiology and rejects forged
-non-food metabolic matter or non-drinkable ingested fluid identities. Mining validation reconstructs
+jobs independently replay their exact input identity/composition/temperature, integral fixed-recipe
+batch count, scaled duration, no-resource contract, and conserved output forms. Survival load
+validation bounds physiology and recent nutrition and rejects forged non-food metabolic matter or
+non-drinkable ingested fluid identities. Player-work replay also reconstructs direct manual-power
+duration from the condition-sensitive equipment Power capability, destination input envelope, and
+metabolic conversion ceiling; it rechecks the persisted equipment trace, finite output capacity,
+carrier, schedule, and wear outcome. Mining validation reconstructs
 due/equipment occupancy, validates exact WIP output and destination reservations against the original
 deposit/tool/method references, and player-work validation requires the active labor reference to
 match a real in-flight manual-craft or mining job. Assemblable equipment independently reconciles its
@@ -362,8 +375,12 @@ architecture content, not the complete gameplay catalog.
 Material lots are the authoritative stored-matter representation. Each `MaterialLotRecord` owns a
 persistent lot ID, stockpile owner, exact mass, a `MaterialLotProfile` (commodity, absolute
 temperature, normalized composition, and optional form-governed weighted particle-size distribution),
-and a creation provenance range. Lot coalescing compares the complete profile, so different
-particle-size distributions cannot be averaged away by inventory compaction.
+creation provenance, and persistent storage-exposure history. Lot coalescing compares the complete
+physical profile, so different particle-size distributions cannot be averaged away by inventory
+compaction. Storage exposure remains separate from physical fungibility: it stores ambient-equivalent
+age plus the tick of the last storage transition. Freshness projects additional exposure using the
+current stockpile preservation multiplier, so entering better storage slows subsequent decay without
+retroactively changing earlier exposure.
 
 Stockpiles maintain derived deterministic indexes/caches for lot IDs, per-commodity mass, total
 stored mass, capacity, reserved inbound mass, and a persisted containment profile declaring accepted
@@ -388,9 +405,12 @@ supported, relocation validation computes both final stored masses and analyzes 
 stored-matter load arrangement under one structural revision before matter moves. The transaction
 remains bound to that structural revision even when aggregate mass-to-force rounding leaves the
 numeric load unchanged. Partial transfers split lots in stable ID order without averaging physical
-properties away. Newly created compatible fragments can coalesce into the lowest-ID compatible
-destination lot. Every canonical ingress and production-output reservation rechecks destination
-containment.
+properties away. A relocation rebases the transferred lot's storage exposure at the source's current
+preservation rate before changing owners. Newly created compatible fragments can coalesce into the
+lowest-ID compatible destination lot; when histories differ, the merged lot retains the greater
+ambient-equivalent age at the merge tick, preventing compaction from laundering freshness. Newly
+created output starts a new storage history at its creation tick. Every canonical ingress and
+production-output reservation rechecks destination containment.
 
 Cross-owner systems that physically inspect exact lot slices before deciding an outcome enter the
 same crate-private exact-relocation pipeline with their already-bound `ConsumptionSelection`, rather
@@ -792,14 +812,41 @@ under revision checks. The equipment record retains the resulting `ConsumedMater
 material identity, temperature, composition, and provenance survive the ownership transfer. Current
 load validation rejects missing, extra, impure, future-provenance, wrong-mass, or wrong-commodity
 assembly traces. The built-in stone pick therefore physically owns both its 800 mg knapped stone head
-and 200 mg shaped wood handle rather than collapsing them into an anonymous mass scalar.
+and 200 mg shaped wood handle rather than collapsing them into an anonymous mass scalar. The first
+copper extraction upgrade uses that same boundary rather than inventing forging: a
+`copper-reinforced stone pick` owns the same head and handle plus one 20 mg copper-ingot reinforcement,
+and its authored capability envelope raises mining throughput, batch size, and maximum hardness.
 
 Player labor is an explicit exclusive owner. Manual crafting and mining acquire `PlayerWorkState`
 atomically with their authoritative job start and release it through the canonical tick when that job
 finishes active work. Survival does not duplicate work state: the tick projects authored
 `SurvivalExertion` from the active job and adds that incremental energy/hydration demand to basal
 physiology before either owner mutates. This creates a real time-and-metabolism cost for manual work
-without introducing an unsupported fatigue/rest model.
+without introducing an unsupported fatigue/rest model. Manual fixed-feed shaping may resolve an
+integral repeated batch through the same selection and production pipeline; authored input/output
+mass and duration all scale together, so the convenience changes player input frequency rather than
+the physical or labor cost.
+
+Direct player-powered generation uses the same exclusive labor owner but does not masquerade as a
+material-production job. A manual-power definition names one typed Power capability, energy carrier,
+metabolic conversion efficiency, active-tick wear rate, and survival exertion. Start validation binds
+the condition-sensitive equipment provider and a finite destination store. Active duration is the
+slower of the equipment/store power-transfer limit and the conservative amount of mechanical energy
+allowed by incremental metabolic expenditure. A shared pure budget calculation then requires enough
+current metabolic energy and hydration to pay both basal physiology and authored work exertion for
+the full interval; the start token also binds the survival revision. Load replay applies the same
+budget to the remaining ticks, preventing a forged or exhausted in-progress worker from completing
+for free. The destination and crank remain exclusively occupied for that interval; energy and wear
+become authoritative together at the completion tick, after which normal energy consumers may use
+the stored work. This intentionally models the first human-to-machine bridge without selecting
+shaft/belt topology or pretending that hand power is automation.
+
+Built-in primitive power demonstrates component bottlenecks explicitly. The 10 microwatt stone crank
+and 10 microwatt small drive match one another. A copper-reinforced crank can provide 20 microwatts,
+but remains limited to 10 microwatts when charging that small drive. The upgraded mechanical drive is
+bidirectional at 200 microwatts, so the reinforced crank's higher capability becomes useful without
+changing the requested energy quantity. This is the intended progression rule for later networks:
+throughput is constrained by the weakest participating physical envelope, not an abstract tier flag.
 
 Hand mining is an explicit conserved extraction owner. Start validation binds the geological deposit,
 mining-method definition, destination reservation, player labor, and a real equipment provider. It
@@ -834,7 +881,7 @@ storage/streaming, renderer/ECS/physics/networking, regional geological generati
 prospecting resolvers, richer mining access/voxel excavation/recovery/waste/drainage/risk, richer construction geometry and
 demolition/salvage resolvers, environmental thermal fields/heat transport, vaporization, mixed/alloy
 phase diagrams, combustion/emissions, chemical smelting/reduction, forging/machining, real
-non-player worker capability providers, persistent mechanical networks/inertia/slip,
+non-player worker capability providers, persistent mechanical networks/inertia/slip and transmission,
 steam/boilers, electrical topology/transformers/protection, pressure/gravity-resolved hydrology and
 fluid networks, agriculture/crop growth, ecology/genetics, creatures/hunting/combat, workers,
 settlements/logistics/trade, and save-file storage adapters. Calendar seasons, survival physiology,

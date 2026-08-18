@@ -333,6 +333,9 @@ pub enum EquipmentRepairError {
         equipment: EquipmentId,
         job: MiningJobId,
     },
+    EquipmentBusyManualPower {
+        equipment: EquipmentId,
+    },
     ConditionNotImproved {
         equipment: EquipmentId,
         before: Condition,
@@ -515,6 +518,11 @@ impl Display for EquipmentRepairError {
                 equipment.value(),
                 job.value()
             ),
+            Self::EquipmentBusyManualPower { equipment } => write!(
+                formatter,
+                "equipment {} is occupied by direct player-powered generation and cannot be repaired",
+                equipment.value()
+            ),
             Self::ConditionNotImproved {
                 equipment,
                 before,
@@ -567,6 +575,9 @@ impl Error for EquipmentRepairError {
                 equipment: _equipment,
                 job: _job,
             } => None,
+            Self::EquipmentBusyManualPower {
+                equipment: _equipment,
+            } => None,
             Self::ConditionNotImproved {
                 equipment: _equipment,
                 before: _before,
@@ -600,6 +611,9 @@ pub enum EquipmentRepairCommitError {
     EquipmentBusyMining {
         equipment: EquipmentId,
         job: MiningJobId,
+    },
+    EquipmentBusyManualPower {
+        equipment: EquipmentId,
     },
     StaleInventoryRevision {
         expected: u64,
@@ -647,6 +661,11 @@ impl Display for EquipmentRepairCommitError {
                 equipment.value(),
                 job.value()
             ),
+            Self::EquipmentBusyManualPower { equipment } => write!(
+                formatter,
+                "equipment {} became occupied by direct player-powered generation before repair commit",
+                equipment.value()
+            ),
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
                 "validated equipment repair expected inventory revision {expected} but current revision is {actual}"
@@ -687,6 +706,9 @@ impl Error for EquipmentRepairCommitError {
             Self::EquipmentBusyMining {
                 equipment: _equipment,
                 job: _job,
+            } => None,
+            Self::EquipmentBusyManualPower {
+                equipment: _equipment,
             } => None,
         }
     }
@@ -757,6 +779,15 @@ impl ValidatedEquipmentRepair {
             return Err(EquipmentRepairCommitError::EquipmentBusyMining {
                 equipment: self.equipment,
                 job,
+            });
+        }
+        if state
+            .player_work()
+            .get_manual_power_equipment_occupant(self.equipment)
+            .is_some()
+        {
+            return Err(EquipmentRepairCommitError::EquipmentBusyManualPower {
+                equipment: self.equipment,
             });
         }
         let Some(record) = state.equipment().get_equipment(self.equipment) else {
@@ -873,6 +904,13 @@ pub fn validate_equipment_repair(
     }
     if let Some(job) = state.mining().get_equipment_occupant(equipment) {
         return Err(EquipmentRepairError::EquipmentBusyMining { equipment, job });
+    }
+    if state
+        .player_work()
+        .get_manual_power_equipment_occupant(equipment)
+        .is_some()
+    {
+        return Err(EquipmentRepairError::EquipmentBusyManualPower { equipment });
     }
     if record.condition() != resolution.condition_before {
         return Err(EquipmentRepairError::ConditionChangedSinceResolution {

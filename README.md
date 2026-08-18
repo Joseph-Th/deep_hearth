@@ -54,20 +54,20 @@ Read these documents before changing the project. Each question has one owning d
 The ordinary edit loop is intentionally small:
 
 ```text
-cargo test <qualified-test-name> -- --exact
-cargo test-fast
+cargo check-fast
+cargo test-fast <qualified-test-name> -- --exact
 ```
 
-Before committing, run formatting, production-library linting, and the fast unit-test lane; add the
-specialized lane for the contract you changed:
+Use `check-fast` for intermediate compile/type feedback without linking the unit-test harness. For
+changed behavior, run the narrowest exact owner test and use the complete fast lane only at coherent
+checkpoints. Before committing, run the local gate once; add the specialized lane for the contract you
+changed:
 
 ```text
-cargo fmt --check
-cargo test-lint
-cargo test-fast
-cargo test-soak       # when long-horizon ownership/invariants changed
-cargo test-gameplay   # when workshop behavior/content changed
-cargo test-shaders    # when WGSL/shader assembly changed
+python ci.py gate
+python ci.py gate --soak       # when long-horizon ownership/invariants changed
+python ci.py gate --gameplay   # when workshop behavior/content changed
+python ci.py gate --shaders    # when WGSL/shader assembly changed
 ```
 
 `cargo test-check` remains available when an all-target compile-only diagnostic is useful, but the
@@ -78,7 +78,6 @@ default-feature unit-test target through `cargo test-fast`.
 hosted runners are prohibited. Release hardening remains explicit:
 
 ```text
-cargo test-lint-all
+python ci.py hardening
 cargo test-release
-cargo test-doc
 ```

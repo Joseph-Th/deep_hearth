@@ -30,6 +30,7 @@ pub const FORM_TOOL: FormId = FormId::new(9);
 pub const FORM_CHIP: FormId = FormId::new(10);
 pub const FORM_UNFIRED_POTTERY: FormId = FormId::new(11);
 pub const FORM_HANDLE: FormId = FormId::new(12);
+pub const FORM_FLYWHEEL: FormId = FormId::new(13);
 
 pub(crate) fn build_material_registry() -> MaterialRegistry {
     let mut registry = MaterialRegistry::new();
@@ -67,6 +68,12 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
     registry.register_form(FormDefinition::new(
         FORM_HANDLE,
         "handle",
+        MaterialPhase::Solid,
+        ParticleSizeStatePolicy::Untracked,
+    ));
+    registry.register_form(FormDefinition::new(
+        FORM_FLYWHEEL,
+        "flywheel",
         MaterialPhase::Solid,
         ParticleSizeStatePolicy::Untracked,
     ));

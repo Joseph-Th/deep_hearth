@@ -17,6 +17,7 @@ pub(crate) const CAPABILITY_GRINDER_BATCH: CapabilityId = CapabilityId::new(10);
 pub(crate) const CAPABILITY_MINING_FLOW: CapabilityId = CapabilityId::new(11);
 pub(crate) const CAPABILITY_MINING_MAX_BATCH: CapabilityId = CapabilityId::new(12);
 pub(crate) const CAPABILITY_MINING_MAX_HARDNESS: CapabilityId = CapabilityId::new(13);
+pub(crate) const CAPABILITY_MANUAL_POWER_OUTPUT: CapabilityId = CapabilityId::new(14);
 
 pub(crate) fn build_capability_registry() -> CapabilityRegistry {
     let mut registry = CapabilityRegistry::new();
@@ -85,6 +86,11 @@ pub(crate) fn build_capability_registry() -> CapabilityRegistry {
             CAPABILITY_MINING_MAX_HARDNESS,
             "mining maximum material hardness",
             CapabilityValueKind::Pressure,
+        ),
+        CapabilityDefinition::new(
+            CAPABILITY_MANUAL_POWER_OUTPUT,
+            "direct manual mechanical power output",
+            CapabilityValueKind::Power,
         ),
     ] {
         registry.register_capability(definition);

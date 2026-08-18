@@ -676,14 +676,17 @@ pub fn validate_claim_mining_output(
 mod tests {
     use super::*;
     use crate::content::{
-        EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_PICK, FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_ORE,
-        FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK,
-        PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE, build_registries,
+        EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_PICK, FORM_HANDLE,
+        FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_ORE, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE,
+        MATERIAL_WOOD, MINING_METHOD_HAND_PICK, PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE,
+        build_registries,
     };
     use crate::core::quantity::Temperature;
     use crate::core::state::validate_loaded_state;
     use crate::core::time::WorldSeed;
-    use crate::crafting::{StartManualCraftError, validate_start_manual_craft};
+    use crate::crafting::{
+        ManualCraftStartRequest, StartManualCraftError, validate_start_manual_craft,
+    };
     use crate::energy::calculate_explicit_energy_accounting;
     use crate::equipment::{add_equipment, validate_assemble_equipment};
     use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
@@ -739,6 +742,42 @@ mod tests {
             .unwrap_or_else(|error| panic!("pick assembly commit failed: {error}"))
     }
 
+    fn assemble_reinforced_pick_for_test(
+        registries: &Registries,
+        state: &mut AppState,
+    ) -> EquipmentId {
+        let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_020))
+            .unwrap_or_else(|error| panic!("reinforced pick assembly source failed: {error}"));
+        for (commodity, mass) in [
+            (
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(800),
+            ),
+            (
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200),
+            ),
+            (
+                CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+                Mass::from_milligrams(20),
+            ),
+        ] {
+            deposit_lot_for_test(
+                registries,
+                state,
+                source,
+                commodity,
+                mass,
+                Temperature::from_millikelvin(293_150),
+            )
+            .unwrap_or_else(|error| panic!("reinforced pick assembly material failed: {error}"));
+        }
+        validate_assemble_equipment(registries, state, EQUIPMENT_COPPER_REINFORCED_PICK, source)
+            .unwrap_or_else(|error| panic!("reinforced pick assembly validation failed: {error}"))
+            .commit(state)
+            .unwrap_or_else(|error| panic!("reinforced pick assembly commit failed: {error}"))
+    }
+
     #[test]
     fn stone_pick_refuses_material_above_authored_hardness() {
         let registries = build_registries();
@@ -791,6 +830,82 @@ mod tests {
                 .remaining_mass(),
             Mass::from_milligrams(100)
         );
+    }
+
+    #[test]
+    fn copper_reinforcement_turns_processed_metal_into_more_capable_extraction() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0xA11E_0004));
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("reinforced mining survival setup failed: {error}"));
+        let stone_pick = assemble_pick_for_test(&registries, &mut state);
+        let reinforced_pick = assemble_reinforced_pick_for_test(&registries, &mut state);
+        let reinforced_record = state
+            .equipment()
+            .get_equipment(reinforced_pick)
+            .unwrap_or_else(|| panic!("reinforced pick disappeared after assembly"));
+        assert_eq!(
+            reinforced_record.embodied_mass(),
+            Mass::from_milligrams(1_020)
+        );
+        assert!(reinforced_record.embodied_material().iter().any(|trace| {
+            trace.profile().commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_INGOT)
+                && trace.mass() == Mass::from_milligrams(20)
+        }));
+
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(300))
+            .unwrap_or_else(|error| panic!("reinforced mining destination failed: {error}"));
+        let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+            .unwrap_or_else(|error| panic!("reinforced mining deposit failed: {error}"));
+        let requested = Mass::from_milligrams(250);
+
+        assert_eq!(
+            validate_start_mining(
+                &registries,
+                &state,
+                MINING_METHOD_HAND_PICK,
+                deposit,
+                destination,
+                stone_pick,
+                requested,
+            )
+            .err(),
+            Some(MiningStartError::BatchTooLarge {
+                maximum: Mass::from_milligrams(200),
+                requested,
+            })
+        );
+
+        let job = validate_start_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            reinforced_pick,
+            requested,
+        )
+        .unwrap_or_else(|error| panic!("reinforced pick mining validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("reinforced pick mining commit failed: {error}"));
+        let job_record = state
+            .mining()
+            .get_job(job)
+            .unwrap_or_else(|| panic!("reinforced mining job disappeared"));
+        assert_eq!(
+            job_record.completes_at().value() - job_record.started_at().value(),
+            167
+        );
+        assert_eq!(
+            state
+                .geology()
+                .get_deposit(deposit)
+                .unwrap_or_else(|| panic!("reinforced mining deposit disappeared"))
+                .remaining_mass(),
+            Mass::from_milligrams(750)
+        );
+        validate_loaded_state(&registries, &state)
+            .unwrap_or_else(|error| panic!("reinforced mining state audit failed: {error}"));
     }
 
     #[test]
@@ -881,9 +996,7 @@ mod tests {
         validate_start_manual_craft(
             &registries,
             &state,
-            PROCESS_KNAP_STONE_TOOL,
-            stone_source,
-            shaped,
+            ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, stone_source, shaped),
         )
         .unwrap_or_else(|error| panic!("mining knapping start failed: {error}"))
         .commit(&mut state)
@@ -895,9 +1008,7 @@ mod tests {
         validate_start_manual_craft(
             &registries,
             &state,
-            PROCESS_SHAPE_WOOD_HANDLE,
-            stone_source,
-            shaped,
+            ManualCraftStartRequest::single(PROCESS_SHAPE_WOOD_HANDLE, stone_source, shaped),
         )
         .unwrap_or_else(|error| panic!("mining handle shaping start failed: {error}"))
         .commit(&mut state)
@@ -996,9 +1107,7 @@ mod tests {
         let craft_error = validate_start_manual_craft(
             &registries,
             &state,
-            PROCESS_KNAP_STONE_TOOL,
-            stone_source,
-            shaped,
+            ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, stone_source, shaped),
         )
         .err()
         .unwrap_or_else(|| panic!("manual crafting unexpectedly started during mining"));

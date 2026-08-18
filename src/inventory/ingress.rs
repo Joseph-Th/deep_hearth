@@ -18,7 +18,8 @@ use crate::registry::Registries;
 
 use super::state::{
     ConsumedMaterialTrace, InventoryState, MaterialLotId, MaterialLotProfile,
-    MaterialLotProvenance, MaterialLotRecord, StockpileId, apply_insert_or_merge_new_lot,
+    MaterialLotProvenance, MaterialLotRecord, MaterialStorageHistory, StockpileId,
+    apply_insert_or_merge_new_lot,
 };
 use super::storage_validation::{
     CommodityReferenceError, StockpileStorageError, validate_commodity_reference,
@@ -219,6 +220,7 @@ pub(crate) struct ValidatedMaterialIngress {
     entries: Vec<MaterialIngressEntry>,
     allocated_lot_ids: Vec<MaterialLotId>,
     next_lot_id: u64,
+    current_tick: SimulationTick,
 }
 
 impl ValidatedMaterialIngress {
@@ -372,6 +374,7 @@ pub(crate) fn validate_material_ingress(
         entries,
         allocated_lot_ids,
         next_lot_id,
+        current_tick,
     })
 }
 
@@ -387,6 +390,7 @@ pub(crate) fn apply_material_ingress(
         entries,
         allocated_lot_ids,
         next_lot_id,
+        current_tick,
     } = ingress;
     assert_eq!(
         state.revision(),
@@ -399,6 +403,12 @@ pub(crate) fn apply_material_ingress(
         "validated material ingress must allocate one candidate lot id per parcel"
     );
 
+    let preservation_multiplier_ppm = state
+        .get_stockpile(destination)
+        .unwrap_or_else(|| panic!("validated material ingress destination disappeared"))
+        .storage_profile()
+        .preservation_multiplier_ppm();
+
     let mut resulting_lots = Vec::with_capacity(entries.len());
     for (entry, allocated_lot_id) in entries.into_iter().zip(allocated_lot_ids) {
         let resulting = apply_insert_or_merge_new_lot(
@@ -409,7 +419,10 @@ pub(crate) fn apply_material_ingress(
                 mass: entry.mass,
                 profile: entry.profile,
                 provenance: entry.provenance,
+                storage_history: MaterialStorageHistory::new(current_tick),
             },
+            current_tick,
+            preservation_multiplier_ppm,
         );
         resulting_lots.push(resulting);
     }

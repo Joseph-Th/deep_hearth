@@ -8,18 +8,20 @@ mod validation;
 
 pub use consumption::{
     DrinkCommitError, DrinkError, DrinkOutcome, EatCommitError, EatError, EatOutcome,
-    FoodFreshness, FoodFreshnessError, ValidatedDrink, ValidatedEat, assess_food_freshness,
-    survival_after_action, validate_drink, validate_eat,
+    EatPortionOutcome, FoodFreshness, FoodFreshnessError, NutritionGain, ValidatedDrink,
+    ValidatedEat, assess_food_freshness, survival_after_action, validate_drink, validate_eat,
 };
 pub use definitions::{
     DrinkDefinition, FoodCategory, FoodDefinition, HydrationDefinition, MetabolismDefinition,
-    PhysiologyDefinition, SurvivalRegistry,
+    NutritionDefinition, PhysiologyDefinition, SurvivalRegistry,
 };
 pub use lifecycle::{
     HungerState, HydrationState, InitializeSurvivalError, SurvivalAssessment, SurvivalExertion,
     assess_survival, initialize_player_survival,
 };
-pub use state::{PlayerSurvivalRecord, SurvivalState, Vitality};
+pub use state::{
+    NUTRITION_PARTS_PER_MILLION, NutritionReserves, PlayerSurvivalRecord, SurvivalState, Vitality,
+};
 pub use validation::SurvivalValidationError;
 
 pub(crate) use lifecycle::{SurvivalTickError, apply_survival_tick, decide_survival_tick};

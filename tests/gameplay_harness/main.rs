@@ -22,7 +22,7 @@ mod report;
 mod seed;
 
 use configuration::{ScenarioPlanMode, scenario_seeds_from};
-use contracts::{anchor_diversity_gaps, scenario_contract_gaps};
+use contracts::{assert_anchor_diversity, assert_scenario_contracts};
 use deep_hearth::content::gameplay_fixture::{
     materialize_structure, seed_composed_lot, seed_energy_store as bootstrap_seed_energy_store,
     seed_lot,
@@ -2077,7 +2077,7 @@ fn ore_preparation_probe_parameters(registries: &Registries, seed: u64) -> (Mass
     (batch_mass, copper_ppm)
 }
 
-fn run_foundry_capability_probe(registries: &Registries, seed: u64) -> Vec<&'static str> {
+fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
     let mass = foundry_probe_mass(registries, seed);
     let (mut state, ids) = setup_foundry_probe(registries, mass);
     println!(
@@ -2153,16 +2153,13 @@ fn run_foundry_capability_probe(registries: &Registries, seed: u64) -> Vec<&'sta
         .inventory()
         .get_stockpile(ids.cast_storage)
         .is_some_and(|stockpile| stockpile.stored_mass() == mass);
-    [(
-        "foundry cast output preserves input mass",
+    assert!(
         cast_mass_is_conserved,
-    )]
-    .into_iter()
-    .filter_map(|(name, observed)| (!observed).then_some(name))
-    .collect()
+        "foundry capability probe did not conserve cast output mass"
+    );
 }
 
-fn run_ore_preparation_capability_probe(registries: &Registries, seed: u64) -> Vec<&'static str> {
+fn run_ore_preparation_capability_probe(registries: &Registries, seed: u64) {
     let (batch_mass, copper_ppm) = ore_preparation_probe_parameters(registries, seed);
     let (mut state, ids) = setup_ore_preparation_probe(registries, batch_mass, copper_ppm);
     let crusher_definition = registries
@@ -2591,14 +2588,16 @@ fn run_ore_preparation_capability_probe(registries: &Registries, seed: u64) -> V
         ),
     ];
 
-    requirements
-        .into_iter()
-        .filter_map(|(name, observed)| (!observed).then_some(name))
-        .collect()
+    for (name, observed) in requirements {
+        assert!(
+            observed,
+            "ore-preparation capability contract failed: {name}"
+        );
+    }
 }
 
-/// Runs the headless workshop exercise and fails with named contract gaps.
-fn run_gameplay_harness(mode: ScenarioPlanMode) {
+/// Runs the headless workshop scenario matrix with optional exploratory capability output.
+fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
     let registries = build_registries();
     assert_canonical_gameplay_content(&registries);
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
@@ -2644,42 +2643,38 @@ fn run_gameplay_harness(mode: ScenarioPlanMode) {
         .map(|seed| ScenarioVariation::from_seed(&registries, seed))
         .map(|variation| run_scenario(&registries, variation))
         .collect();
-    let ore_preparation_gaps = run_ore_preparation_capability_probe(&registries, probe_seed);
-    let foundry_gaps = run_foundry_capability_probe(&registries, probe_seed);
-
-    let mut gaps = scenario_contract_gaps(&reports);
-    gaps.extend(
-        ore_preparation_gaps
-            .into_iter()
-            .map(|gap| format!("ore preparation: {gap}")),
-    );
-    gaps.extend(
-        foundry_gaps
-            .into_iter()
-            .map(|gap| format!("foundry: {gap}")),
-    );
+    assert_scenario_contracts(&reports);
     if plan.anchor_seed_count() > 0 {
-        gaps.extend(
-            anchor_diversity_gaps(&reports[..plan.anchor_seed_count()])
-                .into_iter()
-                .map(|gap| format!("anchor diversity: {gap}")),
-        );
+        assert_anchor_diversity(&reports[..plan.anchor_seed_count()]);
     }
-    assert!(
-        gaps.is_empty(),
-        "gameplay exercise failures:\n- {}",
-        gaps.join("\n- ")
-    );
+    if include_probes {
+        run_ore_preparation_capability_probe(&registries, probe_seed);
+        run_foundry_capability_probe(&registries, probe_seed);
+    }
     print_harness_summary(HARNESS_MODE, &reports);
 }
 
 #[test]
 fn gameplay_harness_gate() {
-    run_gameplay_harness(ScenarioPlanMode::Gate);
+    run_gameplay_harness(ScenarioPlanMode::Gate, false);
+}
+
+#[test]
+fn gameplay_ore_preparation_probe() {
+    let registries = build_registries();
+    assert_canonical_gameplay_content(&registries);
+    run_ore_preparation_capability_probe(&registries, 0xD33F_C01D_0A11);
+}
+
+#[test]
+fn gameplay_foundry_probe() {
+    let registries = build_registries();
+    assert_canonical_gameplay_content(&registries);
+    run_foundry_capability_probe(&registries, 0xD33F_C01D_F001);
 }
 
 #[test]
 #[ignore = "exploratory gameplay report"]
 fn gameplay_harness_exploratory_report() {
-    run_gameplay_harness(ScenarioPlanMode::Explore);
+    run_gameplay_harness(ScenarioPlanMode::Explore, true);
 }

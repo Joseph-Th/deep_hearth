@@ -1,11 +1,12 @@
 //! Test-only registry assembly isolated from unrelated built-in runtime content.
 
-use super::{REGISTRY_SCHEMA_VERSION, build_core_definitions, materials, structural};
+use super::{REGISTRY_SCHEMA_VERSION, build_core_definitions, labor, materials, structural};
 use crate::capability::{CapabilityDefinition, CapabilityRegistry};
 use crate::crafting::CraftingRegistry;
 use crate::energy::{EnergyRegistry, EnergyStoreDefinition};
 use crate::equipment::{EquipmentDefinition, EquipmentRegistry};
 use crate::fluid::{FluidDefinition, FluidRegistry};
+use crate::labor::LaborRegistry;
 use crate::mining::MiningRegistry;
 use crate::ore_processing::{
     ComminutionProcessDefinition, OreProcessingRegistry, ScreeningProcessDefinition,
@@ -25,6 +26,7 @@ struct TestRegistryDomains {
     fluid: FluidRegistry,
     capabilities: CapabilityRegistry,
     crafting: CraftingRegistry,
+    labor: LaborRegistry,
     equipment: EquipmentRegistry,
     mining: MiningRegistry,
     ore_processing: OreProcessingRegistry,
@@ -40,6 +42,7 @@ impl TestRegistryDomains {
             fluid: FluidRegistry::new(std::iter::empty()),
             capabilities: CapabilityRegistry::new(),
             crafting: CraftingRegistry::new(std::iter::empty()),
+            labor: labor::empty_labor_registry(),
             equipment: empty_equipment_registry(),
             mining: MiningRegistry::new(std::iter::empty()),
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
@@ -55,6 +58,7 @@ impl TestRegistryDomains {
             fluid,
             capabilities,
             crafting,
+            labor,
             equipment,
             mining,
             ore_processing,
@@ -70,6 +74,7 @@ impl TestRegistryDomains {
                 fluid,
                 capabilities,
                 crafting,
+                labor,
                 equipment,
                 structural: structural::build_structural_registry(),
                 materials: materials::build_material_registry(),

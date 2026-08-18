@@ -2,14 +2,92 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::time::SimulationTick;
+use crate::energy::{EnergyStoreId, ReleasedEnergyTrace};
+use crate::equipment::{EquipmentId, EquipmentOperationTrace};
+use crate::maintenance::Condition;
 use crate::mining::MiningJobId;
 use crate::production::ProductionJobId;
+
+use super::ManualPowerMethodId;
+
+/// Durable direct-labor work order that converts player effort into finite mechanical energy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManualPowerWork {
+    method: ManualPowerMethodId,
+    equipment: EquipmentOperationTrace,
+    condition_after: Condition,
+    output: ReleasedEnergyTrace,
+    started_at: SimulationTick,
+    completes_at: SimulationTick,
+}
+
+impl ManualPowerWork {
+    pub(crate) const fn new(
+        method: ManualPowerMethodId,
+        equipment: EquipmentOperationTrace,
+        condition_after: Condition,
+        output: ReleasedEnergyTrace,
+        started_at: SimulationTick,
+        completes_at: SimulationTick,
+    ) -> Self {
+        Self {
+            method,
+            equipment,
+            condition_after,
+            output,
+            started_at,
+            completes_at,
+        }
+    }
+
+    #[must_use]
+    pub const fn method(self) -> ManualPowerMethodId {
+        self.method
+    }
+
+    #[must_use]
+    pub const fn equipment(self) -> EquipmentId {
+        self.equipment.equipment()
+    }
+
+    #[must_use]
+    pub const fn equipment_trace(self) -> EquipmentOperationTrace {
+        self.equipment
+    }
+
+    #[must_use]
+    pub const fn condition_after(self) -> Condition {
+        self.condition_after
+    }
+
+    #[must_use]
+    pub const fn destination(self) -> EnergyStoreId {
+        self.output.destination()
+    }
+
+    #[must_use]
+    pub const fn output(self) -> ReleasedEnergyTrace {
+        self.output
+    }
+
+    #[must_use]
+    pub const fn started_at(self) -> SimulationTick {
+        self.started_at
+    }
+
+    #[must_use]
+    pub const fn completes_at(self) -> SimulationTick {
+        self.completes_at
+    }
+}
 
 /// Durable activity currently monopolizing the local player's labor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PlayerWork {
     ManualCraft { job: ProductionJobId },
     Mining { job: MiningJobId },
+    ManualPower { work: ManualPowerWork },
 }
 
 /// Single-player labor owner with an explicit revision for cross-system transactions.
@@ -36,6 +114,46 @@ impl PlayerWorkState {
     #[must_use]
     pub const fn active(&self) -> Option<PlayerWork> {
         self.active
+    }
+
+    #[must_use]
+    pub(crate) fn has_valid_inline_schedule(&self, current: SimulationTick) -> bool {
+        match self.active {
+            Some(PlayerWork::ManualPower { work }) => {
+                work.started_at() <= current && work.completes_at() > current
+            }
+            Some(PlayerWork::ManualCraft { job: _ })
+            | Some(PlayerWork::Mining { job: _ })
+            | None => true,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn get_manual_power_equipment_occupant(
+        &self,
+        equipment: EquipmentId,
+    ) -> Option<ManualPowerWork> {
+        match self.active {
+            Some(PlayerWork::ManualPower { work }) if work.equipment() == equipment => Some(work),
+            Some(PlayerWork::ManualCraft { job: _ })
+            | Some(PlayerWork::Mining { job: _ })
+            | Some(PlayerWork::ManualPower { work: _ })
+            | None => None,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn get_manual_power_energy_occupant(
+        &self,
+        store: EnergyStoreId,
+    ) -> Option<ManualPowerWork> {
+        match self.active {
+            Some(PlayerWork::ManualPower { work }) if work.destination() == store => Some(work),
+            Some(PlayerWork::ManualCraft { job: _ })
+            | Some(PlayerWork::Mining { job: _ })
+            | Some(PlayerWork::ManualPower { work: _ })
+            | None => None,
+        }
     }
 
     pub(crate) fn apply_start(

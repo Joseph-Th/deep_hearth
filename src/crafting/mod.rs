@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::num::NonZeroU64;
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
@@ -18,7 +19,7 @@ use crate::material::{
 use crate::production::{
     ProcessId, ProcessInputError, ProcessResolution, ProcessResolutionError, ProductionJobId,
     ProductionRegistry, StartProcessCommitError, StartProcessError, ValidatedStartProcess,
-    validate_process_inputs, validate_start_manual_process,
+    validate_repeated_process_inputs, validate_start_manual_process,
 };
 use crate::registry::Registries;
 use crate::survival::{SurvivalExertion, Vitality, assess_survival};
@@ -33,6 +34,65 @@ pub(crate) use validation::validate_loaded_manual_craft_job;
 pub struct ManualCraftOutput {
     commodity: CommodityKey,
     mass: Mass,
+}
+
+/// Exact hand-work request. Repetition reduces command repetition but does not reduce authored
+/// material, active time, or per-tick exertion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ManualCraftRequest {
+    process: ProcessId,
+    source: StockpileId,
+    batches: NonZeroU64,
+}
+
+impl ManualCraftRequest {
+    #[must_use]
+    pub const fn new(process: ProcessId, source: StockpileId, batches: NonZeroU64) -> Self {
+        Self {
+            process,
+            source,
+            batches,
+        }
+    }
+
+    #[must_use]
+    pub const fn single(process: ProcessId, source: StockpileId) -> Self {
+        Self::new(process, source, NonZeroU64::MIN)
+    }
+
+    #[must_use]
+    pub const fn process(self) -> ProcessId {
+        self.process
+    }
+
+    #[must_use]
+    pub const fn source(self) -> StockpileId {
+        self.source
+    }
+
+    #[must_use]
+    pub const fn batches(self) -> NonZeroU64 {
+        self.batches
+    }
+}
+
+/// Manual-work admission request including the destination for conserved outputs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ManualCraftStartRequest {
+    craft: ManualCraftRequest,
+    destination: StockpileId,
+}
+
+impl ManualCraftStartRequest {
+    #[must_use]
+    pub const fn new(craft: ManualCraftRequest, destination: StockpileId) -> Self {
+        Self { craft, destination }
+    }
+
+    #[must_use]
+    pub const fn single(process: ProcessId, source: StockpileId, destination: StockpileId) -> Self {
+        Self::new(ManualCraftRequest::single(process, source), destination)
+    }
 }
 
 impl ManualCraftOutput {
@@ -240,11 +300,20 @@ impl CraftingRegistry {
 pub enum ManualCraftError {
     SurvivalNotInitialized,
     PlayerDead,
-    UnknownManualProcess { process: ProcessId },
+    UnknownManualProcess {
+        process: ProcessId,
+    },
     Input(ProcessInputError),
     UnsupportedComposition,
     MixedInputTemperature,
     MissingInputTrace,
+    DurationOverflow {
+        batches: NonZeroU64,
+    },
+    OutputMassOverflow {
+        commodity: CommodityKey,
+        batches: NonZeroU64,
+    },
     Output(MaterialLotSpecError),
     Resolution(ProcessResolutionError),
 }
@@ -271,6 +340,21 @@ impl Display for ManualCraftError {
             Self::MissingInputTrace => {
                 formatter.write_str("manual shaping resolved no consumed input trace")
             }
+            Self::DurationOverflow { batches } => write!(
+                formatter,
+                "manual shaping duration overflows when repeated {} times",
+                batches.get()
+            ),
+            Self::OutputMassOverflow {
+                commodity,
+                batches,
+            } => write!(
+                formatter,
+                "manual shaping output material {} form {} overflows when repeated {} times",
+                commodity.material().value(),
+                commodity.form().value(),
+                batches.get()
+            ),
             Self::Output(error) => write!(formatter, "manual craft output is invalid: {error}"),
             Self::Resolution(error) => write!(formatter, "manual craft resolution is invalid: {error}"),
         }
@@ -288,7 +372,9 @@ impl Error for ManualCraftError {
             | Self::UnknownManualProcess { process: _ }
             | Self::UnsupportedComposition
             | Self::MixedInputTemperature
-            | Self::MissingInputTrace => None,
+            | Self::MissingInputTrace
+            | Self::DurationOverflow { batches: _ }
+            | Self::OutputMassOverflow { .. } => None,
         }
     }
 }
@@ -297,9 +383,13 @@ impl Error for ManualCraftError {
 pub fn resolve_manual_craft(
     registries: &Registries,
     state: &AppState,
-    process: ProcessId,
-    source: StockpileId,
+    request: ManualCraftRequest,
 ) -> Result<ProcessResolution, ManualCraftError> {
+    let ManualCraftRequest {
+        process,
+        source,
+        batches,
+    } = request;
     let survival =
         assess_survival(registries, state).ok_or(ManualCraftError::SurvivalNotInitialized)?;
     if survival.vitality() == Vitality::ZERO {
@@ -309,7 +399,7 @@ pub fn resolve_manual_craft(
         .crafting()
         .get_manual(process)
         .ok_or(ManualCraftError::UnknownManualProcess { process })?;
-    let inputs = validate_process_inputs(registries, state, process, source)
+    let inputs = validate_repeated_process_inputs(registries, state, process, source, batches)
         .map_err(ManualCraftError::Input)?;
     let expected_composition = MaterialComposition::pure(definition.input().material());
     let mut temperatures = BTreeSet::new();
@@ -331,17 +421,32 @@ pub fn resolve_manual_craft(
         .outputs()
         .iter()
         .map(|output| {
+            let mass = output
+                .mass()
+                .milligrams()
+                .checked_mul(batches.get())
+                .map(Mass::from_milligrams)
+                .ok_or(ManualCraftError::OutputMassOverflow {
+                    commodity: output.commodity(),
+                    batches,
+                })?;
             MaterialLotSpec::with_composition(
                 output.commodity(),
-                output.mass(),
+                mass,
                 temperature,
                 MaterialComposition::pure(output.commodity().material()),
             )
             .map_err(ManualCraftError::Output)
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let duration = definition
+        .duration()
+        .value()
+        .checked_mul(batches.get())
+        .map(TickSpan::new)
+        .ok_or(ManualCraftError::DurationOverflow { batches })?;
     inputs
-        .resolve_without_resources(definition.duration(), outputs)
+        .resolve_without_resources(duration, outputs)
         .map_err(ManualCraftError::Resolution)
 }
 
@@ -424,14 +529,13 @@ impl ValidatedManualCraftStart {
 pub fn validate_start_manual_craft(
     registries: &Registries,
     state: &AppState,
-    process: ProcessId,
-    source: StockpileId,
-    destination: StockpileId,
+    request: ManualCraftStartRequest,
 ) -> Result<ValidatedManualCraftStart, StartManualCraftError> {
-    let resolution = resolve_manual_craft(registries, state, process, source)
+    let ManualCraftStartRequest { craft, destination } = request;
+    let resolution = resolve_manual_craft(registries, state, craft)
         .map_err(StartManualCraftError::Resolution)?;
     let process =
-        validate_start_manual_process(registries, state, &resolution, source, destination)
+        validate_start_manual_process(registries, state, &resolution, craft.source(), destination)
             .map_err(StartManualCraftError::Process)?;
     let work = validate_player_work_start(
         state,
@@ -491,8 +595,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("manual craft initial accounting failed: {error}"));
         let survival_before = assess_survival(&registries, &state)
             .unwrap_or_else(|| panic!("manual craft survival state is missing"));
-        let resolution = resolve_manual_craft(&registries, &state, PROCESS_KNAP_STONE_TOOL, source)
-            .unwrap_or_else(|error| panic!("stone knapping resolution failed: {error}"));
+        let resolution = resolve_manual_craft(
+            &registries,
+            &state,
+            ManualCraftRequest::single(PROCESS_KNAP_STONE_TOOL, source),
+        )
+        .unwrap_or_else(|error| panic!("stone knapping resolution failed: {error}"));
         assert_eq!(resolution.duration(), TickSpan::new(40));
         assert_eq!(
             validate_start_process(&registries, &state, &resolution, source, destination),
@@ -503,9 +611,7 @@ mod tests {
         let token = validate_start_manual_craft(
             &registries,
             &state,
-            PROCESS_KNAP_STONE_TOOL,
-            source,
-            destination,
+            ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
         )
         .unwrap_or_else(|error| panic!("stone knapping start failed: {error}"));
         token
@@ -553,17 +659,13 @@ mod tests {
         let first = validate_start_manual_craft(
             &registries,
             &state,
-            PROCESS_KNAP_STONE_TOOL,
-            source,
-            destination,
+            ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
         )
         .unwrap_or_else(|error| panic!("first manual craft validation failed: {error}"));
         let stale = validate_start_manual_craft(
             &registries,
             &state,
-            PROCESS_KNAP_STONE_TOOL,
-            source,
-            destination,
+            ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
         )
         .unwrap_or_else(|error| panic!("stale manual craft validation failed: {error}"));
         first
@@ -595,9 +697,7 @@ mod tests {
         let token = validate_start_manual_craft(
             &registries,
             &state,
-            PROCESS_KNAP_STONE_TOOL,
-            source,
-            destination,
+            ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
         )
         .unwrap_or_else(|error| panic!("manual craft tamper start failed: {error}"));
         let job = token
@@ -617,10 +717,68 @@ mod tests {
                     ManualCraftJobValidationError::DurationMismatch {
                         job,
                         stored: TickSpan::new(41),
-                        authored: TickSpan::new(40),
+                        required: TickSpan::new(40),
                     }
                 )
             ))
         );
+    }
+
+    #[test]
+    fn repeated_manual_craft_batches_share_one_labor_job_without_discounting_work() {
+        let (registries, mut state, source, destination) = make_fixture();
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            stone_lump(),
+            Mass::from_milligrams(1_000),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("batch craft second stone fixture failed: {error}"));
+        let batches = NonZeroU64::new(2)
+            .unwrap_or_else(|| panic!("batch craft count fixture must be nonzero"));
+        let craft = ManualCraftRequest::new(PROCESS_KNAP_STONE_TOOL, source, batches);
+        let resolution = resolve_manual_craft(&registries, &state, craft)
+            .unwrap_or_else(|error| panic!("batch craft resolution failed: {error}"));
+
+        assert_eq!(resolution.input_mass(), Mass::from_milligrams(2_000));
+        assert_eq!(resolution.duration(), TickSpan::new(80));
+        assert_eq!(
+            resolution
+                .outputs()
+                .iter()
+                .map(|output| (output.commodity(), output.mass()))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                    Mass::from_milligrams(1_600),
+                ),
+                (
+                    CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+                    Mass::from_milligrams(400),
+                ),
+            ]
+        );
+
+        let token = validate_start_manual_craft(
+            &registries,
+            &state,
+            ManualCraftStartRequest::new(craft, destination),
+        )
+        .unwrap_or_else(|error| panic!("batch craft start failed: {error}"));
+        let job = token
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("batch craft commit failed: {error}"));
+        assert_eq!(
+            state
+                .production()
+                .get_job(job)
+                .map(|record| record.active_duration()),
+            Some(TickSpan::new(80))
+        );
+        validate_loaded_state(&registries, &state)
+            .unwrap_or_else(|error| panic!("batch craft running audit failed: {error}"));
     }
 }

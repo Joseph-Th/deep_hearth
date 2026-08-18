@@ -6,7 +6,10 @@ use std::fmt::{Display, Formatter};
 use crate::core::state::{AppState, apply_clock_advance, validate_invariants};
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::inventory::{StockpileId, StockpileStructuralLoadError};
-use crate::labor::{apply_player_work_tick, decide_player_work_tick, player_work_exertion};
+use crate::labor::{
+    ManualPowerOutcome, ManualPowerTickError, apply_manual_power_tick, apply_player_work_tick,
+    decide_manual_power_tick, decide_player_work_tick, player_work_exertion,
+};
 use crate::mining::{MiningJobId, apply_mining_tick, decide_mining_tick};
 use crate::production::{
     CompletionApplication, CompletionCommitError, CompletionPlanError, ProcessCompletion,
@@ -25,6 +28,7 @@ pub struct TickOutcome {
     production_availability_changes: Vec<ProductionAvailabilityChange>,
     production_completions: Vec<ProcessCompletion>,
     ready_mining_jobs: Vec<MiningJobId>,
+    manual_power: Option<ManualPowerOutcome>,
     survival: Option<SurvivalAssessment>,
 }
 
@@ -52,6 +56,12 @@ impl TickOutcome {
     #[must_use]
     pub fn ready_mining_jobs(&self) -> &[MiningJobId] {
         &self.ready_mining_jobs
+    }
+
+    /// Returns direct player-powered energy generation that completed during this tick.
+    #[must_use]
+    pub const fn manual_power(&self) -> Option<ManualPowerOutcome> {
+        self.manual_power
     }
 
     /// Returns the post-tick player survival projection when survival has been initialized.
@@ -86,6 +96,10 @@ pub enum TickError {
     PlayerWorkRevisionExhausted,
     /// Mining cannot advance its persisted scheduling revision for this tick.
     MiningRevisionExhausted,
+    /// Direct player-powered generation cannot advance its energy owner revision this tick.
+    ManualPowerEnergyRevisionExhausted,
+    /// Direct player-powered generation cannot advance its equipment owner revision this tick.
+    ManualPowerEquipmentRevisionExhausted,
     /// A suspended operation cannot schedule its remaining active time within the world clock.
     ProductionResumeTickOverflow {
         job: ProductionJobId,
@@ -133,6 +147,12 @@ impl Display for TickError {
             }
             Self::MiningRevisionExhausted => {
                 formatter.write_str("mining revision space is exhausted")
+            }
+            Self::ManualPowerEnergyRevisionExhausted => {
+                formatter.write_str("manual power energy revision space is exhausted")
+            }
+            Self::ManualPowerEquipmentRevisionExhausted => {
+                formatter.write_str("manual power equipment revision space is exhausted")
             }
             Self::ProductionResumeTickOverflow {
                 job,
@@ -244,7 +264,9 @@ impl Error for TickError {
             | Self::SurvivalEnergyCostOverflow
             | Self::SurvivalHydrationCostOverflow
             | Self::PlayerWorkRevisionExhausted
-            | Self::MiningRevisionExhausted => None,
+            | Self::MiningRevisionExhausted
+            | Self::ManualPowerEnergyRevisionExhausted
+            | Self::ManualPowerEquipmentRevisionExhausted => None,
         }
     }
 }
@@ -288,6 +310,15 @@ pub fn advance_tick(
         })?;
     let player_work_plan = decide_player_work_tick(state, next_tick)
         .map_err(|_error| TickError::PlayerWorkRevisionExhausted)?;
+    let manual_power_plan =
+        decide_manual_power_tick(state, next_tick).map_err(|error| match error {
+            ManualPowerTickError::EnergyRevisionExhausted => {
+                TickError::ManualPowerEnergyRevisionExhausted
+            }
+            ManualPowerTickError::EquipmentRevisionExhausted => {
+                TickError::ManualPowerEquipmentRevisionExhausted
+            }
+        })?;
     let mining_plan = decide_mining_tick(state, next_tick)
         .map_err(|_error| TickError::MiningRevisionExhausted)?;
     let exertion = player_work_exertion(registries, state);
@@ -319,6 +350,7 @@ pub fn advance_tick(
         CompletionCommitError::Structure(error) => TickError::Structure(error),
     })?;
     let ready_mining_jobs = apply_mining_tick(state, mining_plan);
+    let manual_power = apply_manual_power_tick(state, manual_power_plan);
     apply_player_work_tick(state, player_work_plan);
     let survival = apply_survival_tick(state, survival_plan);
     apply_clock_advance(state, next_tick);
@@ -329,6 +361,7 @@ pub fn advance_tick(
         production_availability_changes,
         production_completions,
         ready_mining_jobs,
+        manual_power,
         survival,
     })
 }

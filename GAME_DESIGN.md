@@ -70,6 +70,22 @@ A recurring task should generally progress through:
 
 The underlying resource cost remains, but the player's attention moves toward higher-level problems.
 
+Before true automation exists, repeated identical hand work may be issued in integral batches.
+Batching is an input convenience only: matter, active time, exertion, wear, and other physical costs
+still scale with the amount of work performed.
+
+Early mechanical progression may also let the player convert direct physical labor into a small,
+finite store of mechanical work. This is a bridge, not automation: the player's time, food/water
+reserves, and tool wear remain the limiting inputs. Wind, water, animals, engines, and later power
+systems should progressively replace that attention while preserving the need to generate, transmit,
+store, and spend real work.
+
+Material progression should feed back into the player's existing problems instead of creating an
+isolated collection of higher-tier outputs. The first useful metal can reinforce tools and primitive
+power equipment before full metalworking exists. Better components also remain subject to the rest of
+their physical path: a stronger crank cannot charge faster than its storage or transmission can
+accept, and a better mining tool still depends on labor, deposit access, storage, and wear.
+
 ### 2.4 Systems Should Interlock
 
 Major mechanics should not exist as isolated minigames.
@@ -159,6 +175,7 @@ Sinks:
 Sources:
 
 - Food
+- Direct human mechanical work
 - Wood
 - Charcoal
 - Coal
@@ -1035,6 +1052,22 @@ Food surplus is strategically important because it enables:
 - Military or expeditionary activity
 
 Agricultural surplus is one of the foundations of industrialization.
+
+Dietary variety should reward resilient provisioning rather than turn every meal into meter
+micromanagement. Broad food groups contribute to recent nutritional balance. A varied diet improves
+recovery and long-term resilience, while a repetitive diet remains usable for basic energy instead
+of imposing an arbitrary hard health cap. Preservation and future cooking should therefore create
+meaningful choices about which foods to store and combine, not merely increase calorie density.
+
+Preservation changes the rate of future spoilage; it does not erase past exposure. Moving old food
+into a cellar, sealed vessel, or later refrigerated store must retain the spoilage already accumulated
+before that move. Splitting or recombining compatible food lots must likewise retain a conservative
+history rather than allowing inventory management to manufacture freshness.
+
+The player should be able to consume several selected foods as one meal rather than repeat the same
+eat interaction for every ingredient. One meal still validates freshness, matter ownership, and
+physiological absorption for every portion. Convenience groups decisions; it never bypasses food
+quantity, spoilage, or metabolic limits.
 
 ---
 

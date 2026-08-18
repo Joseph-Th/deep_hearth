@@ -2,7 +2,9 @@
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::num::NonZeroU64;
 
+use crate::core::quantity::Mass;
 use crate::core::time::TickSpan;
 use crate::material::{MaterialComposition, MaterialLotSpec, MaterialLotSpecError};
 use crate::production::{ProcessOutputStreamId, ProductionJobId, ProductionJobRecord};
@@ -26,10 +28,23 @@ pub enum ManualCraftJobValidationError {
     MixedInputTemperature {
         job: ProductionJobId,
     },
+    InputMassNotWholeBatches {
+        job: ProductionJobId,
+        consumed: Mass,
+        batch_mass: Mass,
+    },
+    DurationOverflow {
+        job: ProductionJobId,
+        batches: NonZeroU64,
+    },
     DurationMismatch {
         job: ProductionJobId,
         stored: TickSpan,
-        authored: TickSpan,
+        required: TickSpan,
+    },
+    OutputMassOverflow {
+        job: ProductionJobId,
+        batches: NonZeroU64,
     },
     OutputConstruction {
         job: ProductionJobId,
@@ -68,16 +83,39 @@ impl Display for ManualCraftJobValidationError {
                 "manual craft job {} combines different input temperatures without thermal physics",
                 job.value()
             ),
+            Self::InputMassNotWholeBatches {
+                job,
+                consumed,
+                batch_mass,
+            } => write!(
+                formatter,
+                "manual craft job {} consumed {} mg, which is not a whole number of {} mg authored batches",
+                job.value(),
+                consumed.milligrams(),
+                batch_mass.milligrams()
+            ),
+            Self::DurationOverflow { job, batches } => write!(
+                formatter,
+                "manual craft job {} repeats {} batches beyond the authoritative duration range",
+                job.value(),
+                batches.get()
+            ),
             Self::DurationMismatch {
                 job,
                 stored,
-                authored,
+                required,
             } => write!(
                 formatter,
-                "manual craft job {} stores {} active ticks but authored hand work requires {}",
+                "manual craft job {} stores {} active ticks but its repeated hand work requires {}",
                 job.value(),
                 stored.value(),
-                authored.value()
+                required.value()
+            ),
+            Self::OutputMassOverflow { job, batches } => write!(
+                formatter,
+                "manual craft job {} output mass overflows when replaying {} batches",
+                job.value(),
+                batches.get()
             ),
             Self::OutputConstruction { job, error } => write!(
                 formatter,
@@ -102,7 +140,10 @@ impl Error for ManualCraftJobValidationError {
             | Self::InputCommodityMismatch { job: _ }
             | Self::InputCompositionMismatch { job: _ }
             | Self::MixedInputTemperature { job: _ }
+            | Self::InputMassNotWholeBatches { .. }
+            | Self::DurationOverflow { .. }
             | Self::DurationMismatch { .. }
+            | Self::OutputMassOverflow { .. }
             | Self::OutputMismatch { job: _ } => None,
         }
     }
@@ -124,11 +165,38 @@ pub(crate) fn validate_loaded_manual_craft_job(
     {
         return Err(ManualCraftJobValidationError::UnexpectedEquipment { job: job.id() });
     }
-    if job.active_duration() != definition.duration() {
+    let batch_mass = definition.input_mass();
+    let consumed_mass = job.consumed_mass();
+    let quotient = consumed_mass.milligrams() / batch_mass.milligrams();
+    let remainder = consumed_mass.milligrams() % batch_mass.milligrams();
+    let Some(batches) = NonZeroU64::new(quotient) else {
+        return Err(ManualCraftJobValidationError::InputMassNotWholeBatches {
+            job: job.id(),
+            consumed: consumed_mass,
+            batch_mass,
+        });
+    };
+    if remainder != 0 {
+        return Err(ManualCraftJobValidationError::InputMassNotWholeBatches {
+            job: job.id(),
+            consumed: consumed_mass,
+            batch_mass,
+        });
+    }
+    let required_duration = definition
+        .duration()
+        .value()
+        .checked_mul(batches.get())
+        .map(TickSpan::new)
+        .ok_or(ManualCraftJobValidationError::DurationOverflow {
+            job: job.id(),
+            batches,
+        })?;
+    if job.active_duration() != required_duration {
         return Err(ManualCraftJobValidationError::DurationMismatch {
             job: job.id(),
             stored: job.active_duration(),
-            authored: definition.duration(),
+            required: required_duration,
         });
     }
 
@@ -157,9 +225,18 @@ pub(crate) fn validate_loaded_manual_craft_job(
         .outputs()
         .iter()
         .map(|output| {
+            let mass = output
+                .mass()
+                .milligrams()
+                .checked_mul(batches.get())
+                .map(Mass::from_milligrams)
+                .ok_or(ManualCraftJobValidationError::OutputMassOverflow {
+                    job: job.id(),
+                    batches,
+                })?;
             MaterialLotSpec::with_composition(
                 output.commodity(),
-                output.mass(),
+                mass,
                 temperature,
                 MaterialComposition::pure(output.commodity().material()),
             )

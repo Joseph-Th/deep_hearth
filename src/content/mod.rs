@@ -8,6 +8,7 @@ mod fluid;
 #[cfg(feature = "test-gameplay")]
 #[doc(hidden)]
 pub mod gameplay_fixture;
+mod labor;
 mod materials;
 mod mining;
 mod ore_processing;
@@ -26,6 +27,7 @@ use crate::registry::{
     CoreDefinitions, Registries, RegistryDomains, RegistryPresentation, RegistrySchemaVersion,
 };
 pub use fluid::FLUID_WATER;
+pub use labor::MANUAL_POWER_HAND_CRANK;
 pub use mining::MINING_METHOD_HAND_PICK;
 #[cfg(test)]
 use test_support::{
@@ -47,19 +49,22 @@ pub use energy::{
     ENERGY_THERMAL_SINK,
 };
 pub use equipment::{
-    EQUIPMENT_CASTING_MOLD, EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE,
-    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_PICK,
+    EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+    EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE,
+    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_HAND_CRANK,
+    EQUIPMENT_STONE_PICK,
 };
 pub use materials::{
-    FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED, FORM_FOOD, FORM_HANDLE, FORM_INGOT, FORM_LOG,
-    FORM_LUMP, FORM_MOLTEN, FORM_ORE, FORM_TOOL, FORM_UNFIRED_POTTERY, MATERIAL_BERRIES,
+    FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED, FORM_FLYWHEEL, FORM_FOOD, FORM_HANDLE, FORM_INGOT,
+    FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE, FORM_TOOL, FORM_UNFIRED_POTTERY, MATERIAL_BERRIES,
     MATERIAL_CHARCOAL, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_GRAIN, MATERIAL_MEAT,
     MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WATER, MATERIAL_WOOD,
 };
 pub use processes::{
     PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
     PROCESS_FORM_CLAY_VESSEL, PROCESS_GRIND_CRUSHED_ORE, PROCESS_KNAP_STONE_TOOL,
-    PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SHAPE_WOOD_HANDLE,
+    PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SHAPE_STONE_FLYWHEEL,
+    PROCESS_SHAPE_WOOD_HANDLE,
 };
 #[cfg(feature = "test-shader-validation")]
 pub use shaders::{BuiltInShaderValidationError, validate_builtin_shader_programs};
@@ -70,12 +75,14 @@ pub use shaders::{
 pub use structural::{STRUCTURAL_PROFILE_AXIAL_COMPRESSION, STRUCTURAL_PROFILE_AXIAL_TENSION};
 pub use textures::{
     BLOCK_CHARCOAL, BLOCK_COPPER, BLOCK_COPPER_ORE, BLOCK_SLAG, BLOCK_TIMBER, OBJECT_CASTING_MOLD,
-    OBJECT_CHARCOAL, OBJECT_COPPER_INGOT, OBJECT_COPPER_ORE, OBJECT_CRUSHED_ORE, OBJECT_DRY_SCREEN,
-    OBJECT_ELECTRIC_FURNACE, OBJECT_GRINDING_MILL, OBJECT_JAW_CRUSHER, OBJECT_LOG,
-    OBJECT_MOLTEN_COPPER, OBJECT_SLAG, TEXTURE_CHARCOAL, TEXTURE_COPPER_HAMMERED,
-    TEXTURE_COPPER_ORE, TEXTURE_CRUSHED_ORE, TEXTURE_MACHINE_PANEL, TEXTURE_MOLTEN_COPPER,
-    TEXTURE_REFRACTORY, TEXTURE_SCREEN_MESH, TEXTURE_SLAG, TEXTURE_WOOD_END, TEXTURE_WOOD_SIDE,
-    TEXTURE_WORKING_METAL,
+    OBJECT_CHARCOAL, OBJECT_COPPER_INGOT, OBJECT_COPPER_ORE, OBJECT_COPPER_REINFORCED_HAND_CRANK,
+    OBJECT_COPPER_REINFORCED_PICK, OBJECT_CRUSHED_ORE, OBJECT_DRY_SCREEN, OBJECT_ELECTRIC_FURNACE,
+    OBJECT_GRINDING_MILL, OBJECT_JAW_CRUSHER, OBJECT_LOG, OBJECT_MOLTEN_COPPER, OBJECT_SLAG,
+    OBJECT_STONE_CHIP, OBJECT_STONE_FLYWHEEL, OBJECT_STONE_HAND_CRANK, OBJECT_STONE_LUMP,
+    OBJECT_STONE_PICK, OBJECT_STONE_TOOL, OBJECT_WOOD_CHIP, OBJECT_WOOD_HANDLE, TEXTURE_CHARCOAL,
+    TEXTURE_COPPER_HAMMERED, TEXTURE_COPPER_ORE, TEXTURE_CRUSHED_ORE, TEXTURE_MACHINE_PANEL,
+    TEXTURE_MOLTEN_COPPER, TEXTURE_REFRACTORY, TEXTURE_SCREEN_MESH, TEXTURE_SLAG, TEXTURE_STONE,
+    TEXTURE_WOOD_END, TEXTURE_WOOD_SIDE, TEXTURE_WORKING_METAL,
 };
 
 const DEFAULT_TICKS_PER_SECOND: u16 = 20;
@@ -83,7 +90,7 @@ const DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED: u64 = 9_806_650;
 const DEFAULT_TICKS_PER_DAY: u64 = 24_000;
 const DEFAULT_DAYS_PER_MONTH: u16 = 8;
 const DEFAULT_MONTHS_PER_YEAR: u16 = 12;
-const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(21);
+const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(25);
 
 fn build_core_definitions() -> CoreDefinitions {
     CoreDefinitions::new(
@@ -110,6 +117,7 @@ pub fn build_registries() -> Registries {
             fluid: fluid::build_fluid_registry(),
             capabilities: capabilities::build_capability_registry(),
             crafting: crafting::build_crafting_registry(),
+            labor: labor::build_labor_registry(),
             equipment: equipment::build_equipment_registry(),
             structural: structural::build_structural_registry(),
             materials: materials::build_material_registry(),
@@ -270,6 +278,26 @@ mod tests {
                 Some(BLOCK_SLAG),
                 OBJECT_SLAG,
             ),
+            (
+                CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+                None,
+                OBJECT_STONE_LUMP,
+            ),
+            (
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                None,
+                OBJECT_STONE_TOOL,
+            ),
+            (
+                CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+                None,
+                OBJECT_STONE_FLYWHEEL,
+            ),
+            (
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                None,
+                OBJECT_WOOD_HANDLE,
+            ),
         ] {
             let binding = match textures.get_commodity_appearance(commodity) {
                 Some(binding) => binding,
@@ -303,6 +331,8 @@ mod tests {
             (EQUIPMENT_CASTING_MOLD, OBJECT_CASTING_MOLD),
             (EQUIPMENT_DRY_SCREEN, OBJECT_DRY_SCREEN),
             (EQUIPMENT_GRINDING_MILL, OBJECT_GRINDING_MILL),
+            (EQUIPMENT_STONE_PICK, OBJECT_STONE_PICK),
+            (EQUIPMENT_STONE_HAND_CRANK, OBJECT_STONE_HAND_CRANK),
         ] {
             let binding = match textures.get_equipment_appearance(equipment) {
                 Some(binding) => binding,
@@ -356,6 +386,7 @@ mod tests {
                 fluid: fluid::build_fluid_registry(),
                 capabilities,
                 crafting: crate::crafting::CraftingRegistry::new(std::iter::empty()),
+                labor: labor::empty_labor_registry(),
                 equipment: empty_equipment_registry(),
                 structural: structural::build_structural_registry(),
                 materials: materials::build_material_registry(),
@@ -455,6 +486,7 @@ mod tests {
                     fluid: fluid::build_fluid_registry(),
                     capabilities,
                     crafting: crate::crafting::CraftingRegistry::new(std::iter::empty()),
+                    labor: labor::empty_labor_registry(),
                     equipment: empty_equipment_registry(),
                     structural: structural::build_structural_registry(),
                     materials: materials::build_material_registry(),

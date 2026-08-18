@@ -7,8 +7,8 @@ use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::registry::Registries;
 
-use super::Vitality;
 use super::state::{PlayerSurvivalRecord, player_record};
+use super::{NUTRITION_PARTS_PER_MILLION, NutritionReserves, Vitality};
 
 /// Qualitative energy state derived from authored physiology thresholds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,6 +68,8 @@ pub struct SurvivalAssessment {
     metabolic_energy: Energy,
     hydration: Volume,
     vitality: Vitality,
+    nutrition: NutritionReserves,
+    diet_quality_ppm: u32,
     hunger: HungerState,
     hydration_state: HydrationState,
 }
@@ -86,6 +88,16 @@ impl SurvivalAssessment {
     #[must_use]
     pub const fn vitality(self) -> Vitality {
         self.vitality
+    }
+
+    #[must_use]
+    pub const fn nutrition(self) -> NutritionReserves {
+        self.nutrition
+    }
+
+    #[must_use]
+    pub const fn diet_quality_ppm(self) -> u32 {
+        self.diet_quality_ppm
     }
 
     #[must_use]
@@ -144,6 +156,7 @@ pub fn initialize_player_survival(
             physiology.maximum_metabolic_energy(),
             physiology.maximum_hydration(),
             Vitality::MAXIMUM,
+            NutritionReserves::FULL,
         ),
     );
     Ok(())
@@ -179,6 +192,8 @@ fn assess_record(registries: &Registries, player: PlayerSurvivalRecord) -> Survi
         metabolic_energy: player.metabolic_energy(),
         hydration: player.hydration(),
         vitality: player.vitality(),
+        nutrition: player.nutrition(),
+        diet_quality_ppm: player.nutrition().quality_ppm(),
         hunger,
         hydration_state,
     }
@@ -227,6 +242,9 @@ pub(crate) fn decide_survival_tick(
         .hydration()
         .checked_sub(hydration_loss)
         .unwrap_or(Volume::ZERO);
+    let nutrition_after = before
+        .nutrition()
+        .decay(physiology.nutrition().decay_ppm_per_tick());
     let mut vitality_loss = 0_u32;
     if energy_after.is_zero() {
         vitality_loss =
@@ -236,17 +254,36 @@ pub(crate) fn decide_survival_tick(
         vitality_loss =
             vitality_loss.saturating_add(physiology.dehydration_vitality_loss_ppm_per_tick());
     }
-    let vitality_after = Vitality::from_parts_per_million_unchecked(
+    let vitality_after_ppm = if vitality_loss > 0 {
         before
             .vitality()
             .parts_per_million()
-            .saturating_sub(vitality_loss),
-    );
+            .saturating_sub(vitality_loss)
+    } else if energy_after >= physiology.hungry_below()
+        && hydration_after >= physiology.thirsty_below()
+    {
+        let recovery = u64::from(physiology.nutrition().vitality_recovery_ppm_per_tick())
+            * u64::from(nutrition_after.quality_ppm())
+            / u64::from(NUTRITION_PARTS_PER_MILLION);
+        before
+            .vitality()
+            .parts_per_million()
+            .saturating_add(recovery as u32)
+            .min(Vitality::MAXIMUM.parts_per_million())
+    } else {
+        before.vitality().parts_per_million()
+    };
+    let vitality_after = Vitality::from_parts_per_million_unchecked(vitality_after_ppm);
     let expected_revision = state.survival().revision();
     let next_revision = expected_revision
         .checked_add(1)
         .ok_or(SurvivalTickError::RevisionExhausted)?;
-    let after = player_record(energy_after, hydration_after, vitality_after);
+    let after = player_record(
+        energy_after,
+        hydration_after,
+        vitality_after,
+        nutrition_after,
+    );
     Ok(Some(SurvivalTickPlan {
         expected_revision,
         next_revision,
@@ -325,5 +362,52 @@ mod tests {
         assert!(after.metabolic_energy() < before.metabolic_energy());
         assert!(after.hydration() < before.hydration());
         assert_eq!(after.vitality(), Vitality::MAXIMUM);
+        assert!(after.diet_quality_ppm() < before.diet_quality_ppm());
+    }
+
+    #[test]
+    fn balanced_recent_diet_recovers_vitality_faster_than_one_category() {
+        let registries = build_registries();
+        let mut balanced = AppState::new(WorldSeed::new(0x5100_0003));
+        initialize_player_survival(&registries, &mut balanced)
+            .unwrap_or_else(|error| panic!("balanced nutrition initialization failed: {error}"));
+        let expected_revision = balanced.survival().revision();
+        let next_revision = expected_revision + 1;
+        let physiology = registries.survival().physiology();
+        balanced.survival_state_mut().apply_player(
+            expected_revision,
+            next_revision,
+            player_record(
+                physiology.maximum_metabolic_energy(),
+                physiology.maximum_hydration(),
+                Vitality::from_parts_per_million_unchecked(500_000),
+                NutritionReserves::FULL,
+            ),
+        );
+        let mut one_category = balanced.clone();
+        let expected_revision = one_category.survival().revision();
+        one_category.survival_state_mut().apply_player(
+            expected_revision,
+            expected_revision + 1,
+            player_record(
+                physiology.maximum_metabolic_energy(),
+                physiology.maximum_hydration(),
+                Vitality::from_parts_per_million_unchecked(500_000),
+                NutritionReserves::from_parts_per_million(NUTRITION_PARTS_PER_MILLION, 0, 0),
+            ),
+        );
+
+        let balanced_plan = decide_survival_tick(&registries, &balanced, SurvivalExertion::REST)
+            .unwrap_or_else(|error| panic!("balanced nutrition tick failed: {error:?}"));
+        let one_category_plan =
+            decide_survival_tick(&registries, &one_category, SurvivalExertion::REST)
+                .unwrap_or_else(|error| panic!("single-category nutrition tick failed: {error:?}"));
+        let balanced_after = apply_survival_tick(&mut balanced, balanced_plan)
+            .unwrap_or_else(|| panic!("balanced nutrition player disappeared"));
+        let one_category_after = apply_survival_tick(&mut one_category, one_category_plan)
+            .unwrap_or_else(|| panic!("single-category nutrition player disappeared"));
+
+        assert!(balanced_after.vitality() > one_category_after.vitality());
+        assert!(balanced_after.diet_quality_ppm() > one_category_after.diet_quality_ppm());
     }
 }

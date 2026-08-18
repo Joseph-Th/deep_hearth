@@ -88,6 +88,24 @@ pub enum InventoryValidationError {
         earliest: SimulationTick,
         latest: SimulationTick,
     },
+    LotProvenanceInFuture {
+        lot: MaterialLotId,
+        latest: SimulationTick,
+        current: SimulationTick,
+    },
+    LotStorageTransitionBeforeCreation {
+        lot: MaterialLotId,
+        transition: SimulationTick,
+        created: SimulationTick,
+    },
+    LotStorageTransitionInFuture {
+        lot: MaterialLotId,
+        transition: SimulationTick,
+        current: SimulationTick,
+    },
+    LotStorageAgeOverflow {
+        lot: MaterialLotId,
+    },
     MissingLotOwner {
         lot: MaterialLotId,
         stockpile: StockpileId,
@@ -259,6 +277,44 @@ impl Display for InventoryValidationError {
                 earliest.value(),
                 latest.value()
             ),
+            Self::LotProvenanceInFuture {
+                lot,
+                latest,
+                current,
+            } => write!(
+                formatter,
+                "material lot {} provenance reaches tick {} after current tick {}",
+                lot.value(),
+                latest.value(),
+                current.value()
+            ),
+            Self::LotStorageTransitionBeforeCreation {
+                lot,
+                transition,
+                created,
+            } => write!(
+                formatter,
+                "material lot {} storage history transitions at tick {} before creation tick {}",
+                lot.value(),
+                transition.value(),
+                created.value()
+            ),
+            Self::LotStorageTransitionInFuture {
+                lot,
+                transition,
+                current,
+            } => write!(
+                formatter,
+                "material lot {} storage history transitions at tick {} after current tick {}",
+                lot.value(),
+                transition.value(),
+                current.value()
+            ),
+            Self::LotStorageAgeOverflow { lot } => write!(
+                formatter,
+                "material lot {} storage-age projection exceeds authoritative range",
+                lot.value()
+            ),
             Self::MissingLotOwner { lot, stockpile } => write!(
                 formatter,
                 "material lot {} references missing owner stockpile {}",
@@ -367,6 +423,7 @@ impl Error for InventoryValidationError {}
 pub(crate) fn validate_loaded_inventory(
     materials: &MaterialRegistry,
     state: &InventoryState,
+    current_tick: SimulationTick,
 ) -> Result<(), InventoryValidationError> {
     if state.next_stockpile_id == 0 {
         return Err(InventoryValidationError::ZeroNextStockpileId);
@@ -451,12 +508,46 @@ pub(crate) fn validate_loaded_inventory(
                 latest: lot.latest_created_at(),
             });
         }
+        if lot.latest_created_at() > current_tick {
+            return Err(InventoryValidationError::LotProvenanceInFuture {
+                lot: *key,
+                latest: lot.latest_created_at(),
+                current: current_tick,
+            });
+        }
         let Some(owner) = state.stockpiles.get(&lot.stockpile) else {
             return Err(InventoryValidationError::MissingLotOwner {
                 lot: *key,
                 stockpile: lot.stockpile,
             });
         };
+        let transition = lot.storage_history().last_transition_at();
+        if transition < lot.created_at() {
+            return Err(
+                InventoryValidationError::LotStorageTransitionBeforeCreation {
+                    lot: *key,
+                    transition,
+                    created: lot.created_at(),
+                },
+            );
+        }
+        if transition > current_tick {
+            return Err(InventoryValidationError::LotStorageTransitionInFuture {
+                lot: *key,
+                transition,
+                current: current_tick,
+            });
+        }
+        if lot
+            .storage_history()
+            .project(
+                current_tick,
+                owner.storage_profile().preservation_multiplier_ppm(),
+            )
+            .is_none()
+        {
+            return Err(InventoryValidationError::LotStorageAgeOverflow { lot: *key });
+        }
         let form_id = lot.commodity().form();
         let Some(form) = materials.get_form(form_id) else {
             return Err(InventoryValidationError::UnknownLotForm {

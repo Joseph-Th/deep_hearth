@@ -42,7 +42,12 @@
   revision-bound atomic transfers between distinct stockpiles, deterministic splitting,
   compatible-fragment coalescing, and a persisted material-containment envelope for accepted
   solid/liquid phases, maximum temperature, and an explicit preservation multiplier used by
-  perishable content.
+  perishable content. Material lots also retain compact ambient-equivalent storage exposure and the
+  last storage-transition tick. Relocation accrues exposure under the source profile before switching
+  storage, so better preservation slows only future spoilage instead of rewriting prior age. Partial
+  compatible fragments coalesce conservatively at the older represented exposure, preventing
+  splitting/merging from manufacturing freshness. Exhaustive load validation rejects future storage
+  transitions or unrepresentable exposure projections.
   Stockpile allocation requires that containment envelope explicitly; there is no compatibility
   allocator that silently chooses one. Every deposit, ingress, transfer, future production output,
   and exhaustive save audit rechecks phase and temperature compatibility.
@@ -86,6 +91,11 @@
   persists the exact consumed material/provenance traces for assemblable equipment and exhaustive load
   validation reconciles those traces against the authored multi-input assembly profile. The stone pick
   provides condition-sensitive mining throughput, maximum batch mass, and maximum material hardness.
+  Processed copper now feeds back into that gathering loop without pretending forging exists: an 800 mg
+  knapped stone head, 200 mg wood handle, and 20 mg copper ingot assemble into a 1,020 mg
+  copper-reinforced stone pick. It raises pristine mining flow from 20 to 30 mg/s, maximum batch mass
+  from 200 to 300 mg, and maximum material hardness from 500 to 750 MPa while retaining normal
+  condition-sensitive degradation and exact embodied-material provenance.
 - Persistent geological knowledge is separate from authoritative deposit truth. Prospecting
   observations own stable IDs, spatial footprints, evidence provenance, bounded material-abundance
   estimates, observation time, a revision, and a synchronized material-to-observation index.
@@ -111,22 +121,55 @@
   40 active ticks; clay forming converts 1,000 mg of clay lump into 1,000 mg of unfired pottery over
   80 active ticks. Manual work requires a living initialized player, preserves input temperature and
   pure material identity, consumes no invented machine resource, and is independently replay-audited
-  on load so forged duration or output snapshots are rejected.
-- Persistent exclusive player work now prevents simultaneous manual crafting and mining. Active work
-  is referenced by typed durable job identity rather than a parallel countdown. The canonical tick
-  derives incremental authored exertion from that active work and adds it to basal metabolism, so
-  mining costs more metabolic energy and hydration per tick than idling while still using the single
-  survival owner. Work ownership is validated exhaustively against the referenced production/mining
-  job on load.
+  on load so forged duration or output snapshots are rejected. Fixed manual recipes can now be
+  requested as an integral repeated batch. Every authored input and output mass and the active
+  duration scale exactly with the requested count while one player-work job owns the whole run, so
+  batching removes repeated command entry without discounting matter, time, or survival exertion.
+  Persistence infers and replays that count from conserved input mass rather than storing a second
+  source of truth. Built-in shaping now also turns a 1,000 mg stone lump into a 900 mg flywheel plus
+  100 mg chips over 60 active ticks for the primitive power chain.
+- Persistent exclusive player work now prevents simultaneous manual crafting, mining, and direct
+  player-powered generation. Crafting/mining work references its authoritative job owner; direct
+  power owns one durable method/equipment/destination/schedule record because no second process job
+  exists for that hand operation. The canonical tick derives incremental authored exertion from the
+  active work and adds it to basal metabolism. Player-powered generation also binds a real equipment
+  provider, condition-sensitive Power capability, finite compatible energy destination, destination
+  input-power envelope, authored metabolic-efficiency ceiling, and active-tick equipment wear. Exact
+  mechanical energy enters the store only when the work completes. Admission binds the survival
+  revision and requires enough current metabolic-energy and hydration reserve to fund the entire
+  scheduled interval including basal upkeep, so survival's zero-floor cannot turn exhaustion into
+  free mechanical work. Persistence independently reconstructs the remaining resource budget,
+  required duration, and wear result, while production starts, energy transfers,
+  repairs, support moves, and generic condition changes recheck this occupancy at commit so stale
+  tokens cannot mutate resources after the player begins cranking.
+- The built-in primitive mechanical bridge is concrete: a 900 mg shaped stone flywheel plus a 200 mg
+  wood handle assemble into a 1,100 mg stone hand crank. Its direct-power method can charge the small
+  mechanical drive, which is now explicitly bidirectional at 10 microwatts input/output instead of a
+  source-only bootstrap store. A second 20 mg copper ingot can instead reinforce the same flywheel and
+  handle into a 1,120 mg crank with 20 microwatts pristine output. The small drive still bottlenecks
+  that crank to 10 microwatts, while the upgraded mechanical drive is now bidirectional at 200
+  microwatts and can accept its full output. Copper therefore creates a real early allocation choice
+  between better extraction and faster manual charging, while component envelopes still determine
+  throughput. The hand crank remains deliberately limited player labor rather than a substitute for
+  future shafts, belts, wind/water machines, animal power, or engines.
 - Persistent player survival has explicit admission, owner revision, metabolic-energy reserve,
-  hydration reserve, normalized vitality, hunger/thirst assessments, deterministic basal depletion,
-  and starvation/dehydration vitality loss in the canonical tick pipeline. Survival remains absent
-  from bootstrap states until initialized, so non-player simulations do not acquire hidden upkeep.
+  hydration reserve, normalized vitality, recent Grain/Fruit/Protein nutrition reserves,
+  hunger/thirst assessments, deterministic basal depletion, and starvation/dehydration vitality loss
+  in the canonical tick pipeline. Nutrition decays gradually and its balanced average supports
+  vitality recovery only while the player remains fed and hydrated. This makes food variety a
+  resilience benefit instead of a hard punishment for eating one available staple. Survival remains
+  absent from bootstrap states until initialized, so non-player simulations do not acquire hidden
+  upkeep.
 - Grain, berries, and meat are authored edible commodities with dietary energy and finite shelf life;
-  stockpile preservation extends that shelf life explicitly. Eating transfers an exact fresh pure-food
-  lot selection out of inventory under inventory/structural/survival revision checks, while the
-  biological owner retains the consumed material mass in bounded per-material accounting rather than
-  deleting it. Spoiled matter remains physical inventory but is no longer edible.
+  stockpile preservation slows future spoilage explicitly while per-lot storage history preserves age
+  accumulated under earlier storage. Eating transfers an exact fresh pure-food
+  selection set out of one stockpile under inventory/structural/survival revision checks. One meal may
+  contain several food lots; selections are ordered deterministically, each portion is independently
+  checked for freshness and pure composition, and every consumed material is transferred into bounded
+  per-material biological accounting rather than deleted. Nutrition credit is apportioned among the
+  selected food categories from dietary energy actually absorbed, with deterministic integer
+  remainder handling, so input order cannot change the result and eating while already full cannot
+  manufacture nutritional benefit. Spoiled matter remains physical inventory but is no longer edible.
 - Water is an authored finite fluid identity and the survival registry marks it drinkable. Drinking
   uses a reusable exact fluid-egress transaction, rechecks supported-fluid structural load, and moves
   the withdrawn volume into bounded per-fluid biological ownership. World fluid-volume accounting
@@ -174,8 +217,9 @@
 - Persistent finite-energy stores with typed electrical/thermal/mechanical carriers, immutable
   capacity and independent input/output power envelopes, monotonic runtime IDs/revisions, exact
   consumed- and released-energy provenance, and registry-aware persistence validation. Public runtime
-  allocation creates empty stores only; arbitrary energy seeding remains test/bootstrap-only until a
-  conserved generation owner exists. Source-only, sink-only, and bidirectional stores are explicit.
+  allocation creates empty stores only; arbitrary energy seeding remains test/bootstrap-only, while
+  direct player-powered mechanical generation crosses its explicit labor/equipment boundary and
+  writes finite energy only at completion. Source-only, sink-only, and bidirectional stores are explicit.
   Active jobs reserve every participating source or sink exclusively through a synchronized
   `EnergyStoreId`-to-job occupancy index, replacing repeated active-job scans with deterministic keyed
   lookup while exhaustive load validation reconstructs and checks the index. Released process heat
@@ -390,6 +434,10 @@
   aggregate clasts; worn-metal scratches and rust; sooted brick inclusions; and beveled cutout mesh.
   The complete built-in indexed upload, including all six mip levels and palette lookup tables, stays
   within 16 KiB and below half the bytes of its equivalent deduplicated RGBA texel mip chain.
+  Primitive stone/wood forms and assembled equipment use that same binding path: stone lumps, worked
+  heads, chips, flywheels, wood handles/chips, the stone pick, and the stone hand crank all resolve
+  stable object appearances. Worked stone reuses an existing indexed crack pattern with a different
+  palette row so this content does not add another pattern layer to the baked texture array.
 - Renderer-neutral immutable WGSL registry with typed IDs, validated acyclic shared-library graphs,
   deterministic dependency assembly, dense startup program lookup, explicit render/compute entry
   points, fixed-function blend/depth/color-target requirements, portable workgroup limits, and
@@ -559,22 +607,23 @@
   tokens report an explicit stale revision when labor ownership changed after validation, including
   the case where intervening work has already finished, instead of misreporting the stale token as an
   active busy job.
-- `TESTING.md` and `.cargo/config.toml` expose maintained fast, soak, gameplay, shader, full, release,
-  lint, check, and documentation lanes. Long-horizon soaks are explicit ignored unit tests, so fast and
-  soak execution reuse one default-feature unit-test artifact instead of triggering separate feature
-  builds. The ordinary Clippy lane checks production library code only; `test-fast` then compiles and
-  executes the full default-feature unit-test target, avoiding an all-target Clippy build immediately
-  before the same large test target is compiled for execution. The all-target/all-feature Clippy lane
-  remains explicit hardening. Gameplay remains a dedicated feature-gated integration target so its
-  bootstrap-only state injection is absent from ordinary production builds. The required gameplay gate
-  uses deterministic maintained anchors, while replayable organic sampling is an explicit ignored report
-  lane. The Naga parser dependency remains behind its own dedicated test feature. Pull-request CI uses
-  one unit-tested fail-safe preflight classifier, then runs only relevant format/lint, combined
-  core/soak, gameplay, and shader jobs in parallel. Irrelevant PR jobs are skipped before runner
-  allocation or checkout, and core plus gameplay target caches cross-restore common
-  dependency/incremental artifacts. Pushes to `main` bypass preflight and start every lane directly as
-  the post-merge backstop. Test binaries and one-shot validation binaries omit debug symbols to reduce
-  codegen/link time without changing ordinary dev-profile debugging behavior.
+- `TESTING.md`, `.cargo/config.toml`, and the repository-local `ci.py` expose maintained fast, soak,
+  gameplay, shader, full, hardening, release, lint, check, and documentation lanes without hosted CI.
+  Long-horizon soaks are explicit ignored unit tests, so fast and soak execution reuse one
+  default-feature unit-test artifact. `test-all` now runs ordinary plus ignored core tests in that same
+  artifact instead of paying for an all-feature rebuild; the all-feature inventory remains an explicit
+  hardening lane. The ordinary Clippy lane checks production library code only before normal tests
+  compile the test target. `ci.py` keeps the solo-developer gate concise by capturing successful Cargo
+  noise, printing one timed status line per stage, surfacing native output only on failure, and requiring
+  explicit scope flags rather than brittle changed-file inference. A library-only `check-fast` alias
+  provides intermediate compile/type feedback without linking the monolithic unit-test harness.
+  Gameplay remains one dedicated feature-gated integration target, but its maintained scenario matrix,
+  ore-preparation probe, and foundry probe have direct aliases so one failing concern can be rerun
+  without repeating the others. Replayable organic sampling remains an explicit ignored report lane,
+  and the Naga parser
+  dependency remains behind its dedicated validation feature. Test binaries and one-shot validation
+  binaries omit debug symbols to reduce codegen/link time without changing ordinary dev-profile
+  debugging behavior. GitHub Actions and hosted runners are not part of the verification contract.
 - Current default validation keeps `cargo check` silent and Clippy warnings denied.
 - Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
   as variants evolve instead of relying on review to catch silent fallback behavior.
@@ -602,12 +651,13 @@
   alloy/solution phase diagrams, combustion, fuel networks, and emissions. Pure-material solid/liquid
   fusion and finite explicit thermal sinks are modeled; an implicit environment is deliberately not
   used as an infinite heat source or sink.
-- Broader equipment/tool/worker content beyond the canonical stone pick, crusher, grinding mill, dry
-  screen, furnace, and casting mold; richer voxel/container equipment placement beyond a structural support
+- Broader equipment/tool/worker content beyond the canonical stone/copper-reinforced picks,
+  stone/copper-reinforced hand cranks, crusher, grinding mill, dry screen, furnace, and casting mold;
+  richer voxel/container equipment placement beyond a structural support
   owner; repair tools/labor/duration/access, richer spare-part suitability, replacement and waste
   transformations, discrete capability-disable policies, and broader authored maintenance/degradation
-  profiles. The stone pick is a real composite equipment provider assembled from conserved knapped
-  stone and shaped wood traces. The jaw crusher has a real replacement-stock maintenance resolver,
+  profiles. The primitive and copper-reinforced tools are real composite equipment providers assembled
+  from conserved material traces. The jaw crusher has a real replacement-stock maintenance resolver,
   but that narrow service does not pretend unresolved repair tooling, labor, time, or chemistry already exist.
 - Richer physical construction and demolition resolution: member orientation/end geometry,
   joints/connections, cutting and placement waste, tools, labor, duration, salvage fractions, debris

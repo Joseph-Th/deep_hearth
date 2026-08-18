@@ -22,6 +22,7 @@ pub const PROCESS_FINE_GRIND_SCREEN_OVERSIZE: ProcessId = ProcessId::new(6);
 pub const PROCESS_KNAP_STONE_TOOL: ProcessId = ProcessId::new(7);
 pub const PROCESS_FORM_CLAY_VESSEL: ProcessId = ProcessId::new(8);
 pub const PROCESS_SHAPE_WOOD_HANDLE: ProcessId = ProcessId::new(9);
+pub const PROCESS_SHAPE_STONE_FLYWHEEL: ProcessId = ProcessId::new(10);
 
 pub(crate) fn build_production_registry() -> ProductionRegistry {
     let mut registry = ProductionRegistry::new();
@@ -155,6 +156,15 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
             "form clay vessel",
             vec![MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
+                Mass::from_milligrams(1_000),
+            )],
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_SHAPE_STONE_FLYWHEEL,
+            "shape stone flywheel",
+            vec![MaterialInputSpec::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
                 Mass::from_milligrams(1_000),
             )],
             Vec::new(),

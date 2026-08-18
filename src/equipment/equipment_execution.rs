@@ -130,6 +130,9 @@ pub enum EquipmentConditionPlanError {
         equipment: EquipmentId,
         job: MiningJobId,
     },
+    EquipmentBusyManualPower {
+        equipment: EquipmentId,
+    },
     RevisionExhausted,
 }
 
@@ -154,6 +157,11 @@ impl Display for EquipmentConditionPlanError {
                 "equipment {} is occupied by mining job {}",
                 equipment.value(),
                 job.value()
+            ),
+            Self::EquipmentBusyManualPower { equipment } => write!(
+                formatter,
+                "equipment {} is occupied by direct player-powered generation",
+                equipment.value()
             ),
             Self::RevisionExhausted => formatter.write_str("equipment revision space is exhausted"),
         }
@@ -180,6 +188,13 @@ fn decide_condition_change(
     }
     if let Some(job) = state.mining().get_equipment_occupant(equipment) {
         return Err(EquipmentConditionPlanError::EquipmentBusyMining { equipment, job });
+    }
+    if state
+        .player_work()
+        .get_manual_power_equipment_occupant(equipment)
+        .is_some()
+    {
+        return Err(EquipmentConditionPlanError::EquipmentBusyManualPower { equipment });
     }
     let next_revision = equipment_state
         .revision()
@@ -228,6 +243,9 @@ pub enum EquipmentConditionCommitError {
         equipment: EquipmentId,
         job: MiningJobId,
     },
+    EquipmentBusyManualPower {
+        equipment: EquipmentId,
+    },
 }
 
 impl Display for EquipmentConditionCommitError {
@@ -267,6 +285,11 @@ impl Display for EquipmentConditionCommitError {
                 equipment.value(),
                 job.value()
             ),
+            Self::EquipmentBusyManualPower { equipment } => write!(
+                formatter,
+                "equipment {} became occupied by direct player-powered generation before condition commit",
+                equipment.value()
+            ),
         }
     }
 }
@@ -296,6 +319,15 @@ pub fn apply_equipment_condition_plan(
         return Err(EquipmentConditionCommitError::EquipmentBusyMining {
             equipment: plan.equipment,
             job,
+        });
+    }
+    if state
+        .player_work()
+        .get_manual_power_equipment_occupant(plan.equipment)
+        .is_some()
+    {
+        return Err(EquipmentConditionCommitError::EquipmentBusyManualPower {
+            equipment: plan.equipment,
         });
     }
 

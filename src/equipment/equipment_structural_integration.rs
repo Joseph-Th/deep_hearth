@@ -50,6 +50,9 @@ pub enum EquipmentSupportError {
         equipment: EquipmentId,
         job: MiningJobId,
     },
+    EquipmentBusyManualPower {
+        equipment: EquipmentId,
+    },
     AggregateMassOverflow {
         element: StructuralElementId,
     },
@@ -113,6 +116,11 @@ impl Display for EquipmentSupportError {
                 equipment.value(),
                 job.value()
             ),
+            Self::EquipmentBusyManualPower { equipment } => write!(
+                formatter,
+                "equipment {} is occupied by direct player-powered generation and cannot be moved",
+                equipment.value()
+            ),
             Self::AggregateMassOverflow { element } => write!(
                 formatter,
                 "mounted equipment mass overflows aggregate accounting on structural element {}",
@@ -175,6 +183,9 @@ impl Error for EquipmentSupportError {
                 equipment: _equipment,
                 job: _job,
             } => None,
+            Self::EquipmentBusyManualPower {
+                equipment: _equipment,
+            } => None,
             Self::AggregateMassOverflow { element: _element }
             | Self::WeightForceOverflow { element: _element } => None,
             Self::ExistingEquipmentLoadMismatch {
@@ -210,6 +221,9 @@ pub enum EquipmentSupportCommitError {
     EquipmentBusyMining {
         equipment: EquipmentId,
         job: MiningJobId,
+    },
+    EquipmentBusyManualPower {
+        equipment: EquipmentId,
     },
     Structure(StructuralCommitError),
 }
@@ -254,6 +268,11 @@ impl Display for EquipmentSupportCommitError {
                 equipment.value(),
                 job.value()
             ),
+            Self::EquipmentBusyManualPower { equipment } => write!(
+                formatter,
+                "equipment {} became occupied by direct player-powered generation before support commit",
+                equipment.value()
+            ),
             Self::Structure(error) => {
                 write!(formatter, "structural support commit failed: {error}")
             }
@@ -285,6 +304,9 @@ impl Error for EquipmentSupportCommitError {
             Self::EquipmentBusyMining {
                 equipment: _equipment,
                 job: _job,
+            } => None,
+            Self::EquipmentBusyManualPower {
+                equipment: _equipment,
             } => None,
         }
     }
@@ -364,6 +386,15 @@ impl ValidatedEquipmentSupportChange {
             return Err(EquipmentSupportCommitError::EquipmentBusyMining {
                 equipment: self.equipment,
                 job,
+            });
+        }
+        if state
+            .player_work()
+            .get_manual_power_equipment_occupant(self.equipment)
+            .is_some()
+        {
+            return Err(EquipmentSupportCommitError::EquipmentBusyManualPower {
+                equipment: self.equipment,
             });
         }
         let Some(record) = state.equipment().get_equipment(self.equipment) else {
@@ -496,6 +527,13 @@ fn validate_not_busy(
     }
     if let Some(job) = state.mining().get_equipment_occupant(equipment) {
         return Err(EquipmentSupportError::EquipmentBusyMining { equipment, job });
+    }
+    if state
+        .player_work()
+        .get_manual_power_equipment_occupant(equipment)
+        .is_some()
+    {
+        return Err(EquipmentSupportError::EquipmentBusyManualPower { equipment });
     }
     Ok(())
 }

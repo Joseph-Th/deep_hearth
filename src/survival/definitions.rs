@@ -15,6 +15,46 @@ pub enum FoodCategory {
     Protein,
 }
 
+/// Authored rate at which recent dietary balance fades and can support vitality recovery.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NutritionDefinition {
+    decay_ppm_per_tick: u32,
+    vitality_recovery_ppm_per_tick: u32,
+}
+
+impl NutritionDefinition {
+    #[must_use]
+    pub fn new(decay_ppm_per_tick: u32, vitality_recovery_ppm_per_tick: u32) -> Self {
+        assert!(decay_ppm_per_tick > 0, "nutrition decay must be nonzero");
+        assert!(
+            decay_ppm_per_tick <= 1_000_000,
+            "nutrition decay cannot exceed the normalized reserve range"
+        );
+        assert!(
+            vitality_recovery_ppm_per_tick > 0,
+            "nutrition-supported vitality recovery must be nonzero"
+        );
+        assert!(
+            vitality_recovery_ppm_per_tick <= 1_000_000,
+            "nutrition-supported vitality recovery cannot exceed normalized vitality"
+        );
+        Self {
+            decay_ppm_per_tick,
+            vitality_recovery_ppm_per_tick,
+        }
+    }
+
+    #[must_use]
+    pub const fn decay_ppm_per_tick(self) -> u32 {
+        self.decay_ppm_per_tick
+    }
+
+    #[must_use]
+    pub const fn vitality_recovery_ppm_per_tick(self) -> u32 {
+        self.vitality_recovery_ppm_per_tick
+    }
+}
+
 /// Immutable physiology parameters for the player survival owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MetabolismDefinition {
@@ -79,6 +119,7 @@ impl HydrationDefinition {
 pub struct PhysiologyDefinition {
     metabolism: MetabolismDefinition,
     hydration: HydrationDefinition,
+    nutrition: NutritionDefinition,
     starvation_vitality_loss_ppm_per_tick: u32,
     dehydration_vitality_loss_ppm_per_tick: u32,
 }
@@ -88,6 +129,7 @@ impl PhysiologyDefinition {
     pub fn new(
         metabolism: MetabolismDefinition,
         hydration: HydrationDefinition,
+        nutrition: NutritionDefinition,
         starvation_vitality_loss_ppm_per_tick: u32,
         dehydration_vitality_loss_ppm_per_tick: u32,
     ) -> Self {
@@ -102,6 +144,7 @@ impl PhysiologyDefinition {
         Self {
             metabolism,
             hydration,
+            nutrition,
             starvation_vitality_loss_ppm_per_tick,
             dehydration_vitality_loss_ppm_per_tick,
         }
@@ -135,6 +178,11 @@ impl PhysiologyDefinition {
     #[must_use]
     pub const fn hydration_loss_per_tick(self) -> Volume {
         self.hydration.loss_per_tick
+    }
+
+    #[must_use]
+    pub const fn nutrition(self) -> NutritionDefinition {
+        self.nutrition
     }
 
     #[must_use]

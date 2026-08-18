@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 36;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 39;
 
 /// Borrowed versioned save payload suitable for any Serde encoding adapter.
 #[derive(Debug, Serialize)]
@@ -137,7 +137,8 @@ mod tests {
         make_test_registries_with_process, make_test_registries_with_sensible_heating,
     };
     use crate::core::quantity::{Area, Energy, Force, Mass, Power, Temperature};
-    use crate::core::time::WorldSeed;
+    use crate::core::state::apply_clock_advance;
+    use crate::core::time::{SimulationTick, WorldSeed};
     use crate::energy::{
         EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, EnergyValidationError,
         add_energy_store_with_initial_for_test,
@@ -194,6 +195,94 @@ mod tests {
             Energy::from_nanojoules(1_000_000),
             Power::from_microwatts(100_000),
         ))
+    }
+
+    #[test]
+    fn future_material_storage_transition_is_rejected_on_load() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5700_0028));
+        let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
+            .unwrap_or_else(|error| panic!("storage-history stockpile fixture failed: {error}"));
+        let lot = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            stockpile,
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            Mass::from_milligrams(1),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("storage-history lot fixture failed: {error}"));
+        let current = state.tick();
+        let future = SimulationTick::new(current.value() + 1);
+        let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| panic!("storage-history tamper serialization failed: {error}"));
+        encoded["state"]["systems"]["inventory"]["lots"][lot.value().to_string()]["storage_history"]
+            ["last_transition_at"] = serde_json::json!(future.value());
+        let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+            .unwrap_or_else(|error| panic!("storage-history tamper decode failed: {error}"));
+
+        assert_eq!(
+            decoded.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Inventory(
+                InventoryValidationError::LotStorageTransitionInFuture {
+                    lot,
+                    transition: future,
+                    current,
+                }
+            )))
+        );
+    }
+
+    #[test]
+    fn impossible_material_history_times_are_rejected_on_load() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5700_0029));
+        apply_clock_advance(&mut state, SimulationTick::new(2));
+        let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
+            .unwrap_or_else(|error| panic!("material-history stockpile fixture failed: {error}"));
+        let lot = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            stockpile,
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            Mass::from_milligrams(1),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("material-history lot fixture failed: {error}"));
+        let base = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| panic!("material-history serialization failed: {error}"));
+
+        let mut future_provenance = base.clone();
+        future_provenance["state"]["systems"]["inventory"]["lots"][lot.value().to_string()]["provenance"]
+            ["latest_created_at"] = serde_json::json!(3_u64);
+        let future_provenance: LoadedSaveEnvelope = serde_json::from_value(future_provenance)
+            .unwrap_or_else(|error| panic!("future provenance decode failed: {error}"));
+        assert_eq!(
+            future_provenance.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Inventory(
+                InventoryValidationError::LotProvenanceInFuture {
+                    lot,
+                    latest: SimulationTick::new(3),
+                    current: SimulationTick::new(2),
+                }
+            )))
+        );
+
+        let mut early_transition = base;
+        early_transition["state"]["systems"]["inventory"]["lots"][lot.value().to_string()]["storage_history"]
+            ["last_transition_at"] = serde_json::json!(1_u64);
+        let early_transition: LoadedSaveEnvelope = serde_json::from_value(early_transition)
+            .unwrap_or_else(|error| panic!("early storage-transition decode failed: {error}"));
+        assert_eq!(
+            early_transition.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Inventory(
+                InventoryValidationError::LotStorageTransitionBeforeCreation {
+                    lot,
+                    transition: SimulationTick::new(1),
+                    created: SimulationTick::new(2),
+                }
+            )))
+        );
     }
 
     #[test]

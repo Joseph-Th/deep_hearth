@@ -12,18 +12,20 @@ pub const ENERGY_THERMAL_SINK: EnergyStoreDefinitionId = EnergyStoreDefinitionId
 
 pub(crate) fn build_energy_registry() -> EnergyRegistry {
     EnergyRegistry::new([
-        EnergyStoreDefinition::new(
+        EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_MECHANICAL_SMALL_DRIVE,
             "small mechanical drive",
             EnergyCarrier::Mechanical,
             Energy::from_nanojoules(1_000_000),
             Power::from_microwatts(10),
+            Power::from_microwatts(10),
         ),
-        EnergyStoreDefinition::new(
+        EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_MECHANICAL_LARGE_DRIVE,
             "upgraded mechanical drive",
             EnergyCarrier::Mechanical,
             Energy::from_nanojoules(1_000_000),
+            Power::from_microwatts(200),
             Power::from_microwatts(200),
         ),
         EnergyStoreDefinition::new(

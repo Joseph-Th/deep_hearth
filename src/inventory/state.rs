@@ -16,8 +16,8 @@ use crate::structural::StructuralElementId;
 mod lot_mutation;
 
 pub(super) use lot_mutation::{
-    LotSlice, apply_aggregate_deposit, apply_aggregate_withdraw, apply_consume_lot_slice,
-    apply_insert_or_merge_new_lot, apply_move_full_lot, apply_split_lot,
+    LotSlice, LotStorageTransition, apply_aggregate_deposit, apply_aggregate_withdraw,
+    apply_consume_lot_slice, apply_insert_or_merge_new_lot, apply_move_full_lot, apply_split_lot,
     get_stockpile_mut_or_panic,
 };
 
@@ -155,6 +155,70 @@ impl Display for StockpileStorageProfileError {
 
 impl Error for StockpileStorageProfileError {}
 
+pub(crate) const STORAGE_AGE_PARTS_PER_TICK: u128 = 1_000_000;
+
+/// Ambient-equivalent storage age retained across stockpile moves.
+///
+/// `ambient_age_parts` records exposure accumulated before `last_transition_at`; the current
+/// stockpile's preservation multiplier determines the rate after that tick. One ambient tick equals
+/// `STORAGE_AGE_PARTS_PER_TICK` parts. This keeps preservation history independent from any one food
+/// definition while preventing later movement into better storage from retroactively improving prior
+/// exposure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct MaterialStorageHistory {
+    ambient_age_parts: u128,
+    last_transition_at: SimulationTick,
+}
+
+impl MaterialStorageHistory {
+    #[must_use]
+    pub(crate) const fn new(at: SimulationTick) -> Self {
+        Self {
+            ambient_age_parts: 0,
+            last_transition_at: at,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn last_transition_at(self) -> SimulationTick {
+        self.last_transition_at
+    }
+
+    pub(crate) fn project(
+        self,
+        at: SimulationTick,
+        preservation_multiplier_ppm: u32,
+    ) -> Option<u128> {
+        let elapsed = at.value().checked_sub(self.last_transition_at.value())?;
+        let numerator =
+            u128::from(elapsed) * STORAGE_AGE_PARTS_PER_TICK * STORAGE_AGE_PARTS_PER_TICK;
+        let increment = numerator.div_ceil(u128::from(preservation_multiplier_ppm));
+        self.ambient_age_parts.checked_add(increment)
+    }
+
+    pub(crate) fn rebase(
+        self,
+        at: SimulationTick,
+        preservation_multiplier_ppm: u32,
+    ) -> Option<Self> {
+        Some(Self {
+            ambient_age_parts: self.project(at, preservation_multiplier_ppm)?,
+            last_transition_at: at,
+        })
+    }
+
+    #[must_use]
+    pub(crate) const fn with_ambient_age_parts(
+        ambient_age_parts: u128,
+        at: SimulationTick,
+    ) -> Self {
+        Self {
+            ambient_age_parts,
+            last_transition_at: at,
+        }
+    }
+}
+
 /// Physical/provenance snapshot of one material slice consumed by an in-flight operation.
 ///
 /// Source lot identity is deliberately not retained: a fully consumed lot may cease to exist.
@@ -202,9 +266,9 @@ impl MaterialLotId {
 
 /// Runtime properties that determine whether two newly created lots are fungible.
 ///
-/// Every behaviorally meaningful per-lot property belongs here. Compaction compares this profile
-/// by value, so adding a future field such as freshness or treatment state automatically makes it
-/// part of lot fungibility.
+/// Physical properties that determine process interchangeability belong here. Historical state that
+/// can be merged conservatively, such as storage exposure, remains outside this profile so compatible
+/// fragments can coalesce without erasing the worst represented history.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MaterialLotProfile {
     pub(super) commodity: CommodityKey,
@@ -274,6 +338,7 @@ pub struct MaterialLotRecord {
     pub(super) mass: Mass,
     pub(super) profile: MaterialLotProfile,
     pub(super) provenance: MaterialLotProvenance,
+    pub(super) storage_history: MaterialStorageHistory,
 }
 
 impl MaterialLotRecord {
@@ -327,6 +392,10 @@ impl MaterialLotRecord {
     #[must_use]
     pub const fn latest_created_at(&self) -> SimulationTick {
         self.provenance.latest_created_at
+    }
+
+    pub(crate) const fn storage_history(&self) -> MaterialStorageHistory {
+        self.storage_history
     }
 }
 
