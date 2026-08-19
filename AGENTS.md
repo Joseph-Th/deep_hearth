@@ -1,35 +1,47 @@
 # Deep Hearth Agent Guide
 
-This file is the execution card for repository work. [ARCHITECTURE.md](ARCHITECTURE.md) owns engineering architecture and coding law, [TESTING.md](TESTING.md) owns tests and validation lanes, [STATUS.md](STATUS.md) owns implemented scope, [TECHNICAL_DESIGN.md](TECHNICAL_DESIGN.md) owns project-specific technical design, and [GAME_DESIGN.md](GAME_DESIGN.md) owns product intent.
+This is the repository execution card. The detailed authorities are:
 
-## Start here
+- [`ARCHITECTURE.md`](ARCHITECTURE.md): engineering architecture, ownership, APIs, naming, and code structure;
+- [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md): project-specific physical and subsystem contracts;
+- [`STATUS.md`](STATUS.md): implemented and unavailable capability;
+- [`GAME_DESIGN.md`](GAME_DESIGN.md): gameplay intent and progression;
+- [`TESTING.md`](TESTING.md): tests, gameplay harnesses, and local CI.
+
+## Start
 
 1. Read [`../AGENTS.md`](../AGENTS.md) and preserve unrelated working-tree state.
-2. Read [STATUS.md](STATUS.md) before assuming a capability exists.
-3. Identify the owning subsystem and canonical operation from the relevant source/module docs and [ARCHITECTURE.md](ARCHITECTURE.md).
-4. Read the owner implementation and adjacent tests before editing.
-5. Read [TECHNICAL_DESIGN.md](TECHNICAL_DESIGN.md) only when the change crosses its project-specific physical/technical design contracts.
-6. Use [TESTING.md](TESTING.md) for the narrowest exact test and the required specialized/completion lanes.
-7. Update the one document that owns any changed contract.
+2. Run `python ../tools/tasks.py list deep_hearth` and avoid overlapping claimed work.
+3. Use [`README.md`](README.md) for repository routing and [`STATUS.md`](STATUS.md) before assuming a
+   system exists.
+4. Read the owning source module and adjacent tests before editing.
+5. Read only the authority document that owns the contract you are changing.
+6. Iterate with the narrowest lane from [`TESTING.md`](TESTING.md).
 
-This project applies the Universal, Stateful Application, Deterministic System, and Automated Behavior Evaluation portfolio profiles. If current authorities, tests, and implementation conflict, reconcile the owner instead of choosing a convenient description.
+If implementation, tests, and documentation disagree, reconcile the authoritative owner. Do not choose
+a convenient description or preserve stale prose.
 
-## Project guardrails
+## Mandatory project rules
 
-- Registries own immutable definitions; `AppState` and subsystem state owners own generated mutable state; records own local runtime values; systems own validation, decisions, and consequential mutation.
-- Every consequential operation uses one canonical production path. Tests, importers, migrations, adapters, and administrative tools do not gain mutation shortcuts.
-- Multi-resource work validates before mutation and commits through a consumed validated token when staleness/atomicity require it. Read-heavy decisions use `decide_*` then `apply_*` in one pipeline.
-- Preserve typed identity, synchronized owner indexes, deterministic state-owned RNG, stable ordering/tie-breaking, checked physical quantities, and explicit top-level execution order.
-- Future-affecting generated state is serializable. Load/import validates references and complete invariants before trusted use.
-- Core systems perform no implicit IO. Recoverable external work crosses explicit adapter/durable-command boundaries.
-- Project-owned enums and closed record mappings are explicit; consequential fields remain private; new fallible operations use dedicated typed errors.
-- Delete replaced production paths. Do not add fake production callers, public test shims, broad warning suppressions, or compatibility scaffolding without an active contract.
-- Repository verification is local. Do not create or depend on GitHub Actions workflows or hosted runners.
+- Immutable definitions live in registries; generated mutable state lives in `AppState` and subsystem
+  state owners; systems own validation and consequential mutation.
+- Every consequential operation has one canonical production path. Tests, adapters, importers, and
+  tooling do not receive alternate mutation paths.
+- Fallible multi-owner work validates before mutation and uses consumed authorization tokens when
+  atomicity or staleness require them. Read-heavy decisions use explicit decide/apply boundaries.
+- Preserve typed identity, synchronized indexes, deterministic state-owned RNG, stable ordering,
+  checked physical quantities, and explicit top-level simulation order.
+- Matter, fluid, and modeled energy do not appear, disappear, or move without an implemented physical
+  owner and path.
+- Future-affecting state is serializable; load admission validates references and complete invariants.
+- Core systems perform no implicit IO. External effects stay behind explicit adapter boundaries.
+- Delete replaced production paths and stale documentation. Do not add compatibility scaffolding,
+  public test shims, fake callers, or broad warning suppressions without an active contract.
+- Repository verification is local. Do not create or depend on GitHub Actions or hosted CI.
 
-## Naming and module route
+## Finish
 
-Follow the naming/module conventions in [ARCHITECTURE.md](ARCHITECTURE.md). Every production source file has a concise `//!` ownership/purpose statement; multi-file subsystem names make execution, integration, loader, UI, and adapter roles discoverable.
-
-## Completion
-
-Run the narrowest qualified test while iterating, then the applicable lanes from [TESTING.md](TESTING.md). Before commit, confirm canonical ownership/mutation, deterministic ordering/RNG, persistence and invariant integration, explicit external effects, current documentation, removal of replaced paths, and a task-scoped diff.
+Run the narrowest relevant tests while editing, then the applicable completion lanes from
+[`TESTING.md`](TESTING.md). Review the task-scoped diff and update the single authority document that
+owns any changed contract. Documentation describes the current system and forward requirements; Git
+history owns the story of how it got there.

@@ -761,8 +761,8 @@ mod tests {
     use crate::core::state::validate_loaded_state;
     use crate::core::time::WorldSeed;
     use crate::inventory::{
-        TransferCommitError, TransferError, add_solid_stockpile_for_test, deposit_lot_for_test,
-        validate_transfer_bulk,
+        MaterialTransferCommitError, MaterialTransferError, add_solid_stockpile_for_test,
+        deposit_lot_for_test, validate_material_transfer_for_test,
     };
     use crate::material::{CommodityKey, MaterialInputSpec, MaterialLotSpec};
     use crate::production::{
@@ -1263,7 +1263,7 @@ mod tests {
         mount(&registries, &mut state, source, source_support);
         mount(&registries, &mut state, destination, destination_support);
 
-        let transfer = match validate_transfer_bulk(
+        let transfer = match validate_material_transfer_for_test(
             &registries,
             &state,
             source,
@@ -1329,7 +1329,7 @@ mod tests {
         );
         mount(&registries, &mut state, source, source_support);
         mount(&registries, &mut state, destination, destination_support);
-        let transfer = match validate_transfer_bulk(
+        let transfer = match validate_material_transfer_for_test(
             &registries,
             &state,
             source,
@@ -1365,7 +1365,7 @@ mod tests {
 
         assert!(matches!(
             transfer.commit(&mut state),
-            Err(TransferCommitError::Structure(
+            Err(MaterialTransferCommitError::Structure(
                 StructuralCommitError::StaleRevision {
                     expected: _expected,
                     actual: _actual,
@@ -1455,7 +1455,7 @@ mod tests {
         );
         mount(&registries, &mut state, source, support);
         mount(&registries, &mut state, destination, support);
-        let transfer = match validate_transfer_bulk(
+        let transfer = match validate_material_transfer_for_test(
             &registries,
             &state,
             source,
@@ -1491,7 +1491,7 @@ mod tests {
 
         assert!(matches!(
             transfer.commit(&mut state),
-            Err(TransferCommitError::Structure(
+            Err(MaterialTransferCommitError::Structure(
                 StructuralCommitError::StaleRevision {
                     expected: _expected,
                     actual: _actual,
@@ -1586,7 +1586,7 @@ mod tests {
         );
         let before_rejected_transfer = state.clone();
         assert!(matches!(
-            validate_transfer_bulk(
+            validate_material_transfer_for_test(
                 &registries,
                 &state,
                 source,
@@ -1594,7 +1594,7 @@ mod tests {
                 CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
                 Mass::from_milligrams(1),
             ),
-            Err(TransferError::StructuralLoad(
+            Err(MaterialTransferError::StructuralLoad(
                 StockpileStructuralLoadError::SupportNotActiveForIncrease {
                     stockpile: rejected_stockpile,
                     element,
@@ -1655,7 +1655,7 @@ mod tests {
             } else {
                 (right, left)
             };
-            let transfer = match validate_transfer_bulk(
+            let transfer = match validate_material_transfer_for_test(
                 &registries,
                 &state,
                 source,

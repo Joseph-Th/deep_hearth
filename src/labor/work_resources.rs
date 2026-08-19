@@ -10,20 +10,21 @@ pub(crate) enum PlayerWorkResourceBudgetError {
     HydrationOverflow,
 }
 
+/// Authoritative physiological cost projected for one player-owned work order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct PlayerWorkResourceBudget {
+pub struct PlayerWorkResourceBudget {
     metabolic_energy: Energy,
     hydration: Volume,
 }
 
 impl PlayerWorkResourceBudget {
     #[must_use]
-    pub(crate) const fn metabolic_energy(self) -> Energy {
+    pub const fn metabolic_energy(self) -> Energy {
         self.metabolic_energy
     }
 
     #[must_use]
-    pub(crate) const fn hydration(self) -> Volume {
+    pub const fn hydration(self) -> Volume {
         self.hydration
     }
 }

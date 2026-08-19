@@ -706,9 +706,60 @@ pub(crate) fn apply_material_egress(state: &mut InventoryState, egress: Validate
 
 impl Error for AddStockpileError {}
 
+/// Opaque authorization for one already physically resolved stockpile-to-stockpile movement.
+///
+/// Inventory validates and commits storage ownership but does not decide how matter travels through
+/// the world. Physical/logistics owners construct this token after resolving path, timing, and any
+/// transport-specific constraints; external callers cannot manufacture one directly.
+#[must_use]
+#[derive(Debug, PartialEq, Eq)]
+pub struct MaterialTransferResolution {
+    source: StockpileId,
+    destination: StockpileId,
+    commodity: CommodityKey,
+    mass: Mass,
+}
+
+impl MaterialTransferResolution {
+    #[cfg(any(test, feature = "test-gameplay"))]
+    pub(crate) const fn new(
+        source: StockpileId,
+        destination: StockpileId,
+        commodity: CommodityKey,
+        mass: Mass,
+    ) -> Self {
+        Self {
+            source,
+            destination,
+            commodity,
+            mass,
+        }
+    }
+
+    #[must_use]
+    pub const fn source(&self) -> StockpileId {
+        self.source
+    }
+
+    #[must_use]
+    pub const fn destination(&self) -> StockpileId {
+        self.destination
+    }
+
+    #[must_use]
+    pub const fn commodity(&self) -> CommodityKey {
+        self.commodity
+    }
+
+    #[must_use]
+    pub const fn mass(&self) -> Mass {
+        self.mass
+    }
+}
+
 /// Failure while validating an atomic stockpile-to-stockpile transfer.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TransferError {
+pub enum MaterialTransferError {
     UnknownStockpile {
         stockpile: StockpileId,
     },
@@ -743,7 +794,7 @@ pub enum TransferError {
     StructuralLoad(StockpileStructuralLoadError),
 }
 
-impl Display for TransferError {
+impl Display for MaterialTransferError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownStockpile { stockpile } => {
@@ -804,7 +855,7 @@ impl Display for TransferError {
     }
 }
 
-impl Error for TransferError {
+impl Error for MaterialTransferError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Storage(error) => Some(error),
@@ -841,12 +892,12 @@ impl Error for TransferError {
 
 /// Failure when a previously validated transfer is committed after inventory has changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TransferCommitError {
+pub enum MaterialTransferCommitError {
     StaleInventoryRevision { expected: u64, actual: u64 },
     Structure(StructuralCommitError),
 }
 
-impl Display for TransferCommitError {
+impl Display for MaterialTransferCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::StaleInventoryRevision { expected, actual } => write!(
@@ -861,7 +912,7 @@ impl Display for TransferCommitError {
     }
 }
 
-impl Error for TransferCommitError {
+impl Error for MaterialTransferCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
@@ -875,20 +926,20 @@ impl Error for TransferCommitError {
 
 /// Consumed proof that all preconditions for a two-stockpile transfer have been checked.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ValidatedTransferBulk {
+#[derive(Debug, PartialEq, Eq)]
+pub struct ValidatedMaterialTransfer {
     relocation: ValidatedMaterialRelocation,
 }
 
-impl ValidatedTransferBulk {
+impl ValidatedMaterialTransfer {
     /// Atomically commits this already validated transfer and consumes the proof token.
-    pub fn commit(self, state: &mut AppState) -> Result<(), TransferCommitError> {
+    pub fn commit(self, state: &mut AppState) -> Result<(), MaterialTransferCommitError> {
         self.relocation.commit(state).map_err(|error| match error {
             MaterialRelocationCommitError::StaleInventoryRevision { expected, actual } => {
-                TransferCommitError::StaleInventoryRevision { expected, actual }
+                MaterialTransferCommitError::StaleInventoryRevision { expected, actual }
             }
             MaterialRelocationCommitError::Structure(error) => {
-                TransferCommitError::Structure(error)
+                MaterialTransferCommitError::Structure(error)
             }
         })
     }
@@ -927,23 +978,28 @@ pub fn add_stockpile(
     Ok(id)
 }
 
-/// Validates a multi-record transfer without mutating either stockpile.
-pub fn validate_transfer_bulk(
+/// Validates one already physically resolved material transfer without mutating either stockpile.
+pub fn validate_material_transfer(
     registries: &Registries,
     state: &AppState,
-    source: StockpileId,
-    destination: StockpileId,
-    commodity: CommodityKey,
-    mass: Mass,
-) -> Result<ValidatedTransferBulk, TransferError> {
+    resolution: MaterialTransferResolution,
+) -> Result<ValidatedMaterialTransfer, MaterialTransferError> {
+    let MaterialTransferResolution {
+        source,
+        destination,
+        commodity,
+        mass,
+    } = resolution;
     validate_commodity_reference(registries, commodity).map_err(|error| match error {
         CommodityReferenceError::UnknownMaterial { material } => {
-            TransferError::UnknownMaterial { material }
+            MaterialTransferError::UnknownMaterial { material }
         }
-        CommodityReferenceError::UnknownForm { form } => TransferError::UnknownForm { form },
+        CommodityReferenceError::UnknownForm { form } => {
+            MaterialTransferError::UnknownForm { form }
+        }
     })?;
     if mass.is_zero() {
-        return Err(TransferError::ZeroMass);
+        return Err(MaterialTransferError::ZeroMass);
     }
     let input = MaterialInputSpec::new(commodity, mass);
     let selection = validate_consumption_selection(state.inventory(), source, &[input])
@@ -951,63 +1007,81 @@ pub fn validate_transfer_bulk(
     let relocation =
         validate_material_relocation_from_selection(registries, state, destination, selection)
             .map_err(map_transfer_relocation_error)?;
-    Ok(ValidatedTransferBulk { relocation })
+    Ok(ValidatedMaterialTransfer { relocation })
 }
 
-fn map_transfer_selection_error(error: ConsumptionSelectionError) -> TransferError {
+#[cfg(test)]
+pub(crate) fn validate_material_transfer_for_test(
+    registries: &Registries,
+    state: &AppState,
+    source: StockpileId,
+    destination: StockpileId,
+    commodity: CommodityKey,
+    mass: Mass,
+) -> Result<ValidatedMaterialTransfer, MaterialTransferError> {
+    validate_material_transfer(
+        registries,
+        state,
+        MaterialTransferResolution::new(source, destination, commodity, mass),
+    )
+}
+
+fn map_transfer_selection_error(error: ConsumptionSelectionError) -> MaterialTransferError {
     match error {
         ConsumptionSelectionError::UnknownStockpile { stockpile } => {
-            TransferError::UnknownStockpile { stockpile }
+            MaterialTransferError::UnknownStockpile { stockpile }
         }
         ConsumptionSelectionError::InsufficientMass {
             stockpile,
             commodity,
             available,
             requested,
-        } => TransferError::InsufficientMass {
+        } => MaterialTransferError::InsufficientMass {
             stockpile,
             commodity,
             available,
             requested,
         },
         ConsumptionSelectionError::MassOverflow { stockpile } => {
-            TransferError::MassOverflow { stockpile }
+            MaterialTransferError::MassOverflow { stockpile }
         }
     }
 }
 
-fn map_transfer_relocation_error(error: MaterialRelocationError) -> TransferError {
+fn map_transfer_relocation_error(error: MaterialRelocationError) -> MaterialTransferError {
     match error {
         MaterialRelocationError::StaleSelection { expected, actual } => {
             unreachable!(
-                "bulk transfer selection revision {expected} cannot become stale at revision {actual} between synchronous selection and relocation validation"
+                "material transfer selection revision {expected} cannot become stale at revision {actual} between synchronous selection and relocation validation"
             )
         }
         MaterialRelocationError::UnknownSource { stockpile }
         | MaterialRelocationError::UnknownDestination { stockpile } => {
-            TransferError::UnknownStockpile { stockpile }
+            MaterialTransferError::UnknownStockpile { stockpile }
         }
         MaterialRelocationError::SameStockpile { stockpile } => {
-            TransferError::SameStockpile { stockpile }
+            MaterialTransferError::SameStockpile { stockpile }
         }
-        MaterialRelocationError::DestinationStorage(error) => TransferError::Storage(error),
+        MaterialRelocationError::DestinationStorage(error) => MaterialTransferError::Storage(error),
         MaterialRelocationError::DestinationMassOverflow { stockpile } => {
-            TransferError::MassOverflow { stockpile }
+            MaterialTransferError::MassOverflow { stockpile }
         }
         MaterialRelocationError::DestinationCapacityExceeded {
             stockpile,
             capacity,
             committed,
             requested,
-        } => TransferError::CapacityExceeded {
+        } => MaterialTransferError::CapacityExceeded {
             stockpile,
             capacity,
             committed,
             requested,
         },
-        MaterialRelocationError::LotIdExhausted => TransferError::LotIdExhausted,
-        MaterialRelocationError::RevisionExhausted => TransferError::RevisionExhausted,
-        MaterialRelocationError::StructuralLoad(error) => TransferError::StructuralLoad(error),
+        MaterialRelocationError::LotIdExhausted => MaterialTransferError::LotIdExhausted,
+        MaterialRelocationError::RevisionExhausted => MaterialTransferError::RevisionExhausted,
+        MaterialRelocationError::StructuralLoad(error) => {
+            MaterialTransferError::StructuralLoad(error)
+        }
     }
 }
 
@@ -1298,7 +1372,7 @@ mod tests {
         let before = state.clone();
 
         assert_eq!(
-            validate_transfer_bulk(
+            validate_material_transfer_for_test(
                 &registries,
                 &state,
                 source,
@@ -1306,7 +1380,7 @@ mod tests {
                 CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
                 Mass::from_milligrams(5),
             ),
-            Err(TransferError::Storage(
+            Err(MaterialTransferError::Storage(
                 StockpileStorageError::PhaseNotAccepted {
                     stockpile: destination,
                     phase: MaterialPhase::Liquid,
@@ -1339,7 +1413,7 @@ mod tests {
         }
         let before = state.clone();
 
-        let result = validate_transfer_bulk(
+        let result = validate_material_transfer_for_test(
             &registries,
             &state,
             source,
@@ -1350,7 +1424,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(TransferError::CapacityExceeded {
+            Err(MaterialTransferError::CapacityExceeded {
                 stockpile: _stockpile,
                 capacity: _capacity,
                 committed: _committed,
@@ -1380,7 +1454,7 @@ mod tests {
         let before = state.clone();
 
         assert_eq!(
-            validate_transfer_bulk(
+            validate_material_transfer_for_test(
                 &registries,
                 &state,
                 stockpile,
@@ -1388,7 +1462,7 @@ mod tests {
                 wood_log(),
                 Mass::from_milligrams(5),
             ),
-            Err(TransferError::SameStockpile { stockpile })
+            Err(MaterialTransferError::SameStockpile { stockpile })
         );
         assert_eq!(state, before);
     }
@@ -1416,7 +1490,7 @@ mod tests {
             panic!("fixture deposit failed: {error}");
         }
 
-        let token = match validate_transfer_bulk(
+        let token = match validate_material_transfer_for_test(
             &registries,
             &state,
             source,
@@ -1491,7 +1565,7 @@ mod tests {
             Err(error) => panic!("hot lot fixture failed: {error}"),
         };
 
-        let token = match validate_transfer_bulk(
+        let token = match validate_material_transfer_for_test(
             &registries,
             &state,
             source,
@@ -1571,7 +1645,7 @@ mod tests {
         ) {
             panic!("fixture deposit failed: {error}");
         }
-        let token = match validate_transfer_bulk(
+        let token = match validate_material_transfer_for_test(
             &registries,
             &state,
             source,
@@ -1591,7 +1665,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(TransferCommitError::StaleInventoryRevision {
+            Err(MaterialTransferCommitError::StaleInventoryRevision {
                 expected: _expected,
                 actual: _actual,
             })
@@ -1623,7 +1697,7 @@ mod tests {
         }
 
         for _ in 0..2 {
-            let token = match validate_transfer_bulk(
+            let token = match validate_material_transfer_for_test(
                 &registries,
                 &state,
                 source,
@@ -1694,7 +1768,7 @@ mod tests {
             Err(error) => panic!("composed lot fixture failed: {error}"),
         };
 
-        let token = match validate_transfer_bulk(
+        let token = match validate_material_transfer_for_test(
             &registries,
             &state,
             source,
@@ -1799,7 +1873,7 @@ mod tests {
             Mass::from_milligrams(4),
             Mass::from_milligrams(3),
         ] {
-            let token = validate_transfer_bulk(
+            let token = validate_material_transfer_for_test(
                 &registries,
                 &state,
                 source,
@@ -1867,7 +1941,7 @@ mod tests {
             .total();
 
         assert_eq!(
-            validate_transfer_bulk(
+            validate_material_transfer_for_test(
                 &registries,
                 &state,
                 source,
@@ -1875,7 +1949,7 @@ mod tests {
                 wood_log(),
                 Mass::from_milligrams(11),
             ),
-            Err(TransferError::InsufficientMass {
+            Err(MaterialTransferError::InsufficientMass {
                 stockpile: source,
                 commodity: wood_log(),
                 available: Mass::from_milligrams(10),
@@ -1883,7 +1957,7 @@ mod tests {
             })
         );
         assert_eq!(
-            validate_transfer_bulk(
+            validate_material_transfer_for_test(
                 &registries,
                 &state,
                 source,
@@ -1891,7 +1965,7 @@ mod tests {
                 wood_log(),
                 Mass::from_milligrams(9),
             ),
-            Err(TransferError::CapacityExceeded {
+            Err(MaterialTransferError::CapacityExceeded {
                 stockpile: destination,
                 capacity: Mass::from_milligrams(5),
                 committed: Mass::ZERO,
@@ -1900,7 +1974,7 @@ mod tests {
         );
         assert_eq!(state, before, "failed validation must not mutate inventory");
 
-        let valid = validate_transfer_bulk(
+        let valid = validate_material_transfer_for_test(
             &registries,
             &state,
             source,
@@ -1915,7 +1989,7 @@ mod tests {
         assert!(
             matches!(
                 result,
-                Err(TransferCommitError::StaleInventoryRevision {
+                Err(MaterialTransferCommitError::StaleInventoryRevision {
                     expected: _expected,
                     actual: _actual,
                 })
@@ -2321,7 +2395,7 @@ mod tests {
 
             match choice {
                 0 => {
-                    if let Ok(validated) = validate_transfer_bulk(
+                    if let Ok(validated) = validate_material_transfer_for_test(
                         &registries,
                         &state,
                         source,

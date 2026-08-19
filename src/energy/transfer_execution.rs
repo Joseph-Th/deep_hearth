@@ -17,7 +17,7 @@ use super::{EnergyCarrier, EnergyStoreId, EnergyStoreRecord};
 /// teleportation or carrier conversion. Network topology, conversion losses, and generation remain
 /// separate physical-system responsibilities.
 #[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct EnergyTransferResolution {
     source: EnergyStoreId,
     destination: EnergyStoreId,
@@ -26,17 +26,17 @@ pub struct EnergyTransferResolution {
 
 impl EnergyTransferResolution {
     #[must_use]
-    pub const fn source(self) -> EnergyStoreId {
+    pub const fn source(&self) -> EnergyStoreId {
         self.source
     }
 
     #[must_use]
-    pub const fn destination(self) -> EnergyStoreId {
+    pub const fn destination(&self) -> EnergyStoreId {
         self.destination
     }
 
     #[must_use]
-    pub const fn energy(self) -> Energy {
+    pub const fn energy(&self) -> Energy {
         self.energy
     }
 }
@@ -230,7 +230,7 @@ impl Error for EnergyTransferError {}
 
 /// Consumed proof that one resolved energy relocation can commit against exact owner revisions.
 #[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedEnergyTransfer {
     expected_energy_revision: u64,
     next_energy_revision: u64,

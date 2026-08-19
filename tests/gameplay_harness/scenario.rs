@@ -11,7 +11,8 @@ use deep_hearth::structural::{
 };
 
 use super::report::{
-    MaintenancePreference, PowerPreference, ScenarioPolicyVariation, StructuralPreference,
+    EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioPolicyVariation,
+    StructuralPreference,
 };
 use super::seed::mix64;
 use super::{condition, nominal_equipment_mass_capability};
@@ -30,15 +31,18 @@ pub(super) struct ScenarioVariation {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ScenarioOreVariation {
     pub(super) ore_copper_ppm: u32,
-    pub(super) batch_mass: Mass,
-    pub(super) planned_batches: u8,
+    pub(super) nominal_batch_mass: Mass,
+    pub(super) order_mass: Mass,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ScenarioCrusherVariation {
     pub(super) initial_crusher_condition: Condition,
     pub(super) small_drive_batch_budget: u8,
+    pub(super) small_drive_partial_batch_ppm: u32,
     pub(super) large_drive_batch_budget: u8,
+    pub(super) large_drive_partial_batch_ppm: u32,
+    pub(super) maintenance_replacement_units: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,7 +57,6 @@ pub(super) struct ScenarioDeliveryVariation {
     pub(super) mass: Mass,
     pub(super) destination_is_compact: bool,
     pub(super) delivery_at_tick: u64,
-    pub(super) force_power_deadline: bool,
 }
 
 impl ScenarioVariation {
@@ -72,6 +75,10 @@ impl ScenarioVariation {
         let g = mix64(f);
         let h = mix64(g);
         let i = mix64(h);
+        let j = mix64(i);
+        let k = mix64(j);
+        let l = mix64(k);
+        let m = mix64(l);
         let crusher_definition = registries
             .equipment()
             .get_equipment(EQUIPMENT_JAW_CRUSHER)
@@ -91,8 +98,11 @@ impl ScenarioVariation {
             "canonical crusher batch limit must be nonzero"
         );
         let minimum_batch = maximum_batch.div_ceil(2);
-        let batch_mass = minimum_batch + c % (maximum_batch - minimum_batch + 1);
-        let planned_batches = 4 + (a % 3) as u8;
+        let nominal_batch_mass = minimum_batch + c % (maximum_batch - minimum_batch + 1);
+        let nominal_batch_count = 4 + (a % 4) as u8;
+        let order_mass = nominal_batch_mass
+            .checked_mul(u64::from(nominal_batch_count))
+            .unwrap_or_else(|| panic!("gameplay harness work-order mass overflowed"));
 
         let thresholds = crusher_definition.maintenance_thresholds();
         let initial_condition = match anchor_index.map(|index| index % 3) {
@@ -113,8 +123,27 @@ impl ScenarioVariation {
             None => 1 + (e % u64::from(CONDITION_PARTS_PER_MILLION)) as u32,
             Some(_) => unreachable!("anchor condition modulo is exhaustive"),
         };
-        let small_drive_batch_budget = planned_batches;
-        let large_drive_batch_budget = 1 + (h % 2) as u8;
+        let (
+            small_drive_batch_budget,
+            small_drive_partial_batch_ppm,
+            large_drive_batch_budget,
+            large_drive_partial_batch_ppm,
+            maintenance_replacement_units,
+        ) = if anchor_index.is_some() {
+            (nominal_batch_count, 0, 1 + (h % 2) as u8, 0, 1)
+        } else {
+            (
+                (h % (u64::from(nominal_batch_count) + 1)) as u8,
+                100_000 + (l % 800_001) as u32,
+                (j % 3) as u8,
+                if m.is_multiple_of(3) {
+                    0
+                } else {
+                    100_000 + (m % 800_001) as u32
+                },
+                (k % 3) as u8,
+            )
+        };
 
         let crusher_weight =
             calculate_weight_force_ceiling(crusher_definition.mass(), registries.core().gravity());
@@ -136,10 +165,11 @@ impl ScenarioVariation {
             calculate_weight_force_ceiling(reinforced_loaded_mass, registries.core().gravity()),
             reinforced_target_ppm,
         );
-        let delivery_mass = scale_mass(crusher_definition.mass(), 200_000 + (g % 1_400_001) as u32);
+        let delivery_mass = scale_mass(crusher_definition.mass(), 500_000 + (g % 2_500_001) as u32);
         let behavior_a = mix64(behavior_seed);
         let behavior_b = mix64(behavior_a);
         let behavior_c = mix64(behavior_b);
+        let behavior_d = mix64(behavior_c);
         let power_preference = match behavior_a % 2 {
             0 => PowerPreference::PreserveReserve,
             1 => PowerPreference::FinishSooner,
@@ -155,18 +185,26 @@ impl ScenarioVariation {
         } else {
             StructuralPreference::MoveOnlyForFailure
         };
+        let energy_recovery_preference = if behavior_d.is_multiple_of(2) {
+            EnergyRecoveryPreference::ProtectSurvival
+        } else {
+            EnergyRecoveryPreference::SpendSurvivalReserve
+        };
         Self {
             world_seed,
             behavior_seed,
             ore: ScenarioOreVariation {
                 ore_copper_ppm: 450_000 + (b % 300_001) as u32,
-                batch_mass: Mass::from_milligrams(batch_mass),
-                planned_batches,
+                nominal_batch_mass: Mass::from_milligrams(nominal_batch_mass),
+                order_mass: Mass::from_milligrams(order_mass),
             },
             crusher: ScenarioCrusherVariation {
                 initial_crusher_condition: condition(initial_condition),
                 small_drive_batch_budget,
+                small_drive_partial_batch_ppm,
                 large_drive_batch_budget,
+                large_drive_partial_batch_ppm,
+                maintenance_replacement_units,
             },
             structure: ScenarioStructureVariation {
                 compact_support_area: compact_area,
@@ -177,10 +215,10 @@ impl ScenarioVariation {
                 mass: delivery_mass,
                 destination_is_compact: i.is_multiple_of(2),
                 delivery_at_tick: 0,
-                force_power_deadline: anchor_index == Some(0),
             },
             policy: ScenarioPolicyVariation {
                 power_preference,
+                energy_recovery_preference,
                 maintenance_preference,
                 structural_preference,
             },

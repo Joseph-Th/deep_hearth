@@ -1021,7 +1021,7 @@ mod tests {
     };
     use crate::inventory::{
         StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile, deposit_lot_for_test,
-        validate_transfer_bulk,
+        validate_material_transfer_for_test,
     };
     use crate::matter::calculate_matter_accounting;
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -1354,7 +1354,7 @@ mod tests {
             })
         );
 
-        validate_transfer_bulk(
+        validate_material_transfer_for_test(
             &registries,
             &state,
             ambient,
@@ -1422,7 +1422,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("merge-age fresh berry fixture failed: {error}"));
         apply_clock_advance(&mut state, SimulationTick::new(72_000));
 
-        validate_transfer_bulk(
+        validate_material_transfer_for_test(
             &registries,
             &state,
             ambient,

@@ -27,7 +27,7 @@ use super::structural_execution::{
 /// There is no public constructor. At present the canonical transaction returns the member's exact
 /// embodied traces to inventory; tool/labor/time and non-identity salvage physics remain separate.
 #[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct StructuralDeconstructionResolution {
     element: StructuralElementId,
     destination: StockpileId,
@@ -35,12 +35,12 @@ pub struct StructuralDeconstructionResolution {
 
 impl StructuralDeconstructionResolution {
     #[must_use]
-    pub const fn element(self) -> StructuralElementId {
+    pub const fn element(&self) -> StructuralElementId {
         self.element
     }
 
     #[must_use]
-    pub const fn destination(self) -> StockpileId {
+    pub const fn destination(&self) -> StockpileId {
         self.destination
     }
 }
@@ -275,7 +275,7 @@ impl StructuralDeconstructionOutcome {
 
 /// Consumed proof that removing a member and transferring all its matter is currently valid.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedStructuralDeconstruction {
     removal: ValidatedStructuralRemovalWithLoads,
     ingress: ValidatedMaterialIngress,
@@ -641,8 +641,7 @@ mod tests {
             Ok(resolution) => resolution,
             Err(error) => panic!("multi-trace construction binding failed: {error:?}"),
         };
-        let construction = match validate_structural_construction(&registries, &state, &resolution)
-        {
+        let construction = match validate_structural_construction(&registries, &state, resolution) {
             Ok(token) => token,
             Err(error) => panic!("multi-trace construction validation failed: {error}"),
         };

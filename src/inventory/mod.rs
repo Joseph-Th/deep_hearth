@@ -36,8 +36,9 @@ pub use structural_integration::{
     validate_unmount_stockpile,
 };
 pub use transactions::{
-    AddStockpileError, TransferCommitError, TransferError, ValidatedTransferBulk, add_stockpile,
-    validate_transfer_bulk,
+    AddStockpileError, MaterialTransferCommitError, MaterialTransferError,
+    MaterialTransferResolution, ValidatedMaterialTransfer, add_stockpile,
+    validate_material_transfer,
 };
 
 pub(crate) use reserved_ingress::{
@@ -61,6 +62,9 @@ pub(crate) use transactions::{
     ValidatedMaterialReform, apply_material_egress, validate_material_egress_from_selection,
     validate_material_reform_from_selection,
 };
+
+#[cfg(test)]
+pub(crate) use transactions::validate_material_transfer_for_test;
 
 #[cfg(test)]
 pub(crate) use test_support::{

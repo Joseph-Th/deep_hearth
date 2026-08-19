@@ -139,7 +139,7 @@ pub fn resolve_structural_material_requirement(
 /// There is no public constructor. A resolver must decide the required batch from actual member
 /// geometry, joinery, wastage, tooling, and construction method before this transfer can occur.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct StructuralConstructionResolution {
     element: StructuralElementId,
     selection: crate::inventory::ConsumptionSelection,
@@ -439,7 +439,7 @@ impl Error for StructuralConstructionCommitError {
 
 /// Consumed proof that exact inventory matter can become one member's embodied matter atomically.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedStructuralConstruction {
     element: StructuralElementId,
     expected_structure_revision: u64,
@@ -515,7 +515,7 @@ impl ValidatedStructuralConstruction {
 pub fn validate_structural_construction(
     registries: &Registries,
     state: &AppState,
-    resolution: &StructuralConstructionResolution,
+    resolution: StructuralConstructionResolution,
 ) -> Result<ValidatedStructuralConstruction, StructuralConstructionError> {
     let element = resolution.element;
     let record = state
@@ -583,18 +583,17 @@ pub fn validate_structural_construction(
         });
     }
 
-    let egress =
-        validate_material_egress_from_selection(state.inventory(), resolution.selection.clone())
-            .map_err(|error| match error {
-                MaterialEgressError::StaleSelection { expected, actual } => {
-                    StructuralConstructionError::InventorySelectionStale { expected, actual }
-                }
-                MaterialEgressError::RevisionExhausted => {
-                    StructuralConstructionError::InventoryRevisionExhausted
-                }
-            })?;
-    debug_assert_eq!(egress.total_consumed(), required_mass);
     let source = resolution.selection.source();
+    let egress = validate_material_egress_from_selection(state.inventory(), resolution.selection)
+        .map_err(|error| match error {
+        MaterialEgressError::StaleSelection { expected, actual } => {
+            StructuralConstructionError::InventorySelectionStale { expected, actual }
+        }
+        MaterialEgressError::RevisionExhausted => {
+            StructuralConstructionError::InventoryRevisionExhausted
+        }
+    })?;
+    debug_assert_eq!(egress.total_consumed(), required_mass);
     let source_record = state.inventory().get_stockpile(source).ok_or(
         StructuralConstructionError::StructuralLoad(
             StockpileStructuralLoadError::UnknownStockpile { stockpile: source },
@@ -680,7 +679,7 @@ pub(crate) fn materialize_structural_element_for_test(
         Ok(resolution) => resolution,
         Err(error) => panic!("construction test material binding failed: {error:?}"),
     };
-    let token = match validate_structural_construction(registries, state, &resolution) {
+    let token = match validate_structural_construction(registries, state, resolution) {
         Ok(token) => token,
         Err(error) => panic!("construction test validation failed: {error}"),
     };
@@ -791,7 +790,7 @@ mod tests {
         let before = state.clone();
 
         assert_eq!(
-            validate_structural_construction(&registries, &state, &resolution),
+            validate_structural_construction(&registries, &state, resolution),
             Err(StructuralConstructionError::UnsupportedPhase {
                 element,
                 form: FORM_MOLTEN,
@@ -866,7 +865,7 @@ mod tests {
         let before = state.clone();
 
         assert_eq!(
-            validate_structural_construction(&registries, &state, &resolution),
+            validate_structural_construction(&registries, &state, resolution),
             Err(StructuralConstructionError::UnsupportedParticulateForm {
                 element,
                 form: FORM_CRUSHED,
@@ -986,7 +985,7 @@ mod tests {
                 Err(error) => panic!("quantity-mismatch binding failed: {error:?}"),
             };
             assert_eq!(
-                validate_structural_construction(&registries, &state, &resolution),
+                validate_structural_construction(&registries, &state, resolution),
                 Err(StructuralConstructionError::MaterialQuantityMismatch {
                     element,
                     required: Mass::from_milligrams(10),
@@ -1081,7 +1080,7 @@ mod tests {
             Ok(resolution) => resolution,
             Err(error) => panic!("construction binding failed: {error:?}"),
         };
-        let token = match validate_structural_construction(&registries, &state, &resolution) {
+        let token = match validate_structural_construction(&registries, &state, resolution) {
             Ok(token) => token,
             Err(error) => panic!("construction validation failed: {error}"),
         };
@@ -1150,7 +1149,7 @@ mod tests {
         };
         let before = state.clone();
         assert_eq!(
-            validate_structural_construction(&registries, &state, &resolution),
+            validate_structural_construction(&registries, &state, resolution),
             Err(StructuralConstructionError::MaterialMismatch {
                 element,
                 expected: MATERIAL_WOOD,
@@ -1199,7 +1198,7 @@ mod tests {
         };
         let before = state.clone();
         assert_eq!(
-            validate_structural_construction(&registries, &state, &resolution),
+            validate_structural_construction(&registries, &state, resolution),
             Err(StructuralConstructionError::UnsupportedComposition {
                 element,
                 material: MATERIAL_WOOD,
@@ -1236,7 +1235,7 @@ mod tests {
                 Err(error) => panic!("stale inventory construction binding failed: {error:?}"),
             };
         let stale_inventory =
-            match validate_structural_construction(&registries, &state, &inventory_resolution) {
+            match validate_structural_construction(&registries, &state, inventory_resolution) {
                 Ok(token) => token,
                 Err(error) => panic!("stale inventory construction validation failed: {error}"),
             };
@@ -1259,7 +1258,7 @@ mod tests {
                 Err(error) => panic!("stale structure construction binding failed: {error:?}"),
             };
         let stale_structure =
-            match validate_structural_construction(&registries, &state, &structure_resolution) {
+            match validate_structural_construction(&registries, &state, structure_resolution) {
                 Ok(token) => token,
                 Err(error) => panic!("stale structure construction validation failed: {error}"),
             };
@@ -1323,7 +1322,7 @@ mod tests {
                 Ok(resolution) => resolution,
                 Err(error) => panic!("construction soak binding failed at step {step}: {error:?}"),
             };
-            let token = match validate_structural_construction(&registries, &state, &construction) {
+            let token = match validate_structural_construction(&registries, &state, construction) {
                 Ok(token) => token,
                 Err(error) => {
                     panic!("construction soak validation failed at step {step}: {error}")

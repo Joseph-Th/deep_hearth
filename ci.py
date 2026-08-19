@@ -22,15 +22,15 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
     if args.preset == "hardening":
         return [
             ("format", ["cargo", "fmt", "--check"]),
-            ("clippy all", cargo("test-lint-all")),
             ("core + soak", cargo("test-all")),
-            ("gameplay selectors", [sys.executable, "tools/check_gameplay_aliases.py"]),
             ("gameplay", cargo("test-gameplay")),
+            ("gameplay aliases", [sys.executable, "tools/check_gameplay_aliases.py"]),
             ("shaders", cargo("test-shaders")),
             ("docs", cargo("test-doc")),
+            ("clippy all", cargo("test-lint-all")),
         ]
 
-    soak = args.soak or args.preset == "full"
+    soak = args.soak
     gameplay = args.gameplay or args.preset == "full"
     shaders = args.shaders
     docs = args.docs
@@ -42,19 +42,19 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
             cargo("test-all" if soak else "test-fast"),
         ),
     ]
-    if args.lint:
-        plan.append(("clippy", cargo("test-lint")))
     if gameplay:
-        plan.append(("gameplay selectors", [sys.executable, "tools/check_gameplay_aliases.py"]))
         plan.append(("gameplay", cargo("test-gameplay")))
+        plan.append(("gameplay aliases", [sys.executable, "tools/check_gameplay_aliases.py"]))
     if shaders:
         plan.append(("shaders", cargo("test-shaders")))
     if docs:
         plan.append(("docs", cargo("test-doc")))
+    if args.lint:
+        plan.append(("clippy", cargo("test-lint")))
     return plan
 
 
-def run_stage(index: int, total: int, label: str, command: list[str]) -> bool:
+def run_stage(index: int, total: int, label: str, command: list[str]) -> float | None:
     started = time.perf_counter()
     print(f"[{index}/{total}] {label} ... ", end="", flush=True)
     environment = os.environ.copy()
@@ -73,11 +73,11 @@ def run_stage(index: int, total: int, label: str, command: list[str]) -> bool:
         print(f"FAIL ({elapsed:.1f}s)")
         print(f"command: {' '.join(command)}", file=sys.stderr)
         print(f"unable to start command: {error}", file=sys.stderr)
-        return False
+        return None
     elapsed = time.perf_counter() - started
     if result.returncode == 0:
         print(f"PASS ({elapsed:.1f}s)")
-        return True
+        return elapsed
 
     print(f"FAIL ({elapsed:.1f}s)")
     print(f"command: {' '.join(command)}", file=sys.stderr)
@@ -85,7 +85,7 @@ def run_stage(index: int, total: int, label: str, command: list[str]) -> bool:
         print(result.stdout.rstrip(), file=sys.stderr)
     if result.stderr.strip():
         print(result.stderr.rstrip(), file=sys.stderr)
-    return False
+    return None
 
 
 def parse_args() -> argparse.Namespace:
@@ -97,7 +97,7 @@ def parse_args() -> argparse.Namespace:
         nargs="?",
         choices=("gate", "full", "hardening"),
         default="gate",
-        help="gate is the fast local correctness path; full adds soak and gameplay coverage",
+        help="gate is the fast local correctness path; full adds gameplay coverage",
     )
     parser.add_argument(
         "--lint",
@@ -125,15 +125,22 @@ def main() -> int:
         return 0
 
     started = time.perf_counter()
+    timings: list[tuple[str, float]] = []
     print(f"local-ci {args.preset}: {len(plan)} stage(s)")
     try:
         for index, (label, command) in enumerate(plan, start=1):
-            if not run_stage(index, len(plan), label, command):
+            elapsed = run_stage(index, len(plan), label, command)
+            if elapsed is None:
                 return 1
+            timings.append((label, elapsed))
     except KeyboardInterrupt:
         print("\nINTERRUPTED", file=sys.stderr)
         return 130
-    print(f"PASS total ({time.perf_counter() - started:.1f}s)")
+    total_elapsed = time.perf_counter() - started
+    slowest_label, slowest_elapsed = max(timings, key=lambda item: item[1])
+    print(
+        f"PASS total ({total_elapsed:.1f}s; slowest={slowest_label} {slowest_elapsed:.1f}s)"
+    )
     return 0
 
 

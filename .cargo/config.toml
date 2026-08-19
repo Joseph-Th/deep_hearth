@@ -1,8 +1,11 @@
 [alias]
-# Daily feedback stays on the default feature set so expensive harness/parser-only dependencies do
-# not enter ordinary edit-loop builds. Specialized lanes opt into those features explicitly.
+# Daily feedback stays on the smallest artifact that can catch the current class of mistake. The
+# compile-only aliases avoid codegen/linking while editing production tests or the gameplay harness;
+# behavior aliases pay that cost only when an executable assertion is ready to run.
 check-fast = "check --quiet --locked --lib"
-test-check = "check --locked --all-targets"
+check-tests = "check --quiet --locked --tests"
+check-gameplay = "check --quiet --locked --test gameplay_harness --features test-gameplay"
+check-all = "check --locked --all-targets"
 # The optional fast lint checkpoint checks production code only. Routine correctness feedback comes
 # from `test-fast` with Rust warnings denied package-wide; `test-lint-all` remains the explicit
 # all-target/all-feature Clippy audit for cross-cutting and release hardening.

@@ -21,8 +21,9 @@ use super::power_physics::{
     ManualPowerMetabolicDurationError, calculate_metabolic_duration, metabolic_output_per_tick,
 };
 use super::{
-    ManualPowerMethodId, ManualPowerWork, PlayerWork, PlayerWorkCommitError, PlayerWorkStartError,
-    ValidatedPlayerWorkStart, validate_player_work_start,
+    ManualPowerMethodId, ManualPowerWork, PlayerWork, PlayerWorkCommitError,
+    PlayerWorkResourceBudget, PlayerWorkStartError, ValidatedPlayerWorkStart,
+    validate_player_work_start,
 };
 
 /// Direct-labor request to place an exact quantity of generated work into one finite store.
@@ -312,6 +313,7 @@ impl Error for ManualPowerCommitError {
 pub struct ValidatedManualPowerStart {
     work_start: ValidatedPlayerWorkStart,
     work: ManualPowerWork,
+    resource_budget: PlayerWorkResourceBudget,
     expected_equipment_revision: u64,
     expected_energy_revision: u64,
     expected_structure_revision: Option<u64>,
@@ -321,6 +323,12 @@ impl ValidatedManualPowerStart {
     #[must_use]
     pub const fn work(&self) -> ManualPowerWork {
         self.work
+    }
+
+    /// Returns the authoritative survival reserve consumed if this work runs to completion.
+    #[must_use]
+    pub const fn resource_budget(&self) -> PlayerWorkResourceBudget {
+        self.resource_budget
     }
 
     pub fn commit(self, state: &mut AppState) -> Result<ManualPowerWork, ManualPowerCommitError> {
@@ -493,9 +501,11 @@ pub fn validate_start_manual_power(
         definition.exertion(),
     )
     .map_err(ManualPowerError::Work)?;
+    let resource_budget = work_start.resource_budget();
     Ok(ValidatedManualPowerStart {
         work_start,
         work,
+        resource_budget,
         expected_equipment_revision: equipment_use.expected_equipment_revision(),
         expected_energy_revision: state.energy().revision(),
         expected_structure_revision: equipment_use.expected_structure_revision(),
@@ -941,6 +951,9 @@ mod tests {
             ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested),
         )
         .unwrap_or_else(|error| panic!("manual power validation failed: {error}"));
+        let projected_resource_budget = token.resource_budget();
+        assert!(!projected_resource_budget.metabolic_energy().is_zero());
+        assert!(!projected_resource_budget.hydration().is_zero());
         let work = token.work();
         assert_eq!(work.completes_at().value() - work.started_at().value(), 10);
         token
@@ -1026,6 +1039,22 @@ mod tests {
                 ))
                 .metabolic_energy()
                 < survival_before.metabolic_energy()
+        );
+        let survival_after = assess_survival(&registries, &loaded)
+            .unwrap_or_else(|| panic!("manual power survival state disappeared after completion"));
+        assert_eq!(
+            survival_before
+                .metabolic_energy()
+                .checked_sub(survival_after.metabolic_energy()),
+            Some(projected_resource_budget.metabolic_energy()),
+            "manual-power admission must expose the exact metabolic reserve consumed by completion"
+        );
+        assert_eq!(
+            survival_before
+                .hydration()
+                .checked_sub(survival_after.hydration()),
+            Some(projected_resource_budget.hydration()),
+            "manual-power admission must expose the exact hydration reserve consumed by completion"
         );
         let generated_supply = validate_energy_supply(&registries, &loaded, drive, requested)
             .unwrap_or_else(|error| {

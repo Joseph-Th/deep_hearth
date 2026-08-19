@@ -37,7 +37,7 @@ use super::state::EquipmentId;
 /// Production callers cannot construct this directly. The maintenance resolver binds exact authored
 /// replacement material and resulting equipment condition before this transaction can be validated.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct EquipmentRepairResolution {
     equipment: EquipmentId,
     expected_equipment_revision: u64,
@@ -795,7 +795,7 @@ impl EquipmentRepairOutcome {
 
 /// Consumed proof that equipment and exact maintenance material can change atomically.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedEquipmentRepair {
     equipment: EquipmentId,
     condition_before: Condition,
@@ -1047,7 +1047,7 @@ mod tests {
     };
 
     #[cfg(feature = "test-soak")]
-    use crate::inventory::validate_transfer_bulk;
+    use crate::inventory::validate_material_transfer_for_test;
     use crate::inventory::{
         MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test,
         validate_mount_stockpile,
@@ -1983,7 +1983,7 @@ mod tests {
                 if let Err(error) = repair.commit(state) {
                     panic!("repair soak commit failed at {cycle}: {error}");
                 }
-                let return_material = match validate_transfer_bulk(
+                let return_material = match validate_material_transfer_for_test(
                     &registries,
                     state,
                     spent,

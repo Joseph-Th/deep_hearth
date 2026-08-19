@@ -244,7 +244,7 @@ mod tests {
 
     #[cfg(feature = "test-soak")]
     use crate::inventory::{
-        add_solid_stockpile_for_test, deposit_bulk_for_test, validate_transfer_bulk,
+        add_solid_stockpile_for_test, deposit_bulk_for_test, validate_material_transfer_for_test,
     };
 
     #[cfg(feature = "test-soak")]
@@ -476,7 +476,7 @@ mod tests {
         if available < Mass::from_milligrams(1) {
             return;
         }
-        let token = match validate_transfer_bulk(
+        let token = match validate_material_transfer_for_test(
             registries,
             state,
             processing,

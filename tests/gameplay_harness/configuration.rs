@@ -3,11 +3,11 @@
 use super::seed::mix64;
 
 const ANCHOR_WORLD_SEEDS: [u64; 5] = [1, 4, 9, 19, 380];
-const GATE_ORGANIC_SCENARIO_COUNT: usize = 2;
-const EXPLORATORY_ORGANIC_SCENARIO_COUNT: usize = 4;
+const GATE_VARIATION_SCENARIO_COUNT: usize = 2;
+const EXPLORATORY_VARIATION_SCENARIO_COUNT: usize = 4;
 const SEED_STRIDE: u64 = 0xD1B5_4A32_D192_ED03;
 
-pub(super) const MAINTAINED_EXPLORATORY_WORLD_ROOT: u64 = 0xE7A1_0A7E_5EED_2026;
+pub(super) const MAINTAINED_VARIATION_ROOT: u64 = 0xE7A1_0A7E_5EED_2026;
 pub(super) const MAINTAINED_BEHAVIOR_ROOT: u64 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,14 +38,14 @@ pub(super) enum GameplayHarnessConfigError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ScenarioSeedSource {
-    AnchorOrganic,
+    AnchorVariation,
     Custom,
 }
 
 impl ScenarioSeedSource {
     const fn label(self) -> &'static str {
         match self {
-            Self::AnchorOrganic => "anchor+organic",
+            Self::AnchorVariation => "anchor+variation",
             Self::Custom => "custom",
         }
     }
@@ -79,10 +79,10 @@ impl ScenarioSeedPlan {
         self.anchor_seed_count
     }
 
-    pub(super) fn organic_seed_count(&self) -> usize {
+    pub(super) fn variation_seed_count(&self) -> usize {
         match self.source {
             ScenarioSeedSource::Custom => 0,
-            ScenarioSeedSource::AnchorOrganic => {
+            ScenarioSeedSource::AnchorVariation => {
                 self.cases.len().saturating_sub(self.anchor_seed_count)
             }
         }
@@ -90,7 +90,7 @@ impl ScenarioSeedPlan {
 
     pub(super) fn custom_seed_count(&self) -> usize {
         match self.source {
-            ScenarioSeedSource::AnchorOrganic => 0,
+            ScenarioSeedSource::AnchorVariation => 0,
             ScenarioSeedSource::Custom => self.cases.len(),
         }
     }
@@ -146,7 +146,7 @@ fn resolve_behavior_seed(
     }
 }
 
-fn append_organic_seeds(seeds: &mut Vec<u64>, root: u64, count: usize) {
+fn append_variation_seeds(seeds: &mut Vec<u64>, root: u64, count: usize) {
     let mut candidate = root;
     for index in 0..count {
         candidate = mix64(candidate ^ (index as u64 + 1).wrapping_mul(SEED_STRIDE));
@@ -185,10 +185,10 @@ pub(super) fn scenario_seeds_from(
     scenario_raw: Option<&str>,
     variation_raw: Option<&str>,
     behavior_raw: Option<&str>,
-    default_variation_seed: u64,
-    default_behavior_seed: u64,
+    exploration_variation_seed: u64,
+    exploration_behavior_seed: u64,
 ) -> Result<ScenarioSeedPlan, GameplayHarnessConfigError> {
-    let behavior_seed_root = resolve_behavior_seed(behavior_raw, default_behavior_seed)?;
+    let behavior_seed_root = resolve_behavior_seed(behavior_raw, exploration_behavior_seed)?;
 
     if let Some(raw) = scenario_raw {
         let world_seeds = parse_scenario_seed_list(raw)?;
@@ -202,14 +202,14 @@ pub(super) fn scenario_seeds_from(
     }
 
     let mut world_seeds = ANCHOR_WORLD_SEEDS.to_vec();
-    let variation_seed = resolve_variation_seed(variation_raw, default_variation_seed)?;
-    let organic_count = match mode {
-        ScenarioPlanMode::Gate => GATE_ORGANIC_SCENARIO_COUNT,
-        ScenarioPlanMode::Explore => EXPLORATORY_ORGANIC_SCENARIO_COUNT,
+    let variation_seed = resolve_variation_seed(variation_raw, exploration_variation_seed)?;
+    let variation_count = match mode {
+        ScenarioPlanMode::Gate => GATE_VARIATION_SCENARIO_COUNT,
+        ScenarioPlanMode::Explore => EXPLORATORY_VARIATION_SCENARIO_COUNT,
     };
-    append_organic_seeds(&mut world_seeds, variation_seed, organic_count);
+    append_variation_seeds(&mut world_seeds, variation_seed, variation_count);
     Ok(ScenarioSeedPlan {
-        source: ScenarioSeedSource::AnchorOrganic,
+        source: ScenarioSeedSource::AnchorVariation,
         cases: pair_worlds_with_behavior(world_seeds, ANCHOR_WORLD_SEEDS.len(), behavior_seed_root),
         anchor_seed_count: ANCHOR_WORLD_SEEDS.len(),
         variation_seed: Some(variation_seed),
@@ -217,28 +217,28 @@ pub(super) fn scenario_seeds_from(
     })
 }
 
-/// Resolves a focused probe into one maintained anchor plus one fresh organic sample by default.
+/// Resolves a focused probe into one maintained anchor plus one replayable generated variation.
 ///
 /// `DEEP_HEARTH_GAMEPLAY_SEEDS` remains the exact override for deliberate replay/sweeps. Otherwise
-/// the same physical variation root used by the scenario matrix deterministically derives the
-/// organic probe sample, with a probe-specific salt preventing different probes from collapsing to
-/// the same case.
+/// the caller supplies a fresh bounded variation root; a probe-specific salt prevents different probes
+/// from collapsing to the same case. Supplying `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` reproduces the
+/// generated case exactly.
 pub(super) fn focused_probe_seeds_from(
     scenario_raw: Option<&str>,
     variation_raw: Option<&str>,
-    default_variation_seed: u64,
     maintained_seed: u64,
     probe_salt: u64,
+    generated_variation_root: u64,
 ) -> Result<Vec<u64>, GameplayHarnessConfigError> {
     if let Some(raw) = scenario_raw {
         return parse_scenario_seed_list(raw);
     }
-    let root = resolve_variation_seed(variation_raw, default_variation_seed)?;
-    let mut organic = mix64(root ^ probe_salt);
-    while organic == maintained_seed {
-        organic = mix64(organic);
+    let root = resolve_variation_seed(variation_raw, generated_variation_root)?;
+    let mut variation = mix64(root ^ probe_salt);
+    while variation == maintained_seed {
+        variation = mix64(variation);
     }
-    Ok(vec![maintained_seed, organic])
+    Ok(vec![maintained_seed, variation])
 }
 
 #[cfg(test)]
@@ -256,7 +256,7 @@ mod tests {
             scenario_raw,
             variation_raw,
             behavior_raw,
-            MAINTAINED_EXPLORATORY_WORLD_ROOT,
+            MAINTAINED_VARIATION_ROOT,
             MAINTAINED_BEHAVIOR_ROOT,
         )
     }
@@ -310,7 +310,7 @@ mod tests {
         );
         assert_eq!(plan.source, ScenarioSeedSource::Custom);
         assert_eq!(plan.anchor_seed_count(), 0);
-        assert_eq!(plan.organic_seed_count(), 0);
+        assert_eq!(plan.variation_seed_count(), 0);
         assert_eq!(plan.custom_seed_count(), 3);
         assert_eq!(plan.variation_seed, None);
         assert_eq!(plan.behavior_seed_root, 0xBEEF);
@@ -322,11 +322,11 @@ mod tests {
     }
 
     #[test]
-    fn default_gate_keeps_maintained_anchors_and_adds_a_bounded_organic_sample() {
+    fn default_gate_keeps_maintained_anchors_and_adds_a_bounded_variation_sample() {
         let plan = plan(ScenarioPlanMode::Gate, None, None, None)
             .unwrap_or_else(|error| panic!("default gate seed plan failed: {error:?}"));
 
-        assert_eq!(plan.source, ScenarioSeedSource::AnchorOrganic);
+        assert_eq!(plan.source, ScenarioSeedSource::AnchorVariation);
         assert_eq!(
             plan.cases()
                 .iter()
@@ -336,9 +336,30 @@ mod tests {
             ANCHOR_WORLD_SEEDS
         );
         assert_eq!(plan.anchor_seed_count(), ANCHOR_WORLD_SEEDS.len());
-        assert_eq!(plan.organic_seed_count(), GATE_ORGANIC_SCENARIO_COUNT);
-        assert_eq!(plan.variation_seed, Some(MAINTAINED_EXPLORATORY_WORLD_ROOT));
+        assert_eq!(plan.variation_seed_count(), GATE_VARIATION_SCENARIO_COUNT);
+        assert_eq!(plan.variation_seed, Some(MAINTAINED_VARIATION_ROOT));
         assert_eq!(plan.behavior_seed_root, MAINTAINED_BEHAVIOR_ROOT);
+    }
+
+    #[test]
+    fn gate_keeps_anchors_stable_while_generated_cases_follow_session_roots() {
+        let first = scenario_seeds_from(ScenarioPlanMode::Gate, None, None, None, 0x1111, 0x2222)
+            .unwrap_or_else(|error| panic!("first gate-default plan failed: {error:?}"));
+        let second = scenario_seeds_from(ScenarioPlanMode::Gate, None, None, None, 0xAAAA, 0xBBBB)
+            .unwrap_or_else(|error| panic!("second gate-default plan failed: {error:?}"));
+
+        assert_eq!(
+            &first.cases()[..ANCHOR_WORLD_SEEDS.len()],
+            &second.cases()[..ANCHOR_WORLD_SEEDS.len()]
+        );
+        assert_ne!(
+            &first.cases()[ANCHOR_WORLD_SEEDS.len()..],
+            &second.cases()[ANCHOR_WORLD_SEEDS.len()..]
+        );
+        assert_eq!(first.variation_seed, Some(0x1111));
+        assert_eq!(first.behavior_seed_root, 0x2222);
+        assert_eq!(second.variation_seed, Some(0xAAAA));
+        assert_eq!(second.behavior_seed_root, 0xBBBB);
     }
 
     #[test]
@@ -349,17 +370,17 @@ mod tests {
             Some("0xBAD"),
             Some("0xCAFE"),
         )
-        .unwrap_or_else(|error| panic!("first organic seed plan failed: {error:?}"));
+        .unwrap_or_else(|error| panic!("first variation seed plan failed: {error:?}"));
         let second = plan(
             ScenarioPlanMode::Explore,
             None,
             Some("0xBAD"),
             Some("0xCAFE"),
         )
-        .unwrap_or_else(|error| panic!("second organic seed plan failed: {error:?}"));
+        .unwrap_or_else(|error| panic!("second variation seed plan failed: {error:?}"));
 
         assert_eq!(first, second);
-        assert_eq!(first.source, ScenarioSeedSource::AnchorOrganic);
+        assert_eq!(first.source, ScenarioSeedSource::AnchorVariation);
         assert_eq!(first.anchor_seed_count(), ANCHOR_WORLD_SEEDS.len());
         assert_eq!(
             first
@@ -371,8 +392,8 @@ mod tests {
             ANCHOR_WORLD_SEEDS
         );
         assert_eq!(
-            first.organic_seed_count(),
-            EXPLORATORY_ORGANIC_SCENARIO_COUNT
+            first.variation_seed_count(),
+            EXPLORATORY_VARIATION_SCENARIO_COUNT
         );
         assert_eq!(first.custom_seed_count(), 0);
         assert!(
@@ -434,10 +455,10 @@ mod tests {
     }
 
     #[test]
-    fn focused_probe_default_keeps_one_anchor_and_adds_one_replayable_organic_case() {
-        let first = focused_probe_seeds_from(None, Some("0xBAD"), 1, 0x1111, 0x2222)
+    fn focused_probe_default_keeps_one_anchor_and_adds_one_replayable_variation() {
+        let first = focused_probe_seeds_from(None, None, 0x1111, 0x2222, 0x3333)
             .unwrap_or_else(|error| panic!("first focused probe plan failed: {error:?}"));
-        let second = focused_probe_seeds_from(None, Some("0xBAD"), 9, 0x1111, 0x2222)
+        let second = focused_probe_seeds_from(None, None, 0x1111, 0x2222, 0x3333)
             .unwrap_or_else(|error| panic!("second focused probe plan failed: {error:?}"));
 
         assert_eq!(first, second);
@@ -447,9 +468,20 @@ mod tests {
     }
 
     #[test]
+    fn focused_probe_explicit_variation_root_replays_exactly() {
+        let first = focused_probe_seeds_from(None, Some("0xBAD"), 0x1111, 0x2222, 0x3333)
+            .unwrap_or_else(|error| panic!("first focused replay plan failed: {error:?}"));
+        let second = focused_probe_seeds_from(None, Some("0xBAD"), 0x1111, 0x2222, 0x4444)
+            .unwrap_or_else(|error| panic!("second focused replay plan failed: {error:?}"));
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
     fn focused_probe_custom_seed_list_is_exact() {
-        let seeds = focused_probe_seeds_from(Some("1,0x2A,3"), Some("ignored"), 9, 0x1111, 0x2222)
-            .unwrap_or_else(|error| panic!("custom focused probe plan failed: {error:?}"));
+        let seeds =
+            focused_probe_seeds_from(Some("1,0x2A,3"), Some("ignored"), 0x1111, 0x2222, 0x3333)
+                .unwrap_or_else(|error| panic!("custom focused probe plan failed: {error:?}"));
 
         assert_eq!(seeds, [1, 42, 3]);
     }

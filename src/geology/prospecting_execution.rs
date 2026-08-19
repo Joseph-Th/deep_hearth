@@ -21,7 +21,7 @@ use super::knowledge::{
 /// assays, and geophysical instruments must resolve their own spatial and abundance uncertainty
 /// before they can authorize persistent knowledge.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ProspectingResolution {
     region: VoxelBounds,
     evidence: GeologicalEvidenceKind,
@@ -110,7 +110,7 @@ impl Error for ProspectingCommitError {}
 
 /// Consumed proof that resolved geological evidence can be persisted atomically.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedGeologicalObservation {
     expected_revision: u64,
     next_revision: u64,
@@ -164,7 +164,7 @@ impl ValidatedGeologicalObservation {
 pub fn validate_record_prospecting(
     registries: &Registries,
     state: &AppState,
-    resolution: &ProspectingResolution,
+    resolution: ProspectingResolution,
 ) -> Result<ValidatedGeologicalObservation, RecordProspectingError> {
     if resolution.findings.is_empty() {
         return Err(RecordProspectingError::NoFindings);
@@ -197,15 +197,20 @@ pub fn validate_record_prospecting(
     let Some(next_revision) = knowledge.revision().checked_add(1) else {
         return Err(RecordProspectingError::RevisionExhausted);
     };
+    let ProspectingResolution {
+        region,
+        evidence,
+        findings,
+    } = resolution;
 
     Ok(ValidatedGeologicalObservation {
         expected_revision: knowledge.revision(),
         next_revision,
         id,
         next_observation_id,
-        region: resolution.region,
-        evidence: resolution.evidence,
-        findings: resolution.findings.clone(),
+        region,
+        evidence,
+        findings,
         observed_at: state.tick(),
     })
 }
@@ -255,7 +260,7 @@ mod tests {
     fn record(
         registries: &Registries,
         state: &mut AppState,
-        resolution: &ProspectingResolution,
+        resolution: ProspectingResolution,
     ) -> GeologicalObservationId {
         let token = match validate_record_prospecting(registries, state, resolution) {
             Ok(token) => token,
@@ -281,11 +286,11 @@ mod tests {
             GeologicalEvidenceKind::CoreSample,
             vec![estimate(MATERIAL_COPPER, 420_000, 520_000)],
         );
-        let broad_id = record(&registries, &mut state, &broad);
+        let broad_id = record(&registries, &mut state, broad);
         if let Err(error) = advance_tick(&registries, &mut state) {
             panic!("prospecting fixture tick failed: {error}");
         }
-        let focused_id = record(&registries, &mut state, &focused);
+        let focused_id = record(&registries, &mut state, focused);
 
         let assessment = assess_geological_knowledge(
             state.geological_knowledge(),
@@ -322,8 +327,8 @@ mod tests {
             GeologicalEvidenceKind::ElectricalSurvey,
             vec![estimate(MATERIAL_COPPER, 100_000, 300_000)],
         );
-        record(&registries, &mut state, &first);
-        record(&registries, &mut state, &second);
+        record(&registries, &mut state, first);
+        record(&registries, &mut state, second);
 
         let assessment = assess_geological_knowledge(
             state.geological_knowledge(),
@@ -349,7 +354,7 @@ mod tests {
             GeologicalEvidenceKind::SeismicSurvey,
             vec![estimate(MATERIAL_COPPER, 900_000, 1_000_000)],
         );
-        record(&registries, &mut state, &remote);
+        record(&registries, &mut state, remote);
 
         let assessment = assess_geological_knowledge(
             state.geological_knowledge(),
@@ -379,8 +384,8 @@ mod tests {
             GeologicalEvidenceKind::CoreSample,
             vec![estimate(MATERIAL_COPPER, 100_000, 300_000)],
         );
-        record(&registries, &mut state, &west);
-        record(&registries, &mut state, &east);
+        record(&registries, &mut state, west);
+        record(&registries, &mut state, east);
 
         let assessment = assess_geological_knowledge(
             state.geological_knowledge(),
@@ -410,7 +415,7 @@ mod tests {
                 GeologicalEvidenceKind::CoreSample,
                 vec![estimate(MATERIAL_COPPER, lower, upper)],
             );
-            record(&registries, &mut state, &resolution);
+            record(&registries, &mut state, resolution);
         }
 
         let assessment = assess_geological_knowledge(
@@ -440,8 +445,8 @@ mod tests {
             GeologicalEvidenceKind::LaboratoryAssay,
             vec![estimate(MATERIAL_SLAG, 700_000, 800_000)],
         );
-        record(&registries, &mut state, &local);
-        record(&registries, &mut state, &remote);
+        record(&registries, &mut state, local);
+        record(&registries, &mut state, remote);
 
         let map = build_geological_knowledge_map(state.geological_knowledge(), bounds(2, 4));
         assert_eq!(map.region(), bounds(2, 4));
@@ -470,11 +475,11 @@ mod tests {
             GeologicalEvidenceKind::PannedConcentrate,
             vec![estimate(MATERIAL_SLAG, 100_000, 400_000)],
         );
-        let stale = match validate_record_prospecting(&registries, &state, &first) {
+        let stale = match validate_record_prospecting(&registries, &state, first) {
             Ok(token) => token,
             Err(error) => panic!("stale prospecting validation failed: {error}"),
         };
-        record(&registries, &mut state, &second);
+        record(&registries, &mut state, second);
         let before = state.clone();
 
         assert_eq!(
@@ -499,7 +504,7 @@ mod tests {
                 estimate(MATERIAL_SLAG, 0, 800_000),
             ],
         );
-        record(&registries, &mut state, &initial);
+        record(&registries, &mut state, initial);
         if let Err(error) = advance_tick(&registries, &mut state) {
             panic!("prospecting round-trip tick failed: {error}");
         }
@@ -518,13 +523,18 @@ mod tests {
         };
         assert_eq!(loaded, state);
 
-        let continuation = make_test_prospecting_resolution(
+        let continuation_for_state = make_test_prospecting_resolution(
             bounds(2, 6),
             GeologicalEvidenceKind::LaboratoryAssay,
             vec![estimate(MATERIAL_COPPER, 430_000, 450_000)],
         );
-        record(&registries, &mut state, &continuation);
-        record(&registries, &mut loaded, &continuation);
+        let continuation_for_loaded = make_test_prospecting_resolution(
+            bounds(2, 6),
+            GeologicalEvidenceKind::LaboratoryAssay,
+            vec![estimate(MATERIAL_COPPER, 430_000, 450_000)],
+        );
+        record(&registries, &mut state, continuation_for_state);
+        record(&registries, &mut loaded, continuation_for_loaded);
         assert_eq!(loaded, state);
     }
 
@@ -547,7 +557,7 @@ mod tests {
                 GeologicalEvidenceKind::CoreSample,
                 vec![estimate(material, lower, upper)],
             );
-            record(&registries, &mut state, &resolution);
+            record(&registries, &mut state, resolution);
             if let Err(error) = advance_tick(&registries, &mut state) {
                 panic!("prospecting soak tick failed at step {step}: {error}");
             }

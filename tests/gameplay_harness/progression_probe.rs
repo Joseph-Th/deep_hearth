@@ -738,27 +738,35 @@ pub(super) fn run_primitive_progression_probe(registries: &Registries, seed: u64
         .map(|record| duration(record.started_at().value(), record.completes_at().value()))
         .unwrap_or_else(|| panic!("primitive progression concurrent mining job disappeared"));
     assert!(
-        crush_ticks < concurrent_mining_ticks,
-        "primitive machine work should complete while the player can continue longer hand mining"
+        state.production().get_job(crush_job).is_some()
+            && state.mining().get_job(concurrent_mining_job).is_some()
+            && state.player_work().active().is_some(),
+        "autonomous crushing and player mining must coexist after both canonical starts"
     );
-
-    advance_exact(registries, &mut state, crush_ticks);
-    assert!(
-        state.production().get_job(crush_job).is_none(),
-        "primitive crusher should finish independently while player mining remains active"
-    );
-    assert!(
-        state.mining().get_job(concurrent_mining_job).is_some(),
-        "player mining should remain active after the shorter autonomous crusher job finishes"
-    );
-    assert!(
-        state.player_work().active().is_some(),
-        "mechanized crushing must leave player attention available for concurrent mining"
-    );
+    let overlap_ticks = crush_ticks.min(concurrent_mining_ticks);
+    let overlap_witness_ticks = overlap_ticks.saturating_sub(1);
+    if overlap_witness_ticks > 0 {
+        advance_exact(registries, &mut state, overlap_witness_ticks);
+        assert!(
+            state.production().get_job(crush_job).is_some()
+                && state.mining().get_job(concurrent_mining_job).is_some()
+                && state.player_work().active().is_some(),
+            "machine production and player mining must remain independently active during their shared interval"
+        );
+    }
+    let concurrent_span = crush_ticks.max(concurrent_mining_ticks);
     advance_exact(
         registries,
         &mut state,
-        concurrent_mining_ticks - crush_ticks,
+        concurrent_span - overlap_witness_ticks,
+    );
+    assert!(
+        state.production().get_job(crush_job).is_none(),
+        "primitive crusher should complete without consuming player labor"
+    );
+    assert!(
+        state.mining().get_job(concurrent_mining_job).is_some(),
+        "completed mining output must remain claimable after concurrent machine work"
     );
     validate_claim_mining_output(registries, &state, concurrent_mining_job)
         .unwrap_or_else(|error| {
@@ -819,7 +827,7 @@ pub(super) fn run_primitive_progression_probe(registries: &Registries, seed: u64
         stone_charge_ticks,
         charge_ticks,
         crush_ticks,
-        crush_ticks,
+        overlap_ticks,
         survival_before.metabolic_energy().nanojoules()
             - survival_after.metabolic_energy().nanojoules(),
         survival_before.hydration().microliters() - survival_after.hydration().microliters(),

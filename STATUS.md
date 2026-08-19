@@ -1,861 +1,192 @@
 # Status
 
-**Document role:** Detailed implemented-capability and deliberate-deferral inventory. Use
-[`README.md`](README.md#task-routing) to find the owning subsystem, then read only the relevant
-subsection here. `ARCHITECTURE.md` and `TECHNICAL_DESIGN.md` own how the implementation works and how
-new systems integrate; this file owns whether a capability currently exists or is explicitly deferred.
+This document answers one question: **what capability exists in the current runtime?** Use
+[`README.md`](README.md) to find the owning subsystem. `ARCHITECTURE.md` and `TECHNICAL_DESIGN.md` own
+implementation contracts; `GAME_DESIGN.md` owns intended gameplay. Status does not record implementation
+history or future design detail.
 
-## Current Foundation
+## Implemented
 
-### Runtime core and cross-cutting foundations
+### Runtime core
 
-- Headless deterministic Rust simulation core with no renderer or engine dependency.
-- Immutable registry aggregate with separate authored-ID compatibility version.
-- Typed absolute `SimulationTick`, relative `TickSpan`, deterministic periodic phase scheduling, and
-  an authored 96-day calendar projected into twelve months and four equal seasons without mutable
-  calendar counters.
-- Persisted independent RNG streams derived from the world seed.
-- Consequential production, mining, player-work, inventory, structural, equipment, energy, fluid,
-  geology, geological knowledge, and player-survival backing collections are private to their state
-  owners. Synchronized indexes change only through owner methods that update each related collection
-  in one mutation boundary.
-- Split subsystem children declare their production dependencies explicitly. Facades are limited to
-  module wiring and re-exports instead of acting as wildcard import warehouses, and their tests own
-  any additional fixture imports they require.
-- Wide runtime and coordination records are grouped by ownership concern rather than accumulating
-  flat field lists: root runtime systems, production-job identity/schedule/resources/equipment,
-  registry presentation domains, screening resolution constraints, completion revision contracts,
-  and gameplay-harness inputs/reports each have explicit nested profiles. The persistent layout
-  remains current-schema-only; no historical layout shim or migration is retained.
-- Explicit authoritative integer quantities for mass, aggregate mass, temperature, energy,
-  pressure, area, length, acceleration, force, power, torque, angular speed, voltage, current,
-  resistance, volume, aggregate volume, and volumetric flow.
+- Headless deterministic Rust simulation with no renderer or engine dependency.
+- Immutable validated registries for authored definitions and a separate authored compatibility version.
+- `AppState` owns generated runtime state; subsystem owners keep authoritative records and synchronized
+  indexes private behind canonical operations.
+- Persisted independent RNG streams derive from the world seed. Result-affecting ordering is stable.
+- Typed absolute time, relative durations, deterministic periodic schedules, and an authored calendar.
+- Checked integer quantities cover the modeled physical units used by matter, energy, structures,
+  fluids, electrical calculations, and mechanical calculations.
+- Current-schema persistence reconstructs derived indexes and validates subsystem plus cross-owner
+  invariants before loaded state is trusted.
 
-### Matter, materials, inventory, and geological ownership
+### Matter, materials, and inventory
 
-- Typed material/form definitions with density, thermal, mechanical, and electrical properties,
-  explicit solid/liquid form phase, explicit particulate-state policy, and optional authored fusion
-  temperature/latent heat.
-- Canonical normalized mass-fraction composition for ores, alloys, and mixed material lots, including
-  validated deserialization and composition-aware material inputs.
-- Density-based conservative material-volume calculation, composition-weighted sensible heat, exact
-  pure-material fusion latent heat, and phase-consistent thermal-state validation. Solid matter may
-  reach but not exceed its authored fusion boundary; liquid matter must remain at or above it. Mixed
-  liquid compositions are refused until real alloy/solution phase diagrams exist rather than being
-  assigned an invented weighted melting point.
-- Persistent material lots with mass, temperature, composition, optional validated weighted
-  particle-size distributions, ownership, and provenance ranges. Particle-size classes have
-  canonical non-overlapping diameter bounds and relative mass weights; a single class preserves the
-  conservative meaning of an unresolved size envelope without inventing an internal yield curve.
-  Particle-size state is part of lot fungibility rather than a detached ore-processing annotation.
-- Capacity-aware stockpiles with derived commodity totals, cached mass, inbound reservations, and a
-  runtime commodity-keyed lot-routing index rebuilt deterministically from authoritative lots on
-  load. Revision-bound atomic transfers between distinct stockpiles use stable-ID splitting and
-  compatible-fragment coalescing without scanning unrelated commodities. Stockpiles persist a
-  material-containment envelope for accepted solid/liquid phases, maximum temperature, and an explicit
-  preservation multiplier used by
-  perishable content. Material lots also retain compact ambient-equivalent storage exposure and the
-  last storage-transition tick. Relocation accrues exposure under the source profile before switching
-  storage, so better preservation slows only future spoilage instead of rewriting prior age.
-  Compatible age-sensitive commodities coalesce only within equal projected-exposure cohorts, so
-  fresh food is never aged merely because older matching food already occupies the destination.
-  Commodities without authored age-dependent behavior retain conservative oldest-exposure coalescing
-  to bound long-horizon lot fragmentation. Exhaustive load validation rejects future storage
-  transitions or unrepresentable exposure projections.
-  Stockpile allocation requires that containment envelope explicitly; there is no compatibility
-  allocator that silently chooses one. Every deposit, ingress, transfer, future production output,
-  and exhaustive save audit rechecks phase and temperature compatibility.
-- Persistent stockpile-to-structure support assignment with a synchronized support-to-stockpile
-  reverse index. Inventory exclusively owns `StoredMatter` structural load: all supported stockpile
-  masses are aggregated per member before gravity conversion, generic callers cannot write the load
-  channel, stored matter can crack/collapse supports through normal analysis, and support removal is
-  blocked until stockpiles are unmounted. Failed debris can be unloaded without repairing it.
-  Newly initiated inbound matter requires an active support, while output already durably reserved by
-  an in-flight production job may still complete after a later support collapse. Production occupancy
-  prevents moving source/destination stockpiles while a job is active.
-- Every canonical stockpile-mass mutation keeps stored-matter load synchronized in the same validated
-  transaction: manual transfer, production start/completion, mining output claim, structural
-  construction/deconstruction, and test/bootstrap ingress. Multi-stockpile transfers and simultaneous
-  production completions use one deterministic batch structural plan, so results do not depend on an
-  intermediate mutation order. Supported operations bind the structural revision even when aggregate
-  force rounds to the same value. Reserved inbound capacity remains space and does not create weight.
-  Production completion hands already-reserved output streams to an inventory-owned batch plan that
-  allocates material-lot IDs, releases reservations, inserts/coalesces lots, and advances the inventory
-  cursor/revision together; production no longer reads or writes inventory ID bookkeeping directly.
-  Test/bootstrap lot seeding also delegates to the same validated material-ingress path as source-owned
-  production transactions; raw lot insertion remains private to inventory's lot-mutation owner.
+- Materials and forms have typed identities, physical properties, explicit phase, and particle-state
+  policy. Pure-material fusion temperature and latent heat are supported where authored.
+- Material composition is canonical normalized mass fraction. Mixed lots preserve composition rather
+  than collapsing to a synthetic material identity.
+- Persistent lots own mass, temperature, composition, particle-size state when required, provenance,
+  stockpile ownership, and storage exposure used by perishability.
+- Stockpiles enforce capacity, phase and temperature containment, inbound reservations, and optional
+  preservation behavior. Food storage changes future spoilage rate without erasing accumulated age.
+- Inventory maintains deterministic commodity routing and compatible lot coalescing while preserving
+  physical distinctions that affect gameplay.
+- Stockpile-to-stockpile movement requires an opaque material-transfer resolution from a physical or
+  logistics owner. Inventory validates custody and storage but cannot authorize pathless movement.
+- Supported stockpiles contribute inventory-owned `StoredMatter` structural load. Matter-changing
+  transactions keep inventory ownership and structural load synchronized atomically.
+- World matter accounting covers implemented geological, inventory, structural, equipment, biological,
+  and in-process ownership.
 
-### Geology, mining, and prospecting
+### Geology, mining, and prospecting knowledge
 
-- Persistent finite geological deposits with chunk-independent bounds, exact initial/remaining mass,
-  material form, normalized composition, temperature, generation provenance, depletion lifecycle,
-  generated IDs, owner revision, and exhaustive registry/state validation. Authoritative deposit
-  enumeration remains crate-private. World-generation admission accepts an opaque generated-deposit
-  plan with no production/public constructor, so player-facing adapters cannot bypass prospecting or
-  use the source boundary as a matter-spawn API. Geological ownership is explicitly solid-only,
-  excludes processed particulate forms whose size state belongs to material-processing owners, and
-  is independently revalidated on load.
-- Tool-gated mining owns the sole gameplay extraction boundary. A mining start validates a real equipment
-  provider, condition-sensitive mass flow, maximum batch mass, material hardness, destination
-  containment/capacity/support, exclusive player labor, and exact tool wear before moving matter.
-  Geological mass is reduced only as that same matter becomes mining-owned WIP, while inventory
-  reserves the eventual inbound mass. Completion releases the tool and player but does not teleport
-  matter; a separate claim transaction deposits the exact preserved material profile and releases the
-  reservation. Matter and modeled sensible thermal energy remain conserved while work is active.
-- The built-in primitive extraction chain is now concrete at human-scale quantities: a 1 kg stone
-  lump can be knapped into an 800 g stone head plus 200 g stone chips, a 1 kg wood log can be shaped
-  into a 200 g handle plus 800 g wood chips, and the head plus handle assemble into a 1 kg stone pick. The equipment owner
-  persists the exact consumed material/provenance traces for assemblable equipment and exhaustive load
-  validation reconciles those traces against the authored multi-input assembly profile. The stone pick
-  provides condition-sensitive mining throughput, maximum batch mass, and maximum material hardness.
-  Native copper now feeds back into that gathering loop without pretending mineral separation,
-  smelting, or forging exists. It is an explicit solid `native metal` form distinct from mineralized
-  `ore`. Manual cold-working converts exactly 20 g of pure native-copper matter into a 20 g
-  reinforcement form over 40 active ticks. Ordinary ore is ineligible by form and contaminated
-  native-metal lots are rejected by the normal pure-composition gate, so mineralized ore cannot
-  bypass the missing metallurgical bridge. Equipment definitions
-  may author an additive `EquipmentUpgradeProfile`: the existing stone pick consumes one such
-  reinforcement in place, keeps the same equipment ID, creation history, current wear, and original
-  stone/wood traces, and becomes the 1.02 kg copper-reinforced pick. Its pristine mining flow rises
-  from 20 to 30 g/s, maximum batch mass from 200 to 300 g, and maximum material hardness from 500 to
-  750 MPa. Registry validation proves that every additive target assembly is exactly its base assembly
-  plus the authored new matter.
-- Persistent geological knowledge is separate from authoritative deposit truth. Prospecting
-  observations own stable IDs, spatial footprints, evidence provenance, bounded material-abundance
-  estimates, observation time, a revision, and a synchronized material-to-observation index.
-  Recording is revision-bound and atomic; physical survey systems must resolve an opaque prospecting
-  result before knowledge can be persisted.
-- Read-only geological assessment combines only acquired evidence. Hard measurement bounds are
-  intersected only when all relevant observations share a common spatial overlap; disjoint evidence
-  is explicitly spatially incomparable rather than being turned into false precision or a false
-  conflict. Genuine contradictory evidence at a common locality remains visible, and precision
-  ranking uses quantitative abundance width and spatial footprint instead of technology tiers.
-  Regional geological-map projections are deterministic and omit materials known only outside the
-  requested area.
+- Finite geological deposits persist bounds, material profile, remaining mass, provenance, and
+  depletion state. Natural deposits are solid ownership and do not expose player-facing hidden truth.
+- Hand mining is the gameplay extraction boundary. It requires a real tool, exclusive player labor,
+  authored throughput/batch/hardness capability, destination capacity, and wear. Extracted matter is
+  conserved through mining work-in-process and an explicit output claim.
+- Primitive progression includes stone tools, mineralized ore, separate native-copper occurrences,
+  cold-worked copper reinforcement, and condition-sensitive mining improvements.
+- Geological knowledge is a separate persisted owner containing only acquired observations. Records
+  store spatial evidence and bounded abundance estimates without referencing exact hidden deposits.
+- Read-only assessment combines overlapping evidence deterministically, preserves contradictions, and
+  marks spatially disjoint evidence incomparable where a single bound would be misleading.
+- Knowledge recording requires an opaque `ProspectingResolution`. Physical survey generation itself is
+  not implemented.
 
 ### Production, player work, and survival
 
-- Closed-mass timed production with explicit fixed-feed versus selected-batch input policies,
-  deterministic exact-lot binding, durable consumed-input traces, operation-specific resolved output
-  snapshots, revision-bound start tokens, due-tick indexing, exclusive equipment occupancy indexing,
-  and deterministic stockpile-to-job occupancy indexing. Repeated equipment and stockpile busy checks
-  use keyed lookups rather than scanning every active job. Physical resolvers consume the same exact
-  lot selection they inspected rather than reselecting equivalent-looking matter at commit.
-- Manual shaping is a first-class resolver family that reuses the same fixed-feed production start,
-  reservation, due-tick, completion, persistence, and conservation path as machines. Built-in stone
-  knapping converts 1 kg of stone lump into an 800 g tool form plus 200 g of chips over 40 active
-  ticks; handle shaping converts a 1 kg wood log into a 200 g handle plus 800 g chips over 40 active
-  ticks; clay forming converts 1 kg of clay lump into 1 kg of unfired pottery over
-  80 active ticks. Manual work requires a living initialized player, preserves input temperature and
-  pure material identity, consumes no invented machine resource, and is independently replay-audited
-  on load so forged duration or output snapshots are rejected. Fixed manual recipes can now be
-  requested as an integral repeated batch. Every authored input and output mass and the active
-  duration scale exactly with the requested count while one player-work job owns the whole run, so
-  batching removes repeated command entry without discounting matter, time, or survival exertion.
-  Persistence infers and replays that count from conserved input mass rather than storing a second
-  source of truth. Built-in shaping also turns a 1 kg stone lump into a 900 g flywheel plus 100 g
-  chips over 60 active ticks for the primitive power chain.
-- Persistent exclusive player work now prevents simultaneous manual crafting, mining, and direct
-  player-powered generation. Crafting/mining work references its authoritative job owner; direct
-  power owns one durable method/equipment/destination/schedule record because no second process job
-  exists for that hand operation. The canonical tick derives incremental authored exertion from the
-  active work and adds it to basal metabolism. Player-powered generation also binds a real equipment
-  provider, condition-sensitive Power capability, finite compatible energy destination, destination
-  input-power envelope, authored metabolic-efficiency ceiling, and active-tick equipment wear. Exact
-  mechanical energy enters the store only when the work completes. The shared player-work admission
-  boundary binds the survival revision for manual crafting, mining, and direct power and requires
-  enough current metabolic-energy and hydration reserve to fund each operation's entire scheduled
-  interval including basal upkeep. This prevents work from continuing through starvation or
-  dehydration after its physical labor source is no longer viable. Persistence independently
-  reconstructs each active work variant's remaining resource budget; direct-power replay additionally
-  reconstructs its required duration and wear result, while production starts, energy transfers,
-  repairs, support moves, and generic condition changes recheck this occupancy at commit so stale
-  tokens cannot mutate resources after the player begins cranking.
-- The built-in primitive mechanical bridge is now materially self-contained instead of borrowing
-  fixture infrastructure. A 900 g shaped stone flywheel plus a 200 g wood handle assemble into a
-  1.1 kg stone hand crank with 50 W pristine output. A second flywheel plus handle can be transferred
-  into a 1.1 kg stone flywheel accumulator that stores 500 J, accepts 100 W, and can discharge 500 W;
-  its exact material/provenance traces remain owned by the energy store and are replay-audited on
-  load. Three knapped stone heads plus three shaped wood members assemble into a 3 kg stone toggle
-  crusher with 400 g/s pristine flow and a 1 kg batch envelope. The same canonical ore-crushing
-  resolver therefore becomes available through infrastructure the player physically built rather
-  than a spawned industrial machine. A second 20 g cold-worked native-copper reinforcement can
-  upgrade the already-owned hand crank to 100 W without resetting its condition, halving the
-  maintained 200 J primitive charging case from 80 to 40 active ticks while leaving the energy
-  requirement unchanged. The larger 200 kJ/400 kJ workshop drives remain later setup infrastructure
-  until their own construction chains exist. Component envelopes continue to determine throughput.
-  The hand crank remains deliberately limited player labor rather than a substitute for future shafts,
-  belts, wind/water machines, animal power, or engines.
-- Persistent player survival has explicit admission, owner revision, metabolic-energy reserve,
-  hydration reserve, normalized vitality, recent Grain/Fruit/Protein nutrition reserves,
-  hunger/thirst assessments, deterministic basal depletion, and starvation/dehydration vitality loss
-  in the canonical tick pipeline. Nutrition decays gradually and its balanced average supports
-  vitality recovery only while the player remains fed and hydrated. This makes food variety a
-  resilience benefit instead of a hard punishment for eating one available staple. Survival remains
-  absent from bootstrap states until initialized, so non-player simulations do not acquire hidden
-  upkeep.
-- Grain, berries, and meat are authored edible commodities with dietary energy and finite shelf life;
-  stockpile preservation slows future spoilage explicitly while per-lot storage history preserves age
-  accumulated under earlier storage. Eating transfers an exact fresh pure-food
-  selection set out of one stockpile under inventory/structural/survival revision checks. One meal may
-  contain several food lots; selections are ordered deterministically, each portion is independently
-  checked for freshness and pure composition, and every consumed material is transferred into bounded
-  per-material biological accounting rather than deleted. Nutrition credit is apportioned among the
-  selected food categories from dietary energy actually absorbed, with deterministic integer
-  remainder handling, so input order cannot change the result and eating while already full cannot
-  manufacture nutritional benefit. Spoiled matter remains physical inventory but is no longer edible.
-- Water is an authored finite fluid identity and the survival registry marks it drinkable. Drinking
-  uses a reusable exact fluid-egress transaction, rechecks supported-fluid structural load, and moves
-  the withdrawn volume into bounded per-fluid biological ownership. World fluid-volume accounting
-  therefore remains exactly conservative even when the hydration reserve is already near full.
+- Timed production is closed-mass, deterministic, persisted, and revision-bound. Jobs own consumed
+  matter and modeled energy while in flight, reserve output capacity at start, and commit resolved
+  output streams at completion.
+- Manual shaping uses the same conserved timed-production foundation as machine work and supports
+  integral repeated batches without discounting matter, time, wear, or exertion.
+- `PlayerWorkState` is exclusive across manual crafting, mining, and direct player power. Admission
+  requires enough metabolic energy and hydration for the scheduled work plus basal upkeep.
+- Direct manual power converts survival-costed player labor through a real equipment capability into a
+  finite compatible energy store and applies equipment wear at completion.
+- Primitive progression includes hand shaping, composite tool assembly, mining, native-copper tool
+  reinforcement, material-backed mechanical work storage, hand-crank charging, and a player-built
+  primitive crusher capable of autonomous comminution while player labor is occupied elsewhere.
+- Player survival tracks metabolic energy, hydration, vitality, and recent Grain/Fruit/Protein
+  nutrition. Basal depletion and active-work exertion run in the canonical tick.
+- Authored food has finite freshness; preservation affects future exposure. Meals can combine explicit
+  food selections atomically. Eating preserves matter ownership in biological accounting.
+- Authored water is finite and drinkable. Drinking preserves fluid-volume ownership in biological
+  accounting.
 
 ### Capabilities, equipment, and maintenance
 
-- Typed authored capability requirements with physical value kinds and registry-reference validation.
-  Canonical crusher and foundry content uses the same capability and production registries as runtime
-  resolution; additional process content remains gated on corresponding physical providers and
-  resolvers.
-- Continuous equipment `Condition`, authored maintenance warning/critical bands, and pure wear plans
-  without disposable durability semantics.
-- Persistent maintainable equipment records with immutable physical mass and capability-provider
-  definitions, revision-checked wear application, provider resolution, registry-reference validation,
-  save/load ownership, optional exact assembly-material/provenance traces, in-flight provider
-  provenance, and exclusive production/mining occupancy.
-  Definitions may author deterministic piecewise-linear condition curves per typed capability;
-  effective values are resolved on demand without allocating temporary profiles, and pristine values
-  remain the single nominal source of truth. Maintenance mutation is rejected while an active
-  production job owns the equipment instance. Operation-specific production resolvers can persist an
-  exact post-operation condition and completion applies wear atomically under the equipment owner's
-  revision, with simultaneous due outcomes sharing one revision advance. Continuous condition curves
-  reject presence-only capabilities; discrete capability loss remains an explicit future policy
-  rather than fake numeric interpolation. The canonical productive-rate curves for crushers, mills,
-  screens, hand tools, hand cranks, the electric furnace, and the casting mold reach zero at failed
-  condition rather than allowing failed equipment to remain fully productive.
-- Resource-backed equipment maintenance replaces the former arbitrary condition-increase path.
-  Equipment definitions author one replacement commodity/mass, a distinct same-material spent form,
-  and a service target in the normal condition band. Runtime maintenance resolution selects that exact
-  conserved stock from an explicit source and binds both the spent form and service target into the
-  opaque repair resolution. Canonical validation reforms those exact traces into the spent form while
-  preserving material identity, mass, composition, temperature, particle-size state, and provenance;
-  source and destination `StoredMatter` structural loads are planned together, and both equipment and
-  inventory revisions are rechecked before commit. Repair also rechecks derived production occupancy
-  immediately before material changes because job start does not advance the equipment owner revision.
-  The canonical jaw crusher currently consumes 50,000 mg of copper-ingot replacement stock, leaves
-  50,000 mg of copper scrap that cannot satisfy another ingot replacement request, and restores to
-  900,000 ppm condition. Tools, workers, service duration, access, scrap recovery, and maintenance
-  chemistry remain deliberately unresolved rather than being faked inside the transaction.
-- Persistent equipment-to-structure support assignment with revision-bound two-owner mount/unmount
-  transactions and a synchronized support-to-equipment reverse index. Mounted equipment mass is
-  aggregated support-locally before gravity conversion, writes only the equipment-owned structural
-  load channel, can crack or collapse its support through normal structural analysis, cannot be moved
-  while occupied by production, and blocks removal of a support until unmounted. Failed debris can be
-  unloaded without repairing or resurrecting it. A machine mounted on a failed support cannot
-  authorize new work. Resolved mounted-equipment use binds both equipment and structural owner
-  revisions through start validation and commit, while support and maintenance commits recheck
-  production occupancy immediately before mutation. Exhaustive load validation audits both index
-  directions and the independently derived structural force.
-- Exact equipment assembly reversal is implemented only where physical history can remain exact.
-  Idle, unmounted, pristine equipment may be disassembled into its original embodied
-  material/provenance traces under inventory, equipment, and supported-destination structural
-  revision checks. Equipment IDs remain monotonic and are never reused. Any accumulated wear blocks
-  this path because returning pristine shaped components would erase degradation and create a free
-  repair cycle. Worn-equipment salvage, partial recovery, recovery of maintenance scrap, and
-  condition-dependent salvage yield remain deliberately unresolved.
+- Capabilities are typed physical requirements and values, including throughput, mass, temperature,
+  power, torque, speed, electrical quantities, volume/flow, and condition.
+- Equipment is persistent, condition-bearing, mass-bearing, and optionally assembled from exact
+  material/provenance traces. Equipment can be occupied exclusively by production, mining, or direct
+  player-power work as applicable.
+- Authored condition curves can derate numeric capabilities. Failed productive equipment reaches zero
+  productive rate where that curve is authored.
+- Maintenance consumes an exact authored replacement commodity and produces a distinct conserved spent
+  material form while restoring an authored condition target. It cannot run through active occupancy.
+- Additive equipment upgrades preserve identity, accumulated condition, and existing material traces
+  while adding exact authored matter.
+- Idle, unmounted, pristine assembled equipment can be disassembled back into its exact embodied
+  traces. Worn-equipment salvage and maintenance-scrap recovery are not implemented.
+- Mounted equipment contributes an equipment-owned structural load and requires active support for new
+  work.
 
-### Energy, structures, fluids, and mechanical physics
+### Energy, structures, fluids, and physical scalars
 
-- Persistent finite-energy stores with typed electrical/thermal/mechanical carriers, immutable
-  capacity and independent input/output power envelopes, monotonic runtime IDs/revisions, exact
-  consumed- and released-energy provenance, and registry-aware persistence validation. Store
-  definitions may now author an exact shared `MaterialAssemblyProfile`. Such stores cannot use the
-  empty-allocation shortcut: construction selects exact pure inventory matter, preserves provenance,
-  updates any source structural load, and transfers that matter into persistent energy-store
-  embodiment. Exhaustive load validation independently reconciles the traces and authored masses, and
-  global matter accounting includes embodied store mass. Definitions without an assembly profile may
-  still allocate empty capacity for unresolved/setup infrastructure; arbitrary stored-energy seeding
-  remains test/bootstrap-only. Direct player-powered mechanical generation crosses its explicit
-  labor/equipment boundary and writes finite energy only at completion. Source-only, sink-only, and
-  bidirectional stores are explicit.
-  Empty, idle, material-backed stores may reverse construction into their exact embodied traces. A
-  store containing even 1 nJ, or reserved by production/direct manual power, cannot be disassembled,
-  so recovery cannot delete stored work or invalidate an active owner. Store IDs remain monotonic.
-  Energy stores do not yet own spatial/support assignment, so their conserved embodied mass is not
-  currently projected as structural weight; a future placement/support integration must add an
-  explicit energy-storage load owner rather than aliasing the equipment-owned load channel.
-  Active jobs reserve every participating source or sink exclusively through a synchronized
-  `EnergyStoreId`-to-job occupancy index, replacing repeated active-job scans with deterministic keyed
-  lookup while exhaustive load validation reconstructs and checks the index. Released process heat
-  remains owned by the in-flight job and enters its finite sink only when completion becomes
-  authoritative; stale sink revisions reject completion atomically before material output, wear, job
-  removal, or energy mutation.
-- Atomic same-carrier finite-energy relocation now has an opaque physical-resolution boundary. The
-  energy owner validates distinct endpoints, directional input/output capability, carrier equality,
-  production occupancy, exact source quantity, destination capacity, and revision availability, then
-  commits equal subtraction/addition under one energy revision after rechecking both energy and
-  production owner revisions plus endpoint snapshots. No public resolution constructor exists, so
-  storage cannot authorize pathless transfer, implicit carrier conversion, losses, or generation;
-  future network owners must resolve those physical questions first.
-- Persistent structural members with typed material/profile references, grouped immutable geometry,
-  explicit physical length independent of voxel bounds, cross-section, planned/active/failed
-  lifecycle, exact embodied material traces and mass, persistent cracking, and synchronized
-  forward/reverse support indexes with cycle rejection. Invalid zero length or cross-section cannot
-  enter the normal allocation path, and active or failed members cannot exist without embodied
-  construction matter.
-- Revision-bound construction transfers an exact pre-resolved lot selection from inventory into one
-  planned structural member, preserving composition, temperature, and provenance. Prismatic solid
-  volume is derived from cross-section and physical length, while required pure-material mass is
-  derived directly from exact geometry and authored density with one conservative milligram rounding
-  boundary. Read-only material-requirement resolution exposes that physical requirement without
-  authorizing construction. The conserved construction transaction rejects both under- and
-  over-materialization, accepts only pure consolidated solid matter matching the member's authored
-  material, rejects particulate forms until a real compaction/binder/sintering/casting path produces
-  a load-bearing bulk form, and derives a structure-owned `SelfWeight` load from the committed mass
-  and registry gravity.
-  A supported source stockpile is unloaded in the same cross-owner transaction. Persisted structural
-  embodiment independently rechecks its solid phase. `SelfWeight` cannot be written through the
-  generic load API.
-- Materialized structural members cannot be deleted through generic removal. Revision-bound
-  deconstruction validates destination capacity and both owners, removes the member only as part of a
-  conserved recovery transaction, and returns every embodied trace to inventory without losing its
-  physical history. If recovery targets a supported stockpile, removal and final stored-matter load
-  are analyzed together under one structural revision. Failed debris uses the same recovery boundary.
-- Deterministic axial structural analysis using authored material compressive/tensile strength and
-  exact strength-times-area force capacity, stable equal-load sharing, readable stable/strained/
-  cracking/failed stages, cracked-capacity degradation, and synchronous overload/support-loss
-  cascades.
-- Source-separated structural load contributions for self-weight, permanent load, stored matter,
-  equipment, fluid, snow, wind, and occupancy so independent owning systems cannot overwrite each
-  other's causes. Self-weight, stored-matter, and equipment load channels are exclusively owned by
-  their source integrations; direct generic writes are rejected. Zero writable contributions are
-  removed canonically.
-- Revision-bound structural transactions for support linking/removal, activation, load updates, and
-  unmaterialized-plan removal. Consequences are resolved before commit; materialized removal is
-  routed through conserved deconstruction and rebuilt structures never reuse identity.
-- Component-local structural mutation analysis uses a one-operation read overlay instead of cloning
-  or rescanning unrelated structures, while exhaustive save audits still validate the full graph.
-- Authored core gravity plus conservative exact single-record and aggregate mass-to-weight and
-  pressure-times-area force conversions provide shared physical boundaries for storage, equipment,
-  snow, fluid, soil, and wind integrations.
-- Exact power-to-energy, flow-to-volume, electrical-power, and resistive-drop scalar calculations
-  with explicit carried fractional remainders where repeated truncation would lose resources.
-- Persistent finite fluid stores with monotonic runtime IDs/revisions, explicit capacity, homogeneous
-  authored fluid identity, volume, temperature, optional structural support assignment, and a
-  synchronized support-to-store reverse index. Fluid definitions are registry-owned, cross-reference
-  underlying material identity, and author constant bulk density for exact weight projection. The
-  built-in registry now contains water as a real finite fluid identity, while hydrology/world
-  generation still owns the unresolved question of where water physically comes from.
-  Public runtime allocation creates empty capacity only, so the storage owner cannot manufacture
-  water or other fluid. Revision-bound transfer commits conserve exact aggregate volume and clear
-  zero-volume identities canonically. Supported transfers resolve both stores' final contents and all
-  affected `Fluid` structural loads as one cross-owner plan. Volume-times-density is aggregated across
-  every store on a support before one conservative milligram rounding boundary and gravity conversion,
-  preventing per-container rounding from fabricating weight. Increasing aggregate fluid weight
-  requires an active support and can crack or collapse it through normal structural analysis; draining,
-  same-support redistribution without added weight, and unmounting from failed debris remain possible.
-  The `Fluid` load channel is exclusively fluid-owned, and structural removal is blocked until stores
-  are unmounted. Gameplay still cannot construct a transfer resolution directly: gravity, pressure,
-  channel, or pump systems must eventually authorize movement. The current conservative transfer path
-  refuses unlike fluid identities or temperatures rather than silently inventing mixture chemistry or
-  thermal equilibration.
-- Read-only world-scale fluid-volume accounting aggregates beyond one store's `u64` range without
-  trusting cached totals.
-- Exact scalar rotational mechanics with micronewton-meter torque and microradian/second angular
-  speed, typed torque/speed capabilities, independent torque/speed/power operating limits,
-  normalized mechanical efficiency with explicit loss, and canonical rational transmission ratios.
-  Ratio transforms conservatively round output torque/speed down and account any sub-unit remainder
-  as loss instead of creating power. Shaft/belt network topology remains deliberately unchosen.
-- Exact inverse power-duration calculation returns the minimum whole tick span that can supply an
-  energy requirement, including authoritative-range overflow handling without floating point.
-- Typed material mass throughput in milligrams per second plus exact whole-tick duration resolution
-  provides a shared rate foundation for crushers, grinders, conveyors, and later continuous material
-  equipment without abusing batch mass or floating-point rates.
+- Finite energy stores have typed carriers, capacity, directional power envelopes, persistent identity,
+  and exclusive production occupancy. Material-backed stores own exact embodied matter.
+- Same-carrier energy relocation requires an opaque physical resolution. Energy storage cannot create
+  power, convert carriers, or authorize pathless transfer.
+- Empty, idle material-backed stores can be disassembled to their exact embodied traces. Any stored
+  energy blocks disassembly. Energy-store placement/support is not implemented.
+- Structural members persist geometry, lifecycle, damage, support relationships, embodied material,
+  and source-separated loads. Deterministic axial analysis produces stable, strained, cracking, and
+  failed states with support-loss cascades.
+- Structural construction and deconstruction conserve exact material traces. Self-weight is derived
+  from embodied matter. Stockpile, equipment, and fluid weight are owned by their respective source
+  integrations.
+- Finite homogeneous fluid stores track identity, volume, temperature, capacity, and optional support.
+  Transfers conserve exact volume and require an opaque physical resolution; unlike fluids or
+  temperatures are not mixed implicitly.
+- Water exists as authored finite fluid and can be consumed by survival. Hydrology, channels, pumps,
+  and world water generation are not implemented.
+- Scalar foundations cover exact power/energy integration, flow/volume integration, electrical power
+  and resistance, rotational torque/speed/power, mechanical efficiency, rational transmission ratios,
+  and mass throughput/duration.
 
 ### Ore processing and thermal production
 
-- Selected-batch comminution is the first ore-processing resolver. It accepts exact solid lot slices,
-  requires authored equipment throughput, maximum batch mass, energy carrier, and exact
-  mass-specific work, then reserves that work from a finite energy source. Each comminution
-  definition authors a validated weighted particle-size distribution. Coarse untracked feed may
-  acquire its first explicit size state, while already-particulate feed must strictly reduce the
-  distribution envelope without coarsening represented fines. Input and output forms may therefore
-  be identical for real grinding distinctions. Mass, normalized composition, and temperature remain
-  exact. Runtime equipment condition can derate throughput, while finite source output power can
-  independently bottleneck elapsed time. Authoritative duration uses the slower throughput/energy
-  limit, while abrasive condition wear is charged only for the throughput-limited material-processing
-  duty rather than idle time waiting on weak power delivery. Resolved comminution exposes independent
-  throughput- and energy-limited durations, a typed current bottleneck, and exact
-  condition-before/condition-after projections. Persisted jobs recompute the exact authored particle
-  distribution, work energy, carrier, both durations, and processing-duty wear from their committed
-  traces. This authored in-flight wear-contract change advances the current-only registry schema, so
-  states created under the superseded wall-clock-wear semantics are rejected rather than migrated.
-  The canonical jaw crusher remains a
-  single unresolved 500-10000 um class rather than fabricating a within-envelope mass curve without
-  authored data. Canonical content now also includes a separate grinding mill and same-form grinding
-  process with its own typed throughput/batch capabilities. Grinding reduces that crusher envelope to
-  two explicit equal-weight classes, 500-2000 um and 2001-4000 um, while preserving mass,
-  composition, temperature, and form. The grinder therefore adds physically useful particle-size
-  information without pretending to concentrate ore or relabel the material. Comminution definitions
-  may also author an admissible particulate feed envelope. Runtime resolution and persistence replay
-  both reject selected feed outside that operating range, allowing physically distinct mill passes to
-  be represented without hard-coding equipment IDs or introducing arbitrary process unlocks.
-- Selected-batch dry screening is a reusable ore-processing resolver with an exact authored aperture,
-  typed undersize/oversize output streams, runtime equipment throughput and maximum-batch limits,
-  finite work energy, power-limited elapsed duration, and processing-duty wear. Screening aggregates identical
-  physical input profiles before converting class weights to whole-milligram stream masses so lot
-  fragmentation cannot change yield. A class wholly at or below the aperture is undersize and a
-  class wholly above it is oversize; an aperture intersecting an unresolved class is rejected rather
-  than assigned an invented split. A weighted class partition that would require fractional
-  milligrams is also rejected at the current mass resolution rather than silently reclassifying the
-  remainder into the wrong stream. Persisted screening jobs recompute stream identities, exact
-  outputs, energy, duration, and equipment condition. Canonical content now registers a workshop dry
-  screen and a 2 mm dry-screening process with separate throughput and batch capabilities, finite
-  mechanical work, condition-sensitive throughput, and processing-duty wear. Direct crusher-to-screen
-  processing still fails because the jaw crusher emits one unresolved 0.5-10 mm class. The canonical
-  grinding mill is now the physical bridge: its 0.5-2 mm and 2.001-4 mm classes lie wholly on opposite
-  sides of the screen aperture, allowing exact routed undersize/oversize ownership. A second
-  fine-grinding operation accepts only the 2.001-4 mm screen oversize and reduces it to the same
-  0.5-2 mm profile as the undersize stream. This creates a selective closed-loop preparation circuit:
-  already-fine material avoids the extra grinding work and wear while oversize can be recycled.
-- Production output ownership is stream-based rather than destination-global. Resolvers assign typed
-  operation-local stream IDs, resolution canonicalizes stream order by ID, and durable jobs preserve
-  each physically inseparable stream's identity, exact lot specifications, and routed destination.
-  Start validation binds routes by stream ID, validates every destination, aggregates inbound capacity
-  reservations per stockpile under one inventory revision, and completion deposits every stream from
-  one deterministic plan. Sensible-heating, melt/cast, and comminution resolvers remain explicitly
-  single-stream; screening owns stable undersize and oversize streams.
-- Ore-processing and thermal resolver registries have exclusive process ownership, preventing one
-  process ID from silently acquiring two incompatible physical interpretations.
-- Selected-batch sensible heating derives required energy from each selected lot's actual mass,
-  composition, temperature, and authored phase; validates equipment heating power, maximum
-  temperature, maximum batch mass, finite energy carrier, and discharge power; derives duration
-  exactly; and preserves matter/composition/form in heated outputs. Solid sensible heating may reach
-  but cannot cross fusion, while liquid sensible heating may continue upward from the fusion boundary
-  without charging latent heat a second time. Runtime resolution and persisted-job validation share
-  the same phase-aware calculation.
-- Pure-material melting is a real physical production resolver rather than a recipe shortcut. It
-  requires selected solid matter of one pure material, derives exact sensible heat to the authored
-  fusion point plus exact latent heat, checks furnace power/temperature/batch limits and finite energy
-  supply, derives duration and equipment wear, and commits a pure molten output at the fusion
-  boundary. Molten output cannot start unless its destination explicitly accepts liquid matter at the
-  required temperature. Mixed/alloy melting remains blocked until phase diagrams exist.
-- Pure-material casting/solidification resolves the inverse transfer. It requires selected pure
-  liquid matter, derives sensible cooling to the fusion point plus latent heat release, checks mold or
-  cooling-equipment power/temperature/batch limits, reserves a finite thermal-energy sink with an
-  explicit input-power envelope, and commits a solid output at the fusion boundary. Released heat is
-  persisted with the in-flight job, is replay-validated from the consumed liquid traces, and is moved
-  into the sink atomically only at completion.
-- Read-only global matter accounting across geological deposits, embodied structural matter,
-  inventory, and in-process matter ownership.
-- Read-only explicit modeled-energy accounting across finite stores, supported material sensible plus
-  latent thermal energy in geological/structural/inventory/in-process ownership, energy supplied to
-  active jobs, and released heat retained by in-flight phase-change work. Geological extraction,
-  structural construction/deconstruction, sensible heating, pure-material melting, and casting all
-  preserve the modeled total across ownership changes.
-- Support-dependent production can suspend rather than complete magically when its equipment loses an
-  active structural support. A suspended job keeps consumed matter and energy as authoritative
-  work-in-process, grants no output or completion wear, leaves simulation time free to advance, and
-  retains the exact remaining active process time. Structural equipment movement is the narrow
-  recovery exception to normal job occupancy, allowing the machine to be relocated while the job
-  still owns it; once active support is restored, the canonical tick pipeline reschedules completion
-  from the exact remaining active time. The immutable active process duration remains the physics and
-  wear-audit contract even when wall-clock completion moves because of downtime. Other occupied
-  resources remain exclusive and report an explicit `AwaitingResume` release horizon rather than a
-  stale pre-failure due tick.
+- Selected-batch crushing and grinding preserve mass, composition, temperature, and exact lot
+  selection while applying authored particle-size results, equipment throughput/batch limits, finite
+  work energy, power-limited duration, and condition wear.
+- Grinding can refine particle-size state without changing material form. Authored feed envelopes can
+  reject physically unsuitable particulate input.
+- Dry screening partitions resolved particle classes into typed undersize and oversize streams at an
+  authored aperture. Unresolved classes that cross the aperture and nonrepresentable fractional-mass
+  partitions are rejected.
+- Canonical ore preparation supports crushing, grinding, exact screening, and selective oversize
+  regrinding. It does not concentrate ore or change composition.
+- Production supports typed multi-stream routing with deterministic destination reservations and
+  completion.
+- Sensible heating, pure-material melting, and pure-material casting use selected real matter,
+  authored thermal properties, finite equipment power, finite energy sources/sinks, exact phase
+  boundaries, and explicit latent heat.
+- Mixed/alloy melting and chemical smelting are not implemented.
+- Production tied to supported equipment can suspend on support loss, retain exact work-in-process and
+  remaining active time, and resume after valid structural recovery.
 
-### Runtime integration, persistence, spatial, and renderer-neutral assets
+### Persistence, spatial primitives, and renderer-neutral assets
 
-- Canonical top-level tick pipeline with non-allocating keyed/cursor per-tick invariants and
-  exhaustive save/load audits. Full-record, geometry, support-index, production scheduling, and
-  occupancy scans stay off the tick hot path and are reconstructed by authoritative validation instead.
-- Current-schema-only persistence and authored registry compatibility, with accepted version values
-  owned by `CURRENT_SAVE_SCHEMA_VERSION` and the built-in content registry rather than duplicated in
-  status documentation. Loading performs registry-aware state validation, structural topology/damage
-  audits, energy/equipment ownership validation, directional energy-source/sink reservation, production
-  energy/equipment/stockpile occupancy and capacity audits, embodied structural
-  matter/self-weight/phase audits, geometry/density-to-mass recomputation,
-  equipment-support/load agreement audits, stockpile-support/index/stored-matter-load agreement
-  audits, fluid-support/index/density-derived-load agreement audits, exclusive-resource double-book
-  detection,
-  particle-size distribution policy/state audits, typed production-stream identity/routing and
-  per-destination reservation audits, operation-specific sensible-heating/melting/casting,
-  comminution, and screening recomputation including admissible comminution feed envelopes, exact
-  output particle classes and stream partitioning, post-operation condition outcomes and released
-  heat, stable in-flight conservation
-  snapshots, production active-duration/suspension scheduling, due-index exclusion while suspended,
-  suspension-provider identity, and deterministic continuation tests. Suspended-job round trips
-  preserve work-in-process exactly; adversarial saves that reinsert a suspended job into the due
-  index, forge its paused due tick, or claim more remaining work than the operation's active duration
-  are rejected. Suspension timestamps later than the authoritative clock and empty production
-  due-index buckets are also rejected as noncanonical state. Root cross-owner validation is split
-  into focused structural-integration, inventory-reference, and production-reference audits while
-  preserving one public load-validation boundary. The cheap per-tick invariant suite is limited to
-  state-owned RNG validity, owner identity cursors, and the earliest due production tick; full
-  scheduling, suspension, geometry, support-index, and occupancy consistency stays in exhaustive
-  validation and deterministic soak coverage.
-- Chunk-independent 64-bit voxel coordinates and validated spatial bounds without choosing chunk
-  dimensions or streaming policy.
-- Renderer-neutral immutable texture registry with hue-shift-capable 16-shade palette ramps,
-  one-byte 32x32 indexed texels, strict opaque/cutout/blend validation, explicit six-face block
-  appearances, ordered object material-slot appearances, and validated material-form/equipment
-  bindings. The deterministic startup baker produces stable dense texture descriptors, independently
-  deduplicates indexed patterns and palette rows for cheap recolors, and generates discrete
-  32/16/8/4/2/1 mip chains without averaging palette indices. Block faces and object material slots are
-  prebaked to draw descriptors so hot meshing does not revisit authored maps. Built-in visual content
-  uses multi-scale structure rather than uniform speckle: timber grain, knots and growth-ring cracks;
-  charcoal fractures; copper veins; beveled panels and rivets; slag pores; molten flow and crust;
-  aggregate clasts; worn-metal scratches and rust; sooted brick inclusions; and beveled cutout mesh.
-  The complete built-in indexed upload, including all six mip levels and palette lookup tables, stays
-  within 16 KiB and below half the bytes of its equivalent deduplicated RGBA texel mip chain.
-  Primitive stone/wood forms and assembled equipment use that same binding path: stone lumps, worked
-  heads, chips, flywheels, wood handles/chips, the stone pick, and the stone hand crank all resolve
-  stable object appearances. Worked stone reuses an existing indexed crack pattern with a different
-  palette row so this content does not add another pattern layer to the baked texture array.
-- Renderer-neutral immutable WGSL registry with typed IDs, validated acyclic shared-library graphs,
-  deterministic dependency assembly, dense startup program lookup, explicit render/compute entry
-  points, fixed-function blend/depth/color-target requirements, portable workgroup limits, and
-  audited per-invocation work budgets. Nine built-in programs cover indexed HDR surfaces, stable
-  16x16 tiled point-light culling, separate zero-sample opaque and alpha-aware cutout directional
-  shadows, three-wave depth-aware water, three-layer procedural soft-particle smoke, a procedural
-  cloud/star sky, four-read half-resolution bloom, and ACES-fit post processing with grading,
-  vignette, and dither. The cutout shadow path shares the surface path's injected texture dimensions,
-  discrete mip selection, and mesh UV/key locations; baked alpha mode selects the appropriate shadow
-  pipeline without per-fragment branching. Surface lighting combines palette shade selection,
-  ambient occlusion, warm block light, up to 32 local lights, four-tap sun shadows, and height fog.
-  A logarithmic workgroup prefix scan compacts light candidates; overflowing tiles retain the first
-  32 stable-ordered overlaps without atomic allocation flicker. The unique WGSL suite is held below
-  48 KiB and every assembled program is parsed and semantically validated in the default-off
-  `test-shader-validation` lane, leaving ordinary core test builds and the default shipping crate free
-  of the Naga dependency.
+- The canonical tick pipeline keeps its execution order explicit and uses cheap runtime invariants;
+  exhaustive persistence validation owns full graph/index/physics audits.
+- Persistence supports the current save and registry schemas and validates deterministic continuation,
+  ownership, reservations, structural integration, and operation-specific in-flight physics.
+- Spatial foundations provide checked chunk-independent voxel coordinates and bounds. Chunk dimensions,
+  storage, and streaming are not selected.
+- Immutable renderer-neutral texture content supports indexed 32x32 tiles, palette ramps, block-face
+  and object-slot appearance bindings, deterministic baking, deduplication, and discrete mip chains.
+- Immutable renderer-neutral WGSL content supports deterministic library assembly and bounded shader
+  definitions for surfaces, tiled lights, shadows, water, smoke, sky, bloom, and post processing.
+- No graphics backend, GPU resource manager, scene system, or platform renderer is implemented.
 
-### Long-horizon verification and gameplay evaluation
+### Verification coverage
 
-- Deterministic 10,000-tick mixed-system soak with repeated production/transfers, varying structural
-  snow load on a persistently cracked supported deck, full-state replay equality, periodic exhaustive
-  audits, matter-conservation checks, and lot-fragmentation ceiling.
-- Deterministic 5,000-tick real sensible-heating soak with repeated exact lot resolution, finite
-  energy depletion, equipment/energy reservations, duration-derived equipment wear, periodic
-  exhaustive audits, matter conservation, modeled-energy conservation, and replay-identical final
-  state.
-- Deterministic 1,000-cycle hand-mining soak repeatedly transfers one finite copper deposit through
-  tool/labor-gated mining WIP and explicit claim, with condition wear, player exertion, an active-job
-  save/load continuation, periodic exhaustive audits, exact matter and modeled thermal-energy
-  conservation, compatible output coalescing, exact depletion, and replay-identical final state.
-- Deterministic 2,000-observation prospecting soak with synchronized material indexes, periodic
-  exhaustive audits, stable persistence continuation, and replay-identical final state.
-- Deterministic 1,000-cycle construction/deconstruction soak repeatedly moves one finite material
-  batch between inventory and active structures whose geometry resolves to that exact density-based
-  quantity, with periodic exhaustive audits, matter and modeled sensible-energy conservation, and
-  replay-identical final state.
-- Deterministic 2,000-transfer finite-energy soak repeatedly relocates one conserved same-carrier
-  energy total between stores, with periodic exhaustive state audits, exact energy conservation, and
-  replay-identical final state.
-- Deterministic 2,000-transfer fluid-storage soak repeatedly moves one finite homogeneous fluid volume
-  through multiple stores, with periodic exhaustive state audits, aggregate-volume conservation, and
-  replay-identical final state.
-- Deterministic 1,000-transfer supported-fluid soak moves one finite homogeneous fluid volume between
-  separately supported stores, recomputing both density-derived structural loads on every transfer,
-  with periodic exhaustive audits, aggregate-volume conservation, and replay-identical final state.
-- Deterministic 500-cycle maintenance soak repeatedly applies wear, commits an exact resource-backed
-  repair, and returns the same finite test material for the next transaction cycle, with periodic
-  exhaustive audits, matter and modeled-energy conservation, and replay-identical final state. The
-  return transfer is a transaction stress fixture, not a gameplay claim that spent parts self-renew.
-- Deterministic 500-operation pure-material melting soak repeatedly transfers one finite copper batch
-  from solid inventory through exact sensible-plus-latent heating into molten storage, with periodic
-  exhaustive audits, matter and modeled-energy conservation, finite energy depletion, equipment wear,
-  and replay-identical final state.
-- Deterministic 300-operation pure-material casting soak repeatedly transfers finite molten copper
-  into solid ingots while accumulating the exact released latent heat in a bounded thermal sink, with
-  periodic exhaustive audits, matter and modeled-energy conservation, and replay-identical final
-  state.
-- Deterministic 300-operation comminution soak repeatedly crushes one finite mixed-composition ore
-  batch through condition-sensitive equipment, with periodic exhaustive persistence audits, exact
-  matter conservation, exact finite work-energy depletion, bounded lot coalescing, accumulated
-  equipment wear, and replay-identical final state.
-- Deterministic 300-operation dry-screening soak repeatedly partitions one finite resolved
-  mixed-composition particulate batch into routed undersize/oversize streams, with an in-flight
-  save/load continuation, periodic exhaustive audits, exact matter conservation, exact finite work
-  depletion, accumulated equipment wear, bounded output-lot coalescing, and replay-identical final
-  state.
-- Deterministic 1,000-transfer supported-stockpile soak repeatedly moves one finite material lot
-  between separately supported stockpiles, updating both derived structural loads on every transfer,
-  with periodic exhaustive audits and replay-identical final state.
-- The headless copper-workshop gameplay harness consumes `build_registries()` directly rather than
-  maintaining shadow equipment/process definitions. Canonical built-in content includes the jaw
-  crusher, grinding mill, dry screen, electric furnace, cooled casting mold, two mechanical drive
-  envelopes, electrical buffer, thermal sink, ore crushing, same-form grinding, exact dry screening,
-  pure-copper melting, and pure-copper casting used by the harness. The required exercise gate runs
-  five maintained anchor world/behavior pairs plus two fresh bounded organic cases; the ignored report
-  lane uses four fresh organic cases. World/scenario and automated-player behavior roots are independent,
-  printed before execution, and can be fixed separately with `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` and
-  `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED`. `DEEP_HEARTH_GAMEPLAY_SEEDS` accepts exact decimal or hex world
-  seed lists for reproduction or wider sweeps. Explicit seed lists fail on malformed entries rather than
-  silently dropping them. The anchors guarantee stable comparison, both power priorities, both
-  maintenance styles, both structural-risk styles, Normal/Warning/Critical initial maintenance bands,
-  and one timing case where high-power work can finish a batch before the scheduled delivery;
-  balance-dependent outcomes are reported rather than frozen into aggregate pass/fail coverage. Every
-  run reports its exact roots and `world@behavior` replay pairs. The exercise source lives under
-  `tests/gameplay_harness/` as a dedicated integration
-  target rather than library code, so harness-only edits rebuild the dedicated target against the
-  cached core library instead of invalidating the feature-enabled library or compiling the crate
-  unit-test harness. Seed/configuration contracts share that one specialized target instead of creating
-  another Cargo artifact. Routine harness tests keep success output captured; the report lane emits
-  replay inputs, one concise `EXPERIENCE` line per scenario, compact outcome/system summaries, and an
-  explicit exercised/observed/unobserved/bootstrap/deferred scope line, while
-  `DEEP_HEARTH_GAMEPLAY_VERBOSE` enables the detailed decision trace. The compact
-  content summary separates authored definitions from runtime-assemblable equipment/energy and upgrade
-  routes so controlled industrial fixtures are not presented as currently reachable progression.
-  The compact report exposes sampled ore/delivery input ranges alongside completed work orders,
-  terminal causes, discretionary/deadline/forced power decisions, structural/WIP recovery, maintenance
-  services, elapsed time, metabolic/hydration cost, final machine condition, remaining
-  power/maintenance reserves, and exact per-batch bottleneck counts so each sampled matrix is useful as
-  gameplay feedback rather than only a pass/fail result. Starting
-  conditions vary ore grade, batch size, crusher condition, one finite crusher-service replacement
-  stock, two competing structural bays, real background stored cargo, a scheduled supported-stockpile
-  delivery, and finite mechanical work reserves. The workshop player has ordinary persistent survival
-  state, so every simulation tick also spends authored basal metabolic energy and hydration. Batch size
-  and initial condition are derived from current authored crusher capabilities and maintenance bands. Both structural bays use materialized
-  2 m wood members and are generated as initially legal crusher locations at ordinary utilization, so
-  embodied support mass and self-weight remain real. The occupied bay is sized from its actual
-  crusher-plus-background load instead of assuming a scaled area remains valid. Background cargo scales
-  from current equipment/material quantities; scheduled delivery mass spans roughly 20-160% of crusher
-  mass, broad enough for ordinary logistics to produce strain, cracking, occasional collapse, and WIP
-  recovery through the same structural rules without targeting authored failure thresholds. Delivery
-  timing is selected within a horizon derived from a real resolved batch duration. Bootstrap-only matter/energy seeding
-  and structural materialization are isolated in one setup module and cannot be called by the acting
-  policy. After setup the timed structural disruption is an actual `validate_transfer_bulk` transaction
-  into a mounted stockpile, so inventory owns the resulting `StoredMatter` load and normal support
-  analysis owns any strain, cracking, failure, suspension, or recovery. The harness chooses the
-  transfer tick; this does not claim an implemented logistics scheduler. Wider seed sweeps remain
-  explicit diagnostic exercises rather than a fixed gate or frozen balance claim. Each seed also
-  selects bounded operating priorities for power, maintenance timing, and structural risk. A
-  preserve-margin policy uses the known scheduled delivery to keep the crusher off the receiving bay;
-  a reactive policy chooses from current structural margin and accepts later relocation/recovery if the
-  delivery makes that choice harmful. Power policy either conserves the scarce high-power reserve or
-  minimizes batch completion time; machine-care preference belongs to the separate maintenance policy
-  instead of pretending energy source changes wear for equal material work. These priorities choose only
-  among legal resolver outputs and never override critical-condition, maintenance, support, energy, or
-  ownership gates. Each order now receives enough low-power stored work to finish the complete order
-  plus a scarce high-power reserve covering only one or two batches. The fast reserve is therefore an
-  optional accelerator with a real opportunity cost, although a known delivery deadline may make
-  spending it strategically necessary. When projected wear would cross the critical boundary the policy resolves and commits
-  real authored maintenance if replacement stock remains, then reevaluates the power choice with
-  restored condition. Replacement stock is finite and becomes same-material copper scrap, so the spent
-  output remains owned but cannot be reused as another replacement ingot. Lack of usable stored work is
-  reported separately from maintenance supply exhaustion.
-  The scheduled delivery can occur during production. If its inventory-owned load merely strains the
-  active support, the committed job can finish and the player may then relocate; if the support fails,
-  the production job suspends with exact remaining active time and conserved work-in-process. Recovery
-  can relocate the occupied machine and resume that work, or leave it visibly stranded when no
-  surviving bay can carry the crusher. Failed structural damage remains persistent either way. Output
-  exposes delivery mass/target/timing, player priority, remaining work reserve, condition band, support
-  state, completed work before delivery, suspended/stranded work-in-process, contained copper floor,
-  and crushed ore particle-size
-  classes and per-drive batch counts rather than reducing experience coverage to booleans. Ore grade therefore has an honest
-  conserved-value effect even though it cannot yet change a downstream processing choice. The harness
-  identifies the missing concentration/smelting bridge. Workshop mineralized ore uses copper plus stone
-  host material, matching the mining path instead of using downstream slag as natural gangue. A
-  primitive-progression probe now exercises
-  the central early fantasy through canonical survival-costed knapping, handle shaping, pick
-  assembly, mineralized-ore extraction, separate native-copper extraction, cold-working, in-place pick
-  reinforcement, a second mineralized-ore extraction,
-  crank assembly, conserved flywheel-store construction, in-place crank reinforcement,
-  primitive-crusher assembly, manual charging, and crusher use. It now derives required component
-  quantities and producing manual processes from current assembly/upgrade/crafting registries instead
-  of copying recipe batch counts. Its equal-mass mining sample varies between half and all of the current
-  stone-pick legal batch, ore grade varies within a bounded copper/stone range, and native-copper demand
-  is derived from the current upgrade additions. The same worn pick is upgraded without repair and mines
-  an equal second mass; the crank comparison requests the same exact stored work before and after
-  reinforcement. After the crusher is powered, the probe starts another real mining job while the
-  crusher works autonomously and verifies that machine production completes while player labor remains
-  occupied by the longer mining operation. The accumulator and crusher remain fully embodied
-  investments. The probe checks that reinforcement preserves wear/identity, energy cost is unchanged,
-  survival cost remains real, persistence validates, and world matter remains exactly conserved.
-  A separate survival-provisioning probe derives meal quantities from current physiology and food
-  definitions, varies a bounded preservation profile/storage horizon, compares ambient versus preserved
-  food age, consumes a real Grain/Fruit/Protein meal, drinks finite authored water, and verifies both
-  matter and fluid ownership remain conserved. Focused survival/progression/ore/foundry probes each run
-  one maintained case plus one fresh organic physical sample by default; the physical variation seed
-  reproduces the organic case and an explicit gameplay seed list replaces the focused sample exactly.
-  Focused crafting coverage separately proves ordinary ore form cannot enter the native-metal
-  cold-work process and contaminated native-metal composition is also rejected. A separate
-  ore-preparation capability probe
-  derives a legal half-to-full-scale mixed-ore batch from current authored equipment limits and
-  screen-class representability, then runs canonical crushing, grinding, screening, and any nonzero oversize
-  regrind. Direct crusher-to-screen and crusher-to-fine-grind availability are reported as current
-  observations rather than frozen requirements. Routing follows the resolver's actual nonzero output
-  streams, particle checks compare against authored process distributions/apertures, and the probe
-  checks stage-by-stage persistence invariants, resolved energy use, equipment wear, composition
-  preservation, and whole-chain matter conservation without requiring an arbitrary zero-energy final
-  state. Pure-copper melt/cast uses a seed-varied legal batch derived from the authored furnace/mold
-  limits and is exercised once as a
-  separately labeled downstream
-  capability probe, not repeated per scenario or presented as a continuous ore-to-metal loop. The
-  canonical workshop now operates on roughly 10–20 kg batches rather than milligram-scale samples;
-  comminution work, thermal power, finite store capacities, and primitive tool quantities were
-  rescaled together, and this authored-physics change advances the registry schema without adding a
-  compatibility path. The player-buildable energy-store embodiment also advances the current-only
-  save schema because finite stores now persist exact embodied matter/provenance; no migration path is
-  retained. Matter,
-  equipment, initial energy, and structural bays remain explicit setup fixtures until their physical
-  acquisition/construction authorizers exist; experienced post-setup mutations use canonical runtime
-  transactions. Gameplay-harness support is split by responsibility across bootstrap, configuration,
-  execution contracts, probe setup, deterministic scenario generation, reporting, and seed-mixing
-  modules instead of
-  accumulating all support in the main scenario controller. Seed/configuration behavior is covered by
-  focused named tests rather than one aggregated boolean contract test, including explicit contracts
-  proving behavior seeds cannot mutate physical scenario inputs and world seeds cannot mutate player
-  policy. The exploratory report also runs a bounded matched-world agency panel: the same physical
-  world is replayed under four legal policy bundles and compared by completion, power use, maintenance,
-  relocation/suspension, final condition, and remaining reserves. This distinguishes genuine player
-  leverage from differences caused merely by unrelated world seeds. Custom replay lists are reported
-  distinctly from generated organic scenarios. The exercise policy uses current canonical
-  projections instead of cloned-state compound-future previews, varies crusher starts across the full
-  non-failed condition range, and uses the production `validate_relocate_equipment` transaction for
-  atomic support moves and their structural consequences. Matched-world comparisons include elapsed
-  ticks and survival expenditure so successful completion does not hide meaningful policy utility
-  differences. Isolated unit-test registry builders share
-  one test-only domain assembler and no longer inherit unrelated canonical gameplay content as that
-  content expands.
+- Deterministic unit, integration, soak, persistence, conservation, and gameplay-harness coverage exists
+  for the implemented ownership and production paths.
+- Gameplay evaluation covers workshop operation, primitive progression, survival provisioning, ore
+  preparation, and pure-copper foundry capability with deterministic pass/fail cases plus a separate
+  exploratory report.
+- Test selection, replay controls, assertion policy, and local CI are owned by [`TESTING.md`](TESTING.md).
 
-### Source organization and repository policy
 
-- Runtime state owners keep records, synchronized indexes, and owner mutation primitives in their
-  state modules while descendant validation modules own exhaustive persistence audits without widening
-  private mutation access. Production execution is organized behind one canonical facade with separate
-  start-admission and in-flight completion modules; thermal process code likewise separates immutable
-  resolver registration, sensible-heating resolution, and persistence replay validation. Inventory
-  fixture/bootstrap helpers now live in a dedicated conditional support module instead of the
-  production transaction module. Source-owned material admission is centralized in one inventory
-  ingress transaction for geological creation, structural multi-trace recovery, and controlled test
-  seeding; the former parallel single-lot and batch ingress validators/committers are removed, and
-  commodity-reference validation is shared with storage admission. Public bulk stockpile transfer
-  performs deterministic selection and then delegates admission, split-ID planning, structural-load
-  planning, and commit to the same exact relocation pipeline used by physical resolvers, removing the
-  former parallel transfer mutation path.
-- Mining work-in-process groups persistent identity, resources, and schedule state instead of keeping
-  an oversized flat record. Mining start tokens likewise group owner revision transitions, capability
-  failures identify the exact authored capability and value-kind mismatch, and missing material
-  definitions are reported as material-reference failures rather than deposit failures. Mining WIP
-  persists the equipment definition and pre-work condition as one historical operation trace, so
-  exhaustive validation can replay authored duration and wear without binding completed work to a
-  tool that was legitimately upgraded after its occupancy ended. Due mining
-  buckets are consumed directly into stable tick outcomes instead of cloning their job-ID sets during
-  planning. Mining equipment remains at its pre-operation condition while exclusively occupied and
-  applies recorded wear atomically at the exact completion tick, matching other timed equipment
-  operations instead of front-loading future wear at admission. That in-flight semantic change
-  advances the current-only save schema; no historical mining-state decoder or migration path is
-  retained.
-- Player labor now distinguishes admission failures from commit-time conflicts. Revision-bound work
-  tokens report an explicit stale revision when labor ownership changed after validation, including
-  the case where intervening work has already finished, instead of misreporting the stale token as an
-  active busy job.
-- `TESTING.md`, `.cargo/config.toml`, and the repository-local `ci.py` expose maintained fast, soak,
-  gameplay, shader, full, hardening, release, lint, check, and documentation lanes without hosted CI.
-  Long-horizon soak bodies are behind the dedicated `test-soak` feature, so ordinary unit-test builds
-  do not type-check or codegen those large fixtures. `test-all` builds that feature once when ordinary
-  plus soak coverage is requested. Hardening uses all-target/all-feature Clippy for combined-feature
-  type/lint coverage, then executes the maintained core+soak, gameplay, shader, and documentation
-  artifacts instead of building a redundant monolithic all-feature test artifact. Rust compiler warnings
-  are denied package-wide, allowing the routine gate to avoid a second Clippy compile; production-library
-  Clippy is available through `--lint`. `ci.py` keeps the solo-developer gate concise by capturing successful Cargo noise,
-  printing one timed status line per stage, surfacing native output only on failure, and requiring
-  explicit scope flags rather than brittle changed-file inference. A library-only `check-fast` alias
-  provides intermediate compile/type feedback without linking the monolithic unit-test harness.
-  Gameplay remains one dedicated feature-gated integration target, but its maintained scenario matrix,
-  survival provisioning, primitive progression, ore-preparation probe, and foundry probe have direct
-  aliases so one failing concern can be rerun without repeating the others. A fail-closed local alias
-  contract lists the integration target's real tests and ignored subset before maintained gameplay CI,
-  rejecting missing/renamed selectors, ignored-status drift, or uncontracted filtered aliases instead
-  of accepting Cargo's zero-match success behavior. Bounded replayable organic sampling is present in
-  the required workshop gate, each focused probe, and the larger explicit report lane,
-  and the Naga parser
-  dependency remains behind its dedicated validation feature. Test binaries and one-shot validation
-  binaries omit debug symbols to reduce codegen/link time without changing ordinary dev-profile
-  debugging behavior. GitHub Actions and hosted runners are not part of the verification contract.
-- Current default validation keeps `cargo check` silent and Clippy warnings denied.
-- Project lint policy denies wildcard enum match arms, keeping project-owned enum handling exhaustive
-  as variants evolve instead of relying on review to catch silent fallback behavior.
-- Boolean fields, parameters, and predicate APIs follow the project `is_`/`has_`/`can_` vocabulary;
-  the current save schema uses those same names directly and retains no historical Serde rename shim.
-- Release profile keeps integer overflow checks enabled.
+## Not implemented
 
-## Deliberately Deferred
+The following capabilities are outside the current runtime boundary:
 
-- Renderer backend, window/input, audio, UI, engine/ECS selection, physics implementation,
-  networking, and general threading architecture. Compact texture upload and bounded WGSL lighting
-  contracts are implemented, but no graphics API backend, mesh/chunk format, GPU resource-lifetime
-  policy, pipeline-cache implementation, or device-specific quality tier is selected.
-- Concrete voxel/chunk storage, world generation, spatial indexes, chunk dimensions, and streaming.
-- Regional geological generation algorithms and host-rock relationships, voxel-level terrain matter
-  ownership, and physical prospecting resolvers for surface evidence, panning, sampling, drilling,
-  assays, and geophysical instruments. The knowledge owner records resolved uncertainty but does not
-  infer hidden deposits or manufacture survey accuracy.
-- Richer mining physics beyond the implemented hand-tool extraction owner: access geometry, cutting
-  faces/voxel excavation, waste-rock/recovery fractions, tailings, drainage, ground-control risk,
-  hauling, and mechanized excavation. Current mining already requires a real tool, exclusive player
-  labor, condition-sensitive extraction rate, batch and host-material hardness gates, finite deposits,
-  reserved storage, tool wear, explicit completion/claim, and conserved WIP. Mixed composition is
-  conserved but is not converted into a fabricated composite-rock hardness formula. Loaded mining
-  jobs replay the same authored extraction rate, batch, hardness, duration, and wear semantics rather
-  than trusting persisted derived outcomes.
-- Thermal fields, environmental heat transport/losses, vaporization/boiling, mixed-material and
-  alloy/solution phase diagrams, combustion, fuel networks, and emissions. Pure-material solid/liquid
-  fusion and finite explicit thermal sinks are modeled; an implicit environment is deliberately not
-  used as an infinite heat source or sink.
-- Broader equipment/tool/worker content beyond the canonical stone/copper-reinforced picks,
-  stone/copper-reinforced hand cranks, crusher, grinding mill, dry screen, furnace, and casting mold;
-  richer voxel/container equipment placement beyond a structural support
-  owner; repair tools/labor/duration/access, richer spare-part suitability, replacement and waste
-  transformations, discrete capability-disable policies, and broader authored maintenance/degradation
-  profiles. The primitive and copper-reinforced tools are real composite equipment providers assembled
-  or additively upgraded from conserved material traces. Exact pristine disassembly exists, but
-  condition-dependent worn-equipment salvage and scrap transformation do not. The jaw crusher has a real replacement-stock maintenance resolver,
-  but that narrow service does not pretend unresolved repair tooling, labor, time, or chemistry already exist.
-- Richer physical construction and demolition resolution: member orientation/end geometry,
-  joints/connections, cutting and placement waste, tools, labor, duration, salvage fractions, debris
-  transformation, and non-identity-preserving demolition outputs. Current prismatic geometry resolves
-  solid volume and density-based material quantity, but that quantity foundation deliberately does
-  not pretend unresolved joinery, process, labor, or tooling requirements authorize construction.
-- Structural bending, shear, torsion, buckling, connection/joint capacity, terrain-support inference,
-  and automatic voxel-geometry load paths. Current structural profiles model explicit axial load
-  paths rather than pretending those unsolved mechanics are already represented.
-- Automatic bindings from snow/weather, wind, and terrain pressure into their source-separated
-  structural load contributions. Structural self-weight, supported inventory matter, mounted
-  equipment weight, and supported fluid weight now write their own aggregate contributions
-  canonically; the remaining owners remain deferred.
-- Additional production resolvers and gameplay content beyond sensible heating, pure-material
-  melt/cast, conservative crushing/grinding, and canonical dry screening, including non-ideal
-  screening efficiency/blinding/wet-feed effects, richer mill media/loading physics, washing,
-  gravity/flotation separation, explicit
-  recovery/tailings physics, chemical smelting/reduction, alloying, forging/working, machining/tool
-  wear, labor/skill, chemistry, and environmental constraints. Weighted particle-size classes and
-  typed multi-stream ownership now support exact conservative classification where the authored
-  aperture lies between resolved classes, but the simulation still refuses to invent a split through
-  an unresolved class. Canonical manual knapping/clay forming and
-  crush/grind/screen/pure-melt/pure-cast processes are registered; additional gameplay processes remain
-  unregistered until their corresponding physical gates exist. Unfired pottery deliberately stops
-  before firing because combustion, fuel heat transfer, and pit/kiln thermal ownership are unresolved.
-- Persistent mechanical-power networks and shaft/belt layout, rotational inertia/flywheels, slip and
-  clutch state, steam/boilers, electrical networks, transformers, protection, and distribution
-  topology, plus conserved primary energy-generation paths for finite stores. Directional finite
-  input/output envelopes, process-released-heat sinks, and an opaque conserved same-carrier storage
-  relocation boundary now exist, but no topology resolver can construct that transfer and no free
-  charging/generation API is exposed.
-- Spatial placement/support ownership for finite energy stores is also deferred. Material-backed
-  stores own and conserve their physical construction mass, but only inventory, structures,
-  equipment, and fluids currently project dedicated support loads. A future energy-storage support
-  integration must add an explicit owner/load channel rather than aliasing its weight to equipment.
-- Pressure/gravity-resolved hydrology topology, terrain/surface/groundwater ownership, precipitation
-  and runoff, pumps, irrigation, sanitation, wastewater, contamination/water-quality mixtures,
-  temperature/pressure-dependent fluid properties, and a phase-aware bridge between conserved
-  material mass and hydraulic fluid volume. The built-in water identity and current finite fluid
-  owner provide storage, drinking, conservation, and real support weight, but still provide no
-  pathless movement or water-spawn shortcut.
-- Agriculture, soil processes, ecology, genetics, creatures, hunting/combat, non-player workers,
-  settlements,
-  logistics, trade, economy, migration, and other gameplay systems. The calendar, seasons,
-  perishability, and food physiology are now foundations for agriculture rather than substitutes for
-  crop growth or ecology.
-- Save-file encoding/storage, compression, atomic filesystem writes, and cloud storage. Historical
-  save-schema migration is intentionally unsupported rather than deferred.
-- Spatial/world performance benchmarks required before final chunk and streaming architecture.
+- graphics backend, window/input/audio integration, ECS selection, networking, and general engine
+  integration;
+- voxel/chunk storage, terrain/world generation, streaming, and world-scale spatial indexing;
+- regional geological generation, voxel ore topology, and physical prospecting actions such as
+  panning, sampling, drilling, assays, and geophysical surveys;
+- mechanized excavation, mine access/haulage/drainage/ground control, recovery fractions, waste rock,
+  and tailings ownership;
+- environmental heat fields and transport, vaporization, combustion, fuels, emissions, mixed/alloy
+  phase diagrams, mineral concentration, chemical smelting/reduction, alloying, forging, and machining;
+- general worn-equipment salvage, maintenance-scrap recovery, repair labor/tools/time/access, and
+  richer maintenance chemistry;
+- structural bending, shear, torsion, buckling, joints/connections, terrain support, construction
+  labor/tooling/waste, and non-exact demolition/salvage;
+- shaft/belt power networks, rotational inertia/slip/clutches, steam systems, electrical topology,
+  generation/distribution/protection, and energy-store spatial/support integration;
+- hydrology, groundwater/surface water, channels, pumps, irrigation, wastewater, sanitation, fluid
+  mixing, and pressure/temperature-dependent fluid properties;
+- agriculture, soil simulation, ecology, genetics, creatures, hunting/combat, non-player workers,
+  settlements, logistics, trade, economy, and migration;
+- save-file encoding/storage, filesystem atomicity, compression, and cloud storage adapters.
+
+Persistence supports only the current save schema. New capabilities must add their own physical owner,
+canonical mutation path, persistence semantics, and invariant coverage before `STATUS.md` lists them as
+implemented.

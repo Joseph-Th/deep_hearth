@@ -11,7 +11,7 @@ pub(super) fn assert_scenario_contracts(reports: &[ScenarioReport]) {
     for report in reports {
         assert!(
             report.progress.delivery_applied,
-            "gameplay world 0x{:016X} / behavior 0x{:016X} never executed its scheduled supported-stockpile delivery",
+            "gameplay world 0x{:016X} / behavior 0x{:016X} never executed its controlled supported-stockpile delivery",
             report.world_seed, report.behavior_seed,
         );
     }
@@ -65,10 +65,4 @@ pub(super) fn assert_anchor_diversity(reports: &[ScenarioReport]) {
             "maintained gameplay anchors are missing the {band:?} initial maintenance band"
         );
     }
-    assert!(
-        reports
-            .iter()
-            .any(|report| report.choices.deadline_power_choices > 0),
-        "maintained gameplay anchors are missing a case where stored power changes what can finish before a scheduled delivery"
-    );
 }

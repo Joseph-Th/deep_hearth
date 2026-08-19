@@ -17,8 +17,9 @@ use crate::energy::{
 use crate::fluid::{FluidDefinitionId, FluidStoreId, add_fluid_store_with_contents_for_fixture};
 use crate::geology::{GeneratedDepositSpec, GeologicalDepositId, insert_generated_deposit};
 use crate::inventory::{
-    MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, add_stockpile,
-    deposit_composed_lot_for_fixture, deposit_lot_for_fixture,
+    MaterialLotId, MaterialLotSelection, MaterialTransferResolution, StockpileId,
+    StockpileStorageProfile, add_stockpile, deposit_composed_lot_for_fixture,
+    deposit_lot_for_fixture,
 };
 use crate::material::{CommodityKey, FormId, MaterialComposition};
 use crate::registry::Registries;
@@ -107,6 +108,21 @@ pub fn seed_composed_lot(
     .unwrap_or_else(|error| panic!("gameplay bootstrap composed-material seed failed: {error}"))
 }
 
+/// Creates the harness-only logistics authorization for one controlled material-delivery event.
+///
+/// Call this during scenario setup, before the acting policy starts. The fixture does not move matter
+/// or reveal event timing to the actor. Inventory still validates and commits the canonical transfer;
+/// this only stands in for the not-yet-implemented world logistics owner that would authorize the
+/// physical movement in production gameplay.
+pub const fn authorize_controlled_material_delivery(
+    source: StockpileId,
+    destination: StockpileId,
+    commodity: CommodityKey,
+    mass: Mass,
+) -> MaterialTransferResolution {
+    MaterialTransferResolution::new(source, destination, commodity, mass)
+}
+
 pub fn materialize_structure(
     registries: &Registries,
     state: &mut AppState,
@@ -137,7 +153,7 @@ pub fn materialize_structure(
         &[MaterialLotSelection::new(lot, mass)],
     )
     .unwrap_or_else(|error| panic!("gameplay bootstrap construction binding failed: {error:?}"));
-    validate_structural_construction(registries, state, &resolution)
+    validate_structural_construction(registries, state, resolution)
         .unwrap_or_else(|error| {
             panic!("gameplay bootstrap construction validation failed: {error}")
         })

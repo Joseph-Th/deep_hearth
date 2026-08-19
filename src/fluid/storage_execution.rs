@@ -128,7 +128,7 @@ pub(crate) fn add_fluid_store_with_contents_for_fixture(
 /// There is no public constructor. The storage owner proves only that an already-resolved transfer
 /// is still valid and commits it atomically; it does not authorize teleporting fluid between stores.
 #[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct FluidTransferResolution {
     source: FluidStoreId,
     destination: FluidStoreId,
@@ -137,17 +137,17 @@ pub struct FluidTransferResolution {
 
 impl FluidTransferResolution {
     #[must_use]
-    pub const fn source(self) -> FluidStoreId {
+    pub const fn source(&self) -> FluidStoreId {
         self.source
     }
 
     #[must_use]
-    pub const fn destination(self) -> FluidStoreId {
+    pub const fn destination(&self) -> FluidStoreId {
         self.destination
     }
 
     #[must_use]
-    pub const fn volume(self) -> Volume {
+    pub const fn volume(&self) -> Volume {
         self.volume
     }
 }
@@ -340,7 +340,7 @@ impl Error for FluidTransferError {
 
 /// Consumed proof that one resolved fluid transfer can commit against an exact owner revision.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedFluidTransfer {
     expected_revision: u64,
     next_revision: u64,

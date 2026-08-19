@@ -138,9 +138,14 @@ pub(crate) struct ValidatedPlayerWorkStart {
     next_revision: u64,
     expected_survival_revision: u64,
     work: PlayerWork,
+    resource_budget: super::PlayerWorkResourceBudget,
 }
 
 impl ValidatedPlayerWorkStart {
+    pub(crate) const fn resource_budget(&self) -> super::PlayerWorkResourceBudget {
+        self.resource_budget
+    }
+
     pub(crate) fn precheck(self, state: &AppState) -> Result<(), PlayerWorkCommitError> {
         let actual_revision = state.player_work().revision();
         if actual_revision != self.expected_revision {
@@ -218,6 +223,7 @@ pub(crate) fn validate_player_work_start(
         next_revision,
         expected_survival_revision: state.survival().revision(),
         work,
+        resource_budget: budget,
     })
 }
 
