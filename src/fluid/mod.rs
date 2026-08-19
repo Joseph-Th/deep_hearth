@@ -32,22 +32,24 @@ pub(crate) use storage_execution::add_fluid_store_with_contents_for_fixture;
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::num::NonZeroU16;
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::arithmetic::checked_mul_div_with_remainder;
 use crate::core::quantity::{Volume, VolumetricFlow};
-use crate::core::time::TickSpan;
+use crate::core::time::{PhysicalTickDuration, TickSpan};
+
+const MICROLITER_MICROSECONDS_PER_MICROLITER_SECOND: u128 = 1_000_000;
 
 /// Fractional microliter numerator retained between flow-integration steps.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FlowRemainder(u16);
+pub struct FlowRemainder(u32);
 
 impl FlowRemainder {
     pub const ZERO: Self = Self(0);
 
     #[must_use]
-    pub const fn numerator(self) -> u16 {
+    pub const fn numerator(self) -> u32 {
         self.0
     }
 }
@@ -74,10 +76,7 @@ impl FlowIntegration {
 /// Invalid flow-integration state or arithmetic overflow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FlowIntegrationError {
-    InvalidRemainder {
-        remainder: FlowRemainder,
-        ticks_per_second: NonZeroU16,
-    },
+    InvalidRemainder { remainder: FlowRemainder },
     ArithmeticOverflow,
     VolumeOutOfRange,
 }
@@ -85,14 +84,11 @@ pub enum FlowIntegrationError {
 impl Display for FlowIntegrationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidRemainder {
-                remainder,
-                ticks_per_second,
-            } => write!(
+            Self::InvalidRemainder { remainder } => write!(
                 formatter,
-                "flow remainder {} is not below tick-rate denominator {}",
+                "flow remainder {} is not below integration denominator {}",
                 remainder.numerator(),
-                ticks_per_second.get()
+                MICROLITER_MICROSECONDS_PER_MICROLITER_SECOND
             ),
             Self::ArithmeticOverflow => {
                 formatter.write_str("flow integration overflowed intermediate storage")
@@ -109,29 +105,30 @@ impl Error for FlowIntegrationError {}
 /// Integrates a constant microliter/second flow across an integer tick span.
 ///
 /// A future fluid owner that calls this incrementally must persist `FlowRemainder`; discarding it
-/// would create systematic water/material loss at flow rates that do not divide evenly by tick rate.
+/// would create systematic water/material loss at rates that do not divide evenly across the
+/// physical duration of a world tick.
 pub fn integrate_flow(
     flow: VolumetricFlow,
     span: TickSpan,
-    ticks_per_second: NonZeroU16,
+    physical_tick_duration: PhysicalTickDuration,
     prior_remainder: FlowRemainder,
 ) -> Result<FlowIntegration, FlowIntegrationError> {
-    if prior_remainder.numerator() >= ticks_per_second.get() {
+    if u128::from(prior_remainder.numerator()) >= MICROLITER_MICROSECONDS_PER_MICROLITER_SECOND {
         return Err(FlowIntegrationError::InvalidRemainder {
             remainder: prior_remainder,
-            ticks_per_second,
         });
     }
-    let numerator = u128::from(flow.microliters_per_second())
-        .checked_mul(u128::from(span.value()))
-        .and_then(|value| value.checked_add(u128::from(prior_remainder.numerator())))
-        .ok_or(FlowIntegrationError::ArithmeticOverflow)?;
-    let denominator = u128::from(ticks_per_second.get());
-    let whole_volume = numerator / denominator;
-    let remainder_value = numerator % denominator;
+    let elapsed_microseconds = physical_tick_duration.span_microseconds(span);
+    let (whole_volume, remainder_value) = checked_mul_div_with_remainder(
+        u128::from(flow.microliters_per_second()),
+        elapsed_microseconds,
+        MICROLITER_MICROSECONDS_PER_MICROLITER_SECOND,
+        u128::from(prior_remainder.numerator()),
+    )
+    .ok_or(FlowIntegrationError::ArithmeticOverflow)?;
     let whole_volume =
         u64::try_from(whole_volume).map_err(|_| FlowIntegrationError::VolumeOutOfRange)?;
-    let remainder = match u16::try_from(remainder_value) {
+    let remainder = match u32::try_from(remainder_value) {
         Ok(value) => FlowRemainder(value),
         Err(_) => return Err(FlowIntegrationError::ArithmeticOverflow),
     };
@@ -145,16 +142,13 @@ pub fn integrate_flow(
 mod tests {
     use super::*;
 
-    fn tick_rate(value: u16) -> NonZeroU16 {
-        match NonZeroU16::new(value) {
-            Some(value) => value,
-            None => panic!("test tick rate must be nonzero"),
-        }
+    const fn twentieth_second_tick() -> PhysicalTickDuration {
+        PhysicalTickDuration::from_microseconds(50_000)
     }
 
     #[test]
     fn fractional_flow_is_conserved_across_repeated_ticks() {
-        let rate = tick_rate(20);
+        let tick_duration = twentieth_second_tick();
         let mut remainder = FlowRemainder::ZERO;
         let mut volume = Volume::ZERO;
 
@@ -162,7 +156,7 @@ mod tests {
             let result = match integrate_flow(
                 VolumetricFlow::from_microliters_per_second(1),
                 TickSpan::new(1),
-                rate,
+                tick_duration,
                 remainder,
             ) {
                 Ok(result) => result,
@@ -184,7 +178,7 @@ mod tests {
         let result = match integrate_flow(
             VolumetricFlow::from_microliters_per_second(25_000),
             TickSpan::new(20),
-            tick_rate(20),
+            twentieth_second_tick(),
             FlowRemainder::ZERO,
         ) {
             Ok(result) => result,

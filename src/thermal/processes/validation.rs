@@ -471,7 +471,7 @@ pub(crate) fn validate_loaded_thermal_job(
     let required_duration = calculate_power_duration_ceiling(
         transfer_power,
         required_energy,
-        registries.core().ticks_per_second(),
+        registries.core().physical_tick_duration(),
     )
     .map_err(|error| ThermalJobValidationError::Duration {
         job: job.id(),

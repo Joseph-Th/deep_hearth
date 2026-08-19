@@ -325,7 +325,7 @@ pub(crate) fn validate_loaded_player_work(
             let power_duration = calculate_power_duration_ceiling(
                 transfer_power,
                 work.output().energy(),
-                registries.core().ticks_per_second(),
+                registries.core().physical_tick_duration(),
             )
             .map_err(|_error| PlayerWorkValidationError::ManualPowerDurationMismatch)?;
             let metabolic_output = metabolic_output_per_tick(

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+import argparse
 import json
 from pathlib import Path
 import shlex
@@ -26,15 +27,27 @@ class Selector:
 
 
 SELECTORS = (
-    Selector("test-gameplay-scenarios", "gameplay_harness_gate"),
     Selector("test-gameplay-report", "gameplay_harness_exploratory_report", ignored=True),
 )
 
 SUITES = {
+    "test-gameplay-workshop": "gameplay_workshop",
     "test-gameplay-survival": "gameplay_survival",
     "test-gameplay-progression": "gameplay_progression",
     "test-gameplay-ore": "gameplay_ore",
     "test-gameplay-foundry": "gameplay_foundry",
+}
+
+CHECK_SUITES = {
+    "check-gameplay-workshop": "gameplay_workshop",
+    "check-gameplay-survival": "gameplay_survival",
+    "check-gameplay-progression": "gameplay_progression",
+    "check-gameplay-ore": "gameplay_ore",
+    "check-gameplay-foundry": "gameplay_foundry",
+}
+
+TARGET_PATHS = {
+    "gameplay_workshop": "tests/gameplay_harness/main.rs",
 }
 
 
@@ -118,8 +131,8 @@ def alias_errors(
             )
         if "--test" not in cargo_tokens or "gameplay_harness" not in cargo_tokens:
             errors.append(f"{selector.alias}: command does not target gameplay_harness")
-        if "--features" not in cargo_tokens or "test-gameplay" not in cargo_tokens:
-            errors.append(f"{selector.alias}: command does not enable test-gameplay")
+        if "--features" not in cargo_tokens or "test-gameplay-full" not in cargo_tokens:
+            errors.append(f"{selector.alias}: command does not enable test-gameplay-full")
         if "--exact" not in libtest_tokens:
             errors.append(f"{selector.alias}: command is not an exact selector")
         has_ignored = "--ignored" in libtest_tokens
@@ -127,6 +140,75 @@ def alias_errors(
             expected = "with --ignored" if selector.ignored else "without --ignored"
             errors.append(f"{selector.alias}: command must run {expected}")
     return errors
+
+
+def maintained_gate_alias_errors(
+    aliases: dict[str, str], suites: dict[str, str]
+) -> list[str]:
+    command = aliases.get("test-gameplay")
+    if command is None:
+        return ["missing maintained gameplay gate alias: test-gameplay"]
+
+    tokens = shlex.split(command)
+    expected = Counter(["test", "--quiet", "--locked", "--features", "test-gameplay"])
+    for target in suites.values():
+        expected.update(["--test", target])
+    if Counter(tokens) != expected:
+        return [
+            "test-gameplay: maintained gate must run each focused gameplay target exactly once "
+            "with only the test-gameplay feature and no test-name filter"
+        ]
+    return []
+
+
+def check_alias_errors(aliases: dict[str, str], suites: dict[str, str]) -> list[str]:
+    errors: list[str] = []
+    expected_aliases = set(suites)
+    actual_aliases = {name for name in aliases if name.startswith("check-gameplay-")}
+    unexpected = sorted(actual_aliases - expected_aliases)
+    missing = sorted(expected_aliases - actual_aliases)
+    if unexpected:
+        errors.append(f"uncontracted gameplay check aliases: {', '.join(unexpected)}")
+    if missing:
+        errors.append(f"missing gameplay check aliases: {', '.join(missing)}")
+
+    for alias, target in suites.items():
+        command = aliases.get(alias)
+        if command is None:
+            continue
+        expected = [
+            "check",
+            "--quiet",
+            "--locked",
+            "--test",
+            target,
+            "--features",
+            "test-gameplay",
+        ]
+        if shlex.split(command) != expected:
+            errors.append(
+                f"{alias}: focused check must type-check only the complete {target!r} target"
+            )
+    return errors
+
+
+def maintained_check_alias_errors(
+    aliases: dict[str, str], suites: dict[str, str]
+) -> list[str]:
+    command = aliases.get("check-gameplay")
+    if command is None:
+        return ["missing maintained gameplay check alias: check-gameplay"]
+
+    tokens = shlex.split(command)
+    expected = Counter(["check", "--quiet", "--locked", "--features", "test-gameplay"])
+    for target in suites.values():
+        expected.update(["--test", target])
+    if Counter(tokens) != expected:
+        return [
+            "check-gameplay: maintained check must include each focused gameplay target exactly once "
+            "with only the test-gameplay feature"
+        ]
+    return []
 
 
 def focused_target_errors(manifest: dict[str, object], suites: dict[str, str]) -> list[str]:
@@ -151,7 +233,7 @@ def focused_target_errors(manifest: dict[str, object], suites: dict[str, str]) -
             )
             continue
         entry = entries[0]
-        expected_path = f"tests/{target}.rs"
+        expected_path = TARGET_PATHS.get(target, f"tests/{target}.rs")
         if entry.get("path") != expected_path:
             errors.append(
                 f"focused target {target!r} must use path {expected_path!r}"
@@ -184,13 +266,35 @@ def run_self_tests() -> None:
 
     aliases = {
         "test-gameplay-suite": "test --quiet --locked --test focused --features test-gameplay",
+        "test-gameplay": "test --quiet --locked --features test-gameplay --test focused",
+        "check-gameplay-suite": "check --quiet --locked --test focused --features test-gameplay",
+        "check-gameplay": "check --quiet --locked --features test-gameplay --test focused",
     }
     suites = {"test-gameplay-suite": "focused"}
+    check_suites = {"check-gameplay-suite": "focused"}
     assert alias_errors(aliases, (), suites) == []
+    assert maintained_gate_alias_errors(aliases, suites) == []
+    assert check_alias_errors(aliases, check_suites) == []
+    assert maintained_check_alias_errors(aliases, check_suites) == []
     aliases["test-gameplay-suite"] += " stale_filter"
     assert any(
         "complete 'focused' target" in error
         for error in alias_errors(aliases, (), suites)
+    )
+    aliases["test-gameplay"] += " stale_filter"
+    assert any(
+        "no test-name filter" in error
+        for error in maintained_gate_alias_errors(aliases, suites)
+    )
+    aliases["check-gameplay-suite"] += " stale_filter"
+    assert any(
+        "complete 'focused' target" in error
+        for error in check_alias_errors(aliases, check_suites)
+    )
+    aliases["check-gameplay"] += " stale_filter"
+    assert any(
+        "each focused gameplay target exactly once" in error
+        for error in maintained_check_alias_errors(aliases, check_suites)
     )
 
     valid_manifest = {
@@ -258,7 +362,7 @@ def cargo_test_executable() -> Path:
         "--test",
         "gameplay_harness",
         "--features",
-        "test-gameplay",
+        "test-gameplay-full",
         "--no-run",
         "--message-format=json",
     ]
@@ -302,6 +406,16 @@ def binary_listing(executable: Path, *extra_libtest: str) -> Counter[str]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Validate gameplay Cargo aliases and focused-target wiring."
+    )
+    parser.add_argument(
+        "--static",
+        action="store_true",
+        help="validate command/manifest wiring only; skip live full-harness test discovery",
+    )
+    args = parser.parse_args()
+
     run_self_tests()
     with CONFIG.open("rb") as handle:
         config = tomllib.load(handle)
@@ -313,7 +427,21 @@ def main() -> int:
         return 1
 
     errors = alias_errors(aliases, SELECTORS, SUITES)
+    errors.extend(maintained_gate_alias_errors(aliases, SUITES))
+    errors.extend(check_alias_errors(aliases, CHECK_SUITES))
+    errors.extend(maintained_check_alias_errors(aliases, CHECK_SUITES))
     errors.extend(focused_target_errors(manifest, SUITES))
+    if args.static:
+        if errors:
+            for error in errors:
+                print(f"gameplay alias contract: {error}", file=sys.stderr)
+            return 1
+        print(
+            "gameplay alias contract: PASS static "
+            f"({len(SELECTORS)} filtered aliases, {len(SUITES)} focused test/check suites)"
+        )
+        return 0
+
     try:
         executable = cargo_test_executable()
         all_tests = binary_listing(executable)
@@ -330,7 +458,7 @@ def main() -> int:
     print(
         "gameplay alias contract: PASS "
         f"({len(SELECTORS)} filtered aliases, {len(SUITES)} focused suites, "
-        f"{sum(all_tests.values())} aggregate harness tests)"
+        f"{sum(all_tests.values())} full harness tests)"
     )
     return 0
 

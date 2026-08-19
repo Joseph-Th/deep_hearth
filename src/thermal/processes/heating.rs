@@ -380,7 +380,7 @@ pub fn resolve_sensible_heating_process(
     let duration = calculate_power_duration_ceiling(
         transfer_power,
         required_energy,
-        registries.core().ticks_per_second(),
+        registries.core().physical_tick_duration(),
     )
     .map_err(SensibleHeatingResolutionError::Duration)?;
     let equipment_condition_after = calculate_condition_after_active_ticks(

@@ -5,7 +5,6 @@ use crate::core::quantity::{Mass, MassFlow, Pressure};
 use crate::core::time::TickSpan;
 use crate::equipment::{EquipmentDefinition, resolve_equipment_capability};
 use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
-use crate::material::MaterialId;
 use crate::ore_processing::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 use crate::registry::Registries;
 
@@ -21,14 +20,11 @@ pub(crate) enum MiningPhysicsError {
         expected: CapabilityValueKind,
         found: CapabilityValueKind,
     },
-    UnknownMaterialDefinition {
-        material: MaterialId,
-    },
     BatchTooLarge {
         maximum: Mass,
         requested: Mass,
     },
-    MaterialTooHard {
+    DepositTooHard {
         hardness: Pressure,
         maximum: Pressure,
     },
@@ -54,14 +50,14 @@ impl ResolvedMiningPhysics {
     }
 }
 
-/// Resolves extraction throughput, batch capacity, host-material resistance, duration, and tool wear
-/// from immutable method/equipment definitions plus the deposit's authored host material.
+/// Resolves extraction throughput, batch capacity, excavation resistance, duration, and tool wear
+/// from immutable method/equipment definitions plus the deposit's geological excavation hardness.
 pub(crate) fn resolve_mining_physics(
     registries: &Registries,
     method: &MiningMethodDefinition,
     equipment: &EquipmentDefinition,
     condition_before: Condition,
-    host_material: MaterialId,
+    excavation_hardness: Pressure,
     mass: Mass,
 ) -> Result<ResolvedMiningPhysics, MiningPhysicsError> {
     let flow_capability = method.mass_flow_capability();
@@ -115,24 +111,19 @@ pub(crate) fn resolve_mining_physics(
         });
     }
 
-    let material = registries.materials().get_material(host_material).ok_or(
-        MiningPhysicsError::UnknownMaterialDefinition {
-            material: host_material,
-        },
-    )?;
-    let material_hardness = Pressure::from_pascals(
-        u64::from(material.properties().mechanical().hardness_mpa()) * 1_000_000,
-    );
-    if material_hardness > maximum_hardness {
-        return Err(MiningPhysicsError::MaterialTooHard {
-            hardness: material_hardness,
+    if excavation_hardness > maximum_hardness {
+        return Err(MiningPhysicsError::DepositTooHard {
+            hardness: excavation_hardness,
             maximum: maximum_hardness,
         });
     }
 
-    let duration =
-        calculate_mass_flow_duration_ceiling(flow, mass, registries.core().ticks_per_second())
-            .map_err(MiningPhysicsError::Duration)?;
+    let duration = calculate_mass_flow_duration_ceiling(
+        flow,
+        mass,
+        registries.core().physical_tick_duration(),
+    )
+    .map_err(MiningPhysicsError::Duration)?;
     let condition_after = calculate_condition_after_active_ticks(
         method.condition_wear_ppm_per_active_tick(),
         condition_before,

@@ -13,20 +13,51 @@ import time
 
 ROOT = Path(__file__).resolve().parent
 
+GAMEPLAY_SCOPES = ("all", "workshop", "survival", "progression", "ore", "foundry")
+FOCUSED_GAMEPLAY_ALIASES = {
+    "workshop": "test-gameplay-workshop",
+    "survival": "test-gameplay-survival",
+    "progression": "test-gameplay-progression",
+    "ore": "test-gameplay-ore",
+    "foundry": "test-gameplay-foundry",
+}
+
 
 def cargo(alias: str) -> list[str]:
     return ["cargo", alias]
 
 
 def audit_plan() -> list[tuple[str, list[str]]]:
-    """Reuse the same expensive artifacts built by normal focused development lanes."""
+    """Run the broad maintained runtime checkpoint without optional long-horizon/lint shapes."""
 
     return [
         ("format", ["cargo", "fmt", "--check"]),
-        ("core + soak", cargo("test-all")),
+        ("core", cargo("test-fast")),
         ("gameplay", cargo("test-gameplay")),
-        ("gameplay aliases", [sys.executable, "tools/check_gameplay_aliases.py"]),
-        ("clippy all", cargo("test-lint-all")),
+        (
+            "gameplay command policy",
+            [sys.executable, "tools/check_gameplay_aliases.py", "--static"],
+        ),
+    ]
+
+
+def gameplay_plan(scope: str) -> list[tuple[str, list[str]]]:
+    if scope == "all":
+        return [
+            ("gameplay", cargo("test-gameplay")),
+            (
+                "gameplay command policy",
+                [sys.executable, "tools/check_gameplay_aliases.py", "--static"],
+            ),
+        ]
+
+    alias = FOCUSED_GAMEPLAY_ALIASES[scope]
+    return [
+        (f"gameplay {scope}", cargo(alias)),
+        (
+            "gameplay command policy",
+            [sys.executable, "tools/check_gameplay_aliases.py", "--static"],
+        ),
     ]
 
 
@@ -43,8 +74,7 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
     elif args.core or not has_explicit_lane:
         plan.append(("core", cargo("test-fast")))
     if args.gameplay:
-        plan.append(("gameplay", cargo("test-gameplay")))
-        plan.append(("gameplay aliases", [sys.executable, "tools/check_gameplay_aliases.py"]))
+        plan.extend(gameplay_plan(args.gameplay))
     if args.shaders:
         plan.append(("shaders", cargo("test-shaders")))
     if args.docs:
@@ -97,7 +127,7 @@ def parse_args() -> argparse.Namespace:
         nargs="?",
         choices=("gate", "audit"),
         default="gate",
-        help="fast routine gate or explicit cross-cutting runtime audit",
+        help="fast routine gate or broad maintained runtime checkpoint",
     )
     parser.add_argument(
         "--lint",
@@ -110,7 +140,17 @@ def parse_args() -> argparse.Namespace:
         help="include the ordinary core behavior suite alongside explicitly selected lanes",
     )
     parser.add_argument("--soak", action="store_true", help="include ignored core soak tests")
-    parser.add_argument("--gameplay", action="store_true", help="include the gameplay harness")
+    parser.add_argument(
+        "--gameplay",
+        nargs="?",
+        const="all",
+        choices=GAMEPLAY_SCOPES,
+        metavar="SCOPE",
+        help=(
+            "include gameplay verification; omit SCOPE for all maintained targets or choose "
+            "workshop, survival, progression, ore, or foundry for a focused edit-loop gate"
+        ),
+    )
     parser.add_argument("--shaders", action="store_true", help="include WGSL validation")
     parser.add_argument("--docs", action="store_true", help="include documentation build")
     parser.add_argument(
@@ -122,7 +162,9 @@ def parse_args() -> argparse.Namespace:
     if args.preset == "audit" and any(
         (args.core, args.lint, args.soak, args.gameplay, args.shaders, args.docs)
     ):
-        parser.error("audit has a fixed runtime scope; run orthogonal gate lanes separately")
+        parser.error(
+            "audit has a fixed runtime scope; run change-scoped lint/docs/shader lanes separately"
+        )
     return args
 
 

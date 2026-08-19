@@ -151,6 +151,7 @@ pub fn insert_generated_deposit(
         initial_mass: spec.mass(),
         remaining_mass: spec.mass(),
         temperature: spec.temperature(),
+        excavation_hardness: spec.excavation_hardness(),
         composition: spec.composition().clone(),
         lifecycle: GeologicalDepositLifecycle::Available,
         generated_at,
@@ -166,7 +167,7 @@ pub fn insert_generated_deposit(
 mod tests {
     use super::*;
     use crate::content::{FORM_CRUSHED, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, build_registries};
-    use crate::core::quantity::{Mass, Temperature};
+    use crate::core::quantity::{Mass, Pressure, Temperature};
     use crate::core::time::WorldSeed;
     use crate::material::{
         CommodityKey, CompositionComponent, MaterialComposition, MaterialId, MaterialPhase,
@@ -187,6 +188,7 @@ mod tests {
             CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
             Mass::from_milligrams(100),
             Temperature::from_millikelvin(1_357_770),
+            Pressure::from_pascals(350_000_000),
             MaterialComposition::pure(MATERIAL_COPPER),
         )
         .unwrap_or_else(|error| panic!("liquid geology specification fixture failed: {error}"));
@@ -211,6 +213,7 @@ mod tests {
             CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
             Mass::from_milligrams(100),
             Temperature::from_millikelvin(300_000),
+            Pressure::from_pascals(350_000_000),
             MaterialComposition::pure(MATERIAL_COPPER),
         )
         .unwrap_or_else(|error| {
@@ -235,6 +238,7 @@ mod tests {
             CommodityKey::new(unknown, FORM_ORE),
             Mass::from_milligrams(10),
             Temperature::from_millikelvin(300_000),
+            Pressure::from_pascals(350_000_000),
             MaterialComposition::pure(unknown),
         )
         .unwrap_or_else(|error| {
@@ -257,6 +261,7 @@ mod tests {
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
             Mass::from_milligrams(10),
             Temperature::from_millikelvin(300_000),
+            Pressure::from_pascals(350_000_000),
             mixed,
         )
         .unwrap_or_else(|error| {

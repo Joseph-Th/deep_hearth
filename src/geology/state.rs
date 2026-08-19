@@ -8,7 +8,7 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::{Mass, Temperature};
+use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::time::SimulationTick;
 use crate::material::{CommodityKey, MaterialComposition};
 #[cfg(any(test, feature = "test-gameplay"))]
@@ -39,7 +39,7 @@ pub enum GeologicalDepositLifecycle {
     Depleted,
 }
 
-/// Opaque world-generation authorization for one homogeneous finite deposit.
+/// Opaque world-generation authorization for one finite geological deposit.
 ///
 /// The type is public so a future geological generator can pass an authorized plan into the
 /// canonical admission function, but production callers cannot construct one directly. This keeps
@@ -51,6 +51,7 @@ pub struct GeneratedDepositSpec {
     commodity: CommodityKey,
     mass: Mass,
     temperature: Temperature,
+    excavation_hardness: Pressure,
     composition: MaterialComposition,
 }
 
@@ -65,10 +66,14 @@ impl GeneratedDepositSpec {
         commodity: CommodityKey,
         mass: Mass,
         temperature: Temperature,
+        excavation_hardness: Pressure,
         composition: MaterialComposition,
     ) -> Result<Self, GeneratedDepositSpecError> {
         if mass.is_zero() {
             return Err(GeneratedDepositSpecError::ZeroMass);
+        }
+        if excavation_hardness == Pressure::ZERO {
+            return Err(GeneratedDepositSpecError::ZeroExcavationHardness);
         }
         composition
             .validate()
@@ -83,6 +88,7 @@ impl GeneratedDepositSpec {
             commodity,
             mass,
             temperature,
+            excavation_hardness,
             composition,
         })
     }
@@ -108,6 +114,11 @@ impl GeneratedDepositSpec {
     }
 
     #[must_use]
+    pub(crate) const fn excavation_hardness(&self) -> Pressure {
+        self.excavation_hardness
+    }
+
+    #[must_use]
     pub(crate) const fn composition(&self) -> &MaterialComposition {
         &self.composition
     }
@@ -118,6 +129,7 @@ impl GeneratedDepositSpec {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum GeneratedDepositSpecError {
     ZeroMass,
+    ZeroExcavationHardness,
     InvalidComposition(CompositionError),
     MissingHostMaterial { host: MaterialId },
 }
@@ -129,6 +141,8 @@ impl Display for GeneratedDepositSpecError {
             Self::ZeroMass => {
                 formatter.write_str("generated geological deposit mass must be nonzero")
             }
+            Self::ZeroExcavationHardness => formatter
+                .write_str("generated geological deposit excavation hardness must be nonzero"),
             Self::InvalidComposition(error) => {
                 write!(
                     formatter,
@@ -149,13 +163,13 @@ impl Error for GeneratedDepositSpecError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::InvalidComposition(error) => Some(error),
-            Self::ZeroMass => None,
+            Self::ZeroMass | Self::ZeroExcavationHardness => None,
             Self::MissingHostMaterial { host: _host } => None,
         }
     }
 }
 
-/// One homogeneous finite geological matter owner in persistent world space.
+/// One finite geological matter owner in persistent world space.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GeologicalDepositRecord {
@@ -165,6 +179,7 @@ pub struct GeologicalDepositRecord {
     pub(super) initial_mass: Mass,
     pub(super) remaining_mass: Mass,
     pub(super) temperature: Temperature,
+    pub(super) excavation_hardness: Pressure,
     pub(super) composition: MaterialComposition,
     pub(super) lifecycle: GeologicalDepositLifecycle,
     pub(super) generated_at: SimulationTick,
@@ -184,6 +199,16 @@ impl GeologicalDepositRecord {
     #[must_use]
     pub const fn temperature(&self) -> Temperature {
         self.temperature
+    }
+
+    /// Returns the deposit-scale resistance that extraction tooling must overcome.
+    ///
+    /// This geological property is intentionally independent of both the coarse commodity label and
+    /// the assay composition. Material hardness describes constituents; excavation hardness describes
+    /// the physical geological body that contains them.
+    #[must_use]
+    pub const fn excavation_hardness(&self) -> Pressure {
+        self.excavation_hardness
     }
 
     #[must_use]
@@ -307,6 +332,7 @@ mod tests {
                 initial_mass: Mass::from_milligrams(100),
                 remaining_mass: Mass::from_milligrams(25),
                 temperature: Temperature::from_millikelvin(300_000),
+                excavation_hardness: Pressure::from_pascals(350_000_000),
                 composition: MaterialComposition::pure(MATERIAL_COPPER),
                 lifecycle: GeologicalDepositLifecycle::Depleted,
                 generated_at: SimulationTick::ZERO,
@@ -319,6 +345,34 @@ mod tests {
                 deposit,
                 remaining: Mass::from_milligrams(25),
             })
+        );
+    }
+
+    #[test]
+    fn loaded_validation_rejects_zero_excavation_hardness() {
+        let registries = build_registries();
+        let deposit = GeologicalDepositId::new(1);
+        let mut state = GeologyState::new();
+        state.next_deposit_id = 2;
+        state.deposits.insert(
+            deposit,
+            GeologicalDepositRecord {
+                id: deposit,
+                bounds: bounds(),
+                commodity: CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+                initial_mass: Mass::from_milligrams(100),
+                remaining_mass: Mass::from_milligrams(100),
+                temperature: Temperature::from_millikelvin(300_000),
+                excavation_hardness: Pressure::ZERO,
+                composition: MaterialComposition::pure(MATERIAL_COPPER),
+                lifecycle: GeologicalDepositLifecycle::Available,
+                generated_at: SimulationTick::ZERO,
+            },
+        );
+
+        assert_eq!(
+            validate_loaded_geology(registries.materials(), &state, SimulationTick::ZERO),
+            Err(GeologyValidationError::ZeroExcavationHardness { deposit })
         );
     }
 
@@ -337,6 +391,7 @@ mod tests {
                 initial_mass: Mass::from_milligrams(100),
                 remaining_mass: Mass::from_milligrams(100),
                 temperature: Temperature::from_millikelvin(1_357_770),
+                excavation_hardness: Pressure::from_pascals(350_000_000),
                 composition: MaterialComposition::pure(MATERIAL_COPPER),
                 lifecycle: GeologicalDepositLifecycle::Available,
                 generated_at: SimulationTick::ZERO,
@@ -368,6 +423,7 @@ mod tests {
                 initial_mass: Mass::from_milligrams(100),
                 remaining_mass: Mass::from_milligrams(100),
                 temperature: Temperature::from_millikelvin(300_000),
+                excavation_hardness: Pressure::from_pascals(350_000_000),
                 composition: MaterialComposition::pure(MATERIAL_COPPER),
                 lifecycle: GeologicalDepositLifecycle::Available,
                 generated_at: SimulationTick::ZERO,

@@ -24,5 +24,7 @@ pub use state::{
 };
 pub use validation::SurvivalValidationError;
 
+#[cfg(feature = "test-gameplay")]
+pub(crate) use lifecycle::initialize_player_survival_at_warning_for_fixture;
 pub(crate) use lifecycle::{SurvivalTickError, apply_survival_tick, decide_survival_tick};
 pub(crate) use validation::validate_loaded_survival;

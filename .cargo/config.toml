@@ -4,7 +4,8 @@
 # behavior aliases pay that cost only when an executable assertion is ready to run.
 check-fast = "check --quiet --locked --lib"
 check-tests = "check --quiet --locked --tests"
-check-gameplay = "check --quiet --locked --test gameplay_harness --features test-gameplay"
+check-gameplay = "check --quiet --locked --features test-gameplay --test gameplay_workshop --test gameplay_survival --test gameplay_progression --test gameplay_ore --test gameplay_foundry"
+check-gameplay-workshop = "check --quiet --locked --test gameplay_workshop --features test-gameplay"
 check-gameplay-survival = "check --quiet --locked --test gameplay_survival --features test-gameplay"
 check-gameplay-progression = "check --quiet --locked --test gameplay_progression --features test-gameplay"
 check-gameplay-ore = "check --quiet --locked --test gameplay_ore --features test-gameplay"
@@ -20,15 +21,15 @@ test-fast = "test --quiet --locked --lib"
 # type-check/codegen long-horizon fixtures. The explicit soak/all lanes pay that cost only on demand.
 test-soak = "test --quiet --locked --lib --features test-soak -- --ignored"
 test-all = "test --quiet --locked --lib --features test-soak -- --include-ignored"
-test-gameplay = "test --quiet --locked --test gameplay_harness --features test-gameplay"
-# Gameplay aliases are checked by tools/check_gameplay_aliases.py. Aggregate selectors stay exact;
-# dedicated focused targets run whole small artifacts so Cargo cannot silently accept a stale filter.
-test-gameplay-scenarios = "test --quiet --locked --test gameplay_harness --features test-gameplay gameplay_harness_gate -- --exact"
+test-gameplay = "test --quiet --locked --features test-gameplay --test gameplay_workshop --test gameplay_survival --test gameplay_progression --test gameplay_ore --test gameplay_foundry"
+test-gameplay-workshop = "test --quiet --locked --test gameplay_workshop --features test-gameplay"
+# Gameplay aliases are checked by tools/check_gameplay_aliases.py. Maintained lanes run whole small
+# targets so Cargo cannot silently accept a stale test-name filter; only the explicit report is exact.
 test-gameplay-survival = "test --quiet --locked --test gameplay_survival --features test-gameplay"
 test-gameplay-progression = "test --quiet --locked --test gameplay_progression --features test-gameplay"
 test-gameplay-ore = "test --quiet --locked --test gameplay_ore --features test-gameplay"
 test-gameplay-foundry = "test --quiet --locked --test gameplay_foundry --features test-gameplay"
-test-gameplay-report = "test --quiet --locked --test gameplay_harness --features test-gameplay gameplay_harness_exploratory_report -- --exact --ignored --nocapture"
+test-gameplay-report = "test --quiet --locked --test gameplay_harness --features test-gameplay-full gameplay_harness_exploratory_report -- --exact --ignored --nocapture"
 test-shaders = "run --quiet --locked --profile validation --bin validate-shaders --features test-shader-validation"
 test-release = "test --quiet --release --locked --all-features -- --include-ignored"
 test-doc = "doc --quiet --locked --no-deps"

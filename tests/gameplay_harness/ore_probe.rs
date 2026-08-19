@@ -1,16 +1,20 @@
 //! Focused ore-preparation capability probe.
 
-use super::ore_setup::{mixed_ore_composition, setup_ore_preparation_probe};
+use super::ore_setup::{OrePreparationSetup, mixed_ore_composition, setup_ore_preparation_probe};
+use super::production_support::{
+    finish_production_job, only_lot_in_stockpile, varied_healthy_condition,
+};
 use super::seed::mix64;
 use super::support::nominal_equipment_mass_capability;
 use deep_hearth::content::{
-    EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, PROCESS_CRUSH_ORE,
-    PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_SCREEN_CRUSHED_ORE,
+    ENERGY_MECHANICAL_LARGE_DRIVE, EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRINDING_MILL,
+    EQUIPMENT_JAW_CRUSHER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+    PROCESS_GRIND_CRUSHED_ORE, PROCESS_SCREEN_CRUSHED_ORE,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
-use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::TickSpan;
-use deep_hearth::inventory::{MaterialLotId, MaterialLotSelection, StockpileId};
+use deep_hearth::core::state::validate_loaded_state;
+use deep_hearth::energy::calculate_mass_specific_energy;
+use deep_hearth::inventory::MaterialLotSelection;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::ore_processing::{
     ComminutionBatchError, ComminutionRequest, ComminutionResolutionError, ScreeningBatchError,
@@ -21,7 +25,6 @@ use deep_hearth::production::{
     ProcessOutputRoute, validate_start_process, validate_start_process_routed,
 };
 use deep_hearth::registry::Registries;
-use deep_hearth::simulation::advance_tick;
 
 fn greatest_common_divisor(mut left: u64, mut right: u64) -> u64 {
     while right != 0 {
@@ -32,22 +35,7 @@ fn greatest_common_divisor(mut left: u64, mut right: u64) -> u64 {
     left
 }
 
-fn finish_operation(registries: &Registries, state: &mut AppState, duration: TickSpan) {
-    for _ in 0..duration.value() {
-        advance_tick(registries, state)
-            .unwrap_or_else(|error| panic!("ore preparation tick failed: {error}"));
-    }
-}
-
-fn stockpile_first_lot(state: &AppState, stockpile: StockpileId) -> MaterialLotId {
-    state
-        .inventory()
-        .lot_ids(stockpile)
-        .next()
-        .unwrap_or_else(|| panic!("ore preparation expected output lot is missing"))
-}
-
-fn probe_parameters(registries: &Registries, seed: u64) -> (Mass, u32) {
+fn probe_parameters(registries: &Registries, seed: u64) -> OrePreparationSetup {
     let crusher = registries
         .ore_processing()
         .get_comminution(PROCESS_CRUSH_ORE)
@@ -123,12 +111,69 @@ fn probe_parameters(registries: &Registries, seed: u64) -> (Mass, u32) {
         minimum_units + mix64(seed ^ 0x0AE5_1A5E) % (maximum_units - minimum_units + 1);
     let batch_mass = Mass::from_milligrams(representable_unit * unit_count);
     let copper_ppm = 300_000 + (mix64(seed ^ 0xC0FF_EE11) % 400_001) as u32;
-    (batch_mass, copper_ppm)
+    let required_energy_upper_bound = [
+        crusher.specific_energy(),
+        grinder.specific_energy(),
+        screening.specific_energy(),
+        fine_grind.specific_energy(),
+    ]
+    .into_iter()
+    .map(|specific| calculate_mass_specific_energy(batch_mass, specific))
+    .try_fold(Energy::ZERO, |total, energy| total.checked_add(energy))
+    .unwrap_or_else(|| panic!("ore preparation chain energy upper bound overflowed"));
+    let drive_capacity = registries
+        .energy()
+        .get_store(ENERGY_MECHANICAL_LARGE_DRIVE)
+        .map(|definition| definition.capacity())
+        .unwrap_or_else(|| panic!("ore preparation drive definition disappeared"));
+    let slack = drive_capacity
+        .checked_sub(required_energy_upper_bound)
+        .unwrap_or_else(|| {
+            panic!(
+                "authored industrial drive cannot power the complete legal ore-preparation chain"
+            )
+        });
+    let headroom_ppm = 50_000 + (mix64(seed ^ 0x454E_4552_4759_4844) % 550_001) as u32;
+    let varied_headroom = Energy::from_nanojoules(
+        slack
+            .nanojoules()
+            .checked_mul(u128::from(headroom_ppm))
+            .map(|scaled| scaled / 1_000_000)
+            .unwrap_or_else(|| panic!("ore preparation energy headroom scaling overflowed")),
+    );
+    let drive_energy = required_energy_upper_bound
+        .checked_add(varied_headroom)
+        .unwrap_or_else(|| panic!("ore preparation initial energy overflowed"));
+    OrePreparationSetup {
+        batch_mass,
+        copper_ppm,
+        crusher_condition: varied_healthy_condition(
+            registries,
+            EQUIPMENT_JAW_CRUSHER,
+            mix64(seed ^ 0x4352_5553_4843_4F4E),
+        ),
+        grinder_condition: varied_healthy_condition(
+            registries,
+            EQUIPMENT_GRINDING_MILL,
+            mix64(seed ^ 0x4752_494E_4443_4F4E),
+        ),
+        screen_condition: varied_healthy_condition(
+            registries,
+            EQUIPMENT_DRY_SCREEN,
+            mix64(seed ^ 0x5343_5245_454E_434F),
+        ),
+        drive_energy,
+    }
 }
 
 pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed: u64) {
-    let (batch_mass, copper_ppm) = probe_parameters(registries, seed);
-    let (mut state, ids) = setup_ore_preparation_probe(registries, seed, batch_mass, copper_ppm);
+    let setup = probe_parameters(registries, seed);
+    let batch_mass = setup.batch_mass;
+    let copper_ppm = setup.copper_ppm;
+    let initial_crusher_condition = setup.crusher_condition;
+    let initial_grinder_condition = setup.grinder_condition;
+    let initial_screen_condition = setup.screen_condition;
+    let (mut state, ids) = setup_ore_preparation_probe(registries, seed, setup);
     let crusher_definition = registries
         .ore_processing()
         .get_comminution(PROCESS_CRUSH_ORE)
@@ -170,7 +215,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
     let crush_duration = crushed.process_resolution().duration();
     let crush_energy = crushed.required_energy();
     let crusher_condition = crushed.condition_after();
-    validate_start_process(
+    let crush_job = validate_start_process(
         registries,
         &state,
         crushed.process_resolution(),
@@ -180,11 +225,17 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
     .unwrap_or_else(|error| panic!("ore preparation crushing start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("ore preparation crushing commit failed: {error}"));
-    finish_operation(registries, &mut state, crush_duration);
+    finish_production_job(
+        registries,
+        &mut state,
+        crush_job,
+        crush_duration,
+        "ore crushing",
+    );
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("ore preparation post-crush audit failed: {error}"));
 
-    let crushed_lot = stockpile_first_lot(&state, ids.crushed_storage);
+    let crushed_lot = only_lot_in_stockpile(&state, ids.crushed_storage, "crushed ore output");
     let crushed_distribution = state
         .inventory()
         .get_lot(crushed_lot)
@@ -244,7 +295,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
     let grind_duration = ground.process_resolution().duration();
     let grind_energy = ground.required_energy();
     let grinder_condition = ground.condition_after();
-    validate_start_process(
+    let grind_job = validate_start_process(
         registries,
         &state,
         ground.process_resolution(),
@@ -254,7 +305,13 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
     .unwrap_or_else(|error| panic!("ore preparation grinding start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("ore preparation grinding commit failed: {error}"));
-    finish_operation(registries, &mut state, grind_duration);
+    finish_production_job(
+        registries,
+        &mut state,
+        grind_job,
+        grind_duration,
+        "ore grinding",
+    );
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("ore preparation post-grind audit failed: {error}"));
     assert_eq!(
@@ -266,7 +323,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         "grinder condition must match the resolved wear projection"
     );
 
-    let ground_lot = stockpile_first_lot(&state, ids.ground_storage);
+    let ground_lot = only_lot_in_stockpile(&state, ids.ground_storage, "ground ore output");
     let ground_distribution = state
         .inventory()
         .get_lot(ground_lot)
@@ -312,7 +369,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             ids.oversize_storage,
         ));
     }
-    validate_start_process_routed(
+    let screen_job = validate_start_process_routed(
         registries,
         &state,
         screened.process_resolution(),
@@ -322,7 +379,13 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
     .unwrap_or_else(|error| panic!("ore preparation screening start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("ore preparation screening commit failed: {error}"));
-    finish_operation(registries, &mut state, screen_duration);
+    finish_production_job(
+        registries,
+        &mut state,
+        screen_job,
+        screen_duration,
+        "ore screening",
+    );
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("ore preparation post-screen audit failed: {error}"));
 
@@ -336,7 +399,8 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         if screened_oversize_mass.is_zero() {
             (Energy::ZERO, 0, grinder_condition, true)
         } else {
-            let oversize_lot = stockpile_first_lot(&state, ids.oversize_storage);
+            let oversize_lot =
+                only_lot_in_stockpile(&state, ids.oversize_storage, "screen oversize output");
             let oversize_before_regrind = state
                 .inventory()
                 .get_lot(oversize_lot)
@@ -372,7 +436,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             let fine_duration = fine_ground.process_resolution().duration();
             let fine_energy = fine_ground.required_energy();
             let final_grinder_projection = fine_ground.condition_after();
-            validate_start_process(
+            let fine_job = validate_start_process(
                 registries,
                 &state,
                 fine_ground.process_resolution(),
@@ -382,7 +446,13 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             .unwrap_or_else(|error| panic!("ore preparation fine-grinding start failed: {error}"))
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("ore preparation fine-grinding commit failed: {error}"));
-            finish_operation(registries, &mut state, fine_duration);
+            finish_production_job(
+                registries,
+                &mut state,
+                fine_job,
+                fine_duration,
+                "ore fine grinding",
+            );
             validate_loaded_state(registries, &state).unwrap_or_else(|error| {
                 panic!("ore preparation post-regrind audit failed: {error}")
             });
@@ -520,9 +590,15 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
     }
 
     std::println!(
-        "CAPABILITY ORE_PREP seed=0x{seed:016X} reachability=bootstrapped-industrial batch={}mg copper={}ppm stages=[crush:{}t grind:{}t screen:{}t regrind:{}t] matter=conserved energy=resolved",
+        "CAPABILITY ORE_PREP seed=0x{seed:016X} reachability=bootstrapped-industrial batch={}mg copper={}ppm initial-condition=[crusher:{} grinder:{} screen:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t] matter=conserved energy=resolved",
         batch_mass.milligrams(),
         copper_ppm,
+        initial_crusher_condition.parts_per_million(),
+        initial_grinder_condition.parts_per_million(),
+        initial_screen_condition.parts_per_million(),
+        initial_energy.nanojoules(),
+        consumed_energy.nanojoules(),
+        final_energy.nanojoules(),
         crush_duration.value(),
         grind_duration.value(),
         screen_duration.value(),

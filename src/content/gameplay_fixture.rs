@@ -9,7 +9,7 @@
 //! Once setup returns, gameplay code must use the same runtime resolvers, validators, commits, and
 //! simulation ticks as the game core.
 
-use crate::core::quantity::{Energy, Mass, Temperature, Volume};
+use crate::core::quantity::{Energy, Mass, Pressure, Temperature, Volume};
 use crate::core::state::AppState;
 use crate::energy::{
     EnergyStoreDefinitionId, EnergyStoreId, add_energy_store_with_initial_for_fixture,
@@ -28,6 +28,16 @@ use crate::structural::{
     StructuralElementId, bind_structural_construction_selection,
     resolve_structural_material_requirement, validate_structural_construction,
 };
+use crate::survival::initialize_player_survival_at_warning_for_fixture;
+
+/// Seeds a controlled scenario player at the authored hydration warning boundary.
+///
+/// This represents a pre-existing starting condition for the maintained survival-pressure world. It
+/// does not advance the simulation or provide an acting-policy shortcut once setup has completed.
+pub fn seed_player_survival_at_warning(registries: &Registries, state: &mut AppState) {
+    initialize_player_survival_at_warning_for_fixture(registries, state)
+        .unwrap_or_else(|error| panic!("gameplay bootstrap survival seed failed: {error}"));
+}
 
 pub fn seed_energy_store(
     registries: &Registries,
@@ -58,19 +68,30 @@ pub fn seed_fluid_store(
     .unwrap_or_else(|error| panic!("gameplay bootstrap fluid seed failed: {error}"))
 }
 
-pub fn seed_geological_deposit(
-    registries: &Registries,
-    state: &mut AppState,
+pub fn geological_deposit_spec(
     bounds: VoxelBounds,
     commodity: CommodityKey,
     mass: Mass,
     temperature: Temperature,
+    excavation_hardness: Pressure,
     composition: MaterialComposition,
+) -> GeneratedDepositSpec {
+    GeneratedDepositSpec::new(
+        bounds,
+        commodity,
+        mass,
+        temperature,
+        excavation_hardness,
+        composition,
+    )
+    .unwrap_or_else(|error| panic!("gameplay bootstrap geological specification failed: {error}"))
+}
+
+pub fn seed_geological_deposit(
+    registries: &Registries,
+    state: &mut AppState,
+    spec: GeneratedDepositSpec,
 ) -> GeologicalDepositId {
-    let spec = GeneratedDepositSpec::new(bounds, commodity, mass, temperature, composition)
-        .unwrap_or_else(|error| {
-            panic!("gameplay bootstrap geological specification failed: {error}")
-        });
     insert_generated_deposit(registries, state, spec)
         .unwrap_or_else(|error| panic!("gameplay bootstrap geological deposit failed: {error}"))
 }

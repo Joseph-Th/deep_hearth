@@ -22,11 +22,17 @@ use super::{condition, nominal_equipment_mass_capability};
 pub(super) struct ScenarioVariation {
     pub(super) world_seed: u64,
     pub(super) behavior_seed: u64,
+    pub(super) survival: ScenarioSurvivalVariation,
     pub(super) ore: ScenarioOreVariation,
     pub(super) crusher: ScenarioCrusherVariation,
     pub(super) structure: ScenarioStructureVariation,
     pub(super) delivery: ScenarioDeliveryVariation,
     pub(super) policy: ScenarioPolicyVariation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ScenarioSurvivalVariation {
+    pub(super) start_at_hydration_warning: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -125,6 +131,15 @@ impl ScenarioVariation {
                 .parts_per_million()
                 .div_ceil(2)
                 .max(1),
+            Some(MaintainedAnchor::ConditionPressure) => {
+                let critical = thresholds.critical_below().parts_per_million();
+                let warning = thresholds.warning_below().parts_per_million();
+                assert!(
+                    warning > critical,
+                    "condition-pressure anchor requires a nonempty warning condition band"
+                );
+                critical + (warning - critical).min(1_000)
+            }
             None => 1 + (e % u64::from(CONDITION_PARTS_PER_MILLION)) as u32,
         };
         let initial_crusher_condition = condition(initial_condition);
@@ -148,6 +163,7 @@ impl ScenarioVariation {
                 250_000,
                 0,
             ),
+            Some(MaintainedAnchor::ConditionPressure) => (nominal_batch_count, 0, 2, 0, 1),
             Some(
                 MaintainedAnchor::NormalBaseline
                 | MaintainedAnchor::WarningMaintenance
@@ -219,6 +235,9 @@ impl ScenarioVariation {
         Self {
             world_seed,
             behavior_seed,
+            survival: ScenarioSurvivalVariation {
+                start_at_hydration_warning: anchor == Some(MaintainedAnchor::SurvivalRecovery),
+            },
             ore: ScenarioOreVariation {
                 ore_copper_ppm: 450_000 + (b % 300_001) as u32,
                 nominal_batch_mass: Mass::from_milligrams(nominal_batch_mass),

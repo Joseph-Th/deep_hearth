@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 44;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 45;
 
 /// Borrowed versioned save payload suitable for any Serde encoding adapter.
 #[derive(Debug, Serialize)]
@@ -1787,7 +1787,7 @@ mod tests {
                 ThermalJobValidationError::EquipmentConditionOutcomeMismatch {
                     job,
                     stored: condition(999_999),
-                    required: condition(997_000),
+                    required: condition(999_000),
                 }
             )))
         );

@@ -63,15 +63,19 @@ proves changed behavior:
 cargo check-fast
 cargo check-tests                    # ordinary test edits
 cargo check-gameplay-survival        # one focused gameplay concern
-cargo check-gameplay                 # aggregate gameplay gate
+cargo check-gameplay                 # all maintained gameplay targets
 cargo test-fast <qualified-test-name> -- --exact
 ```
+
+Compile-only aliases are for intermediate mechanical feedback. Once a behavior assertion is ready,
+run its focused executable directly rather than paying for both `check` and `test` back-to-back.
 
 At a checkpoint:
 
 ```text
 python ci.py gate
-python ci.py gate --gameplay   # gameplay/content behavior
+python ci.py gate --gameplay progression  # one focused gameplay probe
+python ci.py gate --gameplay   # all maintained gameplay behavior
 python ci.py gate --core --gameplay  # gameplay plus ordinary core behavior
 python ci.py gate --soak       # long-horizon state/conservation changes
 python ci.py gate --shaders    # WGSL/shader contracts
@@ -79,9 +83,10 @@ python ci.py gate --docs       # documentation contracts
 cargo test-gameplay-report     # broader fresh replayable cold-agent play report
 ```
 
-Add only the lanes owned by the change. `python ci.py audit` is the explicit cross-cutting runtime
-audit; it reuses the normal core/soak and gameplay artifacts rather than creating another build shape.
-Documentation and shader validation remain change-scoped. All verification is local; GitHub Actions
-and hosted CI are outside the repository contract.
+Add only the lanes owned by the change. `python ci.py audit` is the broad maintained core+gameplay
+checkpoint; soak remains explicit through `python ci.py gate --soak` so long-horizon feature builds are
+paid only when they add relevant evidence. Use `cargo test-lint-all` only for deliberate all-feature lint
+hardening. Documentation and shader validation remain change-scoped. All verification is local; GitHub
+Actions and hosted CI are outside the repository contract.
 
 See [Testing](TESTING.md) for lane details and [Status](STATUS.md) for the current capability boundary.

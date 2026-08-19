@@ -59,6 +59,12 @@ Recurring work should tend to progress through:
 Automation removes attention cost, not physical cost. Matter, energy, time, maintenance, space,
 transport, and waste remain real.
 
+Early autonomous equipment does not need to outperform an improved hand tool at the same operation to
+be valuable. Its first payoff may be attention: a slow material-backed machine can keep transforming
+matter while the player mines, builds, provisions, or maintains something else. Later industrial
+machinery should add a distinct scale/throughput transition rather than making the first primitive
+machine implausibly fast just to signal progress.
+
 Earlier methods should remain usable as emergency fallbacks when their physical prerequisites still
 exist. A mechanized workshop may still be hand-powered through a compatible drive, for example, but
 the player then trades industrial continuity against direct labor, survival reserve, equipment wear,

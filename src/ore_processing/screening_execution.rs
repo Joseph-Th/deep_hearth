@@ -578,14 +578,14 @@ pub fn resolve_screening_process(
     let throughput_duration = calculate_mass_flow_duration_ceiling(
         processing_rate,
         selected_mass,
-        registries.core().ticks_per_second(),
+        registries.core().physical_tick_duration(),
     )
     .map_err(ScreeningResolutionError::ThroughputDuration)?;
     let available_power = energy_supply.max_output_power();
     let energy_duration = calculate_power_duration_ceiling(
         available_power,
         required_energy,
-        registries.core().ticks_per_second(),
+        registries.core().physical_tick_duration(),
     )
     .map_err(ScreeningResolutionError::EnergyDuration)?;
     let duration = std::cmp::max(throughput_duration, energy_duration);
@@ -951,7 +951,7 @@ pub(crate) fn validate_loaded_screening_job(
     let throughput_duration = calculate_mass_flow_duration_ceiling(
         processing_rate,
         job.consumed_mass(),
-        registries.core().ticks_per_second(),
+        registries.core().physical_tick_duration(),
     )
     .map_err(|error| ScreeningJobValidationError::ThroughputDuration {
         job: job.id(),
@@ -960,7 +960,7 @@ pub(crate) fn validate_loaded_screening_job(
     let energy_duration = calculate_power_duration_ceiling(
         energy_definition.max_output_power(),
         required_energy,
-        registries.core().ticks_per_second(),
+        registries.core().physical_tick_duration(),
     )
     .map_err(|error| ScreeningJobValidationError::EnergyDuration {
         job: job.id(),
@@ -1230,14 +1230,16 @@ mod tests {
 
     #[test]
     fn weak_screen_power_extends_time_without_fabricating_processing_wear() {
-        let fixture =
-            fixture_with_power(Length::from_micrometers(2_000), Power::from_microwatts(1));
+        let fixture = fixture_with_power(
+            Length::from_micrometers(2_000),
+            Power::from_picowatts(100_000),
+        );
         let resolved = resolve(&fixture)
             .unwrap_or_else(|error| panic!("power-limited screening resolution failed: {error}"));
 
         assert_eq!(resolved.throughput_duration(), TickSpan::new(1));
-        assert_eq!(resolved.energy_duration(), TickSpan::new(20));
-        assert_eq!(resolved.process_resolution().duration(), TickSpan::new(20));
+        assert_eq!(resolved.energy_duration(), TickSpan::new(3));
+        assert_eq!(resolved.process_resolution().duration(), TickSpan::new(3));
         assert_eq!(resolved.condition_before(), Condition::PRISTINE);
         assert_eq!(
             resolved.condition_after(),

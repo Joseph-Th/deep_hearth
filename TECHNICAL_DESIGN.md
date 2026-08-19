@@ -52,13 +52,17 @@ state, explicit inputs, and external snapshots.
 ## 4. Simulation Time
 
 `SimulationTick` is absolute authoritative time. `TickSpan` is a distinct relative duration type, so
-an absolute tick cannot be passed accidentally where a duration is required. The built-in core
-starts at 20 ticks per second; this is a technical cadence, not a promise that every subsystem
-updates at 20 Hz.
+an absolute tick cannot be passed accidentally where a duration is required. Simulation ticks are
+world-time units, not wall-clock update-frequency units. The built-in calendar maps 24,000 ticks to
+86,400 physical world seconds, so one authoritative tick represents exactly 3.6 physical seconds.
+Rate-authored physics such as watts, mass/second, and volume/second integrate against that physical
+world duration. Per-tick gameplay costs such as metabolism, hydration, exertion, aging, and wear are
+authored directly in authoritative world ticks.
 
 `CalendarDefinition` is immutable registry content. It projects authoritative ticks into year,
 month, day, day-relative tick, and one of four seasons without introducing mutable calendar state.
-The built-in calendar uses 24,000 ticks per day, eight days per month, and twelve months per year.
+The built-in calendar uses 24,000 ticks per 86,400-second day, eight days per month, and twelve months
+per year.
 
 `PeriodicSchedule` provides deterministic clock-derived phase scheduling for static slow systems
 such as ecology, soil, weather, migration, and settlement economics without introducing callbacks or
@@ -242,8 +246,10 @@ All inventory operations that change supported mass update inventory and structu
 validated transaction.
 
 Geological deposits are a separate finite matter owner with spatial bounds, material profile,
-provenance, remaining mass, and lifecycle. Natural geological matter is solid and does not carry
-processed particulate state. Player-facing code does not receive authoritative deposit enumeration.
+deposit-scale excavation hardness, provenance, remaining mass, and lifecycle. Excavation hardness is
+a geological-body property rather than an inference from the deposit's coarse commodity identity or
+assay composition. Natural geological matter is solid and does not carry processed particulate state.
+Player-facing code does not receive authoritative deposit enumeration.
 
 Mining is the gameplay extraction owner. It moves exact geological matter into mining work-in-process
 only after tool, labor, capability, wear, destination, and reservation validation. Completion releases
@@ -320,8 +326,10 @@ form and condition without deleting replacement matter or manufacturing reusable
 
 Engineering scalar modules provide exact integer foundations for:
 
-- power integrated over ticks into energy with carried remainder;
-- volumetric flow integrated into volume with carried remainder;
+- power integrated over the physical world duration represented by ticks into energy with carried
+  remainder;
+- volumetric flow integrated over the physical world duration represented by ticks into volume with
+  carried remainder;
 - electrical power and resistive voltage drop;
 - torque, angular speed, power, efficiency, and rational transmission ratios;
 - independent torque/speed/power operating limits.

@@ -3,14 +3,14 @@
 use super::capability_boundary::{
     assert_capability_only_energy_store, assert_capability_only_equipment,
 };
-use super::support::{ROOM_TEMPERATURE, add_solid_stockpile};
+use super::support::add_solid_stockpile;
 use deep_hearth::content::gameplay_fixture::seed_energy_store as seed_energy_store_exact;
 use deep_hearth::content::gameplay_fixture::seed_lot;
 use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,
     EQUIPMENT_ELECTRIC_FURNACE, FORM_INGOT, MATERIAL_COPPER,
 };
-use deep_hearth::core::quantity::Mass;
+use deep_hearth::core::quantity::{Energy, Mass, Temperature};
 use deep_hearth::core::state::AppState;
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::energy::{EnergyStoreId, add_energy_store};
@@ -32,11 +32,27 @@ pub(super) struct FoundryIds {
     pub(super) heat_sink: EnergyStoreId,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct FoundrySetup {
+    pub(super) mass: Mass,
+    pub(super) input_temperature: Temperature,
+    pub(super) furnace_condition: Condition,
+    pub(super) mold_condition: Condition,
+    pub(super) electrical_energy: Energy,
+}
+
 pub(super) fn setup_foundry_probe(
     registries: &Registries,
     seed: u64,
-    mass: Mass,
+    setup: FoundrySetup,
 ) -> (AppState, FoundryIds) {
+    let FoundrySetup {
+        mass,
+        input_temperature,
+        furnace_condition,
+        mold_condition,
+        electrical_energy,
+    } = setup;
     for equipment in [EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_CASTING_MOLD] {
         assert_capability_only_equipment(registries, equipment);
     }
@@ -61,32 +77,27 @@ pub(super) fn setup_foundry_probe(
         pure_copper_source,
         CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
         mass,
-        ROOM_TEMPERATURE,
+        input_temperature,
     );
     let furnace = add_equipment(
         registries,
         &mut state,
         EQUIPMENT_ELECTRIC_FURNACE,
-        Condition::PRISTINE,
+        furnace_condition,
     )
     .unwrap_or_else(|error| panic!("foundry probe furnace allocation failed: {error}"));
     let mold = add_equipment(
         registries,
         &mut state,
         EQUIPMENT_CASTING_MOLD,
-        Condition::PRISTINE,
+        mold_condition,
     )
     .unwrap_or_else(|error| panic!("foundry probe mold allocation failed: {error}"));
-    let electrical_capacity = registries
-        .energy()
-        .get_store(ENERGY_ELECTRICAL_BUFFER)
-        .map(|definition| definition.capacity())
-        .unwrap_or_else(|| panic!("foundry probe electrical-buffer definition disappeared"));
     let electrical_buffer = seed_energy_store_exact(
         registries,
         &mut state,
         ENERGY_ELECTRICAL_BUFFER,
-        electrical_capacity,
+        electrical_energy,
     );
     let heat_sink = add_energy_store(registries, &mut state, ENERGY_THERMAL_SINK)
         .unwrap_or_else(|error| panic!("foundry probe thermal sink allocation failed: {error}"));

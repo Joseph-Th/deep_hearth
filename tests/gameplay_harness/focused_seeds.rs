@@ -4,6 +4,7 @@ use super::seed::mix64;
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 
 pub(super) const MAINTAINED_VARIATION_ROOT: u64 = 0xE7A1_0A7E_5EED_2026;
+const FOCUSED_VARIATION_COUNT: usize = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum FocusedProbeSeedError {
@@ -11,12 +12,12 @@ pub(super) enum FocusedProbeSeedError {
     SeedList(SeedListError),
 }
 
-/// Resolves one maintained anchor plus one replayable generated variation.
+/// Resolves one maintained anchor plus a tiny replayable generated variation sample.
 ///
 /// `DEEP_HEARTH_GAMEPLAY_SEEDS` remains the exact override for deliberate replay/sweeps. Otherwise
 /// the caller supplies a bounded variation root. Normal runners generate a fresh root while explicit
 /// replay inputs can provide one directly. A probe-specific salt keeps concerns independent.
-/// `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` selects an exact replayable sample.
+/// `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` selects the exact replayable sample root.
 pub(super) fn focused_probe_seeds_from(
     scenario_raw: Option<&str>,
     variation_raw: Option<&str>,
@@ -31,9 +32,20 @@ pub(super) fn focused_probe_seeds_from(
         Some(raw) => parse_seed(raw).ok_or(FocusedProbeSeedError::InvalidVariationSeed)?,
         None => default_variation_root,
     };
-    let mut variation = mix64(root ^ probe_salt);
-    while variation == maintained_seed {
-        variation = mix64(variation);
+    let mut seeds = Vec::with_capacity(1 + FOCUSED_VARIATION_COUNT);
+    seeds.push(maintained_seed);
+    let mut variation = root ^ probe_salt;
+    for index in 0..FOCUSED_VARIATION_COUNT {
+        variation = mix64(
+            variation
+                ^ u64::try_from(index + 1)
+                    .unwrap_or_else(|_| unreachable!("focused variation index fits u64"))
+                    .wrapping_mul(0xD1B5_4A32_D192_ED03),
+        );
+        while seeds.contains(&variation) {
+            variation = mix64(variation);
+        }
+        seeds.push(variation);
     }
-    Ok(vec![maintained_seed, variation])
+    Ok(seeds)
 }

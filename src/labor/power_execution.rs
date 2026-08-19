@@ -459,7 +459,7 @@ pub fn validate_start_manual_power(
     let power_duration = calculate_power_duration_ceiling(
         transfer_power,
         request.energy,
-        registries.core().ticks_per_second(),
+        registries.core().physical_tick_duration(),
     )
     .map_err(|_error| ManualPowerError::PowerDuration {
         energy: request.energy,
@@ -770,7 +770,7 @@ mod tests {
                 .unwrap_or_else(|error| {
                     panic!("reinforced crank comparison drive failed: {error}")
                 });
-        let requested = Energy::from_nanojoules(25_000_000_000);
+        let requested = Energy::from_nanojoules(300_000_000_000);
 
         let bottlenecked = validate_start_manual_power(
             &registries,
@@ -803,21 +803,21 @@ mod tests {
 
         assert_eq!(
             bottlenecked.work().completes_at().value() - bottlenecked.work().started_at().value(),
-            10
+            2
         );
         assert_eq!(
             stone.work().completes_at().value() - stone.work().started_at().value(),
-            10
+            2
         );
         assert_eq!(
             reinforced.work().completes_at().value() - reinforced.work().started_at().value(),
-            5
+            1
         );
         reinforced
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("reinforced crank comparison commit failed: {error}"));
         let mut completion = None;
-        for _ in 0..5 {
+        for _ in 0..1 {
             completion = advance_tick(&registries, &mut state)
                 .unwrap_or_else(|error| panic!("reinforced crank comparison tick failed: {error}"))
                 .manual_power();
@@ -910,7 +910,7 @@ mod tests {
             .unwrap_or_else(|| panic!("assembled hand crank disappeared"))
             .condition();
 
-        let requested = Energy::from_nanojoules(25_000_000_000);
+        let requested = Energy::from_nanojoules(1_700_000_000_000);
         let base_save = serde_json::to_value(SaveEnvelope::new(&registries, &state))
             .unwrap_or_else(|error| panic!("manual power reserve serialization failed: {error}"));
         let mut low_energy = base_save.clone();

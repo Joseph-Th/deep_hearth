@@ -162,6 +162,36 @@ pub fn initialize_player_survival(
     Ok(())
 }
 
+/// Initializes the gameplay harness player exactly at the authored hydration warning boundary.
+///
+/// This is fixture-only starting-state construction. Runtime depletion still occurs exclusively
+/// through authoritative simulation ticks after scenario setup returns.
+#[cfg(feature = "test-gameplay")]
+pub(crate) fn initialize_player_survival_at_warning_for_fixture(
+    registries: &Registries,
+    state: &mut AppState,
+) -> Result<(), InitializeSurvivalError> {
+    if state.survival().player().is_some() {
+        return Err(InitializeSurvivalError::AlreadyInitialized);
+    }
+    let expected_revision = state.survival().revision();
+    let next_revision = expected_revision
+        .checked_add(1)
+        .ok_or(InitializeSurvivalError::RevisionExhausted)?;
+    let physiology = registries.survival().physiology();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        next_revision,
+        player_record(
+            physiology.maximum_metabolic_energy(),
+            physiology.thirsty_below(),
+            Vitality::MAXIMUM,
+            NutritionReserves::FULL,
+        ),
+    );
+    Ok(())
+}
+
 /// Returns the current survival projection when a player has been admitted.
 #[must_use]
 pub fn assess_survival(registries: &Registries, state: &AppState) -> Option<SurvivalAssessment> {

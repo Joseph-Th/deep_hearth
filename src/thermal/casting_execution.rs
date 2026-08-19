@@ -646,7 +646,7 @@ pub fn resolve_casting_process(
     let duration = calculate_power_duration_ceiling(
         transfer_power,
         batch.released_energy,
-        registries.core().ticks_per_second(),
+        registries.core().physical_tick_duration(),
     )
     .map_err(CastingResolutionError::Duration)?;
     let equipment_condition_after = calculate_condition_after_active_ticks(
@@ -1030,7 +1030,7 @@ pub(super) fn validate_loaded_casting_job(
     let required_duration = calculate_power_duration_ceiling(
         transfer_power,
         batch.released_energy,
-        registries.core().ticks_per_second(),
+        registries.core().physical_tick_duration(),
     )
     .map_err(|error| CastingJobValidationError::Duration {
         job: job.id(),

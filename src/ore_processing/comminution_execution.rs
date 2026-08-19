@@ -478,14 +478,14 @@ pub fn resolve_comminution_process(
     let throughput_duration = calculate_mass_flow_duration_ceiling(
         processing_rate,
         selected_mass,
-        registries.core().ticks_per_second(),
+        registries.core().physical_tick_duration(),
     )
     .map_err(ComminutionResolutionError::ThroughputDuration)?;
     let available_power = energy_supply.max_output_power();
     let energy_duration = calculate_power_duration_ceiling(
         available_power,
         required_energy,
-        registries.core().ticks_per_second(),
+        registries.core().physical_tick_duration(),
     )
     .map_err(ComminutionResolutionError::EnergyDuration)?;
     let duration = std::cmp::max(throughput_duration, energy_duration);
@@ -837,7 +837,7 @@ pub(crate) fn validate_loaded_comminution_job(
     let throughput_duration = calculate_mass_flow_duration_ceiling(
         processing_rate,
         job.consumed_mass(),
-        registries.core().ticks_per_second(),
+        registries.core().physical_tick_duration(),
     )
     .map_err(|error| ComminutionJobValidationError::ThroughputDuration {
         job: job.id(),
@@ -846,7 +846,7 @@ pub(crate) fn validate_loaded_comminution_job(
     let energy_duration = calculate_power_duration_ceiling(
         energy_definition.max_output_power(),
         required_energy,
-        registries.core().ticks_per_second(),
+        registries.core().physical_tick_duration(),
     )
     .map_err(|error| ComminutionJobValidationError::EnergyDuration {
         job: job.id(),
@@ -1429,8 +1429,8 @@ mod tests {
         assert_eq!(resolved.required_energy(), Energy::from_nanojoules(2_000));
         assert_eq!(resolved.available_power(), Power::from_microwatts(100));
         assert_eq!(resolved.condition_before(), condition(500_000));
-        assert_eq!(resolved.condition_after(), condition(496_000));
-        assert_eq!(resolved.process_resolution().duration(), TickSpan::new(4));
+        assert_eq!(resolved.condition_after(), condition(499_000));
+        assert_eq!(resolved.process_resolution().duration(), TickSpan::new(1));
         assert_eq!(resolved.process_resolution().outputs().len(), 1);
         let output = &resolved.process_resolution().outputs()[0];
         assert_eq!(
@@ -1443,7 +1443,7 @@ mod tests {
         assert_eq!(output.particle_size(), Some(crushed_particle_size()));
         assert_eq!(
             resolved.process_resolution().equipment_condition_after(),
-            Some(condition(496_000))
+            Some(condition(499_000))
         );
 
         let duration = resolved.process_resolution().duration();
@@ -1489,14 +1489,14 @@ mod tests {
                 .equipment()
                 .get_equipment(fixture.equipment)
                 .map(|record| record.condition()),
-            Some(condition(496_000))
+            Some(condition(499_000))
         );
     }
 
     #[test]
     fn weak_energy_delivery_extends_time_without_fabricating_processing_wear() {
         let fixture = make_fixture_with_registries(
-            make_registries_with_energy(EnergyCarrier::Mechanical, Power::from_microwatts(1)),
+            make_registries_with_energy(EnergyCarrier::Mechanical, Power::from_picowatts(100_000)),
             WorldSeed::new(0x9700_0004),
             Mass::from_milligrams(20),
             Condition::PRISTINE,
@@ -1511,15 +1511,15 @@ mod tests {
             MassFlow::from_milligrams_per_second(200)
         );
         assert_eq!(resolved.required_energy(), Energy::from_nanojoules(2_000));
-        assert_eq!(resolved.available_power(), Power::from_microwatts(1));
+        assert_eq!(resolved.available_power(), Power::from_picowatts(100_000));
         assert_eq!(resolved.condition_before(), Condition::PRISTINE);
-        assert_eq!(resolved.throughput_duration(), TickSpan::new(2));
-        assert_eq!(resolved.energy_duration(), TickSpan::new(40));
-        assert_eq!(resolved.condition_after(), condition(998_000));
-        assert_eq!(resolved.process_resolution().duration(), TickSpan::new(40));
+        assert_eq!(resolved.throughput_duration(), TickSpan::new(1));
+        assert_eq!(resolved.energy_duration(), TickSpan::new(6));
+        assert_eq!(resolved.condition_after(), condition(999_000));
+        assert_eq!(resolved.process_resolution().duration(), TickSpan::new(6));
         assert_eq!(
             resolved.process_resolution().equipment_condition_after(),
-            Some(condition(998_000))
+            Some(condition(999_000))
         );
     }
 

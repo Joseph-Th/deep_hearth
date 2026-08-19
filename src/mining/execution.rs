@@ -23,7 +23,7 @@ use crate::labor::{
     PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ValidatedPlayerWorkStart,
     validate_player_work_start,
 };
-use crate::material::{MaterialId, MaterialLotSpec, MaterialLotSpecError};
+use crate::material::{MaterialLotSpec, MaterialLotSpecError};
 use crate::ore_processing::MassFlowDurationError;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
@@ -70,14 +70,11 @@ pub enum MiningStartError {
         expected: CapabilityValueKind,
         found: CapabilityValueKind,
     },
-    UnknownMaterialDefinition {
-        material: MaterialId,
-    },
     BatchTooLarge {
         maximum: Mass,
         requested: Mass,
     },
-    MaterialTooHard {
+    DepositTooHard {
         hardness: Pressure,
         maximum: Pressure,
     },
@@ -129,14 +126,11 @@ impl From<MiningPhysicsError> for MiningStartError {
                 expected,
                 found,
             },
-            MiningPhysicsError::UnknownMaterialDefinition { material } => {
-                Self::UnknownMaterialDefinition { material }
-            }
             MiningPhysicsError::BatchTooLarge { maximum, requested } => {
                 Self::BatchTooLarge { maximum, requested }
             }
-            MiningPhysicsError::MaterialTooHard { hardness, maximum } => {
-                Self::MaterialTooHard { hardness, maximum }
+            MiningPhysicsError::DepositTooHard { hardness, maximum } => {
+                Self::DepositTooHard { hardness, maximum }
             }
             MiningPhysicsError::ZeroThroughput => Self::ZeroThroughput,
             MiningPhysicsError::Duration(error) => Self::Duration(error),
@@ -336,7 +330,7 @@ pub fn validate_start_mining(
         method_def,
         provider.definition(),
         provider.condition(),
-        deposit_record.commodity().material(),
+        deposit_record.excavation_hardness(),
         mass,
     )
     .map_err(MiningStartError::from)?;
@@ -708,7 +702,7 @@ mod tests {
         calculate_player_work_resource_budget,
     };
     use crate::maintenance::Condition;
-    use crate::material::{CommodityKey, MaterialComposition};
+    use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
     use crate::matter::calculate_matter_accounting;
     use crate::mining::MiningJobValidationError;
     use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
@@ -724,6 +718,7 @@ mod tests {
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
             Mass::from_milligrams(1_000_000),
             Temperature::from_millikelvin(300_000),
+            Pressure::from_pascals(350_000_000),
             MaterialComposition::pure(MATERIAL_COPPER),
         )
         .unwrap_or_else(|error| panic!("mining test deposit failed: {error}"))
@@ -777,6 +772,67 @@ mod tests {
                     required,
                 }
             )))
+        );
+    }
+
+    #[test]
+    fn deposit_excavation_hardness_is_independent_of_assay_composition() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0xA11E_000A));
+        initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("mixed-hardness survival initialization failed: {error}")
+        });
+        let pick = assemble_pick_for_test(&registries, &mut state);
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+            .unwrap_or_else(|error| panic!("mixed-hardness destination failed: {error}"));
+        let bounds = VoxelBounds::new(VoxelCoord::new(12, -8, 0), VoxelCoord::new(13, -7, 1))
+            .unwrap_or_else(|error| panic!("mixed-hardness bounds failed: {error}"));
+        let composition = MaterialComposition::new(vec![
+            CompositionComponent::new(MATERIAL_COPPER, 999_000),
+            CompositionComponent::new(MATERIAL_STONE, 1_000),
+        ])
+        .unwrap_or_else(|error| panic!("mixed-hardness composition failed: {error}"));
+        let deposit = insert_generated_deposit(
+            &registries,
+            &mut state,
+            GeneratedDepositSpec::new(
+                bounds,
+                CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+                Mass::from_milligrams(100_000),
+                Temperature::from_millikelvin(300_000),
+                Pressure::from_pascals(600_000_000),
+                composition,
+            )
+            .unwrap_or_else(|error| panic!("mixed-hardness deposit fixture failed: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("mixed-hardness deposit insertion failed: {error}"));
+
+        let error = validate_start_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        )
+        .err()
+        .unwrap_or_else(|| panic!("stone pick unexpectedly ignored deposit excavation hardness"));
+        assert_eq!(
+            error,
+            MiningStartError::DepositTooHard {
+                hardness: Pressure::from_pascals(600_000_000),
+                maximum: Pressure::from_pascals(500_000_000),
+            }
+        );
+        assert_eq!(state.player_work().active(), None);
+        assert_eq!(
+            state
+                .geology()
+                .get_deposit(deposit)
+                .unwrap_or_else(|| panic!("mixed-hardness deposit disappeared"))
+                .remaining_mass(),
+            Mass::from_milligrams(100_000)
         );
     }
 
@@ -995,7 +1051,7 @@ mod tests {
     }
 
     #[test]
-    fn stone_pick_refuses_material_above_authored_hardness() {
+    fn stone_pick_refuses_deposit_above_authored_excavation_hardness() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0xA11E_0002));
         initialize_player_survival(&registries, &mut state)
@@ -1013,6 +1069,7 @@ mod tests {
                 CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
                 Mass::from_milligrams(100_000),
                 Temperature::from_millikelvin(300_000),
+                Pressure::from_pascals(700_000_000),
                 MaterialComposition::pure(MATERIAL_STONE),
             )
             .unwrap_or_else(|error| panic!("hardness deposit fixture failed: {error}")),
@@ -1029,11 +1086,11 @@ mod tests {
             Mass::from_milligrams(100_000),
         )
         .err()
-        .unwrap_or_else(|| panic!("stone pick unexpectedly mined material above its hardness"));
+        .unwrap_or_else(|| panic!("stone pick unexpectedly mined deposit above its hardness"));
         assert_eq!(
             error,
-            MiningStartError::MaterialTooHard {
-                hardness: Pressure::from_pascals(50_000_000_000),
+            MiningStartError::DepositTooHard {
+                hardness: Pressure::from_pascals(700_000_000),
                 maximum: Pressure::from_pascals(500_000_000),
             }
         );
@@ -1209,7 +1266,7 @@ mod tests {
             .unwrap_or_else(|| panic!("reinforced mining job disappeared"));
         assert_eq!(
             job_record.completes_at().value() - job_record.started_at().value(),
-            167
+            3
         );
         assert_eq!(
             state
@@ -1395,11 +1452,12 @@ mod tests {
         let job = mining
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("mining start commit failed: {error}"));
-        let pick_condition_after = state
+        let job_record = state
             .mining()
             .get_job(job)
-            .unwrap_or_else(|| panic!("mining job disappeared after start"))
-            .equipment_condition_after();
+            .unwrap_or_else(|| panic!("mining job disappeared after start"));
+        let pick_condition_after = job_record.equipment_condition_after();
+        let mining_duration = job_record.completes_at().value() - job_record.started_at().value();
         assert!(pick_condition_after < pick_condition_before);
         assert_eq!(
             state
@@ -1457,7 +1515,7 @@ mod tests {
         );
 
         let mut final_tick = None;
-        for _ in 0..100 {
+        for _ in 0..mining_duration {
             final_tick = Some(
                 advance_tick(&registries, &mut state)
                     .unwrap_or_else(|error| panic!("mining work tick failed: {error}")),
@@ -1492,14 +1550,14 @@ mod tests {
                 - survival_after_mining.metabolic_energy().nanojoules(),
             (physiology.basal_energy_cost_per_tick().nanojoules()
                 + exertion.energy_cost_per_tick().nanojoules())
-                * 100
+                * u128::from(mining_duration)
         );
         assert_eq!(
             survival_before_mining.hydration().microliters()
                 - survival_after_mining.hydration().microliters(),
             (physiology.hydration_loss_per_tick().microliters()
                 + exertion.hydration_loss_per_tick().microliters())
-                * 100
+                * mining_duration
         );
         assert_eq!(
             state

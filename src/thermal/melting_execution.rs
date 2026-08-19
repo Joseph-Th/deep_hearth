@@ -644,7 +644,7 @@ pub fn resolve_melting_process(
     let duration = calculate_power_duration_ceiling(
         transfer_power,
         batch.required_energy,
-        registries.core().ticks_per_second(),
+        registries.core().physical_tick_duration(),
     )
     .map_err(MeltingResolutionError::Duration)?;
     let equipment_condition_after = calculate_condition_after_active_ticks(
@@ -1016,7 +1016,7 @@ pub(super) fn validate_loaded_melting_job(
     let required_duration = calculate_power_duration_ceiling(
         transfer_power,
         batch.required_energy,
-        registries.core().ticks_per_second(),
+        registries.core().physical_tick_duration(),
     )
     .map_err(|error| MeltingJobValidationError::Duration {
         job: job.id(),

@@ -2,13 +2,13 @@
 //!
 //! The harness deliberately varies physical initial conditions and player priorities, then lets a
 //! small operational policy react only to observed state and resolver projections. The required gate
-//! runs six maintained anchor cases plus two fresh bounded variation cases. The explicit report lane
+//! runs seven maintained anchor cases plus two fresh bounded variation cases. The explicit report lane
 //! uses a larger fresh bounded sample. Every generated root is printed so any result can be reproduced.
 //! Physical scenario and
 //! automated-player behavior randomness are independent. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED`
 //! reproduces the world/scenario sample and `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` reproduces policy
-//! variation. Focused gameplay probes use one maintained anchor plus one fresh bounded physical
-//! variation by default; an explicit variation seed reproduces a specific sample and
+//! variation. Focused gameplay probes use one maintained anchor plus two fresh bounded physical
+//! variations by default; an explicit variation seed reproduces a specific sample and
 //! `DEEP_HEARTH_GAMEPLAY_SEEDS` provides an exact focused-probe sweep. Each scenario schedules a real material
 //! transfer into supported storage, so ordinary inventory ownership can change structural margin while
 //! production is active.
@@ -23,18 +23,27 @@ use std::env;
 mod capability_boundary;
 mod configuration;
 mod contracts;
+#[cfg(feature = "test-gameplay-full")]
 mod focused_runner;
 mod focused_seeds;
+#[cfg(feature = "test-gameplay-full")]
 mod foundry_probe;
+#[cfg(feature = "test-gameplay-full")]
 mod foundry_setup;
+#[cfg(feature = "test-gameplay-full")]
 mod ore_probe;
+#[cfg(feature = "test-gameplay-full")]
 mod ore_setup;
+#[cfg(feature = "test-gameplay-full")]
+mod production_support;
+#[cfg(feature = "test-gameplay-full")]
 mod progression_probe;
 mod report;
 mod scenario;
 mod seed;
 mod seed_input;
 mod support;
+#[cfg(feature = "test-gameplay-full")]
 mod survival_probe;
 
 #[cfg(test)]
@@ -63,16 +72,18 @@ mod seed_contract_tests {
     }
 
     #[test]
-    fn focused_default_keeps_anchor_and_adds_one_replayable_variation() {
+    fn focused_default_keeps_anchor_and_adds_a_tiny_replayable_variation_sample() {
         let first = focused_probe_seeds_from(None, None, 0x1111, 0x2222, 0x3333)
             .unwrap_or_else(|error| panic!("first focused probe plan failed: {error:?}"));
         let second = focused_probe_seeds_from(None, None, 0x1111, 0x2222, 0x3333)
             .unwrap_or_else(|error| panic!("second focused probe plan failed: {error:?}"));
 
         assert_eq!(first, second);
-        assert_eq!(first.len(), 2);
+        assert_eq!(first.len(), 3);
         assert_eq!(first[0], 0x1111);
         assert_ne!(first[1], first[0]);
+        assert_ne!(first[2], first[0]);
+        assert_ne!(first[2], first[1]);
     }
 
     #[test]
@@ -84,6 +95,7 @@ mod seed_contract_tests {
 
         assert_eq!(first[0], second[0]);
         assert_ne!(first[1], second[1]);
+        assert_ne!(first[2], second[2]);
     }
 
     #[test]
@@ -117,20 +129,32 @@ use configuration::{
 use contracts::{assert_anchor_diversity, assert_scenario_contracts};
 use deep_hearth::content::gameplay_fixture::{
     authorize_controlled_material_delivery, materialize_structure, seed_composed_lot,
-    seed_energy_store as bootstrap_seed_energy_store, seed_lot,
+    seed_energy_store as bootstrap_seed_energy_store, seed_lot, seed_player_survival_at_warning,
 };
+#[cfg(feature = "test-gameplay-full")]
 use focused_runner::run_focused_probe;
+#[cfg(feature = "test-gameplay-full")]
 use foundry_probe::run_foundry_capability_probe;
+#[cfg(feature = "test-gameplay-full")]
 use ore_probe::run_ore_preparation_capability_probe;
-use progression_probe::run_primitive_progression_probe;
-use report::{
-    EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioPolicyVariation,
-    ScenarioReport, StructuralPreference, print_content_summary, print_harness_summary,
+#[cfg(feature = "test-gameplay-full")]
+use progression_probe::{
+    PrimitiveProgressionReview, evaluate_primitive_progression_probe,
+    run_primitive_progression_probe,
 };
-use scenario::ScenarioVariation;
+use report::{
+    EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioChoiceReport,
+    ScenarioPolicyVariation, ScenarioProgressReport, ScenarioReport, ScenarioResourceReport,
+    ScenarioStructureReport, StructuralPreference, print_content_summary, print_harness_summary,
+};
+use scenario::{ScenarioDeliveryVariation, ScenarioVariation};
 use seed::{fresh_root, mix64};
 use support::{ROOM_TEMPERATURE, add_solid_stockpile, nominal_equipment_mass_capability};
-use survival_probe::run_survival_provisioning_probe;
+#[cfg(feature = "test-gameplay-full")]
+use survival_probe::{
+    SurvivalProvisioningReview, evaluate_survival_provisioning_probe,
+    run_survival_provisioning_probe,
+};
 
 fn has_verbose_output() -> bool {
     env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some()
@@ -293,12 +317,58 @@ struct CrushBatchOutcome {
     completed: bool,
 }
 
-struct ScenarioRuntime<'state> {
-    variation: ScenarioVariation,
-    delivery_authorization: &'state mut Option<MaterialTransferResolution>,
+struct CrushBatchExecution {
+    mass: Mass,
+    option: CrushOption,
+    batch_index: u16,
+}
+
+/// Observable inputs available to the workshop actor while choosing actions.
+///
+/// Hidden controller state such as the future delivery tick is deliberately absent so decision code
+/// cannot accidentally inspect information that a player would not have.
+struct ScenarioActorRuntime<'state> {
+    policy: ScenarioPolicyVariation,
+    nominal_batch_mass: Mass,
     current_support: &'state mut StructuralElementId,
     alternate_support: &'state mut StructuralElementId,
-    report: &'state mut ScenarioReport,
+    report: ScenarioActorReport<'state>,
+}
+
+struct ScenarioActorReport<'state> {
+    structure: &'state mut ScenarioStructureReport,
+    choices: &'state mut ScenarioChoiceReport,
+    progress: &'state mut ScenarioProgressReport,
+    resources: &'state mut ScenarioResourceReport,
+}
+
+impl<'state> ScenarioActorRuntime<'state> {
+    fn new(
+        policy: ScenarioPolicyVariation,
+        nominal_batch_mass: Mass,
+        current_support: &'state mut StructuralElementId,
+        alternate_support: &'state mut StructuralElementId,
+        report: &'state mut ScenarioReport,
+    ) -> Self {
+        Self {
+            policy,
+            nominal_batch_mass,
+            current_support,
+            alternate_support,
+            report: ScenarioActorReport {
+                structure: &mut report.structure,
+                choices: &mut report.choices,
+                progress: &mut report.progress,
+                resources: &mut report.resources,
+            },
+        }
+    }
+}
+
+/// Scenario-controller state that may inject the preauthorized hidden world event.
+struct ControlledDeliveryRuntime<'state> {
+    delivery: ScenarioDeliveryVariation,
+    authorization: &'state mut Option<MaterialTransferResolution>,
 }
 
 fn seed_energy_store_exact(
@@ -413,8 +483,12 @@ fn setup_workshop(
         assert_capability_only_energy_store(registries, store);
     }
     let mut state = AppState::new(WorldSeed::new(variation.world_seed));
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("workshop survival initialization failed: {error}"));
+    if variation.survival.start_at_hydration_warning {
+        seed_player_survival_at_warning(registries, &mut state);
+    } else {
+        initialize_player_survival(registries, &mut state)
+            .unwrap_or_else(|error| panic!("workshop survival initialization failed: {error}"));
+    }
     let ore_mass = variation.ore.order_mass;
     let ore_source = add_solid_stockpile(&mut state, ore_mass, "ore source");
     let crushed_storage = add_solid_stockpile(&mut state, ore_mass, "crushed storage");
@@ -711,14 +785,6 @@ fn stage_rank(stage: StructuralStage) -> u8 {
     }
 }
 
-fn stockpile_first_lot(state: &AppState, stockpile: StockpileId) -> MaterialLotId {
-    state
-        .inventory()
-        .lot_ids(stockpile)
-        .next()
-        .unwrap_or_else(|| panic!("gameplay harness expected output lot is missing"))
-}
-
 struct CrushOption {
     name: &'static str,
     store: EnergyStoreId,
@@ -944,7 +1010,8 @@ fn execute_manual_recovery(
     state: &mut AppState,
     ids: WorkshopIds,
     option: ManualRecoveryOption,
-    runtime: &mut ScenarioRuntime<'_>,
+    controller: &mut ControlledDeliveryRuntime<'_>,
+    actor: &mut ScenarioActorRuntime<'_>,
 ) {
     let budget = option.start.resource_budget();
     let work = option.start.work();
@@ -973,9 +1040,9 @@ fn execute_manual_recovery(
         .commit(state)
         .unwrap_or_else(|error| panic!("manual-recovery start commit failed: {error}"));
 
-    let event_tick = runtime.variation.delivery.delivery_at_tick;
+    let event_tick = controller.delivery.delivery_at_tick;
     let mut event_assessment = None;
-    if !runtime.report.progress.delivery_applied
+    if !actor.report.progress.delivery_applied
         && event_tick > started_at
         && event_tick < completes_at
     {
@@ -987,7 +1054,7 @@ fn execute_manual_recovery(
         println!(
             "  interruption: controlled world event occurs during manual charging; structural response waits until the charging work releases player attention"
         );
-        event_assessment = Some(apply_delivery(registries, state, ids, runtime));
+        event_assessment = Some(apply_delivery(registries, state, ids, controller, actor));
     }
     if state.tick().value() < completes_at {
         finish_operation(
@@ -996,11 +1063,11 @@ fn execute_manual_recovery(
             TickSpan::new(completes_at - state.tick().value()),
         );
     }
-    if !runtime.report.progress.delivery_applied && state.tick().value() == event_tick {
-        event_assessment = Some(apply_delivery(registries, state, ids, runtime));
+    if !actor.report.progress.delivery_applied && state.tick().value() == event_tick {
+        event_assessment = Some(apply_delivery(registries, state, ids, controller, actor));
     }
     if let Some(assessment) = event_assessment {
-        adapt_after_delivery(registries, state, ids, runtime, assessment);
+        adapt_after_delivery(registries, state, ids, actor, assessment);
     }
 
     assert_eq!(state.player_work().active(), None);
@@ -1016,31 +1083,31 @@ fn execute_manual_recovery(
             .unwrap_or_else(|| panic!("manual-recovery energy accounting overflowed")),
         "manual power must add exactly its validated generated work"
     );
-    runtime.report.choices.manual_recharges = runtime
+    actor.report.choices.manual_recharges = actor
         .report
         .choices
         .manual_recharges
         .checked_add(1)
         .unwrap_or_else(|| panic!("manual-recovery count overflowed"));
-    runtime.report.resources.manually_generated_energy = runtime
+    actor.report.resources.manually_generated_energy = actor
         .report
         .resources
         .manually_generated_energy
         .checked_add(option.energy)
         .unwrap_or_else(|| panic!("manual-recovery generated-energy accounting overflowed"));
-    runtime.report.resources.manual_power_ticks = runtime
+    actor.report.resources.manual_power_ticks = actor
         .report
         .resources
         .manual_power_ticks
         .checked_add(duration)
         .unwrap_or_else(|| panic!("manual-recovery duration accounting overflowed"));
-    runtime.report.resources.manual_power_metabolic_energy = runtime
+    actor.report.resources.manual_power_metabolic_energy = actor
         .report
         .resources
         .manual_power_metabolic_energy
         .checked_add(budget.metabolic_energy())
         .unwrap_or_else(|| panic!("manual-recovery metabolic accounting overflowed"));
-    runtime.report.resources.manual_power_hydration = runtime
+    actor.report.resources.manual_power_hydration = actor
         .report
         .resources
         .manual_power_hydration
@@ -1311,11 +1378,15 @@ fn crush_batch(
     registries: &Registries,
     state: &mut AppState,
     ids: WorkshopIds,
-    mass: Mass,
-    option: CrushOption,
-    batch_index: u16,
-    mut runtime: ScenarioRuntime<'_>,
+    execution: CrushBatchExecution,
+    controller: &mut ControlledDeliveryRuntime<'_>,
+    actor: &mut ScenarioActorRuntime<'_>,
 ) -> CrushBatchOutcome {
+    let CrushBatchExecution {
+        mass,
+        option,
+        batch_index,
+    } = execution;
     println!(
         "  crush#{batch_index}: drive={} mass={}mg rate={}mg/s power={}uW duration={}t constraints=[throughput:{}t energy:{}t] condition={}ppm->{}ppm bottleneck={:?}",
         option.name,
@@ -1346,16 +1417,16 @@ fn crush_batch(
     let completes_at = started_at
         .checked_add(duration.value())
         .unwrap_or_else(|| panic!("gameplay harness crushing completion tick overflowed"));
-    if !runtime.report.progress.delivery_applied
-        && started_at < runtime.variation.delivery.delivery_at_tick
-        && runtime.variation.delivery.delivery_at_tick < completes_at
+    if !actor.report.progress.delivery_applied
+        && started_at < controller.delivery.delivery_at_tick
+        && controller.delivery.delivery_at_tick < completes_at
     {
         finish_operation(
             registries,
             state,
-            TickSpan::new(runtime.variation.delivery.delivery_at_tick - started_at),
+            TickSpan::new(controller.delivery.delivery_at_tick - started_at),
         );
-        let assessment = apply_delivery(registries, state, ids, &mut runtime);
+        let assessment = apply_delivery(registries, state, ids, controller, actor);
         if assessment.stage() == StructuralStage::Failed {
             let outcome = advance_tick(registries, state)
                 .unwrap_or_else(|error| panic!("gameplay harness suspension tick failed: {error}"));
@@ -1391,14 +1462,14 @@ fn crush_batch(
                     equipment: ids.crusher,
                 }
             );
-            runtime.report.structure.production_suspension = true;
+            actor.report.structure.production_suspension = true;
             println!(
                 "  interruption: crush#{batch_index} suspends with {} active tick(s) remaining; consumed matter and work stay owned as work-in-process",
                 suspension.1.value()
             );
-            adapt_after_delivery(registries, state, ids, &mut runtime, assessment);
-            if runtime.report.structure.structural_stop {
-                runtime.report.structure.stranded_work_in_process = true;
+            adapt_after_delivery(registries, state, ids, actor, assessment);
+            if actor.report.structure.structural_stop {
+                actor.report.structure.stranded_work_in_process = true;
                 println!(
                     "  work-in-process: crush#{batch_index} remains suspended; no output or final condition outcome is committed while structural recovery is unavailable"
                 );
@@ -1444,7 +1515,7 @@ fn crush_batch(
                 "active support unexpectedly suspended crusher production"
             );
             if assessment.stage() != StructuralStage::Stable {
-                adapt_after_delivery(registries, state, ids, &mut runtime, assessment);
+                adapt_after_delivery(registries, state, ids, actor, assessment);
             }
         }
     } else {
@@ -1524,7 +1595,7 @@ fn try_relocate_crusher(
     ids: WorkshopIds,
     current_support: &mut StructuralElementId,
     alternate_support: &mut StructuralElementId,
-    report: &mut ScenarioReport,
+    structure: &mut ScenarioStructureReport,
 ) -> CrusherRelocationOutcome {
     let relocation = match validate_relocate_equipment(
         registries,
@@ -1570,7 +1641,7 @@ fn try_relocate_crusher(
         .get_element(abandoned_support)
         .unwrap_or_else(|| panic!("abandoned workshop support disappeared during recovery"));
     if abandoned.lifecycle() == StructuralLifecycle::Failed || abandoned.is_cracked() {
-        report.structure.structural_damage_debt = true;
+        structure.structural_damage_debt = true;
         println!(
             "  recovery debt: previous bay remains {:?} cracked={} after relocation; restoring production did not repair the structure",
             abandoned.lifecycle(),
@@ -1585,7 +1656,7 @@ fn try_relocate_crusher(
         );
     }
     std::mem::swap(current_support, alternate_support);
-    report.structure.support_relocation = true;
+    structure.support_relocation = true;
     CrusherRelocationOutcome::Relocated
 }
 
@@ -1593,7 +1664,7 @@ fn adapt_after_delivery(
     registries: &Registries,
     state: &mut AppState,
     ids: WorkshopIds,
-    runtime: &mut ScenarioRuntime<'_>,
+    actor: &mut ScenarioActorRuntime<'_>,
     after: StructuralAssessment,
 ) {
     if after.stage() == StructuralStage::Failed {
@@ -1622,7 +1693,7 @@ fn adapt_after_delivery(
             let probe_mass = Mass::from_milligrams(
                 untouched_mass
                     .milligrams()
-                    .min(runtime.variation.ore.nominal_batch_mass.milligrams()),
+                    .min(actor.nominal_batch_mass.milligrams()),
             );
             let selection = [MaterialLotSelection::new(ids.ore_lot, probe_mass)];
             let blocked = resolve_comminution_process(
@@ -1636,7 +1707,7 @@ fn adapt_after_delivery(
                     ids.small_drive,
                 ),
             );
-            runtime.report.structure.support_failure_blocked_production = matches!(
+            actor.report.structure.support_failure_blocked_production = matches!(
                 blocked,
                 Err(ComminutionResolutionError::Equipment(
                     EquipmentProviderError::StructuralSupportNotActive {
@@ -1648,7 +1719,7 @@ fn adapt_after_delivery(
             );
             println!(
                 "  consequence: failed support blocks the next untouched ore operation={}",
-                runtime.report.structure.support_failure_blocked_production
+                actor.report.structure.support_failure_blocked_production
             );
         } else {
             if suspended_wip.is_none() {
@@ -1665,12 +1736,12 @@ fn adapt_after_delivery(
             registries,
             state,
             ids,
-            runtime.current_support,
-            runtime.alternate_support,
-            runtime.report,
+            actor.current_support,
+            actor.alternate_support,
+            actor.report.structure,
         ) == CrusherRelocationOutcome::Blocked
         {
-            runtime.report.structure.structural_stop = true;
+            actor.report.structure.structural_stop = true;
             println!(
                 "  structural frontier: no surviving bay can carry the crusher, so new production remains blocked"
             );
@@ -1679,9 +1750,7 @@ fn adapt_after_delivery(
     }
 
     if after.stage() == StructuralStage::Cracking || after.stage() == StructuralStage::Strained {
-        if runtime.variation.policy.structural_preference
-            == StructuralPreference::MoveOnlyForFailure
-        {
+        if actor.policy.structural_preference == StructuralPreference::MoveOnlyForFailure {
             println!(
                 "  decision: remain on current support at {}; player policy moves equipment only when support actually fails",
                 structural_label(after)
@@ -1692,7 +1761,7 @@ fn adapt_after_delivery(
             registries,
             state,
             ids.crusher,
-            *runtime.alternate_support,
+            *actor.alternate_support,
         ) {
             Ok(alternate) => alternate,
             Err(EquipmentSupportError::TargetNotActive {
@@ -1707,7 +1776,7 @@ fn adapt_after_delivery(
             Err(error) => panic!("crusher relocation prediction failed: {error}"),
         };
         let alternate_assessment =
-            structural_assessment(alternate.structural_analysis(), *runtime.alternate_support);
+            structural_assessment(alternate.structural_analysis(), *actor.alternate_support);
         if (
             stage_rank(alternate_assessment.stage()),
             alternate_assessment.utilization_ppm(),
@@ -1721,9 +1790,9 @@ fn adapt_after_delivery(
                 registries,
                 state,
                 ids,
-                runtime.current_support,
-                runtime.alternate_support,
-                runtime.report,
+                actor.current_support,
+                actor.alternate_support,
+                actor.report.structure,
             );
             debug_assert_eq!(relocated, CrusherRelocationOutcome::Relocated);
         } else {
@@ -1740,38 +1809,37 @@ fn apply_delivery(
     registries: &Registries,
     state: &mut AppState,
     ids: WorkshopIds,
-    runtime: &mut ScenarioRuntime<'_>,
+    controller: &mut ControlledDeliveryRuntime<'_>,
+    actor: &mut ScenarioActorRuntime<'_>,
 ) -> StructuralAssessment {
     assert_eq!(
         state.tick().value(),
-        runtime.variation.delivery.delivery_at_tick,
+        controller.delivery.delivery_at_tick,
         "controlled gameplay event must occur at its planned world tick"
     );
-    runtime.report.progress.delivery_applied = true;
-    runtime.report.progress.operations_before_delivery =
-        runtime.report.progress.operations_completed;
-    let authorization = runtime
-        .delivery_authorization
+    actor.report.progress.delivery_applied = true;
+    actor.report.progress.operations_before_delivery = actor.report.progress.operations_completed;
+    let authorization = controller
+        .authorization
         .take()
         .unwrap_or_else(|| panic!("controlled delivery authorization was already consumed"));
     transfer_controlled_delivery(registries, state, authorization);
     let (compact, reinforced) = analyze_workshop_supports(registries, state, ids);
-    let (after, alternate_after) = if *runtime.current_support == ids.compact_support {
+    let (after, alternate_after) = if *actor.current_support == ids.compact_support {
         (compact, reinforced)
     } else {
         (reinforced, compact)
     };
-    runtime.report.structure.structural_consequence =
+    actor.report.structure.structural_consequence =
         compact.stage() != StructuralStage::Stable || reinforced.stage() != StructuralStage::Stable;
-    runtime.report.structure.structural_damage_debt |=
-        [ids.compact_support, ids.reinforced_support]
-            .into_iter()
-            .any(|support| {
-                state
-                    .structures()
-                    .get_element(support)
-                    .is_some_and(|record| record.is_cracked())
-            });
+    actor.report.structure.structural_damage_debt |= [ids.compact_support, ids.reinforced_support]
+        .into_iter()
+        .any(|support| {
+            state
+                .structures()
+                .get_element(support)
+                .is_some_and(|record| record.is_cracked())
+        });
     let destination = if ids.delivery_support == ids.compact_support {
         "compact"
     } else {
@@ -1779,10 +1847,10 @@ fn apply_delivery(
     };
     println!(
         "  delivery: move={}mg wood into {destination} supported storage at tick={} after {} operation(s) / {}mg processed -> active={} alternate={}",
-        runtime.variation.delivery.mass.milligrams(),
+        controller.delivery.mass.milligrams(),
         state.tick().value(),
-        runtime.report.progress.operations_completed,
-        runtime.report.progress.processed_mass.milligrams(),
+        actor.report.progress.operations_completed,
+        actor.report.progress.processed_mass.milligrams(),
         structural_label(after),
         structural_label(alternate_after),
     );
@@ -1793,10 +1861,11 @@ fn apply_delivery_and_adapt(
     registries: &Registries,
     state: &mut AppState,
     ids: WorkshopIds,
-    mut runtime: ScenarioRuntime<'_>,
+    controller: &mut ControlledDeliveryRuntime<'_>,
+    actor: &mut ScenarioActorRuntime<'_>,
 ) {
-    let after = apply_delivery(registries, state, ids, &mut runtime);
-    adapt_after_delivery(registries, state, ids, &mut runtime, after);
+    let after = apply_delivery(registries, state, ids, controller, actor);
+    adapt_after_delivery(registries, state, ids, actor, after);
 }
 
 fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> ScenarioReport {
@@ -1948,18 +2017,18 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
                 "controlled event tick was passed without being applied"
             );
             if state.tick().value() == variation.delivery.delivery_at_tick {
-                apply_delivery_and_adapt(
-                    registries,
-                    &mut state,
-                    ids,
-                    ScenarioRuntime {
-                        variation,
-                        delivery_authorization: &mut delivery_authorization,
-                        current_support: &mut current_support,
-                        alternate_support: &mut alternate_support,
-                        report: &mut report,
-                    },
+                let mut controller = ControlledDeliveryRuntime {
+                    delivery: variation.delivery,
+                    authorization: &mut delivery_authorization,
+                };
+                let mut actor = ScenarioActorRuntime::new(
+                    variation.policy,
+                    variation.ore.nominal_batch_mass,
+                    &mut current_support,
+                    &mut alternate_support,
+                    &mut report,
                 );
+                apply_delivery_and_adapt(registries, &mut state, ids, &mut controller, &mut actor);
                 continue;
             }
         }
@@ -2079,18 +2148,24 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
                                     mass.milligrams(),
                                 );
                             }
+                            let mut controller = ControlledDeliveryRuntime {
+                                delivery: variation.delivery,
+                                authorization: &mut delivery_authorization,
+                            };
+                            let mut actor = ScenarioActorRuntime::new(
+                                variation.policy,
+                                variation.ore.nominal_batch_mass,
+                                &mut current_support,
+                                &mut alternate_support,
+                                &mut report,
+                            );
                             execute_manual_recovery(
                                 registries,
                                 &mut state,
                                 ids,
                                 *option,
-                                &mut ScenarioRuntime {
-                                    variation,
-                                    delivery_authorization: &mut delivery_authorization,
-                                    current_support: &mut current_support,
-                                    alternate_support: &mut alternate_support,
-                                    report: &mut report,
-                                },
+                                &mut controller,
+                                &mut actor,
                             );
                             if report.structure.structural_stop {
                                 break 'work_order;
@@ -2189,20 +2264,29 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
         } else if selected.store == ids.large_drive {
             report.choices.large_drive_batches += 1;
         }
+        let next_operation = report.progress.operations_completed + 1;
+        let mut controller = ControlledDeliveryRuntime {
+            delivery: variation.delivery,
+            authorization: &mut delivery_authorization,
+        };
+        let mut actor = ScenarioActorRuntime::new(
+            variation.policy,
+            variation.ore.nominal_batch_mass,
+            &mut current_support,
+            &mut alternate_support,
+            &mut report,
+        );
         let outcome = crush_batch(
             registries,
             &mut state,
             ids,
-            batch_mass,
-            selected,
-            report.progress.operations_completed + 1,
-            ScenarioRuntime {
-                variation,
-                delivery_authorization: &mut delivery_authorization,
-                current_support: &mut current_support,
-                alternate_support: &mut alternate_support,
-                report: &mut report,
+            CrushBatchExecution {
+                mass: batch_mass,
+                option: selected,
+                batch_index: next_operation,
             },
+            &mut controller,
+            &mut actor,
         );
         if outcome.completed {
             report.progress.processed_mass = report
@@ -2254,18 +2338,18 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
         if !report.progress.delivery_applied
             && state.tick().value() >= variation.delivery.delivery_at_tick
         {
-            apply_delivery_and_adapt(
-                registries,
-                &mut state,
-                ids,
-                ScenarioRuntime {
-                    variation,
-                    delivery_authorization: &mut delivery_authorization,
-                    current_support: &mut current_support,
-                    alternate_support: &mut alternate_support,
-                    report: &mut report,
-                },
+            let mut controller = ControlledDeliveryRuntime {
+                delivery: variation.delivery,
+                authorization: &mut delivery_authorization,
+            };
+            let mut actor = ScenarioActorRuntime::new(
+                variation.policy,
+                variation.ore.nominal_batch_mass,
+                &mut current_support,
+                &mut alternate_support,
+                &mut report,
             );
+            apply_delivery_and_adapt(registries, &mut state, ids, &mut controller, &mut actor);
         }
     }
     if !report.progress.delivery_applied {
@@ -2281,18 +2365,18 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
                 TickSpan::new(variation.delivery.delivery_at_tick - current_tick),
             );
         }
-        apply_delivery_and_adapt(
-            registries,
-            &mut state,
-            ids,
-            ScenarioRuntime {
-                variation,
-                delivery_authorization: &mut delivery_authorization,
-                current_support: &mut current_support,
-                alternate_support: &mut alternate_support,
-                report: &mut report,
-            },
+        let mut controller = ControlledDeliveryRuntime {
+            delivery: variation.delivery,
+            authorization: &mut delivery_authorization,
+        };
+        let mut actor = ScenarioActorRuntime::new(
+            variation.policy,
+            variation.ore.nominal_batch_mass,
+            &mut current_support,
+            &mut alternate_support,
+            &mut report,
         );
+        apply_delivery_and_adapt(registries, &mut state, ids, &mut controller, &mut actor);
     }
     let final_condition = state
         .equipment()
@@ -2321,23 +2405,56 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
             "  process frontier: mixed-ore melt rejection is not probed because this scenario produced no crushed lot"
         );
     } else {
-        let crushed_lot = stockpile_first_lot(&state, ids.crushed_storage);
-        let crushed_record = state
+        let crushed_lots = state
             .inventory()
-            .get_lot(crushed_lot)
+            .lot_ids(ids.crushed_storage)
+            .collect::<Vec<_>>();
+        assert!(
+            !crushed_lots.is_empty(),
+            "positive crushed storage mass must have at least one owned output lot"
+        );
+        let expected_composition = MaterialComposition::new(vec![
+            CompositionComponent::new(MATERIAL_COPPER, variation.ore.ore_copper_ppm),
+            CompositionComponent::new(MATERIAL_STONE, 1_000_000 - variation.ore.ore_copper_ppm),
+        ])
+        .unwrap_or_else(|error| panic!("workshop expected crushed composition failed: {error}"));
+        let first_record = state
+            .inventory()
+            .get_lot(crushed_lots[0])
             .unwrap_or_else(|| panic!("crushed output lot disappeared"));
-        let particle_distribution = crushed_record
+        let particle_distribution = first_record
             .particle_size_distribution()
             .unwrap_or_else(|| panic!("canonical crushed ore lost particle-size state"));
-        let particle_envelope = crushed_record
+        let particle_envelope = first_record
             .particle_size()
             .unwrap_or_else(|| panic!("canonical crushed ore lost particle-size envelope"));
-        let contained_copper_floor = crushed_record
-            .composition()
-            .constituent_mass_floor(crushed_mass, MATERIAL_COPPER);
+        let contained_copper_floor = crushed_lots
+            .iter()
+            .map(|lot| {
+                let record = state
+                    .inventory()
+                    .get_lot(*lot)
+                    .unwrap_or_else(|| panic!("crushed output lot disappeared"));
+                assert_eq!(
+                    record.composition(),
+                    &expected_composition,
+                    "every crushed batch must preserve the work-order ore composition"
+                );
+                assert_eq!(
+                    record.particle_size_distribution(),
+                    Some(particle_distribution),
+                    "every crushed batch from the same authored process must carry the same particle-size state"
+                );
+                record
+                    .composition()
+                    .constituent_mass_floor(record.mass(), MATERIAL_COPPER)
+            })
+            .try_fold(Mass::ZERO, |total, mass| total.checked_add(mass))
+            .unwrap_or_else(|| panic!("workshop contained-copper accounting overflowed"));
         println!(
-            "  material: crushed={}mg composition={}ppm Cu / {}ppm gangue contained_copper_floor={}mg particle_classes={} envelope={}..={}um",
+            "  material: crushed={}mg lots={} composition={}ppm Cu / {}ppm gangue contained_copper_floor={}mg particle_classes={} envelope={}..={}um",
             crushed_mass.milligrams(),
+            crushed_lots.len(),
             variation.ore.ore_copper_ppm,
             1_000_000 - variation.ore.ore_copper_ppm,
             contained_copper_floor.milligrams(),
@@ -2353,29 +2470,27 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
                 "  preparation state: crusher output is one unresolved size class; a screen cut through that class cannot claim a fabricated yield"
             );
         }
-        let mixed_selection = [MaterialLotSelection::new(
-            crushed_lot,
-            Mass::from_milligrams(1),
-        )];
-        let blocked_melt = resolve_melting_process(
-            registries,
-            &state,
-            MeltingRequest::new(
-                PROCESS_MELT_PURE_COPPER,
-                ids.crushed_storage,
-                &mixed_selection,
-                ids.furnace,
-                ids.electrical_buffer,
-            ),
-        );
-        report.progress.ore_frontier_visible = matches!(
-            blocked_melt,
-            Err(MeltingResolutionError::Batch(
-                MeltingBatchError::ImpureInput {
-                    commodity: _commodity,
-                }
-            ))
-        );
+        report.progress.ore_frontier_visible = crushed_lots.iter().all(|lot| {
+            let mixed_selection = [MaterialLotSelection::new(*lot, Mass::from_milligrams(1))];
+            matches!(
+                resolve_melting_process(
+                    registries,
+                    &state,
+                    MeltingRequest::new(
+                        PROCESS_MELT_PURE_COPPER,
+                        ids.crushed_storage,
+                        &mixed_selection,
+                        ids.furnace,
+                        ids.electrical_buffer,
+                    ),
+                ),
+                Err(MeltingResolutionError::Batch(
+                    MeltingBatchError::ImpureInput {
+                        commodity: _commodity,
+                    }
+                ))
+            )
+        });
         println!(
             "  process frontier: crushed mixed ore cannot enter pure-copper melting={} (concentration/smelting remains the missing bridge)",
             report.progress.ore_frontier_visible
@@ -2535,6 +2650,7 @@ enum AgencyFocus {
     PowerAndStructure,
     SurvivalRecovery,
     MaintenanceTiming,
+    #[cfg(feature = "test-gameplay-full")]
     CustomInput,
 }
 
@@ -2544,6 +2660,7 @@ impl AgencyFocus {
             Self::PowerAndStructure => "power+structure",
             Self::SurvivalRecovery => "survival-recovery",
             Self::MaintenanceTiming => "maintenance-timing",
+            #[cfg(feature = "test-gameplay-full")]
             Self::CustomInput => "custom-input",
         }
     }
@@ -2554,6 +2671,62 @@ struct AgencyWorld {
     focus: AgencyFocus,
     world_seed: u64,
     anchor: Option<MaintainedAnchor>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AgencyExperienceReview {
+    worlds_with_distinct_paths: usize,
+    worlds_with_work_difference: usize,
+    power_effect: bool,
+    survival_effect: bool,
+    maintenance_effect: bool,
+    structure_effect: bool,
+}
+
+#[cfg(feature = "test-gameplay-full")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WorkshopExperienceReview {
+    adaptive_operations: u32,
+    condition_adaptive_operations: u32,
+    manual_recharges: u32,
+    maintenance_services: u32,
+    relocations: usize,
+    production_suspensions: usize,
+    survival_preservation_stops: usize,
+}
+
+#[cfg(feature = "test-gameplay-full")]
+fn review_workshop_experience(reports: &[ScenarioReport]) -> WorkshopExperienceReview {
+    WorkshopExperienceReview {
+        adaptive_operations: reports
+            .iter()
+            .map(|report| u32::from(report.progress.adaptive_batch_operations))
+            .sum(),
+        condition_adaptive_operations: reports
+            .iter()
+            .map(|report| u32::from(report.progress.condition_adaptive_batch_operations))
+            .sum(),
+        manual_recharges: reports
+            .iter()
+            .map(|report| u32::from(report.choices.manual_recharges))
+            .sum(),
+        maintenance_services: reports
+            .iter()
+            .map(|report| u32::from(report.maintenance.services))
+            .sum(),
+        relocations: reports
+            .iter()
+            .filter(|report| report.structure.support_relocation)
+            .count(),
+        production_suspensions: reports
+            .iter()
+            .filter(|report| report.structure.production_suspension)
+            .count(),
+        survival_preservation_stops: reports
+            .iter()
+            .filter(|report| report.limits.manual_recovery_declined)
+            .count(),
+    }
 }
 
 fn power_counterfactual_changed(baseline: &ScenarioReport, variant: &ScenarioReport) -> bool {
@@ -2589,7 +2762,7 @@ fn structure_counterfactual_changed(baseline: &ScenarioReport, variant: &Scenari
         || baseline.resources.elapsed_ticks != variant.resources.elapsed_ticks
 }
 
-fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
+fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) -> AgencyExperienceReview {
     let policies = agency_probe_policies();
     let mut worlds_with_distinct_paths = 0_usize;
     let mut worlds_with_work_difference = 0_usize;
@@ -2767,6 +2940,7 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
                     "maintained maintenance-timing agency world must make preventive versus delayed service consequential"
                 );
             }
+            #[cfg(feature = "test-gameplay-full")]
             AgencyFocus::CustomInput => {}
         }
         std::println!(
@@ -2840,8 +3014,110 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
         observed_maintenance_effect,
         observed_structure_effect,
     );
+    AgencyExperienceReview {
+        worlds_with_distinct_paths,
+        worlds_with_work_difference,
+        power_effect: observed_power_effect,
+        survival_effect: observed_survival_effect,
+        maintenance_effect: observed_maintenance_effect,
+        structure_effect: observed_structure_effect,
+    }
 }
 
+#[cfg(feature = "test-gameplay-full")]
+fn print_player_experience_assessment(
+    survival: SurvivalProvisioningReview,
+    progression: PrimitiveProgressionReview,
+    agency: AgencyExperienceReview,
+    workshop: WorkshopExperienceReview,
+) {
+    let survival_provisioning = survival.preservation_age_saved_ticks > 0
+        && survival.selected_category_count >= 2
+        && survival.retained_preserved_mass_mg > 0
+        && survival.reserve_recovered;
+    let material_upgrades =
+        progression.tool_attention_saved_ticks > 0 && progression.crank_attention_saved_ticks > 0;
+    let scarce_upgrade_choice = progression.extraction_ore_lead_ticks > 0
+        && progression.mechanization_output_lead_ticks > 0;
+    let automation_attention = progression.machine_work_ticks > 0
+        && progression.mechanization_useful_overlap_ticks > 0
+        && progression.mechanization_idle_wait_saved_ticks > 0
+        && progression.mechanization_elapsed_saved_ticks > 0;
+    let workshop_agency = agency.power_effect
+        && agency.survival_effect
+        && agency.maintenance_effect
+        && agency.structure_effect;
+    let emergent_coupling = workshop.adaptive_operations > 0
+        && workshop.condition_adaptive_operations > 0
+        && workshop.manual_recharges > 0
+        && workshop.maintenance_services > 0
+        && workshop.relocations > 0
+        && workshop.production_suspensions > 0
+        && workshop.survival_preservation_stops > 0
+        && agency.worlds_with_distinct_paths > 0
+        && agency.worlds_with_work_difference > 0
+        && workshop_agency;
+
+    let measured = [
+        ("survival-provisioning+food-rotation", survival_provisioning),
+        ("material-upgrades-save-attention", material_upgrades),
+        ("scarce-upgrade-priority-tradeoff", scarce_upgrade_choice),
+        ("automation-frees-player-attention", automation_attention),
+        ("workshop-policy-agency", workshop_agency),
+        ("cross-system-emergent-coupling", emergent_coupling),
+    ];
+    let working = measured
+        .iter()
+        .filter_map(|(name, works)| works.then_some(*name))
+        .collect::<Vec<_>>()
+        .join(",");
+    let weak = measured
+        .iter()
+        .filter_map(|(name, works)| (!works).then_some(*name))
+        .collect::<Vec<_>>()
+        .join(",");
+    std::println!(
+        "PLAYER EXPERIENCE ASSESSMENT core-fantasy=convert-vulnerable-direct-labor-into-material-backed-systems-that-return-attention-and-create-new-physical-debts working=[{}] weak=[{}] current-frontier=[geological-discovery,industrial-acquisition+generation,mixed-ore-concentration+smelting] basis=measured-runtime-episodes+matched-world-counterfactuals",
+        if working.is_empty() { "none" } else { &working },
+        if weak.is_empty() {
+            "none-observed"
+        } else {
+            &weak
+        },
+    );
+    std::println!(
+        "PLAYER EXPERIENCE EVIDENCE survival=[preservation-saved:{}t categories:{} pressure:{}ppm/{}ppm retained:{}mg recovered:{}] progression=[tool-saved:{}t crank-saved:{}t extraction-lead:{}t output-lead:{}t machine:{}t useful-overlap:{}t idle-wait-saved:{}t elapsed-saved:{}t] workshop=[adaptive:{} condition-adaptive:{} manual-recharges:{} maintenance-services:{} relocations:{} suspensions:{} survival-preservation-stops:{} distinct-policy-worlds:{} processed-work-difference-worlds:{} power:{} survival:{} maintenance:{} structure:{}]",
+        survival.preservation_age_saved_ticks,
+        survival.selected_category_count,
+        survival.energy_deficit_ppm,
+        survival.hydration_deficit_ppm,
+        survival.retained_preserved_mass_mg,
+        survival.reserve_recovered,
+        progression.tool_attention_saved_ticks,
+        progression.crank_attention_saved_ticks,
+        progression.extraction_ore_lead_ticks,
+        progression.mechanization_output_lead_ticks,
+        progression.machine_work_ticks,
+        progression.mechanization_useful_overlap_ticks,
+        progression.mechanization_idle_wait_saved_ticks,
+        progression.mechanization_elapsed_saved_ticks,
+        workshop.adaptive_operations,
+        workshop.condition_adaptive_operations,
+        workshop.manual_recharges,
+        workshop.maintenance_services,
+        workshop.relocations,
+        workshop.production_suspensions,
+        workshop.survival_preservation_stops,
+        agency.worlds_with_distinct_paths,
+        agency.worlds_with_work_difference,
+        agency.power_effect,
+        agency.survival_effect,
+        agency.maintenance_effect,
+        agency.structure_effect,
+    );
+}
+
+#[cfg(feature = "test-gameplay-full")]
 fn push_unique_agency_world(
     worlds: &mut Vec<AgencyWorld>,
     focus: AgencyFocus,
@@ -2896,17 +3172,21 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
     std::println!(
         "PLAYER LOOP runtime-after-bootstrap=[survive->shape-tools->mine->reinforce->store-work->mechanize] capability-workshop=[site-machine->process-total-mass->adapt-batch-to-condition+stored-work->choose-power->hand-charge-or-protect-survival->react-to-world-load->maintain-or-relocate->iterate] utility=[survival-reserve,machine-condition,structural-margin,stored-work,time]"
     );
+    #[cfg(feature = "test-gameplay-full")]
     let probe_seed = plan
         .cases()
         .iter()
         .fold(0xD33F_C01D_5EED_u64, |combined, case| {
             mix64(combined ^ case.world_seed ^ case.behavior_seed.rotate_left(17))
         });
-    if include_probes {
+    #[cfg(feature = "test-gameplay-full")]
+    let runtime_reviews = include_probes.then(|| {
         std::println!("\n=== RUNTIME PLAY ACTIONS AFTER CONTROLLED WORLD BOOTSTRAP ===");
-        run_survival_provisioning_probe(&registries, probe_seed ^ 0x5355_5256_4956_414C);
-        run_primitive_progression_probe(&registries, probe_seed ^ 0x5052_4F47_5245_5353);
-    }
+        (
+            evaluate_survival_provisioning_probe(&registries, probe_seed ^ 0x5355_5256_4956_414C),
+            evaluate_primitive_progression_probe(&registries, probe_seed ^ 0x5052_4F47_5245_5353),
+        )
+    });
     println!(
         "\n=== DEEP HEARTH INDUSTRIAL WORKSHOP CAPABILITY MATRIX: {} scenario(s), registry schema {} ===",
         plan.cases().len(),
@@ -2936,16 +3216,19 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
         })
         .map(|variation| run_scenario(&registries, variation))
         .collect();
+    #[cfg(feature = "test-gameplay-full")]
+    let workshop_review = include_probes.then(|| review_workshop_experience(&reports));
     assert_scenario_contracts(&reports);
     let anchor_reports = plan
         .cases()
         .iter()
         .zip(&reports)
-        .filter_map(|(case, report)| case.anchor.map(|_| *report))
+        .filter_map(|(case, report)| case.anchor.map(|anchor| (anchor, *report)))
         .collect::<Vec<_>>();
     if !anchor_reports.is_empty() {
         assert_anchor_diversity(&anchor_reports);
     }
+    #[cfg(feature = "test-gameplay-full")]
     if include_probes {
         let mut agency_worlds: Vec<AgencyWorld> = Vec::new();
         for (anchor, focus) in [
@@ -2993,9 +3276,17 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
                 .collect::<Vec<_>>()
                 .join(","),
         );
-        run_agency_probe(&registries, &agency_worlds);
-        std::println!(
-            "PLAYER EXPERIENCE core-fantasy=survive-by-direct-labor->shape-local-matter->improve-tools->bank-human-work->mechanize->manage-physical-debt demonstrated=[finite-survival-reserve,manual-crafting+mining,scarce-upgrade-priority,material-backed-work-storage,player+machine-overlap,power-time-vs-reserve,condition-safe-adaptive-batching,maintenance-now-vs-later,structural-failure+wip-recovery,survival-reserve-vs-output] current-frontier=[geological-discovery,industrial-acquisition+generation,mixed-ore-concentration+smelting]"
+        let agency_review = run_agency_probe(&registries, &agency_worlds);
+        let (survival_review, progression_review) = runtime_reviews.unwrap_or_else(|| {
+            unreachable!("full gameplay report always evaluates runtime play reviews")
+        });
+        print_player_experience_assessment(
+            survival_review,
+            progression_review,
+            agency_review,
+            workshop_review.unwrap_or_else(|| {
+                unreachable!("full gameplay report always evaluates workshop experience")
+            }),
         );
         std::println!("\n=== BOOTSTRAPPED INDUSTRIAL CAPABILITY PROBES ===");
         run_ore_preparation_capability_probe(&registries, probe_seed);
@@ -3065,26 +3356,31 @@ fn gameplay_machine_process_catalog_has_cold_agent_evidence() {
 }
 
 #[test]
+#[cfg(feature = "test-gameplay-full")]
 fn gameplay_ore_preparation_probe() {
     run_focused_probe("ore-preparation", run_ore_preparation_capability_probe);
 }
 
 #[test]
+#[cfg(feature = "test-gameplay-full")]
 fn gameplay_primitive_progression_probe() {
     run_focused_probe("primitive-progression", run_primitive_progression_probe);
 }
 
 #[test]
+#[cfg(feature = "test-gameplay-full")]
 fn gameplay_foundry_probe() {
     run_focused_probe("foundry", run_foundry_capability_probe);
 }
 
 #[test]
+#[cfg(feature = "test-gameplay-full")]
 fn gameplay_survival_provisioning_probe() {
     run_focused_probe("survival-provisioning", run_survival_provisioning_probe);
 }
 
 #[test]
+#[cfg(feature = "test-gameplay-full")]
 #[ignore = "exploratory gameplay report"]
 fn gameplay_harness_exploratory_report() {
     run_gameplay_harness(ScenarioPlanMode::Explore, true);

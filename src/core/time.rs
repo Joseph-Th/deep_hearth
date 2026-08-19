@@ -2,6 +2,36 @@
 
 use serde::{Deserialize, Serialize};
 
+const MICROSECONDS_PER_SECOND: u64 = 1_000_000;
+
+/// Exact physical world-time represented by one authoritative simulation tick.
+///
+/// This is intentionally distinct from any future wall-clock update cadence. Rate-authored
+/// physics such as watts, mass/second, and volume/second integrate against this duration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PhysicalTickDuration(u64);
+
+impl PhysicalTickDuration {
+    #[must_use]
+    pub const fn from_microseconds(microseconds: u64) -> Self {
+        assert!(
+            microseconds > 0,
+            "physical tick duration must be at least one microsecond"
+        );
+        Self(microseconds)
+    }
+
+    #[must_use]
+    pub const fn microseconds(self) -> u64 {
+        self.0
+    }
+
+    #[must_use]
+    pub(crate) fn span_microseconds(self, span: TickSpan) -> u128 {
+        u128::from(self.0) * u128::from(span.value())
+    }
+}
+
 /// Persistent seed from which deterministic world generation and initial randomness are derived.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct WorldSeed(u64);
@@ -33,14 +63,34 @@ pub enum Season {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CalendarDefinition {
     ticks_per_day: u64,
+    physical_seconds_per_day: u32,
+    physical_tick_duration: PhysicalTickDuration,
     days_per_month: u16,
     months_per_year: u16,
 }
 
 impl CalendarDefinition {
     #[must_use]
-    pub(crate) fn new(ticks_per_day: u64, days_per_month: u16, months_per_year: u16) -> Self {
+    pub(crate) fn new(
+        ticks_per_day: u64,
+        physical_seconds_per_day: u32,
+        days_per_month: u16,
+        months_per_year: u16,
+    ) -> Self {
         assert!(ticks_per_day > 0, "calendar ticks per day must be nonzero");
+        assert!(
+            physical_seconds_per_day > 0,
+            "calendar physical seconds per day must be nonzero"
+        );
+        let day_microseconds = u64::from(physical_seconds_per_day)
+            .checked_mul(MICROSECONDS_PER_SECOND)
+            .unwrap_or_else(|| panic!("calendar physical day duration exceeds supported range"));
+        assert!(
+            day_microseconds.is_multiple_of(ticks_per_day),
+            "calendar physical day duration must divide exactly into authored ticks"
+        );
+        let physical_tick_duration =
+            PhysicalTickDuration::from_microseconds(day_microseconds / ticks_per_day);
         assert!(
             days_per_month > 0,
             "calendar days per month must be nonzero"
@@ -55,6 +105,8 @@ impl CalendarDefinition {
         );
         Self {
             ticks_per_day,
+            physical_seconds_per_day,
+            physical_tick_duration,
             days_per_month,
             months_per_year,
         }
@@ -63,6 +115,18 @@ impl CalendarDefinition {
     #[must_use]
     pub const fn ticks_per_day(self) -> u64 {
         self.ticks_per_day
+    }
+
+    /// Returns the physical duration of one calendar day in world seconds.
+    #[must_use]
+    pub const fn physical_seconds_per_day(self) -> u32 {
+        self.physical_seconds_per_day
+    }
+
+    /// Returns the exact physical world-time represented by one simulation tick.
+    #[must_use]
+    pub const fn physical_tick_duration(self) -> PhysicalTickDuration {
+        self.physical_tick_duration
     }
 
     #[must_use]
@@ -159,7 +223,7 @@ mod calendar_tests {
 
     #[test]
     fn calendar_projects_four_equal_seasons_without_state() {
-        let calendar = CalendarDefinition::new(100, 2, 8);
+        let calendar = CalendarDefinition::new(100, 86_400, 2, 8);
 
         assert_eq!(
             calendar.date_at(SimulationTick::ZERO).season(),
@@ -180,6 +244,20 @@ mod calendar_tests {
                 day_tick: 0,
                 season: Season::Spring,
             }
+        );
+    }
+
+    #[test]
+    fn calendar_exposes_exact_physical_world_time_per_tick() {
+        let calendar = CalendarDefinition::new(24_000, 86_400, 8, 12);
+
+        assert_eq!(calendar.physical_seconds_per_day(), 86_400);
+        assert_eq!(calendar.physical_tick_duration().microseconds(), 3_600_000);
+        assert_eq!(
+            calendar
+                .physical_tick_duration()
+                .span_microseconds(TickSpan::new(calendar.ticks_per_day())),
+            86_400_000_000
         );
     }
 }

@@ -13,6 +13,11 @@ required-features = ["test-shader-validation"]
 [[test]]
 name = "gameplay_harness"
 path = "tests/gameplay_harness/main.rs"
+required-features = ["test-gameplay-full"]
+
+[[test]]
+name = "gameplay_workshop"
+path = "tests/gameplay_harness/main.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
@@ -38,6 +43,7 @@ required-features = ["test-gameplay"]
 [features]
 default = []
 test-gameplay = []
+test-gameplay-full = ["test-gameplay"]
 test-shader-validation = ["dep:naga"]
 test-soak = []
 

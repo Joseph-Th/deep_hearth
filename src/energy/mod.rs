@@ -51,18 +51,20 @@ pub(crate) use storage_execution::{
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::num::NonZeroU16;
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::arithmetic::checked_mul_div_with_remainder;
 use crate::core::quantity::{Energy, Mass, MassSpecificEnergy, Power};
-use crate::core::time::TickSpan;
+use crate::core::time::{PhysicalTickDuration, TickSpan};
+
+const PICOWATT_MICROSECONDS_PER_NANOJOULE: u128 = 1_000_000_000;
 
 /// Fractional nanojoule numerator retained between power-integration steps.
 ///
-/// Because power is stored in picowatts, the denominator is `ticks_per_second * 1000`. A future
-/// energy owner that repeatedly integrates power must persist this remainder alongside its own
-/// runtime state to avoid rounding loss.
+/// Because power is stored in picowatts and elapsed world-time in microseconds, one nanojoule is
+/// exactly one billion picowatt-microseconds. A future energy owner that repeatedly integrates
+/// power must persist this remainder alongside its own runtime state to avoid rounding loss.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PowerRemainder(u64);
 
@@ -97,24 +99,18 @@ impl PowerIntegration {
 /// Invalid power-integration state or arithmetic overflow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PowerIntegrationError {
-    InvalidRemainder {
-        remainder: PowerRemainder,
-        ticks_per_second: NonZeroU16,
-    },
+    InvalidRemainder { remainder: PowerRemainder },
     ArithmeticOverflow,
 }
 
 impl Display for PowerIntegrationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidRemainder {
-                remainder,
-                ticks_per_second,
-            } => write!(
+            Self::InvalidRemainder { remainder } => write!(
                 formatter,
                 "power remainder {} is not below integration denominator {}",
                 remainder.numerator(),
-                u32::from(ticks_per_second.get()) * 1_000
+                PICOWATT_MICROSECONDS_PER_NANOJOULE
             ),
             Self::ArithmeticOverflow => {
                 formatter.write_str("power integration overflowed authoritative energy")
@@ -127,30 +123,28 @@ impl Error for PowerIntegrationError {}
 
 /// Integrates constant power over an integer tick span without discarding fractional nanojoules.
 ///
-/// One thousand picowatts equal one nanojoule per second. The numerator is therefore
-/// `power_pW * ticks + prior_remainder`; division by `ticks_per_second * 1000` yields whole
-/// nanojoules and a remainder for the next call.
+/// The numerator is `power_pW * physical_microseconds + prior_remainder`; division by one billion
+/// yields whole nanojoules and a remainder for the next call.
 pub fn integrate_power(
     power: Power,
     span: TickSpan,
-    ticks_per_second: NonZeroU16,
+    physical_tick_duration: PhysicalTickDuration,
     prior_remainder: PowerRemainder,
 ) -> Result<PowerIntegration, PowerIntegrationError> {
-    let denominator_u64 = u64::from(ticks_per_second.get()) * 1_000;
-    if prior_remainder.numerator() >= denominator_u64 {
+    if u128::from(prior_remainder.numerator()) >= PICOWATT_MICROSECONDS_PER_NANOJOULE {
         return Err(PowerIntegrationError::InvalidRemainder {
             remainder: prior_remainder,
-            ticks_per_second,
         });
     }
-    let numerator = power
-        .picowatts()
-        .checked_mul(u128::from(span.value()))
-        .and_then(|value| value.checked_add(u128::from(prior_remainder.numerator())))
-        .ok_or(PowerIntegrationError::ArithmeticOverflow)?;
-    let denominator = u128::from(denominator_u64);
-    let energy = Energy::from_nanojoules(numerator / denominator);
-    let remainder_value = numerator % denominator;
+    let elapsed_microseconds = physical_tick_duration.span_microseconds(span);
+    let (energy_nanojoules, remainder_value) = checked_mul_div_with_remainder(
+        power.picowatts(),
+        elapsed_microseconds,
+        PICOWATT_MICROSECONDS_PER_NANOJOULE,
+        u128::from(prior_remainder.numerator()),
+    )
+    .ok_or(PowerIntegrationError::ArithmeticOverflow)?;
+    let energy = Energy::from_nanojoules(energy_nanojoules);
     let remainder = match u64::try_from(remainder_value) {
         Ok(value) => PowerRemainder(value),
         Err(_) => return Err(PowerIntegrationError::ArithmeticOverflow),
@@ -184,22 +178,20 @@ impl Error for PowerDurationError {}
 fn has_integrated_energy_at_least(
     power: Power,
     ticks: u64,
-    ticks_per_second: NonZeroU16,
+    physical_tick_duration: PhysicalTickDuration,
     required: Energy,
 ) -> bool {
-    let denominator = u128::from(ticks_per_second.get()) * 1_000;
-    let power_value = power.picowatts();
-    let whole_per_tick = power_value / denominator;
-    let remainder_per_tick = power_value % denominator;
-    let ticks_u128 = u128::from(ticks);
-    let whole = match whole_per_tick.checked_mul(ticks_u128) {
-        Some(value) => value,
-        None => return true,
-    };
-    let fractional = remainder_per_tick * ticks_u128 / denominator;
-    match whole.checked_add(fractional) {
-        Some(delivered) => delivered >= required.nanojoules(),
-        None => true,
+    match integrate_power(
+        power,
+        TickSpan::new(ticks),
+        physical_tick_duration,
+        PowerRemainder::ZERO,
+    ) {
+        Ok(integration) => integration.energy() >= required,
+        Err(PowerIntegrationError::ArithmeticOverflow) => true,
+        Err(PowerIntegrationError::InvalidRemainder { remainder: _ }) => {
+            unreachable!("zero power remainder is always valid")
+        }
     }
 }
 
@@ -207,7 +199,7 @@ fn has_integrated_energy_at_least(
 pub fn calculate_power_duration_ceiling(
     power: Power,
     required: Energy,
-    ticks_per_second: NonZeroU16,
+    physical_tick_duration: PhysicalTickDuration,
 ) -> Result<TickSpan, PowerDurationError> {
     if required.is_zero() {
         return Ok(TickSpan::ZERO);
@@ -215,7 +207,7 @@ pub fn calculate_power_duration_ceiling(
     if power.is_zero() {
         return Err(PowerDurationError::ZeroPower);
     }
-    if !has_integrated_energy_at_least(power, u64::MAX, ticks_per_second, required) {
+    if !has_integrated_energy_at_least(power, u64::MAX, physical_tick_duration, required) {
         return Err(PowerDurationError::DurationOverflow);
     }
 
@@ -223,7 +215,7 @@ pub fn calculate_power_duration_ceiling(
     let mut high = u64::MAX;
     while low < high {
         let midpoint = low + (high - low) / 2;
-        if has_integrated_energy_at_least(power, midpoint, ticks_per_second, required) {
+        if has_integrated_energy_at_least(power, midpoint, physical_tick_duration, required) {
             high = midpoint;
         } else {
             low = midpoint + 1;
@@ -247,11 +239,8 @@ pub fn calculate_mass_specific_energy(mass: Mass, specific: MassSpecificEnergy) 
 mod tests {
     use super::*;
 
-    fn tick_rate(value: u16) -> NonZeroU16 {
-        match NonZeroU16::new(value) {
-            Some(value) => value,
-            None => panic!("test tick rate must be nonzero"),
-        }
+    const fn twentieth_second_tick() -> PhysicalTickDuration {
+        PhysicalTickDuration::from_microseconds(50_000)
     }
 
     #[test]
@@ -266,11 +255,11 @@ mod tests {
     }
 
     #[test]
-    fn twenty_hertz_power_integration_is_exact_for_one_microwatt() {
+    fn twentieth_second_power_integration_is_exact_for_one_microwatt() {
         let result = match integrate_power(
             Power::from_microwatts(1),
             TickSpan::new(1),
-            tick_rate(20),
+            twentieth_second_tick(),
             PowerRemainder::ZERO,
         ) {
             Ok(result) => result,
@@ -283,16 +272,19 @@ mod tests {
 
     #[test]
     fn fractional_tick_energy_is_preserved_across_repeated_steps() {
-        let rate = tick_rate(60);
+        let tick_duration = PhysicalTickDuration::from_microseconds(100_000);
         let mut remainder = PowerRemainder::ZERO;
         let mut accumulated = Energy::ZERO;
-        for _ in 0..60 {
-            let result =
-                match integrate_power(Power::from_microwatts(1), TickSpan::new(1), rate, remainder)
-                {
-                    Ok(result) => result,
-                    Err(error) => panic!("power integration failed: {error}"),
-                };
+        for _ in 0..10 {
+            let result = match integrate_power(
+                Power::from_microwatts(1),
+                TickSpan::new(1),
+                tick_duration,
+                remainder,
+            ) {
+                Ok(result) => result,
+                Err(error) => panic!("power integration failed: {error}"),
+            };
             accumulated = match accumulated.checked_add(result.energy()) {
                 Some(value) => value,
                 None => panic!("test energy accumulation overflowed"),
@@ -306,19 +298,22 @@ mod tests {
 
     #[test]
     fn duration_ceiling_returns_first_tick_that_meets_energy_requirement() {
-        let rate = tick_rate(20);
+        let tick_duration = twentieth_second_tick();
         let required = Energy::from_nanojoules(51);
-        let duration =
-            match calculate_power_duration_ceiling(Power::from_microwatts(1), required, rate) {
-                Ok(duration) => duration,
-                Err(error) => panic!("duration calculation failed: {error}"),
-            };
+        let duration = match calculate_power_duration_ceiling(
+            Power::from_microwatts(1),
+            required,
+            tick_duration,
+        ) {
+            Ok(duration) => duration,
+            Err(error) => panic!("duration calculation failed: {error}"),
+        };
 
         assert_eq!(duration, TickSpan::new(2));
         let one_tick = match integrate_power(
             Power::from_microwatts(1),
             TickSpan::new(1),
-            rate,
+            tick_duration,
             PowerRemainder::ZERO,
         ) {
             Ok(result) => result.energy(),
@@ -327,7 +322,7 @@ mod tests {
         let two_ticks = match integrate_power(
             Power::from_microwatts(1),
             duration,
-            rate,
+            tick_duration,
             PowerRemainder::ZERO,
         ) {
             Ok(result) => result.energy(),
@@ -343,7 +338,7 @@ mod tests {
             calculate_power_duration_ceiling(
                 Power::ZERO,
                 Energy::from_nanojoules(1),
-                tick_rate(20),
+                twentieth_second_tick(),
             ),
             Err(PowerDurationError::ZeroPower)
         );
@@ -354,7 +349,7 @@ mod tests {
         let duration = match calculate_power_duration_ceiling(
             Power::from_picowatts(u128::MAX),
             Energy::from_nanojoules(u128::MAX),
-            tick_rate(1),
+            PhysicalTickDuration::from_microseconds(1_000_000),
         ) {
             Ok(duration) => duration,
             Err(error) => panic!("maximum-value duration calculation failed: {error}"),
@@ -369,7 +364,7 @@ mod tests {
             calculate_power_duration_ceiling(
                 Power::from_picowatts(1),
                 Energy::from_nanojoules(u128::MAX),
-                tick_rate(u16::MAX),
+                PhysicalTickDuration::from_microseconds(1),
             ),
             Err(PowerDurationError::DurationOverflow)
         );

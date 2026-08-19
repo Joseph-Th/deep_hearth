@@ -4,6 +4,7 @@
 //! completion are observations, not frozen balance requirements. Hard failures stay focused on
 //! canonical execution and stable maintained-input contracts.
 
+use super::configuration::MaintainedAnchor;
 use super::report::{
     EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioReport,
     StructuralPreference,
@@ -20,7 +21,33 @@ pub(super) fn assert_scenario_contracts(reports: &[ScenarioReport]) {
     }
 }
 
-pub(super) fn assert_anchor_diversity(reports: &[ScenarioReport]) {
+fn anchor_report(
+    reports: &[(MaintainedAnchor, ScenarioReport)],
+    anchor: MaintainedAnchor,
+) -> &ScenarioReport {
+    let mut matches = reports
+        .iter()
+        .filter(|(candidate, _)| *candidate == anchor)
+        .map(|(_, report)| report);
+    let report = matches.next().unwrap_or_else(|| {
+        panic!(
+            "maintained gameplay anchors are missing the {} scenario",
+            anchor.label()
+        )
+    });
+    assert!(
+        matches.next().is_none(),
+        "maintained gameplay anchors contain duplicate {} scenarios",
+        anchor.label()
+    );
+    report
+}
+
+pub(super) fn assert_anchor_diversity(reports: &[(MaintainedAnchor, ScenarioReport)]) {
+    for anchor in MaintainedAnchor::ALL {
+        let _ = anchor_report(reports, anchor);
+    }
+
     for (name, preference) in [
         ("reserve-conserving", PowerPreference::PreserveReserve),
         ("completion-time", PowerPreference::FinishSooner),
@@ -28,7 +55,7 @@ pub(super) fn assert_anchor_diversity(reports: &[ScenarioReport]) {
         assert!(
             reports
                 .iter()
-                .any(|report| report.policy.power_preference == preference),
+                .any(|(_, report)| report.policy.power_preference == preference),
             "maintained gameplay anchors are missing the {name} player priority"
         );
     }
@@ -39,7 +66,7 @@ pub(super) fn assert_anchor_diversity(reports: &[ScenarioReport]) {
         assert!(
             reports
                 .iter()
-                .any(|report| report.policy.energy_recovery_preference == preference),
+                .any(|(_, report)| report.policy.energy_recovery_preference == preference),
             "maintained gameplay anchors are missing the {} manual-energy recovery policy",
             preference.label(),
         );
@@ -51,7 +78,7 @@ pub(super) fn assert_anchor_diversity(reports: &[ScenarioReport]) {
         assert!(
             reports
                 .iter()
-                .any(|report| report.policy.maintenance_preference == preference),
+                .any(|(_, report)| report.policy.maintenance_preference == preference),
             "maintained gameplay anchors are missing the {} maintenance policy",
             preference.label(),
         );
@@ -63,7 +90,7 @@ pub(super) fn assert_anchor_diversity(reports: &[ScenarioReport]) {
         assert!(
             reports
                 .iter()
-                .any(|report| report.policy.structural_preference == preference),
+                .any(|(_, report)| report.policy.structural_preference == preference),
             "maintained gameplay anchors are missing the {} structural policy",
             preference.label(),
         );
@@ -76,25 +103,12 @@ pub(super) fn assert_anchor_diversity(reports: &[ScenarioReport]) {
         assert!(
             reports
                 .iter()
-                .any(|report| report.inputs.initial_maintenance_band == band),
+                .any(|(_, report)| report.inputs.initial_maintenance_band == band),
             "maintained gameplay anchors are missing the {band:?} initial maintenance band"
         );
     }
 
-    let adaptive_matches = reports
-        .iter()
-        .filter(|report| {
-            report.inputs.small_drive_partial_batch_ppm > 0
-                && report.inputs.large_drive_batch_budget == 0
-                && report.inputs.large_drive_partial_batch_ppm == 0
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        adaptive_matches.len(),
-        1,
-        "maintained workshop anchors must contain exactly one fractional stored-work pressure case"
-    );
-    let adaptive = &adaptive_matches[0].inputs;
+    let adaptive = &anchor_report(reports, MaintainedAnchor::AdaptiveEnergy).inputs;
     let adaptive_order_batches = adaptive
         .order_mass
         .milligrams()
@@ -107,28 +121,26 @@ pub(super) fn assert_anchor_diversity(reports: &[ScenarioReport]) {
         "maintained adaptive-energy anchor must retain fractional, insufficient stored work"
     );
 
-    let recovery_matches = reports
-        .iter()
-        .filter(|report| {
-            report.inputs.small_drive_partial_batch_ppm == 0
-                && report.inputs.large_drive_batch_budget == 0
-                && report.inputs.large_drive_partial_batch_ppm == 0
-        })
-        .filter(|report| {
-            let order_batches = report
-                .inputs
-                .order_mass
-                .milligrams()
-                .div_ceil(report.inputs.nominal_batch_mass.milligrams());
-            u64::from(report.inputs.small_drive_batch_budget) < order_batches
-        })
-        .collect::<Vec<_>>();
+    let condition_pressure = anchor_report(reports, MaintainedAnchor::ConditionPressure);
     assert_eq!(
-        recovery_matches.len(),
-        1,
-        "maintained workshop anchors must contain exactly one whole-batch stored-work shortfall"
+        condition_pressure.inputs.initial_maintenance_band,
+        MaintenanceBand::Warning,
+        "maintained condition-pressure anchor must start just above the authored Critical boundary"
     );
-    let recovery = &recovery_matches[0].inputs;
+    assert_eq!(
+        condition_pressure.policy.maintenance_preference,
+        MaintenancePreference::ServiceAtCritical,
+        "condition-pressure anchor must allow condition-safe batch adaptation before preventive service"
+    );
+    assert!(
+        condition_pressure
+            .progress
+            .condition_adaptive_batch_operations
+            > 0,
+        "maintained condition-pressure anchor must exercise condition-driven adaptive batching"
+    );
+
+    let recovery = &anchor_report(reports, MaintainedAnchor::ManualRecovery).inputs;
     let recovery_order_batches = recovery
         .order_mass
         .milligrams()
@@ -141,20 +153,7 @@ pub(super) fn assert_anchor_diversity(reports: &[ScenarioReport]) {
         "maintained manual-recovery anchor must retain a whole-batch stored-work shortfall"
     );
 
-    let survival_pressure_matches = reports
-        .iter()
-        .filter(|report| {
-            report.inputs.small_drive_partial_batch_ppm > 0
-                && report.inputs.large_drive_partial_batch_ppm > 0
-                && report.inputs.maintenance_replacement_units == 0
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        survival_pressure_matches.len(),
-        1,
-        "maintained workshop anchors must contain exactly one finite-work survival-pressure case"
-    );
-    let survival_pressure = &survival_pressure_matches[0].inputs;
+    let survival_pressure = &anchor_report(reports, MaintainedAnchor::SurvivalRecovery).inputs;
     let survival_order_batches = survival_pressure
         .order_mass
         .milligrams()

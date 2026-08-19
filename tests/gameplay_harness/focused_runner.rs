@@ -1,4 +1,4 @@
-//! Replayable focused-probe runner shared by the small iteration targets and aggregate harness.
+//! Replayable focused-probe runner shared by the small iteration targets and full gameplay report.
 
 use std::env;
 

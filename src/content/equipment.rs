@@ -111,7 +111,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     let stone_crusher_curve = mass_flow_condition_curve(
         CAPABILITY_CRUSHER_FLOW,
         600_000,
-        MassFlow::from_milligrams_per_second(200_000),
+        MassFlow::from_milligrams_per_second(2_500),
     );
     let reinforced_hand_crank_curve = power_condition_curve(
         CAPABILITY_MANUAL_POWER_OUTPUT,
@@ -381,7 +381,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             profile([
                 (
                     CAPABILITY_CRUSHER_FLOW,
-                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(400_000)),
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(5_000)),
                 ),
                 (
                     CAPABILITY_CRUSHER_BATCH,

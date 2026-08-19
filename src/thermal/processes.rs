@@ -230,6 +230,33 @@ mod tests {
         maximum_temperature: Temperature,
         curves: Vec<CapabilityConditionCurve>,
     ) -> Registries {
+        make_registries_with_energy_output_power_and_condition_curves(
+            carrier,
+            maximum_temperature,
+            Power::from_microwatts(500_000),
+            curves,
+        )
+    }
+
+    fn make_registries_with_energy_output_power(
+        carrier: EnergyCarrier,
+        maximum_temperature: Temperature,
+        energy_output_power: Power,
+    ) -> Registries {
+        make_registries_with_energy_output_power_and_condition_curves(
+            carrier,
+            maximum_temperature,
+            energy_output_power,
+            Vec::new(),
+        )
+    }
+
+    fn make_registries_with_energy_output_power_and_condition_curves(
+        carrier: EnergyCarrier,
+        maximum_temperature: Temperature,
+        energy_output_power: Power,
+        curves: Vec<CapabilityConditionCurve>,
+    ) -> Registries {
         let capabilities = match CapabilityProfile::new([
             (
                 HEATING_POWER,
@@ -264,7 +291,7 @@ mod tests {
             "test finite battery",
             carrier,
             Energy::from_nanojoules(1_000_000_000),
-            Power::from_microwatts(500_000),
+            energy_output_power,
         );
         let process =
             ProcessDefinition::new_selected_batch(PROCESS, "test sensible heating", Vec::new());
@@ -523,7 +550,7 @@ mod tests {
         let expected_duration = match calculate_power_duration_ceiling(
             resolved.transfer_power(),
             expected_heat,
-            registries.core().ticks_per_second(),
+            registries.core().physical_tick_duration(),
         ) {
             Ok(duration) => duration,
             Err(error) => panic!("thermal duration fixture failed: {error}"),
@@ -531,7 +558,7 @@ mod tests {
         assert_eq!(resolved.process_resolution().duration(), expected_duration);
         assert_eq!(
             resolved.process_resolution().equipment_condition_after(),
-            Some(condition(997_000))
+            Some(condition(999_000))
         );
 
         let before_energy = state
@@ -571,7 +598,7 @@ mod tests {
                 .production()
                 .get_job(job)
                 .and_then(|record| record.equipment_condition_after()),
-            Some(condition(997_000))
+            Some(condition(999_000))
         );
         assert_eq!(
             state
@@ -602,7 +629,7 @@ mod tests {
                 .equipment()
                 .get_equipment(equipment)
                 .map(|record| record.condition()),
-            Some(condition(997_000))
+            Some(condition(999_000))
         );
         let output = match state
             .inventory()
@@ -637,11 +664,11 @@ mod tests {
             vec![
                 CapabilityConditionPoint::new(
                     Condition::FAILED,
-                    CapabilityValue::Power(Power::from_microwatts(100_000)),
+                    CapabilityValue::Power(Power::from_microwatts(1_000)),
                 ),
                 CapabilityConditionPoint::new(
                     condition(500_000),
-                    CapabilityValue::Power(Power::from_microwatts(250_000)),
+                    CapabilityValue::Power(Power::from_microwatts(3_000)),
                 ),
             ],
         );
@@ -674,7 +701,7 @@ mod tests {
             resolved.required_energy(),
             Energy::from_nanojoules(51_000_000)
         );
-        assert_eq!(resolved.transfer_power(), Power::from_microwatts(250_000));
+        assert_eq!(resolved.transfer_power(), Power::from_microwatts(3_000));
         assert_eq!(resolved.process_resolution().duration().value(), 5);
 
         let token = match validate_start_process(
@@ -773,15 +800,27 @@ mod tests {
 
     #[test]
     fn warmer_input_reduces_required_energy_and_duration() {
+        let cold_registries = make_registries_with_energy_output_power(
+            EnergyCarrier::Electrical,
+            Temperature::from_millikelvin(400_000),
+            Power::from_microwatts(5_000),
+        );
         let (cold_registries, cold_state, cold_source, _, cold_equipment, cold_energy) =
-            make_loaded_fixture_at(
-                EnergyCarrier::Electrical,
+            make_loaded_fixture_with_registries(
+                cold_registries,
+                Condition::PRISTINE,
                 Temperature::from_millikelvin(300_000),
                 Energy::from_nanojoules(500_000_000),
             );
+        let warm_registries = make_registries_with_energy_output_power(
+            EnergyCarrier::Electrical,
+            Temperature::from_millikelvin(400_000),
+            Power::from_microwatts(5_000),
+        );
         let (warm_registries, warm_state, warm_source, _, warm_equipment, warm_energy) =
-            make_loaded_fixture_at(
-                EnergyCarrier::Electrical,
+            make_loaded_fixture_with_registries(
+                warm_registries,
+                Condition::PRISTINE,
                 Temperature::from_millikelvin(302_000),
                 Energy::from_nanojoules(500_000_000),
             );
@@ -820,8 +859,18 @@ mod tests {
 
     #[test]
     fn selected_batch_mass_changes_heating_energy_without_static_recipe_quantity() {
+        let registries = make_registries_with_energy_output_power(
+            EnergyCarrier::Electrical,
+            Temperature::from_millikelvin(400_000),
+            Power::from_microwatts(5_000),
+        );
         let (registries, state, source, _, equipment, energy_store) =
-            make_loaded_fixture(EnergyCarrier::Electrical);
+            make_loaded_fixture_with_registries(
+                registries,
+                Condition::PRISTINE,
+                Temperature::from_millikelvin(300_000),
+                Energy::from_nanojoules(500_000_000),
+            );
         let lot = match state
             .inventory()
             .lots()
@@ -922,8 +971,18 @@ mod tests {
 
     #[test]
     fn selected_batch_heating_uses_actual_material_heat_capacity() {
+        let registries = make_registries_with_energy_output_power(
+            EnergyCarrier::Electrical,
+            Temperature::from_millikelvin(400_000),
+            Power::from_microwatts(5_000),
+        );
         let (registries, mut state, wood_source, _, equipment, energy_store) =
-            make_loaded_fixture(EnergyCarrier::Electrical);
+            make_loaded_fixture_with_registries(
+                registries,
+                Condition::PRISTINE,
+                Temperature::from_millikelvin(300_000),
+                Energy::from_nanojoules(500_000_000),
+            );
         let copper_source =
             match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
                 Ok(source) => source,
@@ -1377,7 +1436,7 @@ mod tests {
                 .equipment()
                 .get_equipment(EquipmentId::new(1))
                 .map(|record| record.condition()),
-            Some(condition(955_000))
+            Some(condition(985_000))
         );
     }
 
@@ -1493,7 +1552,7 @@ mod tests {
                     .equipment()
                     .get_equipment(equipment)
                     .map(|record| record.condition()),
-                Some(condition(997_000))
+                Some(condition(999_000))
             );
         }
         assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
@@ -1535,8 +1594,18 @@ mod tests {
 
     #[test]
     fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
+        let registries = make_registries_with_energy_output_power(
+            EnergyCarrier::Electrical,
+            Temperature::from_millikelvin(400_000),
+            Power::from_microwatts(5_000),
+        );
         let (registries, mut state, source, destination, equipment, energy_store) =
-            make_loaded_fixture(EnergyCarrier::Electrical);
+            make_loaded_fixture_with_registries(
+                registries,
+                Condition::PRISTINE,
+                Temperature::from_millikelvin(300_000),
+                Energy::from_nanojoules(500_000_000),
+            );
         let failed_support = add_active_support(&registries, &mut state, 0);
         let recovery_support = add_active_support(&registries, &mut state, 2);
         validate_mount_equipment(&registries, &state, equipment, failed_support)

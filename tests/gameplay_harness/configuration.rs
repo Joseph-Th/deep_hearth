@@ -15,17 +15,29 @@ pub(super) enum MaintainedAnchor {
     NormalBaseline,
     WarningMaintenance,
     CriticalMaintenance,
+    ConditionPressure,
     AdaptiveEnergy,
     ManualRecovery,
     SurvivalRecovery,
 }
 
 impl MaintainedAnchor {
+    pub(super) const ALL: [Self; 7] = [
+        Self::NormalBaseline,
+        Self::WarningMaintenance,
+        Self::CriticalMaintenance,
+        Self::ConditionPressure,
+        Self::AdaptiveEnergy,
+        Self::ManualRecovery,
+        Self::SurvivalRecovery,
+    ];
+
     pub(super) const fn label(self) -> &'static str {
         match self {
             Self::NormalBaseline => "normal-baseline",
             Self::WarningMaintenance => "warning-maintenance",
             Self::CriticalMaintenance => "critical-maintenance",
+            Self::ConditionPressure => "condition-pressure",
             Self::AdaptiveEnergy => "adaptive-energy",
             Self::ManualRecovery => "manual-recovery",
             Self::SurvivalRecovery => "survival-recovery",
@@ -40,14 +52,16 @@ impl MaintainedAnchor {
             Self::AdaptiveEnergy => 3,
             Self::ManualRecovery => 4,
             Self::SurvivalRecovery => 5,
+            Self::ConditionPressure => 7,
         }
     }
 }
 
-const MAINTAINED_ANCHORS: [(MaintainedAnchor, u64); 6] = [
+const MAINTAINED_ANCHORS: [(MaintainedAnchor, u64); 7] = [
     (MaintainedAnchor::NormalBaseline, 1),
     (MaintainedAnchor::WarningMaintenance, 4),
     (MaintainedAnchor::CriticalMaintenance, 9),
+    (MaintainedAnchor::ConditionPressure, 29),
     (MaintainedAnchor::AdaptiveEnergy, 19),
     (MaintainedAnchor::ManualRecovery, 380),
     (MaintainedAnchor::SurvivalRecovery, 0x1F65_DBFE_4A87_A054),
@@ -123,6 +137,7 @@ impl ScenarioSeedPlan {
             .count()
     }
 
+    #[cfg(feature = "test-gameplay-full")]
     pub(super) fn maintained_case(&self, anchor: MaintainedAnchor) -> Option<&ScenarioSeedPair> {
         self.cases.iter().find(|case| case.anchor == Some(anchor))
     }

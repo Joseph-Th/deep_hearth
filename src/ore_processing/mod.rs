@@ -3,14 +3,9 @@
 mod comminution_execution;
 mod screening_execution;
 
-use std::collections::BTreeMap;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-use std::num::NonZeroU16;
-
 use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
 use crate::core::quantity::{Length, Mass, MassFlow, MassSpecificEnergy};
-use crate::core::time::TickSpan;
+use crate::core::time::{PhysicalTickDuration, TickSpan};
 use crate::energy::EnergyCarrier;
 use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::material::{
@@ -18,6 +13,9 @@ use crate::material::{
     ParticleSizeStatePolicy,
 };
 use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
+use std::collections::BTreeMap;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 
 pub use comminution_execution::{
     ComminutionBatchError, ComminutionBottleneck, ComminutionJobValidationError,
@@ -574,7 +572,7 @@ impl Error for MassFlowDurationError {}
 pub fn calculate_mass_flow_duration_ceiling(
     rate: MassFlow,
     mass: Mass,
-    ticks_per_second: NonZeroU16,
+    physical_tick_duration: PhysicalTickDuration,
 ) -> Result<TickSpan, MassFlowDurationError> {
     if rate.is_zero() {
         return Err(MassFlowDurationError::ZeroRate);
@@ -582,8 +580,9 @@ pub fn calculate_mass_flow_duration_ceiling(
     if mass.is_zero() {
         return Ok(TickSpan::ZERO);
     }
-    let numerator = u128::from(mass.milligrams()) * u128::from(ticks_per_second.get());
-    let denominator = u128::from(rate.milligrams_per_second());
+    let numerator = u128::from(mass.milligrams()) * 1_000_000;
+    let denominator = u128::from(rate.milligrams_per_second())
+        * u128::from(physical_tick_duration.microseconds());
     let ticks = 1 + (numerator - 1) / denominator;
     let ticks = u64::try_from(ticks).map_err(|_| MassFlowDurationError::TickRangeExceeded)?;
     Ok(TickSpan::new(ticks))
@@ -595,15 +594,12 @@ mod tests {
 
     #[test]
     fn mass_flow_duration_returns_first_tick_that_can_finish_batch() {
-        let ticks_per_second = match NonZeroU16::new(20) {
-            Some(value) => value,
-            None => panic!("test tick rate must be nonzero"),
-        };
+        let tick_duration = PhysicalTickDuration::from_microseconds(50_000);
         assert_eq!(
             calculate_mass_flow_duration_ceiling(
                 MassFlow::from_milligrams_per_second(30),
                 Mass::from_milligrams(3),
-                ticks_per_second,
+                tick_duration,
             ),
             Ok(TickSpan::new(2))
         );
@@ -611,7 +607,7 @@ mod tests {
             calculate_mass_flow_duration_ceiling(
                 MassFlow::from_milligrams_per_second(60),
                 Mass::from_milligrams(3),
-                ticks_per_second,
+                tick_duration,
             ),
             Ok(TickSpan::new(1))
         );
@@ -619,15 +615,12 @@ mod tests {
 
     #[test]
     fn mass_flow_duration_rejects_zero_rate_and_preserves_zero_mass() {
-        let ticks_per_second = match NonZeroU16::new(20) {
-            Some(value) => value,
-            None => panic!("test tick rate must be nonzero"),
-        };
+        let tick_duration = PhysicalTickDuration::from_microseconds(50_000);
         assert_eq!(
             calculate_mass_flow_duration_ceiling(
                 MassFlow::ZERO,
                 Mass::from_milligrams(1),
-                ticks_per_second,
+                tick_duration,
             ),
             Err(MassFlowDurationError::ZeroRate)
         );
@@ -635,7 +628,7 @@ mod tests {
             calculate_mass_flow_duration_ceiling(
                 MassFlow::from_milligrams_per_second(1),
                 Mass::ZERO,
-                ticks_per_second,
+                tick_duration,
             ),
             Ok(TickSpan::ZERO)
         );

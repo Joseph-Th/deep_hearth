@@ -10,6 +10,8 @@ mod focused_seeds;
 mod foundry_probe;
 #[path = "gameplay_harness/foundry_setup.rs"]
 mod foundry_setup;
+#[path = "gameplay_harness/production_support.rs"]
+mod production_support;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]

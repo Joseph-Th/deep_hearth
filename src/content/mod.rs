@@ -87,21 +87,21 @@ pub use textures::{
     TEXTURE_SLAG, TEXTURE_STONE, TEXTURE_WOOD_END, TEXTURE_WOOD_SIDE, TEXTURE_WORKING_METAL,
 };
 
-const DEFAULT_TICKS_PER_SECOND: u16 = 20;
 const DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED: u64 = 9_806_650;
 const DEFAULT_TICKS_PER_DAY: u64 = 24_000;
+const DEFAULT_PHYSICAL_SECONDS_PER_DAY: u32 = 86_400;
 const DEFAULT_DAYS_PER_MONTH: u16 = 8;
 const DEFAULT_MONTHS_PER_YEAR: u16 = 12;
-const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(31);
+const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(33);
 
 fn build_core_definitions() -> CoreDefinitions {
     CoreDefinitions::new(
-        DEFAULT_TICKS_PER_SECOND,
         Acceleration::from_micrometers_per_second_squared(
             DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED,
         ),
         CalendarDefinition::new(
             DEFAULT_TICKS_PER_DAY,
+            DEFAULT_PHYSICAL_SECONDS_PER_DAY,
             DEFAULT_DAYS_PER_MONTH,
             DEFAULT_MONTHS_PER_YEAR,
         ),
@@ -160,10 +160,13 @@ mod tests {
     const TEST_MAX_TEMPERATURE: CapabilityId = CapabilityId::new(700_005);
 
     #[test]
-    fn built_in_tick_rate_is_nonzero_and_stable() {
+    fn built_in_world_time_scale_and_gravity_are_stable() {
         let registries = build_registries();
 
-        assert_eq!(registries.core().ticks_per_second().get(), 20);
+        assert_eq!(
+            registries.core().physical_tick_duration().microseconds(),
+            3_600_000
+        );
         assert_eq!(
             registries.core().gravity().micrometers_per_second_squared(),
             DEFAULT_GRAVITY_MICROMETERS_PER_SECOND_SQUARED
@@ -171,6 +174,10 @@ mod tests {
         assert_eq!(
             registries.core().calendar().ticks_per_day(),
             DEFAULT_TICKS_PER_DAY
+        );
+        assert_eq!(
+            registries.core().calendar().physical_seconds_per_day(),
+            DEFAULT_PHYSICAL_SECONDS_PER_DAY
         );
     }
 

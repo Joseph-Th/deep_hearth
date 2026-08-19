@@ -1,4 +1,4 @@
-//! Small shared fixtures used by the aggregate gameplay harness and focused probe targets.
+//! Small shared fixtures used by the workshop/report harness and focused probe targets.
 
 use deep_hearth::capability::{CapabilityId, CapabilityValue};
 use deep_hearth::core::quantity::{Mass, Temperature};

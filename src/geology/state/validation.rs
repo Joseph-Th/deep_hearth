@@ -28,6 +28,9 @@ pub enum GeologyValidationError {
     ZeroInitialMass {
         deposit: GeologicalDepositId,
     },
+    ZeroExcavationHardness {
+        deposit: GeologicalDepositId,
+    },
     RemainingMassExceedsInitial {
         deposit: GeologicalDepositId,
         initial: Mass,
@@ -101,6 +104,11 @@ impl Display for GeologyValidationError {
             Self::ZeroInitialMass { deposit } => write!(
                 formatter,
                 "geological deposit {} has zero initial mass",
+                deposit.value()
+            ),
+            Self::ZeroExcavationHardness { deposit } => write!(
+                formatter,
+                "geological deposit {} has zero excavation hardness",
                 deposit.value()
             ),
             Self::RemainingMassExceedsInitial {
@@ -210,6 +218,7 @@ impl Error for GeologyValidationError {
                 record: _record,
             } => None,
             Self::ZeroInitialMass { deposit: _deposit }
+            | Self::ZeroExcavationHardness { deposit: _deposit }
             | Self::AvailableWithoutMass { deposit: _deposit } => None,
             Self::RemainingMassExceedsInitial {
                 deposit: _deposit,
@@ -284,6 +293,9 @@ pub(crate) fn validate_loaded_geology(
         }
         if record.initial_mass.is_zero() {
             return Err(GeologyValidationError::ZeroInitialMass { deposit: *key });
+        }
+        if record.excavation_hardness.is_zero() {
+            return Err(GeologyValidationError::ZeroExcavationHardness { deposit: *key });
         }
         if record.remaining_mass > record.initial_mass {
             return Err(GeologyValidationError::RemainingMassExceedsInitial {

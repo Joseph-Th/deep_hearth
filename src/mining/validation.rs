@@ -10,7 +10,6 @@ use crate::core::time::TickSpan;
 use crate::equipment::EquipmentDefinitionId;
 use crate::inventory::validate_stockpile_storage;
 use crate::maintenance::Condition;
-use crate::material::MaterialId;
 use crate::ore_processing::MassFlowDurationError;
 use crate::registry::Registries;
 
@@ -65,16 +64,12 @@ pub enum MiningJobValidationError {
         expected: CapabilityValueKind,
         found: CapabilityValueKind,
     },
-    UnknownMaterialDefinition {
-        job: MiningJobId,
-        material: MaterialId,
-    },
     BatchTooLarge {
         job: MiningJobId,
         maximum: Mass,
         requested: Mass,
     },
-    MaterialTooHard {
+    DepositTooHard {
         job: MiningJobId,
         hardness: Pressure,
         maximum: Pressure,
@@ -124,9 +119,8 @@ impl Error for MiningJobValidationError {
             | Self::EquipmentAlsoUsedByProduction { .. }
             | Self::MissingCapability { .. }
             | Self::CapabilityKindMismatch { .. }
-            | Self::UnknownMaterialDefinition { .. }
             | Self::BatchTooLarge { .. }
-            | Self::MaterialTooHard { .. }
+            | Self::DepositTooHard { .. }
             | Self::ZeroThroughput { .. }
             | Self::InvalidSchedule { .. }
             | Self::DurationMismatch { .. }
@@ -150,9 +144,6 @@ fn map_physics_error(job: MiningJobId, error: MiningPhysicsError) -> MiningJobVa
             expected,
             found,
         },
-        MiningPhysicsError::UnknownMaterialDefinition { material } => {
-            MiningJobValidationError::UnknownMaterialDefinition { job, material }
-        }
         MiningPhysicsError::BatchTooLarge { maximum, requested } => {
             MiningJobValidationError::BatchTooLarge {
                 job,
@@ -160,8 +151,8 @@ fn map_physics_error(job: MiningJobId, error: MiningPhysicsError) -> MiningJobVa
                 requested,
             }
         }
-        MiningPhysicsError::MaterialTooHard { hardness, maximum } => {
-            MiningJobValidationError::MaterialTooHard {
+        MiningPhysicsError::DepositTooHard { hardness, maximum } => {
+            MiningJobValidationError::DepositTooHard {
                 job,
                 hardness,
                 maximum,
@@ -254,7 +245,7 @@ pub(crate) fn validate_loaded_mining_jobs(
             method,
             equipment_definition,
             job.equipment_condition_before(),
-            output.commodity().material(),
+            deposit.excavation_hardness(),
             output.mass(),
         )
         .map_err(|error| map_physics_error(job.id(), error))?;
