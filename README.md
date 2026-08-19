@@ -61,8 +61,9 @@ proves changed behavior:
 
 ```text
 cargo check-fast
-cargo check-tests          # ordinary test edits
-cargo check-gameplay       # gameplay-harness edits
+cargo check-tests                    # ordinary test edits
+cargo check-gameplay-survival        # one focused gameplay concern
+cargo check-gameplay                 # aggregate gameplay gate
 cargo test-fast <qualified-test-name> -- --exact
 ```
 
@@ -74,10 +75,11 @@ python ci.py gate --gameplay   # gameplay/content behavior
 python ci.py gate --soak       # long-horizon state/conservation changes
 python ci.py gate --shaders    # WGSL/shader contracts
 python ci.py gate --docs       # documentation contracts
+cargo test-gameplay-report     # broader fresh replayable cold-agent play report
 ```
 
-Use `python ci.py full` for the common core-plus-gameplay checkpoint and `python ci.py hardening` for
-explicit broad local hardening. All verification is local; GitHub Actions and hosted CI are outside the
-repository contract.
+Add only the lanes owned by the change. `python ci.py gate --all` is the explicit exhaustive local
+sweep and is intentionally not the routine path. All verification is local; GitHub Actions and hosted
+CI are outside the repository contract.
 
 See [Testing](TESTING.md) for lane details and [Status](STATUS.md) for the current capability boundary.

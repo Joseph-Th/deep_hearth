@@ -72,6 +72,10 @@ pub(super) fn run_survival_provisioning_probe(registries: &Registries, seed: u64
         .checked_add(berry_mass)
         .and_then(|mass| mass.checked_add(meat_mass))
         .unwrap_or_else(|| panic!("survival probe meal mass overflowed"));
+    let meal_mode = (mix64(seed ^ 0x4D45_414C_4348_4F49) % 4) as u8;
+    let include_grain = meal_mode != 3;
+    let include_berries = meal_mode != 2;
+    let include_meat = meal_mode != 1;
 
     let preservation_multiplier_ppm =
         2_000_000 + (mix64(seed ^ 0x5052_4553_4552_5645) % 2_000_001) as u32;
@@ -103,12 +107,13 @@ pub(super) fn run_survival_provisioning_probe(registries: &Registries, seed: u64
         .unwrap_or_else(|_| panic!("survival probe depletion horizon exceeds tick range"));
 
     let offered_food_hydration = [
-        (grain, grain_mass),
-        (berries, berry_mass),
-        (meat, meat_mass),
+        (grain, grain_mass, include_grain),
+        (berries, berry_mass, include_berries),
+        (meat, meat_mass, include_meat),
     ]
     .into_iter()
-    .try_fold(0_u128, |total, (commodity, mass)| {
+    .filter(|(_, _, included)| *included)
+    .try_fold(0_u128, |total, (commodity, mass, _)| {
         let food = registries
             .survival()
             .get_food(commodity)
@@ -209,21 +214,30 @@ pub(super) fn run_survival_provisioning_probe(registries: &Registries, seed: u64
     let fluid_before = calculate_fluid_volume_accounting(&state)
         .unwrap_or_else(|error| panic!("survival probe initial fluid audit failed: {error}"));
 
-    let selections = [
-        MaterialLotSelection::new(grain_lot, grain_mass),
-        MaterialLotSelection::new(berry_lot, berry_mass),
-        MaterialLotSelection::new(meat_lot, meat_mass),
-    ];
+    let mut selections = Vec::with_capacity(3);
+    let mut selected_categories = Vec::with_capacity(3);
+    if include_grain {
+        selections.push(MaterialLotSelection::new(grain_lot, grain_mass));
+        selected_categories.push(FoodCategory::Grain);
+    }
+    if include_berries {
+        selections.push(MaterialLotSelection::new(berry_lot, berry_mass));
+        selected_categories.push(FoodCategory::Fruit);
+    }
+    if include_meat {
+        selections.push(MaterialLotSelection::new(meat_lot, meat_mass));
+        selected_categories.push(FoodCategory::Protein);
+    }
     let meal = validate_eat(registries, &state, meal_storage, &selections)
         .unwrap_or_else(|error| panic!("survival probe varied meal validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("survival probe varied meal commit failed: {error}"));
-    assert_eq!(meal.portions().len(), 3);
-    for category in [
-        FoodCategory::Grain,
-        FoodCategory::Fruit,
-        FoodCategory::Protein,
-    ] {
+    assert_eq!(meal.portions().len(), selections.len());
+    assert!(
+        selected_categories.len() >= 2,
+        "survival probe meal policy must select at least two food categories"
+    );
+    for category in selected_categories.iter().copied() {
         assert!(
             meal.nutrition_gained().get(category) > 0,
             "survival probe varied meal must contribute every selected food category"
@@ -258,8 +272,13 @@ pub(super) fn run_survival_provisioning_probe(registries: &Registries, seed: u64
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("survival probe final persistence audit failed: {error}"));
 
+    let category_label = selected_categories
+        .iter()
+        .map(|category| format!("{category:?}"))
+        .collect::<Vec<_>>()
+        .join("+");
     std::println!(
-        "SURVIVAL seed=0x{seed:016X} storage=[elapsed:{age_ticks}t preservation:{preservation_multiplier_ppm}ppm ambient_age:{ambient_age}t preserved_age:{preserved_age}t] depletion={depletion_ticks}t meal=[mass:{}mg energy:+{}nJ nutrition:+{}ppm] drink=[volume:{}uL hydration:+{}uL] matter=conserved fluid=conserved tick={}",
+        "PLAYABLE SURVIVAL seed=0x{seed:016X} world-bootstrap=[food,water,storage] storage=[elapsed:{age_ticks}t preservation:{preservation_multiplier_ppm}ppm ambient_age:{ambient_age}t preserved_age:{preserved_age}t] depletion={depletion_ticks}t meal=[categories:{category_label} mass:{}mg energy:+{}nJ nutrition:+{}ppm] drink=[volume:{}uL hydration:+{}uL] matter=conserved fluid=conserved tick={}",
         meal.total_mass().milligrams(),
         meal.energy_gained().nanojoules(),
         meal.nutrition_gained().total_ppm(),

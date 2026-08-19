@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
 use crate::energy::EnergyCarrier;
+use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::survival::SurvivalExertion;
 
 /// Stable authored identity for one direct player-powered mechanical method.
@@ -50,14 +51,7 @@ impl ManualPowerDefinition {
             (1..=1_000_000).contains(&metabolic_efficiency_ppm),
             "manual power metabolic efficiency must be inside 1..=1,000,000 ppm"
         );
-        assert!(
-            condition_wear_ppm_per_active_tick > 0,
-            "manual power equipment wear must be nonzero"
-        );
-        assert!(
-            condition_wear_ppm_per_active_tick <= 1_000_000,
-            "manual power equipment wear cannot exceed the normalized condition range per tick"
-        );
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
         assert!(
             !exertion.energy_cost_per_tick().is_zero(),
             "manual power exertion must consume metabolic energy"

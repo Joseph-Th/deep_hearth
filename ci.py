@@ -19,21 +19,10 @@ def cargo(alias: str) -> list[str]:
 
 
 def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
-    if args.preset == "hardening":
-        return [
-            ("format", ["cargo", "fmt", "--check"]),
-            ("core + soak", cargo("test-all")),
-            ("gameplay", cargo("test-gameplay")),
-            ("gameplay aliases", [sys.executable, "tools/check_gameplay_aliases.py"]),
-            ("shaders", cargo("test-shaders")),
-            ("docs", cargo("test-doc")),
-            ("clippy all", cargo("test-lint-all")),
-        ]
-
-    soak = args.soak
-    gameplay = args.gameplay or args.preset == "full"
-    shaders = args.shaders
-    docs = args.docs
+    soak = args.soak or args.all
+    gameplay = args.gameplay or args.all
+    shaders = args.shaders or args.all
+    docs = args.docs or args.all
 
     plan = [
         ("format", ["cargo", "fmt", "--check"]),
@@ -49,7 +38,9 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
         plan.append(("shaders", cargo("test-shaders")))
     if docs:
         plan.append(("docs", cargo("test-doc")))
-    if args.lint:
+    if args.all:
+        plan.append(("clippy all", cargo("test-lint-all")))
+    elif args.lint:
         plan.append(("clippy", cargo("test-lint")))
     return plan
 
@@ -95,14 +86,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "preset",
         nargs="?",
-        choices=("gate", "full", "hardening"),
+        choices=("gate",),
         default="gate",
-        help="gate is the fast local correctness path; full adds gameplay coverage",
+        help="the fast local correctness gate",
     )
     parser.add_argument(
         "--lint",
         action="store_true",
-        help="add production-library Clippy; hardening always runs all-target/all-feature Clippy",
+        help="add production-library Clippy",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="run every maintained local lane, including all-target/all-feature Clippy",
     )
     parser.add_argument("--soak", action="store_true", help="include ignored core soak tests")
     parser.add_argument("--gameplay", action="store_true", help="include the gameplay harness")

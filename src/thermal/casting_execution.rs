@@ -17,7 +17,9 @@ use crate::equipment::{
     EquipmentId, EquipmentProviderError, resolve_equipment_capability, resolve_equipment_provider,
 };
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
-use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
+use crate::maintenance::{
+    Condition, assert_valid_condition_wear_ppm_per_tick, calculate_condition_after_active_ticks,
+};
 use crate::material::{
     CommodityKey, FormId, MaterialComposition, MaterialId, MaterialLotSpec, MaterialLotSpecError,
     MaterialPhase, MaterialRegistry,
@@ -53,6 +55,7 @@ impl CastingProcessDefinition {
         solid_form: FormId,
         condition_wear_ppm_per_active_tick: u32,
     ) -> Self {
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
         Self {
             process,
             cooling_power_capability,

@@ -9,6 +9,18 @@ use crate::core::time::TickSpan;
 
 pub const CONDITION_PARTS_PER_MILLION: u32 = 1_000_000;
 
+/// Enforces the normalized per-tick wear range shared by all authored equipment work.
+pub(crate) const fn assert_valid_condition_wear_ppm_per_tick(wear_ppm_per_tick: u32) {
+    assert!(
+        wear_ppm_per_tick > 0,
+        "equipment condition wear per active tick must be nonzero"
+    );
+    assert!(
+        wear_ppm_per_tick <= CONDITION_PARTS_PER_MILLION,
+        "equipment condition wear per active tick cannot exceed the normalized condition range"
+    );
+}
+
 /// Normalized remaining physical condition where zero is fully degraded and one million is pristine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 pub struct Condition(u32);
@@ -232,5 +244,18 @@ mod tests {
     fn condition_deserialization_rejects_out_of_range_values() {
         let result: Result<Condition, _> = serde_json::from_str("1000001");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn condition_wear_rate_requires_normalized_nonzero_value() {
+        assert_valid_condition_wear_ppm_per_tick(1);
+        assert_valid_condition_wear_ppm_per_tick(CONDITION_PARTS_PER_MILLION);
+        assert!(std::panic::catch_unwind(|| assert_valid_condition_wear_ppm_per_tick(0)).is_err());
+        assert!(
+            std::panic::catch_unwind(|| {
+                assert_valid_condition_wear_ppm_per_tick(CONDITION_PARTS_PER_MILLION + 1)
+            })
+            .is_err()
+        );
     }
 }

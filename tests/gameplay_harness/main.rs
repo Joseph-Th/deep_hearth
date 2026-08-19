@@ -2,13 +2,13 @@
 //!
 //! The harness deliberately varies physical initial conditions and player priorities, then lets a
 //! small operational policy react only to observed state and resolver projections. The required gate
-//! runs five maintained anchor cases plus a small fresh bounded sample. The explicit report lane uses
-//! a larger fresh bounded sample by default. Both print exact replay roots so any result can be
-//! reproduced. Physical scenario and
+//! runs five maintained anchor cases plus a small fresh bounded variation sample. The explicit report
+//! lane uses a larger fresh bounded sample. Both print exact replay roots so any result can be reproduced.
+//! Physical scenario and
 //! automated-player behavior randomness are independent. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED`
 //! reproduces the world/scenario sample and `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` reproduces policy
-//! variation. Focused gameplay probes also use one maintained anchor plus one fresh bounded physical
-//! sample by default; the same variation seed reproduces that sample and
+//! variation. Focused gameplay probes use one maintained anchor plus one fresh bounded physical
+//! variation by default; the same variation seed reproduces that sample and
 //! `DEEP_HEARTH_GAMEPLAY_SEEDS` provides an exact focused-probe sweep. Each scenario schedules a real material
 //! transfer into supported storage, so ordinary inventory ownership can change structural margin while
 //! production is active.
@@ -22,25 +22,107 @@ use std::env;
 use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod capability_boundary;
 mod configuration;
 mod contracts;
-mod probe_setup;
+mod focused_runner;
+mod focused_seeds;
+mod foundry_probe;
+mod foundry_setup;
+mod ore_probe;
+mod ore_setup;
 mod progression_probe;
 mod report;
 mod scenario;
 mod seed;
+mod seed_input;
+mod support;
 mod survival_probe;
 
+#[cfg(test)]
+mod seed_contract_tests {
+    use super::focused_seeds::{FocusedProbeSeedError, focused_probe_seeds_from};
+    use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
+
+    #[test]
+    fn seed_parser_accepts_decimal_hex_and_u64_boundaries() {
+        assert_eq!(parse_seed("  42  "), Some(42));
+        assert_eq!(parse_seed("0x2A"), Some(42));
+        assert_eq!(parse_seed("18446744073709551615"), Some(u64::MAX));
+        assert_eq!(parse_seed("0xFFFFFFFFFFFFFFFF"), Some(u64::MAX));
+        assert_eq!(parse_seed(""), None);
+        assert_eq!(parse_seed("not-a-seed"), None);
+    }
+
+    #[test]
+    fn seed_list_reports_empty_and_exact_invalid_position() {
+        assert_eq!(parse_seed_list(""), Err(SeedListError::Empty));
+        assert_eq!(
+            parse_seed_list("1,nope,4"),
+            Err(SeedListError::Invalid { index: 1 })
+        );
+        assert_eq!(parse_seed_list("1, 0x2A,3"), Ok(vec![1, 42, 3]));
+    }
+
+    #[test]
+    fn focused_default_keeps_anchor_and_adds_one_replayable_variation() {
+        let first = focused_probe_seeds_from(None, None, 0x1111, 0x2222, 0x3333)
+            .unwrap_or_else(|error| panic!("first focused probe plan failed: {error:?}"));
+        let second = focused_probe_seeds_from(None, None, 0x1111, 0x2222, 0x3333)
+            .unwrap_or_else(|error| panic!("second focused probe plan failed: {error:?}"));
+
+        assert_eq!(first, second);
+        assert_eq!(first.len(), 2);
+        assert_eq!(first[0], 0x1111);
+        assert_ne!(first[1], first[0]);
+    }
+
+    #[test]
+    fn focused_generated_variation_changes_when_the_default_root_changes() {
+        let first = focused_probe_seeds_from(None, None, 0x1111, 0x2222, 0x3333)
+            .unwrap_or_else(|error| panic!("first focused generated plan failed: {error:?}"));
+        let second = focused_probe_seeds_from(None, None, 0x1111, 0x2222, 0x4444)
+            .unwrap_or_else(|error| panic!("second focused generated plan failed: {error:?}"));
+
+        assert_eq!(first[0], second[0]);
+        assert_ne!(first[1], second[1]);
+    }
+
+    #[test]
+    fn focused_explicit_variation_root_replays_exactly() {
+        let first = focused_probe_seeds_from(None, Some("0xBAD"), 0x1111, 0x2222, 0x3333)
+            .unwrap_or_else(|error| panic!("first focused replay plan failed: {error:?}"));
+        let second = focused_probe_seeds_from(None, Some("0xBAD"), 0x1111, 0x2222, 0x4444)
+            .unwrap_or_else(|error| panic!("second focused replay plan failed: {error:?}"));
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn focused_explicit_seed_list_is_exact_and_invalid_variation_is_rejected() {
+        assert_eq!(
+            focused_probe_seeds_from(Some("1,0x2A,3"), Some("ignored"), 1, 2, 3),
+            Ok(vec![1, 42, 3])
+        );
+        assert_eq!(
+            focused_probe_seeds_from(None, Some("nope"), 1, 2, 3),
+            Err(FocusedProbeSeedError::InvalidVariationSeed)
+        );
+    }
+}
+
+use capability_boundary::{assert_capability_only_energy_store, assert_capability_only_equipment};
 use configuration::{
-    MAINTAINED_BEHAVIOR_ROOT, MAINTAINED_VARIATION_ROOT, ScenarioPlanMode,
-    focused_probe_seeds_from, scenario_seeds_from,
+    MAINTAINED_BEHAVIOR_ROOT, MAINTAINED_VARIATION_ROOT, ScenarioPlanMode, scenario_seeds_from,
 };
 use contracts::{assert_anchor_diversity, assert_scenario_contracts};
 use deep_hearth::content::gameplay_fixture::{
     authorize_controlled_material_delivery, materialize_structure, seed_composed_lot,
     seed_energy_store as bootstrap_seed_energy_store, seed_lot,
 };
-use probe_setup::{setup_foundry_probe, setup_ore_preparation_probe};
+use focused_runner::run_focused_probe;
+use foundry_probe::run_foundry_capability_probe;
+use ore_probe::run_ore_preparation_capability_probe;
 use progression_probe::run_primitive_progression_probe;
 use report::{
     EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioPolicyVariation,
@@ -48,6 +130,7 @@ use report::{
 };
 use scenario::ScenarioVariation;
 use seed::mix64;
+use support::{ROOM_TEMPERATURE, add_solid_stockpile, nominal_equipment_mass_capability};
 use survival_probe::run_survival_provisioning_probe;
 
 fn has_verbose_output() -> bool {
@@ -63,37 +146,6 @@ fn fresh_exploration_root(salt: u64) -> u64 {
     mix64(folded)
 }
 
-fn focused_probe_seeds(name: &str, maintained_seed: u64, salt: u64) -> Vec<u64> {
-    let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
-    let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
-    let generated_variation_root = fresh_exploration_root(MAINTAINED_VARIATION_ROOT ^ salt);
-    let seeds = focused_probe_seeds_from(
-        scenario_raw.as_deref(),
-        variation_raw.as_deref(),
-        maintained_seed,
-        salt,
-        generated_variation_root,
-    )
-    .unwrap_or_else(|error| panic!("gameplay focused probe seed configuration failed: {error:?}"));
-    let replay = seeds
-        .iter()
-        .map(|seed| format!("0x{seed:016X}"))
-        .collect::<Vec<_>>()
-        .join(",");
-    std::println!(
-        "PROBE INPUT name={name} samples={} replay={replay}",
-        seeds.len()
-    );
-    seeds
-}
-
-fn run_focused_probe(name: &str, maintained_seed: u64, salt: u64, probe: fn(&Registries, u64)) {
-    let registries = build_registries();
-    for seed in focused_probe_seeds(name, maintained_seed, salt) {
-        probe(&registries, seed);
-    }
-}
-
 macro_rules! println {
     ($($argument:tt)*) => {{
         if has_verbose_output() {
@@ -102,23 +154,22 @@ macro_rules! println {
     }};
 }
 
-use deep_hearth::capability::{CapabilityId, CapabilityValue};
-use deep_hearth::core::quantity::{Area, Energy, Length, Mass, Temperature};
+use deep_hearth::capability::CapabilityValue;
+use deep_hearth::core::quantity::{Area, Energy, Length, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::{TickSpan, WorldSeed};
 use deep_hearth::energy::{
     EnergySinkError, EnergyStoreId, EnergySupplyError, calculate_mass_specific_energy,
 };
 use deep_hearth::equipment::{
-    EquipmentDefinitionId, EquipmentId, EquipmentMaintenanceRequest,
-    EquipmentMaintenanceResolutionError, EquipmentProviderError, EquipmentSupportError,
-    add_equipment, resolve_equipment_maintenance, resolve_equipment_provider,
-    validate_assemble_equipment, validate_equipment_repair, validate_mount_equipment,
-    validate_relocate_equipment,
+    EquipmentId, EquipmentMaintenanceRequest, EquipmentMaintenanceResolutionError,
+    EquipmentProviderError, EquipmentSupportError, add_equipment, resolve_equipment_maintenance,
+    resolve_equipment_provider, validate_assemble_equipment, validate_equipment_repair,
+    validate_mount_equipment, validate_relocate_equipment,
 };
 use deep_hearth::inventory::{
     MaterialLotId, MaterialLotSelection, MaterialTransferResolution, StockpileId,
-    StockpileStorageProfile, add_stockpile, validate_material_transfer, validate_mount_stockpile,
+    validate_material_transfer, validate_mount_stockpile,
 };
 use deep_hearth::labor::{
     ManualPowerError, ManualPowerRequest, PlayerWorkStartError, ValidatedManualPowerStart,
@@ -128,13 +179,12 @@ use deep_hearth::maintenance::{Condition, MaintenanceBand};
 use deep_hearth::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::ore_processing::{
-    ComminutionBatchError, ComminutionBottleneck, ComminutionRequest, ComminutionResolutionError,
-    ResolvedComminution, ScreeningBatchError, ScreeningProcessDefinition, ScreeningRequest,
-    ScreeningResolutionError, resolve_comminution_process, resolve_screening_process,
+    ComminutionBottleneck, ComminutionRequest, ComminutionResolutionError, ResolvedComminution,
+    resolve_comminution_process,
 };
 use deep_hearth::production::{
-    ProcessOutputRoute, ProductionAvailabilityChange, ProductionJobId, ProductionSuspensionReason,
-    validate_start_process, validate_start_process_routed,
+    ProductionAvailabilityChange, ProductionJobId, ProductionSuspensionReason,
+    validate_start_process,
 };
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
@@ -146,28 +196,21 @@ use deep_hearth::structural::{
 };
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
 use deep_hearth::thermal::{
-    CastingRequest, MeltingBatchError, MeltingRequest, MeltingResolutionError,
-    resolve_casting_process, resolve_melting_process,
+    MeltingBatchError, MeltingRequest, MeltingResolutionError, resolve_melting_process,
 };
 
 use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
-    ENERGY_THERMAL_SINK,
 };
 use deep_hearth::content::{
-    EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_DRY_SCREEN,
-    EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER,
+    EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_JAW_CRUSHER,
 };
 use deep_hearth::content::{
-    FORM_INGOT, FORM_LOG, FORM_ORE, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE,
-    MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    FORM_LOG, FORM_ORE, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
-use deep_hearth::content::{
-    PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
-    PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
-};
+use deep_hearth::content::{PROCESS_CRUSH_ORE, PROCESS_MELT_PURE_COPPER};
 
-const ROOM_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 const WORKSHOP_SUPPORT_LENGTH: Length = Length::from_micrometers(2_000_000);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -266,40 +309,6 @@ struct ScenarioRuntime<'state> {
     report: &'state mut ScenarioReport,
 }
 
-fn greatest_common_divisor(mut left: u64, mut right: u64) -> u64 {
-    while right != 0 {
-        let remainder = left % right;
-        left = right;
-        right = remainder;
-    }
-    left
-}
-
-fn nominal_equipment_mass_capability(
-    registries: &Registries,
-    equipment: EquipmentDefinitionId,
-    capability: CapabilityId,
-) -> Mass {
-    let definition = registries
-        .equipment()
-        .get_equipment(equipment)
-        .unwrap_or_else(|| panic!("gameplay harness equipment definition disappeared"));
-    match definition.capabilities().get_capability(capability) {
-        Some(CapabilityValue::Mass(mass)) => mass,
-        Some(value) => panic!(
-            "gameplay harness expected mass capability {} on equipment {} but found {:?}",
-            capability.value(),
-            equipment.value(),
-            value.kind()
-        ),
-        None => panic!(
-            "gameplay harness equipment {} is missing authored mass capability {}",
-            equipment.value(),
-            capability.value()
-        ),
-    }
-}
-
 fn seed_energy_store_exact(
     registries: &Registries,
     state: &mut AppState,
@@ -330,10 +339,16 @@ fn stored_work_from_nominal_batches(
 }
 
 fn condition(parts_per_million: u32) -> Condition {
-    match Condition::new(parts_per_million) {
-        Ok(value) => value,
-        Err(error) => panic!("gameplay harness condition is invalid: {error}"),
-    }
+    Condition::new(parts_per_million)
+        .unwrap_or_else(|error| panic!("gameplay harness condition is invalid: {error}"))
+}
+
+fn mixed_ore_composition(copper_ppm: u32) -> MaterialComposition {
+    MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_COPPER, copper_ppm),
+        CompositionComponent::new(MATERIAL_STONE, 1_000_000 - copper_ppm),
+    ])
+    .unwrap_or_else(|error| panic!("gameplay harness ore composition failed: {error}"))
 }
 
 fn bounds(x: i64) -> VoxelBounds {
@@ -391,25 +406,20 @@ fn seed_energy_store(
     bootstrap_seed_energy_store(registries, state, definition, amount)
 }
 
-fn add_solid_stockpile(state: &mut AppState, capacity: Mass, context: &'static str) -> StockpileId {
-    add_stockpile(state, capacity, StockpileStorageProfile::solid_only())
-        .unwrap_or_else(|error| panic!("gameplay harness {context} stockpile failed: {error}"))
-}
-
-fn mixed_ore_composition(copper_ppm: u32) -> MaterialComposition {
-    match MaterialComposition::new(vec![
-        CompositionComponent::new(MATERIAL_COPPER, copper_ppm),
-        CompositionComponent::new(MATERIAL_STONE, 1_000_000 - copper_ppm),
-    ]) {
-        Ok(composition) => composition,
-        Err(error) => panic!("gameplay harness ore composition failed: {error}"),
-    }
-}
-
 fn setup_workshop(
     registries: &Registries,
     variation: ScenarioVariation,
 ) -> (AppState, WorkshopIds, Option<MaterialTransferResolution>) {
+    for equipment in [EQUIPMENT_JAW_CRUSHER, EQUIPMENT_ELECTRIC_FURNACE] {
+        assert_capability_only_equipment(registries, equipment);
+    }
+    for store in [
+        ENERGY_MECHANICAL_SMALL_DRIVE,
+        ENERGY_MECHANICAL_LARGE_DRIVE,
+        ENERGY_ELECTRICAL_BUFFER,
+    ] {
+        assert_capability_only_energy_store(registries, store);
+    }
     let mut state = AppState::new(WorldSeed::new(variation.world_seed));
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("workshop survival initialization failed: {error}"));
@@ -2374,52 +2384,60 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
     report
 }
 
-fn agency_probe_policies() -> [(&'static str, ScenarioPolicyVariation); 4] {
+fn agency_probe_policies() -> [(&'static str, ScenarioPolicyVariation); 5] {
+    let baseline = ScenarioPolicyVariation {
+        power_preference: PowerPreference::PreserveReserve,
+        energy_recovery_preference: EnergyRecoveryPreference::ProtectSurvival,
+        maintenance_preference: MaintenancePreference::ServiceAtWarning,
+        structural_preference: StructuralPreference::PreserveMargin,
+    };
     [
+        ("baseline", baseline),
         (
-            "conservative",
-            ScenarioPolicyVariation {
-                power_preference: PowerPreference::PreserveReserve,
-                energy_recovery_preference: EnergyRecoveryPreference::ProtectSurvival,
-                maintenance_preference: MaintenancePreference::ServiceAtWarning,
-                structural_preference: StructuralPreference::PreserveMargin,
-            },
-        ),
-        (
-            "throughput-reactive",
+            "finish-sooner-only",
             ScenarioPolicyVariation {
                 power_preference: PowerPreference::FinishSooner,
-                energy_recovery_preference: EnergyRecoveryPreference::SpendSurvivalReserve,
-                maintenance_preference: MaintenancePreference::ServiceAtCritical,
-                structural_preference: StructuralPreference::MoveOnlyForFailure,
+                ..baseline
             },
         ),
         (
-            "equipment-care",
+            "spend-survival-only",
             ScenarioPolicyVariation {
-                power_preference: PowerPreference::FinishSooner,
-                energy_recovery_preference: EnergyRecoveryPreference::ProtectSurvival,
-                maintenance_preference: MaintenancePreference::ServiceAtWarning,
-                structural_preference: StructuralPreference::PreserveMargin,
+                energy_recovery_preference: EnergyRecoveryPreference::SpendSurvivalReserve,
+                ..baseline
             },
         ),
         (
-            "reserve-reactive",
+            "delay-maintenance-only",
             ScenarioPolicyVariation {
-                power_preference: PowerPreference::PreserveReserve,
-                energy_recovery_preference: EnergyRecoveryPreference::SpendSurvivalReserve,
                 maintenance_preference: MaintenancePreference::ServiceAtCritical,
+                ..baseline
+            },
+        ),
+        (
+            "failure-only-structure",
+            ScenarioPolicyVariation {
                 structural_preference: StructuralPreference::MoveOnlyForFailure,
+                ..baseline
             },
         ),
     ]
 }
 
-fn run_agency_probe(registries: &Registries, world_seeds: &[u64]) {
+#[derive(Clone, Copy)]
+struct AgencyWorld {
+    focus: &'static str,
+    world_seed: u64,
+    anchor_index: Option<usize>,
+}
+
+fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
     let policies = agency_probe_policies();
     let mut worlds_with_distinct_paths = 0_usize;
     let mut worlds_with_work_difference = 0_usize;
-    for &world_seed in world_seeds.iter().take(2) {
+    for world in worlds {
+        let focus = world.focus;
+        let world_seed = world.world_seed;
         let mut reports = Vec::with_capacity(policies.len());
         for (index, (label, policy)) in policies.into_iter().enumerate() {
             let behavior_seed = mix64(
@@ -2428,8 +2446,12 @@ fn run_agency_probe(registries: &Registries, world_seeds: &[u64]) {
                     ^ u64::try_from(index + 1)
                         .unwrap_or_else(|_| unreachable!("agency policy index fits u64")),
             );
-            let mut variation =
-                ScenarioVariation::from_seeds(registries, world_seed, behavior_seed, None);
+            let mut variation = ScenarioVariation::from_seeds(
+                registries,
+                world_seed,
+                behavior_seed,
+                world.anchor_index,
+            );
             variation.policy = policy;
             let report = run_scenario(registries, variation);
             reports.push((label, report));
@@ -2465,6 +2487,44 @@ fn run_agency_probe(registries: &Registries, world_seeds: &[u64]) {
             .map(|(_, report)| report.maintenance.services)
             .max()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        let condition_min = reports
+            .iter()
+            .map(|(_, report)| report.resources.final_condition_ppm)
+            .min()
+            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        let condition_max = reports
+            .iter()
+            .map(|(_, report)| report.resources.final_condition_ppm)
+            .max()
+            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        let manual_min = reports
+            .iter()
+            .map(|(_, report)| report.choices.manual_recharges)
+            .min()
+            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        let manual_max = reports
+            .iter()
+            .map(|(_, report)| report.choices.manual_recharges)
+            .max()
+            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        let adaptive_min = reports
+            .iter()
+            .map(|(_, report)| report.progress.adaptive_batch_operations)
+            .min()
+            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        let adaptive_max = reports
+            .iter()
+            .map(|(_, report)| report.progress.adaptive_batch_operations)
+            .max()
+            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        let relocations = reports
+            .iter()
+            .filter(|(_, report)| report.structure.support_relocation)
+            .count();
+        let suspensions = reports
+            .iter()
+            .filter(|(_, report)| report.structure.production_suspension)
+            .count();
         let elapsed_min = reports
             .iter()
             .map(|(_, report)| report.resources.elapsed_ticks)
@@ -2519,693 +2579,87 @@ fn run_agency_probe(registries: &Registries, world_seeds: &[u64]) {
         if processed_min != processed_max {
             worlds_with_work_difference += 1;
         }
-        let policy_paths = reports
-            .iter()
-            .map(|(label, report)| {
-                format!(
-                    "{label}:ore{}/{}-ops{}-adapt{}-hi{}-manual{}-maint{}-reloc{}-susp{}-choices[p:{} f:{}]-t{}-body{}-manualbody{}-c{}-lo{}-hi{}",
-                    report.progress.processed_mass.milligrams(),
-                    report.progress.target_mass.milligrams(),
-                    report.progress.operations_completed,
-                    report.progress.adaptive_batch_operations,
-                    report.choices.large_drive_batches,
-                    report.choices.manual_recharges,
-                    report.maintenance.services,
-                    u8::from(report.structure.support_relocation),
-                    u8::from(report.structure.production_suspension),
-                    report.choices.policy_power_choices,
-                    report.choices.single_source_power_choices,
-                    report.resources.elapsed_ticks,
-                    report.resources.metabolic_energy_spent.nanojoules(),
-                    report.resources.manual_power_metabolic_energy.nanojoules(),
-                    report.resources.final_condition_ppm,
-                    report.resources.small_drive_remaining.nanojoules(),
-                    report.resources.large_drive_remaining.nanojoules(),
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(",");
         std::println!(
-            "AGENCY world=0x{world_seed:016X} variants={} unique_paths={} processed={}..{}mg high-power-ops={}..{} services={}..{} elapsed={}..{}t survival-energy={}..{}nJ paths=[{}]",
+            "AGENCY focus={focus} world=0x{world_seed:016X} variants={} unique_paths={} policy-effects=[processed:{}..{}mg adaptive:{}..{} high-power:{}..{} manual-recharges:{}..{} services:{}..{} final-condition:{}..{}ppm relocations:{}/{} suspensions:{}/{} elapsed:{}..{}t survival-energy:{}..{}nJ]",
             reports.len(),
             signatures.len(),
             processed_min,
             processed_max,
+            adaptive_min,
+            adaptive_max,
             high_power_min,
             high_power_max,
+            manual_min,
+            manual_max,
             service_min,
             service_max,
+            condition_min,
+            condition_max,
+            relocations,
+            reports.len(),
+            suspensions,
+            reports.len(),
             elapsed_min,
             elapsed_max,
             survival_energy_min,
             survival_energy_max,
-            policy_paths,
         );
+        if has_verbose_output() {
+            let policy_paths = reports
+                .iter()
+                .map(|(label, report)| {
+                    format!(
+                        "{label}:ore{}/{}-ops{}-adapt{}-hi{}-manual{}-maint{}-reloc{}-susp{}-choices[p:{} f:{}]-t{}-body{}-manualbody{}-c{}-lo{}-hi{}",
+                        report.progress.processed_mass.milligrams(),
+                        report.progress.target_mass.milligrams(),
+                        report.progress.operations_completed,
+                        report.progress.adaptive_batch_operations,
+                        report.choices.large_drive_batches,
+                        report.choices.manual_recharges,
+                        report.maintenance.services,
+                        u8::from(report.structure.support_relocation),
+                        u8::from(report.structure.production_suspension),
+                        report.choices.policy_power_choices,
+                        report.choices.single_source_power_choices,
+                        report.resources.elapsed_ticks,
+                        report.resources.metabolic_energy_spent.nanojoules(),
+                        report.resources.manual_power_metabolic_energy.nanojoules(),
+                        report.resources.final_condition_ppm,
+                        report.resources.small_drive_remaining.nanojoules(),
+                        report.resources.large_drive_remaining.nanojoules(),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            std::println!(
+                "AGENCY PATHS focus={focus} world=0x{world_seed:016X} paths=[{policy_paths}]"
+            );
+        }
     }
     std::println!(
-        "AGENCY SUMMARY worlds={} distinct_paths={} processed-work-differences={} basis=matched-world-policy-counterfactual",
-        world_seeds.len().min(2),
+        "AGENCY SUMMARY worlds={} distinct_paths={} processed-work-differences={} basis=matched-world-one-factor-counterfactual+input-pressure-selection",
+        worlds.len(),
         worlds_with_distinct_paths,
         worlds_with_work_difference,
     );
 }
 
-fn foundry_probe_mass(registries: &Registries, seed: u64) -> Mass {
-    let melting = registries
-        .thermal()
-        .get_melting(PROCESS_MELT_PURE_COPPER)
-        .unwrap_or_else(|| panic!("canonical melting definition disappeared"));
-    let casting = registries
-        .thermal()
-        .get_casting(PROCESS_CAST_PURE_COPPER)
-        .unwrap_or_else(|| panic!("canonical casting definition disappeared"));
-    let melt_maximum = nominal_equipment_mass_capability(
-        registries,
-        EQUIPMENT_ELECTRIC_FURNACE,
-        melting.max_batch_mass_capability(),
-    );
-    let cast_maximum = nominal_equipment_mass_capability(
-        registries,
-        EQUIPMENT_CASTING_MOLD,
-        casting.max_batch_mass_capability(),
-    );
-    let maximum = melt_maximum.milligrams().min(cast_maximum.milligrams());
-    assert!(maximum > 0, "foundry probe requires a nonzero legal batch");
-    let minimum = maximum.div_ceil(2);
-    Mass::from_milligrams(minimum + mix64(seed ^ 0xF0A1_DA7A) % (maximum - minimum + 1))
+fn push_unique_agency_world(
+    worlds: &mut Vec<AgencyWorld>,
+    focus: &'static str,
+    world_seed: u64,
+    anchor_index: Option<usize>,
+) {
+    if worlds.iter().all(|world| world.world_seed != world_seed) {
+        worlds.push(AgencyWorld {
+            focus,
+            world_seed,
+            anchor_index,
+        });
+    }
 }
 
-fn ore_preparation_probe_parameters(registries: &Registries, seed: u64) -> (Mass, u32) {
-    let crusher = registries
-        .ore_processing()
-        .get_comminution(PROCESS_CRUSH_ORE)
-        .unwrap_or_else(|| panic!("canonical crusher definition disappeared"));
-    let grinder = registries
-        .ore_processing()
-        .get_comminution(PROCESS_GRIND_CRUSHED_ORE)
-        .unwrap_or_else(|| panic!("canonical grinder definition disappeared"));
-    let screening = registries
-        .ore_processing()
-        .get_screening(PROCESS_SCREEN_CRUSHED_ORE)
-        .unwrap_or_else(|| panic!("canonical screen definition disappeared"));
-    let fine_grind = registries
-        .ore_processing()
-        .get_comminution(PROCESS_FINE_GRIND_SCREEN_OVERSIZE)
-        .unwrap_or_else(|| panic!("canonical fine-grind definition disappeared"));
-
-    let distribution = grinder.output_particle_size_distribution();
-    let aperture = screening.aperture();
-    let mut undersize_weight = 0_u64;
-    for class in distribution.classes() {
-        let range = class.range();
-        if range.maximum_diameter() <= aperture {
-            undersize_weight += u64::from(class.weight());
-        } else if range.minimum_diameter() <= aperture {
-            panic!(
-                "authored grinder particle class {}..={}um crosses screen aperture {}um",
-                range.minimum_diameter().micrometers(),
-                range.maximum_diameter().micrometers(),
-                aperture.micrometers()
-            );
-        }
-    }
-    let total_weight = distribution.total_weight();
-    let representable_unit = total_weight / greatest_common_divisor(total_weight, undersize_weight);
-
-    let mut batch_limits = vec![
-        nominal_equipment_mass_capability(
-            registries,
-            EQUIPMENT_JAW_CRUSHER,
-            crusher.max_batch_mass_capability(),
-        ),
-        nominal_equipment_mass_capability(
-            registries,
-            EQUIPMENT_GRINDING_MILL,
-            grinder.max_batch_mass_capability(),
-        ),
-        nominal_equipment_mass_capability(
-            registries,
-            EQUIPMENT_DRY_SCREEN,
-            screening.max_batch_mass_capability(),
-        ),
-    ];
-    if undersize_weight < total_weight {
-        batch_limits.push(nominal_equipment_mass_capability(
-            registries,
-            EQUIPMENT_GRINDING_MILL,
-            fine_grind.max_batch_mass_capability(),
-        ));
-    }
-    let maximum_batch = batch_limits
-        .into_iter()
-        .map(Mass::milligrams)
-        .min()
-        .unwrap_or_else(|| panic!("ore preparation probe has no authored batch constraints"));
-    let maximum_units = maximum_batch / representable_unit;
-    assert!(
-        maximum_units > 0,
-        "authored screen partition cannot be represented within the equipment batch limits"
-    );
-    let minimum_units = maximum_units.div_ceil(2);
-    let unit_count =
-        minimum_units + mix64(seed ^ 0x0AE5_1A5E) % (maximum_units - minimum_units + 1);
-    let batch_mass = Mass::from_milligrams(representable_unit * unit_count);
-    let copper_ppm = 300_000 + (mix64(seed ^ 0xC0FF_EE11) % 400_001) as u32;
-    (batch_mass, copper_ppm)
-}
-
-fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
-    let mass = foundry_probe_mass(registries, seed);
-    let (mut state, ids) = setup_foundry_probe(registries, seed, mass);
-    println!(
-        "\nDOWNSTREAM CAPABILITY PROBE: pure-copper melt/cast is validated separately from the ore workshop loop; this is not presented as ore-to-metal progression"
-    );
-    let pure_selection = [MaterialLotSelection::new(ids.pure_copper_lot, mass)];
-    let melt = resolve_melting_process(
-        registries,
-        &state,
-        MeltingRequest::new(
-            PROCESS_MELT_PURE_COPPER,
-            ids.pure_copper_source,
-            &pure_selection,
-            ids.furnace,
-            ids.electrical_buffer,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("foundry probe pure-copper melt failed: {error}"));
-    let melt_duration = melt.process_resolution().duration();
-    println!(
-        "  melt: mass={}mg energy={}nJ power={}uW duration={}t",
-        mass.milligrams(),
-        melt.required_energy().nanojoules(),
-        melt.transfer_power().whole_microwatts(),
-        melt_duration.value(),
-    );
-    validate_start_process(
-        registries,
-        &state,
-        melt.process_resolution(),
-        ids.pure_copper_source,
-        ids.molten_vessel,
-    )
-    .unwrap_or_else(|error| panic!("foundry probe melt start failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("foundry probe melt commit failed: {error}"));
-    finish_operation(registries, &mut state, melt_duration);
-
-    let molten_lot = stockpile_first_lot(&state, ids.molten_vessel);
-    let molten_selection = [MaterialLotSelection::new(molten_lot, mass)];
-    let casting = resolve_casting_process(
-        registries,
-        &state,
-        CastingRequest::new(
-            PROCESS_CAST_PURE_COPPER,
-            ids.molten_vessel,
-            &molten_selection,
-            ids.mold,
-            ids.heat_sink,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("foundry probe pure-copper casting failed: {error}"));
-    let cast_duration = casting.process_resolution().duration();
-    println!(
-        "  cast: released={}nJ power={}uW duration={}t",
-        casting.released_energy().nanojoules(),
-        casting.transfer_power().whole_microwatts(),
-        cast_duration.value(),
-    );
-    validate_start_process(
-        registries,
-        &state,
-        casting.process_resolution(),
-        ids.molten_vessel,
-        ids.cast_storage,
-    )
-    .unwrap_or_else(|error| panic!("foundry probe casting start failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("foundry probe casting commit failed: {error}"));
-    finish_operation(registries, &mut state, cast_duration);
-    assert_eq!(validate_loaded_state(registries, &state), Ok(()));
-    let cast_mass_is_conserved = state
-        .inventory()
-        .get_stockpile(ids.cast_storage)
-        .is_some_and(|stockpile| stockpile.stored_mass() == mass);
-    assert!(
-        cast_mass_is_conserved,
-        "foundry capability probe did not conserve cast output mass"
-    );
-    std::println!(
-        "FOUNDRY seed=0x{seed:016X} batch={}mg melt={}t cast={}t matter=conserved",
-        mass.milligrams(),
-        melt_duration.value(),
-        cast_duration.value(),
-    );
-}
-
-fn run_ore_preparation_capability_probe(registries: &Registries, seed: u64) {
-    let (batch_mass, copper_ppm) = ore_preparation_probe_parameters(registries, seed);
-    let (mut state, ids) = setup_ore_preparation_probe(registries, seed, batch_mass, copper_ppm);
-    let crusher_definition = registries
-        .ore_processing()
-        .get_comminution(PROCESS_CRUSH_ORE)
-        .unwrap_or_else(|| panic!("canonical crusher definition disappeared"));
-    let grinder_definition = registries
-        .ore_processing()
-        .get_comminution(PROCESS_GRIND_CRUSHED_ORE)
-        .unwrap_or_else(|| panic!("canonical grinder definition disappeared"));
-    let screen_definition = registries
-        .ore_processing()
-        .get_screening(PROCESS_SCREEN_CRUSHED_ORE)
-        .unwrap_or_else(|| panic!("canonical screen definition disappeared"));
-    let fine_grind_definition = registries
-        .ore_processing()
-        .get_comminution(PROCESS_FINE_GRIND_SCREEN_OVERSIZE)
-        .unwrap_or_else(|| panic!("canonical fine-grind definition disappeared"));
-    let initial_matter = calculate_matter_accounting(&state)
-        .unwrap_or_else(|error| panic!("ore preparation initial matter accounting failed: {error}"))
-        .total();
-    let initial_energy = state
-        .energy()
-        .get_store(ids.drive)
-        .map(|store| store.stored())
-        .unwrap_or_else(|| panic!("ore preparation drive disappeared"));
-
-    println!(
-        "\nORE PREPARATION CAPABILITY PROBE: batch={}mg ore={}ppm Cu; batch size is derived from authored equipment limits and screen representability",
-        batch_mass.milligrams(),
-        copper_ppm,
-    );
-    let crush_selection = [MaterialLotSelection::new(ids.ore_lot, batch_mass)];
-    let crushed = resolve_comminution_process(
-        registries,
-        &state,
-        ComminutionRequest::new(
-            PROCESS_CRUSH_ORE,
-            ids.ore_source,
-            &crush_selection,
-            ids.crusher,
-            ids.drive,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("canonical crushing probe resolution failed: {error}"));
-    let crush_duration = crushed.process_resolution().duration();
-    println!(
-        "  crush: energy={}nJ rate={}mg/s duration={}t bottleneck={:?}",
-        crushed.required_energy().nanojoules(),
-        crushed.processing_rate().milligrams_per_second(),
-        crush_duration.value(),
-        crushed.bottleneck(),
-    );
-    let crush_energy = crushed.required_energy();
-    let crusher_condition = crushed.condition_after();
-    validate_start_process(
-        registries,
-        &state,
-        crushed.process_resolution(),
-        ids.ore_source,
-        ids.crushed_storage,
-    )
-    .unwrap_or_else(|error| panic!("ore preparation crushing start failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("ore preparation crushing commit failed: {error}"));
-    finish_operation(registries, &mut state, crush_duration);
-    assert_eq!(validate_loaded_state(registries, &state), Ok(()));
-
-    let crushed_lot = stockpile_first_lot(&state, ids.crushed_storage);
-    let crushed_distribution = state
-        .inventory()
-        .get_lot(crushed_lot)
-        .and_then(|lot| lot.particle_size_distribution())
-        .unwrap_or_else(|| panic!("canonical crushing output lost particle-size state"));
-    let crusher_output_matches_authoring =
-        crushed_distribution == crusher_definition.output_particle_size_distribution();
-    let direct_screen_selection = [MaterialLotSelection::new(crushed_lot, batch_mass)];
-    let direct_screen = resolve_screening_process(
-        registries,
-        &state,
-        ScreeningRequest::new(
-            PROCESS_SCREEN_CRUSHED_ORE,
-            ids.crushed_storage,
-            &direct_screen_selection,
-            ids.screen,
-            ids.drive,
-        ),
-    );
-    let direct_screen_status = match &direct_screen {
-        Ok(_) => "available",
-        Err(ScreeningResolutionError::Batch(ScreeningBatchError::UnresolvedParticleClass {
-            aperture: _aperture,
-            class: _class,
-        })) => "requires-classification",
-        Err(error) => panic!("direct-screen route failed unexpectedly: {error}"),
-    };
-    let direct_fine_grind = resolve_comminution_process(
-        registries,
-        &state,
-        ComminutionRequest::new(
-            PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
-            ids.crushed_storage,
-            &direct_screen_selection,
-            ids.grinder,
-            ids.drive,
-        ),
-    );
-    let direct_fine_grind_status = match &direct_fine_grind {
-        Ok(_) => "available",
-        Err(ComminutionResolutionError::Batch(
-            ComminutionBatchError::InputParticleSizeOutsideOperatingRange {
-                required: _required,
-                found: _found,
-            },
-        )) => "outside-authored-feed-range",
-        Err(error) => panic!("direct fine-grind route failed unexpectedly: {error}"),
-    };
-    println!(
-        "  route discovery: crusher->screen={direct_screen_status} crusher->fine_regrind={direct_fine_grind_status}; these are observations, not fixed harness requirements"
-    );
-
-    let grind_selection = [MaterialLotSelection::new(crushed_lot, batch_mass)];
-    let ground = resolve_comminution_process(
-        registries,
-        &state,
-        ComminutionRequest::new(
-            PROCESS_GRIND_CRUSHED_ORE,
-            ids.crushed_storage,
-            &grind_selection,
-            ids.grinder,
-            ids.drive,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("canonical grinding probe resolution failed: {error}"));
-    let grind_duration = ground.process_resolution().duration();
-    println!(
-        "  grind: energy={}nJ rate={}mg/s duration={}t bottleneck={:?}",
-        ground.required_energy().nanojoules(),
-        ground.processing_rate().milligrams_per_second(),
-        grind_duration.value(),
-        ground.bottleneck(),
-    );
-    let grind_energy = ground.required_energy();
-    let grinder_condition = ground.condition_after();
-    validate_start_process(
-        registries,
-        &state,
-        ground.process_resolution(),
-        ids.crushed_storage,
-        ids.ground_storage,
-    )
-    .unwrap_or_else(|error| panic!("ore preparation grinding start failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("ore preparation grinding commit failed: {error}"));
-    finish_operation(registries, &mut state, grind_duration);
-    assert_eq!(validate_loaded_state(registries, &state), Ok(()));
-    assert_eq!(
-        state
-            .equipment()
-            .get_equipment(ids.grinder)
-            .map(|equipment| equipment.condition()),
-        Some(grinder_condition)
-    );
-
-    let ground_lot = stockpile_first_lot(&state, ids.ground_storage);
-    let ground_distribution = state
-        .inventory()
-        .get_lot(ground_lot)
-        .and_then(|lot| lot.particle_size_distribution())
-        .cloned()
-        .unwrap_or_else(|| panic!("canonical grinding output lost particle-size state"));
-    let ground_classes = ground_distribution.classes();
-    let grinding_matches_authoring =
-        &ground_distribution == grinder_definition.output_particle_size_distribution();
-    let grinding_resolved_screen_cut = ground_classes.iter().all(|class| {
-        class.range().maximum_diameter() <= screen_definition.aperture()
-            || class.range().minimum_diameter() > screen_definition.aperture()
-    });
-
-    let screen_selection = [MaterialLotSelection::new(ground_lot, batch_mass)];
-    let screened = resolve_screening_process(
-        registries,
-        &state,
-        ScreeningRequest::new(
-            PROCESS_SCREEN_CRUSHED_ORE,
-            ids.ground_storage,
-            &screen_selection,
-            ids.screen,
-            ids.drive,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("canonical screening probe resolution failed: {error}"));
-    let screen_duration = screened.process_resolution().duration();
-    println!(
-        "  screen: undersize={}mg oversize={}mg energy={}nJ rate={}mg/s duration={}t bottleneck={:?}",
-        screened.undersize_mass().milligrams(),
-        screened.oversize_mass().milligrams(),
-        screened.required_energy().nanojoules(),
-        screened.processing_rate().milligrams_per_second(),
-        screen_duration.value(),
-        screened.bottleneck(),
-    );
-    let screen_energy = screened.required_energy();
-    let screen_condition = screened.condition_after();
-    let screened_undersize_mass = screened.undersize_mass();
-    let screened_oversize_mass = screened.oversize_mass();
-    let mut routes = Vec::with_capacity(2);
-    if !screened_undersize_mass.is_zero() {
-        routes.push(ProcessOutputRoute::new(
-            ScreeningProcessDefinition::UNDERSIZE_STREAM,
-            ids.undersize_storage,
-        ));
-    }
-    if !screened_oversize_mass.is_zero() {
-        routes.push(ProcessOutputRoute::new(
-            ScreeningProcessDefinition::OVERSIZE_STREAM,
-            ids.oversize_storage,
-        ));
-    }
-    validate_start_process_routed(
-        registries,
-        &state,
-        screened.process_resolution(),
-        ids.ground_storage,
-        &routes,
-    )
-    .unwrap_or_else(|error| panic!("ore preparation screening start failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("ore preparation screening commit failed: {error}"));
-    finish_operation(registries, &mut state, screen_duration);
-    assert_eq!(validate_loaded_state(registries, &state), Ok(()));
-
-    let output_composition = mixed_ore_composition(copper_ppm);
-    let fine_output_fits_undersize = fine_grind_definition
-        .output_particle_size_distribution()
-        .classes()
-        .iter()
-        .all(|class| class.range().maximum_diameter() <= screen_definition.aperture());
-    let (fine_energy, fine_duration_ticks, final_grinder_projection, oversize_profile_is_preserved) =
-        if screened_oversize_mass.is_zero() {
-            println!(
-                "  regrind oversize: skipped because the authored screen produced no oversize"
-            );
-            (Energy::ZERO, 0, grinder_condition, true)
-        } else {
-            let oversize_lot = stockpile_first_lot(&state, ids.oversize_storage);
-            let oversize_before_regrind = state
-                .inventory()
-                .get_lot(oversize_lot)
-                .unwrap_or_else(|| panic!("ore preparation oversize lot disappeared"));
-            let oversize_profile_is_preserved = oversize_before_regrind.composition()
-                == &output_composition
-                && oversize_before_regrind
-                    .particle_size_distribution()
-                    .is_some_and(|distribution| {
-                        distribution.classes().iter().all(|class| {
-                            class.range().minimum_diameter() > screen_definition.aperture()
-                                && ground_classes.contains(class)
-                        })
-                    });
-            let fine_selection = [MaterialLotSelection::new(
-                oversize_lot,
-                screened_oversize_mass,
-            )];
-            let fine_ground = resolve_comminution_process(
-                registries,
-                &state,
-                ComminutionRequest::new(
-                    PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
-                    ids.oversize_storage,
-                    &fine_selection,
-                    ids.grinder,
-                    ids.drive,
-                ),
-            )
-            .unwrap_or_else(|error| {
-                panic!("canonical fine-grinding probe resolution failed: {error}")
-            });
-            let fine_duration = fine_ground.process_resolution().duration();
-            println!(
-                "  regrind oversize: mass={}mg energy={}nJ rate={}mg/s duration={}t bottleneck={:?}",
-                screened_oversize_mass.milligrams(),
-                fine_ground.required_energy().nanojoules(),
-                fine_ground.processing_rate().milligrams_per_second(),
-                fine_duration.value(),
-                fine_ground.bottleneck(),
-            );
-            let fine_energy = fine_ground.required_energy();
-            let final_grinder_projection = fine_ground.condition_after();
-            validate_start_process(
-                registries,
-                &state,
-                fine_ground.process_resolution(),
-                ids.oversize_storage,
-                ids.undersize_storage,
-            )
-            .unwrap_or_else(|error| panic!("ore preparation fine-grinding start failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("ore preparation fine-grinding commit failed: {error}"));
-            finish_operation(registries, &mut state, fine_duration);
-            assert_eq!(validate_loaded_state(registries, &state), Ok(()));
-            (
-                fine_energy,
-                fine_duration.value(),
-                final_grinder_projection,
-                oversize_profile_is_preserved,
-            )
-        };
-
-    let final_matter = calculate_matter_accounting(&state)
-        .unwrap_or_else(|error| panic!("ore preparation final matter accounting failed: {error}"))
-        .total();
-    let final_energy = state
-        .energy()
-        .get_store(ids.drive)
-        .map(|store| store.stored())
-        .unwrap_or_else(|| panic!("ore preparation drive disappeared after completion"));
-    let final_crusher_condition = state
-        .equipment()
-        .get_equipment(ids.crusher)
-        .map(|equipment| equipment.condition())
-        .unwrap_or_else(|| panic!("ore preparation crusher disappeared after completion"));
-    let final_grinder_condition = state
-        .equipment()
-        .get_equipment(ids.grinder)
-        .map(|equipment| equipment.condition())
-        .unwrap_or_else(|| panic!("ore preparation grinder disappeared after completion"));
-    let final_screen_condition = state
-        .equipment()
-        .get_equipment(ids.screen)
-        .map(|equipment| equipment.condition())
-        .unwrap_or_else(|| panic!("ore preparation screen disappeared after completion"));
-    let undersize_mass = state
-        .inventory()
-        .get_stockpile(ids.undersize_storage)
-        .map(|stockpile| stockpile.stored_mass())
-        .unwrap_or_else(|| panic!("ore preparation undersize storage disappeared"));
-    let oversize_mass = state
-        .inventory()
-        .get_stockpile(ids.oversize_storage)
-        .map(|stockpile| stockpile.stored_mass())
-        .unwrap_or_else(|| panic!("ore preparation oversize storage disappeared"));
-    let composition_preserved = state.inventory().lot_ids(ids.undersize_storage).all(|lot| {
-        state
-            .inventory()
-            .get_lot(lot)
-            .is_some_and(|lot| lot.composition() == &output_composition)
-    });
-    let final_distribution_is_fine = state.inventory().lot_ids(ids.undersize_storage).all(|lot| {
-        state
-            .inventory()
-            .get_lot(lot)
-            .and_then(|lot| lot.particle_size_distribution())
-            .is_some_and(|distribution| {
-                distribution
-                    .classes()
-                    .iter()
-                    .all(|class| class.range().maximum_diameter() <= screen_definition.aperture())
-            })
-    });
-    let consumed_energy = crush_energy
-        .checked_add(grind_energy)
-        .and_then(|energy| energy.checked_add(screen_energy))
-        .and_then(|energy| energy.checked_add(fine_energy))
-        .unwrap_or_else(|| panic!("ore preparation consumed energy overflowed"));
-
-    let requirements = [
-        (
-            "ore preparation conserves matter",
-            final_matter == initial_matter,
-        ),
-        (
-            "ore preparation consumes exactly resolved work energy",
-            initial_energy.checked_sub(consumed_energy) == Some(final_energy),
-        ),
-        (
-            "crusher condition matches resolved wear",
-            final_crusher_condition == crusher_condition,
-        ),
-        (
-            "grinder condition matches resolved wear",
-            final_grinder_condition == final_grinder_projection,
-        ),
-        (
-            "screen condition matches resolved wear",
-            final_screen_condition == screen_condition,
-        ),
-        (
-            "crusher output matches authored particle state",
-            crusher_output_matches_authoring,
-        ),
-        (
-            "grinder output matches authored particle state",
-            grinding_matches_authoring,
-        ),
-        (
-            "grinder output resolves the authored screen cut",
-            grinding_resolved_screen_cut,
-        ),
-        (
-            "fine-grind output fits the authored screen undersize",
-            screened_oversize_mass.is_zero() || fine_output_fits_undersize,
-        ),
-        (
-            "screen oversize preserves its particle profile",
-            oversize_profile_is_preserved,
-        ),
-        (
-            "ore preparation preserves composition",
-            composition_preserved,
-        ),
-        (
-            "final product satisfies the fine size range",
-            final_distribution_is_fine,
-        ),
-        (
-            "all prepared mass finishes in undersize storage",
-            undersize_mass == batch_mass,
-        ),
-        (
-            "oversize storage is empty after regrind",
-            oversize_mass == Mass::ZERO,
-        ),
-    ];
-
-    for (name, observed) in requirements {
-        assert!(
-            observed,
-            "ore-preparation capability contract failed: {name}"
-        );
-    }
-    std::println!(
-        "ORE_PREP seed=0x{seed:016X} batch={}mg copper={}ppm stages=[crush:{}t grind:{}t screen:{}t regrind:{}t] matter=conserved energy=resolved",
-        batch_mass.milligrams(),
-        copper_ppm,
-        crush_duration.value(),
-        grind_duration.value(),
-        screen_duration.value(),
-        fine_duration_ticks,
-    );
-}
-
-/// Runs the headless workshop scenario matrix with optional exploratory capability output.
+/// Runs the bootstrapped industrial workshop capability matrix with optional broader play evidence.
 fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
     let registries = build_registries();
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
@@ -3215,8 +2669,8 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
         ScenarioPlanMode::Gate => 0x4741_5445_5EED_2026,
         ScenarioPlanMode::Explore => 0x4558_504C_5EED_2026,
     };
-    let exploration_world_root = fresh_exploration_root(MAINTAINED_VARIATION_ROOT ^ mode_salt);
-    let exploration_behavior_root = fresh_exploration_root(
+    let default_world_root = fresh_exploration_root(MAINTAINED_VARIATION_ROOT ^ mode_salt);
+    let default_behavior_root = fresh_exploration_root(
         MAINTAINED_BEHAVIOR_ROOT ^ mode_salt.rotate_left(17) ^ 0xB3A4_7102_5EED_2026,
     );
     let plan = scenario_seeds_from(
@@ -3224,8 +2678,8 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
         scenario_raw.as_deref(),
         variation_raw.as_deref(),
         behavior_raw.as_deref(),
-        exploration_world_root,
-        exploration_behavior_root,
+        default_world_root,
+        default_behavior_root,
     )
     .unwrap_or_else(|error| panic!("gameplay harness configuration failed: {error:?}"));
     std::println!(
@@ -3240,7 +2694,10 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
     );
     print_content_summary(&registries, include_probes || has_verbose_output());
     std::println!(
-        "PLAYER LOOP early=[survive->shape-tools->mine->reinforce->store-work->mechanize] workshop=[site-machine->process-total-mass->adapt-batch-to-condition+stored-work->choose-power->hand-charge-or-protect-survival->react-to-world-load->maintain-or-relocate->iterate] utility=[survival-reserve,machine-condition,structural-margin,stored-work,time] frontier=[industrial acquisition,power generation,mixed-ore concentration/smelting]"
+        "PLAYABILITY current-runtime-after-world-bootstrap=[survival-provisioning,manual-shaping,equipment-assembly+upgrade,hand-mining,material-backed-flywheel-construction,survival-costed-manual-power,primitive-autonomous-crushing] world-bootstrap-needed=[starting-food+water+storage,raw-stone+wood,known-finite-geological-sites] capability-only=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] missing-bridge=[industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting]"
+    );
+    std::println!(
+        "PLAYER LOOP reachable=[survive->shape-tools->mine->reinforce->store-work->mechanize] capability-workshop=[site-machine->process-total-mass->adapt-batch-to-condition+stored-work->choose-power->hand-charge-or-protect-survival->react-to-world-load->maintain-or-relocate->iterate] utility=[survival-reserve,machine-condition,structural-margin,stored-work,time]"
     );
     let probe_seed = plan
         .cases()
@@ -3248,19 +2705,24 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
         .fold(0xD33F_C01D_5EED_u64, |combined, case| {
             mix64(combined ^ case.world_seed ^ case.behavior_seed.rotate_left(17))
         });
+    if include_probes {
+        std::println!("\n=== CURRENT REACHABLE PLAY AFTER WORLD BOOTSTRAP ===");
+        run_survival_provisioning_probe(&registries, probe_seed ^ 0x5355_5256_4956_414C);
+        run_primitive_progression_probe(&registries, probe_seed ^ 0x5052_4F47_5245_5353);
+    }
     println!(
-        "\n=== DEEP HEARTH WORKSHOP GAMEPLAY HARNESS: {} scenario(s), registry schema {} ===",
+        "\n=== DEEP HEARTH INDUSTRIAL WORKSHOP CAPABILITY MATRIX: {} scenario(s), registry schema {} ===",
         plan.cases().len(),
         registries.schema_version().value(),
     );
     println!(
-        "SETUP BOUNDARY: starting matter, equipment, finite energy, structural bays, background stored cargo, and one single-use delivery authorization are arranged before the actor starts. The controlled event later consumes that authorization through canonical inventory validation/commit; the actor receives no future event tick or target."
+        "CAPABILITY SETUP: industrial machines and industrial energy stores with no current runtime acquisition path, plus starting matter, structural bays, background cargo, and one single-use delivery authorization, are arranged before the actor starts. Fixture guards fail if any injected machine/store later gains a runtime acquisition path. The controlled event consumes its authorization through canonical inventory validation/commit; the actor receives no future event tick or target."
     );
     println!(
-        "WORKSHOP FANTASY: turn a constrained physical workshop into reliable production by reading structural margin, uneven stored work, machine condition, material state, and personal survival reserve. Use residual work instead of discarding it, fall back to direct labor when worth the bodily cost, and recover when the world changes."
+        "CAPABILITY FANTASY: given an already-acquired industrial workshop, operate it by reading structural margin, uneven stored work, machine condition, material state, and personal survival reserve. Use residual work instead of discarding it, fall back to direct labor when worth the bodily cost, and recover when the world changes."
     );
     println!(
-        "LOOP SCOPE: each workshop has a total ore work order rather than a required fixed batch count. Fresh cases vary uneven finite stored work, replacement stock, condition, support state, and player priorities. The actor uses canonical projections to resize operations, choose power, decide whether manual generation is survivable, and react after one hidden preauthorized supported-stockpile event changes the world. No logistics scheduler or industrial acquisition path is implied. Separate probes exercise reachable primitive progression, survival provisioning, ore preparation, and current downstream foundry capabilities."
+        "CAPABILITY LOOP: each workshop has a total ore work order rather than a required fixed batch count. Fresh cases vary uneven finite stored work, replacement stock, condition, support state, and player priorities. The actor uses canonical projections to resize operations, choose power, decide whether manual generation is survivable, and react after one hidden preauthorized supported-stockpile event changes the world. This does not imply industrial acquisition, generation, or logistics. Separate probes exercise reachable survival/progression and bootstrapped ore-preparation/foundry capabilities."
     );
 
     let anchor_seed_count = plan.anchor_seed_count();
@@ -3284,47 +2746,123 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
         assert_anchor_diversity(&reports[..plan.anchor_seed_count()]);
     }
     if include_probes {
-        let mut agency_worlds = Vec::new();
+        let mut agency_worlds: Vec<AgencyWorld> = Vec::new();
         if plan.anchor_seed_count() > 0 {
-            agency_worlds.push(plan.cases()[plan.anchor_seed_count() - 1].world_seed);
+            push_unique_agency_world(
+                &mut agency_worlds,
+                "maintained-baseline",
+                plan.cases()[0].world_seed,
+                Some(0),
+            );
         }
-        let variation_world = plan
+        if plan.anchor_seed_count() > 3 {
+            push_unique_agency_world(
+                &mut agency_worlds,
+                "adaptive-energy-pressure",
+                plan.cases()[3].world_seed,
+                Some(3),
+            );
+        }
+        if plan.anchor_seed_count() > 4 {
+            push_unique_agency_world(
+                &mut agency_worlds,
+                "manual-recovery-pressure",
+                plan.cases()[4].world_seed,
+                Some(4),
+            );
+        }
+        let fresh_variations = plan
             .cases()
             .iter()
             .skip(plan.anchor_seed_count())
-            .filter(|case| !agency_worlds.contains(&case.world_seed))
-            .min_by_key(|case| {
+            .map(|case| {
+                (
+                    case.world_seed,
+                    ScenarioVariation::from_seeds(
+                        &registries,
+                        case.world_seed,
+                        case.behavior_seed,
+                        None,
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        let crusher_thresholds = registries
+            .equipment()
+            .get_equipment(EQUIPMENT_JAW_CRUSHER)
+            .map(|definition| definition.maintenance_thresholds())
+            .unwrap_or_else(|| panic!("agency probe crusher definition disappeared"));
+        let maintenance_world = fresh_variations
+            .iter()
+            .filter(|(world_seed, variation)| {
+                variation.crusher.maintenance_replacement_units > 0
+                    && crusher_thresholds.classify(variation.crusher.initial_crusher_condition)
+                        == MaintenanceBand::Warning
+                    && agency_worlds
+                        .iter()
+                        .all(|selected| selected.world_seed != *world_seed)
+            })
+            .min_by_key(|(_, variation)| {
+                (
+                    variation.crusher.maintenance_replacement_units,
+                    variation
+                        .crusher
+                        .initial_crusher_condition
+                        .parts_per_million(),
+                )
+            })
+            .map(|(world_seed, _)| *world_seed);
+        if let Some(world_seed) = maintenance_world {
+            push_unique_agency_world(&mut agency_worlds, "maintenance-pressure", world_seed, None);
+        } else if let Some((index, case)) = plan
+            .cases()
+            .iter()
+            .take(plan.anchor_seed_count())
+            .enumerate()
+            .find(|(index, case)| {
                 let variation = ScenarioVariation::from_seeds(
                     &registries,
                     case.world_seed,
                     case.behavior_seed,
-                    None,
+                    Some(*index),
                 );
-                let stored_work_ppm = (u64::from(variation.crusher.small_drive_batch_budget)
-                    + u64::from(variation.crusher.large_drive_batch_budget))
-                    * 1_000_000
-                    + u64::from(variation.crusher.small_drive_partial_batch_ppm)
-                    + u64::from(variation.crusher.large_drive_partial_batch_ppm);
-                let order_batches = variation
-                    .ore
-                    .order_mass
-                    .milligrams()
-                    .div_ceil(variation.ore.nominal_batch_mass.milligrams());
-                stored_work_ppm
-                    .saturating_mul(1_000_000)
-                    .checked_div(order_batches.saturating_mul(1_000_000))
-                    .unwrap_or(u64::MAX)
+                crusher_thresholds.classify(variation.crusher.initial_crusher_condition)
+                    == MaintenanceBand::Warning
+                    && variation.crusher.maintenance_replacement_units > 0
+                    && agency_worlds
+                        .iter()
+                        .all(|selected| selected.world_seed != case.world_seed)
             })
-            .map(|case| case.world_seed);
-        if let Some(variation_world) = variation_world {
-            agency_worlds.push(variation_world);
+        {
+            push_unique_agency_world(
+                &mut agency_worlds,
+                "maintenance-pressure",
+                case.world_seed,
+                Some(index),
+            );
         }
         if agency_worlds.is_empty() {
-            agency_worlds.extend(plan.cases().iter().map(|case| case.world_seed).take(2));
+            for case in plan.cases().iter().take(4) {
+                push_unique_agency_world(&mut agency_worlds, "custom-input", case.world_seed, None);
+            }
         }
+        std::println!(
+            "AGENCY INPUT selected={} focuses=[{}] selection=world-input-pressure-not-outcome",
+            agency_worlds.len(),
+            agency_worlds
+                .iter()
+                .map(|world| match world.anchor_index {
+                    Some(index) => format!(
+                        "{}:0x{:016X}:anchor{}",
+                        world.focus, world.world_seed, index
+                    ),
+                    None => format!("{}:0x{:016X}:fresh", world.focus, world.world_seed),
+                })
+                .collect::<Vec<_>>()
+                .join(","),
+        );
         run_agency_probe(&registries, &agency_worlds);
-        run_survival_provisioning_probe(&registries, probe_seed ^ 0x5355_5256_4956_414C);
-        run_primitive_progression_probe(&registries, probe_seed ^ 0x5052_4F47_5245_5353);
+        std::println!("\n=== BOOTSTRAPPED INDUSTRIAL CAPABILITY PROBES ===");
         run_ore_preparation_capability_probe(&registries, probe_seed);
         run_foundry_capability_probe(&registries, probe_seed);
     }
@@ -3342,42 +2880,22 @@ fn gameplay_harness_gate() {
 
 #[test]
 fn gameplay_ore_preparation_probe() {
-    run_focused_probe(
-        "ore-preparation",
-        0xD33F_C01D_0A11,
-        0x0AE5_1A5E_5052_4F42,
-        run_ore_preparation_capability_probe,
-    );
+    run_focused_probe("ore-preparation", run_ore_preparation_capability_probe);
 }
 
 #[test]
 fn gameplay_primitive_progression_probe() {
-    run_focused_probe(
-        "primitive-progression",
-        0xD33F_C01D_5052,
-        0x5052_4F47_5052_4F42,
-        run_primitive_progression_probe,
-    );
+    run_focused_probe("primitive-progression", run_primitive_progression_probe);
 }
 
 #[test]
 fn gameplay_foundry_probe() {
-    run_focused_probe(
-        "foundry",
-        0xD33F_C01D_F001,
-        0xF0A1_DA7A_5052_4F42,
-        run_foundry_capability_probe,
-    );
+    run_focused_probe("foundry", run_foundry_capability_probe);
 }
 
 #[test]
 fn gameplay_survival_provisioning_probe() {
-    run_focused_probe(
-        "survival-provisioning",
-        0xD33F_C01D_5A70,
-        0x5355_5256_5052_4F42,
-        run_survival_provisioning_probe,
-    );
+    run_focused_probe("survival-provisioning", run_survival_provisioning_probe);
 }
 
 #[test]

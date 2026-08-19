@@ -72,8 +72,10 @@ history or future design detail.
 - Player survival tracks metabolic energy, hydration, vitality, and recent Grain/Fruit/Protein
   nutrition. Basal depletion and active-work exertion run in the canonical tick.
 - Authored food has finite freshness; preservation affects future exposure. Meals can combine explicit
-  food selections atomically. Eating preserves matter ownership in biological accounting.
-- Authored water is finite and drinkable. Drinking preserves fluid-volume ownership in biological
+  food selections atomically and must fit the player's remaining metabolic-energy reserve capacity.
+  Eating preserves matter ownership in biological accounting.
+- Authored water is finite and drinkable. Drinking must produce a representable hydration gain that
+  fits the player's remaining hydration capacity and preserves fluid-volume ownership in biological
   accounting.
 
 ### Capabilities, equipment, and maintenance
@@ -156,9 +158,9 @@ history or future design detail.
 
 - Deterministic unit, integration, soak, persistence, conservation, and gameplay-harness coverage exists
   for the implemented ownership and production paths.
-- Gameplay evaluation covers workshop operation, primitive progression, survival provisioning, ore
-  preparation, and pure-copper foundry capability with deterministic pass/fail cases plus a separate
-  exploratory report.
+- Gameplay evaluation distinguishes reachable survival/primitive progression after controlled world
+  bootstrap from bootstrapped industrial workshop, ore-preparation, and pure-copper foundry capability
+  evidence. Maintained anchors are supplemented by bounded fresh replayable cases and a broader report.
 - Test selection, replay controls, assertion policy, and local CI are owned by [`TESTING.md`](TESTING.md).
 
 

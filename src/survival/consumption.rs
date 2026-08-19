@@ -138,6 +138,10 @@ pub enum EatError {
         lot: MaterialLotId,
         material: MaterialId,
     },
+    MetabolicEnergyCapacityExceeded {
+        available: Energy,
+        requested: Energy,
+    },
     MetabolicMatterOverflow {
         material: MaterialId,
     },
@@ -221,6 +225,15 @@ impl Display for EatError {
                 lot.value(),
                 material.value()
             ),
+            Self::MetabolicEnergyCapacityExceeded {
+                available,
+                requested,
+            } => write!(
+                formatter,
+                "meal provides {} nJ but only {} nJ of metabolic-energy reserve capacity remains",
+                requested.nanojoules(),
+                available.nanojoules()
+            ),
             Self::MetabolicMatterOverflow { material } => write!(
                 formatter,
                 "metabolic matter accounting overflowed material {}",
@@ -258,6 +271,7 @@ impl Error for EatError {
             | Self::ShelfLifeOverflow
             | Self::NutritionOverflow
             | Self::UnsupportedComposition { .. }
+            | Self::MetabolicEnergyCapacityExceeded { .. }
             | Self::MetabolicMatterOverflow { material: _ }
             | Self::InventoryRevisionExhausted
             | Self::SurvivalRevisionExhausted => None,
@@ -456,13 +470,11 @@ fn allocate_nutrition(total_ppm: u32, offered: NutritionEnergy) -> NutritionGain
     }
 }
 
-fn add_capped_energy(current: Energy, gain: Energy, maximum: Energy) -> (Energy, Energy) {
-    let after = current.checked_add(gain).unwrap_or(maximum).min(maximum);
-    let gained = after.checked_sub(current).unwrap_or(Energy::ZERO);
-    (after, gained)
-}
-
-fn add_capped_volume(current: Volume, gain: Volume, maximum: Volume) -> (Volume, Volume) {
+fn add_food_hydration_up_to_capacity(
+    current: Volume,
+    gain: Volume,
+    maximum: Volume,
+) -> (Volume, Volume) {
     let after = current.checked_add(gain).unwrap_or(maximum).min(maximum);
     let gained = after.checked_sub(current).unwrap_or(Volume::ZERO);
     (after, gained)
@@ -599,6 +611,22 @@ pub fn validate_eat(
             category: food.category(),
         });
     }
+    let physiology = registries.survival().physiology();
+    let offered_energy = Energy::from_nanojoules(offered_energy_nj);
+    let available_energy = physiology
+        .maximum_metabolic_energy()
+        .checked_sub(player.metabolic_energy())
+        .ok_or(EatError::NutritionOverflow)?;
+    if offered_energy > available_energy {
+        return Err(EatError::MetabolicEnergyCapacityExceeded {
+            available: available_energy,
+            requested: offered_energy,
+        });
+    }
+    let energy_after = player
+        .metabolic_energy()
+        .checked_add(offered_energy)
+        .ok_or(EatError::NutritionOverflow)?;
     let egress = validate_material_egress_from_selection(state.inventory(), exact_selection)
         .map_err(|error| match error {
             MaterialEgressError::StaleSelection {
@@ -624,13 +652,8 @@ pub fn validate_eat(
 
     let hydration_gain_ul =
         u64::try_from(offered_hydration_ul).map_err(|_| EatError::NutritionOverflow)?;
-    let physiology = registries.survival().physiology();
-    let (energy_after, energy_gained) = add_capped_energy(
-        player.metabolic_energy(),
-        Energy::from_nanojoules(offered_energy_nj),
-        physiology.maximum_metabolic_energy(),
-    );
-    let (hydration_after, hydration_gained) = add_capped_volume(
+    let energy_gained = offered_energy;
+    let (hydration_after, hydration_gained) = add_food_hydration_up_to_capacity(
         player.hydration(),
         Volume::from_microliters(hydration_gain_ul),
         physiology.maximum_hydration(),
@@ -751,6 +774,13 @@ pub enum DrinkError {
     FluidRevisionExhausted,
     SurvivalRevisionExhausted,
     HydrationOverflow,
+    NoHydrationGain {
+        volume: Volume,
+    },
+    HydrationCapacityExceeded {
+        available: Volume,
+        requested: Volume,
+    },
     IngestedFluidOverflow,
     StructuralLoad(FluidStructuralLoadError),
 }
@@ -790,6 +820,20 @@ impl Display for DrinkError {
             Self::HydrationOverflow => {
                 formatter.write_str("drink hydration calculation overflowed")
             }
+            Self::NoHydrationGain { volume } => write!(
+                formatter,
+                "drink volume {} uL is too small to produce any hydration at the authored multiplier",
+                volume.microliters()
+            ),
+            Self::HydrationCapacityExceeded {
+                available,
+                requested,
+            } => write!(
+                formatter,
+                "drink provides {} uL of hydration but only {} uL of hydration capacity remains",
+                requested.microliters(),
+                available.microliters()
+            ),
             Self::IngestedFluidOverflow => {
                 formatter.write_str("ingested fluid accounting overflowed")
             }
@@ -815,6 +859,8 @@ impl Error for DrinkError {
             | Self::FluidRevisionExhausted
             | Self::SurvivalRevisionExhausted
             | Self::HydrationOverflow
+            | Self::NoHydrationGain { .. }
+            | Self::HydrationCapacityExceeded { .. }
             | Self::IngestedFluidOverflow => None,
         }
     }
@@ -943,12 +989,26 @@ pub fn validate_drink(
         .ok_or(DrinkError::HydrationOverflow)?;
     let hydration_gain = u64::try_from(hydration_numerator / 1_000_000)
         .map_err(|_| DrinkError::HydrationOverflow)?;
+    let hydration_gain = Volume::from_microliters(hydration_gain);
+    if hydration_gain.is_zero() {
+        return Err(DrinkError::NoHydrationGain { volume });
+    }
     let physiology = registries.survival().physiology();
-    let (hydration_after, hydration_gained) = add_capped_volume(
-        player.hydration(),
-        Volume::from_microliters(hydration_gain),
-        physiology.maximum_hydration(),
-    );
+    let available_hydration = physiology
+        .maximum_hydration()
+        .checked_sub(player.hydration())
+        .ok_or(DrinkError::HydrationOverflow)?;
+    if hydration_gain > available_hydration {
+        return Err(DrinkError::HydrationCapacityExceeded {
+            available: available_hydration,
+            requested: hydration_gain,
+        });
+    }
+    let hydration_after = player
+        .hydration()
+        .checked_add(hydration_gain)
+        .ok_or(DrinkError::HydrationOverflow)?;
+    let hydration_gained = hydration_gain;
     let expected_survival_revision = state.survival().revision();
     let next_survival_revision = expected_survival_revision
         .checked_add(1)
@@ -1036,6 +1096,69 @@ mod tests {
             advance_tick(registries, state)
                 .unwrap_or_else(|error| panic!("survival reserve-spend tick failed: {error}"));
         }
+    }
+
+    #[test]
+    fn eating_rejects_meal_beyond_remaining_metabolic_capacity_without_mutation() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5A70_0010));
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("full-reserve survival initialization failed: {error}"));
+        let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
+            .unwrap_or_else(|error| panic!("full-reserve food stockpile failed: {error}"));
+        let lot = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            stockpile,
+            CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+            Mass::from_milligrams(1),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("full-reserve food lot failed: {error}"));
+        let before = state.clone();
+
+        assert_eq!(
+            validate_eat(
+                &registries,
+                &state,
+                stockpile,
+                &[MaterialLotSelection::new(lot, Mass::from_milligrams(1))],
+            )
+            .err(),
+            Some(EatError::MetabolicEnergyCapacityExceeded {
+                available: Energy::ZERO,
+                requested: Energy::from_nanojoules(14_000_000_000),
+            })
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn drinking_rejects_intake_beyond_remaining_hydration_capacity_without_mutation() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5A70_0011));
+        initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("full-hydration survival initialization failed: {error}")
+        });
+        let store = add_fluid_store_with_contents_for_fixture(
+            &registries,
+            &mut state,
+            Volume::from_microliters(1),
+            FLUID_WATER,
+            Volume::from_microliters(1),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("full-hydration water fixture failed: {error}"));
+        let before = state.clone();
+
+        assert_eq!(
+            validate_drink(&registries, &state, store, Volume::from_microliters(1)).err(),
+            Some(DrinkError::HydrationCapacityExceeded {
+                available: Volume::ZERO,
+                requested: Volume::from_microliters(1),
+            })
+        );
+        assert_eq!(state, before);
     }
 
     #[test]
@@ -1495,7 +1618,7 @@ mod tests {
             .unwrap_or_else(|| panic!("water fixture survival state is missing"))
             .hydration();
 
-        let token = validate_drink(&registries, &state, store, Volume::from_microliters(1_000))
+        let token = validate_drink(&registries, &state, store, Volume::from_microliters(625))
             .unwrap_or_else(|error| panic!("drink validation failed: {error}"));
         let outcome = token
             .commit(&mut state)
@@ -1516,7 +1639,7 @@ mod tests {
                 .fluid()
                 .get_store(store)
                 .map(|record| record.stored_volume()),
-            Some(Volume::from_microliters(4_000))
+            Some(Volume::from_microliters(4_375))
         );
         assert_eq!(outcome.hydration_gained(), Volume::from_microliters(625));
         assert_eq!(

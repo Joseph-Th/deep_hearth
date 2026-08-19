@@ -1,13 +1,14 @@
 //! Replayable gameplay-harness world/scenario and behavior seed configuration.
 
 use super::seed::mix64;
+use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 
 const ANCHOR_WORLD_SEEDS: [u64; 5] = [1, 4, 9, 19, 380];
 const GATE_VARIATION_SCENARIO_COUNT: usize = 2;
 const EXPLORATORY_VARIATION_SCENARIO_COUNT: usize = 4;
 const SEED_STRIDE: u64 = 0xD1B5_4A32_D192_ED03;
 
-pub(super) const MAINTAINED_VARIATION_ROOT: u64 = 0xE7A1_0A7E_5EED_2026;
+pub(super) use super::focused_seeds::MAINTAINED_VARIATION_ROOT;
 pub(super) const MAINTAINED_BEHAVIOR_ROOT: u64 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -17,15 +18,13 @@ pub(super) enum ScenarioPlanMode {
 }
 
 fn parse_scenario_seed_list(raw: &str) -> Result<Vec<u64>, GameplayHarnessConfigError> {
-    if raw.trim().is_empty() {
-        return Err(GameplayHarnessConfigError::EmptyScenarioSeedList);
+    match parse_seed_list(raw) {
+        Ok(seeds) => Ok(seeds),
+        Err(SeedListError::Empty) => Err(GameplayHarnessConfigError::EmptyScenarioSeedList),
+        Err(SeedListError::Invalid { index }) => {
+            Err(GameplayHarnessConfigError::InvalidScenarioSeed { index })
+        }
     }
-    raw.split(',')
-        .enumerate()
-        .map(|(index, token)| {
-            parse_seed(token).ok_or(GameplayHarnessConfigError::InvalidScenarioSeed { index })
-        })
-        .collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -114,18 +113,6 @@ impl ScenarioSeedPlan {
     }
 }
 
-fn parse_seed(raw: &str) -> Option<u64> {
-    let trimmed = raw.trim();
-    if let Some(hex) = trimmed
-        .strip_prefix("0x")
-        .or_else(|| trimmed.strip_prefix("0X"))
-    {
-        u64::from_str_radix(hex, 16).ok()
-    } else {
-        trimmed.parse().ok()
-    }
-}
-
 fn resolve_variation_seed(
     raw: Option<&str>,
     default_seed: u64,
@@ -185,10 +172,10 @@ pub(super) fn scenario_seeds_from(
     scenario_raw: Option<&str>,
     variation_raw: Option<&str>,
     behavior_raw: Option<&str>,
-    exploration_variation_seed: u64,
-    exploration_behavior_seed: u64,
+    default_variation_seed: u64,
+    default_behavior_seed: u64,
 ) -> Result<ScenarioSeedPlan, GameplayHarnessConfigError> {
-    let behavior_seed_root = resolve_behavior_seed(behavior_raw, exploration_behavior_seed)?;
+    let behavior_seed_root = resolve_behavior_seed(behavior_raw, default_behavior_seed)?;
 
     if let Some(raw) = scenario_raw {
         let world_seeds = parse_scenario_seed_list(raw)?;
@@ -202,7 +189,7 @@ pub(super) fn scenario_seeds_from(
     }
 
     let mut world_seeds = ANCHOR_WORLD_SEEDS.to_vec();
-    let variation_seed = resolve_variation_seed(variation_raw, exploration_variation_seed)?;
+    let variation_seed = resolve_variation_seed(variation_raw, default_variation_seed)?;
     let variation_count = match mode {
         ScenarioPlanMode::Gate => GATE_VARIATION_SCENARIO_COUNT,
         ScenarioPlanMode::Explore => EXPLORATORY_VARIATION_SCENARIO_COUNT,
@@ -215,30 +202,6 @@ pub(super) fn scenario_seeds_from(
         variation_seed: Some(variation_seed),
         behavior_seed_root,
     })
-}
-
-/// Resolves a focused probe into one maintained anchor plus one replayable generated variation.
-///
-/// `DEEP_HEARTH_GAMEPLAY_SEEDS` remains the exact override for deliberate replay/sweeps. Otherwise
-/// the caller supplies a fresh bounded variation root; a probe-specific salt prevents different probes
-/// from collapsing to the same case. Supplying `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` reproduces the
-/// generated case exactly.
-pub(super) fn focused_probe_seeds_from(
-    scenario_raw: Option<&str>,
-    variation_raw: Option<&str>,
-    maintained_seed: u64,
-    probe_salt: u64,
-    generated_variation_root: u64,
-) -> Result<Vec<u64>, GameplayHarnessConfigError> {
-    if let Some(raw) = scenario_raw {
-        return parse_scenario_seed_list(raw);
-    }
-    let root = resolve_variation_seed(variation_raw, generated_variation_root)?;
-    let mut variation = mix64(root ^ probe_salt);
-    while variation == maintained_seed {
-        variation = mix64(variation);
-    }
-    Ok(vec![maintained_seed, variation])
 }
 
 #[cfg(test)]
@@ -262,17 +225,7 @@ mod tests {
     }
 
     #[test]
-    fn seed_parser_accepts_decimal_hex_and_u64_boundaries() {
-        assert_eq!(parse_seed("  42  "), Some(42));
-        assert_eq!(parse_seed("0x2A"), Some(42));
-        assert_eq!(parse_seed("18446744073709551615"), Some(u64::MAX));
-        assert_eq!(parse_seed("0xFFFFFFFFFFFFFFFF"), Some(u64::MAX));
-    }
-
-    #[test]
     fn seed_configuration_rejects_invalid_inputs_with_exact_error_location() {
-        assert_eq!(parse_seed(""), None);
-        assert_eq!(parse_seed("not-a-seed"), None);
         assert_eq!(
             resolve_variation_seed(Some("nope"), 1),
             Err(GameplayHarnessConfigError::InvalidVariationSeed)
@@ -342,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn gate_keeps_anchors_stable_while_generated_cases_follow_session_roots() {
+    fn gate_keeps_anchors_stable_while_generated_cases_follow_supplied_roots() {
         let first = scenario_seeds_from(ScenarioPlanMode::Gate, None, None, None, 0x1111, 0x2222)
             .unwrap_or_else(|error| panic!("first gate-default plan failed: {error:?}"));
         let second = scenario_seeds_from(ScenarioPlanMode::Gate, None, None, None, 0xAAAA, 0xBBBB)
@@ -452,37 +405,5 @@ mod tests {
                 .map(|case| case.behavior_seed)
                 .collect::<Vec<_>>()
         );
-    }
-
-    #[test]
-    fn focused_probe_default_keeps_one_anchor_and_adds_one_replayable_variation() {
-        let first = focused_probe_seeds_from(None, None, 0x1111, 0x2222, 0x3333)
-            .unwrap_or_else(|error| panic!("first focused probe plan failed: {error:?}"));
-        let second = focused_probe_seeds_from(None, None, 0x1111, 0x2222, 0x3333)
-            .unwrap_or_else(|error| panic!("second focused probe plan failed: {error:?}"));
-
-        assert_eq!(first, second);
-        assert_eq!(first.len(), 2);
-        assert_eq!(first[0], 0x1111);
-        assert_ne!(first[1], first[0]);
-    }
-
-    #[test]
-    fn focused_probe_explicit_variation_root_replays_exactly() {
-        let first = focused_probe_seeds_from(None, Some("0xBAD"), 0x1111, 0x2222, 0x3333)
-            .unwrap_or_else(|error| panic!("first focused replay plan failed: {error:?}"));
-        let second = focused_probe_seeds_from(None, Some("0xBAD"), 0x1111, 0x2222, 0x4444)
-            .unwrap_or_else(|error| panic!("second focused replay plan failed: {error:?}"));
-
-        assert_eq!(first, second);
-    }
-
-    #[test]
-    fn focused_probe_custom_seed_list_is_exact() {
-        let seeds =
-            focused_probe_seeds_from(Some("1,0x2A,3"), Some("ignored"), 0x1111, 0x2222, 0x3333)
-                .unwrap_or_else(|error| panic!("custom focused probe plan failed: {error:?}"));
-
-        assert_eq!(seeds, [1, 42, 3]);
     }
 }

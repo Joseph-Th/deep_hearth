@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
 use crate::energy::EnergyCarrier;
+use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::material::{MaterialPhase, MaterialRegistry};
 use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
 
@@ -31,6 +32,7 @@ impl SensibleHeatingProcessDefinition {
         energy_carrier: EnergyCarrier,
         condition_wear_ppm_per_active_tick: u32,
     ) -> Self {
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
         Self {
             process,
             heating_power_capability,

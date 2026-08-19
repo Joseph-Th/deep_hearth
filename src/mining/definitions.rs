@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
+use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::survival::SurvivalExertion;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -50,10 +51,7 @@ impl MiningMethodDefinition {
             !name.trim().is_empty(),
             "mining method name must not be empty"
         );
-        assert!(
-            condition_wear_ppm_per_active_tick > 0,
-            "mining method wear must be nonzero"
-        );
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
         Self {
             id,
             name,

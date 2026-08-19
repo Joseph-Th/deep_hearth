@@ -12,6 +12,7 @@ use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
 use crate::core::quantity::{Length, Mass, MassFlow, MassSpecificEnergy};
 use crate::core::time::TickSpan;
 use crate::energy::EnergyCarrier;
+use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::material::{
     FormId, MaterialPhase, MaterialRegistry, ParticleSizeDistribution, ParticleSizeRange,
     ParticleSizeStatePolicy,
@@ -81,6 +82,7 @@ impl ScreeningOperatingProfile {
             !specific_energy.is_zero(),
             "screening mass-specific energy must be nonzero"
         );
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_processing_tick);
         Self {
             mass_flow_capability,
             max_batch_mass_capability,
@@ -186,6 +188,7 @@ impl ComminutionOperatingProfile {
             !specific_energy.is_zero(),
             "comminution mass-specific energy must be nonzero"
         );
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_processing_tick);
         Self {
             mass_flow_capability,
             max_batch_mass_capability,

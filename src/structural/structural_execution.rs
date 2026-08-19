@@ -173,6 +173,11 @@ pub enum StructuralMutationError {
     LoadOwnedBySubsystem {
         kind: StructuralLoadKind,
     },
+    LoadUnchanged {
+        element: StructuralElementId,
+        kind: StructuralLoadKind,
+        load: Force,
+    },
     LoadTargetsRemovedElement {
         element: StructuralElementId,
         kind: StructuralLoadKind,
@@ -252,6 +257,16 @@ impl Display for StructuralMutationError {
             Self::LoadOwnedBySubsystem { kind } => write!(
                 formatter,
                 "structural {kind:?} load contribution is owned by its source subsystem and cannot be set directly"
+            ),
+            Self::LoadUnchanged {
+                element,
+                kind,
+                load,
+            } => write!(
+                formatter,
+                "structural {kind:?} load on element {} is already {} mN",
+                element.value(),
+                load.millinewtons()
             ),
             Self::LoadTargetsRemovedElement { element, kind } => write!(
                 formatter,
@@ -344,6 +359,11 @@ impl Error for StructuralMutationError {
                 mass: _mass,
             } => None,
             Self::LoadOwnedBySubsystem { kind: _kind } => None,
+            Self::LoadUnchanged {
+                element: _element,
+                kind: _kind,
+                load: _load,
+            } => None,
             Self::LoadTargetsRemovedElement {
                 element: _element,
                 kind: _kind,
@@ -1039,6 +1059,17 @@ pub fn validate_set_structural_load(
     ) {
         return Err(StructuralMutationError::LoadOwnedBySubsystem { kind });
     }
+    if state
+        .structures()
+        .get_element(element)
+        .is_some_and(|record| record.load(kind) == load)
+    {
+        return Err(StructuralMutationError::LoadUnchanged {
+            element,
+            kind,
+            load,
+        });
+    }
     validate_set_owned_structural_load(registries, state, element, kind, load)
 }
 
@@ -1618,6 +1649,41 @@ mod tests {
                 .map(|record| record.lifecycle()),
             Some(StructuralLifecycle::Failed)
         );
+    }
+
+    #[test]
+    fn unchanged_public_load_is_rejected_without_revision_churn() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5100_0010));
+        let member = make_test_element(&registries, &mut state, 0, 0, true);
+        activate_test_element(&registries, &mut state, member);
+        let load = Force::from_millinewtons(1_000_000);
+        let initial = validate_set_structural_load(
+            &registries,
+            &state,
+            member,
+            StructuralLoadKind::Permanent,
+            load,
+        )
+        .unwrap_or_else(|error| panic!("initial public load validation failed: {error}"));
+        commit_test_mutation(initial, &mut state);
+        let before = state.clone();
+
+        assert_eq!(
+            validate_set_structural_load(
+                &registries,
+                &state,
+                member,
+                StructuralLoadKind::Permanent,
+                load,
+            ),
+            Err(StructuralMutationError::LoadUnchanged {
+                element: member,
+                kind: StructuralLoadKind::Permanent,
+                load,
+            })
+        );
+        assert_eq!(state, before);
     }
 
     #[test]

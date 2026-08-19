@@ -294,7 +294,7 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
         .collect::<Vec<_>>()
         .join(",");
     std::println!(
-        "PROGRESSION REACHABILITY runtime-equipment=[{reachable_equipment}] runtime-energy=[{reachable_energy}] bootstrapped-workshop-equipment=[{bootstrapped_equipment}] bootstrapped-workshop-energy=[{bootstrapped_energy}] missing-bridge=[runtime-industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting]"
+        "CONTENT REACHABILITY runtime-equipment=[{reachable_equipment}] runtime-energy=[{reachable_energy}] capability-only-equipment=[{bootstrapped_equipment}] capability-only-energy=[{bootstrapped_energy}] missing-bridge=[runtime-industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting]"
     );
     if !include_catalog {
         return;
@@ -537,7 +537,7 @@ pub(super) fn print_harness_summary(
             "partial"
         };
         std::println!(
-            "EXPERIENCE world=0x{:016X} behavior=0x{:016X} start={:?} policy=[power:{} recovery:{} maintenance:{} structure:{}] initial=[small:{}+{}ppm nominal-batches large:{}+{}ppm nominal-batches maintenance:{}unit] order=[processed:{}/{}mg operations:{} adaptive:{} before-event:{}] power=[small:{} large:{} manual-recharges:{} generated:{}nJ manual-ticks:{}] maintenance={} relocation={} suspension={} stranded={} final=[crusher:{}ppm crank:{}ppm small:{}nJ large:{}nJ maintenance:{}mg ticks:{} survival-energy:-{}nJ hydration:-{}uL vitality:{}ppm] outcome={}",
+            "CAPABILITY EXPERIENCE world=0x{:016X} behavior=0x{:016X} start={:?} policy=[power:{} recovery:{} maintenance:{} structure:{}] initial=[small:{}+{}ppm nominal-batches large:{}+{}ppm nominal-batches maintenance:{}unit] order=[processed:{}/{}mg operations:{} adaptive:{} before-event:{}] power=[small:{} large:{} manual-recharges:{} generated:{}nJ manual-ticks:{}] maintenance={} relocation={} suspension={} stranded={} final=[crusher:{}ppm crank:{}ppm small:{}nJ large:{}nJ maintenance:{}mg ticks:{} survival-energy:-{}nJ hydration:-{}uL vitality:{}ppm] outcome={}",
             report.world_seed,
             report.behavior_seed,
             report.inputs.initial_maintenance_band,
@@ -632,12 +632,12 @@ pub(super) fn print_harness_summary(
         reports.len() - compact_deliveries,
     );
     let supplemental_probe_status = if capability_probes_executed {
-        "survival+progression+ore-prep+foundry:pass"
+        "playable-survival+playable-progression+capability-ore-prep+capability-foundry:pass"
     } else {
         "not-run"
     };
     std::println!(
-        "HARNESS EXPERIENCE mode={mode} scenarios={} orders={completed_orders}/{} ore={processed_mass_mg}/{target_mass_mg}mg operations={completed_operations} adaptive={adaptive_operations} before-event={operations_before_delivery} stops=[structural:{} maintenance:{} energy:{} declined-manual:{} survival-limited-manual:{}] manual-recovery=[charges:{manual_recharges} generated:{manually_generated_energy}nJ ticks:{manual_power_ticks} metabolic:{manual_metabolic_energy}nJ hydration:{manual_hydration}uL] material=[mixed-ore-melt-rejected:{mixed_ore_melt_rejections}/{} supplemental-probes:{supplemental_probe_status}]",
+        "WORKSHOP CAPABILITY mode={mode} scenarios={} orders={completed_orders}/{} ore={processed_mass_mg}/{target_mass_mg}mg operations={completed_operations} adaptive={adaptive_operations} before-event={operations_before_delivery} stops=[structural:{} maintenance:{} energy:{} declined-manual:{} survival-limited-manual:{}] manual-recovery=[charges:{manual_recharges} generated:{manually_generated_energy}nJ ticks:{manual_power_ticks} metabolic:{manual_metabolic_energy}nJ hydration:{manual_hydration}uL] material=[mixed-ore-melt-rejected:{mixed_ore_melt_rejections}/{} supplemental-probes:{supplemental_probe_status}]",
         reports.len(),
         reports.len(),
         reports
@@ -679,7 +679,7 @@ pub(super) fn print_harness_summary(
         .filter(|report| report.structure.structural_consequence)
         .count();
     std::println!(
-        "SYSTEMS policy=[power:reserve:{} speed:{} recovery:protect:{} spend:{} maintenance:warning:{} critical:{} structure:margin:{} failure-only:{}] machine-work=[small-drive:{small_drive_batches} high-power:{large_drive_batches}] decisions=[power-policy:{policy_power_choices} single-source:{single_source_power_choices} manual-recharges:{manual_recharges} adaptive-batches:{adaptive_operations}] survival=[elapsed:{elapsed_ticks_min}..{elapsed_ticks_max}t manual-metabolic:{manual_metabolic_energy}nJ manual-hydration:{manual_hydration}uL] recovery=[relocations:{} resumed-wip:{recovered_work_in_process} stranded-wip:{} maintenance-services:{maintenance_services}] pressure=[structural:{} maintenance-warning:{}] bottlenecks=[energy-delivery:{energy_bottleneck_batches} throughput:{throughput_bottleneck_batches} balanced:{balanced_bottleneck_batches}]",
+        "CAPABILITY SYSTEMS policy=[power:reserve:{} speed:{} recovery:protect:{} spend:{} maintenance:warning:{} critical:{} structure:margin:{} failure-only:{}] machine-work=[small-drive:{small_drive_batches} high-power:{large_drive_batches}] decisions=[power-policy:{policy_power_choices} single-source:{single_source_power_choices} manual-recharges:{manual_recharges} adaptive-batches:{adaptive_operations}] survival=[elapsed:{elapsed_ticks_min}..{elapsed_ticks_max}t manual-metabolic:{manual_metabolic_energy}nJ manual-hydration:{manual_hydration}uL] recovery=[relocations:{} resumed-wip:{recovered_work_in_process} stranded-wip:{} maintenance-services:{maintenance_services}] pressure=[structural:{} maintenance-warning:{}] bottlenecks=[energy-delivery:{energy_bottleneck_batches} throughput:{throughput_bottleneck_batches} balanced:{balanced_bottleneck_batches}]",
         reports
             .iter()
             .filter(|report| report.policy.power_preference == PowerPreference::PreserveReserve)
@@ -775,11 +775,14 @@ pub(super) fn print_harness_summary(
     let unobserved = unobserved.join(",");
     if capability_probes_executed {
         std::println!(
-            "SCOPE evidence=exploratory exercised=[food-freshness,preservation,varied-meal,finite-water-drinking,survival-costed primitive crafting,mining,native-copper cold-working,in-place equipment reinforcement,material-backed primitive infrastructure construction,manual power,autonomous-machine+player-work overlap,canonical comminution,adaptive-batching,manual-energy-recovery,power choice,wear,maintenance-to-scrap,structural siting,controlled-supported-stockpile-delivery,matched-world policy counterfactuals,ore-preparation-capability,pure-copper-foundry-capability] observed=[{observed}] unobserved=[{unobserved}] bootstrap=[starting food and potable water,raw starting matter,finite geological deposit,industrial workshop equipment,scenario stored energy,constructed bays,pre-shaped emergency power kit,preauthorized controlled delivery,pure-copper probe input] capability-boundary=STATUS.md"
+            "PLAYABLE SCOPE evidence=reachable-after-world-bootstrap exercised=[food-freshness,preservation,varied-meal-choice,finite-water-drinking,survival-costed-manual-crafting,equipment-assembly,scarce-native-copper-upgrade-priority,hand-mining,material-backed-flywheel-construction,banked-work-follow-up-batch,manual-power,primitive-autonomous-crushing+concurrent-player-work,matched-world-upgrade-counterfactual] world-bootstrap=[starting-food+potable-water+storage,raw-stone+wood,known-finite-ore+native-copper-sites] actor-hidden-geology=unreadable capability-boundary=STATUS.md"
+        );
+        std::println!(
+            "CAPABILITY SCOPE evidence=bootstrapped-industrial exercised=[canonical-industrial-comminution,adaptive-batching,manual-energy-recovery,power-choice,wear,maintenance-to-scrap,structural-siting,controlled-supported-stockpile-delivery,matched-world-one-factor-counterfactuals,industrial-ore-preparation,pure-copper-foundry] observed=[{observed}] unobserved=[{unobserved}] bootstrap=[industrial-workshop-equipment,industrial-energy-stores,constructed-bays,starting-workshop-matter,preauthorized-controlled-delivery,pure-copper-input] missing-bridge=[industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting] fixture-guard=fail-if-injected-machine-becomes-runtime-acquirable"
         );
     } else {
         std::println!(
-            "SCOPE evidence=controlled exercised=[canonical comminution,adaptive-batching,manual-energy-recovery,power choice,wear,maintenance,structural siting,controlled-supported-stockpile-delivery] observed=[{observed}] unobserved=[{unobserved}] separate-targets-not-run=[survival-provisioning,primitive-progression,ore-preparation-capability,pure-copper-foundry-capability] bootstrap=[industrial workshop equipment,scenario stored energy,constructed bays,starting workshop matter,pre-shaped emergency power kit,preauthorized controlled delivery] actor-oracle=none capability-boundary=STATUS.md"
+            "CAPABILITY SCOPE evidence=bootstrapped-industrial exercised=[canonical-industrial-comminution,adaptive-batching,manual-energy-recovery,power-choice,wear,maintenance,structural-siting,controlled-supported-stockpile-delivery] observed=[{observed}] unobserved=[{unobserved}] separate-targets-not-run=[playable-survival,playable-primitive-progression,industrial-ore-preparation,pure-copper-foundry] bootstrap=[industrial-workshop-equipment,industrial-energy-stores,constructed-bays,starting-workshop-matter,preauthorized-controlled-delivery] missing-bridge=[industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting] actor-oracle=none fixture-guard=fail-if-injected-machine-becomes-runtime-acquirable capability-boundary=STATUS.md"
         );
     }
 }

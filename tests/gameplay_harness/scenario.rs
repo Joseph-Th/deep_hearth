@@ -129,10 +129,11 @@ impl ScenarioVariation {
             large_drive_batch_budget,
             large_drive_partial_batch_ppm,
             maintenance_replacement_units,
-        ) = if anchor_index.is_some() {
-            (nominal_batch_count, 0, 1 + (h % 2) as u8, 0, 1)
-        } else {
-            (
+        ) = match anchor_index {
+            Some(3) => (nominal_batch_count.saturating_sub(1), 450_000, 0, 0, 1),
+            Some(4) => (nominal_batch_count.saturating_sub(2), 0, 0, 0, 1),
+            Some(_) => (nominal_batch_count, 0, 1 + (h % 2) as u8, 0, 1),
+            None => (
                 (h % (u64::from(nominal_batch_count) + 1)) as u8,
                 100_000 + (l % 800_001) as u32,
                 (j % 3) as u8,
@@ -142,7 +143,7 @@ impl ScenarioVariation {
                     100_000 + (m % 800_001) as u32
                 },
                 (k % 3) as u8,
-            )
+            ),
         };
 
         let crusher_weight =
