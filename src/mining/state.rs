@@ -30,6 +30,7 @@ impl MiningJobId {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct MiningJobIdentity {
     pub(super) id: MiningJobId,
     pub(super) method: MiningMethodId,
@@ -37,6 +38,7 @@ pub(super) struct MiningJobIdentity {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct MiningJobResources {
     pub(super) destination: StockpileId,
     pub(super) equipment_trace: EquipmentOperationTrace,
@@ -45,6 +47,7 @@ pub(super) struct MiningJobResources {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct MiningJobSchedule {
     pub(super) started_at: SimulationTick,
     pub(super) completes_at: SimulationTick,
@@ -52,6 +55,7 @@ pub(super) struct MiningJobSchedule {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MiningJobRecord {
     identity: MiningJobIdentity,
     resources: MiningJobResources,
@@ -126,11 +130,15 @@ impl MiningJobRecord {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MiningState {
     revision: u64,
     next_job_id: u64,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     jobs: BTreeMap<MiningJobId, MiningJobRecord>,
+    #[serde(skip)]
     due_jobs: BTreeMap<SimulationTick, BTreeSet<MiningJobId>>,
+    #[serde(skip)]
     equipment_occupancy: BTreeMap<EquipmentId, MiningJobId>,
 }
 
@@ -159,6 +167,22 @@ impl MiningState {
     }
     pub fn jobs(&self) -> impl Iterator<Item = &MiningJobRecord> {
         self.jobs.values()
+    }
+
+    pub(crate) fn rebuild_derived_indexes(&mut self) {
+        let mut due_jobs = BTreeMap::<SimulationTick, BTreeSet<MiningJobId>>::new();
+        let mut equipment_occupancy = BTreeMap::<EquipmentId, MiningJobId>::new();
+        for job in self.jobs.values().filter(|job| job.is_working()) {
+            due_jobs
+                .entry(job.completes_at())
+                .or_default()
+                .insert(job.id());
+            equipment_occupancy
+                .entry(job.equipment())
+                .or_insert(job.id());
+        }
+        self.due_jobs = due_jobs;
+        self.equipment_occupancy = equipment_occupancy;
     }
 
     pub(crate) fn get_equipment_occupant(&self, equipment: EquipmentId) -> Option<MiningJobId> {

@@ -9,6 +9,7 @@ use crate::core::time::{SimulationTick, TickSpan};
 use crate::registry::Registries;
 use crate::survival::{SurvivalExertion, Vitality};
 
+use super::power_physics::resolve_manual_power_exertion;
 use super::{PlayerWork, PlayerWorkResourceBudgetError, calculate_player_work_resource_budget};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,13 +55,25 @@ pub(crate) fn player_work_exertion(registries: &Registries, state: &AppState) ->
                 })
                 .exertion()
         }
-        PlayerWork::ManualPower { work } => registries
-            .labor()
-            .get_manual_power(work.method())
-            .unwrap_or_else(|| {
-                panic!("runtime invariant broken: player power work has no method definition")
+        PlayerWork::ManualPower { work } => {
+            let definition = registries
+                .labor()
+                .get_manual_power(work.method())
+                .copied()
+                .unwrap_or_else(|| {
+                    panic!("runtime invariant broken: player power work has no method definition")
+                });
+            let duration = TickSpan::new(work.completes_at().value() - work.started_at().value());
+            resolve_manual_power_exertion(
+                work.output().energy(),
+                duration,
+                definition.maximum_exertion(),
+                definition.metabolic_efficiency_ppm(),
+            )
+            .unwrap_or_else(|error| {
+                panic!("runtime invariant broken: manual power exertion is invalid: {error:?}")
             })
-            .exertion(),
+        }
     }
 }
 

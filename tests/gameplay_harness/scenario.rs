@@ -4,12 +4,13 @@ use deep_hearth::content::{
     EQUIPMENT_JAW_CRUSHER, MATERIAL_WOOD, PROCESS_CRUSH_ORE, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
 };
 use deep_hearth::core::quantity::{Area, Force, Mass};
-use deep_hearth::maintenance::{CONDITION_PARTS_PER_MILLION, Condition};
+use deep_hearth::maintenance::{CONDITION_PARTS_PER_MILLION, Condition, MaintenanceBand};
 use deep_hearth::registry::Registries;
 use deep_hearth::structural::{
     STRUCTURAL_PARTS_PER_MILLION, StructuralLoadMode, calculate_weight_force_ceiling,
 };
 
+use super::configuration::MaintainedAnchor;
 use super::report::{
     EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioPolicyVariation,
     StructuralPreference,
@@ -64,7 +65,7 @@ impl ScenarioVariation {
         registries: &Registries,
         world_seed: u64,
         behavior_seed: u64,
-        anchor_index: Option<usize>,
+        anchor: Option<MaintainedAnchor>,
     ) -> Self {
         let a = mix64(world_seed);
         let b = mix64(a);
@@ -105,34 +106,53 @@ impl ScenarioVariation {
             .unwrap_or_else(|| panic!("gameplay harness work-order mass overflowed"));
 
         let thresholds = crusher_definition.maintenance_thresholds();
-        let initial_condition = match anchor_index.map(|index| index % 3) {
-            Some(0) => {
+        let initial_condition = match anchor {
+            Some(MaintainedAnchor::NormalBaseline | MaintainedAnchor::AdaptiveEnergy) => {
                 let warning = thresholds.warning_below().parts_per_million();
                 warning + (CONDITION_PARTS_PER_MILLION - warning).div_ceil(2)
             }
-            Some(1) => {
+            Some(MaintainedAnchor::SurvivalRecovery) => {
+                let warning = thresholds.warning_below().parts_per_million();
+                warning + (CONDITION_PARTS_PER_MILLION - warning) * 3 / 4
+            }
+            Some(MaintainedAnchor::WarningMaintenance | MaintainedAnchor::ManualRecovery) => {
                 let critical = thresholds.critical_below().parts_per_million();
                 let warning = thresholds.warning_below().parts_per_million();
                 critical + (warning - critical).div_ceil(2)
             }
-            Some(2) => thresholds
+            Some(MaintainedAnchor::CriticalMaintenance) => thresholds
                 .critical_below()
                 .parts_per_million()
                 .div_ceil(2)
                 .max(1),
             None => 1 + (e % u64::from(CONDITION_PARTS_PER_MILLION)) as u32,
-            Some(_) => unreachable!("anchor condition modulo is exhaustive"),
         };
+        let initial_crusher_condition = condition(initial_condition);
         let (
             small_drive_batch_budget,
             small_drive_partial_batch_ppm,
             large_drive_batch_budget,
             large_drive_partial_batch_ppm,
-            maintenance_replacement_units,
-        ) = match anchor_index {
-            Some(3) => (nominal_batch_count.saturating_sub(1), 450_000, 0, 0, 1),
-            Some(4) => (nominal_batch_count.saturating_sub(2), 0, 0, 0, 1),
-            Some(_) => (nominal_batch_count, 0, 1 + (h % 2) as u8, 0, 1),
+            mut maintenance_replacement_units,
+        ) = match anchor {
+            Some(MaintainedAnchor::AdaptiveEnergy) => {
+                (nominal_batch_count.saturating_sub(1), 450_000, 0, 0, 1)
+            }
+            Some(MaintainedAnchor::ManualRecovery) => {
+                (nominal_batch_count.saturating_sub(2), 0, 0, 0, 1)
+            }
+            Some(MaintainedAnchor::SurvivalRecovery) => (
+                nominal_batch_count.saturating_sub(5),
+                250_000,
+                0,
+                250_000,
+                0,
+            ),
+            Some(
+                MaintainedAnchor::NormalBaseline
+                | MaintainedAnchor::WarningMaintenance
+                | MaintainedAnchor::CriticalMaintenance,
+            ) => (nominal_batch_count, 0, 1 + (h % 2) as u8, 0, 1),
             None => (
                 (h % (u64::from(nominal_batch_count) + 1)) as u8,
                 100_000 + (l % 800_001) as u32,
@@ -145,6 +165,11 @@ impl ScenarioVariation {
                 (k % 3) as u8,
             ),
         };
+        if anchor.is_none()
+            && thresholds.classify(initial_crusher_condition) == MaintenanceBand::Critical
+        {
+            maintenance_replacement_units = maintenance_replacement_units.max(1);
+        }
 
         let crusher_weight =
             calculate_weight_force_ceiling(crusher_definition.mass(), registries.core().gravity());
@@ -200,7 +225,7 @@ impl ScenarioVariation {
                 order_mass: Mass::from_milligrams(order_mass),
             },
             crusher: ScenarioCrusherVariation {
-                initial_crusher_condition: condition(initial_condition),
+                initial_crusher_condition,
                 small_drive_batch_budget,
                 small_drive_partial_batch_ppm,
                 large_drive_batch_budget,
@@ -307,5 +332,32 @@ mod tests {
 
         assert_eq!(first.behavior_seed, second.behavior_seed);
         assert_eq!(first.policy, second.policy);
+    }
+
+    #[test]
+    fn generated_critical_starts_always_have_a_recovery_supply() {
+        let registries = build_registries();
+        let thresholds = registries
+            .equipment()
+            .get_equipment(EQUIPMENT_JAW_CRUSHER)
+            .unwrap_or_else(|| panic!("canonical crusher definition disappeared"))
+            .maintenance_thresholds();
+        let mut critical_cases = 0_usize;
+        for world_seed in 1..=512 {
+            let variation = ScenarioVariation::from_seeds(&registries, world_seed, 1, None);
+            if thresholds.classify(variation.crusher.initial_crusher_condition)
+                == MaintenanceBand::Critical
+            {
+                critical_cases += 1;
+                assert!(
+                    variation.crusher.maintenance_replacement_units > 0,
+                    "fresh critical workshop world 0x{world_seed:016X} must include at least one recovery service"
+                );
+            }
+        }
+        assert!(
+            critical_cases > 0,
+            "critical-start generator contract must be exercised by the bounded seed sweep"
+        );
     }
 }

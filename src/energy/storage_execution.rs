@@ -136,6 +136,7 @@ pub(crate) fn add_energy_store_with_initial_for_fixture(
 
 /// Exact energy/provenance snapshot moved from a finite store into an operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConsumedEnergyTrace {
     source: EnergyStoreId,
     definition: EnergyStoreDefinitionId,
@@ -322,6 +323,7 @@ pub fn validate_energy_supply(
 
 /// Exact energy released by an in-flight operation and committed to one finite sink at completion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReleasedEnergyTrace {
     destination: EnergyStoreId,
     definition: EnergyStoreDefinitionId,

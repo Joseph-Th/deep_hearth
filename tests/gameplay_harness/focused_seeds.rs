@@ -14,8 +14,9 @@ pub(super) enum FocusedProbeSeedError {
 /// Resolves one maintained anchor plus one replayable generated variation.
 ///
 /// `DEEP_HEARTH_GAMEPLAY_SEEDS` remains the exact override for deliberate replay/sweeps. Otherwise
-/// the caller supplies the bounded variation root, normally fresh for gameplay runs, and a probe-specific
-/// salt keeps concerns independent. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` reproduces an observed sample.
+/// the caller supplies a bounded variation root. Normal runners generate a fresh root while explicit
+/// replay inputs can provide one directly. A probe-specific salt keeps concerns independent.
+/// `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` selects an exact replayable sample.
 pub(super) fn focused_probe_seeds_from(
     scenario_raw: Option<&str>,
     variation_raw: Option<&str>,

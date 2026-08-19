@@ -2,13 +2,13 @@
 //!
 //! The harness deliberately varies physical initial conditions and player priorities, then lets a
 //! small operational policy react only to observed state and resolver projections. The required gate
-//! runs five maintained anchor cases plus a small fresh bounded variation sample. The explicit report
-//! lane uses a larger fresh bounded sample. Both print exact replay roots so any result can be reproduced.
+//! runs six maintained anchor cases plus two fresh bounded variation cases. The explicit report lane
+//! uses a larger fresh bounded sample. Every generated root is printed so any result can be reproduced.
 //! Physical scenario and
 //! automated-player behavior randomness are independent. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED`
 //! reproduces the world/scenario sample and `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` reproduces policy
 //! variation. Focused gameplay probes use one maintained anchor plus one fresh bounded physical
-//! variation by default; the same variation seed reproduces that sample and
+//! variation by default; an explicit variation seed reproduces a specific sample and
 //! `DEEP_HEARTH_GAMEPLAY_SEEDS` provides an exact focused-probe sweep. Each scenario schedules a real material
 //! transfer into supported storage, so ordinary inventory ownership can change structural margin while
 //! production is active.
@@ -19,8 +19,6 @@
 
 use std::collections::BTreeSet;
 use std::env;
-use std::process;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 mod capability_boundary;
 mod configuration;
@@ -113,7 +111,8 @@ mod seed_contract_tests {
 
 use capability_boundary::{assert_capability_only_energy_store, assert_capability_only_equipment};
 use configuration::{
-    MAINTAINED_BEHAVIOR_ROOT, MAINTAINED_VARIATION_ROOT, ScenarioPlanMode, scenario_seeds_from,
+    MAINTAINED_BEHAVIOR_ROOT, MAINTAINED_VARIATION_ROOT, MaintainedAnchor, ScenarioPlanMode,
+    scenario_seeds_from,
 };
 use contracts::{assert_anchor_diversity, assert_scenario_contracts};
 use deep_hearth::content::gameplay_fixture::{
@@ -129,21 +128,12 @@ use report::{
     ScenarioReport, StructuralPreference, print_content_summary, print_harness_summary,
 };
 use scenario::ScenarioVariation;
-use seed::mix64;
+use seed::{fresh_root, mix64};
 use support::{ROOM_TEMPERATURE, add_solid_stockpile, nominal_equipment_mass_capability};
 use survival_probe::run_survival_provisioning_probe;
 
 fn has_verbose_output() -> bool {
     env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some()
-}
-
-fn fresh_exploration_root(salt: u64) -> u64 {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let folded = (now as u64) ^ ((now >> 64) as u64) ^ u64::from(process::id()) ^ salt;
-    mix64(folded)
 }
 
 macro_rules! println {
@@ -209,14 +199,16 @@ use deep_hearth::content::{
     FORM_LOG, FORM_ORE, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
-use deep_hearth::content::{PROCESS_CRUSH_ORE, PROCESS_MELT_PURE_COPPER};
+use deep_hearth::content::{
+    PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+    PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
+};
 
 const WORKSHOP_SUPPORT_LENGTH: Length = Length::from_micrometers(2_000_000);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CrushStopReason {
     EnergyUnavailable,
-    MaintenanceCritical,
 }
 
 struct ManualRecoveryProbe {
@@ -734,6 +726,20 @@ struct CrushOption {
     resolved: ResolvedComminution,
 }
 
+struct CrushBatchPlan {
+    mass: Mass,
+    small: Option<CrushOption>,
+    large: Option<CrushOption>,
+    energy_limited: bool,
+    maintenance_limited: bool,
+}
+
+enum CrushBatchSearch {
+    Available(Box<CrushBatchPlan>),
+    EnergyUnavailable,
+    MaintenanceBlocked,
+}
+
 #[derive(Clone, Copy)]
 struct CrushChoiceContext {
     thresholds: deep_hearth::maintenance::MaintenanceThresholds,
@@ -820,6 +826,71 @@ fn largest_resolvable_crush_batch(
         }
     }
     best
+}
+
+fn maintenance_safe_crush_options(
+    options: (Option<CrushOption>, Option<CrushOption>),
+    thresholds: deep_hearth::maintenance::MaintenanceThresholds,
+) -> (Option<CrushOption>, Option<CrushOption>) {
+    let keep_safe = |option: CrushOption| {
+        (thresholds.classify(option.resolved.condition_after()) != MaintenanceBand::Critical)
+            .then_some(option)
+    };
+    (options.0.and_then(keep_safe), options.1.and_then(keep_safe))
+}
+
+fn largest_safe_powered_crush_batch(
+    registries: &Registries,
+    state: &AppState,
+    ids: WorkshopIds,
+    desired: Mass,
+    thresholds: deep_hearth::maintenance::MaintenanceThresholds,
+) -> CrushBatchSearch {
+    let Some((powered_mass, powered_small, powered_large)) =
+        largest_resolvable_crush_batch(registries, state, ids, desired)
+    else {
+        return CrushBatchSearch::EnergyUnavailable;
+    };
+    let energy_limited = powered_mass < desired;
+    let safe_at_powered =
+        maintenance_safe_crush_options((powered_small, powered_large), thresholds);
+    if safe_at_powered.0.is_some() || safe_at_powered.1.is_some() {
+        return CrushBatchSearch::Available(Box::new(CrushBatchPlan {
+            mass: powered_mass,
+            small: safe_at_powered.0,
+            large: safe_at_powered.1,
+            energy_limited,
+            maintenance_limited: false,
+        }));
+    }
+
+    let mut low = 1_u64;
+    let mut high = powered_mass.milligrams().saturating_sub(1);
+    let mut best = None;
+    while low <= high {
+        let midpoint = low + (high - low) / 2;
+        let mass = Mass::from_milligrams(midpoint);
+        let options = maintenance_safe_crush_options(
+            resolve_crush_options(registries, state, ids, mass),
+            thresholds,
+        );
+        if options.0.is_some() || options.1.is_some() {
+            best = Some((mass, options.0, options.1));
+            low = midpoint + 1;
+        } else {
+            high = midpoint.saturating_sub(1);
+        }
+    }
+    match best {
+        Some((mass, small, large)) => CrushBatchSearch::Available(Box::new(CrushBatchPlan {
+            mass,
+            small,
+            large,
+            energy_limited,
+            maintenance_limited: true,
+        })),
+        None => CrushBatchSearch::MaintenanceBlocked,
+    }
 }
 
 struct ManualRecoveryOption {
@@ -1147,46 +1218,41 @@ fn choose_crush_option(
     } = context;
     match (small, large) {
         (None, None) => Err(CrushStopReason::EnergyUnavailable),
-        (Some(option), None) | (None, Some(option)) => {
-            if thresholds.classify(option.resolved.condition_after()) == MaintenanceBand::Critical {
-                Err(CrushStopReason::MaintenanceCritical)
-            } else {
-                Ok((
-                    option,
-                    "only viable energy source",
-                    PowerChoiceBasis::SingleSource,
-                ))
-            }
-        }
+        (Some(option), None) | (None, Some(option)) => Ok((
+            option,
+            "only viable energy source that preserves non-critical condition",
+            PowerChoiceBasis::SingleSource,
+        )),
         (Some(small), Some(large)) => {
-            let small_after = thresholds.classify(small.resolved.condition_after());
-            let large_after = thresholds.classify(large.resolved.condition_after());
-            if small_after == MaintenanceBand::Critical && large_after == MaintenanceBand::Critical
-            {
-                Err(CrushStopReason::MaintenanceCritical)
-            } else {
-                match preference {
-                    PowerPreference::PreserveReserve => Ok((
-                        small,
-                        "player priority preserves scarce high-power reserve",
-                        PowerChoiceBasis::Policy,
-                    )),
-                    PowerPreference::FinishSooner => {
-                        if large.resolved.process_resolution().duration()
-                            < small.resolved.process_resolution().duration()
-                        {
-                            Ok((
-                                large,
-                                "player priority minimizes projected batch completion time",
-                                PowerChoiceBasis::Policy,
-                            ))
-                        } else {
-                            Ok((
-                                small,
-                                "both power choices finish equally soon, so preserve reserve",
-                                PowerChoiceBasis::Policy,
-                            ))
-                        }
+            debug_assert_ne!(
+                thresholds.classify(small.resolved.condition_after()),
+                MaintenanceBand::Critical
+            );
+            debug_assert_ne!(
+                thresholds.classify(large.resolved.condition_after()),
+                MaintenanceBand::Critical
+            );
+            match preference {
+                PowerPreference::PreserveReserve => Ok((
+                    small,
+                    "player priority preserves scarce high-power reserve",
+                    PowerChoiceBasis::Policy,
+                )),
+                PowerPreference::FinishSooner => {
+                    if large.resolved.process_resolution().duration()
+                        < small.resolved.process_resolution().duration()
+                    {
+                        Ok((
+                            large,
+                            "player priority minimizes projected batch completion time",
+                            PowerChoiceBasis::Policy,
+                        ))
+                    } else {
+                        Ok((
+                            small,
+                            "both power choices finish equally soon, so preserve reserve",
+                            PowerChoiceBasis::Policy,
+                        ))
                     }
                 }
             }
@@ -1898,7 +1964,15 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
             }
         }
 
-        let (batch_mass, selected, reason, choice_basis, adaptive_batch) = loop {
+        let (
+            batch_mass,
+            selected,
+            reason,
+            choice_basis,
+            adaptive_batch,
+            condition_adaptive,
+            energy_adaptive,
+        ) = loop {
             let current_condition = state
                 .equipment()
                 .get_equipment(ids.crusher)
@@ -1965,80 +2039,109 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
             }
             let desired_mass =
                 Mass::from_milligrams(planned_mass.milligrams().min(condition_limit.milligrams()));
-            let Some((resolved_mass, small, large)) =
-                largest_resolvable_crush_batch(registries, &state, ids, desired_mass)
-            else {
-                match largest_manual_recovery(
-                    registries,
-                    &state,
-                    ids,
-                    desired_mass,
-                    variation.policy.energy_recovery_preference,
-                ) {
-                    ManualRecoverySearch::Available { mass, option } => {
-                        if mass < desired_mass {
+            let condition_capacity_limited = desired_mass < planned_mass;
+            let plan = match largest_safe_powered_crush_batch(
+                registries,
+                &state,
+                ids,
+                desired_mass,
+                thresholds,
+            ) {
+                CrushBatchSearch::Available(plan) => plan,
+                CrushBatchSearch::MaintenanceBlocked => {
+                    println!(
+                        "  decision: service crusher because no positive powered batch can preserve non-critical condition"
+                    );
+                    match service_crusher(registries, &mut state, ids, &mut report) {
+                        MaintenanceAttempt::Serviced => continue,
+                        MaintenanceAttempt::SupplyExhausted => {
+                            report.limits.maintenance_stop = true;
                             println!(
-                                "  manual recovery adapts the next operation from {}mg to {}mg because a larger charging commitment is not currently survivable",
-                                desired_mass.milligrams(),
-                                mass.milligrams(),
+                                "  decision: stop crushing; replacement stock is exhausted and even the smallest powered batch would enter critical condition"
                             );
-                        }
-                        execute_manual_recovery(
-                            registries,
-                            &mut state,
-                            ids,
-                            *option,
-                            &mut ScenarioRuntime {
-                                variation,
-                                delivery_authorization: &mut delivery_authorization,
-                                current_support: &mut current_support,
-                                alternate_support: &mut alternate_support,
-                                report: &mut report,
-                            },
-                        );
-                        if report.structure.structural_stop {
                             break 'work_order;
                         }
-                        continue;
-                    }
-                    ManualRecoverySearch::DeclinedForSurvival => {
-                        report.limits.manual_recovery_declined = true;
-                        println!(
-                            "  manual recovery declined: even the smallest useful charging commitment would cross the player's hunger or thirst warning reserve"
-                        );
-                    }
-                    ManualRecoverySearch::SurvivalLimited => {
-                        report.limits.manual_recovery_survival_limited = true;
-                        println!(
-                            "  manual recovery unavailable: the player lacks enough physiological reserve for another useful charging commitment"
-                        );
-                    }
-                    ManualRecoverySearch::EquipmentUnavailable => {
-                        println!(
-                            "  manual recovery unavailable: hand-crank condition has reduced usable power to zero"
-                        );
                     }
                 }
-                if report.structure.structural_stop {
+                CrushBatchSearch::EnergyUnavailable => {
+                    match largest_manual_recovery(
+                        registries,
+                        &state,
+                        ids,
+                        desired_mass,
+                        variation.policy.energy_recovery_preference,
+                    ) {
+                        ManualRecoverySearch::Available { mass, option } => {
+                            if mass < desired_mass {
+                                println!(
+                                    "  manual recovery adapts the next operation from {}mg to {}mg because a larger charging commitment is not currently survivable",
+                                    desired_mass.milligrams(),
+                                    mass.milligrams(),
+                                );
+                            }
+                            execute_manual_recovery(
+                                registries,
+                                &mut state,
+                                ids,
+                                *option,
+                                &mut ScenarioRuntime {
+                                    variation,
+                                    delivery_authorization: &mut delivery_authorization,
+                                    current_support: &mut current_support,
+                                    alternate_support: &mut alternate_support,
+                                    report: &mut report,
+                                },
+                            );
+                            if report.structure.structural_stop {
+                                break 'work_order;
+                            }
+                            continue;
+                        }
+                        ManualRecoverySearch::DeclinedForSurvival => {
+                            report.limits.manual_recovery_declined = true;
+                            println!(
+                                "  manual recovery declined: even the smallest useful charging commitment would cross the player's hunger or thirst warning reserve"
+                            );
+                        }
+                        ManualRecoverySearch::SurvivalLimited => {
+                            report.limits.manual_recovery_survival_limited = true;
+                            println!(
+                                "  manual recovery unavailable: the player lacks enough physiological reserve for another useful charging commitment"
+                            );
+                        }
+                        ManualRecoverySearch::EquipmentUnavailable => {
+                            println!(
+                                "  manual recovery unavailable: hand-crank condition has reduced usable power to zero"
+                            );
+                        }
+                    }
+                    if report.structure.structural_stop {
+                        break 'work_order;
+                    }
+                    report.limits.energy_stop = true;
+                    let reason = if report.limits.manual_recovery_declined {
+                        "player preserves survival reserve"
+                    } else if report.limits.manual_recovery_survival_limited {
+                        "player lacks the physiological reserve to generate the missing work"
+                    } else {
+                        "stored work is insufficient and the manual fallback cannot supply the deficit"
+                    };
+                    println!("  decision: stop crushing; {reason}");
                     break 'work_order;
                 }
-                report.limits.energy_stop = true;
-                let reason = if report.limits.manual_recovery_declined {
-                    "player preserves survival reserve"
-                } else if report.limits.manual_recovery_survival_limited {
-                    "player lacks the physiological reserve to generate the missing work"
-                } else {
-                    "stored work is insufficient and the manual fallback cannot supply the deficit"
-                };
-                println!("  decision: stop crushing; {reason}");
-                break 'work_order;
             };
+            let resolved_mass = plan.mass;
+            let small = plan.small;
+            let large = plan.large;
             let adaptive_batch = resolved_mass < planned_mass;
             if adaptive_batch {
                 println!(
-                    "  adaptive batching: planned={}mg -> executable={}mg from current condition and stored-work constraints",
+                    "  adaptive batching: planned={}mg -> executable={}mg constraints=[condition-capacity:{} maintenance-safety:{} stored-work:{}]",
                     planned_mass.milligrams(),
                     resolved_mass.milligrams(),
+                    condition_capacity_limited,
+                    plan.maintenance_limited,
+                    plan.energy_limited,
                 );
             }
             if let Some(option) = &small {
@@ -2067,25 +2170,12 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
                         reason,
                         choice_basis,
                         adaptive_batch,
+                        condition_capacity_limited || plan.maintenance_limited,
+                        plan.energy_limited,
                     );
                 }
                 Err(CrushStopReason::EnergyUnavailable) => {
-                    unreachable!("largest resolvable batch returned without a viable energy option")
-                }
-                Err(CrushStopReason::MaintenanceCritical) => {
-                    println!(
-                        "  decision: service crusher because every available power choice would enter critical condition"
-                    );
-                    match service_crusher(registries, &mut state, ids, &mut report) {
-                        MaintenanceAttempt::Serviced => continue,
-                        MaintenanceAttempt::SupplyExhausted => {
-                            report.limits.maintenance_stop = true;
-                            println!(
-                                "  decision: stop crushing; replacement stock is exhausted and every power choice would enter critical condition"
-                            );
-                            break 'work_order;
-                        }
-                    }
+                    unreachable!("safe powered batch returned without a viable energy option")
                 }
             }
         };
@@ -2131,6 +2221,20 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
                     .adaptive_batch_operations
                     .checked_add(1)
                     .unwrap_or_else(|| panic!("adaptive-batch count overflowed"));
+                if condition_adaptive {
+                    report.progress.condition_adaptive_batch_operations = report
+                        .progress
+                        .condition_adaptive_batch_operations
+                        .checked_add(1)
+                        .unwrap_or_else(|| panic!("condition-adaptive count overflowed"));
+                }
+                if energy_adaptive {
+                    report.progress.energy_adaptive_batch_operations = report
+                        .progress
+                        .energy_adaptive_batch_operations
+                        .checked_add(1)
+                        .unwrap_or_else(|| panic!("energy-adaptive count overflowed"));
+                }
             }
         }
         match outcome.bottleneck {
@@ -2325,11 +2429,13 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
     report.resources.final_hand_crank_condition_ppm =
         final_hand_crank_condition.parts_per_million();
     println!(
-        "  outcome: ore={}/{}mg operations={} adaptive={} before_event={} choices=[policy:{} single-source:{} manual-recharges:{}] suspended={} stranded_wip={} equipment=[crusher:{}ppm/{:?} crank:{}ppm] maintenance=[services:{} spent:{}mg remaining:{}mg] mechanical_reserve=[small:{}nJ high-power:{}nJ] manual_generation=[energy:{}nJ ticks:{} body:{}nJ/{}uL] survival=[total-energy:-{}nJ total-hydration:-{}uL vitality:{}ppm] active_support={:?}/cracked:{} ticks={}",
+        "  outcome: ore={}/{}mg operations={} adaptive=[total:{} condition:{} stored-work:{}] before_event={} choices=[policy:{} single-source:{} manual-recharges:{}] suspended={} stranded_wip={} equipment=[crusher:{}ppm/{:?} crank:{}ppm] maintenance=[services:{} spent:{}mg remaining:{}mg] mechanical_reserve=[small:{}nJ high-power:{}nJ] manual_generation=[energy:{}nJ ticks:{} body:{}nJ/{}uL] survival=[total-energy:-{}nJ total-hydration:-{}uL vitality:{}ppm] active_support={:?}/cracked:{} ticks={}",
         report.progress.processed_mass.milligrams(),
         report.progress.target_mass.milligrams(),
         report.progress.operations_completed,
         report.progress.adaptive_batch_operations,
+        report.progress.condition_adaptive_batch_operations,
+        report.progress.energy_adaptive_batch_operations,
         report.progress.operations_before_delivery,
         report.choices.policy_power_choices,
         report.choices.single_source_power_choices,
@@ -2424,19 +2530,75 @@ fn agency_probe_policies() -> [(&'static str, ScenarioPolicyVariation); 5] {
     ]
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AgencyFocus {
+    PowerAndStructure,
+    SurvivalRecovery,
+    MaintenanceTiming,
+    CustomInput,
+}
+
+impl AgencyFocus {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::PowerAndStructure => "power+structure",
+            Self::SurvivalRecovery => "survival-recovery",
+            Self::MaintenanceTiming => "maintenance-timing",
+            Self::CustomInput => "custom-input",
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct AgencyWorld {
-    focus: &'static str,
+    focus: AgencyFocus,
     world_seed: u64,
-    anchor_index: Option<usize>,
+    anchor: Option<MaintainedAnchor>,
+}
+
+fn power_counterfactual_changed(baseline: &ScenarioReport, variant: &ScenarioReport) -> bool {
+    baseline.choices.small_drive_batches != variant.choices.small_drive_batches
+        || baseline.choices.large_drive_batches != variant.choices.large_drive_batches
+        || baseline.resources.small_drive_remaining != variant.resources.small_drive_remaining
+        || baseline.resources.large_drive_remaining != variant.resources.large_drive_remaining
+        || baseline.resources.elapsed_ticks != variant.resources.elapsed_ticks
+}
+
+fn survival_counterfactual_changed(baseline: &ScenarioReport, variant: &ScenarioReport) -> bool {
+    baseline.progress.processed_mass != variant.progress.processed_mass
+        || baseline.limits.energy_stop != variant.limits.energy_stop
+        || baseline.limits.manual_recovery_declined != variant.limits.manual_recovery_declined
+        || baseline.resources.metabolic_energy_spent != variant.resources.metabolic_energy_spent
+        || baseline.resources.hydration_spent != variant.resources.hydration_spent
+}
+
+fn maintenance_counterfactual_changed(baseline: &ScenarioReport, variant: &ScenarioReport) -> bool {
+    baseline.maintenance.services != variant.maintenance.services
+        || baseline.maintenance.replacement_spent != variant.maintenance.replacement_spent
+        || baseline.resources.final_condition_ppm != variant.resources.final_condition_ppm
+        || baseline.resources.elapsed_ticks != variant.resources.elapsed_ticks
+        || baseline.progress.processed_mass != variant.progress.processed_mass
+}
+
+fn structure_counterfactual_changed(baseline: &ScenarioReport, variant: &ScenarioReport) -> bool {
+    baseline.structure.support_relocation != variant.structure.support_relocation
+        || baseline.structure.structural_damage_debt != variant.structure.structural_damage_debt
+        || baseline.structure.structural_stop != variant.structure.structural_stop
+        || baseline.structure.production_suspension != variant.structure.production_suspension
+        || baseline.progress.processed_mass != variant.progress.processed_mass
+        || baseline.resources.elapsed_ticks != variant.resources.elapsed_ticks
 }
 
 fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
     let policies = agency_probe_policies();
     let mut worlds_with_distinct_paths = 0_usize;
     let mut worlds_with_work_difference = 0_usize;
+    let mut observed_power_effect = false;
+    let mut observed_survival_effect = false;
+    let mut observed_maintenance_effect = false;
+    let mut observed_structure_effect = false;
     for world in worlds {
-        let focus = world.focus;
+        let focus = world.focus.label();
         let world_seed = world.world_seed;
         let mut reports = Vec::with_capacity(policies.len());
         for (index, (label, policy)) in policies.into_iter().enumerate() {
@@ -2446,12 +2608,8 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
                     ^ u64::try_from(index + 1)
                         .unwrap_or_else(|_| unreachable!("agency policy index fits u64")),
             );
-            let mut variation = ScenarioVariation::from_seeds(
-                registries,
-                world_seed,
-                behavior_seed,
-                world.anchor_index,
-            );
+            let mut variation =
+                ScenarioVariation::from_seeds(registries, world_seed, behavior_seed, world.anchor);
             variation.policy = policy;
             let report = run_scenario(registries, variation);
             reports.push((label, report));
@@ -2579,10 +2737,46 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
         if processed_min != processed_max {
             worlds_with_work_difference += 1;
         }
+        let baseline = &reports[0].1;
+        let power_effect = power_counterfactual_changed(baseline, &reports[1].1);
+        let survival_effect = survival_counterfactual_changed(baseline, &reports[2].1);
+        let maintenance_effect = maintenance_counterfactual_changed(baseline, &reports[3].1);
+        let structure_effect = structure_counterfactual_changed(baseline, &reports[4].1);
+        observed_power_effect |= power_effect;
+        observed_survival_effect |= survival_effect;
+        observed_maintenance_effect |= maintenance_effect;
+        observed_structure_effect |= structure_effect;
+        match world.focus {
+            AgencyFocus::PowerAndStructure => {
+                assert!(
+                    power_effect && structure_effect,
+                    "maintained power+structure agency world must make both one-factor choices consequential"
+                );
+            }
+            AgencyFocus::SurvivalRecovery => {
+                assert!(
+                    survival_effect
+                        && baseline.limits.manual_recovery_declined
+                        && reports[2].1.progress.processed_mass > baseline.progress.processed_mass,
+                    "maintained survival-recovery agency world must trade protected reserves against additional useful work"
+                );
+            }
+            AgencyFocus::MaintenanceTiming => {
+                assert!(
+                    maintenance_effect,
+                    "maintained maintenance-timing agency world must make preventive versus delayed service consequential"
+                );
+            }
+            AgencyFocus::CustomInput => {}
+        }
         std::println!(
-            "AGENCY focus={focus} world=0x{world_seed:016X} variants={} unique_paths={} policy-effects=[processed:{}..{}mg adaptive:{}..{} high-power:{}..{} manual-recharges:{}..{} services:{}..{} final-condition:{}..{}ppm relocations:{}/{} suspensions:{}/{} elapsed:{}..{}t survival-energy:{}..{}nJ]",
+            "AGENCY focus={focus} world=0x{world_seed:016X} variants={} unique_paths={} actionable=[power:{} survival:{} maintenance:{} structure:{}] policy-effects=[processed:{}..{}mg adaptive:{}..{} high-power:{}..{} manual-recharges:{}..{} services:{}..{} final-condition:{}..{}ppm relocations:{}/{} suspensions:{}/{} elapsed:{}..{}t survival-energy:{}..{}nJ]",
             reports.len(),
             signatures.len(),
+            power_effect,
+            survival_effect,
+            maintenance_effect,
+            structure_effect,
             processed_min,
             processed_max,
             adaptive_min,
@@ -2637,24 +2831,28 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
         }
     }
     std::println!(
-        "AGENCY SUMMARY worlds={} distinct_paths={} processed-work-differences={} basis=matched-world-one-factor-counterfactual+input-pressure-selection",
+        "AGENCY SUMMARY worlds={} distinct_paths={} processed-work-differences={} demonstrated-choice-effects=[power:{} survival:{} maintenance:{} structure:{}] basis=matched-world-one-factor-counterfactual+maintained-choice-pressure",
         worlds.len(),
         worlds_with_distinct_paths,
         worlds_with_work_difference,
+        observed_power_effect,
+        observed_survival_effect,
+        observed_maintenance_effect,
+        observed_structure_effect,
     );
 }
 
 fn push_unique_agency_world(
     worlds: &mut Vec<AgencyWorld>,
-    focus: &'static str,
+    focus: AgencyFocus,
     world_seed: u64,
-    anchor_index: Option<usize>,
+    anchor: Option<MaintainedAnchor>,
 ) {
     if worlds.iter().all(|world| world.world_seed != world_seed) {
         worlds.push(AgencyWorld {
             focus,
             world_seed,
-            anchor_index,
+            anchor,
         });
     }
 }
@@ -2669,10 +2867,9 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
         ScenarioPlanMode::Gate => 0x4741_5445_5EED_2026,
         ScenarioPlanMode::Explore => 0x4558_504C_5EED_2026,
     };
-    let default_world_root = fresh_exploration_root(MAINTAINED_VARIATION_ROOT ^ mode_salt);
-    let default_behavior_root = fresh_exploration_root(
-        MAINTAINED_BEHAVIOR_ROOT ^ mode_salt.rotate_left(17) ^ 0xB3A4_7102_5EED_2026,
-    );
+    let default_world_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ mode_salt);
+    let default_behavior_root =
+        fresh_root(MAINTAINED_BEHAVIOR_ROOT ^ mode_salt.rotate_left(17) ^ 0xB3A4_7102_5EED_2026);
     let plan = scenario_seeds_from(
         mode,
         scenario_raw.as_deref(),
@@ -2694,10 +2891,10 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
     );
     print_content_summary(&registries, include_probes || has_verbose_output());
     std::println!(
-        "PLAYABILITY current-runtime-after-world-bootstrap=[survival-provisioning,manual-shaping,equipment-assembly+upgrade,hand-mining,material-backed-flywheel-construction,survival-costed-manual-power,primitive-autonomous-crushing] world-bootstrap-needed=[starting-food+water+storage,raw-stone+wood,known-finite-geological-sites] capability-only=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] missing-bridge=[industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting]"
+        "PLAYABILITY runtime-actions-after-controlled-bootstrap=[survival-provisioning,manual-shaping,equipment-assembly+upgrade,hand-mining,material-backed-flywheel-construction,survival-costed-manual-power,primitive-autonomous-crushing] bootstrap-assumptions=[starting-authored-food+drink+storage-profile,raw-gathered-matter,preauthorized-mining-site-identities] discovery=not-implemented capability-only=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] missing-bridge=[industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting]"
     );
     std::println!(
-        "PLAYER LOOP reachable=[survive->shape-tools->mine->reinforce->store-work->mechanize] capability-workshop=[site-machine->process-total-mass->adapt-batch-to-condition+stored-work->choose-power->hand-charge-or-protect-survival->react-to-world-load->maintain-or-relocate->iterate] utility=[survival-reserve,machine-condition,structural-margin,stored-work,time]"
+        "PLAYER LOOP runtime-after-bootstrap=[survive->shape-tools->mine->reinforce->store-work->mechanize] capability-workshop=[site-machine->process-total-mass->adapt-batch-to-condition+stored-work->choose-power->hand-charge-or-protect-survival->react-to-world-load->maintain-or-relocate->iterate] utility=[survival-reserve,machine-condition,structural-margin,stored-work,time]"
     );
     let probe_seed = plan
         .cases()
@@ -2706,7 +2903,7 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
             mix64(combined ^ case.world_seed ^ case.behavior_seed.rotate_left(17))
         });
     if include_probes {
-        std::println!("\n=== CURRENT REACHABLE PLAY AFTER WORLD BOOTSTRAP ===");
+        std::println!("\n=== RUNTIME PLAY ACTIONS AFTER CONTROLLED WORLD BOOTSTRAP ===");
         run_survival_provisioning_probe(&registries, probe_seed ^ 0x5355_5256_4956_414C);
         run_primitive_progression_probe(&registries, probe_seed ^ 0x5052_4F47_5245_5353);
     }
@@ -2722,146 +2919,84 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
         "CAPABILITY FANTASY: given an already-acquired industrial workshop, operate it by reading structural margin, uneven stored work, machine condition, material state, and personal survival reserve. Use residual work instead of discarding it, fall back to direct labor when worth the bodily cost, and recover when the world changes."
     );
     println!(
-        "CAPABILITY LOOP: each workshop has a total ore work order rather than a required fixed batch count. Fresh cases vary uneven finite stored work, replacement stock, condition, support state, and player priorities. The actor uses canonical projections to resize operations, choose power, decide whether manual generation is survivable, and react after one hidden preauthorized supported-stockpile event changes the world. This does not imply industrial acquisition, generation, or logistics. Separate probes exercise reachable survival/progression and bootstrapped ore-preparation/foundry capabilities."
+        "CAPABILITY LOOP: each workshop has a total ore work order rather than a required fixed batch count. Bounded cases vary uneven finite stored work, replacement stock, condition, support state, and player priorities. The actor uses canonical projections to resize operations, choose power, decide whether manual generation is survivable, and react after one hidden preauthorized supported-stockpile event changes the world. This does not imply industrial acquisition, generation, or logistics. Separate probes exercise runtime survival/progression actions after controlled bootstrap and bootstrapped ore-preparation/foundry capabilities."
     );
 
-    let anchor_seed_count = plan.anchor_seed_count();
     let reports: Vec<_> = plan
         .cases()
         .iter()
         .copied()
-        .enumerate()
-        .map(|(index, case)| {
+        .map(|case| {
             ScenarioVariation::from_seeds(
                 &registries,
                 case.world_seed,
                 case.behavior_seed,
-                (index < anchor_seed_count).then_some(index),
+                case.anchor,
             )
         })
         .map(|variation| run_scenario(&registries, variation))
         .collect();
     assert_scenario_contracts(&reports);
-    if plan.anchor_seed_count() > 0 {
-        assert_anchor_diversity(&reports[..plan.anchor_seed_count()]);
+    let anchor_reports = plan
+        .cases()
+        .iter()
+        .zip(&reports)
+        .filter_map(|(case, report)| case.anchor.map(|_| *report))
+        .collect::<Vec<_>>();
+    if !anchor_reports.is_empty() {
+        assert_anchor_diversity(&anchor_reports);
     }
     if include_probes {
         let mut agency_worlds: Vec<AgencyWorld> = Vec::new();
-        if plan.anchor_seed_count() > 0 {
-            push_unique_agency_world(
-                &mut agency_worlds,
-                "maintained-baseline",
-                plan.cases()[0].world_seed,
-                Some(0),
-            );
-        }
-        if plan.anchor_seed_count() > 3 {
-            push_unique_agency_world(
-                &mut agency_worlds,
-                "adaptive-energy-pressure",
-                plan.cases()[3].world_seed,
-                Some(3),
-            );
-        }
-        if plan.anchor_seed_count() > 4 {
-            push_unique_agency_world(
-                &mut agency_worlds,
-                "manual-recovery-pressure",
-                plan.cases()[4].world_seed,
-                Some(4),
-            );
-        }
-        let fresh_variations = plan
-            .cases()
-            .iter()
-            .skip(plan.anchor_seed_count())
-            .map(|case| {
-                (
-                    case.world_seed,
-                    ScenarioVariation::from_seeds(
-                        &registries,
-                        case.world_seed,
-                        case.behavior_seed,
-                        None,
-                    ),
-                )
-            })
-            .collect::<Vec<_>>();
-        let crusher_thresholds = registries
-            .equipment()
-            .get_equipment(EQUIPMENT_JAW_CRUSHER)
-            .map(|definition| definition.maintenance_thresholds())
-            .unwrap_or_else(|| panic!("agency probe crusher definition disappeared"));
-        let maintenance_world = fresh_variations
-            .iter()
-            .filter(|(world_seed, variation)| {
-                variation.crusher.maintenance_replacement_units > 0
-                    && crusher_thresholds.classify(variation.crusher.initial_crusher_condition)
-                        == MaintenanceBand::Warning
-                    && agency_worlds
-                        .iter()
-                        .all(|selected| selected.world_seed != *world_seed)
-            })
-            .min_by_key(|(_, variation)| {
-                (
-                    variation.crusher.maintenance_replacement_units,
-                    variation
-                        .crusher
-                        .initial_crusher_condition
-                        .parts_per_million(),
-                )
-            })
-            .map(|(world_seed, _)| *world_seed);
-        if let Some(world_seed) = maintenance_world {
-            push_unique_agency_world(&mut agency_worlds, "maintenance-pressure", world_seed, None);
-        } else if let Some((index, case)) = plan
-            .cases()
-            .iter()
-            .take(plan.anchor_seed_count())
-            .enumerate()
-            .find(|(index, case)| {
-                let variation = ScenarioVariation::from_seeds(
-                    &registries,
-                    case.world_seed,
-                    case.behavior_seed,
-                    Some(*index),
-                );
-                crusher_thresholds.classify(variation.crusher.initial_crusher_condition)
-                    == MaintenanceBand::Warning
-                    && variation.crusher.maintenance_replacement_units > 0
-                    && agency_worlds
-                        .iter()
-                        .all(|selected| selected.world_seed != case.world_seed)
-            })
-        {
-            push_unique_agency_world(
-                &mut agency_worlds,
-                "maintenance-pressure",
-                case.world_seed,
-                Some(index),
-            );
+        for (anchor, focus) in [
+            (
+                MaintainedAnchor::NormalBaseline,
+                AgencyFocus::PowerAndStructure,
+            ),
+            (
+                MaintainedAnchor::SurvivalRecovery,
+                AgencyFocus::SurvivalRecovery,
+            ),
+            (
+                MaintainedAnchor::WarningMaintenance,
+                AgencyFocus::MaintenanceTiming,
+            ),
+        ] {
+            if let Some(case) = plan.maintained_case(anchor) {
+                push_unique_agency_world(&mut agency_worlds, focus, case.world_seed, case.anchor);
+            }
         }
         if agency_worlds.is_empty() {
             for case in plan.cases().iter().take(4) {
-                push_unique_agency_world(&mut agency_worlds, "custom-input", case.world_seed, None);
+                push_unique_agency_world(
+                    &mut agency_worlds,
+                    AgencyFocus::CustomInput,
+                    case.world_seed,
+                    None,
+                );
             }
         }
         std::println!(
-            "AGENCY INPUT selected={} focuses=[{}] selection=world-input-pressure-not-outcome",
+            "AGENCY INPUT selected={} focuses=[{}] selection=maintained-choice-pressure-not-outcome",
             agency_worlds.len(),
             agency_worlds
                 .iter()
-                .map(|world| match world.anchor_index {
-                    Some(index) => format!(
-                        "{}:0x{:016X}:anchor{}",
-                        world.focus, world.world_seed, index
+                .map(|world| match world.anchor {
+                    Some(anchor) => format!(
+                        "{}:0x{:016X}:{}",
+                        world.focus.label(),
+                        world.world_seed,
+                        anchor.label()
                     ),
-                    None => format!("{}:0x{:016X}:fresh", world.focus, world.world_seed),
+                    None => format!("{}:0x{:016X}:custom", world.focus.label(), world.world_seed),
                 })
                 .collect::<Vec<_>>()
                 .join(","),
         );
         run_agency_probe(&registries, &agency_worlds);
+        std::println!(
+            "PLAYER EXPERIENCE core-fantasy=survive-by-direct-labor->shape-local-matter->improve-tools->bank-human-work->mechanize->manage-physical-debt demonstrated=[finite-survival-reserve,manual-crafting+mining,scarce-upgrade-priority,material-backed-work-storage,player+machine-overlap,power-time-vs-reserve,condition-safe-adaptive-batching,maintenance-now-vs-later,structural-failure+wip-recovery,survival-reserve-vs-output] current-frontier=[geological-discovery,industrial-acquisition+generation,mixed-ore-concentration+smelting]"
+        );
         std::println!("\n=== BOOTSTRAPPED INDUSTRIAL CAPABILITY PROBES ===");
         run_ore_preparation_capability_probe(&registries, probe_seed);
         run_foundry_capability_probe(&registries, probe_seed);
@@ -2876,6 +3011,57 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
 #[test]
 fn gameplay_harness_gate() {
     run_gameplay_harness(ScenarioPlanMode::Gate, false);
+}
+
+#[test]
+fn gameplay_maintained_agency_counterfactuals() {
+    let registries = build_registries();
+    let worlds = [
+        AgencyWorld {
+            focus: AgencyFocus::PowerAndStructure,
+            world_seed: 1,
+            anchor: Some(MaintainedAnchor::NormalBaseline),
+        },
+        AgencyWorld {
+            focus: AgencyFocus::SurvivalRecovery,
+            world_seed: 0x1F65_DBFE_4A87_A054,
+            anchor: Some(MaintainedAnchor::SurvivalRecovery),
+        },
+        AgencyWorld {
+            focus: AgencyFocus::MaintenanceTiming,
+            world_seed: 4,
+            anchor: Some(MaintainedAnchor::WarningMaintenance),
+        },
+    ];
+    run_agency_probe(&registries, &worlds);
+}
+
+#[test]
+fn gameplay_machine_process_catalog_has_cold_agent_evidence() {
+    let registries = build_registries();
+    let manual_processes = registries
+        .crafting()
+        .definitions()
+        .map(|definition| definition.process())
+        .collect::<BTreeSet<_>>();
+    let actual_machine_processes = registries
+        .production()
+        .definitions()
+        .map(|definition| definition.id())
+        .filter(|process| !manual_processes.contains(process))
+        .collect::<BTreeSet<_>>();
+    let exercised_machine_processes = BTreeSet::from([
+        PROCESS_CRUSH_ORE,
+        PROCESS_GRIND_CRUSHED_ORE,
+        PROCESS_SCREEN_CRUSHED_ORE,
+        PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+        PROCESS_MELT_PURE_COPPER,
+        PROCESS_CAST_PURE_COPPER,
+    ]);
+    assert_eq!(
+        actual_machine_processes, exercised_machine_processes,
+        "cold-agent capability coverage is stale: update workshop/ore/foundry probes so every authored non-manual production process has gameplay evidence"
+    );
 }
 
 #[test]

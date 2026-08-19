@@ -1,9 +1,8 @@
-//! Bounded survival-provisioning gameplay probe over authored food, preservation, and finite water.
+//! Bounded survival-provisioning gameplay probe over authored food, preservation, and finite drink.
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use deep_hearth::content::gameplay_fixture::{seed_fluid_store, seed_lot};
-use deep_hearth::content::{
-    FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES, MATERIAL_GRAIN, MATERIAL_MEAT,
-};
 use deep_hearth::core::quantity::{Mass, Temperature, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::WorldSeed;
@@ -11,12 +10,11 @@ use deep_hearth::fluid::calculate_fluid_volume_accounting;
 use deep_hearth::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileStorageProfile, add_stockpile,
 };
-use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::survival::{
-    FoodCategory, FoodFreshness, assess_food_freshness, assess_survival,
+    FoodCategory, FoodDefinition, FoodFreshness, assess_food_freshness, assess_survival,
     initialize_player_survival, validate_drink, validate_eat,
 };
 
@@ -24,16 +22,20 @@ use super::seed::mix64;
 
 const ROOM_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 
-fn mass_for_target_energy(registries: &Registries, commodity: CommodityKey, target: u128) -> Mass {
-    let food = registries
-        .survival()
-        .get_food(commodity)
-        .unwrap_or_else(|| panic!("survival probe food {} disappeared", commodity.value()));
+fn mass_for_target_energy(food: FoodDefinition, target: u128) -> Mass {
     let per_milligram = u128::from(food.dietary_energy().nanojoules_per_milligram());
     let milligrams = target.max(1).div_ceil(per_milligram).max(1);
     let milligrams = u64::try_from(milligrams)
         .unwrap_or_else(|_| panic!("survival probe meal mass exceeds authoritative range"));
     Mass::from_milligrams(milligrams)
+}
+
+const fn category_salt(category: FoodCategory) -> u64 {
+    match category {
+        FoodCategory::Grain => 0x4752_4149_4E00_0001,
+        FoodCategory::Fruit => 0x4652_5549_5400_0002,
+        FoodCategory::Protein => 0x5052_4F54_4549_4E03,
+    }
 }
 
 fn fresh_age(registries: &Registries, state: &AppState, lot: MaterialLotId) -> u64 {
@@ -58,24 +60,58 @@ fn advance_exact(registries: &Registries, state: &mut AppState, ticks: u64) {
 }
 
 pub(super) fn run_survival_provisioning_probe(registries: &Registries, seed: u64) {
-    let grain = CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD);
-    let berries = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
-    let meat = CommodityKey::new(MATERIAL_MEAT, FORM_FOOD);
     let physiology = registries.survival().physiology();
 
+    let mut foods_by_category = BTreeMap::<FoodCategory, Vec<FoodDefinition>>::new();
+    for food in registries.survival().foods().copied() {
+        foods_by_category
+            .entry(food.category())
+            .or_default()
+            .push(food);
+    }
+    assert!(
+        !foods_by_category.is_empty(),
+        "survival gameplay is stale or unavailable: the runtime registry has no authored edible food"
+    );
+    let authored_categories = foods_by_category.keys().copied().collect::<Vec<_>>();
+    let selected_category_count = if authored_categories.len() >= 3 {
+        2 + usize::from(!mix64(seed ^ 0x4D45_414C_4348_4F49).is_multiple_of(2))
+    } else {
+        authored_categories.len()
+    };
+    let category_start =
+        usize::try_from(mix64(seed ^ 0x4341_5445_474F_5259) % authored_categories.len() as u64)
+            .unwrap_or_else(|_| unreachable!("food category index fits usize"));
+    let selected_categories = (0..selected_category_count)
+        .map(|offset| authored_categories[(category_start + offset) % authored_categories.len()])
+        .collect::<Vec<_>>();
+
     let target_absorbed_energy = physiology.maximum_metabolic_energy().nanojoules() / 1_000;
-    let category_target = (target_absorbed_energy / 3).max(1);
-    let grain_mass = mass_for_target_energy(registries, grain, category_target);
-    let berry_mass = mass_for_target_energy(registries, berries, category_target);
-    let meat_mass = mass_for_target_energy(registries, meat, category_target);
-    let meal_mass = grain_mass
-        .checked_add(berry_mass)
-        .and_then(|mass| mass.checked_add(meat_mass))
+    let category_target = (target_absorbed_energy / selected_category_count as u128).max(1);
+    let offerings = selected_categories
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, category)| {
+            let options = foods_by_category
+                .get(&category)
+                .unwrap_or_else(|| unreachable!("selected authored food category disappeared"));
+            let choice = usize::try_from(
+                mix64(seed ^ category_salt(category) ^ index as u64) % options.len() as u64,
+            )
+            .unwrap_or_else(|_| unreachable!("food option index fits usize"));
+            let food = options[choice];
+            (food, mass_for_target_energy(food, category_target))
+        })
+        .collect::<Vec<_>>();
+    let meal_mass = offerings
+        .iter()
+        .try_fold(Mass::ZERO, |total, (_, mass)| total.checked_add(*mass))
         .unwrap_or_else(|| panic!("survival probe meal mass overflowed"));
-    let meal_mode = (mix64(seed ^ 0x4D45_414C_4348_4F49) % 4) as u8;
-    let include_grain = meal_mode != 3;
-    let include_berries = meal_mode != 2;
-    let include_meat = meal_mode != 1;
+    let witness_index =
+        usize::try_from(mix64(seed ^ 0x5052_4553_5749_544E) % offerings.len() as u64)
+            .unwrap_or_else(|_| unreachable!("preservation witness index fits usize"));
+    let witness_food = offerings[witness_index].0;
 
     let preservation_multiplier_ppm =
         2_000_000 + (mix64(seed ^ 0x5052_4553_4552_5645) % 2_000_001) as u32;
@@ -87,13 +123,7 @@ pub(super) fn run_survival_provisioning_probe(registries: &Registries, seed: u64
     )
     .unwrap_or_else(|error| panic!("survival probe preservation profile failed: {error}"));
 
-    let berry_shelf_life = registries
-        .survival()
-        .get_food(berries)
-        .unwrap_or_else(|| panic!("survival probe berry definition disappeared"))
-        .shelf_life()
-        .value();
-    let age_limit = (berry_shelf_life / 4).max(1);
+    let age_limit = (witness_food.shelf_life().value() / 4).max(1);
     let age_ticks = (256 + mix64(seed ^ 0x4147_455F_464F_4F44) % 512).min(age_limit);
 
     let basal_energy = physiology.basal_energy_cost_per_tick().nanojoules();
@@ -106,23 +136,14 @@ pub(super) fn run_survival_provisioning_probe(registries: &Registries, seed: u64
     let depletion_ticks = u64::try_from(depletion_ticks)
         .unwrap_or_else(|_| panic!("survival probe depletion horizon exceeds tick range"));
 
-    let offered_food_hydration = [
-        (grain, grain_mass, include_grain),
-        (berries, berry_mass, include_berries),
-        (meat, meat_mass, include_meat),
-    ]
-    .into_iter()
-    .filter(|(_, _, included)| *included)
-    .try_fold(0_u128, |total, (commodity, mass, _)| {
-        let food = registries
-            .survival()
-            .get_food(commodity)
-            .unwrap_or_else(|| panic!("survival probe food definition disappeared"));
-        total.checked_add(
-            u128::from(mass.milligrams()) * u128::from(food.hydration_microliters_per_milligram()),
-        )
-    })
-    .unwrap_or_else(|| panic!("survival probe food hydration overflowed"));
+    let offered_food_hydration = offerings
+        .iter()
+        .try_fold(0_u128, |total, (food, mass)| {
+            let contribution = u128::from(mass.milligrams())
+                .checked_mul(u128::from(food.hydration_microliters_per_milligram()))?;
+            total.checked_add(contribution)
+        })
+        .unwrap_or_else(|| panic!("survival probe food hydration overflowed"));
     let hydration_deficit = hydration_loss
         .checked_mul(u128::from(depletion_ticks))
         .unwrap_or_else(|| panic!("survival probe hydration deficit overflowed"));
@@ -130,10 +151,15 @@ pub(super) fn run_survival_provisioning_probe(registries: &Registries, seed: u64
         .saturating_sub(offered_food_hydration)
         .max(2)
         / 2;
-    let drink = registries
-        .survival()
-        .get_drink(FLUID_WATER)
-        .unwrap_or_else(|| panic!("survival probe water drink definition disappeared"));
+    let drinks = registries.survival().drinks().copied().collect::<Vec<_>>();
+    assert!(
+        !drinks.is_empty(),
+        "survival gameplay is stale or unavailable: the runtime registry has no authored drinkable fluid"
+    );
+    let drink_index = usize::try_from(mix64(seed ^ 0x4452_494E_4B00_0001) % drinks.len() as u64)
+        .unwrap_or_else(|_| unreachable!("drink index fits usize"));
+    let drink = drinks[drink_index];
+    let drink_fluid = drink.fluid();
     let drink_volume = target_drink_gain
         .checked_mul(1_000_000)
         .unwrap_or_else(|| panic!("survival probe drink scaling overflowed"))
@@ -142,9 +168,9 @@ pub(super) fn run_survival_provisioning_probe(registries: &Registries, seed: u64
     let drink_volume = u64::try_from(drink_volume)
         .unwrap_or_else(|_| panic!("survival probe drink volume exceeds authoritative range"));
     let drink_volume = Volume::from_microliters(drink_volume);
-    let water_capacity = drink_volume
+    let drink_capacity = drink_volume
         .checked_add(drink_volume)
-        .unwrap_or_else(|| panic!("survival probe water capacity overflowed"));
+        .unwrap_or_else(|| panic!("survival probe drink capacity overflowed"));
 
     let mut state = AppState::new(WorldSeed::new(seed));
     let ambient = add_stockpile(
@@ -155,50 +181,41 @@ pub(super) fn run_survival_provisioning_probe(registries: &Registries, seed: u64
     .unwrap_or_else(|error| panic!("survival probe ambient storage failed: {error}"));
     let meal_storage = add_stockpile(&mut state, meal_mass, preserved_profile)
         .unwrap_or_else(|error| panic!("survival probe preserved storage failed: {error}"));
-    let ambient_berries = seed_lot(
+    let ambient_witness = seed_lot(
         registries,
         &mut state,
         ambient,
-        berries,
+        witness_food.commodity(),
         Mass::from_milligrams(1),
         ROOM_TEMPERATURE,
     );
-    let grain_lot = seed_lot(
+    let prepared = offerings
+        .iter()
+        .map(|(food, mass)| {
+            let lot = seed_lot(
+                registries,
+                &mut state,
+                meal_storage,
+                food.commodity(),
+                *mass,
+                ROOM_TEMPERATURE,
+            );
+            (*food, *mass, lot)
+        })
+        .collect::<Vec<_>>();
+    let preserved_witness = prepared[witness_index].2;
+    let drink_store = seed_fluid_store(
         registries,
         &mut state,
-        meal_storage,
-        grain,
-        grain_mass,
-        ROOM_TEMPERATURE,
-    );
-    let berry_lot = seed_lot(
-        registries,
-        &mut state,
-        meal_storage,
-        berries,
-        berry_mass,
-        ROOM_TEMPERATURE,
-    );
-    let meat_lot = seed_lot(
-        registries,
-        &mut state,
-        meal_storage,
-        meat,
-        meat_mass,
-        ROOM_TEMPERATURE,
-    );
-    let water = seed_fluid_store(
-        registries,
-        &mut state,
-        water_capacity,
-        FLUID_WATER,
-        water_capacity,
+        drink_capacity,
+        drink_fluid,
+        drink_capacity,
         ROOM_TEMPERATURE,
     );
 
     advance_exact(registries, &mut state, age_ticks);
-    let ambient_age = fresh_age(registries, &state, ambient_berries);
-    let preserved_age = fresh_age(registries, &state, berry_lot);
+    let ambient_age = fresh_age(registries, &state, ambient_witness);
+    let preserved_age = fresh_age(registries, &state, preserved_witness);
     assert!(
         preserved_age < ambient_age,
         "authored preservation must slow future food spoilage relative to ambient storage"
@@ -214,28 +231,31 @@ pub(super) fn run_survival_provisioning_probe(registries: &Registries, seed: u64
     let fluid_before = calculate_fluid_volume_accounting(&state)
         .unwrap_or_else(|error| panic!("survival probe initial fluid audit failed: {error}"));
 
-    let mut selections = Vec::with_capacity(3);
-    let mut selected_categories = Vec::with_capacity(3);
-    if include_grain {
-        selections.push(MaterialLotSelection::new(grain_lot, grain_mass));
-        selected_categories.push(FoodCategory::Grain);
-    }
-    if include_berries {
-        selections.push(MaterialLotSelection::new(berry_lot, berry_mass));
-        selected_categories.push(FoodCategory::Fruit);
-    }
-    if include_meat {
-        selections.push(MaterialLotSelection::new(meat_lot, meat_mass));
-        selected_categories.push(FoodCategory::Protein);
-    }
+    let selections = prepared
+        .iter()
+        .map(|(_, mass, lot)| MaterialLotSelection::new(*lot, *mass))
+        .collect::<Vec<_>>();
+    let selected_categories = prepared
+        .iter()
+        .map(|(food, _, _)| food.category())
+        .collect::<Vec<_>>();
     let meal = validate_eat(registries, &state, meal_storage, &selections)
         .unwrap_or_else(|error| panic!("survival probe varied meal validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("survival probe varied meal commit failed: {error}"));
     assert_eq!(meal.portions().len(), selections.len());
+    assert_eq!(
+        selected_categories
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>()
+            .len(),
+        selected_categories.len(),
+        "survival probe meal selection must not duplicate a dietary category"
+    );
     assert!(
-        selected_categories.len() >= 2,
-        "survival probe meal policy must select at least two food categories"
+        selected_categories.len() >= authored_categories.len().min(2),
+        "survival probe meal policy must select multiple authored food categories when the registry provides them"
     );
     for category in selected_categories.iter().copied() {
         assert!(
@@ -245,7 +265,7 @@ pub(super) fn run_survival_provisioning_probe(registries: &Registries, seed: u64
     }
     assert!(!meal.energy_gained().is_zero());
 
-    let drank = validate_drink(registries, &state, water, drink_volume)
+    let drank = validate_drink(registries, &state, drink_store, drink_volume)
         .unwrap_or_else(|error| panic!("survival probe drinking validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("survival probe drinking commit failed: {error}"));
@@ -267,7 +287,7 @@ pub(super) fn run_survival_provisioning_probe(registries: &Registries, seed: u64
             .unwrap_or_else(|error| panic!("survival probe final fluid audit failed: {error}"))
             .total(),
         fluid_before.total(),
-        "drinking must transfer finite water into survival ownership rather than delete it"
+        "drinking must transfer finite fluid into survival ownership rather than delete it"
     );
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("survival probe final persistence audit failed: {error}"));
@@ -277,11 +297,18 @@ pub(super) fn run_survival_provisioning_probe(registries: &Registries, seed: u64
         .map(|category| format!("{category:?}"))
         .collect::<Vec<_>>()
         .join("+");
+    let food_label = prepared
+        .iter()
+        .map(|(food, _, _)| food.commodity().value().to_string())
+        .collect::<Vec<_>>()
+        .join("+");
     std::println!(
-        "PLAYABLE SURVIVAL seed=0x{seed:016X} world-bootstrap=[food,water,storage] storage=[elapsed:{age_ticks}t preservation:{preservation_multiplier_ppm}ppm ambient_age:{ambient_age}t preserved_age:{preserved_age}t] depletion={depletion_ticks}t meal=[categories:{category_label} mass:{}mg energy:+{}nJ nutrition:+{}ppm] drink=[volume:{}uL hydration:+{}uL] matter=conserved fluid=conserved tick={}",
+        "PLAYABLE SURVIVAL seed=0x{seed:016X} catalog=registry-derived world-bootstrap=[authored-food,authored-drink,storage-profile] storage=[witness:{} elapsed:{age_ticks}t preservation:{preservation_multiplier_ppm}ppm ambient_age:{ambient_age}t preserved_age:{preserved_age}t] depletion={depletion_ticks}t meal=[foods:{food_label} categories:{category_label} mass:{}mg energy:+{}nJ nutrition:+{}ppm] drink=[fluid:{} volume:{}uL hydration:+{}uL] matter=conserved fluid=conserved tick={}",
+        witness_food.commodity().value(),
         meal.total_mass().milligrams(),
         meal.energy_gained().nanojoules(),
         meal.nutrition_gained().total_ppm(),
+        drink_fluid.value(),
         drank.volume().microliters(),
         drank.hydration_gained().microliters(),
         state.tick().value(),

@@ -10,6 +10,7 @@ use crate::core::quantity::Mass;
 
 /// One constituent fraction in a normalized runtime material composition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CompositionComponent {
     material: MaterialId,
     parts_per_million: u32,
@@ -103,6 +104,7 @@ pub struct MaterialComposition {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct MaterialCompositionRepresentation {
     components: Vec<CompositionComponent>,
 }

@@ -13,6 +13,7 @@ use super::ManualPowerMethodId;
 
 /// Durable direct-labor work order that converts player effort into finite mechanical energy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ManualPowerWork {
     method: ManualPowerMethodId,
     equipment: EquipmentOperationTrace,
@@ -84,6 +85,7 @@ impl ManualPowerWork {
 
 /// Durable activity currently monopolizing the local player's labor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum PlayerWork {
     ManualCraft { job: ProductionJobId },
     Mining { job: MiningJobId },
@@ -92,6 +94,7 @@ pub enum PlayerWork {
 
 /// Single-player labor owner with an explicit revision for cross-system transactions.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlayerWorkState {
     revision: u64,
     active: Option<PlayerWork>,

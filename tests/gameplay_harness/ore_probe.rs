@@ -451,27 +451,38 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         .and_then(|energy| energy.checked_add(fine_energy))
         .unwrap_or_else(|| panic!("ore preparation consumed energy overflowed"));
 
-    let requirements = [
-        (
-            "ore preparation conserves matter",
-            final_matter == initial_matter,
-        ),
-        (
-            "ore preparation consumes exactly resolved work energy",
-            initial_energy.checked_sub(consumed_energy) == Some(final_energy),
-        ),
-        (
-            "crusher condition matches resolved wear",
-            final_crusher_condition == crusher_condition,
-        ),
-        (
-            "grinder condition matches resolved wear",
-            final_grinder_condition == final_grinder_projection,
-        ),
-        (
-            "screen condition matches resolved wear",
-            final_screen_condition == screen_condition,
-        ),
+    assert_eq!(
+        final_matter, initial_matter,
+        "ore preparation must conserve world matter"
+    );
+    assert_eq!(
+        initial_energy.checked_sub(consumed_energy),
+        Some(final_energy),
+        "ore preparation must consume exactly the resolved work energy"
+    );
+    assert_eq!(
+        final_crusher_condition, crusher_condition,
+        "crusher condition must match resolved wear"
+    );
+    assert_eq!(
+        final_grinder_condition, final_grinder_projection,
+        "grinder condition must match resolved wear"
+    );
+    assert_eq!(
+        final_screen_condition, screen_condition,
+        "screen condition must match resolved wear"
+    );
+    assert_eq!(
+        undersize_mass, batch_mass,
+        "all prepared mass must finish in undersize storage"
+    );
+    assert_eq!(
+        oversize_mass,
+        Mass::ZERO,
+        "oversize storage must be empty after regrind"
+    );
+
+    let qualitative_requirements = [
         (
             "crusher output matches authored particle state",
             crusher_output_matches_authoring,
@@ -500,16 +511,8 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             "final product satisfies the fine size range",
             final_distribution_is_fine,
         ),
-        (
-            "all prepared mass finishes in undersize storage",
-            undersize_mass == batch_mass,
-        ),
-        (
-            "oversize storage is empty after regrind",
-            oversize_mass == Mass::ZERO,
-        ),
     ];
-    for (name, observed) in requirements {
+    for (name, observed) in qualitative_requirements {
         assert!(
             observed,
             "ore-preparation capability contract failed: {name}"

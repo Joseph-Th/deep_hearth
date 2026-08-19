@@ -149,11 +149,6 @@ pub enum StateValidationError {
         released: Energy,
         capacity: Energy,
     },
-    EnergyStoreDoubleBooked {
-        store: crate::energy::EnergyStoreId,
-        first: ProductionJobId,
-        second: ProductionJobId,
-    },
     UnknownJobEquipment {
         job: ProductionJobId,
         equipment: EquipmentId,
@@ -167,11 +162,6 @@ pub enum StateValidationError {
         job: ProductionJobId,
         traced: Condition,
         stored: Condition,
-    },
-    EquipmentDoubleBooked {
-        equipment: EquipmentId,
-        first: ProductionJobId,
-        second: ProductionJobId,
     },
     UnknownEquipmentSupport {
         equipment: EquipmentId,
@@ -459,17 +449,6 @@ impl Display for StateValidationError {
                 stored.nanojoules(),
                 capacity.nanojoules()
             ),
-            Self::EnergyStoreDoubleBooked {
-                store,
-                first,
-                second,
-            } => write!(
-                formatter,
-                "energy store {} is simultaneously reserved by production jobs {} and {}",
-                store.value(),
-                first.value(),
-                second.value()
-            ),
             Self::UnknownJobEquipment { job, equipment } => write!(
                 formatter,
                 "production job {} references missing equipment {}",
@@ -497,17 +476,6 @@ impl Display for StateValidationError {
                 job.value(),
                 traced.parts_per_million(),
                 stored.parts_per_million()
-            ),
-            Self::EquipmentDoubleBooked {
-                equipment,
-                first,
-                second,
-            } => write!(
-                formatter,
-                "equipment {} is simultaneously assigned to production jobs {} and {}",
-                equipment.value(),
-                first.value(),
-                second.value()
             ),
             Self::UnknownEquipmentSupport { equipment, element } => write!(
                 formatter,
@@ -766,11 +734,6 @@ impl Error for StateValidationError {
                 released: _released,
                 capacity: _capacity,
             } => None,
-            Self::EnergyStoreDoubleBooked {
-                store: _store,
-                first: _first,
-                second: _second,
-            } => None,
             Self::UnknownJobEquipment {
                 job: _job,
                 equipment: _equipment,
@@ -784,11 +747,6 @@ impl Error for StateValidationError {
                 job: _job,
                 traced: _traced,
                 stored: _stored,
-            } => None,
-            Self::EquipmentDoubleBooked {
-                equipment: _equipment,
-                first: _first,
-                second: _second,
             } => None,
             Self::UnknownEquipmentSupport {
                 equipment: _equipment,

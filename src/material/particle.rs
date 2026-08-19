@@ -52,6 +52,7 @@ impl ParticleSizeRange {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ParticleSizeRangeRepresentation {
     minimum_diameter: Length,
     maximum_diameter: Length,
@@ -105,6 +106,7 @@ impl Error for ParticleSizeRangeError {}
 /// relative mass weight; `ParticleSizeDistribution` reduces all class weights by their greatest
 /// common divisor so physically equivalent ratios have one canonical persistent representation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ParticleSizeClass {
     range: ParticleSizeRange,
     weight: u32,
@@ -258,6 +260,7 @@ impl From<ParticleSizeRange> for ParticleSizeDistribution {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ParticleSizeDistributionRepresentation {
     classes: Vec<ParticleSizeClass>,
 }

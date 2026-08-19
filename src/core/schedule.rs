@@ -82,6 +82,7 @@ impl PeriodicSchedule {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PeriodicScheduleRepresentation {
     interval_ticks: NonZeroU64,
     phase_tick: u64,

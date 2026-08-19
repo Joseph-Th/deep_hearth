@@ -189,10 +189,16 @@ pub enum ProductionValidationError {
         indexed: Option<ProductionJobId>,
         expected: Option<ProductionJobId>,
     },
+    EnergyDoubleBooked {
+        store: EnergyStoreId,
+    },
     EquipmentOccupancyIndexMismatch {
         equipment: EquipmentId,
         indexed: Option<ProductionJobId>,
         expected: Option<ProductionJobId>,
+    },
+    EquipmentDoubleBooked {
+        equipment: EquipmentId,
     },
     StockpileOccupancyIndexMismatch {
         stockpile: StockpileId,
@@ -500,6 +506,11 @@ impl Display for ProductionValidationError {
                 indexed.map(ProductionJobId::value),
                 expected.map(ProductionJobId::value)
             ),
+            Self::EnergyDoubleBooked { store } => write!(
+                formatter,
+                "multiple production jobs exclusively reserve energy store {}",
+                store.value()
+            ),
             Self::EquipmentOccupancyIndexMismatch {
                 equipment,
                 indexed,
@@ -510,6 +521,11 @@ impl Display for ProductionValidationError {
                 equipment.value(),
                 indexed.map(ProductionJobId::value),
                 expected.map(ProductionJobId::value)
+            ),
+            Self::EquipmentDoubleBooked { equipment } => write!(
+                formatter,
+                "multiple production jobs exclusively occupy equipment {}",
+                equipment.value()
             ),
             Self::StockpileOccupancyIndexMismatch { stockpile } => write!(
                 formatter,
@@ -821,14 +837,20 @@ pub(crate) fn validate_loaded_production(
             }
         }
     }
-    if let Some((store, indexed, expected)) = state.energy_occupancy_mismatch() {
+    if let Some((store, indexed, expected)) = state
+        .energy_occupancy_mismatch()
+        .map_err(|store| ProductionValidationError::EnergyDoubleBooked { store })?
+    {
         return Err(ProductionValidationError::EnergyOccupancyIndexMismatch {
             store,
             indexed,
             expected,
         });
     }
-    if let Some((equipment, indexed, expected)) = state.equipment_occupancy_mismatch() {
+    if let Some((equipment, indexed, expected)) = state
+        .equipment_occupancy_mismatch()
+        .map_err(|equipment| ProductionValidationError::EquipmentDoubleBooked { equipment })?
+    {
         return Err(ProductionValidationError::EquipmentOccupancyIndexMismatch {
             equipment,
             indexed,

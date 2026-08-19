@@ -279,6 +279,7 @@ pub struct TransmissionRatio {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct TransmissionRatioRepr {
     numerator: u32,
     denominator: u32,

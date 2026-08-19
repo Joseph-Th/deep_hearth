@@ -415,7 +415,10 @@ Manual crafting emits ordinary `ProcessResolution` values and uses canonical pro
 Repeated batches scale authored matter and time together.
 
 Direct player power binds a real equipment Power capability and finite destination energy store.
-Duration respects equipment/store transfer limits and the survival energy budget; energy and wear
+Duration respects equipment/store transfer limits and the method's maximum sustainable metabolic
+output. Active physiological exertion is then scaled to the actual mechanical work required at the
+authored metabolic efficiency, so slower equipment or destination bottlenecks do not charge full
+effort for unused human output capacity. Energy and wear
 become authoritative together at completion. A validated manual-power start exposes the same
 authoritative `PlayerWorkResourceBudget` used for admission, so callers can present or compare the
 projected metabolic-energy and hydration cost without duplicating survival formulas. Successful

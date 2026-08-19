@@ -33,6 +33,7 @@ impl FluidStoreId {
 /// resolver would create or destroy modeled sensible heat. Empty stores use `None` rather than a
 /// zero-volume fluid identity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FluidContents {
     pub(super) fluid: FluidDefinitionId,
     pub(super) volume: Volume,
@@ -58,6 +59,7 @@ impl FluidContents {
 
 /// Authoritative runtime state for one finite fluid store.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FluidStoreRecord {
     pub(super) id: FluidStoreId,
     pub(super) capacity: Volume,
@@ -104,10 +106,13 @@ impl FluidStoreRecord {
 
 /// Persistent owner for finite fluid stores and monotonic identity/revision cursors.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FluidState {
     revision: u64,
     next_store_id: u64,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     records: BTreeMap<FluidStoreId, FluidStoreRecord>,
+    #[serde(skip)]
     stores_by_support: BTreeMap<StructuralElementId, BTreeSet<FluidStoreId>>,
 }
 
@@ -139,6 +144,19 @@ impl FluidState {
 
     pub fn stores(&self) -> impl Iterator<Item = &FluidStoreRecord> {
         self.records.values()
+    }
+
+    pub(crate) fn rebuild_derived_indexes(&mut self) {
+        let mut stores_by_support = BTreeMap::<StructuralElementId, BTreeSet<FluidStoreId>>::new();
+        for record in self.records.values() {
+            if let Some(support) = record.supported_by {
+                stores_by_support
+                    .entry(support)
+                    .or_default()
+                    .insert(record.id);
+            }
+        }
+        self.stores_by_support = stores_by_support;
     }
 
     /// Atomically inserts one allocated store record and advances the identity and revision cursors.

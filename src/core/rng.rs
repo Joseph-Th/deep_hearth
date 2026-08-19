@@ -48,9 +48,11 @@ pub enum RngAlgorithm {
 /// their full state is serialized. Adding a new subsystem stream therefore cannot shift the
 /// sequence of any existing stream.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RandomState {
     root_seed: WorldSeed,
     derivation: RngStreamDerivation,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     streams: BTreeMap<RngStreamId, DeterministicRng>,
 }
 
@@ -152,6 +154,7 @@ impl Error for RandomStateValidationError {}
 
 /// Serializable deterministic PRNG state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DeterministicRng {
     algorithm: RngAlgorithm,
     words: [u64; 4],

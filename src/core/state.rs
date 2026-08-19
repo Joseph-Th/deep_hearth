@@ -18,6 +18,7 @@ use super::time::{SimulationTick, WorldSeed};
 
 /// Mutable runtime state that must survive execution and restart boundaries.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AppState {
     world_seed: WorldSeed,
     clock: ClockState,
@@ -26,6 +27,7 @@ pub struct AppState {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SystemState {
     energy: EnergyState,
     fluid: FluidState,
@@ -41,6 +43,7 @@ struct SystemState {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ClockState {
     tick: SimulationTick,
 }
@@ -167,6 +170,12 @@ impl AppState {
 
     pub(crate) fn rebuild_derived_indexes(&mut self) {
         self.systems.inventory.rebuild_derived_indexes();
+        self.systems.equipment.rebuild_derived_indexes();
+        self.systems.fluid.rebuild_derived_indexes();
+        self.systems.structures.rebuild_derived_indexes();
+        self.systems.geological_knowledge.rebuild_derived_indexes();
+        self.systems.production.rebuild_derived_indexes();
+        self.systems.mining.rebuild_derived_indexes();
     }
 
     /// Returns read-only authoritative production scheduling state.

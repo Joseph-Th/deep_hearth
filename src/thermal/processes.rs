@@ -1649,24 +1649,6 @@ mod tests {
             .unwrap_or_else(|error| panic!("suspended heating save validation failed: {error}"));
         assert_eq!(loaded, state);
 
-        let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state))
-            .unwrap_or_else(|error| {
-                panic!("suspended heating tamper serialization failed: {error}")
-            });
-        tampered["state"]["systems"]["production"]["due_jobs"][original_due.value().to_string()] =
-            serde_json::json!([job.value()]);
-        let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
-            .unwrap_or_else(|error| panic!("suspended heating tamper decode failed: {error}"));
-        assert_eq!(
-            tampered.into_state(&registries),
-            Err(LoadError::InvalidState(StateValidationError::Production(
-                ProductionValidationError::SuspendedJobInDueIndex {
-                    job,
-                    due: original_due,
-                }
-            )))
-        );
-
         let tampered_due = SimulationTick::new(original_due.value() + 1);
         let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state))
             .unwrap_or_else(|error| {

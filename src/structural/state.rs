@@ -106,6 +106,7 @@ impl StructuralElementGeometry {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StructuralElementGeometryRepresentation {
     bounds: VoxelBounds,
     length: Length,
@@ -129,6 +130,7 @@ impl<'de> Deserialize<'de> for StructuralElementGeometry {
 
 /// Immutable authored/runtime specification of one structural member.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct StructuralElementConfiguration {
     pub(super) profile: StructuralProfileId,
     pub(super) material: MaterialId,
@@ -138,11 +140,13 @@ pub(super) struct StructuralElementConfiguration {
 
 /// Persistent physical and lifecycle state for one structural member.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StructuralElementRecord {
     pub(super) id: StructuralElementId,
     pub(super) configuration: StructuralElementConfiguration,
     pub(super) embodied_mass: Mass,
     pub(super) embodied_material: Vec<ConsumedMaterialTrace>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     pub(super) loads: BTreeMap<StructuralLoadKind, Force>,
     pub(super) lifecycle: StructuralLifecycle,
     pub(super) is_cracked: bool,
@@ -229,11 +233,17 @@ impl StructuralElementRecord {
 
 /// Authoritative structural records plus synchronized forward and reverse support indexes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StructureState {
     revision: u64,
     next_element_id: u32,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     elements: BTreeMap<StructuralElementId, StructuralElementRecord>,
+    #[serde(
+        deserialize_with = "crate::core::serialization::deserialize_btree_map_of_sets_no_duplicates"
+    )]
     supports_by_element: BTreeMap<StructuralElementId, BTreeSet<StructuralElementId>>,
+    #[serde(skip)]
     dependents_by_support: BTreeMap<StructuralElementId, BTreeSet<StructuralElementId>>,
 }
 
@@ -266,6 +276,24 @@ impl StructureState {
 
     pub fn elements(&self) -> impl Iterator<Item = &StructuralElementRecord> {
         self.elements.values()
+    }
+
+    pub(crate) fn rebuild_derived_indexes(&mut self) {
+        let mut dependents_by_support = self
+            .elements
+            .keys()
+            .copied()
+            .map(|element| (element, BTreeSet::new()))
+            .collect::<BTreeMap<_, _>>();
+        for (element, supports) in &self.supports_by_element {
+            for support in supports {
+                dependents_by_support
+                    .entry(*support)
+                    .or_default()
+                    .insert(*element);
+            }
+        }
+        self.dependents_by_support = dependents_by_support;
     }
 
     pub(super) const fn element_map(

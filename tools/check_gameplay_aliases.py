@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import shlex
 import subprocess
@@ -207,18 +208,79 @@ def run_self_tests() -> None:
         for error in focused_target_errors({"test": []}, suites)
     )
 
+    executable_fixture = json.dumps(
+        {
+            "reason": "compiler-artifact",
+            "target": {"name": "gameplay_harness"},
+            "profile": {"test": True},
+            "executable": "target/test/gameplay_harness.exe",
+        }
+    )
+    assert parse_test_executable(executable_fixture) == Path(
+        "target/test/gameplay_harness.exe"
+    )
+    try:
+        parse_test_executable("")
+    except RuntimeError as error:
+        assert "exactly one test executable" in str(error)
+    else:
+        raise AssertionError("missing gameplay executable must fail closed")
 
-def cargo_listing(*extra_libtest: str) -> Counter[str]:
+
+def parse_test_executable(cargo_output: str) -> Path:
+    executables: list[Path] = []
+    for line in cargo_output.splitlines():
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (
+            message.get("reason") == "compiler-artifact"
+            and message.get("target", {}).get("name") == "gameplay_harness"
+            and message.get("profile", {}).get("test")
+            and message.get("executable")
+        ):
+            executables.append(Path(message["executable"]))
+    unique = list(dict.fromkeys(executables))
+    if len(unique) != 1:
+        raise RuntimeError(
+            "gameplay harness build did not report exactly one test executable "
+            f"(found {len(unique)})"
+        )
+    return unique[0]
+
+
+def cargo_test_executable() -> Path:
     command = [
         "cargo",
         "test",
-        "--quiet",
         "--locked",
         "--test",
         "gameplay_harness",
         "--features",
         "test-gameplay",
-        "--",
+        "--no-run",
+        "--message-format=json",
+    ]
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        if result.stdout.strip():
+            print(result.stdout.rstrip(), file=sys.stderr)
+        if result.stderr.strip():
+            print(result.stderr.rstrip(), file=sys.stderr)
+        raise RuntimeError(f"gameplay test discovery build failed with code {result.returncode}")
+    return parse_test_executable(result.stdout)
+
+
+def binary_listing(executable: Path, *extra_libtest: str) -> Counter[str]:
+    command = [
+        str(executable),
         "--list",
         "--format",
         "terse",
@@ -226,7 +288,6 @@ def cargo_listing(*extra_libtest: str) -> Counter[str]:
     ]
     result = subprocess.run(
         command,
-        cwd=ROOT,
         text=True,
         capture_output=True,
         check=False,
@@ -254,8 +315,9 @@ def main() -> int:
     errors = alias_errors(aliases, SELECTORS, SUITES)
     errors.extend(focused_target_errors(manifest, SUITES))
     try:
-        all_tests = cargo_listing()
-        ignored_tests = cargo_listing("--ignored")
+        executable = cargo_test_executable()
+        all_tests = binary_listing(executable)
+        ignored_tests = binary_listing(executable, "--ignored")
     except RuntimeError as error:
         print(error, file=sys.stderr)
         return 1

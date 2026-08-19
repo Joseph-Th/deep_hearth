@@ -160,7 +160,13 @@ history or future design detail.
   for the implemented ownership and production paths.
 - Gameplay evaluation distinguishes reachable survival/primitive progression after controlled world
   bootstrap from bootstrapped industrial workshop, ore-preparation, and pure-copper foundry capability
-  evidence. Maintained anchors are supplemented by bounded fresh replayable cases and a broader report.
+  evidence. Maintained workshop anchors cover normal/warning/critical condition, fractional stored work,
+  manual-power recovery, and survival-pressure tradeoffs; matched-world counterfactuals maintain
+  consequential power, survival, maintenance, and structural choices. The workshop actor reduces work to
+  the largest powered batch that preserves non-critical projected condition before declaring maintenance
+  mandatory. Small fresh bounded replayable samples supplement those anchors, while the broader report
+  uses a larger sample. Geological site identity remains a controlled bootstrap because physical
+  discovery/prospecting is not implemented.
 - Test selection, replay controls, assertion policy, and local CI are owned by [`TESTING.md`](TESTING.md).
 
 

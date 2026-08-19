@@ -18,7 +18,8 @@ use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 
 use super::power_physics::{
-    ManualPowerMetabolicDurationError, calculate_metabolic_duration, metabolic_output_per_tick,
+    ManualPowerExertionError, ManualPowerMetabolicDurationError, calculate_metabolic_duration,
+    metabolic_output_per_tick, resolve_manual_power_exertion,
 };
 use super::{
     ManualPowerMethodId, ManualPowerWork, PlayerWork, PlayerWorkCommitError,
@@ -101,6 +102,9 @@ pub enum ManualPowerError {
     MetabolicDurationOverflow {
         method: ManualPowerMethodId,
         energy: Energy,
+    },
+    ExertionResolution {
+        method: ManualPowerMethodId,
     },
     CompletionTickOverflow {
         method: ManualPowerMethodId,
@@ -192,6 +196,11 @@ impl Display for ManualPowerError {
                 method.value(),
                 energy.nanojoules()
             ),
+            Self::ExertionResolution { method } => write!(
+                formatter,
+                "manual power method {} cannot resolve physiological effort for the requested output",
+                method.value()
+            ),
             Self::CompletionTickOverflow { method } => write!(
                 formatter,
                 "manual power method {} completion exceeds the world clock range",
@@ -218,6 +227,7 @@ impl Error for ManualPowerError {
             | Self::PowerDuration { .. }
             | Self::MetabolicConversionTooSmall { .. }
             | Self::MetabolicDurationOverflow { .. }
+            | Self::ExertionResolution { .. }
             | Self::CompletionTickOverflow { .. } => None,
         }
     }
@@ -456,7 +466,7 @@ pub fn validate_start_manual_power(
         power: transfer_power,
     })?;
     let metabolic_output = metabolic_output_per_tick(
-        definition.exertion().energy_cost_per_tick(),
+        definition.maximum_exertion().energy_cost_per_tick(),
         definition.metabolic_efficiency_ppm(),
     );
     let metabolic_duration = calculate_metabolic_duration(request.energy, metabolic_output)
@@ -474,6 +484,21 @@ pub fn validate_start_manual_power(
             }
         })?;
     let duration = std::cmp::max(power_duration, metabolic_duration);
+    let exertion = resolve_manual_power_exertion(
+        request.energy,
+        duration,
+        definition.maximum_exertion(),
+        definition.metabolic_efficiency_ppm(),
+    )
+    .map_err(|error| match error {
+        ManualPowerExertionError::EnergyOverflow
+        | ManualPowerExertionError::HydrationOverflow
+        | ManualPowerExertionError::ExceedsAuthoredMaximum => {
+            ManualPowerError::ExertionResolution {
+                method: request.method,
+            }
+        }
+    })?;
     let completes_at = state.tick().checked_add_span(duration).ok_or(
         ManualPowerError::CompletionTickOverflow {
             method: request.method,
@@ -498,7 +523,7 @@ pub fn validate_start_manual_power(
         state,
         PlayerWork::ManualPower { work },
         duration,
-        definition.exertion(),
+        exertion,
     )
     .map_err(ManualPowerError::Work)?;
     let resource_budget = work_start.resource_budget();

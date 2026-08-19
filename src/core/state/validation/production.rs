@@ -7,11 +7,10 @@ use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::crafting::validate_loaded_manual_craft_job;
 use crate::energy::EnergyValidationError;
-use crate::equipment::EquipmentId;
 use crate::inventory::{StockpileId, validate_stockpile_storage};
 use crate::material::validate_material_particle_size_state;
 use crate::ore_processing::{validate_loaded_comminution_job, validate_loaded_screening_job};
-use crate::production::{ProductionJobId, sum_lot_spec_mass};
+use crate::production::sum_lot_spec_mass;
 use crate::registry::Registries;
 use crate::thermal::validate_loaded_thermal_job;
 
@@ -22,8 +21,6 @@ pub(super) fn validate_production_references(
     state: &AppState,
 ) -> Result<(), StateValidationError> {
     let mut expected_reservations = BTreeMap::<StockpileId, Mass>::new();
-    let mut occupied_energy = BTreeMap::<crate::energy::EnergyStoreId, ProductionJobId>::new();
-    let mut occupied_equipment = BTreeMap::<EquipmentId, ProductionJobId>::new();
     for job in state.systems.production.jobs() {
         if registries.production().get_process(job.process()).is_none() {
             return Err(StateValidationError::UnknownJobProcess {
@@ -69,13 +66,6 @@ pub(super) fn validate_production_references(
                     job: job.id(),
                     traced: trace.carrier(),
                     authored: definition.carrier(),
-                });
-            }
-            if let Some(first) = occupied_energy.insert(trace.source(), job.id()) {
-                return Err(StateValidationError::EnergyStoreDoubleBooked {
-                    store: trace.source(),
-                    first,
-                    second: job.id(),
                 });
             }
         }
@@ -129,13 +119,6 @@ pub(super) fn validate_production_references(
                     capacity: definition.capacity(),
                 });
             }
-            if let Some(first) = occupied_energy.insert(trace.destination(), job.id()) {
-                return Err(StateValidationError::EnergyStoreDoubleBooked {
-                    store: trace.destination(),
-                    first,
-                    second: job.id(),
-                });
-            }
         }
         if let Some(provider) = job.equipment_provider() {
             let Some(record) = state.systems.equipment.get_equipment(provider.equipment()) else {
@@ -156,13 +139,6 @@ pub(super) fn validate_production_references(
                     job: job.id(),
                     traced: provider.condition(),
                     stored: record.condition(),
-                });
-            }
-            if let Some(first) = occupied_equipment.insert(provider.equipment(), job.id()) {
-                return Err(StateValidationError::EquipmentDoubleBooked {
-                    equipment: provider.equipment(),
-                    first,
-                    second: job.id(),
                 });
             }
         }

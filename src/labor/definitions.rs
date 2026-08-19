@@ -34,7 +34,7 @@ pub struct ManualPowerDefinition {
     carrier: EnergyCarrier,
     metabolic_efficiency_ppm: u32,
     condition_wear_ppm_per_active_tick: u32,
-    exertion: SurvivalExertion,
+    maximum_exertion: SurvivalExertion,
 }
 
 impl ManualPowerDefinition {
@@ -45,7 +45,7 @@ impl ManualPowerDefinition {
         carrier: EnergyCarrier,
         metabolic_efficiency_ppm: u32,
         condition_wear_ppm_per_active_tick: u32,
-        exertion: SurvivalExertion,
+        maximum_exertion: SurvivalExertion,
     ) -> Self {
         assert!(
             (1..=1_000_000).contains(&metabolic_efficiency_ppm),
@@ -53,7 +53,7 @@ impl ManualPowerDefinition {
         );
         assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
         assert!(
-            !exertion.energy_cost_per_tick().is_zero(),
+            !maximum_exertion.energy_cost_per_tick().is_zero(),
             "manual power exertion must consume metabolic energy"
         );
         Self {
@@ -62,7 +62,7 @@ impl ManualPowerDefinition {
             carrier,
             metabolic_efficiency_ppm,
             condition_wear_ppm_per_active_tick,
-            exertion,
+            maximum_exertion,
         }
     }
 
@@ -92,8 +92,12 @@ impl ManualPowerDefinition {
     }
 
     #[must_use]
-    pub const fn exertion(self) -> SurvivalExertion {
-        self.exertion
+    /// Maximum sustainable physiological effort for this method.
+    ///
+    /// Runtime manual-power work scales this ceiling to the actual mechanical work required after
+    /// equipment and destination power bottlenecks are known.
+    pub const fn maximum_exertion(self) -> SurvivalExertion {
+        self.maximum_exertion
     }
 }
 

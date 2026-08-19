@@ -72,14 +72,16 @@ At a checkpoint:
 ```text
 python ci.py gate
 python ci.py gate --gameplay   # gameplay/content behavior
+python ci.py gate --core --gameplay  # gameplay plus ordinary core behavior
 python ci.py gate --soak       # long-horizon state/conservation changes
 python ci.py gate --shaders    # WGSL/shader contracts
 python ci.py gate --docs       # documentation contracts
 cargo test-gameplay-report     # broader fresh replayable cold-agent play report
 ```
 
-Add only the lanes owned by the change. `python ci.py gate --all` is the explicit exhaustive local
-sweep and is intentionally not the routine path. All verification is local; GitHub Actions and hosted
-CI are outside the repository contract.
+Add only the lanes owned by the change. `python ci.py audit` is the explicit cross-cutting runtime
+audit; it reuses the normal core/soak and gameplay artifacts rather than creating another build shape.
+Documentation and shader validation remain change-scoped. All verification is local; GitHub Actions
+and hosted CI are outside the repository contract.
 
 See [Testing](TESTING.md) for lane details and [Status](STATUS.md) for the current capability boundary.

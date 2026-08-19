@@ -44,6 +44,7 @@ impl StockpileId {
 /// "stockpile". A dry pile may hold hot or cold solids, while a crucible-like store can explicitly
 /// admit liquid matter up to an authored thermal limit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StockpileStorageProfile {
     can_store_solid: bool,
     can_store_liquid: bool,
@@ -165,6 +166,7 @@ pub(crate) const STORAGE_AGE_PARTS_PER_TICK: u128 = 1_000_000;
 /// definition while preventing later movement into better storage from retroactively improving prior
 /// exposure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MaterialStorageHistory {
     ambient_age_parts: u128,
     last_transition_at: SimulationTick,
@@ -224,6 +226,7 @@ impl MaterialStorageHistory {
 /// Source lot identity is deliberately not retained: a fully consumed lot may cease to exist.
 /// The trace is historical evidence, not an ownership reference and not a second matter owner.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConsumedMaterialTrace {
     pub(super) mass: Mass,
     pub(super) profile: MaterialLotProfile,
@@ -272,6 +275,7 @@ impl MaterialLotId {
 /// matter. Commodities without authored age-dependent behavior may coalesce conservatively across
 /// exposure histories to keep lot fragmentation bounded.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MaterialLotProfile {
     pub(super) commodity: CommodityKey,
     pub(super) temperature: Temperature,
@@ -311,6 +315,7 @@ impl MaterialLotProfile {
 
 /// Provenance range retained when compatible newly created matter coalesces into an existing lot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MaterialLotProvenance {
     pub(super) earliest_created_at: SimulationTick,
     pub(super) latest_created_at: SimulationTick,
@@ -334,6 +339,7 @@ impl MaterialLotProvenance {
 /// Stockpile commodity totals and runtime lot-routing indexes are derived state maintained
 /// atomically by the inventory owner.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MaterialLotRecord {
     pub(super) id: MaterialLotId,
     pub(super) stockpile: StockpileId,
@@ -403,6 +409,7 @@ impl MaterialLotRecord {
 
 /// One capacity-constrained aggregate store for fungible material mass.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StockpileRecord {
     pub(super) id: StockpileId,
     pub(super) capacity: Mass,
@@ -410,6 +417,7 @@ pub struct StockpileRecord {
     pub(super) supported_by: Option<StructuralElementId>,
     pub(super) stored_mass: Mass,
     pub(super) reserved_inbound: Mass,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     pub(super) contents: BTreeMap<CommodityKey, Mass>,
 }
 
@@ -459,14 +467,18 @@ impl StockpileRecord {
 
 /// Runtime owner for stockpile records and their generated identifiers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InventoryState {
     revision: u64,
     next_stockpile_id: u32,
     next_lot_id: u64,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     stockpiles: BTreeMap<StockpileId, StockpileRecord>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     lots: BTreeMap<MaterialLotId, MaterialLotRecord>,
     #[serde(skip)]
     lot_indexes: BTreeMap<StockpileId, StockpileLotIndex>,
+    #[serde(skip)]
     stockpiles_by_support: BTreeMap<StructuralElementId, BTreeSet<StockpileId>>,
 }
 
@@ -599,6 +611,16 @@ impl InventoryState {
 
     pub(crate) fn rebuild_derived_indexes(&mut self) {
         let mut lot_indexes = BTreeMap::<StockpileId, StockpileLotIndex>::new();
+        let mut stockpiles_by_support =
+            BTreeMap::<StructuralElementId, BTreeSet<StockpileId>>::new();
+        for stockpile in self.stockpiles.values() {
+            if let Some(support) = stockpile.supported_by {
+                stockpiles_by_support
+                    .entry(support)
+                    .or_default()
+                    .insert(stockpile.id);
+            }
+        }
         for lot in self.lots.values() {
             if !self.stockpiles.contains_key(&lot.stockpile) {
                 continue;
@@ -609,6 +631,7 @@ impl InventoryState {
                 .insert(lot.id, lot.commodity());
         }
         self.lot_indexes = lot_indexes;
+        self.stockpiles_by_support = stockpiles_by_support;
     }
 
     /// Iterates stockpiles assigned to one structural support in stable stockpile-ID order.

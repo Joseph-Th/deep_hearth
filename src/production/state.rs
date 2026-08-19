@@ -18,6 +18,7 @@ use super::resolution::ProcessOutputStreamId;
 
 /// Durable routing for one physically inseparable resolved output stream.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProductionOutputStream {
     pub(super) id: ProcessOutputStreamId,
     pub(super) destination: StockpileId,
@@ -29,6 +30,7 @@ pub struct ProductionOutputStream {
 /// Suspension never manufactures a failure product. The production job remains the authoritative
 /// owner of its consumed matter and energy until its physical provider becomes usable again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum ProductionSuspensionReason {
     EquipmentSupportUnavailable { equipment: EquipmentId },
 }
@@ -56,6 +58,7 @@ impl Display for ProductionOccupancyRelease {
 
 /// Durable pause state for one production job whose active-time clock is not currently advancing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProductionSuspension {
     suspended_at: SimulationTick,
     remaining_active_time: TickSpan,
@@ -112,6 +115,9 @@ impl ProductionOutputStream {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ProductionJobId(u64);
 
+type ProductionOccupancyMismatch<Resource> =
+    (Resource, Option<ProductionJobId>, Option<ProductionJobId>);
+
 impl ProductionJobId {
     #[must_use]
     pub const fn new(value: u64) -> Self {
@@ -127,6 +133,7 @@ impl ProductionJobId {
 
 /// Durable running material transformation with capacity reserved until completion.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProductionJobRecord {
     pub(super) identity: ProductionJobIdentity,
     pub(super) schedule: ProductionJobSchedule,
@@ -136,6 +143,7 @@ pub struct ProductionJobRecord {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct ProductionJobIdentity {
     pub(super) id: ProductionJobId,
     pub(super) process: ProcessId,
@@ -143,6 +151,7 @@ pub(super) struct ProductionJobIdentity {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct ProductionJobSchedule {
     pub(super) started_at: SimulationTick,
     pub(super) completes_at: SimulationTick,
@@ -151,6 +160,7 @@ pub(super) struct ProductionJobSchedule {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct ProductionJobResources {
     pub(super) consumed_mass: Mass,
     pub(super) consumed_inputs: Vec<ConsumedMaterialTrace>,
@@ -159,6 +169,7 @@ pub(super) struct ProductionJobResources {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct ProductionJobEquipment {
     pub(super) provider: Option<EquipmentOperationTrace>,
     pub(super) requires_active_support: bool,
@@ -279,13 +290,19 @@ impl ProductionJobRecord {
 
 /// Runtime owner for active process jobs and deterministic scheduling/resource indexes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProductionState {
     revision: u64,
     next_job_id: u64,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     jobs: BTreeMap<ProductionJobId, ProductionJobRecord>,
+    #[serde(skip)]
     due_jobs: BTreeMap<SimulationTick, BTreeSet<ProductionJobId>>,
+    #[serde(skip)]
     energy_occupancy: BTreeMap<EnergyStoreId, ProductionJobId>,
+    #[serde(skip)]
     equipment_occupancy: BTreeMap<EquipmentId, ProductionJobId>,
+    #[serde(skip)]
     stockpile_occupancy: BTreeMap<StockpileId, BTreeSet<ProductionJobId>>,
 }
 
@@ -315,32 +332,76 @@ impl ProductionState {
         self.next_job_id != 0
     }
 
-    fn expected_energy_occupancy(&self) -> Option<BTreeMap<EnergyStoreId, ProductionJobId>> {
+    pub(crate) fn rebuild_derived_indexes(&mut self) {
+        let mut due_jobs = BTreeMap::<SimulationTick, BTreeSet<ProductionJobId>>::new();
+        let mut energy_occupancy = BTreeMap::<EnergyStoreId, ProductionJobId>::new();
+        let mut equipment_occupancy = BTreeMap::<EquipmentId, ProductionJobId>::new();
+        let mut stockpile_occupancy = BTreeMap::<StockpileId, BTreeSet<ProductionJobId>>::new();
+        for job in self.jobs.values() {
+            if !job.is_suspended() {
+                due_jobs
+                    .entry(job.completes_at())
+                    .or_default()
+                    .insert(job.id());
+            }
+            for store in job
+                .resources
+                .consumed_energy
+                .map(|trace| trace.source())
+                .into_iter()
+                .chain(
+                    job.resources
+                        .released_energy
+                        .map(|trace| trace.destination()),
+                )
+            {
+                energy_occupancy.entry(store).or_insert(job.id());
+            }
+            if let Some(provider) = job.equipment.provider {
+                equipment_occupancy
+                    .entry(provider.equipment())
+                    .or_insert(job.id());
+            }
+            let stockpiles = std::iter::once(job.identity.source)
+                .chain(job.output_streams.iter().map(|stream| stream.destination))
+                .collect::<BTreeSet<_>>();
+            for stockpile in stockpiles {
+                stockpile_occupancy
+                    .entry(stockpile)
+                    .or_default()
+                    .insert(job.id());
+            }
+        }
+        self.due_jobs = due_jobs;
+        self.energy_occupancy = energy_occupancy;
+        self.equipment_occupancy = equipment_occupancy;
+        self.stockpile_occupancy = stockpile_occupancy;
+    }
+
+    fn expected_energy_occupancy(
+        &self,
+    ) -> Result<BTreeMap<EnergyStoreId, ProductionJobId>, EnergyStoreId> {
         let mut occupied = BTreeMap::new();
         for job in self.jobs.values() {
             if let Some(trace) = job.resources.consumed_energy
                 && occupied.insert(trace.source(), job.identity.id).is_some()
             {
-                return None;
+                return Err(trace.source());
             }
             if let Some(trace) = job.resources.released_energy
                 && occupied
                     .insert(trace.destination(), job.identity.id)
                     .is_some()
             {
-                return None;
+                return Err(trace.destination());
             }
         }
-        Some(occupied)
+        Ok(occupied)
     }
 
     fn energy_occupancy_mismatch(
         &self,
-    ) -> Option<(
-        EnergyStoreId,
-        Option<ProductionJobId>,
-        Option<ProductionJobId>,
-    )> {
+    ) -> Result<Option<ProductionOccupancyMismatch<EnergyStoreId>>, EnergyStoreId> {
         let expected = self.expected_energy_occupancy()?;
         let stores = self
             .energy_occupancy
@@ -352,13 +413,15 @@ impl ProductionState {
             let indexed = self.energy_occupancy.get(&store).copied();
             let expected = expected.get(&store).copied();
             if indexed != expected {
-                return Some((store, indexed, expected));
+                return Ok(Some((store, indexed, expected)));
             }
         }
-        None
+        Ok(None)
     }
 
-    fn expected_equipment_occupancy(&self) -> Option<BTreeMap<EquipmentId, ProductionJobId>> {
+    fn expected_equipment_occupancy(
+        &self,
+    ) -> Result<BTreeMap<EquipmentId, ProductionJobId>, EquipmentId> {
         let mut occupied = BTreeMap::new();
         for job in self.jobs.values() {
             if let Some(provider) = job.equipment.provider
@@ -366,19 +429,15 @@ impl ProductionState {
                     .insert(provider.equipment(), job.identity.id)
                     .is_some()
             {
-                return None;
+                return Err(provider.equipment());
             }
         }
-        Some(occupied)
+        Ok(occupied)
     }
 
     fn equipment_occupancy_mismatch(
         &self,
-    ) -> Option<(
-        EquipmentId,
-        Option<ProductionJobId>,
-        Option<ProductionJobId>,
-    )> {
+    ) -> Result<Option<ProductionOccupancyMismatch<EquipmentId>>, EquipmentId> {
         let expected = self.expected_equipment_occupancy()?;
         let equipment_ids = self
             .equipment_occupancy
@@ -390,10 +449,10 @@ impl ProductionState {
             let indexed = self.equipment_occupancy.get(&equipment).copied();
             let expected = expected.get(&equipment).copied();
             if indexed != expected {
-                return Some((equipment, indexed, expected));
+                return Ok(Some((equipment, indexed, expected)));
             }
         }
-        None
+        Ok(None)
     }
 
     fn expected_stockpile_occupancy(&self) -> BTreeMap<StockpileId, BTreeSet<ProductionJobId>> {

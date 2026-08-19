@@ -681,9 +681,7 @@ mod tests {
 
     #[cfg(feature = "test-soak")]
     use crate::fluid::calculate_fluid_volume_accounting;
-    use crate::fluid::{
-        FluidDefinition, FluidDefinitionId, FluidTransferError, FluidValidationError,
-    };
+    use crate::fluid::{FluidDefinition, FluidDefinitionId, FluidTransferError};
     use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
     use crate::spatial::{VoxelBounds, VoxelCoord};
     use crate::structural::{
@@ -1197,31 +1195,12 @@ mod tests {
     }
 
     #[test]
-    fn tampered_fluid_support_index_and_derived_load_are_rejected_on_load() {
+    fn tampered_fluid_derived_load_is_rejected_on_load() {
         let registries = registries(1_000);
         let mut state = AppState::new(WorldSeed::new(0x9410_0008));
         let support = add_active_support(&registries, &mut state, 0);
         let store = add_filled(&registries, &mut state, 1_000_000);
         mount(&registries, &mut state, store, support);
-
-        let mut missing_index = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
-            Ok(encoded) => encoded,
-            Err(error) => panic!("fluid support-index tamper serialization failed: {error}"),
-        };
-        missing_index["state"]["systems"]["fluid"]["stores_by_support"] = serde_json::json!({});
-        let missing_index: LoadedSaveEnvelope = match serde_json::from_value(missing_index) {
-            Ok(decoded) => decoded,
-            Err(error) => panic!("fluid support-index tamper failed decode: {error}"),
-        };
-        assert_eq!(
-            missing_index.into_state(&registries),
-            Err(LoadError::InvalidState(StateValidationError::Fluid(
-                FluidValidationError::MissingSupportIndex {
-                    store,
-                    element: support,
-                }
-            )))
-        );
 
         let expected = match state.structures().get_element(support) {
             Some(record) => record.load(StructuralLoadKind::Fluid),

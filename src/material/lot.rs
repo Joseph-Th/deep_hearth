@@ -111,6 +111,7 @@ impl Error for MaterialInputSpecError {}
 /// carries no owner or persistent lot ID; the inventory owner allocates those during canonical
 /// commit.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MaterialLotSpec {
     commodity: CommodityKey,
     mass: Mass,

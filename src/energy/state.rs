@@ -29,6 +29,7 @@ impl EnergyStoreId {
 
 /// Authoritative changing state for one finite energy store.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EnergyStoreRecord {
     pub(super) id: EnergyStoreId,
     pub(super) definition: EnergyStoreDefinitionId,
@@ -74,9 +75,11 @@ impl EnergyStoreRecord {
 
 /// Persistent owner for finite energy stores and their monotonic identity/revision cursors.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EnergyState {
     revision: u64,
     next_store_id: u64,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     records: BTreeMap<EnergyStoreId, EnergyStoreRecord>,
 }
 

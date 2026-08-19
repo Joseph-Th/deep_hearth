@@ -109,6 +109,7 @@ impl MaterialAbundanceEstimate {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct MaterialAbundanceEstimateRepresentation {
     material: MaterialId,
     lower_ppm: u32,
@@ -164,6 +165,7 @@ impl Error for MaterialAbundanceEstimateError {}
 
 /// Persisted evidence acquired at one point in simulation history.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GeologicalObservationRecord {
     pub(super) id: GeologicalObservationId,
     pub(super) region: VoxelBounds,
@@ -209,10 +211,13 @@ impl GeologicalObservationRecord {
 
 /// Player-accessible geological knowledge, separate from exact authoritative deposit truth.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GeologicalKnowledgeState {
     revision: u64,
     next_observation_id: u32,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     observations: BTreeMap<GeologicalObservationId, GeologicalObservationRecord>,
+    #[serde(skip)]
     observations_by_material: BTreeMap<MaterialId, BTreeSet<GeologicalObservationId>>,
 }
 
@@ -262,6 +267,20 @@ impl GeologicalKnowledgeState {
     /// Iterates materials for which at least one observation has been acquired.
     pub fn known_materials(&self) -> impl Iterator<Item = MaterialId> + '_ {
         self.observations_by_material.keys().copied()
+    }
+
+    pub(crate) fn rebuild_derived_indexes(&mut self) {
+        let mut observations_by_material =
+            BTreeMap::<MaterialId, BTreeSet<GeologicalObservationId>>::new();
+        for observation in self.observations.values() {
+            for finding in &observation.findings {
+                observations_by_material
+                    .entry(finding.material())
+                    .or_default()
+                    .insert(observation.id);
+            }
+        }
+        self.observations_by_material = observations_by_material;
     }
 
     pub(super) fn insert_observation(

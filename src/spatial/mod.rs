@@ -12,6 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
 )]
+#[serde(deny_unknown_fields)]
 pub struct VoxelCoord {
     x: i64,
     y: i64,
@@ -71,6 +72,7 @@ impl VoxelCoord {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct VoxelBoundsRepresentation {
     min: VoxelCoord,
     max_exclusive: VoxelCoord,

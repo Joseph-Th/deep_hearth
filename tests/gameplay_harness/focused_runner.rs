@@ -1,22 +1,12 @@
-//! Deterministic focused-probe runner shared by the small iteration targets and aggregate harness.
+//! Replayable focused-probe runner shared by the small iteration targets and aggregate harness.
 
 use std::env;
-use std::process;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use deep_hearth::content::build_registries;
 use deep_hearth::registry::Registries;
 
 use super::focused_seeds::{MAINTAINED_VARIATION_ROOT, focused_probe_seeds_from};
-
-fn fresh_probe_root(salt: u64) -> u64 {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let folded = (now as u64) ^ ((now >> 64) as u64) ^ u64::from(process::id()) ^ salt;
-    super::seed::mix64(folded)
-}
+use super::seed::fresh_root;
 
 fn probe_seed_spec(name: &str) -> (u64, u64) {
     match name {
@@ -32,7 +22,7 @@ pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, u64)) {
     let (maintained_seed, salt) = probe_seed_spec(name);
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
-    let default_variation_root = fresh_probe_root(MAINTAINED_VARIATION_ROOT ^ salt);
+    let default_variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ salt);
     let seeds = focused_probe_seeds_from(
         scenario_raw.as_deref(),
         variation_raw.as_deref(),

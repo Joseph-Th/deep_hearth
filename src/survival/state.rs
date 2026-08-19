@@ -32,6 +32,7 @@ impl Vitality {
 
 /// Persistent recent dietary contribution by broad food category.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NutritionReserves {
     grain: u32,
     fruit: u32,
@@ -97,6 +98,7 @@ impl NutritionReserves {
 
 /// Persistent survival quantities for the single locally controlled player.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlayerSurvivalRecord {
     metabolic_energy: Energy,
     hydration: Volume,
@@ -128,10 +130,13 @@ impl PlayerSurvivalRecord {
 
 /// Persistent owner for survival state. A fresh simulation has no player until explicitly admitted.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SurvivalState {
     revision: u64,
     player: Option<PlayerSurvivalRecord>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     metabolic_matter: BTreeMap<MaterialId, AggregateMass>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     ingested_fluids: BTreeMap<FluidDefinitionId, AggregateVolume>,
 }
 

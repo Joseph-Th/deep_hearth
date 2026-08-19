@@ -157,6 +157,7 @@ impl Error for GeneratedDepositSpecError {
 
 /// One homogeneous finite geological matter owner in persistent world space.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GeologicalDepositRecord {
     pub(super) id: GeologicalDepositId,
     pub(super) bounds: VoxelBounds,
@@ -198,9 +199,11 @@ impl GeologicalDepositRecord {
 
 /// Runtime owner for finite geological deposits and their generated identities.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GeologyState {
     revision: u64,
     next_deposit_id: u32,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     deposits: BTreeMap<GeologicalDepositId, GeologicalDepositRecord>,
 }
 

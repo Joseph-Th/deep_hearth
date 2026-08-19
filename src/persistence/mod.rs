@@ -9,7 +9,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
 /// Save schema currently emitted and accepted by this build.
-pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 43;
+pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 44;
 
 /// Borrowed versioned save payload suitable for any Serde encoding adapter.
 #[derive(Debug, Serialize)]
@@ -33,6 +33,7 @@ impl<'state> SaveEnvelope<'state> {
 
 /// Owned decoded save payload; callers must validate it with `into_state` before runtime use.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LoadedSaveEnvelope {
     schema_version: u32,
     registry_schema_version: RegistrySchemaVersion,
@@ -399,6 +400,167 @@ mod tests {
         )
     }
 
+    fn replace_serialized_field(
+        encoded: &str,
+        field: &str,
+        original: &serde_json::Value,
+        replacement: &serde_json::Value,
+    ) -> String {
+        let original = serde_json::to_string(original)
+            .unwrap_or_else(|error| panic!("JSON field fixture failed serialization: {error}"));
+        let replacement = serde_json::to_string(replacement)
+            .unwrap_or_else(|error| panic!("JSON field replacement failed serialization: {error}"));
+        let needle = format!("\"{field}\":{original}");
+        assert!(
+            encoded.contains(&needle),
+            "serialized fixture omitted field {field}"
+        );
+        encoded.replacen(&needle, &format!("\"{field}\":{replacement}"), 1)
+    }
+
+    fn duplicate_first_object_entry(
+        encoded: &str,
+        field: &str,
+        object: &serde_json::Value,
+    ) -> String {
+        let entries = object
+            .as_object()
+            .unwrap_or_else(|| panic!("duplicate-key fixture field {field} is not an object"));
+        let (key, value) = entries
+            .iter()
+            .next()
+            .unwrap_or_else(|| panic!("duplicate-key fixture field {field} is empty"));
+        let original = serde_json::to_string(object)
+            .unwrap_or_else(|error| panic!("duplicate-key fixture serialization failed: {error}"));
+        let key = serde_json::to_string(key).unwrap_or_else(|error| {
+            panic!("duplicate-key fixture key failed serialization: {error}")
+        });
+        let value = serde_json::to_string(value).unwrap_or_else(|error| {
+            panic!("duplicate-key fixture value failed serialization: {error}")
+        });
+        let duplicate = format!("{{{key}:{value},{key}:{value}}}");
+        let needle = format!("\"{field}\":{original}");
+        assert!(
+            encoded.contains(&needle),
+            "serialized fixture omitted field {field}"
+        );
+        encoded.replacen(&needle, &format!("\"{field}\":{duplicate}"), 1)
+    }
+
+    #[test]
+    fn duplicate_persistent_map_and_set_entries_are_rejected_during_decode() {
+        let registries = make_test_registries_with_process(make_test_process());
+        let mut production_state = AppState::new(WorldSeed::new(0xD001_0001));
+        let source = add_solid_stockpile_for_test(&mut production_state, Mass::from_milligrams(10))
+            .unwrap_or_else(|error| panic!("duplicate-job source fixture failed: {error}"));
+        let destination =
+            add_solid_stockpile_for_test(&mut production_state, Mass::from_milligrams(20))
+                .unwrap_or_else(|error| {
+                    panic!("duplicate-job destination fixture failed: {error}")
+                });
+        deposit_bulk_for_test(
+            &registries,
+            &mut production_state,
+            source,
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            Mass::from_milligrams(10),
+        )
+        .unwrap_or_else(|error| panic!("duplicate-job input fixture failed: {error}"));
+        let resolution = make_test_resolution(&registries, &production_state, source);
+        validate_start_process(
+            &registries,
+            &production_state,
+            &resolution,
+            source,
+            destination,
+        )
+        .unwrap_or_else(|error| panic!("duplicate-job validation fixture failed: {error}"))
+        .commit(&mut production_state)
+        .unwrap_or_else(|error| panic!("duplicate-job commit fixture failed: {error}"));
+        let production_value =
+            serde_json::to_value(SaveEnvelope::new(&registries, &production_state)).unwrap_or_else(
+                |error| panic!("duplicate-job fixture serialization failed: {error}"),
+            );
+        let production_json = serde_json::to_string(&production_value)
+            .unwrap_or_else(|error| panic!("duplicate-job JSON serialization failed: {error}"));
+        let duplicate_jobs = duplicate_first_object_entry(
+            &production_json,
+            "jobs",
+            &production_value["state"]["systems"]["production"]["jobs"],
+        );
+        assert!(serde_json::from_str::<LoadedSaveEnvelope>(&duplicate_jobs).is_err());
+
+        let registries = build_registries();
+        let mut inventory_state = AppState::new(WorldSeed::new(0xD001_0002));
+        let stockpile =
+            add_solid_stockpile_for_test(&mut inventory_state, Mass::from_milligrams(20))
+                .unwrap_or_else(|error| panic!("duplicate-inventory stockpile failed: {error}"));
+        deposit_bulk_for_test(
+            &registries,
+            &mut inventory_state,
+            stockpile,
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            Mass::from_milligrams(10),
+        )
+        .unwrap_or_else(|error| panic!("duplicate-inventory material failed: {error}"));
+        let inventory_value =
+            serde_json::to_value(SaveEnvelope::new(&registries, &inventory_state))
+                .unwrap_or_else(|error| panic!("duplicate-inventory fixture failed: {error}"));
+        let inventory_json = serde_json::to_string(&inventory_value)
+            .unwrap_or_else(|error| panic!("duplicate-inventory JSON failed: {error}"));
+        let duplicate_contents = duplicate_first_object_entry(
+            &inventory_json,
+            "contents",
+            &inventory_value["state"]["systems"]["inventory"]["stockpiles"]
+                [stockpile.value().to_string()]["contents"],
+        );
+        assert!(serde_json::from_str::<LoadedSaveEnvelope>(&duplicate_contents).is_err());
+
+        let mut structure_state = AppState::new(WorldSeed::new(0xD001_0003));
+        let foundation =
+            make_test_structural_element(&registries, &mut structure_state, 0, 0, true);
+        let upper = make_test_structural_element(&registries, &mut structure_state, 0, 1, false);
+        link_test_structural_support(&registries, &mut structure_state, upper, foundation);
+        let structure_value =
+            serde_json::to_value(SaveEnvelope::new(&registries, &structure_state))
+                .unwrap_or_else(|error| panic!("duplicate-structure fixture failed: {error}"));
+        let structure_json = serde_json::to_string(&structure_value)
+            .unwrap_or_else(|error| panic!("duplicate-structure JSON failed: {error}"));
+        let duplicate_loads = duplicate_first_object_entry(
+            &structure_json,
+            "loads",
+            &structure_value["state"]["systems"]["structures"]["elements"]
+                [foundation.value().to_string()]["loads"],
+        );
+        assert!(serde_json::from_str::<LoadedSaveEnvelope>(&duplicate_loads).is_err());
+
+        let supports = &structure_value["state"]["systems"]["structures"]["supports_by_element"];
+        let mut duplicate_supports = supports.clone();
+        let support_sets = duplicate_supports
+            .as_object_mut()
+            .unwrap_or_else(|| panic!("support-set fixture is not an object"));
+        let support_set = support_sets
+            .values_mut()
+            .find(|value| value.as_array().is_some_and(|values| !values.is_empty()))
+            .unwrap_or_else(|| panic!("support-set fixture has no linked support"));
+        let duplicate = support_set
+            .as_array()
+            .and_then(|values| values.first())
+            .cloned()
+            .unwrap_or_else(|| panic!("support-set fixture lost its linked support"));
+        support_set
+            .as_array_mut()
+            .unwrap_or_else(|| panic!("support-set fixture changed shape"))
+            .push(duplicate);
+        let duplicate_support_set = replace_serialized_field(
+            &structure_json,
+            "supports_by_element",
+            supports,
+            &duplicate_supports,
+        );
+        assert!(serde_json::from_str::<LoadedSaveEnvelope>(&duplicate_support_set).is_err());
+    }
+
     fn condition(parts_per_million: u32) -> Condition {
         match Condition::new(parts_per_million) {
             Ok(condition) => condition,
@@ -569,8 +731,24 @@ mod tests {
             Ok(encoded) => encoded,
             Err(error) => panic!("serialized save failed JSON inspection: {error}"),
         };
-        let inventory = &encoded_value["state"]["systems"]["inventory"];
+        let systems = &encoded_value["state"]["systems"];
+        let inventory = &systems["inventory"];
         assert!(inventory.get("lot_indexes").is_none());
+        assert!(inventory.get("stockpiles_by_support").is_none());
+        assert!(systems["fluid"].get("stores_by_support").is_none());
+        assert!(systems["equipment"].get("equipment_by_support").is_none());
+        assert!(systems["structures"].get("dependents_by_support").is_none());
+        assert!(
+            systems["geological_knowledge"]
+                .get("observations_by_material")
+                .is_none()
+        );
+        for owner in ["production", "mining"] {
+            assert!(systems[owner].get("due_jobs").is_none());
+            assert!(systems[owner].get("equipment_occupancy").is_none());
+        }
+        assert!(systems["production"].get("energy_occupancy").is_none());
+        assert!(systems["production"].get("stockpile_occupancy").is_none());
         let stockpile_value = &inventory["stockpiles"][stockpile.value().to_string()];
         assert!(stockpile_value.get("lot_ids").is_none());
         let decoded: LoadedSaveEnvelope = match serde_json::from_slice(&encoded) {
@@ -614,52 +792,41 @@ mod tests {
                 "fluid": {
                     "revision": 0,
                     "next_store_id": 1,
-                    "records": {},
-                    "stores_by_support": {}
+                    "records": {}
                 },
                 "equipment": {
                     "revision": 0,
                     "next_equipment_id": 1,
-                    "records": {},
-                    "equipment_by_support": {}
+                    "records": {}
                 },
                 "structures": {
                     "revision": 0,
                     "next_element_id": 1,
                     "elements": {},
-                    "supports_by_element": {},
-                    "dependents_by_support": {}
+                    "supports_by_element": {}
                 },
                 "geology": {"revision": 0, "next_deposit_id": 1, "deposits": {}},
                 "geological_knowledge": {
                     "revision": 0,
                     "next_observation_id": 1,
-                    "observations": {},
-                    "observations_by_material": {}
+                    "observations": {}
                 },
                 "inventory": {
                     "revision": 0,
                     "next_stockpile_id": 1,
                     "next_lot_id": 1,
                     "stockpiles": {},
-                    "lots": {},
-                    "stockpiles_by_support": {}
+                    "lots": {}
                 },
                 "production": {
                     "revision": 0,
                     "next_job_id": 1,
-                    "jobs": {},
-                    "due_jobs": {},
-                    "energy_occupancy": {},
-                    "equipment_occupancy": {},
-                    "stockpile_occupancy": {}
+                    "jobs": {}
                 },
                 "mining": {
                     "revision": 0,
                     "next_job_id": 1,
-                    "jobs": {},
-                    "due_jobs": {},
-                    "equipment_occupancy": {}
+                    "jobs": {}
                 },
                 "player_work": {
                     "revision": 0,
@@ -690,23 +857,19 @@ mod tests {
     }
 
     #[test]
-    fn empty_production_due_index_bucket_is_rejected_on_load() {
+    fn unknown_fields_are_rejected_at_envelope_and_nested_state_boundaries() {
         let registries = build_registries();
         let state = AppState::new(WorldSeed::new(0x5700_0020));
-        let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
-            .unwrap_or_else(|error| panic!("empty due-index tamper serialization failed: {error}"));
-        encoded["state"]["systems"]["production"]["due_jobs"]["7"] = serde_json::json!([]);
-        let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
-            .unwrap_or_else(|error| panic!("empty due-index tamper decode failed: {error}"));
+        let base = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| panic!("strict-field fixture serialization failed: {error}"));
 
-        assert_eq!(
-            decoded.into_state(&registries),
-            Err(LoadError::InvalidState(StateValidationError::Production(
-                ProductionValidationError::EmptyDueIndex {
-                    due: crate::core::time::SimulationTick::new(7),
-                }
-            )))
-        );
+        let mut envelope = base.clone();
+        envelope["unexpected"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<LoadedSaveEnvelope>(envelope).is_err());
+
+        let mut nested = base;
+        nested["state"]["systems"]["inventory"]["unexpected"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<LoadedSaveEnvelope>(nested).is_err());
     }
 
     #[test]
@@ -885,35 +1048,6 @@ mod tests {
     }
 
     #[test]
-    fn tampered_structural_reverse_index_is_rejected_on_load() {
-        let registries = build_registries();
-        let mut state = AppState::new(WorldSeed::new(0x5700_0002));
-        let foundation = make_test_structural_element(&registries, &mut state, 0, 0, true);
-        let upper = make_test_structural_element(&registries, &mut state, 0, 1, false);
-        link_test_structural_support(&registries, &mut state, upper, foundation);
-        let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
-            Ok(encoded) => encoded,
-            Err(error) => panic!("structural reverse-index save serialization failed: {error}"),
-        };
-        encoded["state"]["systems"]["structures"]["dependents_by_support"]
-            [foundation.value().to_string()] = serde_json::json!([]);
-        let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
-            Ok(decoded) => decoded,
-            Err(error) => panic!("tampered structural reverse-index save failed decode: {error}"),
-        };
-
-        assert_eq!(
-            decoded.into_state(&registries),
-            Err(LoadError::InvalidState(StateValidationError::Structure(
-                StructureValidationError::ReverseIndexMismatch {
-                    element: upper,
-                    support: foundation,
-                }
-            )))
-        );
-    }
-
-    #[test]
     fn tampered_structural_cycle_is_rejected_on_load() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5700_0003));
@@ -926,8 +1060,6 @@ mod tests {
         };
         encoded["state"]["systems"]["structures"]["supports_by_element"]
             [second.value().to_string()] = serde_json::json!([first.value()]);
-        encoded["state"]["systems"]["structures"]["dependents_by_support"]
-            [first.value().to_string()] = serde_json::json!([second.value()]);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("tampered structural cycle save failed decode: {error}"),
@@ -1130,7 +1262,7 @@ mod tests {
     }
 
     #[test]
-    fn tampered_stockpile_support_index_and_stored_matter_load_are_rejected_on_load() {
+    fn tampered_stored_matter_load_is_rejected_on_load() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5700_0022));
         let support = make_test_structural_element(&registries, &mut state, 0, 0, true);
@@ -1157,26 +1289,6 @@ mod tests {
         if let Err(error) = mount.commit(&mut state) {
             panic!("support corruption mount commit failed: {error}");
         }
-
-        let mut missing_index = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
-            Ok(encoded) => encoded,
-            Err(error) => panic!("support-index tamper serialization failed: {error}"),
-        };
-        missing_index["state"]["systems"]["inventory"]["stockpiles_by_support"] =
-            serde_json::json!({});
-        let missing_index: LoadedSaveEnvelope = match serde_json::from_value(missing_index) {
-            Ok(decoded) => decoded,
-            Err(error) => panic!("support-index tamper failed decode: {error}"),
-        };
-        assert_eq!(
-            missing_index.into_state(&registries),
-            Err(LoadError::InvalidState(StateValidationError::Inventory(
-                InventoryValidationError::MissingSupportIndex {
-                    stockpile,
-                    element: support,
-                }
-            )))
-        );
 
         let mut wrong_load = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
             Ok(encoded) => encoded,
@@ -1323,9 +1435,6 @@ mod tests {
         };
         encoded["state"]["systems"]["equipment"]["records"][equipment.value().to_string()]["supported_by"] =
             serde_json::json!(missing.value());
-        encoded["state"]["systems"]["equipment"]["equipment_by_support"] = serde_json::json!({});
-        encoded["state"]["systems"]["equipment"]["equipment_by_support"]
-            [missing.value().to_string()] = serde_json::json!([equipment.value()]);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("missing-support tampered save failed decode: {error}"),
@@ -1339,49 +1448,6 @@ mod tests {
                     element: missing,
                 }
             ))
-        );
-    }
-
-    #[test]
-    fn mounted_equipment_missing_reverse_index_is_rejected_on_load() {
-        let registries = make_test_equipment_registries();
-        let mut state = AppState::new(WorldSeed::new(0xE011_0013));
-        let support = make_test_structural_element(&registries, &mut state, 0, 0, true);
-        activate_test_structural_element(&registries, &mut state, support);
-        let equipment = match add_equipment(
-            &registries,
-            &mut state,
-            TEST_EQUIPMENT_DEFINITION,
-            Condition::PRISTINE,
-        ) {
-            Ok(equipment) => equipment,
-            Err(error) => panic!("reverse-index equipment fixture failed: {error}"),
-        };
-        let mount = match validate_mount_equipment(&registries, &state, equipment, support) {
-            Ok(mount) => mount,
-            Err(error) => panic!("reverse-index mount validation failed: {error}"),
-        };
-        if let Err(error) = mount.commit(&mut state) {
-            panic!("reverse-index mount commit failed: {error}");
-        }
-        let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
-            Ok(encoded) => encoded,
-            Err(error) => panic!("reverse-index save serialization failed: {error}"),
-        };
-        encoded["state"]["systems"]["equipment"]["equipment_by_support"] = serde_json::json!({});
-        let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
-            Ok(decoded) => decoded,
-            Err(error) => panic!("reverse-index tampered save failed decode: {error}"),
-        };
-
-        assert_eq!(
-            decoded.into_state(&registries),
-            Err(LoadError::InvalidState(StateValidationError::Equipment(
-                EquipmentValidationError::MissingSupportIndex {
-                    equipment,
-                    element: support,
-                }
-            )))
         );
     }
 
@@ -1702,71 +1768,6 @@ mod tests {
             ))
         );
 
-        let mut tampered_energy_occupancy =
-            match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
-                Ok(encoded) => encoded,
-                Err(error) => panic!("energy occupancy tamper serialization failed: {error}"),
-            };
-        tampered_energy_occupancy["state"]["systems"]["production"]["energy_occupancy"] =
-            serde_json::json!({});
-        let tampered_energy_occupancy: LoadedSaveEnvelope =
-            match serde_json::from_value(tampered_energy_occupancy) {
-                Ok(decoded) => decoded,
-                Err(error) => panic!("energy occupancy tamper failed decode: {error}"),
-            };
-        assert_eq!(
-            tampered_energy_occupancy.into_state(&registries),
-            Err(LoadError::InvalidState(StateValidationError::Production(
-                ProductionValidationError::EnergyOccupancyIndexMismatch {
-                    store: energy_store,
-                    indexed: None,
-                    expected: Some(job),
-                }
-            )))
-        );
-
-        let mut tampered_equipment_occupancy =
-            match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
-                Ok(encoded) => encoded,
-                Err(error) => panic!("equipment occupancy tamper serialization failed: {error}"),
-            };
-        tampered_equipment_occupancy["state"]["systems"]["production"]["equipment_occupancy"] =
-            serde_json::json!({});
-        let tampered_equipment_occupancy: LoadedSaveEnvelope =
-            match serde_json::from_value(tampered_equipment_occupancy) {
-                Ok(decoded) => decoded,
-                Err(error) => panic!("equipment occupancy tamper failed decode: {error}"),
-            };
-        assert_eq!(
-            tampered_equipment_occupancy.into_state(&registries),
-            Err(LoadError::InvalidState(StateValidationError::Production(
-                ProductionValidationError::EquipmentOccupancyIndexMismatch {
-                    equipment,
-                    indexed: None,
-                    expected: Some(job),
-                }
-            )))
-        );
-
-        let mut tampered_stockpile_occupancy =
-            match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
-                Ok(encoded) => encoded,
-                Err(error) => panic!("stockpile occupancy tamper serialization failed: {error}"),
-            };
-        tampered_stockpile_occupancy["state"]["systems"]["production"]["stockpile_occupancy"] =
-            serde_json::json!({});
-        let tampered_stockpile_occupancy: LoadedSaveEnvelope =
-            match serde_json::from_value(tampered_stockpile_occupancy) {
-                Ok(decoded) => decoded,
-                Err(error) => panic!("stockpile occupancy tamper failed decode: {error}"),
-            };
-        assert_eq!(
-            tampered_stockpile_occupancy.into_state(&registries),
-            Err(LoadError::InvalidState(StateValidationError::Production(
-                ProductionValidationError::StockpileOccupancyIndexMismatch { stockpile: source }
-            )))
-        );
-
         let mut tampered_condition_outcome =
             match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
                 Ok(encoded) => encoded,
@@ -1891,29 +1892,17 @@ mod tests {
             duplicated;
         double_booked["state"]["systems"]["production"]["next_job_id"] =
             serde_json::json!(second_job + 1);
-        let due = match state.production().get_job(job) {
-            Some(record) => record.completes_at().value().to_string(),
-            None => panic!("heating job disappeared before double-book tamper"),
-        };
-        double_booked["state"]["systems"]["production"]["due_jobs"][due.clone()] =
-            serde_json::json!([job.value(), second_job]);
-        double_booked["state"]["systems"]["production"]["stockpile_occupancy"]
-            [source.value().to_string()] = serde_json::json!([job.value(), second_job]);
-        double_booked["state"]["systems"]["production"]["stockpile_occupancy"]
-            [destination.value().to_string()] = serde_json::json!([job.value(), second_job]);
         let double_booked: LoadedSaveEnvelope = match serde_json::from_value(double_booked) {
             Ok(decoded) => decoded,
             Err(error) => panic!("heating double-book tamper failed decode: {error}"),
         };
         assert_eq!(
             double_booked.into_state(&registries),
-            Err(LoadError::InvalidState(
-                StateValidationError::EnergyStoreDoubleBooked {
-                    store: energy_store,
-                    first: job,
-                    second: ProductionJobId::new(second_job),
+            Err(LoadError::InvalidState(StateValidationError::Production(
+                ProductionValidationError::EnergyDoubleBooked {
+                    store: energy_store
                 }
-            ))
+            )))
         );
 
         let mut equipment_double_booked =
@@ -1932,13 +1921,6 @@ mod tests {
             [second_equipment_job.to_string()] = duplicated_equipment;
         equipment_double_booked["state"]["systems"]["production"]["next_job_id"] =
             serde_json::json!(second_equipment_job + 1);
-        equipment_double_booked["state"]["systems"]["production"]["due_jobs"][due] =
-            serde_json::json!([job.value(), second_equipment_job]);
-        equipment_double_booked["state"]["systems"]["production"]["stockpile_occupancy"]
-            [source.value().to_string()] = serde_json::json!([job.value(), second_equipment_job]);
-        equipment_double_booked["state"]["systems"]["production"]["stockpile_occupancy"]
-            [destination.value().to_string()] =
-            serde_json::json!([job.value(), second_equipment_job]);
         let equipment_double_booked: LoadedSaveEnvelope =
             match serde_json::from_value(equipment_double_booked) {
                 Ok(decoded) => decoded,
@@ -1946,13 +1928,9 @@ mod tests {
             };
         assert_eq!(
             equipment_double_booked.into_state(&registries),
-            Err(LoadError::InvalidState(
-                StateValidationError::EquipmentDoubleBooked {
-                    equipment,
-                    first: job,
-                    second: ProductionJobId::new(second_equipment_job),
-                }
-            ))
+            Err(LoadError::InvalidState(StateValidationError::Production(
+                ProductionValidationError::EquipmentDoubleBooked { equipment }
+            )))
         );
 
         let encoded = match serde_json::to_vec(&SaveEnvelope::new(&registries, &state)) {

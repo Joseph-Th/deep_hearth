@@ -12,7 +12,9 @@ use crate::maintenance::calculate_condition_after_active_ticks;
 use crate::registry::Registries;
 use crate::survival::Vitality;
 
-use super::power_physics::{calculate_metabolic_duration, metabolic_output_per_tick};
+use super::power_physics::{
+    calculate_metabolic_duration, metabolic_output_per_tick, resolve_manual_power_exertion,
+};
 use super::{
     PlayerWork, PlayerWorkResourceBudgetError, PlayerWorkState,
     calculate_player_work_resource_budget,
@@ -327,7 +329,7 @@ pub(crate) fn validate_loaded_player_work(
             )
             .map_err(|_error| PlayerWorkValidationError::ManualPowerDurationMismatch)?;
             let metabolic_output = metabolic_output_per_tick(
-                method.exertion().energy_cost_per_tick(),
+                method.maximum_exertion().energy_cost_per_tick(),
                 method.metabolic_efficiency_ppm(),
             );
             let metabolic_duration =
@@ -337,6 +339,13 @@ pub(crate) fn validate_loaded_player_work(
             if stored_duration != required_duration {
                 return Err(PlayerWorkValidationError::ManualPowerDurationMismatch);
             }
+            let exertion = resolve_manual_power_exertion(
+                work.output().energy(),
+                stored_duration,
+                method.maximum_exertion(),
+                method.metabolic_efficiency_ppm(),
+            )
+            .map_err(|_error| PlayerWorkValidationError::ManualPowerDurationMismatch)?;
             let required_condition = calculate_condition_after_active_ticks(
                 method.condition_wear_ppm_per_active_tick(),
                 work.equipment_trace().condition(),
@@ -350,7 +359,7 @@ pub(crate) fn validate_loaded_player_work(
                 registries,
                 player.metabolic_energy(),
                 player.hydration(),
-                method.exertion(),
+                exertion,
                 TickSpan::new(remaining_ticks),
             )?;
         }

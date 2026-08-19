@@ -1,6 +1,6 @@
 //! Canonical primitive-to-mechanized progression probe for the gameplay experience harness.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
 
 use super::seed::mix64;
@@ -10,8 +10,11 @@ use deep_hearth::content::gameplay_fixture::seed_lot;
 use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
     EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK,
-    EQUIPMENT_STONE_PICK, FORM_NATIVE_METAL, FORM_ORE, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
-    MATERIAL_STONE, MINING_METHOD_HAND_PICK, PROCESS_CRUSH_ORE,
+    EQUIPMENT_STONE_PICK, FORM_NATIVE_METAL, FORM_ORE, FORM_UNFIRED_POTTERY,
+    MANUAL_POWER_HAND_CRANK, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_STONE,
+    MINING_METHOD_HAND_PICK, PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_CRUSH_ORE,
+    PROCESS_FORM_CLAY_VESSEL, PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_STONE_FLYWHEEL,
+    PROCESS_SHAPE_WOOD_HANDLE,
 };
 use deep_hearth::core::quantity::{Energy, Mass, Temperature};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -34,6 +37,73 @@ use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
+
+/// Fail closed when the authored player-facing acquisition/action catalog grows beyond what this
+/// cold-agent progression episode actually exercises.
+///
+/// Runtime registries remain the authority for legality. These IDs are only an evidence inventory so
+/// newly playable content cannot appear without forcing the gameplay harness to learn it.
+fn assert_playable_catalog_coverage(registries: &Registries) {
+    let actual_equipment = registries
+        .equipment()
+        .definitions()
+        .filter(|definition| {
+            definition.assembly_profile().is_some() || definition.upgrade_profile().is_some()
+        })
+        .map(|definition| definition.id().value())
+        .collect::<BTreeSet<_>>();
+    let exercised_equipment = BTreeSet::from([
+        EQUIPMENT_STONE_PICK.value(),
+        EQUIPMENT_STONE_HAND_CRANK.value(),
+        EQUIPMENT_COPPER_REINFORCED_PICK.value(),
+        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK.value(),
+        EQUIPMENT_STONE_CRUSHER.value(),
+    ]);
+    assert_eq!(
+        actual_equipment, exercised_equipment,
+        "cold-agent progression coverage is stale: update the probe so every equipment definition with a runtime assembly/upgrade route is exercised"
+    );
+
+    let actual_energy = registries
+        .energy()
+        .definitions()
+        .filter(|definition| definition.assembly_profile().is_some())
+        .map(|definition| definition.id().value())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        actual_energy,
+        BTreeSet::from([ENERGY_STONE_FLYWHEEL_DRIVE.value()]),
+        "cold-agent progression coverage is stale: update the probe so every runtime-assemblable energy store is exercised"
+    );
+
+    let actual_manual_processes = registries
+        .crafting()
+        .definitions()
+        .map(|definition| definition.process().value())
+        .collect::<BTreeSet<_>>();
+    let exercised_manual_processes = BTreeSet::from([
+        PROCESS_KNAP_STONE_TOOL.value(),
+        PROCESS_FORM_CLAY_VESSEL.value(),
+        PROCESS_SHAPE_WOOD_HANDLE.value(),
+        PROCESS_SHAPE_STONE_FLYWHEEL.value(),
+        PROCESS_COLD_WORK_COPPER_REINFORCEMENT.value(),
+    ]);
+    assert_eq!(
+        actual_manual_processes, exercised_manual_processes,
+        "cold-agent progression coverage is stale: update the probe so every authored manual crafting action is exercised"
+    );
+
+    let actual_mining_methods = registries
+        .mining()
+        .definitions()
+        .map(|definition| definition.id().value())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        actual_mining_methods,
+        BTreeSet::from([MINING_METHOD_HAND_PICK.value()]),
+        "cold-agent progression coverage is stale: update the probe so every authored mining method is exercised"
+    );
+}
 
 fn advance_exact(registries: &Registries, state: &mut AppState, ticks: u64) {
     for _ in 0..ticks {
@@ -206,6 +276,7 @@ fn primitive_material_plan(registries: &Registries) -> PrimitiveMaterialPlan {
             .and_modify(|existing| *existing = (*existing).max(batches))
             .or_insert(batches);
     }
+    process_batches.entry(PROCESS_FORM_CLAY_VESSEL).or_insert(1);
 
     let native_key = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
     let mut raw_by_commodity = BTreeMap::new();
@@ -731,6 +802,14 @@ struct ConcurrentMachineWork {
     overlap_ticks: u64,
 }
 
+#[derive(Clone, Copy)]
+struct ConcurrentMiningPlan {
+    deposit: deep_hearth::geology::GeologicalDepositId,
+    destination: deep_hearth::inventory::StockpileId,
+    pick: deep_hearth::equipment::EquipmentId,
+    mass: Mass,
+}
+
 fn crush_while_mining(
     registries: &Registries,
     state: &mut AppState,
@@ -738,10 +817,7 @@ fn crush_while_mining(
     crushed_storage: deep_hearth::inventory::StockpileId,
     machine: PrimitiveMachine,
     mined_mass: Mass,
-    concurrent_deposit: deep_hearth::geology::GeologicalDepositId,
-    concurrent_destination: deep_hearth::inventory::StockpileId,
-    concurrent_pick: deep_hearth::equipment::EquipmentId,
-    concurrent_mass: Mass,
+    concurrent: ConcurrentMiningPlan,
 ) -> ConcurrentMachineWork {
     let machine_started_at = state.tick().value();
     let ore_lot = state
@@ -784,10 +860,10 @@ fn crush_while_mining(
         registries,
         state,
         MINING_METHOD_HAND_PICK,
-        concurrent_deposit,
-        concurrent_destination,
-        concurrent_pick,
-        concurrent_mass,
+        concurrent.deposit,
+        concurrent.destination,
+        concurrent.pick,
+        concurrent.mass,
     )
     .unwrap_or_else(|error| {
         panic!("primitive progression concurrent mining admission failed: {error}")
@@ -1037,6 +1113,29 @@ fn run_primitive_progression_case(
     let survival_before = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("primitive progression survival state disappeared"));
 
+    let pottery = CommodityKey::new(MATERIAL_CLAY, FORM_UNFIRED_POTTERY);
+    let pottery_definition = registries
+        .crafting()
+        .get_manual(PROCESS_FORM_CLAY_VESSEL)
+        .unwrap_or_else(|| panic!("primitive progression clay-vessel action disappeared"));
+    let pottery_mass = output_mass_per_batch(pottery_definition, pottery);
+    craft_batches(
+        registries,
+        &mut state,
+        PROCESS_FORM_CLAY_VESSEL,
+        raw,
+        shaped,
+        1,
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(shaped)
+            .map(|stockpile| stockpile.get_mass(pottery)),
+        Some(pottery_mass),
+        "the authored clay-vessel side craft must be reachable through the normal manual-crafting transaction"
+    );
+
     craft_for_profile(
         registries,
         &mut state,
@@ -1118,10 +1217,12 @@ fn run_primitive_progression_case(
                 crushed_storage,
                 machine,
                 mined_mass,
-                ore_deposit,
-                ore_storage,
-                pick,
-                mined_mass,
+                ConcurrentMiningPlan {
+                    deposit: ore_deposit,
+                    destination: ore_storage,
+                    pick,
+                    mass: mined_mass,
+                },
             );
             (
                 machine,
@@ -1150,10 +1251,12 @@ fn run_primitive_progression_case(
                 crushed_storage,
                 machine,
                 mined_mass,
-                native_deposit,
-                native_storage,
-                pick,
-                second_native_mass,
+                ConcurrentMiningPlan {
+                    deposit: native_deposit,
+                    destination: native_storage,
+                    pick,
+                    mass: second_native_mass,
+                },
             );
             let second_native_mining_ticks = concurrent_work.player_work_ticks;
             reinforce_pick(registries, &mut state, raw, native_storage, shaped, pick);
@@ -1286,6 +1389,7 @@ fn run_primitive_progression_case(
         - survival_after.metabolic_energy().nanojoules();
     let hydration_spent_ul =
         survival_before.hydration().microliters() - survival_after.hydration().microliters();
+    let physiology = registries.survival().physiology();
     let experience = PrimitiveProgressionExperience {
         priority,
         pick_upgraded_at,
@@ -1311,9 +1415,10 @@ fn run_primitive_progression_case(
 
     if emit_detail {
         std::println!(
-            "PLAYABLE PROGRESSION seed=0x{seed:016X} priority={} world-bootstrap=[raw-stone+wood-surplus:{}mg,known-ore-site,known-native-copper-site,empty-storage] canonical=shape->assemble->mine->choose-upgrade->store-work->manual-power->assemble-machine->autonomous-crush fantasy=survive->craft-tools->extract->choose-where-scarce-copper-matters->mechanize->work-in-parallel choice=[first:{}:{}mg second:{}:{}mg] milestones=[pick-upgrade:{}t machine-start:{}t] ore=[grade:{}ppm:composition-only batch:{}mg initial-stone:{}t post-upgrade:{}t final:{}t remaining:{}mg] native=[first:{}t second:{}t total:{}mg remaining:{}mg] infrastructure=[drive:{}mg crusher:{}mg] stored-work=[charge:{}nJ primary:{}nJ banked:{}nJ reserve:{}ppm follow-up:{}mg:{}t final:{}nJ] charge=[stone:{}t reinforced:{}t] mechanization=[primary-crush:{}t concurrent:{}:{}t overlap:{}t processed:{}mg] durability=[pick:{}ppm] survival=[energy:-{}nJ hydration:-{}uL elapsed:{}t] matter=conserved",
+            "PLAYABLE PROGRESSION seed=0x{seed:016X} priority={} world-bootstrap=[raw-gathered-matter-surplus:{}mg,preauthorized-ore-site-identity,preauthorized-native-copper-site-identity,empty-storage] discovery=not-modeled manual-sidecraft=[unfired-pottery:{}mg] canonical=shape->assemble->mine->choose-upgrade->store-work->manual-power->assemble-machine->autonomous-crush fantasy=survive->craft-tools->extract->choose-where-scarce-copper-matters->mechanize->work-in-parallel choice=[first:{}:{}mg second:{}:{}mg] milestones=[pick-upgrade:{}t machine-start:{}t] ore=[grade:{}ppm:composition-only batch:{}mg initial-stone:{}t post-upgrade:{}t final:{}t remaining:{}mg] native=[first:{}t second:{}t total:{}mg remaining:{}mg] infrastructure=[drive:{}mg crusher:{}mg] stored-work=[charge:{}nJ primary:{}nJ banked:{}nJ reserve:{}ppm follow-up:{}mg:{}t final:{}nJ] charge=[stone:{}t reinforced:{}t] mechanization=[primary-crush:{}t concurrent:{}:{}t overlap:{}t processed:{}mg] durability=[pick:{}ppm] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
             priority.label(),
             raw_surplus.milligrams(),
+            pottery_mass.milligrams(),
             first_upgrade,
             first_native_mass.milligrams(),
             second_upgrade,
@@ -1349,6 +1454,12 @@ fn run_primitive_progression_case(
             final_pick_condition_ppm,
             metabolic_energy_spent_nj,
             hydration_spent_ul,
+            survival_after.metabolic_energy().nanojoules(),
+            survival_after.hydration().microliters(),
+            physiology.hungry_below().nanojoules(),
+            physiology.thirsty_below().microliters(),
+            survival_after.hunger(),
+            survival_after.hydration_state(),
             state.tick().value(),
         );
     }
@@ -1356,6 +1467,7 @@ fn run_primitive_progression_case(
 }
 
 pub(super) fn run_primitive_progression_probe(registries: &Registries, seed: u64) {
+    assert_playable_catalog_coverage(registries);
     let selected_priority = primitive_priority(seed);
     let selected = run_primitive_progression_case(registries, seed, selected_priority, true);
     let alternative =

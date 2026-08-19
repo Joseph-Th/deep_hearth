@@ -18,29 +18,38 @@ def cargo(alias: str) -> list[str]:
     return ["cargo", alias]
 
 
-def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
-    soak = args.soak or args.all
-    gameplay = args.gameplay or args.all
-    shaders = args.shaders or args.all
-    docs = args.docs or args.all
+def audit_plan() -> list[tuple[str, list[str]]]:
+    """Reuse the same expensive artifacts built by normal focused development lanes."""
 
-    plan = [
+    return [
         ("format", ["cargo", "fmt", "--check"]),
-        (
-            "core + soak" if soak else "core",
-            cargo("test-all" if soak else "test-fast"),
-        ),
+        ("core + soak", cargo("test-all")),
+        ("gameplay", cargo("test-gameplay")),
+        ("gameplay aliases", [sys.executable, "tools/check_gameplay_aliases.py"]),
+        ("clippy all", cargo("test-lint-all")),
     ]
-    if gameplay:
+
+
+def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
+    if args.preset == "audit":
+        return audit_plan()
+
+    plan = [("format", ["cargo", "fmt", "--check"])]
+    has_explicit_lane = any(
+        (args.core, args.soak, args.gameplay, args.shaders, args.docs, args.lint)
+    )
+    if args.soak:
+        plan.append(("core + soak", cargo("test-all")))
+    elif args.core or not has_explicit_lane:
+        plan.append(("core", cargo("test-fast")))
+    if args.gameplay:
         plan.append(("gameplay", cargo("test-gameplay")))
         plan.append(("gameplay aliases", [sys.executable, "tools/check_gameplay_aliases.py"]))
-    if shaders:
+    if args.shaders:
         plan.append(("shaders", cargo("test-shaders")))
-    if docs:
+    if args.docs:
         plan.append(("docs", cargo("test-doc")))
-    if args.all:
-        plan.append(("clippy all", cargo("test-lint-all")))
-    elif args.lint:
+    if args.lint:
         plan.append(("clippy", cargo("test-lint")))
     return plan
 
@@ -62,7 +71,7 @@ def run_stage(index: int, total: int, label: str, command: list[str]) -> float |
     except OSError as error:
         elapsed = time.perf_counter() - started
         print(f"FAIL ({elapsed:.1f}s)")
-        print(f"command: {' '.join(command)}", file=sys.stderr)
+        print(f"reproduce: {' '.join(command)}", file=sys.stderr)
         print(f"unable to start command: {error}", file=sys.stderr)
         return None
     elapsed = time.perf_counter() - started
@@ -71,7 +80,7 @@ def run_stage(index: int, total: int, label: str, command: list[str]) -> float |
         return elapsed
 
     print(f"FAIL ({elapsed:.1f}s)")
-    print(f"command: {' '.join(command)}", file=sys.stderr)
+    print(f"reproduce: {' '.join(command)}", file=sys.stderr)
     if result.stdout.strip():
         print(result.stdout.rstrip(), file=sys.stderr)
     if result.stderr.strip():
@@ -86,9 +95,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "preset",
         nargs="?",
-        choices=("gate",),
+        choices=("gate", "audit"),
         default="gate",
-        help="the fast local correctness gate",
+        help="fast routine gate or explicit cross-cutting runtime audit",
     )
     parser.add_argument(
         "--lint",
@@ -96,9 +105,9 @@ def parse_args() -> argparse.Namespace:
         help="add production-library Clippy",
     )
     parser.add_argument(
-        "--all",
+        "--core",
         action="store_true",
-        help="run every maintained local lane, including all-target/all-feature Clippy",
+        help="include the ordinary core behavior suite alongside explicitly selected lanes",
     )
     parser.add_argument("--soak", action="store_true", help="include ignored core soak tests")
     parser.add_argument("--gameplay", action="store_true", help="include the gameplay harness")
@@ -109,7 +118,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="print the resolved stages without executing them",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.preset == "audit" and any(
+        (args.core, args.lint, args.soak, args.gameplay, args.shaders, args.docs)
+    ):
+        parser.error("audit has a fixed runtime scope; run orthogonal gate lanes separately")
+    return args
 
 
 def main() -> int:

@@ -81,11 +81,20 @@ pub(super) fn assert_anchor_diversity(reports: &[ScenarioReport]) {
         );
     }
 
-    assert!(
-        reports.len() >= 5,
-        "maintained workshop contract requires five anchor reports"
+    let adaptive_matches = reports
+        .iter()
+        .filter(|report| {
+            report.inputs.small_drive_partial_batch_ppm > 0
+                && report.inputs.large_drive_batch_budget == 0
+                && report.inputs.large_drive_partial_batch_ppm == 0
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        adaptive_matches.len(),
+        1,
+        "maintained workshop anchors must contain exactly one fractional stored-work pressure case"
     );
-    let adaptive = &reports[3].inputs;
+    let adaptive = &adaptive_matches[0].inputs;
     let adaptive_order_batches = adaptive
         .order_mass
         .milligrams()
@@ -98,7 +107,28 @@ pub(super) fn assert_anchor_diversity(reports: &[ScenarioReport]) {
         "maintained adaptive-energy anchor must retain fractional, insufficient stored work"
     );
 
-    let recovery = &reports[4].inputs;
+    let recovery_matches = reports
+        .iter()
+        .filter(|report| {
+            report.inputs.small_drive_partial_batch_ppm == 0
+                && report.inputs.large_drive_batch_budget == 0
+                && report.inputs.large_drive_partial_batch_ppm == 0
+        })
+        .filter(|report| {
+            let order_batches = report
+                .inputs
+                .order_mass
+                .milligrams()
+                .div_ceil(report.inputs.nominal_batch_mass.milligrams());
+            u64::from(report.inputs.small_drive_batch_budget) < order_batches
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        recovery_matches.len(),
+        1,
+        "maintained workshop anchors must contain exactly one whole-batch stored-work shortfall"
+    );
+    let recovery = &recovery_matches[0].inputs;
     let recovery_order_batches = recovery
         .order_mass
         .milligrams()
@@ -109,5 +139,30 @@ pub(super) fn assert_anchor_diversity(reports: &[ScenarioReport]) {
             && recovery.large_drive_partial_batch_ppm == 0
             && u64::from(recovery.small_drive_batch_budget) < recovery_order_batches,
         "maintained manual-recovery anchor must retain a whole-batch stored-work shortfall"
+    );
+
+    let survival_pressure_matches = reports
+        .iter()
+        .filter(|report| {
+            report.inputs.small_drive_partial_batch_ppm > 0
+                && report.inputs.large_drive_partial_batch_ppm > 0
+                && report.inputs.maintenance_replacement_units == 0
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        survival_pressure_matches.len(),
+        1,
+        "maintained workshop anchors must contain exactly one finite-work survival-pressure case"
+    );
+    let survival_pressure = &survival_pressure_matches[0].inputs;
+    let survival_order_batches = survival_pressure
+        .order_mass
+        .milligrams()
+        .div_ceil(survival_pressure.nominal_batch_mass.milligrams());
+    assert!(
+        u64::from(survival_pressure.small_drive_batch_budget)
+            + u64::from(survival_pressure.large_drive_batch_budget)
+            < survival_order_batches,
+        "maintained survival-recovery anchor must require direct human work beyond its initial stored-work reserve"
     );
 }

@@ -41,6 +41,7 @@ pub(super) struct EquipmentUpgradeMutation {
 
 /// Persistent mutable state of one maintainable equipment instance.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EquipmentRecord {
     pub(super) id: EquipmentId,
     pub(super) definition: EquipmentDefinitionId,
@@ -56,6 +57,7 @@ pub struct EquipmentRecord {
 /// The operation owner enforces exclusivity while work is active; this trace preserves the provider
 /// definition and condition that were validated at resolution time for deterministic replay.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EquipmentOperationTrace {
     equipment: EquipmentId,
     definition: EquipmentDefinitionId,
@@ -152,10 +154,13 @@ impl EquipmentOperationConditionOutcome {
 
 /// Authoritative equipment collection and monotonic mutation/version state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EquipmentState {
     revision: u64,
     next_equipment_id: u32,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     records: BTreeMap<EquipmentId, EquipmentRecord>,
+    #[serde(skip)]
     equipment_by_support: BTreeMap<StructuralElementId, BTreeSet<EquipmentId>>,
 }
 
@@ -187,6 +192,20 @@ impl EquipmentState {
 
     pub fn equipment(&self) -> impl Iterator<Item = &EquipmentRecord> {
         self.records.values()
+    }
+
+    pub(crate) fn rebuild_derived_indexes(&mut self) {
+        let mut equipment_by_support =
+            BTreeMap::<StructuralElementId, BTreeSet<EquipmentId>>::new();
+        for record in self.records.values() {
+            if let Some(support) = record.supported_by {
+                equipment_by_support
+                    .entry(support)
+                    .or_default()
+                    .insert(record.id);
+            }
+        }
+        self.equipment_by_support = equipment_by_support;
     }
 
     /// Atomically inserts one allocated equipment record and advances identity and revision cursors.
