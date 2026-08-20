@@ -16,7 +16,7 @@ This is the repository execution card. The detailed authorities are:
    system exists.
 4. Read the owning source module and adjacent tests before editing.
 5. Read only the authority document that owns the contract you are changing.
-6. Iterate with the narrowest lane from [`TESTING.md`](TESTING.md).
+6. Select the narrowest lane from [`TESTING.md`](TESTING.md). Do not run a proving build before editing unless reproducing a failure or establishing a baseline the task actually needs; once behavior is ready, prefer the focused executable proof directly over a compile-only pass that would build the same surface.
 
 If implementation, tests, and documentation disagree, reconcile the authoritative owner. Do not choose
 a convenient description or preserve stale prose.
@@ -41,7 +41,4 @@ a convenient description or preserve stale prose.
 
 ## Finish
 
-Run the narrowest relevant tests while editing, then the applicable completion lanes from
-[`TESTING.md`](TESTING.md). Review the task-scoped diff and update the single authority document that
-owns any changed contract. Documentation describes the current system and forward requirements; Git
-history owns the story of how it got there.
+Use focused tests while editing when they shorten feedback or isolate a failure. For completion, choose exactly the smallest gate from [`TESTING.md`](TESTING.md) that owns the changed contract, plus only specialized lanes whose distinct surface changed. A focused proof is not a mandatory predecessor to a completion gate that will compile and exercise the same behavior; do not buy the same confidence twice merely because both commands are documented. Review the task-scoped diff and update the single authority document that owns any changed contract. Documentation describes the current system and forward requirements; Git history owns the story of how it got there.
