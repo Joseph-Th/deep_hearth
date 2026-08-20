@@ -78,7 +78,15 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
     if args.shaders:
         plan.append(("shaders", cargo("test-shaders")))
     if args.docs:
-        plan.append(("docs", cargo("test-doc")))
+        plan.extend(
+            [
+                (
+                    "documentation authority graph",
+                    [sys.executable, "tools/check_authority_docs.py"],
+                ),
+                ("rustdoc", cargo("test-doc")),
+            ]
+        )
     if args.lint:
         plan.append(("clippy", cargo("test-lint")))
     return plan
@@ -152,7 +160,11 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--shaders", action="store_true", help="include WGSL validation")
-    parser.add_argument("--docs", action="store_true", help="include documentation build")
+    parser.add_argument(
+        "--docs",
+        action="store_true",
+        help="include Markdown authority checks and the documentation build",
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",

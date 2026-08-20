@@ -5,7 +5,7 @@ use super::capability_boundary::{
 };
 use super::support::{ROOM_TEMPERATURE, add_solid_stockpile};
 use deep_hearth::content::gameplay_fixture::{
-    seed_composed_lot, seed_energy_store as seed_energy_store_exact,
+    seed_composed_lot, seed_energy_store as seed_energy_store_exact, seed_equipment,
 };
 use deep_hearth::content::{
     ENERGY_MECHANICAL_LARGE_DRIVE, EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRINDING_MILL,
@@ -15,7 +15,7 @@ use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::energy::EnergyStoreId;
-use deep_hearth::equipment::{EquipmentId, add_equipment};
+use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::{MaterialLotId, StockpileId};
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{CommodityKey, CompositionComponent, MaterialComposition};
@@ -75,15 +75,11 @@ pub(super) fn setup_ore_preparation_probe(
     }
     assert_capability_only_energy_store(registries, ENERGY_MECHANICAL_LARGE_DRIVE);
     let mut state = AppState::new(WorldSeed::new(seed));
-    let ore_source = add_solid_stockpile(&mut state, batch_mass, "ore preparation source");
-    let crushed_storage =
-        add_solid_stockpile(&mut state, batch_mass, "ore preparation crushed storage");
-    let ground_storage =
-        add_solid_stockpile(&mut state, batch_mass, "ore preparation ground storage");
-    let undersize_storage =
-        add_solid_stockpile(&mut state, batch_mass, "ore preparation undersize storage");
-    let oversize_storage =
-        add_solid_stockpile(&mut state, batch_mass, "ore preparation oversize storage");
+    let ore_source = add_solid_stockpile(&mut state, batch_mass);
+    let crushed_storage = add_solid_stockpile(&mut state, batch_mass);
+    let ground_storage = add_solid_stockpile(&mut state, batch_mass);
+    let undersize_storage = add_solid_stockpile(&mut state, batch_mass);
+    let oversize_storage = add_solid_stockpile(&mut state, batch_mass);
     let ore_lot = seed_composed_lot(
         registries,
         &mut state,
@@ -93,27 +89,24 @@ pub(super) fn setup_ore_preparation_probe(
         ROOM_TEMPERATURE,
         mixed_ore_composition(copper_ppm),
     );
-    let crusher = add_equipment(
+    let crusher = seed_equipment(
         registries,
         &mut state,
         EQUIPMENT_JAW_CRUSHER,
         crusher_condition,
-    )
-    .unwrap_or_else(|error| panic!("ore preparation crusher failed: {error}"));
-    let grinder = add_equipment(
+    );
+    let grinder = seed_equipment(
         registries,
         &mut state,
         EQUIPMENT_GRINDING_MILL,
         grinder_condition,
-    )
-    .unwrap_or_else(|error| panic!("ore preparation grinder failed: {error}"));
-    let screen = add_equipment(
+    );
+    let screen = seed_equipment(
         registries,
         &mut state,
         EQUIPMENT_DRY_SCREEN,
         screen_condition,
-    )
-    .unwrap_or_else(|error| panic!("ore preparation screen failed: {error}"));
+    );
     let drive = seed_energy_store_exact(
         registries,
         &mut state,

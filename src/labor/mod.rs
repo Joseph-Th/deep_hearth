@@ -1,5 +1,6 @@
 //! Exclusive player-work ownership shared by manual crafting and extraction systems.
 
+mod attention;
 mod definitions;
 mod lifecycle;
 mod power_execution;
@@ -18,6 +19,9 @@ pub use state::{ManualPowerWork, PlayerWork, PlayerWorkState};
 pub use validation::PlayerWorkValidationError;
 pub use work_resources::PlayerWorkResourceBudget;
 
+pub(crate) use attention::{
+    PlayerAttentionError, ValidatedPlayerAttention, validate_player_attention,
+};
 pub(crate) use lifecycle::{
     ValidatedPlayerWorkStart, apply_player_work_tick, decide_player_work_tick,
     player_work_exertion, validate_player_work_start,

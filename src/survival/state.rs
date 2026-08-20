@@ -135,9 +135,9 @@ pub struct SurvivalState {
     revision: u64,
     player: Option<PlayerSurvivalRecord>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
-    metabolic_matter: BTreeMap<MaterialId, AggregateMass>,
+    consumed_matter: BTreeMap<MaterialId, AggregateMass>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
-    ingested_fluids: BTreeMap<FluidDefinitionId, AggregateVolume>,
+    consumed_fluids: BTreeMap<FluidDefinitionId, AggregateVolume>,
 }
 
 impl SurvivalState {
@@ -146,8 +146,8 @@ impl SurvivalState {
         Self {
             revision: 0,
             player: None,
-            metabolic_matter: BTreeMap::new(),
-            ingested_fluids: BTreeMap::new(),
+            consumed_matter: BTreeMap::new(),
+            consumed_fluids: BTreeMap::new(),
         }
     }
 
@@ -170,33 +170,37 @@ impl SurvivalState {
         })
     }
 
-    /// Iterates material mass currently owned by the biological metabolism boundary.
-    pub(crate) fn metabolic_matter(
-        &self,
-    ) -> impl Iterator<Item = (MaterialId, AggregateMass)> + '_ {
-        self.metabolic_matter
+    /// Iterates food matter transferred out of inventory into the terminal survival-consumption
+    /// conservation boundary.
+    ///
+    /// This is cumulative consumed matter, not live body mass. A future digestion/excretion owner
+    /// may split this boundary into explicit biological and waste streams without changing the
+    /// conservation history represented here.
+    pub(crate) fn consumed_matter(&self) -> impl Iterator<Item = (MaterialId, AggregateMass)> + '_ {
+        self.consumed_matter
             .iter()
             .map(|(material, mass)| (*material, *mass))
     }
 
-    pub(crate) fn metabolic_mass(&self, material: MaterialId) -> AggregateMass {
-        self.metabolic_matter
+    pub(crate) fn consumed_mass(&self, material: MaterialId) -> AggregateMass {
+        self.consumed_matter
             .get(&material)
             .copied()
             .unwrap_or(AggregateMass::ZERO)
     }
 
-    /// Iterates finite fluid volume transferred into the biological survival owner.
-    pub(crate) fn ingested_fluids(
+    /// Iterates fluid volume transferred out of stores into the terminal survival-consumption
+    /// conservation boundary. This is cumulative consumed volume, not current body water.
+    pub(crate) fn consumed_fluids(
         &self,
     ) -> impl Iterator<Item = (FluidDefinitionId, AggregateVolume)> + '_ {
-        self.ingested_fluids
+        self.consumed_fluids
             .iter()
             .map(|(fluid, volume)| (*fluid, *volume))
     }
 
-    pub(crate) fn ingested_fluid_volume(&self, fluid: FluidDefinitionId) -> AggregateVolume {
-        self.ingested_fluids
+    pub(crate) fn consumed_fluid_volume(&self, fluid: FluidDefinitionId) -> AggregateVolume {
+        self.consumed_fluids
             .get(&fluid)
             .copied()
             .unwrap_or(AggregateVolume::ZERO)
@@ -221,29 +225,29 @@ impl SurvivalState {
         self.revision = next_revision;
     }
 
-    pub(crate) fn apply_food_ingestion(
+    pub(crate) fn apply_food_consumption(
         &mut self,
         expected_revision: u64,
         next_revision: u64,
         player: PlayerSurvivalRecord,
-        next_metabolic_masses: Vec<(MaterialId, AggregateMass)>,
+        next_consumed_masses: Vec<(MaterialId, AggregateMass)>,
     ) {
         self.apply_player(expected_revision, next_revision, player);
-        for (material, mass) in next_metabolic_masses {
-            self.metabolic_matter.insert(material, mass);
+        for (material, mass) in next_consumed_masses {
+            self.consumed_matter.insert(material, mass);
         }
     }
 
-    pub(crate) fn apply_fluid_ingestion(
+    pub(crate) fn apply_fluid_consumption(
         &mut self,
         expected_revision: u64,
         next_revision: u64,
         player: PlayerSurvivalRecord,
         fluid: FluidDefinitionId,
-        next_ingested_volume: AggregateVolume,
+        next_consumed_volume: AggregateVolume,
     ) {
         self.apply_player(expected_revision, next_revision, player);
-        self.ingested_fluids.insert(fluid, next_ingested_volume);
+        self.consumed_fluids.insert(fluid, next_consumed_volume);
     }
 }
 

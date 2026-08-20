@@ -2,14 +2,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use deep_hearth::content::gameplay_fixture::{seed_fluid_store, seed_lot};
+use deep_hearth::content::gameplay_fixture::{seed_fluid_store, seed_lot, seed_stockpile};
 use deep_hearth::core::quantity::{Mass, Temperature, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
-use deep_hearth::inventory::{
-    MaterialLotId, MaterialLotSelection, StockpileStorageProfile, add_stockpile,
-};
+use deep_hearth::inventory::{MaterialLotId, MaterialLotSelection, StockpileStorageProfile};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
@@ -192,11 +190,9 @@ pub(super) fn evaluate_survival_provisioning_probe(
     let mut state = AppState::new(WorldSeed::new(seed));
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("survival probe player initialization failed: {error}"));
-    let ambient_meal = add_stockpile(&mut state, meal_mass, StockpileStorageProfile::solid_only())
-        .unwrap_or_else(|error| panic!("survival probe ambient meal storage failed: {error}"));
+    let ambient_meal = seed_stockpile(&mut state, meal_mass, StockpileStorageProfile::solid_only());
     let witness_mass = offerings[witness_index].1;
-    let preserved_reserve = add_stockpile(&mut state, witness_mass, preserved_profile)
-        .unwrap_or_else(|error| panic!("survival probe preserved storage failed: {error}"));
+    let preserved_reserve = seed_stockpile(&mut state, witness_mass, preserved_profile);
     let prepared = offerings
         .iter()
         .map(|(food, mass)| {

@@ -1120,11 +1120,11 @@ fn run_primitive_progression_case(
     let mut state = AppState::new(WorldSeed::new(seed));
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("primitive progression survival setup failed: {error}"));
-    let raw = add_solid_stockpile(&mut state, raw_seed_capacity, "primitive raw materials");
-    let shaped = add_solid_stockpile(&mut state, shaped_capacity, "primitive shaped materials");
-    let ore_storage = add_solid_stockpile(&mut state, ore_total, "primitive mined ore");
-    let native_storage = add_solid_stockpile(&mut state, native_copper, "primitive native copper");
-    let crushed_storage = add_solid_stockpile(&mut state, ore_total, "primitive crushed ore");
+    let raw = add_solid_stockpile(&mut state, raw_seed_capacity);
+    let shaped = add_solid_stockpile(&mut state, shaped_capacity);
+    let ore_storage = add_solid_stockpile(&mut state, ore_total);
+    let native_storage = add_solid_stockpile(&mut state, native_copper);
+    let crushed_storage = add_solid_stockpile(&mut state, ore_total);
     for (commodity, mass) in raw_seed_inputs {
         seed_lot(
             registries,

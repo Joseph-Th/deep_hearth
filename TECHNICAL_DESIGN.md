@@ -88,8 +88,8 @@ Primary runtime owners are:
 - `ProductionState`: active production jobs, schedules, routing, and exclusive resource occupancy;
 - `MiningState`: mining work-in-process and scheduling;
 - `PlayerWorkState`: at most one active player labor operation;
-- `SurvivalState`: metabolic energy, hydration, vitality, nutrition, and biological matter/fluid
-  ownership.
+- `SurvivalState`: metabolic energy, hydration, vitality, nutrition, and cumulative terminal
+  survival-consumption matter/fluid ownership.
 
 Runtime-only derived indexes are rebuilt deterministically from authoritative records when loading.
 Validated transaction tokens bind the owner revisions and snapshots they checked so intervening
@@ -256,8 +256,8 @@ only after tool, labor, capability, wear, destination, and reservation validatio
 work occupancy; claim moves the already-owned output into inventory.
 
 `calculate_matter_accounting` and modeled-energy accounting recompute totals from authoritative owners,
-including geological, inventory, embodied, biological, and in-flight state. Ownership transitions do
-not create or delete represented matter or modeled energy.
+including geological, inventory, embodied, terminal survival-consumption, and in-flight state.
+Ownership transitions do not create or delete represented matter or modeled energy.
 
 ## 14. Prospecting Knowledge
 
@@ -350,8 +350,11 @@ allocation creates empty capacity only.
 movement and all affected fluid-owned structural loads. It does not authorize pathless movement or
 invent mixing/thermal-equilibration behavior for unlike contents.
 
-Survival drinking uses a dedicated fluid egress into biological ownership and remains included in
-global fluid accounting.
+Survival eating and drinking use exact inventory/fluid egress into a terminal consumption boundary
+that remains included in global matter and fluid accounting. The boundary records cumulative consumed
+matter and fluid rather than pretending it is live body mass or body water. Physiological energy and
+hydration gains clamp at authored reserve capacities while the requested physical portion is still
+consumed, avoiding exact-capacity meal micromanagement without violating conservation.
 
 ## 17. Structural Matter
 

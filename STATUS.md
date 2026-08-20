@@ -1,9 +1,10 @@
 # Status
 
 This document answers one question: **what capability exists in the current runtime?** Use
-[`README.md`](README.md) to find the owning subsystem. `ARCHITECTURE.md` and `TECHNICAL_DESIGN.md` own
-implementation contracts; `GAME_DESIGN.md` owns intended gameplay. Status does not record implementation
-history or future design detail.
+[`README.md`](README.md) to find the owning subsystem. [`ARCHITECTURE.md`](ARCHITECTURE.md) and
+[`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) own implementation contracts;
+[`GAME_DESIGN.md`](GAME_DESIGN.md) owns intended gameplay. Status does not record implementation history
+or future design detail.
 
 ## Implemented
 
@@ -36,8 +37,9 @@ history or future design detail.
   logistics owner. Inventory validates custody and storage but cannot authorize pathless movement.
 - Supported stockpiles contribute inventory-owned `StoredMatter` structural load. Matter-changing
   transactions keep inventory ownership and structural load synchronized atomically.
-- World matter accounting covers implemented geological, inventory, structural, equipment, biological,
-  and in-process ownership.
+- Solid/material matter accounting covers implemented geological, inventory, structural, equipment,
+  survival-consumption, and in-process ownership. Finite fluids use their separate exact volume
+  accounting so arbitrary authored densities never force lossy conversion into whole-milligram mass.
 
 ### Geology, mining, and prospecting knowledge
 
@@ -72,11 +74,12 @@ history or future design detail.
 - Player survival tracks metabolic energy, hydration, vitality, and recent Grain/Fruit/Protein
   nutrition. Basal depletion and active-work exertion run in the canonical tick.
 - Authored food has finite freshness; preservation affects future exposure. Meals can combine explicit
-  food selections atomically and must fit the player's remaining metabolic-energy reserve capacity.
-  Eating preserves matter ownership in biological accounting.
-- Authored water is finite and drinkable. Drinking must produce a representable hydration gain that
-  fits the player's remaining hydration capacity and preserves fluid-volume ownership in biological
-  accounting.
+  food selections atomically. Metabolic-energy gain clamps at reserve capacity while the full physical
+  portion is consumed; nutrition recovery remains based on the consumed food rather than spare calorie
+  capacity. Eating preserves matter ownership in terminal survival-consumption accounting.
+- Authored water is finite and drinkable. Hydration gain clamps at reserve capacity while the full
+  requested physical volume is consumed and remains represented in terminal survival-consumption
+  fluid-volume accounting.
 
 ### Capabilities, equipment, and maintenance
 

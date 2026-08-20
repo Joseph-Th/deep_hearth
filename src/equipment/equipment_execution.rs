@@ -51,7 +51,7 @@ impl Error for AddEquipmentError {}
 
 /// Adds one equipment record for tests and gameplay harness bootstrap fixtures.
 #[cfg(any(test, feature = "test-gameplay"))]
-pub fn add_equipment(
+pub(crate) fn add_equipment(
     registries: &Registries,
     state: &mut AppState,
     definition: EquipmentDefinitionId,

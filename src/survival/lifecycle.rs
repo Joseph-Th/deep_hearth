@@ -264,6 +264,8 @@ pub(crate) fn decide_survival_tick(
         .hydration_loss_per_tick()
         .checked_add(exertion.hydration_loss_per_tick())
         .ok_or(SurvivalTickError::HydrationCostOverflow)?;
+    let energy_deficit = energy_cost > before.metabolic_energy();
+    let hydration_deficit = hydration_loss > before.hydration();
     let energy_after = before
         .metabolic_energy()
         .checked_sub(energy_cost)
@@ -276,11 +278,11 @@ pub(crate) fn decide_survival_tick(
         .nutrition()
         .decay(physiology.nutrition().decay_ppm_per_tick());
     let mut vitality_loss = 0_u32;
-    if energy_after.is_zero() {
+    if energy_deficit {
         vitality_loss =
             vitality_loss.saturating_add(physiology.starvation_vitality_loss_ppm_per_tick());
     }
-    if hydration_after.is_zero() {
+    if hydration_deficit {
         vitality_loss =
             vitality_loss.saturating_add(physiology.dehydration_vitality_loss_ppm_per_tick());
     }
@@ -371,6 +373,48 @@ mod tests {
                 .hydration()
                 .checked_sub(working_after.hydration()),
             Some(exertion.hydration_loss_per_tick())
+        );
+    }
+
+    #[test]
+    fn exhausting_exact_reserves_does_not_apply_deficit_damage_until_the_next_tick() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5100_0004));
+        initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("exact-reserve survival initialization failed: {error}")
+        });
+        let physiology = registries.survival().physiology();
+        let vitality = Vitality::from_parts_per_million_unchecked(500_000);
+        let expected_revision = state.survival().revision();
+        state.survival_state_mut().apply_player(
+            expected_revision,
+            expected_revision + 1,
+            player_record(
+                physiology.basal_energy_cost_per_tick(),
+                physiology.hydration_loss_per_tick(),
+                vitality,
+                NutritionReserves::FULL,
+            ),
+        );
+
+        let exact_plan = decide_survival_tick(&registries, &state, SurvivalExertion::REST)
+            .unwrap_or_else(|error| panic!("exact-reserve survival tick failed: {error:?}"));
+        let exact_after = apply_survival_tick(&mut state, exact_plan)
+            .unwrap_or_else(|| panic!("exact-reserve survival player disappeared"));
+        assert_eq!(exact_after.metabolic_energy(), Energy::ZERO);
+        assert_eq!(exact_after.hydration(), Volume::ZERO);
+        assert_eq!(exact_after.vitality(), vitality);
+
+        let deficit_plan = decide_survival_tick(&registries, &state, SurvivalExertion::REST)
+            .unwrap_or_else(|error| panic!("deficit survival tick failed: {error:?}"));
+        let deficit_after = apply_survival_tick(&mut state, deficit_plan)
+            .unwrap_or_else(|| panic!("deficit survival player disappeared"));
+        let expected_loss = physiology
+            .starvation_vitality_loss_ppm_per_tick()
+            .saturating_add(physiology.dehydration_vitality_loss_ppm_per_tick());
+        assert_eq!(
+            deficit_after.vitality().parts_per_million(),
+            vitality.parts_per_million().saturating_sub(expected_loss)
         );
     }
 

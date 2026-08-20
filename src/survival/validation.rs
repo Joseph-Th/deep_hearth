@@ -14,11 +14,11 @@ pub enum SurvivalValidationError {
     HydrationExceedsMaximum,
     VitalityExceedsMaximum,
     NutritionExceedsMaximum { category: FoodCategory, value: u32 },
-    OwnedMatterWithoutPlayer,
-    UnknownMetabolicMaterial { material: MaterialId },
-    ZeroMetabolicMass { material: MaterialId },
-    UnknownIngestedFluid { fluid: FluidDefinitionId },
-    ZeroIngestedFluidVolume { fluid: FluidDefinitionId },
+    ConsumedMatterWithoutPlayer,
+    UnknownConsumedMaterial { material: MaterialId },
+    ZeroConsumedMass { material: MaterialId },
+    UnknownConsumedFluid { fluid: FluidDefinitionId },
+    ZeroConsumedFluidVolume { fluid: FluidDefinitionId },
 }
 
 impl Display for SurvivalValidationError {
@@ -37,27 +37,27 @@ impl Display for SurvivalValidationError {
                 formatter,
                 "player {category:?} nutrition reserve {value} ppm exceeds normalized maximum"
             ),
-            Self::OwnedMatterWithoutPlayer => {
-                formatter.write_str("survival owner contains ingested matter without a player")
+            Self::ConsumedMatterWithoutPlayer => {
+                formatter.write_str("survival owner contains consumed matter without a player")
             }
-            Self::UnknownMetabolicMaterial { material } => write!(
+            Self::UnknownConsumedMaterial { material } => write!(
                 formatter,
-                "survival metabolism references unknown material {}",
+                "survival consumption references unknown material {}",
                 material.value()
             ),
-            Self::ZeroMetabolicMass { material } => write!(
+            Self::ZeroConsumedMass { material } => write!(
                 formatter,
-                "survival metabolism stores zero mass for material {}",
+                "survival consumption stores zero mass for material {}",
                 material.value()
             ),
-            Self::UnknownIngestedFluid { fluid } => write!(
+            Self::UnknownConsumedFluid { fluid } => write!(
                 formatter,
-                "survival ingestion references unknown fluid {}",
+                "survival consumption references unknown fluid {}",
                 fluid.value()
             ),
-            Self::ZeroIngestedFluidVolume { fluid } => write!(
+            Self::ZeroConsumedFluidVolume { fluid } => write!(
                 formatter,
-                "survival ingestion stores zero volume for fluid {}",
+                "survival consumption stores zero volume for fluid {}",
                 fluid.value()
             ),
         }
@@ -73,8 +73,8 @@ pub(crate) fn validate_loaded_survival(
     state: &SurvivalState,
 ) -> Result<(), SurvivalValidationError> {
     let Some(player) = state.player() else {
-        if state.metabolic_matter().next().is_some() || state.ingested_fluids().next().is_some() {
-            return Err(SurvivalValidationError::OwnedMatterWithoutPlayer);
+        if state.consumed_matter().next().is_some() || state.consumed_fluids().next().is_some() {
+            return Err(SurvivalValidationError::ConsumedMatterWithoutPlayer);
         }
         return Ok(());
     };
@@ -98,20 +98,20 @@ pub(crate) fn validate_loaded_survival(
             return Err(SurvivalValidationError::NutritionExceedsMaximum { category, value });
         }
     }
-    for (material, mass) in state.metabolic_matter() {
+    for (material, mass) in state.consumed_matter() {
         if materials.get_material(material).is_none() || !registry.has_food_material(material) {
-            return Err(SurvivalValidationError::UnknownMetabolicMaterial { material });
+            return Err(SurvivalValidationError::UnknownConsumedMaterial { material });
         }
         if mass == crate::core::quantity::AggregateMass::ZERO {
-            return Err(SurvivalValidationError::ZeroMetabolicMass { material });
+            return Err(SurvivalValidationError::ZeroConsumedMass { material });
         }
     }
-    for (fluid, volume) in state.ingested_fluids() {
+    for (fluid, volume) in state.consumed_fluids() {
         if fluids.get_fluid(fluid).is_none() || registry.get_drink(fluid).is_none() {
-            return Err(SurvivalValidationError::UnknownIngestedFluid { fluid });
+            return Err(SurvivalValidationError::UnknownConsumedFluid { fluid });
         }
         if volume == crate::core::quantity::AggregateVolume::ZERO {
-            return Err(SurvivalValidationError::ZeroIngestedFluidVolume { fluid });
+            return Err(SurvivalValidationError::ZeroConsumedFluidVolume { fluid });
         }
     }
     Ok(())

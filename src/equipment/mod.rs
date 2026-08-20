@@ -23,7 +23,7 @@ pub use disassembly_execution::{
     ValidatedEquipmentDisassembly, validate_disassemble_equipment,
 };
 #[cfg(any(test, feature = "test-gameplay"))]
-pub use equipment_execution::{AddEquipmentError, add_equipment};
+pub(crate) use equipment_execution::add_equipment;
 pub use equipment_execution::{
     EquipmentConditionCommitError, EquipmentConditionPlan, EquipmentConditionPlanError,
     apply_equipment_condition_plan, decide_equipment_wear,

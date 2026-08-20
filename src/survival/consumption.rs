@@ -18,12 +18,15 @@ use crate::inventory::{
     apply_material_egress, validate_explicit_consumption_selection,
     validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
 };
+use crate::labor::{
+    PlayerAttentionError, PlayerWork, ValidatedPlayerAttention, validate_player_attention,
+};
 use crate::material::{CommodityKey, MaterialComposition, MaterialId};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
+use super::FoodCategory;
 use super::state::{PlayerSurvivalRecord, player_record};
-use super::{FoodCategory, Vitality};
 
 /// Read-only perishability state for one food lot in its current storage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,6 +102,9 @@ pub fn assess_food_freshness(
 pub enum EatError {
     SurvivalNotInitialized,
     PlayerDead,
+    PlayerBusy {
+        active: PlayerWork,
+    },
     EmptySelection,
     DuplicateLot {
         lot: MaterialLotId,
@@ -138,11 +144,7 @@ pub enum EatError {
         lot: MaterialLotId,
         material: MaterialId,
     },
-    MetabolicEnergyCapacityExceeded {
-        available: Energy,
-        requested: Energy,
-    },
-    MetabolicMatterOverflow {
+    ConsumedMatterOverflow {
         material: MaterialId,
     },
     InventoryRevisionExhausted,
@@ -157,6 +159,9 @@ impl Display for EatError {
                 formatter.write_str("player survival is not initialized")
             }
             Self::PlayerDead => formatter.write_str("dead player cannot eat"),
+            Self::PlayerBusy { active } => {
+                write!(formatter, "player cannot eat while occupied by {active:?}")
+            }
             Self::EmptySelection => formatter.write_str("eating selection must not be empty"),
             Self::DuplicateLot { lot } => write!(
                 formatter,
@@ -221,22 +226,13 @@ impl Display for EatError {
             Self::NutritionOverflow => formatter.write_str("food nutrition calculation overflowed"),
             Self::UnsupportedComposition { lot, material } => write!(
                 formatter,
-                "food lot {} is not pure material {} and cannot enter the current metabolism boundary",
+                "food lot {} is not pure material {} and cannot enter the current survival-consumption boundary",
                 lot.value(),
                 material.value()
             ),
-            Self::MetabolicEnergyCapacityExceeded {
-                available,
-                requested,
-            } => write!(
+            Self::ConsumedMatterOverflow { material } => write!(
                 formatter,
-                "meal provides {} nJ but only {} nJ of metabolic-energy reserve capacity remains",
-                requested.nanojoules(),
-                available.nanojoules()
-            ),
-            Self::MetabolicMatterOverflow { material } => write!(
-                formatter,
-                "metabolic matter accounting overflowed material {}",
+                "consumed food matter accounting overflowed material {}",
                 material.value()
             ),
             Self::InventoryRevisionExhausted => {
@@ -258,6 +254,7 @@ impl Error for EatError {
             Self::StructuralLoad(error) => Some(error),
             Self::SurvivalNotInitialized
             | Self::PlayerDead
+            | Self::PlayerBusy { active: _ }
             | Self::EmptySelection
             | Self::DuplicateLot { lot: _ }
             | Self::UnknownStockpile { stockpile: _ }
@@ -271,8 +268,7 @@ impl Error for EatError {
             | Self::ShelfLifeOverflow
             | Self::NutritionOverflow
             | Self::UnsupportedComposition { .. }
-            | Self::MetabolicEnergyCapacityExceeded { .. }
-            | Self::MetabolicMatterOverflow { material: _ }
+            | Self::ConsumedMatterOverflow { material: _ }
             | Self::InventoryRevisionExhausted
             | Self::SurvivalRevisionExhausted => None,
         }
@@ -282,6 +278,7 @@ impl Error for EatError {
 /// Failure when a validated eating action is committed against changed owners.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EatCommitError {
+    StalePlayerWorkRevision { expected: u64, actual: u64 },
     StaleSurvivalRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     Structure(StructuralCommitError),
@@ -290,6 +287,10 @@ pub enum EatCommitError {
 impl Display for EatCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StalePlayerWorkRevision { expected, actual } => write!(
+                formatter,
+                "validated eating expected player-work revision {expected} but current revision is {actual}"
+            ),
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "validated eating expected survival revision {expected} but current revision is {actual}"
@@ -310,7 +311,9 @@ impl Error for EatCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleSurvivalRevision { .. } | Self::StaleInventoryRevision { .. } => None,
+            Self::StalePlayerWorkRevision { .. }
+            | Self::StaleSurvivalRevision { .. }
+            | Self::StaleInventoryRevision { .. } => None,
         }
     }
 }
@@ -397,12 +400,13 @@ impl EatOutcome {
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedEat {
+    attention: ValidatedPlayerAttention,
     expected_survival_revision: u64,
     next_survival_revision: u64,
     egress: ValidatedMaterialEgress,
     structural: Option<ValidatedStockpileStructuralLoad>,
     after: PlayerSurvivalRecord,
-    next_metabolic_masses: Vec<(MaterialId, AggregateMass)>,
+    next_consumed_masses: Vec<(MaterialId, AggregateMass)>,
     outcome: EatOutcome,
 }
 
@@ -486,12 +490,14 @@ pub fn validate_eat(
     source: StockpileId,
     selections: &[MaterialLotSelection],
 ) -> Result<ValidatedEat, EatError> {
+    let attention = validate_player_attention(state).map_err(|error| match error {
+        PlayerAttentionError::SurvivalNotInitialized => EatError::SurvivalNotInitialized,
+        PlayerAttentionError::PlayerDead => EatError::PlayerDead,
+        PlayerAttentionError::Busy { active } => EatError::PlayerBusy { active },
+    })?;
     let Some(player) = state.survival().player().copied() else {
         return Err(EatError::SurvivalNotInitialized);
     };
-    if player.vitality() == Vitality::ZERO {
-        return Err(EatError::PlayerDead);
-    }
     let exact_selection = validate_explicit_consumption_selection(
         state.inventory(),
         source,
@@ -532,7 +538,7 @@ pub fn validate_eat(
     let mut offered_energy_nj = 0_u128;
     let mut offered_hydration_ul = 0_u128;
     let mut category_energy = NutritionEnergy::default();
-    let mut metabolic_additions = BTreeMap::<MaterialId, AggregateMass>::new();
+    let mut consumed_additions = BTreeMap::<MaterialId, AggregateMass>::new();
     let mut portions = Vec::with_capacity(ordered.len());
     for selection in ordered {
         let lot = state
@@ -593,15 +599,15 @@ pub fn validate_eat(
             )
             .ok_or(EatError::NutritionOverflow)?;
         let addition = AggregateMass::from_mass(selection.mass());
-        let current = metabolic_additions
+        let current = consumed_additions
             .get(&metabolic_material)
             .copied()
             .unwrap_or(AggregateMass::ZERO);
-        metabolic_additions.insert(
+        consumed_additions.insert(
             metabolic_material,
             current
                 .checked_add(addition)
-                .ok_or(EatError::MetabolicMatterOverflow {
+                .ok_or(EatError::ConsumedMatterOverflow {
                     material: metabolic_material,
                 })?,
         );
@@ -617,15 +623,10 @@ pub fn validate_eat(
         .maximum_metabolic_energy()
         .checked_sub(player.metabolic_energy())
         .ok_or(EatError::NutritionOverflow)?;
-    if offered_energy > available_energy {
-        return Err(EatError::MetabolicEnergyCapacityExceeded {
-            available: available_energy,
-            requested: offered_energy,
-        });
-    }
+    let energy_gained = offered_energy.min(available_energy);
     let energy_after = player
         .metabolic_energy()
-        .checked_add(offered_energy)
+        .checked_add(energy_gained)
         .ok_or(EatError::NutritionOverflow)?;
     let egress = validate_material_egress_from_selection(state.inventory(), exact_selection)
         .map_err(|error| match error {
@@ -652,13 +653,12 @@ pub fn validate_eat(
 
     let hydration_gain_ul =
         u64::try_from(offered_hydration_ul).map_err(|_| EatError::NutritionOverflow)?;
-    let energy_gained = offered_energy;
     let (hydration_after, hydration_gained) = add_food_hydration_up_to_capacity(
         player.hydration(),
         Volume::from_microliters(hydration_gain_ul),
         physiology.maximum_hydration(),
     );
-    let nutrition_gain_ppm = energy_gained
+    let nutrition_gain_ppm = offered_energy
         .nanojoules()
         .checked_mul(u128::from(super::NUTRITION_PARTS_PER_MILLION))
         .ok_or(EatError::NutritionOverflow)?
@@ -687,19 +687,20 @@ pub fn validate_eat(
     let next_survival_revision = expected_survival_revision
         .checked_add(1)
         .ok_or(EatError::SurvivalRevisionExhausted)?;
-    let next_metabolic_masses = metabolic_additions
+    let next_consumed_masses = consumed_additions
         .into_iter()
         .map(|(material, addition)| {
             state
                 .survival()
-                .metabolic_mass(material)
+                .consumed_mass(material)
                 .checked_add(addition)
                 .map(|next| (material, next))
-                .ok_or(EatError::MetabolicMatterOverflow { material })
+                .ok_or(EatError::ConsumedMatterOverflow { material })
         })
         .collect::<Result<Vec<_>, _>>()?;
     let total_mass = egress.total_consumed();
     Ok(ValidatedEat {
+        attention,
         expected_survival_revision,
         next_survival_revision,
         egress,
@@ -710,7 +711,7 @@ pub fn validate_eat(
             player.vitality(),
             nutrition_after,
         ),
-        next_metabolic_masses,
+        next_consumed_masses,
         outcome: EatOutcome {
             portions,
             total_mass,
@@ -723,6 +724,12 @@ pub fn validate_eat(
 
 impl ValidatedEat {
     pub fn commit(self, state: &mut AppState) -> Result<EatOutcome, EatCommitError> {
+        if let Err(conflict) = self.attention.precheck(state) {
+            return Err(EatCommitError::StalePlayerWorkRevision {
+                expected: conflict.expected(),
+                actual: conflict.actual(),
+            });
+        }
         let actual_survival_revision = state.survival().revision();
         if actual_survival_revision != self.expected_survival_revision {
             return Err(EatCommitError::StaleSurvivalRevision {
@@ -743,11 +750,11 @@ impl ValidatedEat {
                 .map_err(EatCommitError::Structure)?;
         }
         apply_material_egress(state.inventory_state_mut(), self.egress);
-        state.survival_state_mut().apply_food_ingestion(
+        state.survival_state_mut().apply_food_consumption(
             self.expected_survival_revision,
             self.next_survival_revision,
             self.after,
-            self.next_metabolic_masses,
+            self.next_consumed_masses,
         );
         Ok(self.outcome)
     }
@@ -758,6 +765,9 @@ impl ValidatedEat {
 pub enum DrinkError {
     SurvivalNotInitialized,
     PlayerDead,
+    PlayerBusy {
+        active: PlayerWork,
+    },
     UnknownStore {
         store: FluidStoreId,
     },
@@ -777,11 +787,7 @@ pub enum DrinkError {
     NoHydrationGain {
         volume: Volume,
     },
-    HydrationCapacityExceeded {
-        available: Volume,
-        requested: Volume,
-    },
-    IngestedFluidOverflow,
+    ConsumedFluidOverflow,
     StructuralLoad(FluidStructuralLoadError),
 }
 
@@ -792,6 +798,12 @@ impl Display for DrinkError {
                 formatter.write_str("player survival is not initialized")
             }
             Self::PlayerDead => formatter.write_str("dead player cannot drink"),
+            Self::PlayerBusy { active } => {
+                write!(
+                    formatter,
+                    "player cannot drink while occupied by {active:?}"
+                )
+            }
             Self::UnknownStore { store } => {
                 write!(formatter, "unknown drink source store {}", store.value())
             }
@@ -825,17 +837,8 @@ impl Display for DrinkError {
                 "drink volume {} uL is too small to produce any hydration at the authored multiplier",
                 volume.microliters()
             ),
-            Self::HydrationCapacityExceeded {
-                available,
-                requested,
-            } => write!(
-                formatter,
-                "drink provides {} uL of hydration but only {} uL of hydration capacity remains",
-                requested.microliters(),
-                available.microliters()
-            ),
-            Self::IngestedFluidOverflow => {
-                formatter.write_str("ingested fluid accounting overflowed")
+            Self::ConsumedFluidOverflow => {
+                formatter.write_str("consumed fluid accounting overflowed")
             }
             Self::StructuralLoad(error) => write!(
                 formatter,
@@ -851,6 +854,7 @@ impl Error for DrinkError {
             Self::StructuralLoad(error) => Some(error),
             Self::SurvivalNotInitialized
             | Self::PlayerDead
+            | Self::PlayerBusy { active: _ }
             | Self::UnknownStore { store: _ }
             | Self::EmptyStore { store: _ }
             | Self::NotDrinkable
@@ -860,14 +864,14 @@ impl Error for DrinkError {
             | Self::SurvivalRevisionExhausted
             | Self::HydrationOverflow
             | Self::NoHydrationGain { .. }
-            | Self::HydrationCapacityExceeded { .. }
-            | Self::IngestedFluidOverflow => None,
+            | Self::ConsumedFluidOverflow => None,
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DrinkCommitError {
+    StalePlayerWorkRevision { expected: u64, actual: u64 },
     StaleSurvivalRevision { expected: u64, actual: u64 },
     StaleFluidRevision { expected: u64, actual: u64 },
     FluidSourceChanged { store: FluidStoreId },
@@ -877,6 +881,10 @@ pub enum DrinkCommitError {
 impl Display for DrinkCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StalePlayerWorkRevision { expected, actual } => write!(
+                formatter,
+                "validated drinking expected player-work revision {expected} but current revision is {actual}"
+            ),
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "validated drinking expected survival revision {expected} but current revision is {actual}"
@@ -902,7 +910,8 @@ impl Error for DrinkCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleSurvivalRevision { .. }
+            Self::StalePlayerWorkRevision { .. }
+            | Self::StaleSurvivalRevision { .. }
             | Self::StaleFluidRevision { .. }
             | Self::FluidSourceChanged { store: _ } => None,
         }
@@ -935,12 +944,13 @@ impl DrinkOutcome {
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedDrink {
+    attention: ValidatedPlayerAttention,
     expected_survival_revision: u64,
     next_survival_revision: u64,
     egress: ValidatedFluidEgress,
     after: PlayerSurvivalRecord,
     fluid: crate::fluid::FluidDefinitionId,
-    next_ingested_volume: AggregateVolume,
+    next_consumed_volume: AggregateVolume,
     outcome: DrinkOutcome,
 }
 
@@ -950,12 +960,14 @@ pub fn validate_drink(
     store: FluidStoreId,
     volume: Volume,
 ) -> Result<ValidatedDrink, DrinkError> {
+    let attention = validate_player_attention(state).map_err(|error| match error {
+        PlayerAttentionError::SurvivalNotInitialized => DrinkError::SurvivalNotInitialized,
+        PlayerAttentionError::PlayerDead => DrinkError::PlayerDead,
+        PlayerAttentionError::Busy { active } => DrinkError::PlayerBusy { active },
+    })?;
     let Some(player) = state.survival().player().copied() else {
         return Err(DrinkError::SurvivalNotInitialized);
     };
-    if player.vitality() == Vitality::ZERO {
-        return Err(DrinkError::PlayerDead);
-    }
     let record = state
         .fluid()
         .get_store(store)
@@ -998,27 +1010,22 @@ pub fn validate_drink(
         .maximum_hydration()
         .checked_sub(player.hydration())
         .ok_or(DrinkError::HydrationOverflow)?;
-    if hydration_gain > available_hydration {
-        return Err(DrinkError::HydrationCapacityExceeded {
-            available: available_hydration,
-            requested: hydration_gain,
-        });
-    }
+    let hydration_gained = hydration_gain.min(available_hydration);
     let hydration_after = player
         .hydration()
-        .checked_add(hydration_gain)
+        .checked_add(hydration_gained)
         .ok_or(DrinkError::HydrationOverflow)?;
-    let hydration_gained = hydration_gain;
     let expected_survival_revision = state.survival().revision();
     let next_survival_revision = expected_survival_revision
         .checked_add(1)
         .ok_or(DrinkError::SurvivalRevisionExhausted)?;
-    let next_ingested_volume = state
+    let next_consumed_volume = state
         .survival()
-        .ingested_fluid_volume(contents.fluid())
+        .consumed_fluid_volume(contents.fluid())
         .checked_add(AggregateVolume::from_volume(volume))
-        .ok_or(DrinkError::IngestedFluidOverflow)?;
+        .ok_or(DrinkError::ConsumedFluidOverflow)?;
     Ok(ValidatedDrink {
+        attention,
         expected_survival_revision,
         next_survival_revision,
         egress,
@@ -1029,7 +1036,7 @@ pub fn validate_drink(
             player.nutrition(),
         ),
         fluid: contents.fluid(),
-        next_ingested_volume,
+        next_consumed_volume,
         outcome: DrinkOutcome {
             store,
             volume,
@@ -1040,6 +1047,12 @@ pub fn validate_drink(
 
 impl ValidatedDrink {
     pub fn commit(self, state: &mut AppState) -> Result<DrinkOutcome, DrinkCommitError> {
+        if let Err(conflict) = self.attention.precheck(state) {
+            return Err(DrinkCommitError::StalePlayerWorkRevision {
+                expected: conflict.expected(),
+                actual: conflict.actual(),
+            });
+        }
         let actual_survival_revision = state.survival().revision();
         if actual_survival_revision != self.expected_survival_revision {
             return Err(DrinkCommitError::StaleSurvivalRevision {
@@ -1056,12 +1069,12 @@ impl ValidatedDrink {
             }
             FluidEgressCommitError::Structure(error) => DrinkCommitError::Structure(error),
         })?;
-        state.survival_state_mut().apply_fluid_ingestion(
+        state.survival_state_mut().apply_fluid_consumption(
             self.expected_survival_revision,
             self.next_survival_revision,
             self.after,
             self.fluid,
-            self.next_ingested_volume,
+            self.next_consumed_volume,
         );
         Ok(self.outcome)
     }
@@ -1071,11 +1084,13 @@ impl ValidatedDrink {
 mod tests {
     use super::*;
     use crate::content::{
-        FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES, MATERIAL_GRAIN, MATERIAL_MEAT, build_registries,
+        FLUID_WATER, FORM_FOOD, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_GRAIN, MATERIAL_MEAT,
+        MATERIAL_STONE, PROCESS_KNAP_STONE_TOOL, build_registries,
     };
     use crate::core::quantity::{AggregateMass, AggregateVolume, Temperature};
     use crate::core::state::{apply_clock_advance, validate_loaded_state};
     use crate::core::time::{SimulationTick, WorldSeed};
+    use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
     use crate::fluid::{
         add_fluid_store_with_contents_for_fixture, calculate_fluid_volume_accounting,
     };
@@ -1083,11 +1098,14 @@ mod tests {
         StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile, deposit_lot_for_test,
         validate_material_transfer_for_test,
     };
+    use crate::labor::PlayerWork;
     use crate::matter::calculate_matter_accounting;
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
     use crate::simulation::advance_tick;
     use crate::survival::assess_survival;
-    use crate::survival::{NUTRITION_PARTS_PER_MILLION, initialize_player_survival};
+    use crate::survival::{
+        NUTRITION_PARTS_PER_MILLION, NutritionReserves, Vitality, initialize_player_survival,
+    };
 
     fn initialize_and_spend_reserves(registries: &Registries, state: &mut AppState) {
         initialize_player_survival(registries, state)
@@ -1098,8 +1116,111 @@ mod tests {
         }
     }
 
+    fn start_attention_owning_craft(registries: &Registries, state: &mut AppState) -> PlayerWork {
+        let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_000_000))
+            .unwrap_or_else(|error| panic!("attention craft source fixture failed: {error}"));
+        let destination = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_000_000))
+            .unwrap_or_else(|error| panic!("attention craft destination fixture failed: {error}"));
+        deposit_lot_for_test(
+            registries,
+            state,
+            source,
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1_000_000),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("attention craft material fixture failed: {error}"));
+        validate_start_manual_craft(
+            registries,
+            state,
+            ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
+        )
+        .unwrap_or_else(|error| panic!("attention craft validation failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("attention craft commit failed: {error}"));
+        state
+            .player_work()
+            .active()
+            .unwrap_or_else(|| panic!("attention craft did not claim player work"))
+    }
+
     #[test]
-    fn eating_rejects_meal_beyond_remaining_metabolic_capacity_without_mutation() {
+    fn eating_and_drinking_reject_active_player_work_without_mutation() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5A70_0012));
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("attention survival initialization failed: {error}"));
+        let food_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
+            .unwrap_or_else(|error| panic!("attention food stockpile failed: {error}"));
+        let food = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            food_source,
+            CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+            Mass::from_milligrams(1),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("attention food lot failed: {error}"));
+        let water = add_fluid_store_with_contents_for_fixture(
+            &registries,
+            &mut state,
+            Volume::from_microliters(1),
+            FLUID_WATER,
+            Volume::from_microliters(1),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("attention water fixture failed: {error}"));
+        let active = start_attention_owning_craft(&registries, &mut state);
+        let before = state.clone();
+
+        assert_eq!(
+            validate_eat(
+                &registries,
+                &state,
+                food_source,
+                &[MaterialLotSelection::new(food, Mass::from_milligrams(1))],
+            )
+            .err(),
+            Some(EatError::PlayerBusy { active })
+        );
+        assert_eq!(
+            validate_drink(&registries, &state, water, Volume::from_microliters(1)).err(),
+            Some(DrinkError::PlayerBusy { active })
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn validated_drink_rejects_player_work_started_before_commit_without_mutation() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5A70_0013));
+        initialize_and_spend_reserves(&registries, &mut state);
+        let water = add_fluid_store_with_contents_for_fixture(
+            &registries,
+            &mut state,
+            Volume::from_microliters(1),
+            FLUID_WATER,
+            Volume::from_microliters(1),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("stale-attention water fixture failed: {error}"));
+        let drink = validate_drink(&registries, &state, water, Volume::from_microliters(1))
+            .unwrap_or_else(|error| panic!("stale-attention drink validation failed: {error}"));
+
+        start_attention_owning_craft(&registries, &mut state);
+        let before = state.clone();
+        assert_eq!(
+            drink.commit(&mut state),
+            Err(DrinkCommitError::StalePlayerWorkRevision {
+                expected: 0,
+                actual: 1,
+            })
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn eating_at_full_reserve_consumes_food_without_exceeding_metabolic_capacity() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5A70_0010));
         initialize_player_survival(&registries, &mut state)
@@ -1115,26 +1236,80 @@ mod tests {
             Temperature::from_millikelvin(293_150),
         )
         .unwrap_or_else(|error| panic!("full-reserve food lot failed: {error}"));
-        let before = state.clone();
+        let before = calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("full-reserve matter accounting failed: {error}"));
+        let outcome = validate_eat(
+            &registries,
+            &state,
+            stockpile,
+            &[MaterialLotSelection::new(lot, Mass::from_milligrams(1))],
+        )
+        .unwrap_or_else(|error| panic!("full-reserve eating validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("full-reserve eating commit failed: {error}"));
+        let after = calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("full-reserve final accounting failed: {error}"));
 
-        assert_eq!(
-            validate_eat(
-                &registries,
-                &state,
-                stockpile,
-                &[MaterialLotSelection::new(lot, Mass::from_milligrams(1))],
-            )
-            .err(),
-            Some(EatError::MetabolicEnergyCapacityExceeded {
-                available: Energy::ZERO,
-                requested: Energy::from_nanojoules(14_000_000_000),
-            })
-        );
-        assert_eq!(state, before);
+        assert_eq!(outcome.energy_gained(), Energy::ZERO);
+        assert_eq!(state.inventory().get_lot(lot), None);
+        assert_eq!(after.total(), before.total());
+        assert_eq!(after.consumed(), AggregateMass::from_milligrams(1));
     }
 
     #[test]
-    fn drinking_rejects_intake_beyond_remaining_hydration_capacity_without_mutation() {
+    fn nutrition_credit_uses_consumed_food_even_when_metabolic_reserve_is_full() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5A70_0014));
+        initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("nutrition-clamp survival initialization failed: {error}")
+        });
+        let physiology = registries.survival().physiology();
+        let expected_revision = state.survival().revision();
+        state.survival_state_mut().apply_player(
+            expected_revision,
+            expected_revision + 1,
+            player_record(
+                physiology.maximum_metabolic_energy(),
+                physiology.maximum_hydration(),
+                Vitality::MAXIMUM,
+                NutritionReserves::from_parts_per_million(0, 0, 0),
+            ),
+        );
+        let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+            .unwrap_or_else(|error| panic!("nutrition-clamp stockpile failed: {error}"));
+        let lot = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            stockpile,
+            CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+            Mass::from_milligrams(100),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("nutrition-clamp food lot failed: {error}"));
+
+        let outcome = validate_eat(
+            &registries,
+            &state,
+            stockpile,
+            &[MaterialLotSelection::new(lot, Mass::from_milligrams(100))],
+        )
+        .unwrap_or_else(|error| panic!("nutrition-clamp eating validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("nutrition-clamp eating commit failed: {error}"));
+
+        assert_eq!(outcome.energy_gained(), Energy::ZERO);
+        assert_eq!(outcome.nutrition_gained().get(FoodCategory::Grain), 70);
+        assert_eq!(
+            assess_survival(&registries, &state)
+                .unwrap_or_else(|| panic!("nutrition-clamp survival state disappeared"))
+                .nutrition()
+                .get(FoodCategory::Grain),
+            70
+        );
+    }
+
+    #[test]
+    fn drinking_at_full_hydration_consumes_water_without_exceeding_capacity() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5A70_0011));
         initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
@@ -1149,20 +1324,28 @@ mod tests {
             Temperature::from_millikelvin(293_150),
         )
         .unwrap_or_else(|error| panic!("full-hydration water fixture failed: {error}"));
-        let before = state.clone();
+        let before = calculate_fluid_volume_accounting(&state)
+            .unwrap_or_else(|error| panic!("full-hydration accounting failed: {error}"));
+        let outcome = validate_drink(&registries, &state, store, Volume::from_microliters(1))
+            .unwrap_or_else(|error| panic!("full-hydration drink validation failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("full-hydration drink commit failed: {error}"));
+        let after = calculate_fluid_volume_accounting(&state)
+            .unwrap_or_else(|error| panic!("full-hydration final accounting failed: {error}"));
 
+        assert_eq!(outcome.hydration_gained(), Volume::ZERO);
         assert_eq!(
-            validate_drink(&registries, &state, store, Volume::from_microliters(1)).err(),
-            Some(DrinkError::HydrationCapacityExceeded {
-                available: Volume::ZERO,
-                requested: Volume::from_microliters(1),
-            })
+            state
+                .fluid()
+                .get_store(store)
+                .and_then(|record| record.contents()),
+            None
         );
-        assert_eq!(state, before);
+        assert_eq!(after.total(), before.total());
     }
 
     #[test]
-    fn eating_moves_exact_food_mass_into_metabolism_and_round_trips() {
+    fn eating_moves_exact_food_mass_into_consumption_boundary_and_round_trips() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5A70_0001));
         initialize_and_spend_reserves(&registries, &mut state);
@@ -1200,10 +1383,7 @@ mod tests {
         let survival_after = assess_survival(&registries, &state)
             .unwrap_or_else(|| panic!("food post-consumption survival state is missing"));
         assert_eq!(matter_before.total(), matter_after.total());
-        assert_eq!(
-            matter_after.metabolic(),
-            AggregateMass::from_milligrams(100)
-        );
+        assert_eq!(matter_after.consumed(), AggregateMass::from_milligrams(100));
         assert_eq!(
             state.inventory().get_lot(lot).map(|record| record.mass()),
             Some(Mass::from_milligrams(100))
@@ -1317,9 +1497,9 @@ mod tests {
         assert_eq!(matter_after.total(), matter_before.total());
         assert_eq!(
             matter_before
-                .metabolic()
+                .consumed()
                 .checked_add(AggregateMass::from_milligrams(30)),
-            Some(matter_after.metabolic())
+            Some(matter_after.consumed())
         );
         validate_loaded_state(&registries, &state)
             .unwrap_or_else(|error| panic!("varied meal final audit failed: {error}"));

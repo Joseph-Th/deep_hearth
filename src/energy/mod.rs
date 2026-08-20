@@ -25,9 +25,8 @@ pub use disassembly_execution::{
 };
 pub use state::{EnergyState, EnergyStoreId, EnergyStoreRecord, EnergyValidationError};
 pub use storage_execution::{
-    AddEnergyStoreError, ConsumedEnergyTrace, EnergySinkError, EnergySupplyError,
-    ReleasedEnergyTrace, ValidatedEnergySink, ValidatedEnergySupply, add_energy_store,
-    validate_energy_sink, validate_energy_supply,
+    ConsumedEnergyTrace, EnergySinkError, EnergySupplyError, ReleasedEnergyTrace,
+    ValidatedEnergySink, ValidatedEnergySupply, validate_energy_sink, validate_energy_supply,
 };
 pub use transfer_execution::{
     EnergyTransferCommitError, EnergyTransferError, EnergyTransferOutcome,
@@ -38,6 +37,8 @@ pub use transfer_execution::{
 pub(crate) use storage_execution::add_energy_store_with_initial_for_fixture;
 #[cfg(test)]
 pub(crate) use storage_execution::add_energy_store_with_initial_for_fixture as add_energy_store_with_initial_for_test;
+#[cfg(test)]
+pub(crate) use storage_execution::{AddEnergyStoreError, add_energy_store};
 #[cfg(test)]
 pub(crate) use transfer_execution::make_test_energy_transfer_resolution;
 

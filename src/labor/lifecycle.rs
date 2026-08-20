@@ -7,10 +7,13 @@ use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::registry::Registries;
-use crate::survival::{SurvivalExertion, Vitality};
+use crate::survival::SurvivalExertion;
 
 use super::power_physics::resolve_manual_power_exertion;
-use super::{PlayerWork, PlayerWorkResourceBudgetError, calculate_player_work_resource_budget};
+use super::{
+    PlayerAttentionError, PlayerWork, PlayerWorkResourceBudgetError,
+    calculate_player_work_resource_budget, validate_player_attention,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerWorkStartError {
@@ -193,15 +196,16 @@ pub(crate) fn validate_player_work_start(
     duration: TickSpan,
     exertion: SurvivalExertion,
 ) -> Result<ValidatedPlayerWorkStart, PlayerWorkStartError> {
+    let attention = validate_player_attention(state).map_err(|error| match error {
+        PlayerAttentionError::SurvivalNotInitialized => {
+            PlayerWorkStartError::SurvivalNotInitialized
+        }
+        PlayerAttentionError::PlayerDead => PlayerWorkStartError::PlayerDead,
+        PlayerAttentionError::Busy { active } => PlayerWorkStartError::Busy { active },
+    })?;
     let Some(player) = state.survival().player() else {
         return Err(PlayerWorkStartError::SurvivalNotInitialized);
     };
-    if player.vitality() == Vitality::ZERO {
-        return Err(PlayerWorkStartError::PlayerDead);
-    }
-    if let Some(active) = state.player_work().active() {
-        return Err(PlayerWorkStartError::Busy { active });
-    }
     let budget = calculate_player_work_resource_budget(
         registries.survival().physiology(),
         exertion,
@@ -227,7 +231,7 @@ pub(crate) fn validate_player_work_start(
             required: budget.hydration(),
         });
     }
-    let expected_revision = state.player_work().revision();
+    let expected_revision = attention.expected_revision();
     let next_revision = expected_revision
         .checked_add(1)
         .ok_or(PlayerWorkStartError::RevisionExhausted)?;

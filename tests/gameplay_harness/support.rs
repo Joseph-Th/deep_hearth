@@ -1,10 +1,11 @@
 //! Small shared fixtures used by the workshop/report harness and focused probe targets.
 
 use deep_hearth::capability::{CapabilityId, CapabilityValue};
+use deep_hearth::content::gameplay_fixture::seed_stockpile;
 use deep_hearth::core::quantity::{Mass, Temperature};
 use deep_hearth::core::state::AppState;
 use deep_hearth::equipment::EquipmentDefinitionId;
-use deep_hearth::inventory::{StockpileId, StockpileStorageProfile, add_stockpile};
+use deep_hearth::inventory::{StockpileId, StockpileStorageProfile};
 use deep_hearth::registry::Registries;
 
 pub(super) const ROOM_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
@@ -34,11 +35,6 @@ pub(super) fn nominal_equipment_mass_capability(
     }
 }
 
-pub(super) fn add_solid_stockpile(
-    state: &mut AppState,
-    capacity: Mass,
-    context: &'static str,
-) -> StockpileId {
-    add_stockpile(state, capacity, StockpileStorageProfile::solid_only())
-        .unwrap_or_else(|error| panic!("gameplay harness {context} stockpile failed: {error}"))
+pub(super) fn add_solid_stockpile(state: &mut AppState, capacity: Mass) -> StockpileId {
+    seed_stockpile(state, capacity, StockpileStorageProfile::solid_only())
 }

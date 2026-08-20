@@ -5,13 +5,17 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::{Energy, Mass, Power};
+#[cfg(any(test, feature = "test-gameplay"))]
+use crate::core::quantity::Mass;
+use crate::core::quantity::{Energy, Power};
 use crate::core::state::AppState;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 
 use super::definitions::{EnergyCarrier, EnergyStoreDefinitionId};
-use super::state::{EnergyState, EnergyStoreId, EnergyStoreRecord};
+#[cfg(any(test, feature = "test-gameplay"))]
+use super::state::EnergyStoreRecord;
+use super::state::{EnergyState, EnergyStoreId};
 
 fn get_energy_store_occupant(
     state: &AppState,
@@ -28,16 +32,26 @@ fn get_energy_store_occupant(
     Some((job_id, job.occupancy_release()))
 }
 
-/// Failure while allocating an authoritative finite energy store.
+/// Failure while allocating an authoritative finite energy store for controlled fixtures.
+#[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AddEnergyStoreError {
-    UnknownDefinition { definition: EnergyStoreDefinitionId },
-    RequiresAssembly { definition: EnergyStoreDefinitionId },
-    InitialEnergyExceedsCapacity { initial: Energy, capacity: Energy },
+pub(crate) enum AddEnergyStoreError {
+    UnknownDefinition {
+        definition: EnergyStoreDefinitionId,
+    },
+    #[cfg(test)]
+    RequiresAssembly {
+        definition: EnergyStoreDefinitionId,
+    },
+    InitialEnergyExceedsCapacity {
+        initial: Energy,
+        capacity: Energy,
+    },
     IdExhausted,
     RevisionExhausted,
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Display for AddEnergyStoreError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -46,6 +60,7 @@ impl Display for AddEnergyStoreError {
                 "unknown energy store definition {}",
                 definition.value()
             ),
+            #[cfg(test)]
             Self::RequiresAssembly { definition } => write!(
                 formatter,
                 "energy store definition {} requires conserved material construction",
@@ -65,13 +80,12 @@ impl Display for AddEnergyStoreError {
     }
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Error for AddEnergyStoreError {}
 
-/// Allocates one empty finite energy store.
-///
-/// Runtime allocation never creates energy. Charging/generation systems must transfer energy into
-/// stores through their own conserved source path when those owners exist.
-pub fn add_energy_store(
+/// Allocates one empty finite energy store for unit tests only.
+#[cfg(test)]
+pub(crate) fn add_energy_store(
     registries: &Registries,
     state: &mut AppState,
     definition: EnergyStoreDefinitionId,
@@ -85,6 +99,7 @@ pub fn add_energy_store(
     allocate_energy_store(registries, state, definition, Energy::ZERO)
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 fn allocate_energy_store(
     registries: &Registries,
     state: &mut AppState,

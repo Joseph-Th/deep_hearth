@@ -4,8 +4,9 @@ use super::capability_boundary::{
     assert_capability_only_energy_store, assert_capability_only_equipment,
 };
 use super::support::add_solid_stockpile;
-use deep_hearth::content::gameplay_fixture::seed_energy_store as seed_energy_store_exact;
-use deep_hearth::content::gameplay_fixture::seed_lot;
+use deep_hearth::content::gameplay_fixture::{
+    seed_energy_store as seed_energy_store_exact, seed_equipment, seed_lot, seed_stockpile,
+};
 use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,
     EQUIPMENT_ELECTRIC_FURNACE, FORM_INGOT, MATERIAL_COPPER,
@@ -13,9 +14,9 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::{Energy, Mass, Temperature};
 use deep_hearth::core::state::AppState;
 use deep_hearth::core::time::WorldSeed;
-use deep_hearth::energy::{EnergyStoreId, add_energy_store};
-use deep_hearth::equipment::{EquipmentId, add_equipment};
-use deep_hearth::inventory::{MaterialLotId, StockpileId, StockpileStorageProfile, add_stockpile};
+use deep_hearth::energy::EnergyStoreId;
+use deep_hearth::equipment::EquipmentId;
+use deep_hearth::inventory::{MaterialLotId, StockpileId, StockpileStorageProfile};
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::Registries;
@@ -60,7 +61,7 @@ pub(super) fn setup_foundry_probe(
         assert_capability_only_energy_store(registries, store);
     }
     let mut state = AppState::new(WorldSeed::new(seed));
-    let pure_copper_source = add_solid_stockpile(&mut state, mass, "foundry copper source");
+    let pure_copper_source = add_solid_stockpile(&mut state, mass);
     let molten_temperature = registries
         .materials()
         .get_material(MATERIAL_COPPER)
@@ -68,9 +69,8 @@ pub(super) fn setup_foundry_probe(
         .unwrap_or_else(|| panic!("foundry probe copper fusion definition disappeared"));
     let vessel_profile = StockpileStorageProfile::new(false, true, molten_temperature)
         .unwrap_or_else(|error| panic!("foundry probe molten storage profile failed: {error}"));
-    let molten_vessel = add_stockpile(&mut state, mass, vessel_profile)
-        .unwrap_or_else(|error| panic!("foundry probe molten vessel failed: {error}"));
-    let cast_storage = add_solid_stockpile(&mut state, mass, "foundry cast storage");
+    let molten_vessel = seed_stockpile(&mut state, mass, vessel_profile);
+    let cast_storage = add_solid_stockpile(&mut state, mass);
     let pure_copper_lot = seed_lot(
         registries,
         &mut state,
@@ -79,28 +79,26 @@ pub(super) fn setup_foundry_probe(
         mass,
         input_temperature,
     );
-    let furnace = add_equipment(
+    let furnace = seed_equipment(
         registries,
         &mut state,
         EQUIPMENT_ELECTRIC_FURNACE,
         furnace_condition,
-    )
-    .unwrap_or_else(|error| panic!("foundry probe furnace allocation failed: {error}"));
-    let mold = add_equipment(
+    );
+    let mold = seed_equipment(
         registries,
         &mut state,
         EQUIPMENT_CASTING_MOLD,
         mold_condition,
-    )
-    .unwrap_or_else(|error| panic!("foundry probe mold allocation failed: {error}"));
+    );
     let electrical_buffer = seed_energy_store_exact(
         registries,
         &mut state,
         ENERGY_ELECTRICAL_BUFFER,
         electrical_energy,
     );
-    let heat_sink = add_energy_store(registries, &mut state, ENERGY_THERMAL_SINK)
-        .unwrap_or_else(|error| panic!("foundry probe thermal sink allocation failed: {error}"));
+    let heat_sink =
+        seed_energy_store_exact(registries, &mut state, ENERGY_THERMAL_SINK, Energy::ZERO);
     (
         state,
         FoundryIds {

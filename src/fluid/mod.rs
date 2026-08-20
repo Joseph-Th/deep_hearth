@@ -13,8 +13,8 @@ pub use accounting::{
 pub use definitions::{FluidDefinition, FluidDefinitionId, FluidRegistry};
 pub use state::{FluidContents, FluidState, FluidStoreId, FluidStoreRecord, FluidValidationError};
 pub use storage_execution::{
-    AddFluidStoreError, FluidTransferCommitError, FluidTransferError, FluidTransferOutcome,
-    FluidTransferResolution, ValidatedFluidTransfer, add_fluid_store, validate_fluid_transfer,
+    FluidTransferCommitError, FluidTransferError, FluidTransferOutcome, FluidTransferResolution,
+    ValidatedFluidTransfer, validate_fluid_transfer,
 };
 pub use structural_integration::{
     FluidStructuralLoadError, FluidSupportCommitError, FluidSupportError, FluidSupportOutcome,

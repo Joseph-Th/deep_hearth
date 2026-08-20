@@ -500,6 +500,7 @@ impl InventoryState {
         self.revision
     }
 
+    #[cfg(any(test, feature = "test-gameplay"))]
     pub(super) const fn next_stockpile_id(&self) -> u32 {
         self.next_stockpile_id
     }
@@ -508,6 +509,7 @@ impl InventoryState {
         self.next_lot_id
     }
 
+    #[cfg(any(test, feature = "test-gameplay"))]
     pub(super) fn insert_stockpile(
         &mut self,
         record: StockpileRecord,

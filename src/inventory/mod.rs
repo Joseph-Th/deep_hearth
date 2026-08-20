@@ -36,9 +36,8 @@ pub use structural_integration::{
     validate_unmount_stockpile,
 };
 pub use transactions::{
-    AddStockpileError, MaterialTransferCommitError, MaterialTransferError,
-    MaterialTransferResolution, ValidatedMaterialTransfer, add_stockpile,
-    validate_material_transfer,
+    MaterialTransferCommitError, MaterialTransferError, MaterialTransferResolution,
+    ValidatedMaterialTransfer, validate_material_transfer,
 };
 
 pub(crate) use reserved_ingress::{
@@ -63,6 +62,8 @@ pub(crate) use transactions::{
     validate_material_reform_from_selection,
 };
 
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) use transactions::add_stockpile;
 #[cfg(test)]
 pub(crate) use transactions::validate_material_transfer_for_test;
 

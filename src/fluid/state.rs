@@ -132,6 +132,7 @@ impl FluidState {
         self.revision
     }
 
+    #[cfg(any(test, feature = "test-gameplay"))]
     #[must_use]
     pub(super) const fn next_store_id(&self) -> u64 {
         self.next_store_id
@@ -159,7 +160,8 @@ impl FluidState {
         self.stores_by_support = stores_by_support;
     }
 
-    /// Atomically inserts one allocated store record and advances the identity and revision cursors.
+    /// Atomically inserts one fixture-allocated store and advances identity and revision cursors.
+    #[cfg(any(test, feature = "test-gameplay"))]
     pub(super) fn insert_store(
         &mut self,
         record: FluidStoreRecord,

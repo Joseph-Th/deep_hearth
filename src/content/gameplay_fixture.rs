@@ -14,6 +14,7 @@ use crate::core::state::AppState;
 use crate::energy::{
     EnergyStoreDefinitionId, EnergyStoreId, add_energy_store_with_initial_for_fixture,
 };
+use crate::equipment::{EquipmentDefinitionId, EquipmentId, add_equipment};
 use crate::fluid::{FluidDefinitionId, FluidStoreId, add_fluid_store_with_contents_for_fixture};
 use crate::geology::{GeneratedDepositSpec, GeologicalDepositId, insert_generated_deposit};
 use crate::inventory::{
@@ -21,6 +22,7 @@ use crate::inventory::{
     StockpileStorageProfile, add_stockpile, deposit_composed_lot_for_fixture,
     deposit_lot_for_fixture,
 };
+use crate::maintenance::Condition;
 use crate::material::{CommodityKey, FormId, MaterialComposition};
 use crate::registry::Registries;
 use crate::spatial::VoxelBounds;
@@ -37,6 +39,25 @@ use crate::survival::initialize_player_survival_at_warning_for_fixture;
 pub fn seed_player_survival_at_warning(registries: &Registries, state: &mut AppState) {
     initialize_player_survival_at_warning_for_fixture(registries, state)
         .unwrap_or_else(|error| panic!("gameplay bootstrap survival seed failed: {error}"));
+}
+
+pub fn seed_stockpile(
+    state: &mut AppState,
+    capacity: Mass,
+    storage_profile: StockpileStorageProfile,
+) -> StockpileId {
+    add_stockpile(state, capacity, storage_profile)
+        .unwrap_or_else(|error| panic!("gameplay bootstrap stockpile seed failed: {error}"))
+}
+
+pub fn seed_equipment(
+    registries: &Registries,
+    state: &mut AppState,
+    definition: EquipmentDefinitionId,
+    condition: Condition,
+) -> EquipmentId {
+    add_equipment(registries, state, definition, condition)
+        .unwrap_or_else(|error| panic!("gameplay bootstrap equipment seed failed: {error}"))
 }
 
 pub fn seed_energy_store(
@@ -153,10 +174,7 @@ pub fn materialize_structure(
     let requirement = resolve_structural_material_requirement(registries, state, element)
         .unwrap_or_else(|error| panic!("gameplay bootstrap material requirement failed: {error}"));
     let mass = requirement.required_mass();
-    let source =
-        add_stockpile(state, mass, StockpileStorageProfile::solid_only()).unwrap_or_else(|error| {
-            panic!("gameplay bootstrap construction stockpile failed: {error}")
-        });
+    let source = seed_stockpile(state, mass, StockpileStorageProfile::solid_only());
     let commodity = CommodityKey::new(requirement.material(), form);
     let lot = deposit_lot_for_fixture(
         registries,

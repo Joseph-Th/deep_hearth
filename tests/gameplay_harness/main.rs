@@ -129,7 +129,8 @@ use configuration::{
 use contracts::{assert_anchor_diversity, assert_scenario_contracts};
 use deep_hearth::content::gameplay_fixture::{
     authorize_controlled_material_delivery, materialize_structure, seed_composed_lot,
-    seed_energy_store as bootstrap_seed_energy_store, seed_lot, seed_player_survival_at_warning,
+    seed_energy_store as bootstrap_seed_energy_store, seed_equipment, seed_lot,
+    seed_player_survival_at_warning,
 };
 #[cfg(feature = "test-gameplay-full")]
 use focused_runner::run_focused_probe;
@@ -177,7 +178,7 @@ use deep_hearth::energy::{
 };
 use deep_hearth::equipment::{
     EquipmentId, EquipmentMaintenanceRequest, EquipmentMaintenanceResolutionError,
-    EquipmentProviderError, EquipmentSupportError, add_equipment, resolve_equipment_maintenance,
+    EquipmentProviderError, EquipmentSupportError, resolve_equipment_maintenance,
     resolve_equipment_provider, validate_assemble_equipment, validate_equipment_repair,
     validate_mount_equipment, validate_relocate_equipment,
 };
@@ -289,7 +290,7 @@ fn assemble_workshop_hand_crank(registries: &Registries, state: &mut AppState) -
         .iter()
         .try_fold(Mass::ZERO, |total, input| total.checked_add(input.mass()))
         .unwrap_or_else(|| panic!("workshop hand-crank material capacity overflowed"));
-    let source = add_solid_stockpile(state, capacity, "emergency power kit");
+    let source = add_solid_stockpile(state, capacity);
     for input in profile.inputs() {
         seed_lot(
             registries,
@@ -490,8 +491,8 @@ fn setup_workshop(
             .unwrap_or_else(|error| panic!("workshop survival initialization failed: {error}"));
     }
     let ore_mass = variation.ore.order_mass;
-    let ore_source = add_solid_stockpile(&mut state, ore_mass, "ore source");
-    let crushed_storage = add_solid_stockpile(&mut state, ore_mass, "crushed storage");
+    let ore_source = add_solid_stockpile(&mut state, ore_mass);
+    let crushed_storage = add_solid_stockpile(&mut state, ore_mass);
     let maintenance_profile = registries
         .equipment()
         .get_equipment(EQUIPMENT_JAW_CRUSHER)
@@ -505,10 +506,8 @@ fn setup_workshop(
     let replacement_total = Mass::from_milligrams(replacement_total_milligrams);
     let maintenance_capacity =
         Mass::from_milligrams(replacement_total_milligrams.max(replacement_unit.milligrams()));
-    let maintenance_source =
-        add_solid_stockpile(&mut state, maintenance_capacity, "maintenance source");
-    let maintenance_spent =
-        add_solid_stockpile(&mut state, maintenance_capacity, "maintenance spent");
+    let maintenance_source = add_solid_stockpile(&mut state, maintenance_capacity);
+    let maintenance_spent = add_solid_stockpile(&mut state, maintenance_capacity);
 
     let ore_lot = seed_composed_lot(
         registries,
@@ -530,21 +529,19 @@ fn setup_workshop(
         );
     }
 
-    let crusher = add_equipment(
+    let crusher = seed_equipment(
         registries,
         &mut state,
         EQUIPMENT_JAW_CRUSHER,
         variation.crusher.initial_crusher_condition,
-    )
-    .unwrap_or_else(|error| panic!("gameplay harness crusher allocation failed: {error}"));
+    );
     let hand_crank = assemble_workshop_hand_crank(registries, &mut state);
-    let furnace = add_equipment(
+    let furnace = seed_equipment(
         registries,
         &mut state,
         EQUIPMENT_ELECTRIC_FURNACE,
         Condition::PRISTINE,
-    )
-    .unwrap_or_else(|error| panic!("gameplay harness furnace allocation failed: {error}"));
+    );
     let electrical_buffer = seed_energy_store(registries, &mut state, ENERGY_ELECTRICAL_BUFFER, 2);
 
     let compact_support = active_support(
@@ -559,11 +556,8 @@ fn setup_workshop(
         2,
         variation.structure.reinforced_support_area,
     );
-    let background_storage = add_solid_stockpile(
-        &mut state,
-        variation.structure.reinforced_background_mass,
-        "reinforced bay background storage",
-    );
+    let background_storage =
+        add_solid_stockpile(&mut state, variation.structure.reinforced_background_mass);
     seed_lot(
         registries,
         &mut state,
@@ -579,16 +573,8 @@ fn setup_workshop(
             panic!("gameplay harness background storage commit failed: {error}")
         });
 
-    let delivery_source = add_solid_stockpile(
-        &mut state,
-        variation.delivery.mass,
-        "controlled delivery source",
-    );
-    let delivery_destination = add_solid_stockpile(
-        &mut state,
-        variation.delivery.mass,
-        "controlled delivery destination",
-    );
+    let delivery_source = add_solid_stockpile(&mut state, variation.delivery.mass);
+    let delivery_destination = add_solid_stockpile(&mut state, variation.delivery.mass);
     seed_lot(
         registries,
         &mut state,

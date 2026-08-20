@@ -9,7 +9,8 @@ use crate::core::state::AppState;
 
 use super::definitions::FluidDefinitionId;
 
-/// World-scale stored fluid volume grouped by authored fluid identity.
+/// World-scale finite fluid volume grouped by authored fluid identity, including fluid transferred
+/// into the terminal survival-consumption conservation boundary.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FluidVolumeAccounting {
     by_fluid: BTreeMap<FluidDefinitionId, AggregateVolume>,
@@ -61,7 +62,7 @@ impl Display for FluidVolumeAccountingError {
 
 impl Error for FluidVolumeAccountingError {}
 
-/// Recomputes finite stored fluid volume without trusting any cached aggregate.
+/// Recomputes finite world fluid volume without trusting any cached aggregate.
 pub fn calculate_fluid_volume_accounting(
     state: &AppState,
 ) -> Result<FluidVolumeAccounting, FluidVolumeAccountingError> {
@@ -87,7 +88,7 @@ pub fn calculate_fluid_volume_accounting(
             .checked_add(volume)
             .ok_or(FluidVolumeAccountingError::TotalVolumeOverflow)?;
     }
-    for (fluid, volume) in state.survival().ingested_fluids() {
+    for (fluid, volume) in state.survival().consumed_fluids() {
         let current = by_fluid
             .get(&fluid)
             .copied()

@@ -1,4 +1,4 @@
-//! Read-only world matter accounting across geology, structures, stored lots, and durable in-process ownership.
+//! Read-only solid/material matter accounting across authoritative non-fluid owners.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -6,7 +6,11 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::AggregateMass;
 use crate::core::state::AppState;
 
-/// World-scale matter projection split by its current authoritative owner.
+/// World-scale non-fluid matter projection split by its current authoritative owner.
+///
+/// Finite fluids intentionally use `fluid::calculate_fluid_volume_accounting` instead. Fluid density
+/// can imply sub-milligram mass for an exact microliter volume, so folding that owner into this
+/// whole-milligram ledger would either lose information or manufacture matter through rounding.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MatterAccounting {
     geological: AggregateMass,
@@ -15,7 +19,7 @@ pub struct MatterAccounting {
     energy_storage: AggregateMass,
     stored: AggregateMass,
     in_process: AggregateMass,
-    metabolic: AggregateMass,
+    consumed: AggregateMass,
     total: AggregateMass,
 }
 
@@ -56,13 +60,14 @@ impl MatterAccounting {
         self.in_process
     }
 
-    /// Matter transferred from food inventory into the biological metabolism boundary.
+    /// Food matter transferred into the terminal survival-consumption conservation boundary.
+    /// This is cumulative consumed matter, not live body mass.
     #[must_use]
-    pub const fn metabolic(self) -> AggregateMass {
-        self.metabolic
+    pub const fn consumed(self) -> AggregateMass {
+        self.consumed
     }
 
-    /// Total matter represented by the implemented authoritative matter owners.
+    /// Total non-fluid matter represented by the implemented authoritative matter owners.
     #[must_use]
     pub const fn total(self) -> AggregateMass {
         self.total
@@ -78,7 +83,7 @@ pub enum MatterAccountingError {
     EnergyStorageMassOverflow,
     StoredMassOverflow,
     InProcessMassOverflow,
-    MetabolicMassOverflow,
+    ConsumedMassOverflow,
     TotalMassOverflow,
 }
 
@@ -103,8 +108,8 @@ impl Display for MatterAccountingError {
             Self::InProcessMassOverflow => {
                 formatter.write_str("in-process world matter exceeds aggregate mass range")
             }
-            Self::MetabolicMassOverflow => {
-                formatter.write_str("metabolic world matter exceeds aggregate mass range")
+            Self::ConsumedMassOverflow => {
+                formatter.write_str("consumed world matter exceeds aggregate mass range")
             }
             Self::TotalMassOverflow => {
                 formatter.write_str("total world matter exceeds aggregate mass range")
@@ -178,11 +183,11 @@ pub fn calculate_matter_accounting(
             .ok_or(MatterAccountingError::InProcessMassOverflow)?;
     }
 
-    let mut metabolic = AggregateMass::ZERO;
-    for (_, mass) in state.survival().metabolic_matter() {
-        metabolic = metabolic
+    let mut consumed = AggregateMass::ZERO;
+    for (_, mass) in state.survival().consumed_matter() {
+        consumed = consumed
             .checked_add(mass)
-            .ok_or(MatterAccountingError::MetabolicMassOverflow)?;
+            .ok_or(MatterAccountingError::ConsumedMassOverflow)?;
     }
 
     let total = geological
@@ -196,7 +201,7 @@ pub fn calculate_matter_accounting(
         .ok_or(MatterAccountingError::TotalMassOverflow)?
         .checked_add(in_process)
         .ok_or(MatterAccountingError::TotalMassOverflow)?
-        .checked_add(metabolic)
+        .checked_add(consumed)
         .ok_or(MatterAccountingError::TotalMassOverflow)?;
     Ok(MatterAccounting {
         geological,
@@ -205,7 +210,7 @@ pub fn calculate_matter_accounting(
         energy_storage,
         stored,
         in_process,
-        metabolic,
+        consumed,
         total,
     })
 }

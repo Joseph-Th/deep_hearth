@@ -1,8 +1,9 @@
 # Testing
 
-This document owns Deep Hearth's test selection, feedback lanes, harness contract, and CI gate. The
-suite is organized so ordinary correctness work does not compile specialized gameplay or shader
-validation dependencies unless that coverage is relevant.
+This document owns Deep Hearth's test selection, feedback lanes, harness contract, and CI gate. Use
+[`README.md`](README.md) for authority and subsystem routing and [`STATUS.md`](STATUS.md) for the current
+runtime capability boundary. The suite is organized so ordinary correctness work does not compile
+specialized gameplay or shader validation dependencies unless that coverage is relevant.
 
 ## Daily workflow
 
@@ -98,6 +99,12 @@ simulation contract.
 | `cargo test-all` | Ordinary plus ignored core/soak tests in one invocation | Adds `test-soak` once and runs the combined core inventory |
 | `cargo test-release` | Complete optimized test inventory | All test features |
 | `cargo test-doc` | Documentation build without dependencies | Default features |
+
+`python tools/check_authority_docs.py` is the fast Markdown-side documentation proof. It verifies that
+the current authority pages exist, local Markdown links resolve, concrete repository paths and Cargo
+aliases named by those authorities still exist, and the README/STATUS/TESTING ownership graph remains
+connected. `cargo test-doc` remains the independent Rust documentation build; `python ci.py gate
+--docs` runs both proofs rather than treating one as a substitute for the other.
 
 `test-gameplay` exists only to expose the controlled bootstrap adapter required by the integration
 harness; that adapter remains absent from ordinary production builds and delegates to canonical runtime
@@ -339,9 +346,10 @@ or guess scope: explicit flags are faster to understand and cannot silently omit
 
 1. **Routine core**: `python ci.py gate` runs only format plus fast core tests.
 2. **Relevant specialized coverage**: `python ci.py gate --gameplay [scope]`, `--shaders`, `--docs`, or
-   `--lint` runs only format plus the selected specialized lane(s). Add `--core` only when the change
-   also needs the ordinary core behavior artifact. `--soak` uses one combined core+soak artifact and
-   therefore already includes core behavior.
+   `--lint` runs only format plus the selected specialized lane(s). The docs lane runs the Markdown
+   authority-graph checker and Rust documentation build as separate stages. Add `--core` only when the
+   change also needs the ordinary core behavior artifact. `--soak` uses one combined core+soak artifact
+   and therefore already includes core behavior.
 3. **Lint checkpoint**: select `--lint` when Clippy-specific production-library feedback is useful; it
    does not implicitly trigger the core test binary.
 4. **Broad maintained checkpoint**: `python ci.py audit` runs ordinary core behavior, all maintained

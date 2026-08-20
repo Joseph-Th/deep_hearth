@@ -1,5 +1,6 @@
 //! Canonical inventory transactions; sibling state records remain passive and privately mutable.
 
+#[cfg(any(test, feature = "test-gameplay"))]
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -36,10 +37,12 @@ use super::selection::{
 };
 use super::state::{
     ConsumedMaterialTrace, InventoryState, LotSlice, LotStorageTransition, MaterialLotId,
-    MaterialLotProfile, MaterialLotRecord, MaterialStorageHistory, StockpileId, StockpileRecord,
-    StockpileStorageProfile, apply_aggregate_deposit, apply_aggregate_withdraw,
-    apply_consume_lot_slice, apply_insert_or_merge_new_lot, apply_move_full_lot, apply_split_lot,
+    MaterialLotProfile, MaterialLotRecord, MaterialStorageHistory, StockpileId,
+    apply_aggregate_deposit, apply_aggregate_withdraw, apply_consume_lot_slice,
+    apply_insert_or_merge_new_lot, apply_move_full_lot, apply_split_lot,
 };
+#[cfg(any(test, feature = "test-gameplay"))]
+use super::state::{StockpileRecord, StockpileStorageProfile};
 use super::storage_validation::{
     CommodityReferenceError, StockpileStorageError, validate_commodity_reference,
     validate_stockpile_storage,
@@ -49,9 +52,10 @@ use super::{
     validate_stockpile_stored_mass_changes,
 };
 
-/// Failure while allocating a new stockpile record.
+/// Failure while allocating a new stockpile record for controlled fixtures.
+#[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AddStockpileError {
+pub(crate) enum AddStockpileError {
     ZeroCapacity,
     IdExhausted,
     RevisionExhausted,
@@ -636,6 +640,7 @@ impl Error for MaterialRelocationCommitError {
     }
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Display for AddStockpileError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -704,6 +709,7 @@ pub(crate) fn apply_material_egress(state: &mut InventoryState, egress: Validate
     state.apply_revision(next_revision);
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Error for AddStockpileError {}
 
 /// Opaque authorization for one already physically resolved stockpile-to-stockpile movement.
@@ -945,8 +951,9 @@ impl ValidatedMaterialTransfer {
     }
 }
 
-/// Adds empty material storage with an explicit phase and temperature containment envelope.
-pub fn add_stockpile(
+/// Adds empty material storage for tests and controlled gameplay bootstrap only.
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) fn add_stockpile(
     state: &mut AppState,
     capacity: Mass,
     storage_profile: StockpileStorageProfile,

@@ -15,9 +15,10 @@ use super::structural_integration::{
     validate_fluid_contents_changes,
 };
 
-/// Failure while allocating one authoritative finite fluid store.
+/// Failure while allocating one authoritative finite fluid store for controlled fixtures.
+#[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AddFluidStoreError {
+pub(crate) enum AddFluidStoreError {
     ZeroCapacity,
     UnknownDefinition { definition: FluidDefinitionId },
     InitialVolumeZero,
@@ -26,6 +27,7 @@ pub enum AddFluidStoreError {
     RevisionExhausted,
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Display for AddFluidStoreError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -48,16 +50,19 @@ impl Display for AddFluidStoreError {
     }
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl Error for AddFluidStoreError {}
 
-/// Allocates one empty finite fluid store without creating fluid.
-pub fn add_fluid_store(
+/// Allocates one empty finite fluid store for unit tests only.
+#[cfg(test)]
+pub(crate) fn add_fluid_store(
     state: &mut AppState,
     capacity: Volume,
 ) -> Result<FluidStoreId, AddFluidStoreError> {
     allocate_fluid_store(state, capacity, None)
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 fn allocate_fluid_store(
     state: &mut AppState,
     capacity: Volume,
