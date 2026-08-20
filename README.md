@@ -29,7 +29,6 @@ Do not infer capability from design intent. `GAME_DESIGN.md` describes the inten
 | What technical contracts govern implemented systems? | [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) |
 | What capabilities exist or are absent? | [`STATUS.md`](STATUS.md) |
 | How are tests, harnesses, and local CI organized? | [`TESTING.md`](TESTING.md) |
-| What coordinated work is available or already claimed? | [`TASKS.md`](TASKS.md) |
 
 Documentation is present-tense and forward-facing. Git history owns implementation history. Do not
 preserve migration stories, replaced designs, or completed-work narratives in authority documents.
