@@ -1,21 +1,21 @@
-//! Headless workshop gameplay harness over the same canonical content registries used by the game.
-//!
-//! The harness deliberately varies physical initial conditions and player priorities, then lets a
-//! small operational policy react only to observed state and resolver projections. The required gate
-//! runs seven maintained anchor cases plus two fresh bounded variation cases. The explicit report lane
-//! uses a larger fresh bounded sample. Every generated root is printed so any result can be reproduced.
-//! Physical scenario and
-//! automated-player behavior randomness are independent. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED`
-//! reproduces the world/scenario sample and `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` reproduces policy
-//! variation. Focused gameplay probes use one maintained anchor plus two fresh bounded physical
-//! variations by default; an explicit variation seed reproduces a specific sample and
-//! `DEEP_HEARTH_GAMEPLAY_SEEDS` provides an exact focused-probe sweep. Each scenario schedules a real material
-//! transfer into supported storage, so ordinary inventory ownership can change structural margin while
-//! production is active.
-//! The controlled delivery event is hidden from the acting policy until its effects are observable.
-//! `DEEP_HEARTH_GAMEPLAY_SEEDS` replaces the whole matrix with an exact comma-separated decimal or
-//! `0x` hexadecimal seed list; malformed entries are rejected instead of ignored. Detailed trace
-//! output is opt-in via `DEEP_HEARTH_GAMEPLAY_VERBOSE`.
+// Headless workshop gameplay harness over the same canonical content registries used by the game.
+//
+// The harness deliberately varies physical initial conditions and player priorities, then lets a
+// small operational policy react only to observed state and resolver projections. The required gate
+// runs seven maintained anchor cases plus two deterministic bounded variation cases. The explicit report
+// lane uses a larger fresh bounded sample. Every generated root is printed so any result can be reproduced.
+// Physical scenario and
+// automated-player behavior randomness are independent. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED`
+// reproduces the world/scenario sample and `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` reproduces policy
+// variation. Focused gameplay probes use one maintained anchor plus two deterministic bounded physical
+// variations by default; an explicit variation seed reproduces a specific sample and
+// `DEEP_HEARTH_GAMEPLAY_SEEDS` provides an exact focused-probe sweep. Each scenario schedules a real material
+// transfer into supported storage, so ordinary inventory ownership can change structural margin while
+// production is active.
+// The controlled delivery event is hidden from the acting policy until its effects are observable.
+// `DEEP_HEARTH_GAMEPLAY_SEEDS` replaces the whole matrix with an exact comma-separated decimal or
+// `0x` hexadecimal seed list; malformed entries are rejected instead of ignored. Detailed trace
+// output is opt-in via `DEEP_HEARTH_GAMEPLAY_VERBOSE`.
 
 use std::collections::BTreeSet;
 use std::env;
@@ -30,6 +30,7 @@ mod focused_seeds;
 mod foundry_probe;
 #[cfg(feature = "test-gameplay-full")]
 mod foundry_setup;
+mod fresh_seed;
 #[cfg(feature = "test-gameplay-full")]
 mod ore_probe;
 #[cfg(feature = "test-gameplay-full")]
@@ -136,6 +137,7 @@ use deep_hearth::content::gameplay_fixture::{
 use focused_runner::run_focused_probe;
 #[cfg(feature = "test-gameplay-full")]
 use foundry_probe::run_foundry_capability_probe;
+use fresh_seed::fresh_root;
 #[cfg(feature = "test-gameplay-full")]
 use ore_probe::run_ore_preparation_capability_probe;
 #[cfg(feature = "test-gameplay-full")]
@@ -149,7 +151,7 @@ use report::{
     ScenarioStructureReport, StructuralPreference, print_content_summary, print_harness_summary,
 };
 use scenario::{ScenarioDeliveryVariation, ScenarioVariation};
-use seed::{fresh_root, mix64};
+use seed::mix64;
 use support::{ROOM_TEMPERATURE, add_solid_stockpile, nominal_equipment_mass_capability};
 #[cfg(feature = "test-gameplay-full")]
 use survival_probe::{
@@ -3125,13 +3127,18 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
     let behavior_raw = env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok();
-    let mode_salt = match mode {
-        ScenarioPlanMode::Gate => 0x4741_5445_5EED_2026,
-        ScenarioPlanMode::Explore => 0x4558_504C_5EED_2026,
+    let (default_world_root, default_behavior_root) = match mode {
+        ScenarioPlanMode::Gate => (MAINTAINED_VARIATION_ROOT, MAINTAINED_BEHAVIOR_ROOT),
+        ScenarioPlanMode::Explore => {
+            let mode_salt = 0x4558_504C_5EED_2026;
+            (
+                fresh_root(MAINTAINED_VARIATION_ROOT ^ mode_salt),
+                fresh_root(
+                    MAINTAINED_BEHAVIOR_ROOT ^ mode_salt.rotate_left(17) ^ 0xB3A4_7102_5EED_2026,
+                ),
+            )
+        }
     };
-    let default_world_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ mode_salt);
-    let default_behavior_root =
-        fresh_root(MAINTAINED_BEHAVIOR_ROOT ^ mode_salt.rotate_left(17) ^ 0xB3A4_7102_5EED_2026);
     let plan = scenario_seeds_from(
         mode,
         scenario_raw.as_deref(),

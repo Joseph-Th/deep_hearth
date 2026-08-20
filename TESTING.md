@@ -7,44 +7,40 @@ specialized gameplay or shader validation dependencies unless that coverage is r
 
 ## Daily workflow
 
-Run the narrowest qualified test while changing one behavior. Do not reflexively run the whole fast
-lane after every edit: use it as a checkpoint when a coherent slice is complete, and let the local CI
-gate be the final pre-commit repetition. Long-horizon soak bodies are compiled only with the
-`test-soak` feature, so ordinary behavior edits do not type-check or codegen the large soak fixtures:
+Run the narrowest artifact that proves the current kind of change. The default gate is intentionally
+compile-only because linking the complete unit-test crate is the dominant local iteration cost. Behavior
+changes should select one unit shard or gameplay target directly; the broad audit is a completion
+checkpoint, not an edit-loop ritual. Long-horizon soak bodies remain feature-gated out of ordinary builds:
 
 ```text
-cargo check-fast                                  # mechanical/type feedback
-cargo check-tests                                 # mechanical feedback while editing unit tests
-cargo test-fast <qualified-test-name> -- --exact  # behavior feedback
-cargo test-fast                                   # coherent checkpoint
-python ci.py gate                                 # once before commit
+cargo check-fast                                                    # mechanical/type feedback
+cargo test-unit-player <qualified-test-name> -- --exact             # one player-facing behavior
+python ci.py gate --unit player                                     # player subsystem checkpoint
+python ci.py gate --gameplay progression                            # one gameplay concern
+python ci.py gate                                                    # format + production compile only
+python ci.py audit                                                   # broad core + gameplay completion checkpoint
 ```
 
-`cargo check-fast` is intentionally library-only. `cargo check-tests` type-checks the default-feature
-test inventory without codegen/linking. `cargo check-gameplay` type-checks the complete maintained
-gameplay target set in one Cargo invocation, while `cargo check-gameplay-workshop`,
-`cargo check-gameplay-survival`, `cargo check-gameplay-progression`, `cargo check-gameplay-ore`, and
-`cargo check-gameplay-foundry` type-check only one focused gameplay target. Use the narrowest
-artifact while an edit is mechanical. An executable test is still required for changed behavior;
-compile-only feedback exists specifically to avoid paying the dominant codegen/link cost on every
-intermediate edit.
+The five unit shards are `foundation`, `resources`, `player`, `industry`, and `render`. They do not
+create alternate tests or production paths: ordinary colocated `#[cfg(test)]` modules are compile-selected
+by subsystem so a focused test does not parse, codegen, and link unrelated test bodies. `cargo test-fast`
+still enables no shard selector and therefore remains the complete default-feature unit-test inventory.
+All-feature lint enables every shard together, so partial-shard warning allowances cannot hide normal or
+release diagnostics.
 
-Do not routinely run a compile-only command immediately before the executable command for the same
-artifact. Once an assertion is ready to execute, run the focused test directly; its compilation already
-provides the relevant type/warning feedback. On this project the first feature-selected gameplay
-codegen/link is materially more expensive than the probe runtime, so `check -> test` as a ritual nearly
-doubles the dominant wait without adding behavior evidence.
+`cargo check-fast` is intentionally library-only. `cargo check-tests` remains available when a broad
+compile-only test inventory check is specifically useful, but it is not the default test-edit command
+because it still type-checks every ordinary test module. `cargo check-gameplay` type-checks the complete
+maintained gameplay target set, while the focused gameplay check aliases type-check one concern. Once an
+assertion is ready to execute, run its unit shard or focused gameplay target directly rather than paying
+for both a compile-only pass and the executable build.
 
-`python ci.py gate` is the concise local pre-commit wrapper. It runs format and the fast core tests,
-captures successful Cargo noise, prints one timed line per stage, reports the slowest successful stage,
-and shows the exact reproduction command plus native output only when a stage fails. Rust compiler
-warnings are denied by the package lint configuration, so this path
-does not need a second Clippy compile merely to catch ordinary warning regressions. Add `--lint` when a
-Clippy checkpoint is useful. Scope is explicit rather than inferred from git diffs. With no lane flags,
-the gate runs core behavior. Supplying `--gameplay`, `--shaders`, `--docs`, or `--lint` selects only those
-specialized lanes instead of paying for an unrelated core libtest link. Add `--core` when a specialized
-change also needs the ordinary core suite. `--soak` already includes ordinary core tests in the same
-artifact.
+`python ci.py gate` is the concise local runner. With no lane flags it performs only formatting and
+`cargo check-fast`, making it safe to use frequently. `--unit <scope>` adds one unit shard; `--unit all`
+or `--core` selects the complete ordinary core suite. `--gameplay`, `--shaders`, `--docs`, and `--lint`
+select only those specialized lanes. `--soak` already includes complete core behavior in the same feature
+shape. Successful Cargo noise is captured; each stage reports elapsed time, the slowest stage is named,
+and failures print the exact reproduction command plus native output.
 
 Gameplay selection can be narrowed at the same entry point. `python ci.py gate --gameplay` runs the
 five maintained focused targets in one Cargo invocation so they share the same `test-gameplay` library
@@ -83,14 +79,15 @@ simulation contract.
 | `cargo check-tests` | Fast compile/type feedback while editing ordinary tests | Default-feature test targets, type-check only; no test codegen/link |
 | `cargo check-gameplay` | Fast compile/type feedback for all maintained gameplay concerns | Five focused integration targets plus one shared `test-gameplay` library artifact; no test link/run |
 | `cargo check-gameplay-{workshop,survival,progression,ore,foundry}` | Fast compile/type feedback for one gameplay concern | One focused integration target plus `test-gameplay`; no unrelated gameplay probe codegen/link |
-| `cargo test-fast` | Ordinary deterministic behavior, errors, persistence, and integrations | Default-feature unit-test artifact; soak-only bodies are not compiled |
+| `cargo test-unit-{foundation,resources,player,industry,render}` | Focused ordinary behavior for one subsystem family | One compile-selected subset of colocated unit tests; unrelated unit-test modules are excluded from the libtest artifact |
+| `cargo test-fast` | Complete ordinary deterministic behavior, errors, persistence, and integrations | Full default-feature unit-test artifact; soak-only bodies are not compiled |
 | `cargo test-soak` | Long-horizon deterministic conservation/invariant scenarios | Adds `test-soak` and runs only ignored tests |
 | `cargo test-gameplay` | Complete maintained gameplay verification | Five focused integration targets in one Cargo invocation with one shared `test-gameplay` feature shape |
 | `cargo test-gameplay-workshop` | Workshop policy, seven maintained anchors, bounded variations, agency counterfactuals, and machine-process catalog coverage | Focused workshop target; excludes survival/progression/ore/foundry probe modules |
-| `cargo test-gameplay-survival` | Authored food/drink discovery, freshness/preservation, varied meal choice, and finite drinking | Small dedicated target; one maintained case plus two fresh bounded replayable variations by default |
-| `cargo test-gameplay-progression` | Primitive manual craft/mine/upgrade/manual-power/mechanization progression | Small dedicated target; one maintained case plus two fresh bounded replayable variations by default |
-| `cargo test-gameplay-ore` | Bootstrapped industrial ore-preparation capability probe | Small dedicated target; one maintained case plus two fresh bounded replayable variations by default |
-| `cargo test-gameplay-foundry` | Bootstrapped pure-copper foundry capability probe | Small dedicated target; one maintained case plus two fresh bounded replayable variations by default |
+| `cargo test-gameplay-survival` | Authored food/drink discovery, freshness/preservation, varied meal choice, and finite drinking | Small dedicated target; one maintained case plus two deterministic bounded variations by default |
+| `cargo test-gameplay-progression` | Primitive manual craft/mine/upgrade/manual-power/mechanization progression | Small dedicated target; one maintained case plus two deterministic bounded variations by default |
+| `cargo test-gameplay-ore` | Bootstrapped industrial ore-preparation capability probe | Small dedicated target; one maintained case plus two deterministic bounded variations by default |
+| `cargo test-gameplay-foundry` | Bootstrapped pure-copper foundry capability probe | Small dedicated target; one maintained case plus two deterministic bounded variations by default |
 | `cargo test-gameplay-report` | Broader fresh replayable play/capability report for understanding the current game | Heavyweight `test-gameplay-full` target, ignored by maintained gates and run with captured output disabled |
 | `cargo test-shaders` | Naga parse/semantic validation of assembled WGSL without compiling the crate unit-test harness | Adds `test-shader-validation` |
 | `cargo check-all` | All-target compile-only diagnostic | Default features |
@@ -114,6 +111,11 @@ artifact. `test-shader-validation` likewise exists only to expose Naga-backed WG
 Neither specialized boundary enters the ordinary edit-loop build. `test-soak` likewise keeps
 long-horizon fixture code out of the fast artifact; the explicit soak lane pays that compile cost only
 when repeated-state evidence is actually needed.
+
+The `test-unit-*` features are compile-selection controls for partial libtest builds, not gameplay or
+runtime features. Enabling one automatically enables `test-unit-sharded`; ordinary builds enable none.
+The crate suppresses only dead-code/unused-import diagnostics that are artifacts of intentionally omitted
+test modules in a partial shard. When all shard groups are enabled together, that suppression is absent.
 
 `cargo test-lint` deliberately does not lint-compile test targets and is optional in the ordinary loop.
 The package denies Rust compiler warnings, while `cargo test-fast` compiles and executes the complete
@@ -151,9 +153,10 @@ narrow test cannot provide. Do not ignore ordinary behavioral tests.
 The gameplay harness under `tests/gameplay_harness/` is the closest headless surrogate for actually
 playing the current game. It exercises real runtime validators, resolutions, commits, and simulation
 ticks and must expose where a scenario is genuinely reachable versus where missing world or progression
-systems require fixture bootstrap. Correctness gates combine stable maintained anchors with a very small
-fresh bounded sample so they do not repeatedly walk only memorized paths. Every generated root is printed
-before execution and can be supplied explicitly to replay a surprising failure exactly.
+systems require fixture bootstrap. Correctness gates combine stable maintained anchors with a small,
+deterministic bounded variation sample so repeated local runs are reproducible. Fresh roots are reserved
+for the explicit exploratory report. Every generated or overridden root is printed and can be supplied
+explicitly to replay a surprising result exactly.
 
 ### Boundary
 
@@ -209,7 +212,7 @@ preserved reserve; preservation therefore changes a provisioning decision rather
 storage-physics assertion. The progression probe exercises
 every currently authored manual crafting action, including the otherwise optional clay-vessel side craft,
 and fails closed if runtime-acquirable equipment, runtime-assemblable energy stores, manual craft actions,
-or mining methods appear without corresponding cold-agent evidence. Fresh progression cases vary legal
+or mining methods appear without corresponding cold-agent evidence. Bounded progression variations vary legal
 mining mass, raw-material and unmined geological surplus,
 player-chosen stored-work reserve, and which of two scarce native-copper reinforcements is prioritized
 first: faster extraction or earlier mechanization. Banked flywheel work is converted into an exact
@@ -229,8 +232,8 @@ Bootstrapped capability evaluation covers industrial workshop operation as a tot
 uneven finite stored work, adaptive legal batch sizing, replacement-stock scarcity, wear, structural
 loading, a hidden controlled delivery event, suspension/recovery, and survival-costed manual-power
 fallback. Separate capability probes cover industrial crushing/grinding/screening/regrinding and
-pure-copper melt/cast. Fresh ore-preparation cases vary legal mass, grade, healthy-but-worn machine
-condition, and finite stored work derived from current process energetics. Fresh foundry cases vary legal
+pure-copper melt/cast. Bounded ore-preparation variations vary legal mass, grade, healthy-but-worn machine
+condition, and finite stored work derived from current process energetics. Bounded foundry variations vary legal
 mass, sub-melting copper temperature, healthy-but-worn furnace/mold condition, and finite electrical work
 derived from current thermal physics. These probes describe implemented processing behavior, not a
 currently reachable industrial progression chain.
@@ -251,24 +254,24 @@ gameplay targets to link. The Cargo aliases remain the fastest executable loop w
 
 ### Anchors, bounded variation, and replay
 
-Gameplay verification deliberately combines explicit anchors with small fresh bounded variation cases.
-The required workshop capability gate keeps seven maintained anchors and adds two freshly generated world/
-behavior variations. The maintained workshop set deliberately includes normal/warning/critical
+Gameplay verification deliberately combines explicit anchors with small deterministic bounded variation
+cases. The required workshop capability gate keeps seven maintained anchors and adds two stable world/
+behavior variations derived from maintained roots. The maintained workshop set deliberately includes normal/warning/critical
 maintenance starts, one threshold-relative condition-pressure case that must shorten a batch to avoid
 crossing Critical condition, one fractional-energy case that requires adaptive batching, one whole-batch
 stored-work shortfall that requires manual-power recovery, and one finite-work survival-pressure case
 where protecting the hunger/thirst warning reserve sacrifices useful output while spending reserve can
 finish the same order. Each focused survival,
-progression, ore-preparation, or foundry command keeps one maintained anchor and two fresh bounded
-variations. The extra cases execute in the already-built focused target, so they broaden organic input
-coverage without creating a new Cargo artifact or meaningful compile/link cost. The broader report uses
-a larger fresh sample for understanding rather than gating.
+progression, ore-preparation, or foundry command keeps one maintained anchor and two deterministic bounded
+variations. The extra cases execute in the already-built focused target, so they broaden input coverage
+without creating a new Cargo artifact or nondeterministic gate result. The broader report uses a larger
+fresh sample for exploration.
 Generated Critical-condition workshop starts always include at least one replacement service because the
-maintained Critical anchor already owns the unrecoverable/preparation boundary; fresh samples should spend
-their limited budget exercising interacting decisions rather than duplicating a dead-on-arrival setup.
+maintained Critical anchor already owns the unrecoverable/preparation boundary; bounded variations should
+spend their limited budget exercising interacting decisions rather than duplicating a dead-on-arrival setup.
 
-Generated cases remain deterministic once their seeds are known, and every command prints its replay
-inputs. Assertions on fresh bounded cases are limited to canonical legality,
+Generated cases are deterministic for the maintained gates, and every command prints its replay inputs.
+Assertions on bounded variation cases are limited to canonical legality,
 ownership/conservation, persistence, authored capability agreement, and other balance-independent
 contracts. Outcomes such as which workshop bottleneck appears, whether a particular workshop finishes
 its order, or how often relocation/maintenance occurs remain observations rather than pass/fail
@@ -309,7 +312,7 @@ batch adaptation, final condition, relocation/suspension, elapsed time, and surv
 
 Hard failures represent stable contracts: canonical execution errors, conservation, persistence,
 ownership, exact routing, authored capability agreement, seed-channel separation, maintained-anchor
-coverage, player-facing catalog coverage, and fixture/reachability boundaries. Fresh variation must not
+coverage, player-facing catalog coverage, and fixture/reachability boundaries. Variation must not
 turn balance-dependent outcomes into brittle assertions. Number of completed batches, structural damage, maintenance pressure,
 suspension, relocation, bottleneck mix, meal composition, or optional stored-work reserve are
 observations unless a specific maintained anchor explicitly owns that contract.
@@ -335,7 +338,7 @@ The maintained gameplay gate is the focused target set itself: workshop, surviva
 preparation, and foundry. `cargo test-gameplay` builds those targets in one Cargo invocation so they
 share one `test-gameplay` library artifact and can be scheduled together. The heavyweight
 `gameplay_harness` target exists only for the exploratory cross-probe report. Probe modules are shared
-rather than copied, and the fresh bounded variations add negligible runtime compared with test linking.
+rather than copied, and the deterministic bounded variations add negligible runtime compared with test linking.
 
 ## Local CI and completion gates
 
@@ -344,58 +347,43 @@ repository-owned `ci.py` runner or the Cargo aliases directly; no pull-request j
 or remote runner owns the validation contract. The runner deliberately does not inspect changed files
 or guess scope: explicit flags are faster to understand and cannot silently omit a relevant lane.
 
-1. **Routine core**: `python ci.py gate` runs only format plus fast core tests.
-2. **Relevant specialized coverage**: `python ci.py gate --gameplay [scope]`, `--shaders`, `--docs`, or
-   `--lint` runs only format plus the selected specialized lane(s). The docs lane runs the Markdown
-   authority-graph checker and Rust documentation build as separate stages. Add `--core` only when the
-   change also needs the ordinary core behavior artifact. `--soak` uses one combined core+soak artifact
-   and therefore already includes core behavior.
-3. **Lint checkpoint**: select `--lint` when Clippy-specific production-library feedback is useful; it
-   does not implicitly trigger the core test binary.
-4. **Broad maintained checkpoint**: `python ci.py audit` runs ordinary core behavior, all maintained
-   gameplay targets, and static gameplay command-policy validation. Soak is intentionally separate via
-   `gate --soak`, and all-target/all-feature Clippy is the separate `cargo test-lint-all` hardening lane.
-   Documentation and standalone shader validation stay change-scoped through `gate --docs` and
-   `gate --shaders`. The audit is intentionally broader than a focused pre-commit gate without becoming
-   a run-every-expensive-shape command.
+1. **Routine compile**: `python ci.py gate` runs format plus the production-library compile only.
+2. **Focused behavior**: add `--unit foundation|resources|player|industry|render` for one ordinary
+   subsystem family, or `--gameplay [scope]` for one gameplay surface. Use `--unit all` or `--core` only
+   when the complete ordinary libtest is actually the right proof.
+3. **Specialized coverage**: `--shaders`, `--docs`, and `--lint` add only their selected lanes. `--soak`
+   uses one combined core+soak artifact and therefore already includes complete core behavior.
+4. **Broad maintained checkpoint**: `python ci.py audit` runs format, complete ordinary core behavior,
+   all maintained gameplay targets, and static gameplay command-policy validation. It is the deliberate
+   broad completion proof, not a command to run after every edit. Soak, all-feature Clippy, docs, and
+   standalone shader validation stay separate because they have distinct cost and ownership.
 
-Local Cargo incremental state may be reused naturally between these commands. Fast core deliberately
-does not compile soak-only fixtures; gameplay deliberately does not compile the crate unit-test harness.
-Release hardening and documentation remain explicit local commands rather than background or scheduled
-work.
+Local Cargo incremental state is reused naturally between these commands. Unit shards share dependency
+artifacts in the normal target directory while keeping their libtest feature shapes separately reusable.
+Gameplay does not compile the crate unit-test harness. Release hardening and documentation remain explicit
+local commands rather than background or scheduled work.
 
-Gameplay gates run `tools/check_gameplay_aliases.py --static` after behavior passes. The checker verifies
-that maintained `test-gameplay` and `check-gameplay` aliases contain every focused target exactly once,
-that each focused test/check alias selects only its complete small target, and that target paths/features
-still match `Cargo.toml`. Synthetic self-tests cover malformed commands and selector drift. The checker's
-live mode is reserved for explicitly validating the ignored full-report selector because doing so
-requires building the heavyweight `test-gameplay-full` artifact.
+Gameplay gates run `tools/check_gameplay_aliases.py` after behavior passes. The checker is static only: it
+verifies aggregate and focused Cargo aliases, target paths/features, and the ignored report selector in
+source without invoking Cargo or building the heavyweight full harness. Its own synthetic checks exercise
+stale-filter rejection.
 
-Before committing, run the gate that owns the changed contract. For ordinary core behavior:
+Before committing, run the narrowest gate that owns the changed contract. Examples:
 
 ```text
-python ci.py gate
+python ci.py gate --unit player
+python ci.py gate --unit industry --gameplay ore
+python ci.py gate --gameplay progression
+python ci.py gate --docs
 ```
 
-For a shared/cross-gameplay harness change use `python ci.py gate --gameplay`. For one focused probe use its
-scope, such as `python ci.py gate --gameplay progression`; add `--core` only when production/core
-behavior changed too. The same rule applies to shader, documentation, and lint-only work. A pre-commit
-checkpoint should prove the relevant behavior, not rebuild unrelated artifacts by ritual.
+Use `python ci.py audit` once a cross-cutting change is ready for broad completion evidence. Do not run a
+focused shard and then immediately rerun the same behavior through the complete core artifact unless the
+change genuinely crosses shard boundaries. Likewise, the all-gameplay lane already contains all five
+focused targets, so do not rerun their individual aliases afterward.
 
-If `cargo test-fast` was just run as the final checkpoint, there is no value in immediately running it
-a second time before continuing to code. Finish the change first, then run the gate once. Cargo's
-incremental cache still makes a recent checkpoint useful to the later gate without turning verification
-into a ritual after every edit.
-
-`cargo check-all` remains available as an all-target compile-only diagnostic, but it is not part of
-the normal pre-commit sequence. `cargo check-fast` and `cargo test-fast` both compile production code
-with Rust warnings denied; `cargo test-fast` additionally compiles and executes default-feature unit
-tests. Clippy is an explicit lint checkpoint, not a prerequisite for every behavior build.
-
-Add only the lanes owned by the change. For example, a gameplay-harness-only change uses
-`python ci.py gate --gameplay`; a production change that affects both ordinary unit contracts and
-gameplay uses `python ci.py gate --core --gameplay`. The all-gameplay lane already contains the five
-focused targets, so do not rerun their individual aliases afterward. Use `python ci.py audit` when a
-broad maintained core+gameplay checkpoint is warranted; add `gate --soak` only when long-horizon evidence
-is relevant. `cargo test-release` remains an explicit optimized-build diagnostic when release-mode
-behavior itself matters.
+`cargo check-all` remains available as an all-target compile-only diagnostic, but it is not part of the
+normal edit loop. `cargo check-fast` and every executable test lane compile production code with Rust
+warnings denied. Clippy is an explicit lint checkpoint, not a prerequisite for every behavior build.
+`cargo test-release` remains an explicit optimized-build diagnostic when release-mode behavior itself
+matters.

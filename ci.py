@@ -14,12 +14,20 @@ import time
 ROOT = Path(__file__).resolve().parent
 
 GAMEPLAY_SCOPES = ("all", "workshop", "survival", "progression", "ore", "foundry")
+UNIT_SCOPES = ("all", "foundation", "resources", "player", "industry", "render")
 FOCUSED_GAMEPLAY_ALIASES = {
     "workshop": "test-gameplay-workshop",
     "survival": "test-gameplay-survival",
     "progression": "test-gameplay-progression",
     "ore": "test-gameplay-ore",
     "foundry": "test-gameplay-foundry",
+}
+FOCUSED_UNIT_ALIASES = {
+    "foundation": "test-unit-foundation",
+    "resources": "test-unit-resources",
+    "player": "test-unit-player",
+    "industry": "test-unit-industry",
+    "render": "test-unit-render",
 }
 
 
@@ -36,7 +44,7 @@ def audit_plan() -> list[tuple[str, list[str]]]:
         ("gameplay", cargo("test-gameplay")),
         (
             "gameplay command policy",
-            [sys.executable, "tools/check_gameplay_aliases.py", "--static"],
+            [sys.executable, "tools/check_gameplay_aliases.py"],
         ),
     ]
 
@@ -47,7 +55,7 @@ def gameplay_plan(scope: str) -> list[tuple[str, list[str]]]:
             ("gameplay", cargo("test-gameplay")),
             (
                 "gameplay command policy",
-                [sys.executable, "tools/check_gameplay_aliases.py", "--static"],
+                [sys.executable, "tools/check_gameplay_aliases.py"],
             ),
         ]
 
@@ -56,9 +64,15 @@ def gameplay_plan(scope: str) -> list[tuple[str, list[str]]]:
         (f"gameplay {scope}", cargo(alias)),
         (
             "gameplay command policy",
-            [sys.executable, "tools/check_gameplay_aliases.py", "--static"],
+            [sys.executable, "tools/check_gameplay_aliases.py"],
         ),
     ]
+
+
+def unit_plan(scope: str) -> list[tuple[str, list[str]]]:
+    if scope == "all":
+        return [("core", cargo("test-fast"))]
+    return [(f"unit {scope}", cargo(FOCUSED_UNIT_ALIASES[scope]))]
 
 
 def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
@@ -67,12 +81,16 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
 
     plan = [("format", ["cargo", "fmt", "--check"])]
     has_explicit_lane = any(
-        (args.core, args.soak, args.gameplay, args.shaders, args.docs, args.lint)
+        (args.core, args.unit, args.soak, args.gameplay, args.shaders, args.docs, args.lint)
     )
     if args.soak:
         plan.append(("core + soak", cargo("test-all")))
-    elif args.core or not has_explicit_lane:
+    elif args.core:
         plan.append(("core", cargo("test-fast")))
+    elif args.unit:
+        plan.extend(unit_plan(args.unit))
+    elif not has_explicit_lane:
+        plan.append(("compile", cargo("check-fast")))
     if args.gameplay:
         plan.extend(gameplay_plan(args.gameplay))
     if args.shaders:
@@ -145,7 +163,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--core",
         action="store_true",
-        help="include the ordinary core behavior suite alongside explicitly selected lanes",
+        help="include the complete ordinary core behavior suite alongside selected specialized lanes",
+    )
+    parser.add_argument(
+        "--unit",
+        choices=UNIT_SCOPES,
+        metavar="SCOPE",
+        help=(
+            "run one focused unit-test shard: foundation, resources, player, industry, or render; "
+            "use all for the complete ordinary core suite"
+        ),
     )
     parser.add_argument("--soak", action="store_true", help="include ignored core soak tests")
     parser.add_argument(
@@ -171,8 +198,12 @@ def parse_args() -> argparse.Namespace:
         help="print the resolved stages without executing them",
     )
     args = parser.parse_args()
+    if args.core and args.unit:
+        parser.error("--core and --unit are alternatives; use --unit all for the complete core suite")
+    if args.soak and (args.core or args.unit):
+        parser.error("--soak already includes complete core behavior")
     if args.preset == "audit" and any(
-        (args.core, args.lint, args.soak, args.gameplay, args.shaders, args.docs)
+        (args.core, args.unit, args.lint, args.soak, args.gameplay, args.shaders, args.docs)
     ):
         parser.error(
             "audit has a fixed runtime scope; run change-scoped lint/docs/shader lanes separately"

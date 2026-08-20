@@ -60,10 +60,9 @@ proves changed behavior:
 
 ```text
 cargo check-fast
-cargo check-tests                    # ordinary test edits
+cargo test-unit-player <qualified-test-name> -- --exact
 cargo check-gameplay-survival        # one focused gameplay concern
 cargo check-gameplay                 # all maintained gameplay targets
-cargo test-fast <qualified-test-name> -- --exact
 ```
 
 Compile-only aliases are for intermediate mechanical feedback. Once a behavior assertion is ready,
@@ -72,14 +71,15 @@ run its focused executable directly rather than paying for both `check` and `tes
 At a checkpoint:
 
 ```text
-python ci.py gate
+python ci.py gate                    # format + production compile
+python ci.py gate --unit player      # one ordinary subsystem family
 python ci.py gate --gameplay progression  # one focused gameplay probe
-python ci.py gate --gameplay   # all maintained gameplay behavior
-python ci.py gate --core --gameplay  # gameplay plus ordinary core behavior
+python ci.py gate --gameplay         # all maintained gameplay behavior
 python ci.py gate --soak       # long-horizon state/conservation changes
 python ci.py gate --shaders    # WGSL/shader contracts
 python ci.py gate --docs       # documentation contracts
 cargo test-gameplay-report     # broader fresh replayable cold-agent play report
+python ci.py audit             # deliberate broad core + gameplay checkpoint
 ```
 
 Add only the lanes owned by the change. `python ci.py audit` is the broad maintained core+gameplay

@@ -17,6 +17,14 @@ check-all = "check --locked --all-targets"
 test-lint = "clippy --locked --lib -- -D warnings"
 test-lint-all = "clippy --locked --all-targets --all-features -- -D warnings"
 test-fast = "test --quiet --locked --lib"
+# Focused unit shards keep ordinary `cargo test` complete while letting one subsystem family compile
+# only its own test modules. Cargo retains each feature-shape incrementally, and dependencies remain
+# shared in the normal target directory, so switching shards does not require clean rebuilds.
+test-unit-foundation = "test --quiet --locked --lib --features test-unit-foundation"
+test-unit-resources = "test --quiet --locked --lib --features test-unit-resources"
+test-unit-player = "test --quiet --locked --lib --features test-unit-player"
+test-unit-industry = "test --quiet --locked --lib --features test-unit-industry"
+test-unit-render = "test --quiet --locked --lib --features test-unit-render"
 # Soak-only code is feature-gated out of the ordinary unit-test artifact so daily edits do not
 # type-check/codegen long-horizon fixtures. The explicit soak/all lanes pay that cost only on demand.
 test-soak = "test --quiet --locked --lib --features test-soak -- --ignored"

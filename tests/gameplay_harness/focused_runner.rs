@@ -6,7 +6,6 @@ use deep_hearth::content::build_registries;
 use deep_hearth::registry::Registries;
 
 use super::focused_seeds::{MAINTAINED_VARIATION_ROOT, focused_probe_seeds_from};
-use super::seed::fresh_root;
 
 fn probe_seed_spec(name: &str) -> (u64, u64) {
     match name {
@@ -22,7 +21,7 @@ pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, u64)) {
     let (maintained_seed, salt) = probe_seed_spec(name);
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
-    let default_variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ salt);
+    let default_variation_root = MAINTAINED_VARIATION_ROOT ^ salt;
     let seeds = focused_probe_seeds_from(
         scenario_raw.as_deref(),
         variation_raw.as_deref(),
