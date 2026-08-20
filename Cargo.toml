@@ -12,7 +12,7 @@ required-features = ["test-shader-validation"]
 
 [[test]]
 name = "gameplay_harness"
-path = "tests/gameplay_harness/main.rs"
+path = "tests/gameplay_harness/full_target.rs"
 required-features = ["test-gameplay-full"]
 
 [[test]]
@@ -46,6 +46,15 @@ test-gameplay = []
 test-gameplay-full = ["test-gameplay"]
 test-shader-validation = ["dep:naga"]
 test-soak = []
+# Unit-test shard features are compile-selection controls only. Ordinary `cargo test` enables none of
+# them and therefore retains the complete unit-test inventory. A focused shard enables its group plus
+# the umbrella so unrelated `#[cfg(test)]` modules are not parsed/type-checked/code-generated.
+test-unit-sharded = []
+test-unit-foundation = ["test-unit-sharded"]
+test-unit-resources = ["test-unit-sharded"]
+test-unit-player = ["test-unit-sharded"]
+test-unit-industry = ["test-unit-sharded"]
+test-unit-render = ["test-unit-sharded"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

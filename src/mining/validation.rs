@@ -9,7 +9,7 @@ use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::equipment::EquipmentDefinitionId;
 use crate::inventory::validate_stockpile_storage;
-use crate::maintenance::Condition;
+use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::ore_processing::MassFlowDurationError;
 use crate::registry::Registries;
 
@@ -81,6 +81,10 @@ pub enum MiningJobValidationError {
         job: MiningJobId,
         error: MassFlowDurationError,
     },
+    ConditionDuration {
+        job: MiningJobId,
+        error: ActiveConditionDurationError,
+    },
     InvalidSchedule {
         job: MiningJobId,
     },
@@ -98,7 +102,163 @@ pub enum MiningJobValidationError {
 
 impl Display for MiningJobValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "invalid mining job: {self:?}")
+        match self {
+            Self::UnknownMethod { job } => {
+                write!(
+                    formatter,
+                    "mining job {} references an unknown method",
+                    job.value()
+                )
+            }
+            Self::UnknownDeposit { job } => {
+                write!(
+                    formatter,
+                    "mining job {} references an unknown deposit",
+                    job.value()
+                )
+            }
+            Self::UnknownDestination { job } => write!(
+                formatter,
+                "mining job {} references an unknown destination stockpile",
+                job.value()
+            ),
+            Self::WorkingEquipmentMissing { job } => {
+                write!(
+                    formatter,
+                    "active mining job {} equipment is missing",
+                    job.value()
+                )
+            }
+            Self::UnknownEquipmentDefinition { job, definition } => write!(
+                formatter,
+                "mining job {} equipment references unknown definition {}",
+                job.value(),
+                definition.value()
+            ),
+            Self::WorkingEquipmentDefinitionMismatch {
+                job,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "mining job {} equipment definition {} does not match traced definition {}",
+                job.value(),
+                actual.value(),
+                expected.value()
+            ),
+            Self::WorkingEquipmentMounted { job } => write!(
+                formatter,
+                "active mining job {} uses equipment that is mounted to a structure",
+                job.value()
+            ),
+            Self::EquipmentConditionMismatch { job } => write!(
+                formatter,
+                "mining job {} equipment condition differs from its start trace",
+                job.value()
+            ),
+            Self::OutputProfileMismatch { job } => write!(
+                formatter,
+                "mining job {} output no longer matches its geological deposit",
+                job.value()
+            ),
+            Self::OutputStorageInvalid { job } => write!(
+                formatter,
+                "mining job {} output is incompatible with its destination storage",
+                job.value()
+            ),
+            Self::EquipmentAlsoUsedByProduction { job } => write!(
+                formatter,
+                "mining job {} equipment is also occupied by production",
+                job.value()
+            ),
+            Self::MissingCapability { job, capability } => write!(
+                formatter,
+                "mining job {} equipment lacks required capability {}",
+                job.value(),
+                capability.value()
+            ),
+            Self::CapabilityKindMismatch {
+                job,
+                capability,
+                expected,
+                found,
+            } => write!(
+                formatter,
+                "mining job {} capability {} has {found:?} value kind instead of {expected:?}",
+                job.value(),
+                capability.value()
+            ),
+            Self::BatchTooLarge {
+                job,
+                maximum,
+                requested,
+            } => write!(
+                formatter,
+                "mining job {} batch {} mg exceeds equipment maximum {} mg",
+                job.value(),
+                requested.milligrams(),
+                maximum.milligrams()
+            ),
+            Self::DepositTooHard {
+                job,
+                hardness,
+                maximum,
+            } => write!(
+                formatter,
+                "mining job {} deposit hardness {} Pa exceeds equipment maximum {} Pa",
+                job.value(),
+                hardness.pascals(),
+                maximum.pascals()
+            ),
+            Self::ZeroThroughput { job } => {
+                write!(
+                    formatter,
+                    "mining job {} resolves zero throughput",
+                    job.value()
+                )
+            }
+            Self::Duration { job, error } => {
+                write!(
+                    formatter,
+                    "mining job {} duration is invalid: {error}",
+                    job.value()
+                )
+            }
+            Self::ConditionDuration { job, error } => write!(
+                formatter,
+                "mining job {} exceeds equipment condition lifetime: {error}",
+                job.value()
+            ),
+            Self::InvalidSchedule { job } => {
+                write!(
+                    formatter,
+                    "mining job {} has an invalid work schedule",
+                    job.value()
+                )
+            }
+            Self::DurationMismatch {
+                job,
+                stored,
+                required,
+            } => write!(
+                formatter,
+                "mining job {} stores {} active ticks but current physics requires {}",
+                job.value(),
+                stored.value(),
+                required.value()
+            ),
+            Self::ConditionOutcomeMismatch {
+                job,
+                stored,
+                required,
+            } => write!(
+                formatter,
+                "mining job {} stores post-work condition {} ppm but current physics requires {} ppm",
+                job.value(),
+                stored.parts_per_million(),
+                required.parts_per_million()
+            ),
+        }
     }
 }
 
@@ -106,6 +266,7 @@ impl Error for MiningJobValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Duration { error, .. } => Some(error),
+            Self::ConditionDuration { error, .. } => Some(error),
             Self::UnknownMethod { .. }
             | Self::UnknownDeposit { .. }
             | Self::UnknownDestination { .. }
@@ -160,6 +321,9 @@ fn map_physics_error(job: MiningJobId, error: MiningPhysicsError) -> MiningJobVa
         }
         MiningPhysicsError::ZeroThroughput => MiningJobValidationError::ZeroThroughput { job },
         MiningPhysicsError::Duration(error) => MiningJobValidationError::Duration { job, error },
+        MiningPhysicsError::ConditionDuration(error) => {
+            MiningJobValidationError::ConditionDuration { job, error }
+        }
     }
 }
 

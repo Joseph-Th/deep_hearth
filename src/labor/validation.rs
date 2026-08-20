@@ -8,7 +8,9 @@ use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::energy::calculate_power_duration_ceiling;
 use crate::equipment::resolve_equipment_capability;
-use crate::maintenance::calculate_condition_after_active_ticks;
+use crate::maintenance::{
+    ActiveConditionDurationError, calculate_usable_condition_after_active_ticks,
+};
 use crate::registry::Registries;
 use crate::survival::Vitality;
 
@@ -35,6 +37,7 @@ pub enum PlayerWorkValidationError {
     ManualPowerEquipmentMissing,
     ManualPowerEquipmentDefinitionMismatch,
     ManualPowerEquipmentConditionMismatch,
+    ManualPowerEquipmentMounted,
     ManualPowerDestinationMissing,
     ManualPowerDestinationDefinitionMismatch,
     ManualPowerCarrierMismatch,
@@ -45,6 +48,7 @@ pub enum PlayerWorkValidationError {
     ManualPowerZeroPower,
     ManualPowerScheduleInvalid,
     ManualPowerDurationMismatch,
+    ManualPowerConditionDuration(ActiveConditionDurationError),
     ManualPowerConditionMismatch,
     ManualPowerResourceDoubleBooked,
     PlayerDead,
@@ -91,6 +95,9 @@ impl Display for PlayerWorkValidationError {
                 .write_str("manual power equipment definition disagrees with its persisted trace"),
             Self::ManualPowerEquipmentConditionMismatch => formatter
                 .write_str("manual power equipment condition disagrees with its persisted trace"),
+            Self::ManualPowerEquipmentMounted => {
+                formatter.write_str("manual power work requires portable unmounted equipment")
+            }
             Self::ManualPowerDestinationMissing => {
                 formatter.write_str("manual power work references missing energy destination")
             }
@@ -119,6 +126,10 @@ impl Display for PlayerWorkValidationError {
             Self::ManualPowerDurationMismatch => {
                 formatter.write_str("manual power duration disagrees with current authored physics")
             }
+            Self::ManualPowerConditionDuration(error) => write!(
+                formatter,
+                "manual power work exceeds equipment condition lifetime: {error}"
+            ),
             Self::ManualPowerConditionMismatch => formatter
                 .write_str("manual power condition outcome disagrees with current authored wear"),
             Self::ManualPowerResourceDoubleBooked => formatter.write_str(
@@ -155,7 +166,44 @@ impl Display for PlayerWorkValidationError {
     }
 }
 
-impl Error for PlayerWorkValidationError {}
+impl Error for PlayerWorkValidationError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::ManualPowerConditionDuration(error) => Some(error),
+            Self::WorkWithoutPlayer
+            | Self::ManualCraftJobMissing
+            | Self::ManualCraftProcessMismatch
+            | Self::MiningJobMissing
+            | Self::MiningJobNotWorking
+            | Self::MiningMethodMissing
+            | Self::ManualCraftMissingWork
+            | Self::MultiplePlayerJobs
+            | Self::MiningMissingWork
+            | Self::ManualPowerMethodMissing
+            | Self::ManualPowerEquipmentMissing
+            | Self::ManualPowerEquipmentDefinitionMismatch
+            | Self::ManualPowerEquipmentConditionMismatch
+            | Self::ManualPowerEquipmentMounted
+            | Self::ManualPowerDestinationMissing
+            | Self::ManualPowerDestinationDefinitionMismatch
+            | Self::ManualPowerCarrierMismatch
+            | Self::ManualPowerDestinationCannotAcceptEnergy
+            | Self::ManualPowerDestinationCapacityExceeded
+            | Self::ManualPowerEquipmentCapabilityMissing
+            | Self::ManualPowerEquipmentCapabilityKindMismatch
+            | Self::ManualPowerZeroPower
+            | Self::ManualPowerScheduleInvalid
+            | Self::ManualPowerDurationMismatch
+            | Self::ManualPowerConditionMismatch
+            | Self::ManualPowerResourceDoubleBooked
+            | Self::PlayerDead
+            | Self::MetabolicCostOverflow
+            | Self::InsufficientMetabolicEnergy { .. }
+            | Self::HydrationCostOverflow
+            | Self::InsufficientHydration { .. } => None,
+        }
+    }
+}
 
 pub(crate) fn validate_loaded_player_work(
     registries: &Registries,
@@ -255,6 +303,9 @@ pub(crate) fn validate_loaded_player_work(
             if equipment.condition() != work.equipment_trace().condition() {
                 return Err(PlayerWorkValidationError::ManualPowerEquipmentConditionMismatch);
             }
+            if equipment.supported_by().is_some() {
+                return Err(PlayerWorkValidationError::ManualPowerEquipmentMounted);
+            }
             if state
                 .production()
                 .get_equipment_occupant(work.equipment())
@@ -346,11 +397,12 @@ pub(crate) fn validate_loaded_player_work(
                 method.metabolic_efficiency_ppm(),
             )
             .map_err(|_error| PlayerWorkValidationError::ManualPowerDurationMismatch)?;
-            let required_condition = calculate_condition_after_active_ticks(
+            let required_condition = calculate_usable_condition_after_active_ticks(
                 method.condition_wear_ppm_per_active_tick(),
                 work.equipment_trace().condition(),
                 required_duration,
-            );
+            )
+            .map_err(PlayerWorkValidationError::ManualPowerConditionDuration)?;
             if work.condition_after() != required_condition {
                 return Err(PlayerWorkValidationError::ManualPowerConditionMismatch);
             }

@@ -16,7 +16,9 @@ use crate::equipment::{
     EquipmentId, EquipmentProviderError, resolve_equipment_capability, resolve_equipment_provider,
 };
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
-use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
+use crate::maintenance::{
+    ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
+};
 use crate::material::{
     CommodityKey, FormId, MaterialComposition, MaterialLotSpec, MaterialLotSpecError,
     ParticleSizeDistribution, ParticleSizeDistributionError, ParticleSizeRange,
@@ -322,6 +324,7 @@ pub enum ScreeningResolutionError {
     },
     ThroughputDuration(MassFlowDurationError),
     EnergyDuration(PowerDurationError),
+    ConditionDuration(ActiveConditionDurationError),
     Resolution(ProcessResolutionError),
 }
 
@@ -365,6 +368,12 @@ impl Display for ScreeningResolutionError {
                     "screening energy delivery duration failed: {error}"
                 )
             }
+            Self::ConditionDuration(error) => {
+                write!(
+                    formatter,
+                    "screening exceeds equipment condition lifetime: {error}"
+                )
+            }
             Self::Resolution(error) => {
                 write!(formatter, "screening process resolution failed: {error}")
             }
@@ -382,6 +391,7 @@ impl Error for ScreeningResolutionError {
             Self::Energy(error) => Some(error),
             Self::ThroughputDuration(error) => Some(error),
             Self::EnergyDuration(error) => Some(error),
+            Self::ConditionDuration(error) => Some(error),
             Self::Resolution(error) => Some(error),
             Self::UnknownScreeningProcess { process: _process } => None,
             Self::BatchMassExceeded {
@@ -589,11 +599,12 @@ pub fn resolve_screening_process(
     )
     .map_err(ScreeningResolutionError::EnergyDuration)?;
     let duration = std::cmp::max(throughput_duration, energy_duration);
-    let condition_after = calculate_condition_after_active_ticks(
+    let condition_after = calculate_usable_condition_after_active_ticks(
         definition.condition_wear_ppm_per_processing_tick(),
         provider.condition(),
         throughput_duration,
-    );
+    )
+    .map_err(ScreeningResolutionError::ConditionDuration)?;
     let equipment_use = provider.validated_use();
     let resolution = inputs
         .resolve_with_energy_and_equipment(
@@ -676,6 +687,10 @@ pub enum ScreeningJobValidationError {
     EnergyDuration {
         job: ProductionJobId,
         error: PowerDurationError,
+    },
+    ConditionDuration {
+        job: ProductionJobId,
+        error: ActiveConditionDurationError,
     },
     DurationMismatch {
         job: ProductionJobId,
@@ -779,6 +794,11 @@ impl Display for ScreeningJobValidationError {
                 "screening job {} cannot recompute work-energy delivery duration: {error}",
                 job.value()
             ),
+            Self::ConditionDuration { job, error } => write!(
+                formatter,
+                "screening job {} exceeds equipment condition lifetime: {error}",
+                job.value()
+            ),
             Self::DurationMismatch {
                 job,
                 stored_ticks,
@@ -819,6 +839,7 @@ impl Error for ScreeningJobValidationError {
             Self::Batch { job: _job, error } => Some(error),
             Self::ThroughputDuration { job: _job, error } => Some(error),
             Self::EnergyDuration { job: _job, error } => Some(error),
+            Self::ConditionDuration { job: _job, error } => Some(error),
             Self::MissingEnergy { job: _job }
             | Self::UnexpectedReleasedEnergy { job: _job }
             | Self::MissingEquipmentProvider { job: _job }
@@ -975,11 +996,15 @@ pub(crate) fn validate_loaded_screening_job(
             required_ticks: required_duration.value(),
         });
     }
-    let required_condition_after = calculate_condition_after_active_ticks(
+    let required_condition_after = calculate_usable_condition_after_active_ticks(
         definition.condition_wear_ppm_per_processing_tick(),
         provider.condition(),
         throughput_duration,
-    );
+    )
+    .map_err(|error| ScreeningJobValidationError::ConditionDuration {
+        job: job.id(),
+        error,
+    })?;
     let stored_condition_after = job
         .equipment_condition_after()
         .ok_or(ScreeningJobValidationError::MissingConditionOutcome { job: job.id() })?;
@@ -993,7 +1018,10 @@ pub(crate) fn validate_loaded_screening_job(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-industry")
+))]
 mod tests {
     use super::*;
     use crate::capability::{

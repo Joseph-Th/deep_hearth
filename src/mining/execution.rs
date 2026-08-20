@@ -23,6 +23,7 @@ use crate::labor::{
     PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ValidatedPlayerWorkStart,
     validate_player_work_start,
 };
+use crate::maintenance::ActiveConditionDurationError;
 use crate::material::{MaterialLotSpec, MaterialLotSpecError};
 use crate::ore_processing::MassFlowDurationError;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
@@ -80,6 +81,7 @@ pub enum MiningStartError {
     },
     ZeroThroughput,
     Duration(MassFlowDurationError),
+    ConditionDuration(ActiveConditionDurationError),
     CompletionTickOverflow,
     InvalidOutput(MaterialLotSpecError),
     UnknownDestination {
@@ -105,11 +107,172 @@ pub enum MiningStartError {
 
 impl Display for MiningStartError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "mining start failed: {self:?}")
+        match self {
+            Self::UnknownMethod { method } => {
+                write!(formatter, "unknown mining method {}", method.value())
+            }
+            Self::UnknownDeposit { deposit } => {
+                write!(formatter, "unknown geological deposit {}", deposit.value())
+            }
+            Self::DepositDepleted { deposit } => {
+                write!(
+                    formatter,
+                    "geological deposit {} is depleted",
+                    deposit.value()
+                )
+            }
+            Self::ZeroMass => formatter.write_str("mining request mass must be nonzero"),
+            Self::InsufficientDepositMass {
+                available,
+                requested,
+            } => write!(
+                formatter,
+                "geological deposit contains {} mg but mining requests {} mg",
+                available.milligrams(),
+                requested.milligrams()
+            ),
+            Self::Equipment(error) => write!(formatter, "mining equipment failed: {error}"),
+            Self::EquipmentMounted { equipment } => write!(
+                formatter,
+                "mining equipment {} is mounted and cannot be used for extraction",
+                equipment.value()
+            ),
+            Self::EquipmentBusyProduction {
+                equipment,
+                job,
+                release,
+            } => write!(
+                formatter,
+                "mining equipment {} is occupied by production job {} {release}",
+                equipment.value(),
+                job.value()
+            ),
+            Self::EquipmentBusyMining { equipment, job } => write!(
+                formatter,
+                "mining equipment {} is occupied by mining job {}",
+                equipment.value(),
+                job.value()
+            ),
+            Self::MissingCapability { capability } => write!(
+                formatter,
+                "mining equipment lacks required capability {}",
+                capability.value()
+            ),
+            Self::CapabilityKindMismatch {
+                capability,
+                expected,
+                found,
+            } => write!(
+                formatter,
+                "mining capability {} has {found:?} value kind instead of {expected:?}",
+                capability.value()
+            ),
+            Self::BatchTooLarge { maximum, requested } => write!(
+                formatter,
+                "mining batch {} mg exceeds equipment maximum {} mg",
+                requested.milligrams(),
+                maximum.milligrams()
+            ),
+            Self::DepositTooHard { hardness, maximum } => write!(
+                formatter,
+                "deposit excavation hardness {} Pa exceeds equipment maximum {} Pa",
+                hardness.pascals(),
+                maximum.pascals()
+            ),
+            Self::ZeroThroughput => formatter.write_str("resolved mining throughput is zero"),
+            Self::Duration(error) => {
+                write!(formatter, "mining duration resolution failed: {error}")
+            }
+            Self::ConditionDuration(error) => {
+                write!(
+                    formatter,
+                    "mining exceeds equipment condition lifetime: {error}"
+                )
+            }
+            Self::CompletionTickOverflow => {
+                formatter.write_str("mining completion exceeds the world clock range")
+            }
+            Self::InvalidOutput(error) => write!(formatter, "mining output is invalid: {error}"),
+            Self::UnknownDestination { stockpile } => write!(
+                formatter,
+                "unknown mining destination stockpile {}",
+                stockpile.value()
+            ),
+            Self::DestinationStorage(error) => {
+                write!(formatter, "mining destination rejects output: {error}")
+            }
+            Self::DestinationMassOverflow { stockpile } => write!(
+                formatter,
+                "mining output mass overflows destination stockpile {}",
+                stockpile.value()
+            ),
+            Self::DestinationCapacityExceeded {
+                stockpile,
+                capacity,
+                committed,
+                requested,
+            } => write!(
+                formatter,
+                "stockpile {} capacity {} mg cannot reserve {} mg with {} mg already committed",
+                stockpile.value(),
+                capacity.milligrams(),
+                requested.milligrams(),
+                committed.milligrams()
+            ),
+            Self::InventoryRevisionExhausted => {
+                formatter.write_str("inventory revision space is exhausted")
+            }
+            Self::DestinationSupport(error) => {
+                write!(formatter, "mining destination support failed: {error}")
+            }
+            Self::GeologyRevisionExhausted => {
+                formatter.write_str("geology revision space is exhausted")
+            }
+            Self::MiningIdExhausted => {
+                formatter.write_str("mining job identifier space is exhausted")
+            }
+            Self::MiningRevisionExhausted => {
+                formatter.write_str("mining revision space is exhausted")
+            }
+            Self::Work(error) => write!(formatter, "mining player-work admission failed: {error}"),
+        }
     }
 }
 
-impl Error for MiningStartError {}
+impl Error for MiningStartError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Equipment(error) => Some(error),
+            Self::Duration(error) => Some(error),
+            Self::ConditionDuration(error) => Some(error),
+            Self::InvalidOutput(error) => Some(error),
+            Self::DestinationStorage(error) => Some(error),
+            Self::DestinationSupport(error) => Some(error),
+            Self::Work(error) => Some(error),
+            Self::UnknownMethod { .. }
+            | Self::UnknownDeposit { .. }
+            | Self::DepositDepleted { .. }
+            | Self::ZeroMass
+            | Self::InsufficientDepositMass { .. }
+            | Self::EquipmentMounted { .. }
+            | Self::EquipmentBusyProduction { .. }
+            | Self::EquipmentBusyMining { .. }
+            | Self::MissingCapability { .. }
+            | Self::CapabilityKindMismatch { .. }
+            | Self::BatchTooLarge { .. }
+            | Self::DepositTooHard { .. }
+            | Self::ZeroThroughput
+            | Self::CompletionTickOverflow
+            | Self::UnknownDestination { .. }
+            | Self::DestinationMassOverflow { .. }
+            | Self::DestinationCapacityExceeded { .. }
+            | Self::InventoryRevisionExhausted
+            | Self::GeologyRevisionExhausted
+            | Self::MiningIdExhausted
+            | Self::MiningRevisionExhausted => None,
+        }
+    }
+}
 
 impl From<MiningPhysicsError> for MiningStartError {
     fn from(error: MiningPhysicsError) -> Self {
@@ -134,6 +297,7 @@ impl From<MiningPhysicsError> for MiningStartError {
             }
             MiningPhysicsError::ZeroThroughput => Self::ZeroThroughput,
             MiningPhysicsError::Duration(error) => Self::Duration(error),
+            MiningPhysicsError::ConditionDuration(error) => Self::ConditionDuration(error),
         }
     }
 }
@@ -173,11 +337,61 @@ pub enum MiningStartCommitError {
 
 impl Display for MiningStartCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "mining commit failed: {self:?}")
+        match self {
+            Self::StaleGeology { expected, actual } => write!(
+                formatter,
+                "validated mining start expected geology revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleInventory { expected, actual } => write!(
+                formatter,
+                "validated mining start expected inventory revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleEquipment { expected, actual } => write!(
+                formatter,
+                "validated mining start expected equipment revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleMining { expected, actual } => write!(
+                formatter,
+                "validated mining start expected mining revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleStructure { expected, actual } => write!(
+                formatter,
+                "validated mining start expected structural revision {expected} but current revision is {actual}"
+            ),
+            Self::EquipmentBusyProduction { equipment, job } => write!(
+                formatter,
+                "validated mining start equipment {} became occupied by production job {}",
+                equipment.value(),
+                job.value()
+            ),
+            Self::EquipmentBusyMining { equipment, job } => write!(
+                formatter,
+                "validated mining start equipment {} became occupied by mining job {}",
+                equipment.value(),
+                job.value()
+            ),
+            Self::Work(error) => write!(
+                formatter,
+                "validated mining start player-work state changed: {error}"
+            ),
+        }
     }
 }
 
-impl Error for MiningStartCommitError {}
+impl Error for MiningStartCommitError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Work(error) => Some(error),
+            Self::StaleGeology { .. }
+            | Self::StaleInventory { .. }
+            | Self::StaleEquipment { .. }
+            | Self::StaleMining { .. }
+            | Self::StaleStructure { .. }
+            | Self::EquipmentBusyProduction { .. }
+            | Self::EquipmentBusyMining { .. } => None,
+        }
+    }
+}
 
 #[must_use]
 pub struct ValidatedMiningStart {
@@ -561,10 +775,51 @@ pub enum MiningClaimError {
 
 impl Display for MiningClaimError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "mining claim failed: {self:?}")
+        match self {
+            Self::UnknownJob { job } => write!(formatter, "unknown mining job {}", job.value()),
+            Self::NotReady { job } => {
+                write!(
+                    formatter,
+                    "mining job {} output is not ready to claim",
+                    job.value()
+                )
+            }
+            Self::LotIdExhausted => {
+                formatter.write_str("material lot identifier space is exhausted")
+            }
+            Self::InventoryRevisionExhausted => {
+                formatter.write_str("inventory revision space is exhausted")
+            }
+            Self::MiningRevisionExhausted => {
+                formatter.write_str("mining revision space is exhausted")
+            }
+            Self::DestinationMassOverflow { stockpile } => write!(
+                formatter,
+                "claimed mining output overflows destination stockpile {} mass",
+                stockpile.value()
+            ),
+            Self::StructuralLoad(error) => {
+                write!(
+                    formatter,
+                    "claimed mining output structural load failed: {error}"
+                )
+            }
+        }
     }
 }
-impl Error for MiningClaimError {}
+impl Error for MiningClaimError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::StructuralLoad(error) => Some(error),
+            Self::UnknownJob { .. }
+            | Self::NotReady { .. }
+            | Self::LotIdExhausted
+            | Self::InventoryRevisionExhausted
+            | Self::MiningRevisionExhausted
+            | Self::DestinationMassOverflow { .. } => None,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MiningClaimCommitError {
@@ -574,10 +829,32 @@ pub enum MiningClaimCommitError {
 }
 impl Display for MiningClaimCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "mining claim commit failed: {self:?}")
+        match self {
+            Self::StaleInventory { expected, actual } => write!(
+                formatter,
+                "validated mining claim expected inventory revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleMining { expected, actual } => write!(
+                formatter,
+                "validated mining claim expected mining revision {expected} but current revision is {actual}"
+            ),
+            Self::Structure(error) => {
+                write!(
+                    formatter,
+                    "validated mining claim structural commit failed: {error}"
+                )
+            }
+        }
     }
 }
-impl Error for MiningClaimCommitError {}
+impl Error for MiningClaimCommitError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Structure(error) => Some(error),
+            Self::StaleInventory { .. } | Self::StaleMining { .. } => None,
+        }
+    }
+}
 
 #[must_use]
 pub struct ValidatedMiningClaim {
@@ -676,7 +953,10 @@ pub fn validate_claim_mining_output(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-player")
+))]
 mod tests {
     use super::*;
     use crate::content::{
@@ -693,7 +973,8 @@ mod tests {
     };
     use crate::energy::calculate_explicit_energy_accounting;
     use crate::equipment::{
-        add_equipment, validate_assemble_equipment, validate_upgrade_equipment,
+        add_equipment, apply_equipment_condition_plan, decide_equipment_wear,
+        validate_assemble_equipment, validate_upgrade_equipment,
     };
     use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
     use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
@@ -722,6 +1003,47 @@ mod tests {
             MaterialComposition::pure(MATERIAL_COPPER),
         )
         .unwrap_or_else(|error| panic!("mining test deposit failed: {error}"))
+    }
+
+    #[test]
+    fn mining_rejects_work_that_would_continue_after_tool_failure() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0xA11E_0023));
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("condition-lifetime survival setup failed: {error}"));
+        let pick = assemble_pick_for_test(&registries, &mut state);
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+            .unwrap_or_else(|error| panic!("condition-lifetime destination failed: {error}"));
+        let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+            .unwrap_or_else(|error| panic!("condition-lifetime deposit failed: {error}"));
+        let wear = decide_equipment_wear(&state, pick, 999_500)
+            .unwrap_or_else(|error| panic!("condition-lifetime wear decision failed: {error}"));
+        apply_equipment_condition_plan(&mut state, wear)
+            .unwrap_or_else(|error| panic!("condition-lifetime wear commit failed: {error}"));
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(pick)
+                .unwrap_or_else(|| panic!("condition-lifetime pick disappeared"))
+                .condition(),
+            Condition::new(500)
+                .unwrap_or_else(|error| panic!("condition-lifetime fixture failed: {error}"))
+        );
+        let before = state.clone();
+
+        assert!(matches!(
+            validate_start_mining(
+                &registries,
+                &state,
+                MINING_METHOD_HAND_PICK,
+                deposit,
+                destination,
+                pick,
+                Mass::from_milligrams(100),
+            ),
+            Err(MiningStartError::ConditionDuration(_))
+        ));
+        assert_eq!(state, before);
     }
 
     #[test]

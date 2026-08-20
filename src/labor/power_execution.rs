@@ -12,7 +12,9 @@ use crate::energy::{
     apply_released_energy_outcomes, calculate_power_duration_ceiling, validate_energy_sink,
 };
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
-use crate::maintenance::calculate_condition_after_active_ticks;
+use crate::maintenance::{
+    ActiveConditionDurationError, calculate_usable_condition_after_active_ticks,
+};
 use crate::mining::MiningJobId;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
@@ -61,6 +63,9 @@ pub enum ManualPowerError {
     },
     Work(PlayerWorkStartError),
     Equipment(EquipmentProviderError),
+    EquipmentMounted {
+        equipment: EquipmentId,
+    },
     EquipmentBusyProduction {
         equipment: EquipmentId,
         job: ProductionJobId,
@@ -106,6 +111,7 @@ pub enum ManualPowerError {
     ExertionResolution {
         method: ManualPowerMethodId,
     },
+    ConditionDuration(ActiveConditionDurationError),
     CompletionTickOverflow {
         method: ManualPowerMethodId,
     },
@@ -119,6 +125,11 @@ impl Display for ManualPowerError {
             }
             Self::Work(error) => write!(formatter, "manual power labor admission failed: {error}"),
             Self::Equipment(error) => write!(formatter, "manual power equipment failed: {error}"),
+            Self::EquipmentMounted { equipment } => write!(
+                formatter,
+                "manual power equipment {} is mounted and cannot be used for direct player-powered generation",
+                equipment.value()
+            ),
             Self::EquipmentBusyProduction {
                 equipment,
                 job,
@@ -201,6 +212,10 @@ impl Display for ManualPowerError {
                 "manual power method {} cannot resolve physiological effort for the requested output",
                 method.value()
             ),
+            Self::ConditionDuration(error) => write!(
+                formatter,
+                "manual power work exceeds equipment condition lifetime: {error}"
+            ),
             Self::CompletionTickOverflow { method } => write!(
                 formatter,
                 "manual power method {} completion exceeds the world clock range",
@@ -216,7 +231,9 @@ impl Error for ManualPowerError {
             Self::Work(error) => Some(error),
             Self::Equipment(error) => Some(error),
             Self::EnergySink(error) => Some(error),
+            Self::ConditionDuration(error) => Some(error),
             Self::UnknownMethod { method: _ }
+            | Self::EquipmentMounted { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::MissingPowerCapability { .. }
@@ -242,10 +259,6 @@ pub enum ManualPowerCommitError {
         actual: u64,
     },
     StaleEnergyRevision {
-        expected: u64,
-        actual: u64,
-    },
-    StaleStructureRevision {
         expected: u64,
         actual: u64,
     },
@@ -278,10 +291,6 @@ impl Display for ManualPowerCommitError {
                 formatter,
                 "manual power expected energy revision {expected} but current revision is {actual}"
             ),
-            Self::StaleStructureRevision { expected, actual } => write!(
-                formatter,
-                "manual power expected structural revision {expected} but current revision is {actual}"
-            ),
             Self::EquipmentBusyProduction { equipment, job } => write!(
                 formatter,
                 "manual power equipment {} became occupied by production job {} after validation",
@@ -310,7 +319,6 @@ impl Error for ManualPowerCommitError {
             Self::Work(error) => Some(error),
             Self::StaleEquipmentRevision { .. }
             | Self::StaleEnergyRevision { .. }
-            | Self::StaleStructureRevision { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::EnergyBusyProduction { .. } => None,
@@ -326,7 +334,6 @@ pub struct ValidatedManualPowerStart {
     resource_budget: PlayerWorkResourceBudget,
     expected_equipment_revision: u64,
     expected_energy_revision: u64,
-    expected_structure_revision: Option<u64>,
 }
 
 impl ValidatedManualPowerStart {
@@ -355,14 +362,6 @@ impl ValidatedManualPowerStart {
             return Err(ManualPowerCommitError::StaleEnergyRevision {
                 expected: self.expected_energy_revision,
                 actual: state.energy().revision(),
-            });
-        }
-        if let Some(expected) = self.expected_structure_revision
-            && state.structures().revision() != expected
-        {
-            return Err(ManualPowerCommitError::StaleStructureRevision {
-                expected,
-                actual: state.structures().revision(),
             });
         }
         if let Some(job) = state
@@ -407,6 +406,15 @@ pub fn validate_start_manual_power(
         .ok_or(ManualPowerError::UnknownMethod {
             method: request.method,
         })?;
+    if state
+        .equipment()
+        .get_equipment(request.equipment)
+        .is_some_and(|equipment| equipment.supported_by().is_some())
+    {
+        return Err(ManualPowerError::EquipmentMounted {
+            equipment: request.equipment,
+        });
+    }
     let provider = resolve_equipment_provider(registries, state, request.equipment)
         .map_err(ManualPowerError::Equipment)?;
     if let Some(job) = state.production().get_equipment_occupant(request.equipment) {
@@ -505,11 +513,12 @@ pub fn validate_start_manual_power(
         },
     )?;
     let equipment_use = provider.validated_use();
-    let condition_after = calculate_condition_after_active_ticks(
+    let condition_after = calculate_usable_condition_after_active_ticks(
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
         duration,
-    );
+    )
+    .map_err(ManualPowerError::ConditionDuration)?;
     let work = ManualPowerWork::new(
         request.method,
         equipment_use.trace(),
@@ -533,7 +542,6 @@ pub fn validate_start_manual_power(
         resource_budget,
         expected_equipment_revision: equipment_use.expected_equipment_revision(),
         expected_energy_revision: state.energy().revision(),
-        expected_structure_revision: equipment_use.expected_structure_revision(),
     })
 }
 
@@ -662,7 +670,10 @@ pub(crate) fn apply_manual_power_tick(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-player")
+))]
 mod tests {
     use super::*;
     use crate::content::{
@@ -670,9 +681,9 @@ mod tests {
         EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_STONE_HAND_CRANK, FORM_FLYWHEEL,
         FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_REINFORCEMENT, MANUAL_POWER_HAND_CRANK,
         MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_SHAPE_STONE_FLYWHEEL,
-        PROCESS_SHAPE_WOOD_HANDLE, build_registries,
+        PROCESS_SHAPE_WOOD_HANDLE, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
     };
-    use crate::core::quantity::{Mass, Temperature};
+    use crate::core::quantity::{Area, Length, Mass, Temperature};
     use crate::core::state::{StateValidationError, validate_loaded_state};
     use crate::core::time::WorldSeed;
     use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
@@ -683,12 +694,18 @@ mod tests {
     };
     use crate::equipment::{
         EquipmentConditionPlanError, decide_equipment_wear, validate_assemble_equipment,
+        validate_mount_equipment, validate_unmount_equipment,
     };
     use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
     use crate::labor::PlayerWorkValidationError;
     use crate::material::CommodityKey;
     use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
     use crate::simulation::advance_tick;
+    use crate::spatial::{VoxelBounds, VoxelCoord};
+    use crate::structural::{
+        StructuralElementId, add_structural_element, materialize_structural_element_for_test,
+        validate_activate_structural_element,
+    };
     use crate::survival::{assess_survival, initialize_player_survival};
 
     fn advance_exact(registries: &Registries, state: &mut AppState, ticks: u64) {
@@ -742,6 +759,89 @@ mod tests {
             .unwrap_or_else(|error| panic!("crank comparison assembly failed: {error}"))
             .commit(state)
             .unwrap_or_else(|error| panic!("crank comparison assembly commit failed: {error}"))
+    }
+
+    fn active_support(registries: &Registries, state: &mut AppState) -> StructuralElementId {
+        let bounds = VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(1, 1, 1))
+            .unwrap_or_else(|error| panic!("manual power support bounds failed: {error}"));
+        let element = add_structural_element(
+            registries,
+            state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            crate::structural::make_test_structural_geometry(
+                bounds,
+                Length::from_micrometers(1_000_000),
+                Area::from_square_millimeters(10_000),
+            ),
+            true,
+        )
+        .unwrap_or_else(|error| panic!("manual power support allocation failed: {error}"));
+        materialize_structural_element_for_test(registries, state, element, FORM_LOG);
+        validate_activate_structural_element(registries, state, element)
+            .unwrap_or_else(|error| panic!("manual power support activation failed: {error}"))
+            .commit(state)
+            .unwrap_or_else(|error| panic!("manual power support commit failed: {error}"));
+        element
+    }
+
+    #[test]
+    fn manual_power_requires_portable_unmounted_equipment_and_rejects_mounted_work_on_load() {
+        let registries = build_registries();
+        let mut mounted = AppState::new(WorldSeed::new(0x1A80_0003));
+        initialize_player_survival(&registries, &mut mounted)
+            .unwrap_or_else(|error| panic!("mounted manual power survival setup failed: {error}"));
+        let crank =
+            assemble_crank_fixture(&registries, &mut mounted, EQUIPMENT_STONE_HAND_CRANK, false);
+        let drive = add_energy_store(&registries, &mut mounted, ENERGY_MECHANICAL_SMALL_DRIVE)
+            .unwrap_or_else(|error| panic!("mounted manual power drive failed: {error}"));
+        let support = active_support(&registries, &mut mounted);
+        validate_mount_equipment(&registries, &mounted, crank, support)
+            .unwrap_or_else(|error| panic!("manual power crank mount failed: {error}"))
+            .commit(&mut mounted)
+            .unwrap_or_else(|error| panic!("manual power crank mount commit failed: {error}"));
+        let requested = Energy::from_nanojoules(100_000_000_000);
+        let before = mounted.clone();
+
+        assert_eq!(
+            validate_start_manual_power(
+                &registries,
+                &mounted,
+                ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested),
+            )
+            .err(),
+            Some(ManualPowerError::EquipmentMounted { equipment: crank })
+        );
+        assert_eq!(mounted, before);
+
+        let mut active = mounted.clone();
+        validate_unmount_equipment(&registries, &active, crank)
+            .unwrap_or_else(|error| panic!("manual power crank unmount failed: {error}"))
+            .commit(&mut active)
+            .unwrap_or_else(|error| panic!("manual power crank unmount commit failed: {error}"));
+        validate_start_manual_power(
+            &registries,
+            &active,
+            ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested),
+        )
+        .unwrap_or_else(|error| panic!("portable manual power validation failed: {error}"))
+        .commit(&mut active)
+        .unwrap_or_else(|error| panic!("portable manual power commit failed: {error}"));
+
+        let mut forged = serde_json::to_value(SaveEnvelope::new(&registries, &mounted))
+            .unwrap_or_else(|error| panic!("mounted manual power save failed: {error}"));
+        let active_save = serde_json::to_value(SaveEnvelope::new(&registries, &active))
+            .unwrap_or_else(|error| panic!("active manual power save failed: {error}"));
+        forged["state"]["systems"]["player_work"] =
+            active_save["state"]["systems"]["player_work"].clone();
+        let forged: LoadedSaveEnvelope = serde_json::from_value(forged)
+            .unwrap_or_else(|error| panic!("forged mounted manual power decode failed: {error}"));
+        assert_eq!(
+            forged.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+                PlayerWorkValidationError::ManualPowerEquipmentMounted
+            )))
+        );
     }
 
     #[test]

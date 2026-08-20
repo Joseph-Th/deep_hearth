@@ -18,7 +18,8 @@ use crate::equipment::{
 };
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
 use crate::maintenance::{
-    Condition, assert_valid_condition_wear_ppm_per_tick, calculate_condition_after_active_ticks,
+    ActiveConditionDurationError, Condition, assert_valid_condition_wear_ppm_per_tick,
+    calculate_usable_condition_after_active_ticks,
 };
 use crate::material::{
     CommodityKey, FormId, MaterialComposition, MaterialId, MaterialLotSpec, MaterialLotSpecError,
@@ -455,6 +456,7 @@ pub enum MeltingResolutionError {
         provided: EnergyCarrier,
     },
     Duration(PowerDurationError),
+    ConditionDuration(ActiveConditionDurationError),
     Resolution(ProcessResolutionError),
 }
 
@@ -510,6 +512,12 @@ impl Display for MeltingResolutionError {
             Self::Duration(error) => {
                 write!(formatter, "melting duration calculation failed: {error}")
             }
+            Self::ConditionDuration(error) => {
+                write!(
+                    formatter,
+                    "melting exceeds equipment condition lifetime: {error}"
+                )
+            }
             Self::Resolution(error) => write!(formatter, "process resolution failed: {error}"),
         }
     }
@@ -524,6 +532,7 @@ impl Error for MeltingResolutionError {
             Self::Batch(error) => Some(error),
             Self::Energy(error) => Some(error),
             Self::Duration(error) => Some(error),
+            Self::ConditionDuration(error) => Some(error),
             Self::Resolution(error) => Some(error),
             Self::UnknownThermalProcess { process: _process } => None,
             Self::MissingHeatingPower {
@@ -647,11 +656,12 @@ pub fn resolve_melting_process(
         registries.core().physical_tick_duration(),
     )
     .map_err(MeltingResolutionError::Duration)?;
-    let equipment_condition_after = calculate_condition_after_active_ticks(
+    let equipment_condition_after = calculate_usable_condition_after_active_ticks(
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
         duration,
-    );
+    )
+    .map_err(MeltingResolutionError::ConditionDuration)?;
     let resolution = inputs
         .resolve_with_energy_and_equipment(
             duration,
@@ -725,6 +735,10 @@ pub enum MeltingJobValidationError {
     Duration {
         job: ProductionJobId,
         error: PowerDurationError,
+    },
+    ConditionDuration {
+        job: ProductionJobId,
+        error: ActiveConditionDurationError,
     },
     DurationMismatch {
         job: ProductionJobId,
@@ -834,6 +848,11 @@ impl Display for MeltingJobValidationError {
                 "melting job {} duration cannot be recomputed: {error}",
                 job.value()
             ),
+            Self::ConditionDuration { job, error } => write!(
+                formatter,
+                "melting job {} exceeds equipment condition lifetime: {error}",
+                job.value()
+            ),
             Self::DurationMismatch {
                 job,
                 stored,
@@ -875,6 +894,7 @@ impl Error for MeltingJobValidationError {
         match self {
             Self::Batch { job: _job, error } => Some(error),
             Self::Duration { job: _job, error } => Some(error),
+            Self::ConditionDuration { job: _job, error } => Some(error),
             Self::MissingEnergy { job: _job }
             | Self::MissingEquipmentProvider { job: _job }
             | Self::UnknownEquipmentDefinition { job: _job }
@@ -1030,11 +1050,15 @@ pub(super) fn validate_loaded_melting_job(
             required: required_duration,
         });
     }
-    let required_condition_after = calculate_condition_after_active_ticks(
+    let required_condition_after = calculate_usable_condition_after_active_ticks(
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
         required_duration,
-    );
+    )
+    .map_err(|error| MeltingJobValidationError::ConditionDuration {
+        job: job.id(),
+        error,
+    })?;
     let Some(stored_condition_after) = job.equipment_condition_after() else {
         return Err(MeltingJobValidationError::MissingEquipmentConditionOutcome { job: job.id() });
     };
@@ -1056,7 +1080,10 @@ pub(super) fn validate_loaded_melting_job(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-industry")
+))]
 mod tests {
     use super::*;
     use crate::capability::{

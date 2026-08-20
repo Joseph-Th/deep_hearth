@@ -4,7 +4,9 @@ use crate::capability::{CapabilityId, CapabilityValue, CapabilityValueKind};
 use crate::core::quantity::{Mass, MassFlow, Pressure};
 use crate::core::time::TickSpan;
 use crate::equipment::{EquipmentDefinition, resolve_equipment_capability};
-use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
+use crate::maintenance::{
+    ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
+};
 use crate::ore_processing::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 use crate::registry::Registries;
 
@@ -30,6 +32,7 @@ pub(crate) enum MiningPhysicsError {
     },
     ZeroThroughput,
     Duration(MassFlowDurationError),
+    ConditionDuration(ActiveConditionDurationError),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,11 +127,12 @@ pub(crate) fn resolve_mining_physics(
         registries.core().physical_tick_duration(),
     )
     .map_err(MiningPhysicsError::Duration)?;
-    let condition_after = calculate_condition_after_active_ticks(
+    let condition_after = calculate_usable_condition_after_active_ticks(
         method.condition_wear_ppm_per_active_tick(),
         condition_before,
         duration,
-    );
+    )
+    .map_err(MiningPhysicsError::ConditionDuration)?;
     Ok(ResolvedMiningPhysics {
         duration,
         condition_after,

@@ -18,7 +18,8 @@ use crate::production::{
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 use crate::survival::{
-    SurvivalAssessment, SurvivalTickError, apply_survival_tick, decide_survival_tick,
+    SurvivalAssessment, SurvivalTickError, apply_survival_tick, assess_survival,
+    decide_survival_tick,
 };
 
 /// Successful result of one canonical simulation tick.
@@ -354,7 +355,8 @@ pub fn advance_tick(
     let ready_mining_jobs = apply_mining_tick(state, mining_plan);
     let manual_power = apply_manual_power_tick(state, manual_power_plan);
     apply_player_work_tick(state, player_work_plan);
-    let survival = apply_survival_tick(state, survival_plan);
+    let survival =
+        apply_survival_tick(state, survival_plan).or_else(|| assess_survival(registries, state));
     apply_clock_advance(state, next_tick);
 
     validate_invariants(registries, state);
@@ -368,12 +370,16 @@ pub fn advance_tick(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-foundation")
+))]
 mod tests {
     use super::*;
     use crate::content::build_registries;
     use crate::core::state::make_test_state_at_tick;
     use crate::core::time::WorldSeed;
+    use crate::survival::{Vitality, initialize_player_survival, player_record};
 
     #[test]
     fn canonical_tick_advances_exactly_once() {
@@ -405,5 +411,40 @@ mod tests {
             })
         );
         assert_eq!(state, before);
+    }
+
+    #[test]
+    fn dead_player_remains_visible_in_tick_survival_outcome_without_mutation() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5100_1001));
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("dead-player survival initialization failed: {error}"));
+        let player =
+            state.survival().player().copied().unwrap_or_else(|| {
+                panic!("initialized dead-player fixture is missing survival state")
+            });
+        let expected_revision = state.survival().revision();
+        state.survival_state_mut().apply_player(
+            expected_revision,
+            expected_revision + 1,
+            player_record(
+                player.metabolic_energy(),
+                player.hydration(),
+                Vitality::ZERO,
+                player.nutrition(),
+            ),
+        );
+        let frozen_revision = state.survival().revision();
+        let frozen_player = state.survival().player().copied();
+
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("dead-player tick failed: {error}"));
+
+        assert_eq!(
+            outcome.survival().map(SurvivalAssessment::vitality),
+            Some(Vitality::ZERO)
+        );
+        assert_eq!(state.survival().revision(), frozen_revision);
+        assert_eq!(state.survival().player().copied(), frozen_player);
     }
 }

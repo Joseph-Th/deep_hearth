@@ -52,7 +52,75 @@ pub enum MiningValidationError {
 
 impl Display for MiningValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "invalid mining state: {self:?}")
+        match self {
+            Self::InvalidIdCursor => formatter.write_str("mining job identifier cursor is invalid"),
+            Self::JobIdBeyondCursor { job } => write!(
+                formatter,
+                "mining job {} is not below the next identifier cursor",
+                job.value()
+            ),
+            Self::ZeroOutputMass { job } => {
+                write!(formatter, "mining job {} has zero output mass", job.value())
+            }
+            Self::JobStartedInFuture {
+                job,
+                started,
+                current,
+            } => write!(
+                formatter,
+                "mining job {} starts at tick {} after current tick {}",
+                job.value(),
+                started.value(),
+                current.value()
+            ),
+            Self::CompletionNotAfterStart {
+                job,
+                started,
+                completes,
+            } => write!(
+                formatter,
+                "mining job {} completes at tick {} but starts at tick {}",
+                job.value(),
+                completes.value(),
+                started.value()
+            ),
+            Self::WorkingJobAlreadyDue { job, due, current } => write!(
+                formatter,
+                "active mining job {} was due at tick {} by current tick {}",
+                job.value(),
+                due.value(),
+                current.value()
+            ),
+            Self::ReadyTickMismatch { job, ready, due } => write!(
+                formatter,
+                "ready mining job {} records ready tick {} but completion tick is {}",
+                job.value(),
+                ready.value(),
+                due.value()
+            ),
+            Self::ReadyInFuture {
+                job,
+                ready,
+                current,
+            } => write!(
+                formatter,
+                "mining job {} is marked ready at future tick {} from current tick {}",
+                job.value(),
+                ready.value(),
+                current.value()
+            ),
+            Self::DueIndexMismatch => {
+                formatter.write_str("mining due-job index does not match jobs")
+            }
+            Self::EquipmentOccupancyMismatch => {
+                formatter.write_str("mining equipment occupancy index does not match active jobs")
+            }
+            Self::EquipmentDoubleBooked { equipment } => write!(
+                formatter,
+                "mining equipment {} is assigned to more than one active job",
+                equipment.value()
+            ),
+        }
     }
 }
 

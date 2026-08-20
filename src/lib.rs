@@ -1,6 +1,20 @@
 //! Headless deterministic simulation core for Deep Hearth.
 
 #![forbid(unsafe_code)]
+#![cfg_attr(
+    all(
+        test,
+        feature = "test-unit-sharded",
+        not(all(
+            feature = "test-unit-foundation",
+            feature = "test-unit-resources",
+            feature = "test-unit-player",
+            feature = "test-unit-industry",
+            feature = "test-unit-render"
+        ))
+    ),
+    allow(dead_code, unused_imports)
+)]
 
 pub mod capability;
 pub mod content;

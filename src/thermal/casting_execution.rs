@@ -18,7 +18,8 @@ use crate::equipment::{
 };
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
 use crate::maintenance::{
-    Condition, assert_valid_condition_wear_ppm_per_tick, calculate_condition_after_active_ticks,
+    ActiveConditionDurationError, Condition, assert_valid_condition_wear_ppm_per_tick,
+    calculate_usable_condition_after_active_ticks,
 };
 use crate::material::{
     CommodityKey, FormId, MaterialComposition, MaterialId, MaterialLotSpec, MaterialLotSpecError,
@@ -461,6 +462,7 @@ pub enum CastingResolutionError {
         provided: EnergyCarrier,
     },
     Duration(PowerDurationError),
+    ConditionDuration(ActiveConditionDurationError),
     Resolution(ProcessResolutionError),
 }
 
@@ -513,6 +515,12 @@ impl Display for CastingResolutionError {
             Self::Duration(error) => {
                 write!(formatter, "casting duration calculation failed: {error}")
             }
+            Self::ConditionDuration(error) => {
+                write!(
+                    formatter,
+                    "casting exceeds equipment condition lifetime: {error}"
+                )
+            }
             Self::Resolution(error) => write!(formatter, "process resolution failed: {error}"),
         }
     }
@@ -527,6 +535,7 @@ impl Error for CastingResolutionError {
             Self::Batch(error) => Some(error),
             Self::EnergySink(error) => Some(error),
             Self::Duration(error) => Some(error),
+            Self::ConditionDuration(error) => Some(error),
             Self::Resolution(error) => Some(error),
             Self::UnknownThermalProcess { process: _process } => None,
             Self::MissingCoolingPower {
@@ -649,11 +658,12 @@ pub fn resolve_casting_process(
         registries.core().physical_tick_duration(),
     )
     .map_err(CastingResolutionError::Duration)?;
-    let equipment_condition_after = calculate_condition_after_active_ticks(
+    let equipment_condition_after = calculate_usable_condition_after_active_ticks(
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
         duration,
-    );
+    )
+    .map_err(CastingResolutionError::ConditionDuration)?;
     let resolution = inputs
         .resolve_with_equipment_and_energy_release(
             duration,
@@ -730,6 +740,10 @@ pub enum CastingJobValidationError {
     Duration {
         job: ProductionJobId,
         error: PowerDurationError,
+    },
+    ConditionDuration {
+        job: ProductionJobId,
+        error: ActiveConditionDurationError,
     },
     DurationMismatch {
         job: ProductionJobId,
@@ -844,6 +858,11 @@ impl Display for CastingJobValidationError {
                 "casting job {} duration cannot be recomputed: {error}",
                 job.value()
             ),
+            Self::ConditionDuration { job, error } => write!(
+                formatter,
+                "casting job {} exceeds equipment condition lifetime: {error}",
+                job.value()
+            ),
             Self::DurationMismatch {
                 job,
                 stored,
@@ -885,6 +904,7 @@ impl Error for CastingJobValidationError {
         match self {
             Self::Batch { job: _job, error } => Some(error),
             Self::Duration { job: _job, error } => Some(error),
+            Self::ConditionDuration { job: _job, error } => Some(error),
             Self::UnexpectedConsumedEnergy { job: _job }
             | Self::MissingReleasedEnergy { job: _job }
             | Self::MissingEquipmentProvider { job: _job }
@@ -1044,11 +1064,15 @@ pub(super) fn validate_loaded_casting_job(
             required: required_duration,
         });
     }
-    let required_condition_after = calculate_condition_after_active_ticks(
+    let required_condition_after = calculate_usable_condition_after_active_ticks(
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
         required_duration,
-    );
+    )
+    .map_err(|error| CastingJobValidationError::ConditionDuration {
+        job: job.id(),
+        error,
+    })?;
     let Some(stored_condition_after) = job.equipment_condition_after() else {
         return Err(CastingJobValidationError::MissingEquipmentConditionOutcome { job: job.id() });
     };
@@ -1070,7 +1094,10 @@ pub(super) fn validate_loaded_casting_job(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-industry")
+))]
 mod tests {
     use super::*;
     use crate::capability::{

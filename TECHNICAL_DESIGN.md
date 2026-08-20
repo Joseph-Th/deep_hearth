@@ -317,6 +317,10 @@ values through the same evaluator.
 Equipment uses normalized `Condition`. Authored numeric capability curves may interpolate from a
 failed endpoint to the nominal pristine value using checked integer arithmetic. Presence-only
 capabilities require explicit discrete policy and are not represented by numeric interpolation.
+Productive operations with authored active-tick wear must fit entirely inside the provider's remaining
+condition lifetime. The final useful tick may reduce condition to `FAILED`; no later productive tick is
+authorized because failed condition-sensitive equipment contributes zero usable capability. Runtime
+resolution and persisted-job replay enforce the same discrete-tick boundary.
 
 Maintenance is a conserved cross-owner operation. `EquipmentMaintenanceProfile` specifies exact
 replacement matter, a distinct same-material spent form, and a restored condition. Resolver output is
@@ -352,9 +356,11 @@ invent mixing/thermal-equilibration behavior for unlike contents.
 
 Survival eating and drinking use exact inventory/fluid egress into a terminal consumption boundary
 that remains included in global matter and fluid accounting. The boundary records cumulative consumed
-matter and fluid rather than pretending it is live body mass or body water. Physiological energy and
-hydration gains clamp at authored reserve capacities while the requested physical portion is still
-consumed, avoiding exact-capacity meal micromanagement without violating conservation.
+matter and fluid rather than pretending it is live body mass or body water. Accepted meals and drinks
+consume the exact requested physical portion while individual physiological gains clamp at authored
+reserve capacities. Validation rejects a meal when none of metabolic energy, hydration, or nutrition
+would increase, and rejects a drink when hydration would not increase. This prevents pure no-benefit
+resource waste without silently resizing an otherwise useful requested portion.
 
 ## 17. Structural Matter
 
@@ -425,7 +431,10 @@ scheduled interval.
 Manual crafting emits ordinary `ProcessResolution` values and uses canonical production ownership.
 Repeated batches scale authored matter and time together.
 
-Direct player power binds a real equipment Power capability and finite destination energy store.
+Direct player power binds a real Power capability from portable, unmounted equipment and a finite
+destination energy store. Admission and persistence reject mounted direct-power tools; equipment support
+mutations already reject active manual-power occupancy, so the tool remains unmounted for the entire
+work interval without carrying a redundant structural dependency in `ManualPowerWork`.
 Duration respects equipment/store transfer limits and the method's maximum sustainable metabolic
 output. Active physiological exertion is then scaled to the actual mechanical work required at the
 authored metabolic efficiency, so slower equipment or destination bottlenecks do not charge full

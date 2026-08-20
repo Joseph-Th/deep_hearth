@@ -9,7 +9,9 @@ use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::time::TickSpan;
 use crate::energy::{EnergyCarrier, PowerDurationError, calculate_power_duration_ceiling};
 use crate::equipment::resolve_equipment_capability;
-use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
+use crate::maintenance::{
+    ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
+};
 use crate::material::{MaterialLotSpec, MaterialLotSpecError};
 use crate::production::{ProductionJobId, ProductionJobRecord};
 use crate::registry::Registries;
@@ -86,6 +88,10 @@ pub enum ThermalJobValidationError {
     Duration {
         job: ProductionJobId,
         error: PowerDurationError,
+    },
+    ConditionDuration {
+        job: ProductionJobId,
+        error: ActiveConditionDurationError,
     },
     DurationMismatch {
         job: ProductionJobId,
@@ -220,6 +226,11 @@ impl Display for ThermalJobValidationError {
                 "sensible-heating job {} duration cannot be recomputed: {error}",
                 job.value()
             ),
+            Self::ConditionDuration { job, error } => write!(
+                formatter,
+                "sensible-heating job {} exceeds equipment condition lifetime: {error}",
+                job.value()
+            ),
             Self::DurationMismatch {
                 job,
                 stored,
@@ -259,6 +270,7 @@ impl Error for ThermalJobValidationError {
             Self::Heat { job: _job, error } => Some(error),
             Self::OutputConstruction { job: _job, error } => Some(error),
             Self::Duration { job: _job, error } => Some(error),
+            Self::ConditionDuration { job: _job, error } => Some(error),
             Self::MissingEquipmentProvider { job: _job }
             | Self::UnknownEquipmentDefinition { job: _job }
             | Self::MissingHeatingPowerCapability { job: _job }
@@ -485,11 +497,15 @@ pub(crate) fn validate_loaded_thermal_job(
             required: required_duration,
         });
     }
-    let required_condition_after = calculate_condition_after_active_ticks(
+    let required_condition_after = calculate_usable_condition_after_active_ticks(
         thermal_definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
         required_duration,
-    );
+    )
+    .map_err(|error| ThermalJobValidationError::ConditionDuration {
+        job: job.id(),
+        error,
+    })?;
     let Some(stored_condition_after) = job.equipment_condition_after() else {
         return Err(ThermalJobValidationError::MissingEquipmentConditionOutcome { job: job.id() });
     };

@@ -16,7 +16,9 @@ use crate::equipment::{
     EquipmentId, EquipmentProviderError, resolve_equipment_capability, resolve_equipment_provider,
 };
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
-use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
+use crate::maintenance::{
+    ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
+};
 use crate::material::{
     CommodityKey, FormId, MaterialComposition, MaterialLotSpec, MaterialLotSpecError,
     ParticleSizeRange,
@@ -243,6 +245,7 @@ pub enum ComminutionResolutionError {
     },
     ThroughputDuration(MassFlowDurationError),
     EnergyDuration(PowerDurationError),
+    ConditionDuration(ActiveConditionDurationError),
     Resolution(ProcessResolutionError),
 }
 
@@ -288,6 +291,12 @@ impl Display for ComminutionResolutionError {
                     "comminution energy delivery duration failed: {error}"
                 )
             }
+            Self::ConditionDuration(error) => {
+                write!(
+                    formatter,
+                    "comminution exceeds equipment condition lifetime: {error}"
+                )
+            }
             Self::Resolution(error) => {
                 write!(formatter, "comminution process resolution failed: {error}")
             }
@@ -305,6 +314,7 @@ impl Error for ComminutionResolutionError {
             Self::Energy(error) => Some(error),
             Self::ThroughputDuration(error) => Some(error),
             Self::EnergyDuration(error) => Some(error),
+            Self::ConditionDuration(error) => Some(error),
             Self::Resolution(error) => Some(error),
             Self::UnknownComminutionProcess { process: _process } => None,
             Self::MissingMassFlowCapability | Self::MissingMaximumBatchMassCapability => None,
@@ -489,11 +499,12 @@ pub fn resolve_comminution_process(
     )
     .map_err(ComminutionResolutionError::EnergyDuration)?;
     let duration = std::cmp::max(throughput_duration, energy_duration);
-    let condition_after = calculate_condition_after_active_ticks(
+    let condition_after = calculate_usable_condition_after_active_ticks(
         definition.condition_wear_ppm_per_processing_tick(),
         provider.condition(),
         throughput_duration,
-    );
+    )
+    .map_err(ComminutionResolutionError::ConditionDuration)?;
     let equipment_use = provider.validated_use();
     let resolution = inputs
         .resolve_with_energy_and_equipment(
@@ -571,6 +582,10 @@ pub enum ComminutionJobValidationError {
     EnergyDuration {
         job: ProductionJobId,
         error: PowerDurationError,
+    },
+    ConditionDuration {
+        job: ProductionJobId,
+        error: ActiveConditionDurationError,
     },
     DurationMismatch {
         job: ProductionJobId,
@@ -674,6 +689,11 @@ impl Display for ComminutionJobValidationError {
                 "comminution job {} cannot recompute work-energy delivery duration: {error}",
                 job.value()
             ),
+            Self::ConditionDuration { job, error } => write!(
+                formatter,
+                "comminution job {} exceeds equipment condition lifetime: {error}",
+                job.value()
+            ),
             Self::DurationMismatch {
                 job,
                 stored_ticks,
@@ -714,6 +734,7 @@ impl Error for ComminutionJobValidationError {
             Self::Batch { job: _job, error } => Some(error),
             Self::ThroughputDuration { job: _job, error } => Some(error),
             Self::EnergyDuration { job: _job, error } => Some(error),
+            Self::ConditionDuration { job: _job, error } => Some(error),
             Self::MissingEnergy { job: _job }
             | Self::UnexpectedReleasedEnergy { job: _job }
             | Self::MissingEquipmentProvider { job: _job }
@@ -861,11 +882,15 @@ pub(crate) fn validate_loaded_comminution_job(
             required_ticks: required_duration.value(),
         });
     }
-    let required_condition_after = calculate_condition_after_active_ticks(
+    let required_condition_after = calculate_usable_condition_after_active_ticks(
         definition.condition_wear_ppm_per_processing_tick(),
         provider.condition(),
         throughput_duration,
-    );
+    )
+    .map_err(|error| ComminutionJobValidationError::ConditionDuration {
+        job: job.id(),
+        error,
+    })?;
     let stored_condition_after = job
         .equipment_condition_after()
         .ok_or(ComminutionJobValidationError::MissingConditionOutcome { job: job.id() })?;
@@ -879,7 +904,10 @@ pub(crate) fn validate_loaded_comminution_job(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-industry")
+))]
 mod tests {
     use super::*;
     use crate::capability::{

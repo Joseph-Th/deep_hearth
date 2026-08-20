@@ -66,19 +66,22 @@ or future design detail.
   integral repeated batches without discounting matter, time, wear, or exertion.
 - `PlayerWorkState` is exclusive across manual crafting, mining, and direct player power. Admission
   requires enough metabolic energy and hydration for the scheduled work plus basal upkeep.
-- Direct manual power converts survival-costed player labor through a real equipment capability into a
-  finite compatible energy store and applies equipment wear at completion.
+- Direct manual power converts survival-costed player labor through a real portable, unmounted
+  equipment capability into a finite compatible energy store and applies equipment wear at completion.
 - Primitive progression includes hand shaping, composite tool assembly, mining, native-copper tool
   reinforcement, material-backed mechanical work storage, hand-crank charging, and a player-built
   primitive crusher capable of autonomous comminution while player labor is occupied elsewhere.
 - Player survival tracks metabolic energy, hydration, vitality, and recent Grain/Fruit/Protein
   nutrition. Basal depletion and active-work exertion run in the canonical tick.
 - Authored food has finite freshness; preservation affects future exposure. Meals can combine explicit
-  food selections atomically. Metabolic-energy gain clamps at reserve capacity while the full physical
-  portion is consumed; nutrition recovery remains based on the consumed food rather than spare calorie
-  capacity. Eating preserves matter ownership in terminal survival-consumption accounting.
-- Authored water is finite and drinkable. Hydration gain clamps at reserve capacity while the full
-  requested physical volume is consumed and remains represented in terminal survival-consumption
+  food selections atomically. Accepted meals consume the exact selected portion while metabolic,
+  hydration, and nutrition gains independently clamp at their reserve capacities; nutrition recovery
+  remains based on the consumed food rather than spare calorie capacity. A meal with no possible
+  reserve gain is rejected without consumption. Eating preserves matter ownership in terminal
+  survival-consumption accounting.
+- Authored water is finite and drinkable. Accepted drinks consume the exact requested physical volume
+  while hydration gain clamps at reserve capacity. A drink with no possible hydration gain is rejected
+  without consumption; accepted volume remains represented in terminal survival-consumption
   fluid-volume accounting.
 
 ### Capabilities, equipment, and maintenance
@@ -89,7 +92,8 @@ or future design detail.
   material/provenance traces. Equipment can be occupied exclusively by production, mining, or direct
   player-power work as applicable.
 - Authored condition curves can derate numeric capabilities. Failed productive equipment reaches zero
-  productive rate where that curve is authored.
+  productive rate where that curve is authored. Productive work with active-tick wear is rejected when
+  its requested duration would require any tick after the provider reaches failed condition.
 - Maintenance consumes an exact authored replacement commodity and produces a distinct conserved spent
   material form while restoring an authored condition target. It cannot run through active occupancy.
 - Additive equipment upgrades preserve identity, accumulated condition, and existing material traces
@@ -97,7 +101,8 @@ or future design detail.
 - Idle, unmounted, pristine assembled equipment can be disassembled back into its exact embodied
   traces. Worn-equipment salvage and maintenance-scrap recovery are not implemented.
 - Mounted equipment contributes an equipment-owned structural load and requires active support for new
-  work.
+  machine work. Direct player-power and hand-mining tools must be unmounted while their labor is active,
+  so structural failure cannot leave portable work running through an unusable support.
 
 ### Energy, structures, fluids, and physical scalars
 
@@ -167,8 +172,8 @@ or future design detail.
   manual-power recovery, and survival-pressure tradeoffs; matched-world counterfactuals maintain
   consequential power, survival, maintenance, and structural choices. The workshop actor reduces work to
   the largest powered batch that preserves non-critical projected condition before declaring maintenance
-  mandatory. Small fresh bounded replayable samples supplement those anchors, while the broader report
-  uses a larger sample. Geological site identity remains a controlled bootstrap because physical
+  mandatory. Small deterministic bounded variations supplement those anchors in maintained gates, while
+  the broader exploratory report uses fresh replayable samples. Geological site identity remains a controlled bootstrap because physical
   discovery/prospecting is not implemented.
 - Test selection, replay controls, assertion policy, and local CI are owned by [`TESTING.md`](TESTING.md).
 

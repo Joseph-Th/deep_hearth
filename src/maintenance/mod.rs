@@ -192,7 +192,69 @@ pub(crate) fn calculate_condition_after_active_ticks(
     decide_wear(before, bounded_wear).after()
 }
 
-#[cfg(test)]
+/// Failure to schedule productive active time entirely inside an equipment instance's remaining
+/// usable condition lifetime.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ActiveConditionDurationError {
+    before: Condition,
+    wear_ppm_per_active_tick: u32,
+    requested: TickSpan,
+    maximum: TickSpan,
+}
+
+impl Display for ActiveConditionDurationError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "equipment at {} ppm with {} ppm wear per active tick can provide at most {} productive ticks, not {}",
+            self.before.parts_per_million(),
+            self.wear_ppm_per_active_tick,
+            self.maximum.value(),
+            self.requested.value()
+        )
+    }
+}
+
+impl Error for ActiveConditionDurationError {}
+
+/// Calculates post-operation condition while refusing active ticks that would occur after failure.
+///
+/// The final useful tick may consume the remaining condition and finish at [`Condition::FAILED`].
+/// A further active tick is impossible because productive condition-sensitive capabilities resolve to
+/// zero once the equipment has failed.
+pub(crate) fn calculate_usable_condition_after_active_ticks(
+    wear_ppm_per_active_tick: u32,
+    before: Condition,
+    duration: TickSpan,
+) -> Result<Condition, ActiveConditionDurationError> {
+    assert_valid_condition_wear_ppm_per_tick(wear_ppm_per_active_tick);
+    let remaining = u64::from(before.parts_per_million());
+    let wear = u64::from(wear_ppm_per_active_tick);
+    let maximum_ticks = if remaining == 0 {
+        0
+    } else {
+        1 + (remaining - 1) / wear
+    };
+    let maximum = TickSpan::new(maximum_ticks);
+    if duration > maximum {
+        return Err(ActiveConditionDurationError {
+            before,
+            wear_ppm_per_active_tick,
+            requested: duration,
+            maximum,
+        });
+    }
+    Ok(calculate_condition_after_active_ticks(
+        wear_ppm_per_active_tick,
+        before,
+        duration,
+    ))
+}
+
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-player")
+))]
 mod tests {
     use super::*;
 
@@ -218,6 +280,46 @@ mod tests {
             ),
             Condition::FAILED
         );
+    }
+
+    #[test]
+    fn usable_condition_allows_the_final_tick_that_reaches_failed() {
+        assert_eq!(
+            calculate_usable_condition_after_active_ticks(60, condition(100), TickSpan::new(2)),
+            Ok(Condition::FAILED)
+        );
+    }
+
+    #[test]
+    fn usable_condition_rejects_ticks_after_equipment_has_failed() {
+        let error = match calculate_usable_condition_after_active_ticks(
+            60,
+            condition(100),
+            TickSpan::new(3),
+        ) {
+            Err(error) => error,
+            Ok(after) => panic!(
+                "third active tick unexpectedly completed with condition {} ppm",
+                after.parts_per_million()
+            ),
+        };
+        assert_eq!(error.before, condition(100));
+        assert_eq!(error.maximum, TickSpan::new(2));
+
+        let failed_error = match calculate_usable_condition_after_active_ticks(
+            1,
+            Condition::FAILED,
+            TickSpan::new(1),
+        ) {
+            Err(error) => error,
+            Ok(after) => panic!(
+                "failed equipment unexpectedly completed active work at {} ppm",
+                after.parts_per_million()
+            ),
+        };
+        assert_eq!(failed_error.before, Condition::FAILED);
+        assert_eq!(failed_error.maximum, TickSpan::ZERO);
+        assert_eq!(failed_error.requested, TickSpan::new(1));
     }
 
     #[test]

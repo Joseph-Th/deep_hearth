@@ -140,6 +140,9 @@ pub enum EatError {
     },
     ShelfLifeOverflow,
     NutritionOverflow,
+    NoReserveGain {
+        mass: Mass,
+    },
     UnsupportedComposition {
         lot: MaterialLotId,
         material: MaterialId,
@@ -224,6 +227,11 @@ impl Display for EatError {
                 formatter.write_str("food shelf-life calculation overflowed")
             }
             Self::NutritionOverflow => formatter.write_str("food nutrition calculation overflowed"),
+            Self::NoReserveGain { mass } => write!(
+                formatter,
+                "eating {} mg would not increase metabolic, hydration, or nutrition reserves",
+                mass.milligrams()
+            ),
             Self::UnsupportedComposition { lot, material } => write!(
                 formatter,
                 "food lot {} is not pure material {} and cannot enter the current survival-consumption boundary",
@@ -267,6 +275,7 @@ impl Error for EatError {
             | Self::Spoiled { .. }
             | Self::ShelfLifeOverflow
             | Self::NutritionOverflow
+            | Self::NoReserveGain { .. }
             | Self::UnsupportedComposition { .. }
             | Self::ConsumedMatterOverflow { material: _ }
             | Self::InventoryRevisionExhausted
@@ -683,6 +692,10 @@ pub fn validate_eat(
         fruit_ppm,
         protein_ppm,
     };
+    let total_mass = egress.total_consumed();
+    if energy_gained.is_zero() && hydration_gained.is_zero() && nutrition_gained.total_ppm() == 0 {
+        return Err(EatError::NoReserveGain { mass: total_mass });
+    }
     let expected_survival_revision = state.survival().revision();
     let next_survival_revision = expected_survival_revision
         .checked_add(1)
@@ -698,7 +711,6 @@ pub fn validate_eat(
                 .ok_or(EatError::ConsumedMatterOverflow { material })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let total_mass = egress.total_consumed();
     Ok(ValidatedEat {
         attention,
         expected_survival_revision,
@@ -834,7 +846,7 @@ impl Display for DrinkError {
             }
             Self::NoHydrationGain { volume } => write!(
                 formatter,
-                "drink volume {} uL is too small to produce any hydration at the authored multiplier",
+                "drink volume {} uL would not increase player hydration",
                 volume.microliters()
             ),
             Self::ConsumedFluidOverflow => {
@@ -1011,6 +1023,9 @@ pub fn validate_drink(
         .checked_sub(player.hydration())
         .ok_or(DrinkError::HydrationOverflow)?;
     let hydration_gained = hydration_gain.min(available_hydration);
+    if hydration_gained.is_zero() {
+        return Err(DrinkError::NoHydrationGain { volume });
+    }
     let hydration_after = player
         .hydration()
         .checked_add(hydration_gained)
@@ -1080,7 +1095,10 @@ impl ValidatedDrink {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-player")
+))]
 mod tests {
     use super::*;
     use crate::content::{
@@ -1191,6 +1209,68 @@ mod tests {
     }
 
     #[test]
+    fn eating_with_any_reserve_room_consumes_the_exact_selected_portion() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5A70_0015));
+        initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("partial-reserve survival initialization failed: {error}")
+        });
+        let physiology = registries.survival().physiology();
+        let energy_before = physiology
+            .maximum_metabolic_energy()
+            .checked_sub(Energy::from_nanojoules(1))
+            .unwrap_or_else(|| panic!("partial-reserve energy fixture underflowed"));
+        let expected_revision = state.survival().revision();
+        state.survival_state_mut().apply_player(
+            expected_revision,
+            expected_revision + 1,
+            player_record(
+                energy_before,
+                physiology.maximum_hydration(),
+                Vitality::MAXIMUM,
+                NutritionReserves::from_parts_per_million(
+                    NUTRITION_PARTS_PER_MILLION,
+                    NUTRITION_PARTS_PER_MILLION,
+                    NUTRITION_PARTS_PER_MILLION,
+                ),
+            ),
+        );
+        let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
+            .unwrap_or_else(|error| panic!("partial-reserve food stockpile failed: {error}"));
+        let lot = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            stockpile,
+            CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+            Mass::from_milligrams(1),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("partial-reserve food lot failed: {error}"));
+
+        let outcome = validate_eat(
+            &registries,
+            &state,
+            stockpile,
+            &[MaterialLotSelection::new(lot, Mass::from_milligrams(1))],
+        )
+        .unwrap_or_else(|error| panic!("partial-reserve eating validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("partial-reserve eating commit failed: {error}"));
+
+        assert_eq!(outcome.total_mass(), Mass::from_milligrams(1));
+        assert_eq!(outcome.energy_gained(), Energy::from_nanojoules(1));
+        assert_eq!(outcome.hydration_gained(), Volume::ZERO);
+        assert_eq!(outcome.nutrition_gained().total_ppm(), 0);
+        assert_eq!(state.inventory().get_lot(lot), None);
+        assert_eq!(
+            assess_survival(&registries, &state)
+                .unwrap_or_else(|| panic!("partial-reserve survival state disappeared"))
+                .metabolic_energy(),
+            physiology.maximum_metabolic_energy()
+        );
+    }
+
+    #[test]
     fn validated_drink_rejects_player_work_started_before_commit_without_mutation() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5A70_0013));
@@ -1220,7 +1300,66 @@ mod tests {
     }
 
     #[test]
-    fn eating_at_full_reserve_consumes_food_without_exceeding_metabolic_capacity() {
+    fn drinking_with_any_hydration_room_consumes_the_exact_requested_volume() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5A70_0016));
+        initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("partial-hydration survival initialization failed: {error}")
+        });
+        let physiology = registries.survival().physiology();
+        let hydration_before = physiology
+            .maximum_hydration()
+            .checked_sub(Volume::from_microliters(1))
+            .unwrap_or_else(|| panic!("partial-hydration fixture underflowed"));
+        let expected_revision = state.survival().revision();
+        state.survival_state_mut().apply_player(
+            expected_revision,
+            expected_revision + 1,
+            player_record(
+                physiology.maximum_metabolic_energy(),
+                hydration_before,
+                Vitality::MAXIMUM,
+                NutritionReserves::from_parts_per_million(
+                    NUTRITION_PARTS_PER_MILLION,
+                    NUTRITION_PARTS_PER_MILLION,
+                    NUTRITION_PARTS_PER_MILLION,
+                ),
+            ),
+        );
+        let store = add_fluid_store_with_contents_for_fixture(
+            &registries,
+            &mut state,
+            Volume::from_microliters(10),
+            FLUID_WATER,
+            Volume::from_microliters(10),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("partial-hydration water fixture failed: {error}"));
+
+        let outcome = validate_drink(&registries, &state, store, Volume::from_microliters(10))
+            .unwrap_or_else(|error| panic!("partial-hydration drink validation failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("partial-hydration drink commit failed: {error}"));
+
+        assert_eq!(outcome.volume(), Volume::from_microliters(10));
+        assert_eq!(outcome.hydration_gained(), Volume::from_microliters(1));
+        assert_eq!(
+            state
+                .fluid()
+                .get_store(store)
+                .and_then(|record| record.contents()),
+            None
+        );
+        assert_eq!(
+            assess_survival(&registries, &state)
+                .unwrap_or_else(|| panic!("partial-hydration survival state disappeared"))
+                .hydration(),
+            physiology.maximum_hydration()
+        );
+    }
+
+    #[test]
+    fn eating_at_full_reserves_is_rejected_without_consuming_food() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5A70_0010));
         initialize_player_survival(&registries, &mut state)
@@ -1236,24 +1375,21 @@ mod tests {
             Temperature::from_millikelvin(293_150),
         )
         .unwrap_or_else(|error| panic!("full-reserve food lot failed: {error}"));
-        let before = calculate_matter_accounting(&state)
-            .unwrap_or_else(|error| panic!("full-reserve matter accounting failed: {error}"));
-        let outcome = validate_eat(
-            &registries,
-            &state,
-            stockpile,
-            &[MaterialLotSelection::new(lot, Mass::from_milligrams(1))],
-        )
-        .unwrap_or_else(|error| panic!("full-reserve eating validation failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("full-reserve eating commit failed: {error}"));
-        let after = calculate_matter_accounting(&state)
-            .unwrap_or_else(|error| panic!("full-reserve final accounting failed: {error}"));
+        let before = state.clone();
 
-        assert_eq!(outcome.energy_gained(), Energy::ZERO);
-        assert_eq!(state.inventory().get_lot(lot), None);
-        assert_eq!(after.total(), before.total());
-        assert_eq!(after.consumed(), AggregateMass::from_milligrams(1));
+        assert_eq!(
+            validate_eat(
+                &registries,
+                &state,
+                stockpile,
+                &[MaterialLotSelection::new(lot, Mass::from_milligrams(1))],
+            )
+            .err(),
+            Some(EatError::NoReserveGain {
+                mass: Mass::from_milligrams(1),
+            })
+        );
+        assert_eq!(state, before);
     }
 
     #[test]
@@ -1309,7 +1445,7 @@ mod tests {
     }
 
     #[test]
-    fn drinking_at_full_hydration_consumes_water_without_exceeding_capacity() {
+    fn drinking_at_full_hydration_is_rejected_without_consuming_water() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0x5A70_0011));
         initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
@@ -1324,24 +1460,15 @@ mod tests {
             Temperature::from_millikelvin(293_150),
         )
         .unwrap_or_else(|error| panic!("full-hydration water fixture failed: {error}"));
-        let before = calculate_fluid_volume_accounting(&state)
-            .unwrap_or_else(|error| panic!("full-hydration accounting failed: {error}"));
-        let outcome = validate_drink(&registries, &state, store, Volume::from_microliters(1))
-            .unwrap_or_else(|error| panic!("full-hydration drink validation failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| panic!("full-hydration drink commit failed: {error}"));
-        let after = calculate_fluid_volume_accounting(&state)
-            .unwrap_or_else(|error| panic!("full-hydration final accounting failed: {error}"));
+        let before = state.clone();
 
-        assert_eq!(outcome.hydration_gained(), Volume::ZERO);
         assert_eq!(
-            state
-                .fluid()
-                .get_store(store)
-                .and_then(|record| record.contents()),
-            None
+            validate_drink(&registries, &state, store, Volume::from_microliters(1)).err(),
+            Some(DrinkError::NoHydrationGain {
+                volume: Volume::from_microliters(1),
+            })
         );
-        assert_eq!(after.total(), before.total());
+        assert_eq!(state, before);
     }
 
     #[test]

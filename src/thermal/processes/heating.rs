@@ -15,7 +15,9 @@ use crate::energy::{
 };
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
 use crate::inventory::{MaterialLotSelection, StockpileId};
-use crate::maintenance::calculate_condition_after_active_ticks;
+use crate::maintenance::{
+    ActiveConditionDurationError, calculate_usable_condition_after_active_ticks,
+};
 use crate::material::{MaterialLotSpec, MaterialLotSpecError};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
@@ -133,6 +135,7 @@ pub enum SensibleHeatingResolutionError {
         provided: EnergyCarrier,
     },
     Duration(PowerDurationError),
+    ConditionDuration(ActiveConditionDurationError),
     Output(MaterialLotSpecError),
     Resolution(ProcessResolutionError),
 }
@@ -198,6 +201,12 @@ impl Display for SensibleHeatingResolutionError {
             Self::Duration(error) => {
                 write!(formatter, "heating duration calculation failed: {error}")
             }
+            Self::ConditionDuration(error) => {
+                write!(
+                    formatter,
+                    "heating exceeds equipment condition lifetime: {error}"
+                )
+            }
             Self::Output(error) => write!(formatter, "heated output construction failed: {error}"),
             Self::Resolution(error) => write!(formatter, "process resolution failed: {error}"),
         }
@@ -213,6 +222,7 @@ impl Error for SensibleHeatingResolutionError {
             Self::Heat(error) => Some(error),
             Self::Energy(error) => Some(error),
             Self::Duration(error) => Some(error),
+            Self::ConditionDuration(error) => Some(error),
             Self::Output(error) => Some(error),
             Self::Resolution(error) => Some(error),
             Self::UnknownThermalProcess { process: _process } => None,
@@ -383,11 +393,12 @@ pub fn resolve_sensible_heating_process(
         registries.core().physical_tick_duration(),
     )
     .map_err(SensibleHeatingResolutionError::Duration)?;
-    let equipment_condition_after = calculate_condition_after_active_ticks(
+    let equipment_condition_after = calculate_usable_condition_after_active_ticks(
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
         duration,
-    );
+    )
+    .map_err(SensibleHeatingResolutionError::ConditionDuration)?;
 
     let mut outputs = Vec::with_capacity(output_masses.len());
     for ((commodity, composition, particle_size), mass) in output_masses {
