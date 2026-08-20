@@ -1,9 +1,8 @@
-//! Identity-preserving reversal of pristine equipment assembly.
+//! Conserved recovery of assembled equipment.
 //!
-//! This is deliberately narrower than salvage. Once equipment has accumulated wear, recovering its
-//! original shaped components would erase physical degradation that the material model does not yet
-//! represent. Worn equipment therefore remains intact until a real salvage/degradation resolver
-//! exists.
+//! Pristine equipment reverses assembly exactly. Worn equipment with an authored recovery form is
+//! destructively decommissioned into same-material scrap so wear cannot be erased and failed tools do
+//! not permanently trap matter. Equipment without an authored worn-recovery policy remains intact.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -32,7 +31,7 @@ pub enum EquipmentDisassemblyError {
     NoEmbodiedMatter {
         equipment: EquipmentId,
     },
-    WornEquipment {
+    WornRecoveryUnavailable {
         equipment: EquipmentId,
         condition: Condition,
     },
@@ -85,12 +84,12 @@ impl Display for EquipmentDisassemblyError {
                 "equipment {} has no embodied matter to disassemble",
                 equipment.value()
             ),
-            Self::WornEquipment {
+            Self::WornRecoveryUnavailable {
                 equipment,
                 condition,
             } => write!(
                 formatter,
-                "equipment {} is at {} ppm condition; exact component recovery is allowed only while pristine",
+                "equipment {} is at {} ppm condition and its definition has no destructive worn-recovery form",
                 equipment.value(),
                 condition.parts_per_million()
             ),
@@ -177,7 +176,7 @@ impl Error for EquipmentDisassemblyError {
             Self::StoredMatterLoad(error) => Some(error),
             Self::UnknownEquipment { .. }
             | Self::NoEmbodiedMatter { .. }
-            | Self::WornEquipment { .. }
+            | Self::WornRecoveryUnavailable { .. }
             | Self::EquipmentMounted { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
@@ -430,7 +429,7 @@ impl ValidatedEquipmentDisassembly {
     }
 }
 
-/// Reverses assembly only for pristine, idle, unmounted equipment.
+/// Recovers idle, unmounted assembled equipment without allowing wear to reset into pristine parts.
 pub fn validate_disassemble_equipment(
     registries: &Registries,
     state: &AppState,
@@ -444,12 +443,20 @@ pub fn validate_disassemble_equipment(
     if record.embodied_mass().is_zero() || record.embodied_material().is_empty() {
         return Err(EquipmentDisassemblyError::NoEmbodiedMatter { equipment });
     }
-    if record.condition() != Condition::PRISTINE {
-        return Err(EquipmentDisassemblyError::WornEquipment {
-            equipment,
-            condition: record.condition(),
-        });
-    }
+    let worn_recovery_form = if record.condition() == Condition::PRISTINE {
+        None
+    } else {
+        let definition = registries
+            .equipment()
+            .get_equipment(record.definition())
+            .ok_or(EquipmentDisassemblyError::InvalidEmbodiedMatter { equipment })?;
+        Some(definition.worn_recovery_form().ok_or(
+            EquipmentDisassemblyError::WornRecoveryUnavailable {
+                equipment,
+                condition: record.condition(),
+            },
+        )?)
+    };
     if let Some(element) = record.supported_by() {
         return Err(EquipmentDisassemblyError::EquipmentMounted { equipment, element });
     }
@@ -471,14 +478,19 @@ pub fn validate_disassemble_equipment(
         return Err(EquipmentDisassemblyError::EquipmentBusyManualPower { equipment });
     }
 
+    let entries = record
+        .embodied_material()
+        .iter()
+        .map(|trace| match worn_recovery_form {
+            Some(form) => MaterialIngressEntry::from_reformed_consumed_trace(trace, form),
+            None => MaterialIngressEntry::from_consumed_trace(trace),
+        })
+        .collect::<Vec<_>>();
     let ingress = validate_material_ingress(
         registries,
         state.inventory(),
         destination,
-        record
-            .embodied_material()
-            .iter()
-            .map(MaterialIngressEntry::from_consumed_trace),
+        entries,
         state.tick(),
     )
     .map_err(|error| map_ingress_error(equipment, error))?;
@@ -526,7 +538,7 @@ mod tests {
     use super::*;
     use crate::content::{
         ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
-        FORM_FLYWHEEL, FORM_HANDLE, FORM_TOOL, MANUAL_POWER_HAND_CRANK, MATERIAL_STONE,
+        FORM_FLYWHEEL, FORM_HANDLE, FORM_SCRAP, FORM_TOOL, MANUAL_POWER_HAND_CRANK, MATERIAL_STONE,
         MATERIAL_WOOD, build_registries,
     };
     use crate::core::quantity::{Energy, Temperature};
@@ -674,7 +686,7 @@ mod tests {
     }
 
     #[test]
-    fn worn_equipment_cannot_disassemble_into_pristine_components() {
+    fn worn_equipment_recovers_as_same_material_scrap_without_resetting_components() {
         let registries = build_registries();
         let mut state = AppState::new(WorldSeed::new(0xD15A_0002));
         let pick = assembled_pick(&registries, &mut state);
@@ -685,21 +697,41 @@ mod tests {
             .unwrap_or_else(|error| panic!("worn disassembly wear decision failed: {error}"));
         apply_equipment_condition_plan(&mut state, wear)
             .unwrap_or_else(|error| panic!("worn disassembly wear commit failed: {error}"));
-        let condition = state
-            .equipment()
-            .get_equipment(pick)
-            .unwrap_or_else(|| panic!("worn disassembly pick disappeared"))
-            .condition();
-        let before = state.clone();
+        let matter_before = calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("worn disassembly matter before failed: {error}"))
+            .total();
 
-        assert!(matches!(
-            validate_disassemble_equipment(&registries, &state, pick, destination),
-            Err(EquipmentDisassemblyError::WornEquipment {
-                equipment,
-                condition: found,
-            }) if equipment == pick && found == condition
-        ));
-        assert_eq!(state, before);
+        let outcome = validate_disassemble_equipment(&registries, &state, pick, destination)
+            .unwrap_or_else(|error| panic!("worn disassembly validation failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("worn disassembly commit failed: {error}"));
+        assert!(state.equipment().get_equipment(pick).is_none());
+        let recovered = outcome
+            .recovered_lots()
+            .iter()
+            .map(|lot| {
+                state
+                    .inventory()
+                    .get_lot(*lot)
+                    .unwrap_or_else(|| panic!("worn recovery lot disappeared"))
+                    .commodity()
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            recovered,
+            std::collections::BTreeSet::from([
+                CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+                CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
+            ])
+        );
+        assert_eq!(
+            calculate_matter_accounting(&state)
+                .unwrap_or_else(|error| panic!("worn disassembly matter after failed: {error}"))
+                .total(),
+            matter_before
+        );
+        validate_loaded_state(&registries, &state)
+            .unwrap_or_else(|error| panic!("worn disassembly state audit failed: {error}"));
     }
 
     #[test]

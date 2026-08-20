@@ -40,7 +40,7 @@ fn condition(parts_per_million: u32) -> Condition {
     }
 }
 
-fn crusher_maintenance() -> EquipmentMaintenanceProfile {
+fn workshop_maintenance() -> EquipmentMaintenanceProfile {
     EquipmentMaintenanceProfile::new(
         CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
         Mass::from_milligrams(50_000),
@@ -171,7 +171,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             thresholds(),
             vec![crusher_curve],
         )
-        .with_maintenance_profile(crusher_maintenance()),
+        .with_maintenance_profile(workshop_maintenance()),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_ELECTRIC_FURNACE,
             "workshop electric furnace",
@@ -192,7 +192,8 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             ]),
             thresholds(),
             vec![furnace_curve],
-        ),
+        )
+        .with_maintenance_profile(workshop_maintenance()),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_CASTING_MOLD,
             "workshop cooled casting mold",
@@ -213,7 +214,8 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             ]),
             thresholds(),
             vec![casting_mold_curve],
-        ),
+        )
+        .with_maintenance_profile(workshop_maintenance()),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_DRY_SCREEN,
             "workshop dry screen",
@@ -230,7 +232,8 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             ]),
             thresholds(),
             vec![screen_curve],
-        ),
+        )
+        .with_maintenance_profile(workshop_maintenance()),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_GRINDING_MILL,
             "workshop grinding mill",
@@ -247,7 +250,8 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             ]),
             thresholds(),
             vec![grinder_curve],
-        ),
+        )
+        .with_maintenance_profile(workshop_maintenance()),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_STONE_PICK,
             "knapped stone pick",
@@ -278,7 +282,8 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
                 Mass::from_milligrams(200_000),
             ),
-        ])),
+        ]))
+        .with_worn_recovery_form(FORM_SCRAP),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_STONE_HAND_CRANK,
             "stone hand crank",
@@ -299,7 +304,8 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
                 Mass::from_milligrams(200_000),
             ),
-        ])),
+        ]))
+        .with_worn_recovery_form(FORM_SCRAP),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_COPPER_REINFORCED_PICK,
             "copper-reinforced stone pick",
@@ -335,6 +341,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 Mass::from_milligrams(20_000),
             ),
         ]))
+        .with_worn_recovery_form(FORM_SCRAP)
         .with_upgrade_profile(EquipmentUpgradeProfile::new(
             EQUIPMENT_STONE_PICK,
             MaterialAssemblyProfile::new(vec![MaterialInputSpec::new(
@@ -367,6 +374,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 Mass::from_milligrams(20_000),
             ),
         ]))
+        .with_worn_recovery_form(FORM_SCRAP)
         .with_upgrade_profile(EquipmentUpgradeProfile::new(
             EQUIPMENT_STONE_HAND_CRANK,
             MaterialAssemblyProfile::new(vec![MaterialInputSpec::new(
@@ -400,7 +408,8 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
                 Mass::from_milligrams(600_000),
             ),
-        ])),
+        ]))
+        .with_worn_recovery_form(FORM_SCRAP),
     ])
 }
 
@@ -425,6 +434,19 @@ mod tests {
             assert_eq!(
                 resolve_equipment_capability(definition, Condition::FAILED, capability),
                 Some(CapabilityValue::Power(Power::ZERO))
+            );
+        }
+    }
+
+    #[test]
+    fn every_builtin_equipment_definition_has_a_condition_recovery_route() {
+        let registry = build_equipment_registry();
+        for definition in registry.definitions() {
+            assert!(
+                definition.maintenance_profile().is_some()
+                    || definition.worn_recovery_form().is_some(),
+                "built-in equipment {} must be repairable or destructively recoverable after wear",
+                definition.id().value()
             );
         }
     }

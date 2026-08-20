@@ -86,6 +86,10 @@ pub enum StructureValidationError {
         element: StructuralElementId,
         form: crate::material::FormId,
     },
+    DamagedRecoveryFormEmbodied {
+        element: StructuralElementId,
+        form: crate::material::FormId,
+    },
     InvalidEmbodiedPhaseState {
         element: StructuralElementId,
         error: MaterialPhaseStateError,
@@ -169,6 +173,12 @@ impl Display for StructureValidationError {
             Self::UnsupportedEmbodiedParticulateForm { element, form } => write!(
                 formatter,
                 "structural element {} directly embodies particulate form {} without consolidation physics",
+                element.value(),
+                form.value()
+            ),
+            Self::DamagedRecoveryFormEmbodied { element, form } => write!(
+                formatter,
+                "structural element {} directly embodies damaged-recovery form {} without reprocessing it into load-bearing stock",
                 element.value(),
                 form.value()
             ),
@@ -414,18 +424,10 @@ impl Error for StructureValidationError {
                 element: _element,
                 profile: _profile,
             } => None,
-            Self::UnknownMaterial {
-                element: _element,
-                material: _material,
-            }
-            | Self::UnsupportedEmbodiedComposition {
-                element: _element,
-                material: _material,
-            }
-            | Self::UnknownEmbodiedCompositionMaterial {
-                element: _element,
-                material: _material,
-            } => None,
+            Self::UnknownMaterial { .. }
+            | Self::DamagedRecoveryFormEmbodied { .. }
+            | Self::UnsupportedEmbodiedComposition { .. }
+            | Self::UnknownEmbodiedCompositionMaterial { .. } => None,
             Self::ZeroCrossSection { element: _element }
             | Self::ZeroLength { element: _element }
             | Self::EmbodiedMassOverflow { element: _element }
@@ -533,12 +535,12 @@ pub(crate) fn validate_loaded_structure(
                 record: record.id,
             });
         }
-        if profiles.get_profile(record.profile()).is_none() {
-            return Err(StructureValidationError::UnknownProfile {
+        let profile = profiles.get_profile(record.profile()).ok_or(
+            StructureValidationError::UnknownProfile {
                 element: record.id,
                 profile: record.profile(),
-            });
-        }
+            },
+        )?;
         if materials.get_material(record.material()).is_none() {
             return Err(StructureValidationError::UnknownMaterial {
                 element: record.id,
@@ -593,6 +595,12 @@ pub(crate) fn validate_loaded_structure(
                         form: commodity.form(),
                     },
                 );
+            }
+            if commodity.form() == profile.damaged_recovery_form() {
+                return Err(StructureValidationError::DamagedRecoveryFormEmbodied {
+                    element: record.id,
+                    form: commodity.form(),
+                });
             }
             validate_material_phase_state(
                 materials,

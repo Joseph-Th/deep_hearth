@@ -99,7 +99,9 @@ or future design detail.
 - Additive equipment upgrades preserve identity, accumulated condition, and existing material traces
   while adding exact authored matter.
 - Idle, unmounted, pristine assembled equipment can be disassembled back into its exact embodied
-  traces. Worn-equipment salvage and maintenance-scrap recovery are not implemented.
+  traces. Authored worn assembled equipment can be decommissioned into conserved same-material scrap,
+  preventing wear from becoming either a reset button or a permanent matter trap. Maintenance-scrap
+  recovery is not implemented.
 - Mounted equipment contributes an equipment-owned structural load and requires active support for new
   machine work. Direct player-power and hand-mining tools must be unmounted while their labor is active,
   so structural failure cannot leave portable work running through an unusable support.
@@ -115,9 +117,11 @@ or future design detail.
 - Structural members persist geometry, lifecycle, damage, support relationships, embodied material,
   and source-separated loads. Deterministic axial analysis produces stable, strained, cracking, and
   failed states with support-loss cascades.
-- Structural construction and deconstruction conserve exact material traces. Self-weight is derived
-  from embodied matter. Stockpile, equipment, and fluid weight are owned by their respective source
-  integrations.
+- Structural construction and deconstruction conserve embodied matter and provenance. Undamaged
+  members recover exact traces; cracked or failed members recover as the profile's authored
+  non-load-bearing scrap form, which cannot be fed directly back into that structural profile.
+  Self-weight is derived from embodied matter. Stockpile, equipment, and fluid weight are owned by
+  their respective source integrations.
 - Finite homogeneous fluid stores track identity, volume, temperature, capacity, and optional support.
   Transfers conserve exact volume and require an opaque physical resolution; unlike fluids or
   temperatures are not mixed implicitly.
@@ -191,10 +195,10 @@ The following capabilities are outside the current runtime boundary:
   and tailings ownership;
 - environmental heat fields and transport, vaporization, combustion, fuels, emissions, mixed/alloy
   phase diagrams, mineral concentration, chemical smelting/reduction, alloying, forging, and machining;
-- general worn-equipment salvage, maintenance-scrap recovery, repair labor/tools/time/access, and
-  richer maintenance chemistry;
+- bespoke worn-equipment salvage fractions, maintenance-scrap recovery, repair labor/tools/time/access,
+  and richer maintenance chemistry;
 - structural bending, shear, torsion, buckling, joints/connections, terrain support, construction
-  labor/tooling/waste, and non-exact demolition/salvage;
+  labor/tooling/waste, and fractional demolition/salvage streams beyond conserved damaged-member scrap;
 - shaft/belt power networks, rotational inertia/slip/clutches, steam systems, electrical topology,
   generation/distribution/protection, and energy-store spatial/support integration;
 - hydrology, groundwater/surface water, channels, pumps, irrigation, wastewater, sanitation, fluid

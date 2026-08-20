@@ -9,7 +9,10 @@ use crate::capability::{
 };
 use crate::core::quantity::Mass;
 use crate::maintenance::{Condition, MaintenanceThresholds};
-use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialRegistry};
+use crate::material::{
+    CommodityKey, FormId, MaterialAssemblyProfile, MaterialPhase, MaterialRegistry,
+    ParticleSizeStatePolicy,
+};
 
 /// Stable authored identifier for one equipment definition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -228,6 +231,7 @@ pub struct EquipmentDefinition {
     maintenance_profile: Option<EquipmentMaintenanceProfile>,
     assembly_profile: Option<MaterialAssemblyProfile>,
     upgrade_profile: Option<EquipmentUpgradeProfile>,
+    worn_recovery_form: Option<FormId>,
 }
 
 /// Authored additive conversion from one existing equipment class into this definition.
@@ -327,6 +331,7 @@ impl EquipmentDefinition {
             maintenance_profile: None,
             assembly_profile: None,
             upgrade_profile: None,
+            worn_recovery_form: None,
         }
     }
 
@@ -346,6 +351,18 @@ impl EquipmentDefinition {
     #[must_use]
     pub fn with_assembly_profile(mut self, profile: MaterialAssemblyProfile) -> Self {
         self.assembly_profile = Some(profile);
+        self
+    }
+
+    /// Adds a destructive same-material recovery form for worn assembled equipment.
+    #[must_use]
+    pub fn with_worn_recovery_form(mut self, form: FormId) -> Self {
+        assert!(
+            self.assembly_profile.is_some(),
+            "equipment definition {} cannot author worn recovery without embodied assembly matter",
+            self.id.value()
+        );
+        self.worn_recovery_form = Some(form);
         self
     }
 
@@ -408,6 +425,11 @@ impl EquipmentDefinition {
     #[must_use]
     pub fn upgrade_profile(&self) -> Option<&EquipmentUpgradeProfile> {
         self.upgrade_profile.as_ref()
+    }
+
+    #[must_use]
+    pub const fn worn_recovery_form(&self) -> Option<FormId> {
+        self.worn_recovery_form
     }
 }
 
@@ -492,6 +514,44 @@ impl EquipmentRegistry {
                         .is_ok(),
                     "equipment definition {} assembly profile must use existing consolidated solid commodities",
                     definition.id().value()
+                );
+            }
+            if let Some(recovery_form) = definition.worn_recovery_form() {
+                let assembly = definition.assembly_profile().unwrap_or_else(|| {
+                    panic!(
+                        "equipment definition {} has worn recovery but no assembly profile",
+                        definition.id().value()
+                    )
+                });
+                let form = materials.get_form(recovery_form).unwrap_or_else(|| {
+                    panic!(
+                        "equipment definition {} references missing worn-recovery form {}",
+                        definition.id().value(),
+                        recovery_form.value()
+                    )
+                });
+                assert_eq!(
+                    form.phase(),
+                    MaterialPhase::Solid,
+                    "equipment definition {} worn-recovery form {} must be solid",
+                    definition.id().value(),
+                    recovery_form.value()
+                );
+                assert_eq!(
+                    form.particle_size_policy(),
+                    ParticleSizeStatePolicy::Untracked,
+                    "equipment definition {} worn-recovery form {} must not require particulate state",
+                    definition.id().value(),
+                    recovery_form.value()
+                );
+                assert!(
+                    assembly
+                        .inputs()
+                        .iter()
+                        .all(|input| input.commodity().form() != recovery_form),
+                    "equipment definition {} worn-recovery form {} cannot also be a direct assembly input",
+                    definition.id().value(),
+                    recovery_form.value()
                 );
             }
         }

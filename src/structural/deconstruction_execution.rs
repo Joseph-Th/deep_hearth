@@ -1,8 +1,8 @@
-//! Conserved deconstruction of structural members back into inventory.
+//! Conserved deconstruction and damaged-member recovery into inventory.
 //!
-//! The current resolution preserves every embodied material trace exactly. Future physical
-//! dismantling/demolition resolvers may replace that identity-preserving result with explicit
-//! salvage, debris, and waste streams, but direct structural deletion can never destroy matter.
+//! Undamaged members preserve embodied traces exactly. Cracked or failed members irreversibly reform
+//! those same traces into the structural profile's authored damaged-recovery form so failure cannot
+//! become a free pristine-material reset. Direct structural deletion can never destroy matter.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -51,6 +51,10 @@ pub enum StructuralDeconstructionError {
     UnknownElement {
         element: StructuralElementId,
     },
+    UnknownProfile {
+        element: StructuralElementId,
+        profile: super::StructuralProfileId,
+    },
     NoEmbodiedMatter {
         element: StructuralElementId,
     },
@@ -82,6 +86,12 @@ impl Display for StructuralDeconstructionError {
             Self::UnknownElement { element } => {
                 write!(formatter, "unknown structural element {}", element.value())
             }
+            Self::UnknownProfile { element, profile } => write!(
+                formatter,
+                "structural element {} references unknown profile {} during recovery",
+                element.value(),
+                profile.value()
+            ),
             Self::NoEmbodiedMatter { element } => write!(
                 formatter,
                 "structural element {} has no embodied matter to recover",
@@ -142,9 +152,10 @@ impl Error for StructuralDeconstructionError {
             Self::Structure(error) => Some(error),
             Self::DestinationStorage(error) => Some(error),
             Self::StoredMatterLoad(error) => Some(error),
-            Self::UnknownElement { element: _element }
-            | Self::NoEmbodiedMatter { element: _element }
-            | Self::InvalidEmbodiedMatter { element: _element } => None,
+            Self::UnknownElement { .. }
+            | Self::UnknownProfile { .. }
+            | Self::NoEmbodiedMatter { .. }
+            | Self::InvalidEmbodiedMatter { .. } => None,
             Self::UnknownDestination {
                 stockpile: _stockpile,
             }
@@ -314,7 +325,7 @@ impl ValidatedStructuralDeconstruction {
     }
 }
 
-/// Validates identity-preserving recovery of all embodied matter from one structural member.
+/// Validates conserved recovery of all embodied matter from one structural member.
 pub fn validate_structural_deconstruction(
     registries: &Registries,
     state: &AppState,
@@ -328,14 +339,36 @@ pub fn validate_structural_deconstruction(
     if record.embodied_mass().is_zero() || record.embodied_material().is_empty() {
         return Err(StructuralDeconstructionError::NoEmbodiedMatter { element });
     }
+    let profile = registries
+        .structural()
+        .get_profile(record.profile())
+        .ok_or(StructuralDeconstructionError::UnknownProfile {
+            element,
+            profile: record.profile(),
+        })?;
+    let entries = if record.is_cracked() {
+        record
+            .embodied_material()
+            .iter()
+            .map(|trace| {
+                MaterialIngressEntry::from_reformed_consumed_trace(
+                    trace,
+                    profile.damaged_recovery_form(),
+                )
+            })
+            .collect::<Vec<_>>()
+    } else {
+        record
+            .embodied_material()
+            .iter()
+            .map(MaterialIngressEntry::from_consumed_trace)
+            .collect::<Vec<_>>()
+    };
     let ingress = validate_material_ingress(
         registries,
         state.inventory(),
         resolution.destination,
-        record
-            .embodied_material()
-            .iter()
-            .map(MaterialIngressEntry::from_consumed_trace),
+        entries,
         state.tick(),
     )
     .map_err(|error| map_ingress_error(element, error))?;
@@ -395,7 +428,7 @@ mod tests {
     use super::super::construction_execution::bind_structural_construction_selection;
     use super::*;
     use crate::content::{
-        FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+        FORM_LOG, FORM_SCRAP, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
     };
     use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
     use crate::core::state::validate_loaded_state;
@@ -409,9 +442,10 @@ mod tests {
     use crate::matter::calculate_matter_accounting;
     use crate::spatial::{VoxelBounds, VoxelCoord};
     use crate::structural::{
-        StructuralLoadKind, StructuralMutationError, add_structural_element,
-        materialize_structural_element_for_test, validate_activate_structural_element,
-        validate_remove_structural_element, validate_structural_construction,
+        StructuralConstructionError, StructuralLifecycle, StructuralLoadKind,
+        StructuralMutationError, add_structural_element, materialize_structural_element_for_test,
+        validate_activate_structural_element, validate_remove_structural_element,
+        validate_set_structural_load, validate_structural_construction,
     };
 
     fn active_storage_support(
@@ -575,6 +609,99 @@ mod tests {
             Ok(initial)
         );
         assert_eq!(explicit_energy(&registries, &state), initial_energy);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+
+    #[test]
+    fn failed_member_recovers_as_scrap_that_cannot_directly_reset_structural_damage() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5D00_0006));
+        let mass = Mass::from_milligrams(10);
+        let element = materialized_member(&registries, &mut state, mass);
+        let activation = validate_activate_structural_element(&registries, &state, element)
+            .unwrap_or_else(|error| panic!("damage-recovery activation failed: {error}"));
+        activation
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("damage-recovery activation commit failed: {error}"));
+        let overload = validate_set_structural_load(
+            &registries,
+            &state,
+            element,
+            StructuralLoadKind::Snow,
+            Force::from_millinewtons(50_000_000),
+        )
+        .unwrap_or_else(|error| panic!("damage-recovery overload failed: {error}"));
+        overload
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("damage-recovery overload commit failed: {error}"));
+        let failed = state
+            .structures()
+            .get_element(element)
+            .unwrap_or_else(|| panic!("failed member disappeared before recovery"));
+        assert_eq!(failed.lifecycle(), StructuralLifecycle::Failed);
+        assert!(failed.is_cracked());
+
+        let destination = add_solid_stockpile_for_test(&mut state, mass)
+            .unwrap_or_else(|error| panic!("damage-recovery destination failed: {error}"));
+        let matter_before = calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("damage-recovery accounting before failed: {error}"))
+            .total();
+        let recovery = validate_structural_deconstruction(
+            &registries,
+            &state,
+            make_test_deconstruction_resolution(element, destination),
+        )
+        .unwrap_or_else(|error| panic!("damage-recovery validation failed: {error}"));
+        let outcome = recovery
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("damage-recovery commit failed: {error}"));
+        assert_eq!(outcome.recovered_lots().len(), 1);
+        let recovered = outcome.recovered_lots()[0];
+        let lot = state
+            .inventory()
+            .get_lot(recovered)
+            .unwrap_or_else(|| panic!("damage-recovery scrap disappeared"));
+        assert_eq!(
+            lot.commodity(),
+            CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP)
+        );
+        assert_eq!(lot.mass(), mass);
+        assert_eq!(
+            calculate_matter_accounting(&state).map(|accounting| accounting.total()),
+            Ok(matter_before)
+        );
+
+        let bounds = VoxelBounds::new(VoxelCoord::new(4, 0, 0), VoxelCoord::new(5, 2, 1))
+            .unwrap_or_else(|error| panic!("damage-reset replacement bounds failed: {error}"));
+        let replacement = add_structural_element(
+            &registries,
+            &mut state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            crate::structural::make_test_structural_geometry(
+                bounds,
+                wood_length_for_mass(mass),
+                Area::from_square_millimeters(1_000),
+            ),
+            true,
+        )
+        .unwrap_or_else(|error| panic!("damage-reset replacement member failed: {error}"));
+        let resolution = bind_structural_construction_selection(
+            &state,
+            replacement,
+            destination,
+            &[MaterialLotSelection::new(recovered, mass)],
+        )
+        .unwrap_or_else(|error| panic!("damage-reset construction binding failed: {error:?}"));
+        assert_eq!(
+            validate_structural_construction(&registries, &state, resolution),
+            Err(
+                StructuralConstructionError::DamagedRecoveryFormNotLoadBearing {
+                    element: replacement,
+                    form: FORM_SCRAP,
+                }
+            )
+        );
         assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     }
 

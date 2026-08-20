@@ -13,7 +13,7 @@ use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
 #[cfg(any(test, feature = "test-gameplay"))]
 use crate::material::MaterialLotSpec;
-use crate::material::{CompositionError, FormId, MaterialId};
+use crate::material::{CommodityKey, CompositionError, FormId, MaterialId};
 use crate::registry::Registries;
 
 use super::coalescing::LotMergePolicy;
@@ -64,6 +64,22 @@ impl MaterialIngressEntry {
         Self {
             mass: trace.mass(),
             profile: trace.profile().clone(),
+            provenance: trace.provenance(),
+        }
+    }
+
+    /// Preserves matter, thermal state, composition, and provenance while an owning subsystem
+    /// physically degrades a consolidated parcel into another form of the same material.
+    #[must_use]
+    pub(crate) fn from_reformed_consumed_trace(
+        trace: &ConsumedMaterialTrace,
+        target_form: FormId,
+    ) -> Self {
+        let mut profile = trace.profile().clone();
+        profile.commodity = CommodityKey::new(profile.commodity().material(), target_form);
+        Self {
+            mass: trace.mass(),
+            profile,
             provenance: trace.provenance(),
         }
     }

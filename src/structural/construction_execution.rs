@@ -192,6 +192,10 @@ pub enum StructuralConstructionError {
     UnknownElement {
         element: StructuralElementId,
     },
+    UnknownProfile {
+        element: StructuralElementId,
+        profile: super::StructuralProfileId,
+    },
     ElementNotPlanned {
         element: StructuralElementId,
         lifecycle: StructuralLifecycle,
@@ -218,6 +222,10 @@ pub enum StructuralConstructionError {
         phase: MaterialPhase,
     },
     UnsupportedParticulateForm {
+        element: StructuralElementId,
+        form: FormId,
+    },
+    DamagedRecoveryFormNotLoadBearing {
         element: StructuralElementId,
         form: FormId,
     },
@@ -248,6 +256,12 @@ impl Display for StructuralConstructionError {
             Self::UnknownElement { element } => {
                 write!(formatter, "unknown structural element {}", element.value())
             }
+            Self::UnknownProfile { element, profile } => write!(
+                formatter,
+                "structural element {} references unknown profile {}",
+                element.value(),
+                profile.value()
+            ),
             Self::ElementNotPlanned { element, lifecycle } => write!(
                 formatter,
                 "structural element {} is {lifecycle:?} and cannot receive construction matter",
@@ -262,6 +276,12 @@ impl Display for StructuralConstructionError {
             Self::UnsupportedParticulateForm { element, form } => write!(
                 formatter,
                 "structural element {} cannot directly embody particulate form {}; consolidation physics must produce a load-bearing bulk form first",
+                element.value(),
+                form.value()
+            ),
+            Self::DamagedRecoveryFormNotLoadBearing { element, form } => write!(
+                formatter,
+                "structural element {} cannot be constructed directly from damaged-recovery form {}; reprocessing must first produce usable construction stock",
                 element.value(),
                 form.value()
             ),
@@ -347,6 +367,10 @@ impl Error for StructuralConstructionError {
             Self::UnknownElement { element: _element }
             | Self::AlreadyMaterialized { element: _element }
             | Self::SelfWeightOverflow { element: _element } => None,
+            Self::UnknownProfile {
+                element: _element,
+                profile: _profile,
+            } => None,
             Self::ElementNotPlanned {
                 element: _element,
                 lifecycle: _lifecycle,
@@ -365,6 +389,10 @@ impl Error for StructuralConstructionError {
                 form: _form,
             }
             | Self::UnsupportedParticulateForm {
+                element: _element,
+                form: _form,
+            }
+            | Self::DamagedRecoveryFormNotLoadBearing {
                 element: _element,
                 form: _form,
             } => None,
@@ -531,6 +559,13 @@ pub fn validate_structural_construction(
     if !record.embodied_mass().is_zero() || !record.embodied_material().is_empty() {
         return Err(StructuralConstructionError::AlreadyMaterialized { element });
     }
+    let profile = registries
+        .structural()
+        .get_profile(record.profile())
+        .ok_or(StructuralConstructionError::UnknownProfile {
+            element,
+            profile: record.profile(),
+        })?;
     for trace in resolution.selection.consumed_inputs() {
         let form_id = trace.profile().commodity().form();
         let Some(form) = registries.materials().get_form(form_id) else {
@@ -551,6 +586,14 @@ pub fn validate_structural_construction(
                 element,
                 form: form_id,
             });
+        }
+        if form_id == profile.damaged_recovery_form() {
+            return Err(
+                StructuralConstructionError::DamagedRecoveryFormNotLoadBearing {
+                    element,
+                    form: form_id,
+                },
+            );
         }
         let found = trace.profile().commodity().material();
         if found != record.material() {

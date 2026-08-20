@@ -328,6 +328,12 @@ an opaque single-use `EquipmentRepairResolution`; validation binds equipment/inv
 occupancy, replacement selection, and structural consequences before commit. Repair changes physical
 form and condition without deleting replacement matter or manufacturing reusable parts.
 
+Authored bootstrapped workshop machines that accumulate condition wear provide a maintenance route.
+Runtime-assembled equipment may additionally author a worn-recovery form. Pristine disassembly returns
+exact embodied traces, while worn decommissioning reforms each trace into that same-material recovery
+form. Registry validation forbids the recovery form from also being a direct assembly input, so wear
+cannot be cleared by disassemble/reassemble cycling.
+
 Engineering scalar modules provide exact integer foundations for:
 
 - power integrated over the physical world duration represented by ticks into energy with carried
@@ -377,9 +383,12 @@ only by the structural owner. Supported source-stockpile load changes are part o
 construction transaction.
 
 Materialized members cannot be generically deleted. `StructuralDeconstructionResolution` is an opaque
-single-use authorization that couples member removal with exact trace-preserving inventory ingress.
-Failed debris uses the same conservation boundary. Any future lossy demolition must model recovered,
-waste, and debris streams explicitly.
+single-use authorization that couples member removal with conserved inventory ingress. Undamaged
+members preserve exact traces. Cracked or failed members reform every trace into the structural
+profile's authored damaged-recovery form, and that form is rejected as direct construction feedstock
+for the same profile. This preserves matter and provenance without turning structural damage into a
+free reset. Any future fractional or lossy demolition must model recovered, waste, and debris streams
+explicitly.
 
 ## 18. Stockpile Structural Support
 
@@ -419,9 +428,10 @@ registered consolidated solids unless a future physical transformation owner pro
 additions. Upgrade preserves equipment identity, creation time, condition, and existing traces; it is
 not repair.
 
-Pristine, idle, unmounted assembled equipment can be disassembled to exact traces. Material-backed
-energy stores can be disassembled only while empty and idle. Any degradation or stored energy blocks
-exact reversal where the current model cannot represent the recovered state.
+Pristine, idle, unmounted assembled equipment can be disassembled to exact traces. Authored worn
+equipment recovery decommissions embodied traces into same-material scrap rather than restoring shaped
+components. Material-backed energy stores can be disassembled only while empty and idle. Stored energy
+blocks exact reversal where the current model cannot represent the recovered state.
 
 `PlayerWorkState` is the exclusive labor owner for manual crafting, mining, and direct player power.
 The survival system projects authored exertion from active work and combines it with basal physiology.
