@@ -15,7 +15,10 @@ pub(crate) use completion::{
 };
 pub(crate) use start::validate_start_manual_process;
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-industry")
+))]
 mod tests {
     use super::*;
     use crate::content::{

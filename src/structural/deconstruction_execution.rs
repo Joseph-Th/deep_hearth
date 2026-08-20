@@ -387,7 +387,10 @@ pub(crate) const fn make_test_deconstruction_resolution(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
+))]
 mod tests {
     use super::super::construction_execution::bind_structural_construction_selection;
     use super::*;

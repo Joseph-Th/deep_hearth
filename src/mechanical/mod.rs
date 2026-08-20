@@ -486,7 +486,10 @@ pub fn calculate_mechanical_transmission(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-industry")
+))]
 mod tests {
     use super::*;
 

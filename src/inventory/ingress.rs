@@ -448,7 +448,10 @@ pub(crate) fn apply_material_ingress(
     resulting_lots
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
+))]
 mod tests {
     use super::*;
     use crate::content::{FORM_LOG, MATERIAL_WOOD, build_registries};

@@ -103,7 +103,10 @@ impl MaterialAssemblyProfile {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-foundation")
+))]
 mod tests {
     use super::*;
     use crate::content::{FORM_CRUSHED, FORM_MOLTEN, MATERIAL_COPPER, build_registries};

@@ -108,7 +108,10 @@ fn ceiling_divide(numerator: u128, denominator: u128) -> u128 {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
+))]
 mod tests {
     use super::*;
     use crate::content::{MATERIAL_COPPER, MATERIAL_WOOD, build_registries};

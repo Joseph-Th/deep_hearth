@@ -57,7 +57,10 @@ pub fn calculate_pressure_force_ceiling(pressure: Pressure, area: Area) -> Force
     Force::from_millinewtons(divide_ceiling(numerator, 1_000))
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
+))]
 mod tests {
     use super::*;
 

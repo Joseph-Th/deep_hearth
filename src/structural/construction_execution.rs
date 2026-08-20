@@ -688,7 +688,10 @@ pub(crate) fn materialize_structural_element_for_test(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
+))]
 mod tests {
     use super::*;
     use crate::content::{

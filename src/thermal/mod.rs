@@ -468,7 +468,10 @@ pub fn calculate_material_thermal_energy(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-industry")
+))]
 mod tests {
     use super::*;
     use crate::content::{MATERIAL_COPPER, MATERIAL_SLAG, build_registries};

@@ -90,7 +90,10 @@ const fn div_ceil(value: u128, divisor: u128) -> u128 {
     quotient + ((!value.is_multiple_of(divisor)) as u128)
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-player")
+))]
 mod tests {
     use super::*;
 

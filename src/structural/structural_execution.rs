@@ -1152,7 +1152,10 @@ pub(crate) fn validate_set_owned_structural_loads(
     }))
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
+))]
 mod tests {
     use super::*;
     use crate::content::{

@@ -258,7 +258,10 @@ impl Display for VoxelBoundsError {
 
 impl Error for VoxelBoundsError {}
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-foundation")
+))]
 mod tests {
     use super::*;
 

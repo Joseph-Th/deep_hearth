@@ -168,7 +168,10 @@ fn collect_dependencies(
     assembled.push(id);
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-render")
+))]
 mod tests {
     use super::*;
     use crate::shader::{

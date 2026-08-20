@@ -58,7 +58,10 @@ pub(crate) fn calculate_player_work_resource_budget(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-player")
+))]
 mod tests {
     use super::*;
     use crate::survival::{HydrationDefinition, MetabolismDefinition, NutritionDefinition};

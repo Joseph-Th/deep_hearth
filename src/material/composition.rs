@@ -317,7 +317,10 @@ impl Display for CompositionConstraintError {
 
 impl Error for CompositionConstraintError {}
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-foundation")
+))]
 mod tests {
     use super::*;
 

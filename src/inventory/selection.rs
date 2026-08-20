@@ -471,7 +471,10 @@ fn select_input_lot_slices(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
+))]
 mod tests {
     use super::*;
     use crate::content::{FORM_LOG, MATERIAL_WOOD, build_registries};

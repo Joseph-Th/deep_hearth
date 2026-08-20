@@ -326,7 +326,10 @@ impl Display for ParticleSizeDistributionError {
 
 impl Error for ParticleSizeDistributionError {}
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-foundation")
+))]
 mod tests {
     use super::*;
 
