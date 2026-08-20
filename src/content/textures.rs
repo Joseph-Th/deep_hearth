@@ -886,7 +886,10 @@ fn screen_pattern() -> TexturePattern {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-render")
+))]
 mod tests {
     use std::collections::BTreeSet;
 

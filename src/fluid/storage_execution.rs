@@ -649,7 +649,10 @@ impl ValidatedFluidTransfer {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
+))]
 mod tests {
     use super::*;
     use crate::content::{MATERIAL_COPPER, MATERIAL_SLAG, make_test_registries_with_fluids};

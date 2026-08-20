@@ -723,7 +723,10 @@ pub(crate) fn apply_energy_consumption_reservation(
     Ok(trace)
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
+))]
 mod tests {
     use super::*;
     use crate::content::make_test_registries_with_energy_store;

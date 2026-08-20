@@ -303,7 +303,10 @@ mod validation;
 pub use validation::GeologyValidationError;
 pub(crate) use validation::validate_loaded_geology;
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-player")
+))]
 mod tests {
     use super::*;
     use crate::content::{FORM_CRUSHED, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, build_registries};

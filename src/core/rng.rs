@@ -241,7 +241,10 @@ fn next_xoshiro256_star_star(words: &mut [u64; 4]) -> u64 {
     result
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-foundation")
+))]
 mod tests {
     use super::*;
 

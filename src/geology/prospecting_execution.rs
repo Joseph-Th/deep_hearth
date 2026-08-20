@@ -229,7 +229,10 @@ pub(crate) fn make_test_prospecting_resolution(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-player")
+))]
 mod tests {
     use super::*;
     use crate::content::{MATERIAL_COPPER, MATERIAL_SLAG, build_registries};

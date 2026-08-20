@@ -138,7 +138,10 @@ pub fn integrate_flow(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
+))]
 mod tests {
     use super::*;
 

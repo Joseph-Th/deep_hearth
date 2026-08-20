@@ -804,7 +804,10 @@ pub(crate) fn validate_loaded_geological_knowledge(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-player")
+))]
 mod tests {
     use super::*;
     use crate::content::{MATERIAL_COPPER, MATERIAL_SLAG, build_registries};

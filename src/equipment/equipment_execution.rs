@@ -353,7 +353,10 @@ pub fn apply_equipment_condition_plan(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
+))]
 mod tests {
     use super::*;
     use crate::capability::{
