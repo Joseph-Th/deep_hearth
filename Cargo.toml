@@ -5,6 +5,10 @@ edition = "2024"
 rust-version = "1.97"
 publish = false
 
+[package.metadata.git-wizard.validation]
+quick = "python ci.py gate"
+full = "python ci.py audit"
+
 [[bin]]
 name = "validate-shaders"
 path = "src/bin/validate_shaders.rs"
