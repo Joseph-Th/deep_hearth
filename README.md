@@ -47,6 +47,7 @@ owner operations; it does not introduce convenience mutation paths between owner
 
 ## Verification
 
-Use [Testing](TESTING.md) to select the smallest lane that proves the changed contract. The common
-repository checkpoint is `python ci.py gate`; documentation changes use `python ci.py gate --docs`.
-All verification is local.
+Use [Testing](TESTING.md) to select the smallest lane that proves the changed contract. Use
+`python ci.py quick` during ordinary editing and `python ci.py gate` at a coherent production checkpoint.
+Documentation-only changes use `python tools/check_authority_docs.py`; Rust API documentation uses
+`python ci.py gate --rustdoc`. All verification is local.

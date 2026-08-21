@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import shlex
+import subprocess
 import sys
 import tomllib
 from urllib.parse import unquote
@@ -44,6 +46,7 @@ REQUIRED_LINKS = {
 MARKDOWN_LINK = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 CARGO_COMMAND = re.compile(r"\bcargo\s+([^\s`]+)")
 INLINE_CODE = re.compile(r"`([^`\n]+)`")
+CI_BRACED_CHOICE = re.compile(r"\{([^{}]+)\}")
 ROUTE_REFERENCE = re.compile(
     r"(?<![A-Za-z0-9_.-])"
     r"(\.\./[A-Za-z0-9_./-]+|"
@@ -81,6 +84,52 @@ def load_aliases() -> set[str]:
     return set(aliases)
 
 
+def normalize_ci_command(command: str) -> str | None:
+    """Resolve documentation-only choice notation to one representative local CI command."""
+
+    if not command.startswith("python ci.py"):
+        return None
+    normalized = CI_BRACED_CHOICE.sub(
+        lambda match: match.group(1).split(",", maxsplit=1)[0], command
+    )
+    normalized = normalized.replace("[scope]", "workshop")
+    if any(marker in normalized for marker in ("{", "}", "[", "]", "<", ">")):
+        return None
+    return normalized
+
+
+def ci_command_error(command: str) -> str | None:
+    """Return an error for one documented ci.py command without executing its plan."""
+
+    normalized = normalize_ci_command(command)
+    if normalized is None:
+        return None
+    try:
+        parts = shlex.split(normalized)
+    except ValueError as error:
+        return f"invalid local CI command syntax: {command}: {error}"
+    if parts[:2] != ["python", "ci.py"]:
+        return None
+    args = parts[2:]
+    if "--dry-run" not in args:
+        args.append("--dry-run")
+    try:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "ci.py"), *args],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return f"unable to validate local CI command {command}: {error}"
+    if result.returncode == 0:
+        return None
+    detail = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else "command rejected"
+    return f"invalid local CI command: {command} ({detail})"
+
+
 def check_authority_graph() -> list[str]:
     errors: list[str] = []
     documents: dict[str, str] = {}
@@ -97,6 +146,7 @@ def check_authority_graph() -> list[str]:
     checked_links = 0
     checked_routes = 0
     checked_aliases = 0
+    documented_ci_commands: dict[str, set[str]] = {}
 
     for relative, text in documents.items():
         document = ROOT / relative
@@ -114,6 +164,8 @@ def check_authority_graph() -> list[str]:
         resolved_links[relative] = links
 
         for code in INLINE_CODE.findall(text):
+            if code.startswith("python ci.py"):
+                documented_ci_commands.setdefault(code, set()).add(relative)
             for match in ROUTE_REFERENCE.finditer(code):
                 route = match.group(1).rstrip(".,;:")
                 candidate = (ROOT / route).resolve()
@@ -128,6 +180,11 @@ def check_authority_graph() -> list[str]:
             checked_aliases += 1
             if command not in aliases:
                 errors.append(f"{relative}: unknown Cargo alias: cargo {command}")
+
+    for command, sources in sorted(documented_ci_commands.items()):
+        error = ci_command_error(command)
+        if error is not None:
+            errors.append(f"{', '.join(sorted(sources))}: {error}")
 
     for source, required in REQUIRED_LINKS.items():
         actual = resolved_links.get(source, set())
@@ -144,7 +201,8 @@ def check_authority_graph() -> list[str]:
     print(
         "documentation-authority: PASS "
         f"({len(documents)} pages, {checked_links} links, "
-        f"{checked_routes} routes, {checked_aliases} Cargo aliases)"
+        f"{checked_routes} routes, {checked_aliases} Cargo aliases, "
+        f"{len(documented_ci_commands)} local CI commands)"
     )
     return []
 

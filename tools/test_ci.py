@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import ci  # noqa: E402
-from tools import run_test  # noqa: E402
+from tools import check_authority_docs, run_test  # noqa: E402
 
 
 def gate_args(**overrides: object) -> argparse.Namespace:
@@ -73,6 +73,20 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertEqual(validation["quick"], "python ci.py quick")
         self.assertEqual(validation["standard"], "python ci.py gate")
         self.assertEqual(validation["full"], "python ci.py audit")
+
+    def test_documented_ci_command_checker_rejects_removed_flags(self) -> None:
+        self.assertIsNone(check_authority_docs.ci_command_error("python ci.py gate --rustdoc"))
+        self.assertIsNone(
+            check_authority_docs.ci_command_error("python ci.py gate --gameplay [scope]")
+        )
+        self.assertIsNone(
+            check_authority_docs.ci_command_error(
+                "python ci.py gate --gameplay {workshop,survival,progression,ore,foundry}"
+            )
+        )
+        error = check_authority_docs.ci_command_error("python ci.py gate --docs")
+        self.assertIsNotNone(error)
+        self.assertIn("invalid local CI command", error or "")
 
 
 class ExactTestCommandTests(unittest.TestCase):
