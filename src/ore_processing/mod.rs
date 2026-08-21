@@ -2,6 +2,7 @@
 
 mod comminution_execution;
 mod screening_execution;
+mod timing;
 
 use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
 use crate::core::quantity::{Length, Mass, MassFlow, MassSpecificEnergy};
@@ -64,7 +65,7 @@ pub struct ScreeningOperatingProfile {
     max_batch_mass_capability: CapabilityId,
     energy_carrier: EnergyCarrier,
     specific_energy: MassSpecificEnergy,
-    condition_wear_ppm_per_processing_tick: u32,
+    condition_wear_ppm_per_active_tick: u32,
 }
 
 impl ScreeningOperatingProfile {
@@ -74,19 +75,19 @@ impl ScreeningOperatingProfile {
         max_batch_mass_capability: CapabilityId,
         energy_carrier: EnergyCarrier,
         specific_energy: MassSpecificEnergy,
-        condition_wear_ppm_per_processing_tick: u32,
+        condition_wear_ppm_per_active_tick: u32,
     ) -> Self {
         assert!(
             !specific_energy.is_zero(),
             "screening mass-specific energy must be nonzero"
         );
-        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_processing_tick);
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
         Self {
             mass_flow_capability,
             max_batch_mass_capability,
             energy_carrier,
             specific_energy,
-            condition_wear_ppm_per_processing_tick,
+            condition_wear_ppm_per_active_tick,
         }
     }
 }
@@ -158,8 +159,8 @@ impl ScreeningProcessDefinition {
     }
 
     #[must_use]
-    pub const fn condition_wear_ppm_per_processing_tick(self) -> u32 {
-        self.operating.condition_wear_ppm_per_processing_tick
+    pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
+        self.operating.condition_wear_ppm_per_active_tick
     }
 }
 
@@ -170,7 +171,7 @@ pub struct ComminutionOperatingProfile {
     max_batch_mass_capability: CapabilityId,
     energy_carrier: EnergyCarrier,
     specific_energy: MassSpecificEnergy,
-    condition_wear_ppm_per_processing_tick: u32,
+    condition_wear_ppm_per_active_tick: u32,
 }
 
 impl ComminutionOperatingProfile {
@@ -180,19 +181,19 @@ impl ComminutionOperatingProfile {
         max_batch_mass_capability: CapabilityId,
         energy_carrier: EnergyCarrier,
         specific_energy: MassSpecificEnergy,
-        condition_wear_ppm_per_processing_tick: u32,
+        condition_wear_ppm_per_active_tick: u32,
     ) -> Self {
         assert!(
             !specific_energy.is_zero(),
             "comminution mass-specific energy must be nonzero"
         );
-        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_processing_tick);
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
         Self {
             mass_flow_capability,
             max_batch_mass_capability,
             energy_carrier,
             specific_energy,
-            condition_wear_ppm_per_processing_tick,
+            condition_wear_ppm_per_active_tick,
         }
     }
 }
@@ -299,8 +300,8 @@ impl ComminutionProcessDefinition {
     }
 
     #[must_use]
-    pub const fn condition_wear_ppm_per_processing_tick(&self) -> u32 {
-        self.operating.condition_wear_ppm_per_processing_tick
+    pub const fn condition_wear_ppm_per_active_tick(&self) -> u32 {
+        self.operating.condition_wear_ppm_per_active_tick
     }
 }
 

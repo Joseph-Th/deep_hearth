@@ -271,7 +271,8 @@ Production obeys these contracts:
 - persisted operation-specific traces are sufficient to recompute physical outcomes on load.
 
 Comminution resolves authored feed/output particle distributions, batch limits, condition-sensitive
-throughput, finite work energy, power-limited elapsed duration, and processing-duty wear. Screening is
+throughput, finite work energy, power-limited active duration, and wear across every active tick.
+Screening uses the same active-time wear contract and is
 multi-stream classification: it routes fully resolved particle classes around an authored aperture and
 never invents a split through unresolved material.
 

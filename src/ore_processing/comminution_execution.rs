@@ -16,9 +16,7 @@ use crate::equipment::{
     EquipmentId, EquipmentProviderError, resolve_equipment_capability, resolve_equipment_provider,
 };
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
-use crate::maintenance::{
-    ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
-};
+use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::material::{
     CommodityKey, FormId, MaterialComposition, MaterialLotSpec, MaterialLotSpecError,
     ParticleSizeRange,
@@ -29,6 +27,7 @@ use crate::production::{
 };
 use crate::registry::Registries;
 
+use super::timing::OreProcessActiveTiming;
 use super::{
     ComminutionProcessDefinition, MassFlowDurationError, calculate_mass_flow_duration_ceiling,
 };
@@ -498,13 +497,14 @@ pub fn resolve_comminution_process(
         registries.core().physical_tick_duration(),
     )
     .map_err(ComminutionResolutionError::EnergyDuration)?;
-    let duration = std::cmp::max(throughput_duration, energy_duration);
-    let condition_after = calculate_usable_condition_after_active_ticks(
-        definition.condition_wear_ppm_per_processing_tick(),
-        provider.condition(),
-        throughput_duration,
-    )
-    .map_err(ComminutionResolutionError::ConditionDuration)?;
+    let timing = OreProcessActiveTiming::new(throughput_duration, energy_duration);
+    let duration = timing.duration();
+    let condition_after = timing
+        .condition_after(
+            definition.condition_wear_ppm_per_active_tick(),
+            provider.condition(),
+        )
+        .map_err(ComminutionResolutionError::ConditionDuration)?;
     let equipment_use = provider.validated_use();
     let resolution = inputs
         .resolve_with_energy_and_equipment(
@@ -873,7 +873,8 @@ pub(crate) fn validate_loaded_comminution_job(
         job: job.id(),
         error,
     })?;
-    let required_duration = std::cmp::max(throughput_duration, energy_duration);
+    let timing = OreProcessActiveTiming::new(throughput_duration, energy_duration);
+    let required_duration = timing.duration();
     let stored_duration = job.active_duration().value();
     if stored_duration != required_duration.value() {
         return Err(ComminutionJobValidationError::DurationMismatch {
@@ -882,15 +883,15 @@ pub(crate) fn validate_loaded_comminution_job(
             required_ticks: required_duration.value(),
         });
     }
-    let required_condition_after = calculate_usable_condition_after_active_ticks(
-        definition.condition_wear_ppm_per_processing_tick(),
-        provider.condition(),
-        throughput_duration,
-    )
-    .map_err(|error| ComminutionJobValidationError::ConditionDuration {
-        job: job.id(),
-        error,
-    })?;
+    let required_condition_after = timing
+        .condition_after(
+            definition.condition_wear_ppm_per_active_tick(),
+            provider.condition(),
+        )
+        .map_err(|error| ComminutionJobValidationError::ConditionDuration {
+            job: job.id(),
+            error,
+        })?;
     let stored_condition_after = job
         .equipment_condition_after()
         .ok_or(ComminutionJobValidationError::MissingConditionOutcome { job: job.id() })?;
@@ -1519,7 +1520,7 @@ mod tests {
     }
 
     #[test]
-    fn weak_energy_delivery_extends_time_without_fabricating_processing_wear() {
+    fn weak_energy_delivery_extends_active_time_and_equipment_wear() {
         let fixture = make_fixture_with_registries(
             make_registries_with_energy(EnergyCarrier::Mechanical, Power::from_picowatts(100_000)),
             WorldSeed::new(0x9700_0004),
@@ -1540,11 +1541,11 @@ mod tests {
         assert_eq!(resolved.condition_before(), Condition::PRISTINE);
         assert_eq!(resolved.throughput_duration(), TickSpan::new(1));
         assert_eq!(resolved.energy_duration(), TickSpan::new(6));
-        assert_eq!(resolved.condition_after(), condition(999_000));
+        assert_eq!(resolved.condition_after(), condition(994_000));
         assert_eq!(resolved.process_resolution().duration(), TickSpan::new(6));
         assert_eq!(
             resolved.process_resolution().equipment_condition_after(),
-            Some(condition(999_000))
+            Some(condition(994_000))
         );
     }
 

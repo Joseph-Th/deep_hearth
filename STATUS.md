@@ -134,7 +134,8 @@ implementation contracts, [`GAME_DESIGN.md`](GAME_DESIGN.md) for product intent,
 
 - Selected-batch crushing and grinding preserve mass, composition, temperature, and exact lot
   selection while applying authored particle-size results, equipment throughput/batch limits, finite
-  work energy, power-limited duration, and condition wear.
+  work energy, power-limited active duration, and condition wear across every active tick. Screening
+  follows the same active-time wear rule.
 - Grinding can refine particle-size state without changing material form. Authored feed envelopes can
   reject physically unsuitable particulate input.
 - Dry screening partitions resolved particle classes into typed undersize and oversize streams at an

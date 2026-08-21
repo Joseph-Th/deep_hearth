@@ -16,9 +16,7 @@ use crate::equipment::{
     EquipmentId, EquipmentProviderError, resolve_equipment_capability, resolve_equipment_provider,
 };
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
-use crate::maintenance::{
-    ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
-};
+use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::material::{
     CommodityKey, FormId, MaterialComposition, MaterialLotSpec, MaterialLotSpecError,
     ParticleSizeDistribution, ParticleSizeDistributionError, ParticleSizeRange,
@@ -29,6 +27,7 @@ use crate::production::{
 };
 use crate::registry::Registries;
 
+use super::timing::OreProcessActiveTiming;
 use super::{
     MassFlowDurationError, ScreeningProcessDefinition, calculate_mass_flow_duration_ceiling,
 };
@@ -598,13 +597,14 @@ pub fn resolve_screening_process(
         registries.core().physical_tick_duration(),
     )
     .map_err(ScreeningResolutionError::EnergyDuration)?;
-    let duration = std::cmp::max(throughput_duration, energy_duration);
-    let condition_after = calculate_usable_condition_after_active_ticks(
-        definition.condition_wear_ppm_per_processing_tick(),
-        provider.condition(),
-        throughput_duration,
-    )
-    .map_err(ScreeningResolutionError::ConditionDuration)?;
+    let timing = OreProcessActiveTiming::new(throughput_duration, energy_duration);
+    let duration = timing.duration();
+    let condition_after = timing
+        .condition_after(
+            definition.condition_wear_ppm_per_active_tick(),
+            provider.condition(),
+        )
+        .map_err(ScreeningResolutionError::ConditionDuration)?;
     let equipment_use = provider.validated_use();
     let resolution = inputs
         .resolve_with_energy_and_equipment(
@@ -987,7 +987,8 @@ pub(crate) fn validate_loaded_screening_job(
         job: job.id(),
         error,
     })?;
-    let required_duration = std::cmp::max(throughput_duration, energy_duration);
+    let timing = OreProcessActiveTiming::new(throughput_duration, energy_duration);
+    let required_duration = timing.duration();
     let stored_duration = job.active_duration().value();
     if stored_duration != required_duration.value() {
         return Err(ScreeningJobValidationError::DurationMismatch {
@@ -996,15 +997,15 @@ pub(crate) fn validate_loaded_screening_job(
             required_ticks: required_duration.value(),
         });
     }
-    let required_condition_after = calculate_usable_condition_after_active_ticks(
-        definition.condition_wear_ppm_per_processing_tick(),
-        provider.condition(),
-        throughput_duration,
-    )
-    .map_err(|error| ScreeningJobValidationError::ConditionDuration {
-        job: job.id(),
-        error,
-    })?;
+    let required_condition_after = timing
+        .condition_after(
+            definition.condition_wear_ppm_per_active_tick(),
+            provider.condition(),
+        )
+        .map_err(|error| ScreeningJobValidationError::ConditionDuration {
+            job: job.id(),
+            error,
+        })?;
     let stored_condition_after = job
         .equipment_condition_after()
         .ok_or(ScreeningJobValidationError::MissingConditionOutcome { job: job.id() })?;
@@ -1254,7 +1255,7 @@ mod tests {
     }
 
     #[test]
-    fn weak_screen_power_extends_time_without_fabricating_processing_wear() {
+    fn weak_screen_power_extends_active_time_and_equipment_wear() {
         let fixture = fixture_with_power(
             Length::from_micrometers(2_000),
             Power::from_picowatts(100_000),
@@ -1268,7 +1269,7 @@ mod tests {
         assert_eq!(resolved.condition_before(), Condition::PRISTINE);
         assert_eq!(
             resolved.condition_after(),
-            Condition::new(999_000)
+            Condition::new(997_000)
                 .unwrap_or_else(|error| panic!("screening wear fixture failed: {error}"))
         );
     }
