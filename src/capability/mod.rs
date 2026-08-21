@@ -1,4 +1,4 @@
-//! Typed authored capability requirements and deterministic profile evaluation for future physical resolvers.
+//! Typed authored capability requirements and deterministic profile evaluation.
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;

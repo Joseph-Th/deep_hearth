@@ -1,4 +1,4 @@
-//! Exact electrical scalar calculations; network topology, protection, and thermal coupling remain separate owning systems.
+//! Exact electrical scalar calculations for potential, current, resistance, and power.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};

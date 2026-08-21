@@ -21,7 +21,7 @@ Static definitions describe what can exist. Runtime state records what does exis
 - Collections that must agree are private fields of one owner and update through atomic owner operations.
 - Cross-owner work is coordinated by a system or higher orchestration boundary rather than one owner patching another owner's storage.
 - A derived value is recomputed on demand or maintained by one explicit owner. Stale derived state must not silently become decision authority.
-- Tests, importers, migrations, and administrative tooling use the same owner operations as production code.
+- Tests, importers, and administrative tooling use the same owner operations as production code.
 
 ## Canonical operations
 
@@ -76,7 +76,7 @@ Save/load preserves every value needed for supported continuation. Derived index
 - Core systems do not perform implicit filesystem/network/process IO.
 - External side effects occur after internal state is valid or through an explicit durable work record when recovery/retry semantics require it.
 - User-facing persistence failures remain distinguishable from domain validation failures.
-- Do not add silent compatibility defaults for missing future-affecting state merely to make older data appear loadable.
+- Missing future-affecting state is a load error unless the current schema explicitly defines a value.
 
 ## Runtime invariants
 
@@ -132,17 +132,14 @@ Reserve `destroy_*` for destruction with consequential effects and `delete_*` fo
 
 Multi-file subsystem suffixes use established roles such as `_execution`, `_integration`, `_loader`, `_ui`, and `_adapter`. Each `src/` file begins with a concise `//!` purpose statement and explains sibling relationships when the split is not obvious.
 
-## Comments, warnings, and replacement
+## Comments and dead code
 
-Comments explain hidden constraints, ordering, safety reasoning, invariants, or non-obvious intent. They do not narrate implementation history, add decorative banners, or retain commented-out code.
+Comments explain hidden constraints, ordering, safety reasoning, invariants, or non-obvious intent. Keep
+comments current and local to the rule they explain; do not retain commented-out code.
 
-Classify dead code rather than suppressing it:
-
-- intended production behavior must be wired into the canonical path;
-- test-only fixtures/helpers belong under test configuration;
-- obsolete behavior and its obsolete tests/docs are deleted.
-
-Do not add fake production call sites, broad `allow(dead_code)`/lint suppression, public test shims, or historical compatibility layers merely to silence tooling. One implementation owns each concern unless an active external contract explicitly requires otherwise.
+Production behavior must be wired into the canonical path, test helpers stay under test configuration,
+and obsolete code and documentation are removed. Do not add fake call sites, broad lint suppression,
+public test shims, or compatibility layers without an active external contract.
 
 ## Dependency and complexity boundaries
 

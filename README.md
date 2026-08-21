@@ -6,18 +6,13 @@ platform integration, and save-file storage are adapter concerns, not gameplay-s
 
 ## Cold start
 
-For repository work, use this order:
-
 1. Read [`../AGENTS.md`](../AGENTS.md) and [`AGENTS.md`](AGENTS.md).
-2. Run `python ../tools/tasks.py list deep_hearth` to detect overlapping work.
-3. Use [Status](STATUS.md) to confirm whether the relevant capability exists.
-4. Use the subsystem map below to find the owning source and design document.
-5. Read the owner implementation and adjacent tests before editing.
-6. Use [Testing](TESTING.md) for the narrowest useful validation lane.
-7. Update only the document that owns any contract changed by the code.
+2. Run `python ../tools/tasks.py list deep_hearth`.
+3. Check [Status](STATUS.md) before assuming a capability exists.
+4. Use the subsystem map below to find the state owner, implementation, and design authority.
+5. Read the owner implementation and adjacent tests, then use [Testing](TESTING.md) for validation.
 
-Do not infer capability from design intent. `GAME_DESIGN.md` describes the intended game;
-`STATUS.md` describes what exists.
+`GAME_DESIGN.md` describes the target game. `STATUS.md` describes the current runtime.
 
 ## Documentation authority
 
@@ -29,9 +24,6 @@ Do not infer capability from design intent. `GAME_DESIGN.md` describes the inten
 | What technical contracts govern implemented systems? | [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) |
 | What capabilities exist or are absent? | [`STATUS.md`](STATUS.md) |
 | How are tests, harnesses, and local CI organized? | [`TESTING.md`](TESTING.md) |
-
-Documentation is present-tense and forward-facing. Git history owns implementation history. Do not
-preserve migration stories, replaced designs, or completed-work narratives in authority documents.
 
 ## Repository map
 
@@ -50,42 +42,11 @@ preserve migration stories, replaced designs, or completed-work narratives in au
 | Gameplay evaluation | `tests/gameplay_harness/` | `TESTING.md` |
 | Local verification | `.cargo/config.toml`, `ci.py`, `tools/` | `TESTING.md` |
 
-Cross-owner mutations still have one canonical owner for each consequential fact. Start from the
-subsystem that owns the state being changed; do not add convenience mutation paths between owners.
+Start from the subsystem that owns the state being changed. Cross-owner work coordinates canonical
+owner operations; it does not introduce convenience mutation paths between owners.
 
-## Fast local workflow
+## Verification
 
-Use compile-only feedback while an edit is mechanical, then run the narrowest executable test that
-proves changed behavior:
-
-```text
-cargo check-fast
-cargo test-unit-player <qualified-test-name> -- --exact
-cargo check-gameplay-survival        # one focused gameplay concern
-cargo check-gameplay                 # all maintained gameplay targets
-```
-
-Compile-only aliases are for intermediate mechanical feedback. Once a behavior assertion is ready,
-run its focused executable directly rather than paying for both `check` and `test` back-to-back.
-
-At a checkpoint:
-
-```text
-python ci.py gate                    # format + production compile
-python ci.py gate --unit player      # one ordinary subsystem family
-python ci.py gate --gameplay progression  # one focused gameplay probe
-python ci.py gate --gameplay         # all maintained gameplay behavior
-python ci.py gate --soak       # long-horizon state/conservation changes
-python ci.py gate --shaders    # WGSL/shader contracts
-python ci.py gate --docs       # documentation contracts
-cargo test-gameplay-report     # broader fresh replayable cold-agent play report
-python ci.py audit             # deliberate broad core + gameplay checkpoint
-```
-
-Add only the lanes owned by the change. `python ci.py audit` is the broad maintained core+gameplay
-checkpoint; soak remains explicit through `python ci.py gate --soak` so long-horizon feature builds are
-paid only when they add relevant evidence. Use `cargo test-lint-all` only for deliberate all-feature lint
-hardening. Documentation and shader validation remain change-scoped. All verification is local; GitHub
-Actions and hosted CI are outside the repository contract.
-
-See [Testing](TESTING.md) for lane details and [Status](STATUS.md) for the current capability boundary.
+Use [Testing](TESTING.md) to select the smallest lane that proves the changed contract. The common
+repository checkpoint is `python ci.py gate`; documentation changes use `python ci.py gate --docs`.
+All verification is local.

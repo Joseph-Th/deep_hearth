@@ -1,4 +1,4 @@
-//! Built-in axial structural response profiles; specialized construction families may add stricter profiles later.
+//! Built-in axial structural response profiles.
 
 use crate::structural::{
     StructuralLoadMode, StructuralProfileDefinition, StructuralProfileId, StructuralRegistry,

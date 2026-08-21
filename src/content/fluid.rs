@@ -1,4 +1,4 @@
-//! Built-in finite fluid identities; world sources remain owned by future hydrology generation.
+//! Built-in finite fluid identities; runtime world-source generation is not implemented.
 
 use crate::fluid::{FluidDefinition, FluidDefinitionId, FluidRegistry};
 

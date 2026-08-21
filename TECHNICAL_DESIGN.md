@@ -1,41 +1,30 @@
 # Technical Design
 
-This document defines project-specific technical contracts for implemented systems. `ARCHITECTURE.md`
-owns general engineering architecture and coding law; `STATUS.md` owns capability presence;
-`GAME_DESIGN.md` owns gameplay intent. This document describes current contracts, not implementation
-history or the authored content catalog.
+This document owns project-specific contracts for implemented systems. [`ARCHITECTURE.md`](ARCHITECTURE.md)
+owns general engineering rules, [`STATUS.md`](STATUS.md) owns capability presence, and
+[`GAME_DESIGN.md`](GAME_DESIGN.md) owns player-facing intent.
 
-## 1. Architectural Goal
+## Core boundary
 
-Deep Hearth is built as a deterministic headless simulation with explicit adapter boundaries.
-Gameplay state and rules must remain usable without a renderer, window, input device, network
-connection, or storage backend.
-
-This is a foundation for a long-lived simulation, not an engine-specific vertical slice.
-
-## 2. Dependency Direction
-
-The dependency direction is inward:
+Deep Hearth is a deterministic headless simulation. Gameplay state and rules do not depend on a
+renderer, window, input device, network connection, or storage backend.
 
 ```text
-content builders -> registries -> simulation systems -> core state
-                                            ^
-                                            |
-                                  adapters translate at edges
+content -> registries -> simulation systems -> core state
+                         ^
+                         |
+                      adapters
 ```
 
 - `core` owns domain-neutral runtime primitives and `AppState`.
 - `registry` owns immutable definition aggregates and lookup contracts.
-- `content` authors built-in immutable definitions in Rust.
+- `content` authors built-in immutable definitions.
 - `simulation` owns the visible top-level tick pipeline.
-- `persistence` owns versioned save envelopes and state-load validation, but not filesystem IO or a
-  particular byte encoding.
-- Future gameplay subsystems own their records, indexes, validation tokens, plans, and system
-  functions. They plug into the canonical simulation pipeline instead of creating alternate loops.
+- `persistence` owns save envelopes and load validation, not filesystem or encoding policy.
+- Gameplay subsystems own their records, indexes, validation tokens, plans, and canonical system paths.
+- Adapters depend on the simulation core; the simulation core does not depend on adapters.
 
-Adapters may depend on the simulation core. The simulation core must not depend on adapters.
-
-## 3. Determinism
+## Determinism
 
 Authoritative simulation behavior is deterministic for the same immutable registries, persisted
 state, explicit inputs, and external snapshots.
@@ -49,7 +38,7 @@ state, explicit inputs, and external snapshots.
 - Authoritative physical quantities use integer representations and checked arithmetic.
 - Parallel work may be introduced only when reduction and commit order remain deterministic.
 
-## 4. Simulation Time
+## Simulation time
 
 `SimulationTick` is absolute authoritative time. `TickSpan` is a distinct relative duration type, so
 an absolute tick cannot be passed accidentally where a duration is required. Simulation ticks are
@@ -69,7 +58,7 @@ such as ecology, soil, weather, migration, and settlement economics without intr
 hidden mutable countdown state. Dynamic scheduled work such as production remains explicit persisted
 records with dedicated indexes.
 
-## 5. State and Records
+## State owners
 
 `AppState` is the root of generated mutable state that must survive restart boundaries. Each subsystem
 owns its authoritative records, generated IDs, revisions, and synchronized indexes. Callers receive
@@ -95,7 +84,7 @@ Runtime-only derived indexes are rebuilt deterministically from authoritative re
 Validated transaction tokens bind the owner revisions and snapshots they checked so intervening
 mutation makes stale commits fail.
 
-## 6. Mutation Model
+## Mutation model
 
 Consequential mutations happen in canonical system functions. Fallible operations validate before
 mutation. Multi-owner operations use consumed validated tokens when atomicity or staleness require it.
@@ -105,7 +94,7 @@ Top-level tick order remains visible in one function. Subsystems do not hide gam
 callbacks, record methods, adapter hooks, or engine lifecycle events. Resolvers calculate physical
 outcomes; validators authorize state transitions; commit tokens apply already-validated mutations.
 
-## 7. Persistence
+## Persistence
 
 The core defines a semantic current-schema save envelope. Byte encoding, filesystem layout, atomic
 writes, compression, and cloud storage belong to adapters.
@@ -128,10 +117,9 @@ A load must:
 6. replay operation-specific physical outcomes where persisted jobs depend on them;
 7. return `AppState` only after exhaustive validation succeeds.
 
-Persistence supports only the current save schema. Save migration is not part of the runtime
-contract.
+Only the current save schema is accepted.
 
-## 8. Spatial and Presentation Boundaries
+## Spatial and presentation boundaries
 
 Persistent spatial references use checked chunk-independent 64-bit voxel coordinates and half-open
 bounds. Domain records must not depend on a chunk layout, ECS, scene graph, renderer object, or
@@ -147,32 +135,19 @@ assembly, explicit entry points/pipeline requirements, and bounded work budgets.
 frame scheduling, GPU synchronization, resource allocation, and platform pipeline creation remain
 adapter responsibilities. `assets/shaders/README.md` owns the concrete shader binding contract.
 
-## 9. Performance Policy
+## Performance and validation
 
-Performance follows ownership and access patterns:
+Hot paths use owner-maintained indexes or cursors rather than global scans. Derived indexes update with
+their authoritative records, long-running work reserves output capacity before start, and compatible
+material fragments coalesce deterministically. Per-tick validation stays cheap; exhaustive graph,
+index, and physics validation belongs at load and explicit audit boundaries.
 
-- hot paths use owner-maintained keyed indexes or cursors instead of global scans;
-- derived caches and reverse indexes change atomically with their authoritative records;
-- output capacity is reserved before long-running work starts;
-- compatible material fragments coalesce deterministically to bound fragmentation;
-- per-tick validation is cheap; exhaustive graph/index/physics validation runs at load and explicit
-  audit points;
-- presentation registries bake dense stable lookup structures before hot use;
-- unselected world/chunk architecture requires workload measurements before adoption.
+Authoritative mutations preserve local and cross-owner invariants, deterministic replay is stable from
+the same persisted state and RNG streams, conservation-sensitive paths account for every represented
+owner, and release builds retain integer overflow checks. [`TESTING.md`](TESTING.md) owns validation
+commands and lane selection.
 
-Do not trade determinism, ownership clarity, or invariant coverage for speculative micro-optimization.
-
-## 10. Validation Policy
-
-`TESTING.md` owns validation commands and lane selection. Technical requirements are:
-
-- authoritative state mutations preserve local and cross-owner invariants;
-- deterministic systems replay identically from the same persisted state and RNG streams;
-- conservation-sensitive paths account for every represented source, sink, and in-flight owner;
-- loaded state is exhaustively validated before runtime use;
-- release builds retain integer overflow checks.
-
-## 11. Authoritative Physical Quantities
+## Authoritative physical quantities
 
 Conservation and engineering calculations use explicit integer units:
 
@@ -202,7 +177,7 @@ Conservation and engineering calculations use explicit integer units:
 Potentially overflowing arithmetic is checked. Implemented authoritative physical calculations do not
 use floating point.
 
-## 12. Materials and Physical Forms
+## Materials and physical forms
 
 Materials are immutable typed definitions containing physical properties. Forms define phase and
 particle-state policy. `CommodityKey` combines one material and one form for coarse identity.
@@ -221,7 +196,7 @@ explicit fusion temperature and latent heat. Solid matter cannot exceed its fusi
 matter cannot fall below it. Mixed-liquid phase behavior is unsupported until an explicit alloy or
 solution phase model exists.
 
-## 13. Matter Ownership, Inventory, and Geology
+## Matter ownership, inventory, and geology
 
 `MaterialLotRecord` is the authoritative stored-matter record. A lot owns identity, stockpile,
 `MaterialLotProfile`, mass, provenance, and storage exposure. Physical profile differences that affect
@@ -259,7 +234,7 @@ work occupancy; claim moves the already-owned output into inventory.
 including geological, inventory, embodied, terminal survival-consumption, and in-flight state.
 Ownership transitions do not create or delete represented matter or modeled energy.
 
-## 14. Prospecting Knowledge
+## Prospecting knowledge
 
 Geological truth and acquired player knowledge are separate owners. `GeologicalObservationRecord`
 stores only authorized evidence: spatial footprint, provenance, observation time, and bounded
@@ -273,7 +248,7 @@ Assessment reads acquired evidence only. Bounds are combined only where observat
 locality; disjoint evidence is marked spatially incomparable and contradictory overlapping evidence
 remains visible. Precision ranking and regional maps are deterministic.
 
-## 15. Timed Production
+## Timed production
 
 `ProcessDefinition` stores immutable identity, material requirements, and typed capability requirements.
 Operation-specific physics live in resolver outputs, not static recipe duration/yield fields.
@@ -308,7 +283,7 @@ A job whose required equipment support becomes unavailable may suspend with exac
 time and conserved work-in-process. Recovery can restore the support relationship and resume the same
 committed operation without re-resolving its physical inputs.
 
-## 16. Capabilities, Equipment Condition, Energy, and Fluids
+## Capabilities, equipment condition, energy, and fluids
 
 Capabilities are typed physical requirements with explicit value kinds and `AtLeast`/`AtMost`
 semantics. Static definitions provide nominal values; runtime providers may expose condition-adjusted
@@ -328,7 +303,7 @@ an opaque single-use `EquipmentRepairResolution`; validation binds equipment/inv
 occupancy, replacement selection, and structural consequences before commit. Repair changes physical
 form and condition without deleting replacement matter or manufacturing reusable parts.
 
-Authored bootstrapped workshop machines that accumulate condition wear provide a maintenance route.
+Equipment definitions that accumulate condition wear provide a maintenance route.
 Runtime-assembled equipment may additionally author a worn-recovery form. Pristine disassembly returns
 exact embodied traces, while worn decommissioning reforms each trace into that same-material recovery
 form. Registry validation forbids the recovery form from also being a direct assembly input, so wear
@@ -352,9 +327,9 @@ exact construction traces.
 movement. Energy storage validates endpoints, occupancy, carrier, capacity, quantity, and revisions but
 does not choose a path, convert carriers, model network losses, or generate energy.
 
-Finite fluid stores own fluid identity, volume, temperature, capacity, identity/revision, and optional
-structural support. Fluid definitions own a bulk density used for support-load projection. Runtime
-allocation creates empty capacity only.
+Finite fluid stores own fluid identity, volume, temperature, capacity, revision, and optional structural
+support. A fluid definition references its material; support-load mass is derived from that material's
+authored density. Runtime allocation creates empty capacity only.
 
 `FluidTransferResolution` is an opaque physical authorization. Storage validates exact conserved
 movement and all affected fluid-owned structural loads. It does not authorize pathless movement or
@@ -368,7 +343,7 @@ reserve capacities. Validation rejects a meal when none of metabolic energy, hyd
 would increase, and rejects a drink when hydration would not increase. This prevents pure no-benefit
 resource waste without silently resizing an otherwise useful requested portion.
 
-## 17. Structural Matter
+## Structural matter
 
 Structural planning and material ownership are separate. A planned member contains geometry and
 references but cannot activate until construction matter is committed.
@@ -390,7 +365,7 @@ for the same profile. This preserves matter and provenance without turning struc
 free reset. Any future fractional or lossy demolition must model recovered, waste, and debris streams
 explicitly.
 
-## 18. Stockpile Structural Support
+## Stockpile structural support
 
 A stockpile may reference one structural support; `InventoryState` owns the synchronized reverse index.
 Mount/unmount is a revision-bound inventory/structure transaction and mounting requires an active
@@ -408,7 +383,7 @@ cannot be relocated until that ownership permits it.
 Multi-stockpile and same-tick output changes use one final-load plan so structural consequences do not
 depend on mutation order.
 
-## 19. Equipment, Assembly, Player Labor, and Mining
+## Equipment, assembly, player labor, and mining
 
 Equipment may reference one structural support; `EquipmentState` owns the reverse index and
 `StructuralLoadKind::Equipment`. Mount, unmount, and relocation are revision-bound cross-owner
@@ -459,7 +434,7 @@ condition-sensitive flow, batch limit, material-hardness limit, and wear. Exact 
 `MiningState` at start, becomes claimable after active work completes, and reaches inventory only through
 the claim transaction. Persisted working jobs must replay the same physical schedule and wear result.
 
-## 20. Cross-Subsystem Runtime Invariants
+## Cross-subsystem runtime invariants
 
 `validate_loaded_state(registries, state)` is the exhaustive admission boundary for persisted runtime
 state. It validates each local owner and reconstructs cross-owner agreement rather than trusting cached

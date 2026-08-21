@@ -1,17 +1,16 @@
 # Status
 
-This document answers one question: **what capability exists in the current runtime?** Use
-[`README.md`](README.md) to find the owning subsystem. [`ARCHITECTURE.md`](ARCHITECTURE.md) and
-[`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) own implementation contracts;
-[`GAME_DESIGN.md`](GAME_DESIGN.md) owns intended gameplay. Status does not record implementation history
-or future design detail.
+This document is the current runtime capability inventory. Use [`README.md`](README.md) for subsystem
+routing, [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) for
+implementation contracts, [`GAME_DESIGN.md`](GAME_DESIGN.md) for product intent, and
+[`TESTING.md`](TESTING.md) for verification.
 
 ## Implemented
 
 ### Runtime core
 
 - Headless deterministic Rust simulation with no renderer or engine dependency.
-- Immutable validated registries for authored definitions and a separate authored compatibility version.
+- Immutable validated registries for authored definitions with an explicit registry schema version.
 - `AppState` owns generated runtime state; subsystem owners keep authoritative records and synchronized
   indexes private behind canonical operations.
 - Persisted independent RNG streams derive from the world seed. Result-affecting ordering is stable.
@@ -166,21 +165,12 @@ or future design detail.
   definitions for surfaces, tiled lights, shadows, water, smoke, sky, bloom, and post processing.
 - No graphics backend, GPU resource manager, scene system, or platform renderer is implemented.
 
-### Verification coverage
+### Verification
 
-- Deterministic unit, integration, soak, persistence, conservation, and gameplay-harness coverage exists
-  for the implemented ownership and production paths.
-- Gameplay evaluation distinguishes reachable survival/primitive progression after controlled world
-  bootstrap from bootstrapped industrial workshop, ore-preparation, and pure-copper foundry capability
-  evidence. Maintained workshop anchors cover normal/warning/critical condition, fractional stored work,
-  manual-power recovery, and survival-pressure tradeoffs; matched-world counterfactuals maintain
-  consequential power, survival, maintenance, and structural choices. The workshop actor reduces work to
-  the largest powered batch that preserves non-critical projected condition before declaring maintenance
-  mandatory. Small deterministic bounded variations supplement those anchors in maintained gates, while
-  the broader exploratory report uses fresh replayable samples. Geological site identity remains a controlled bootstrap because physical
-  discovery/prospecting is not implemented.
-- Test selection, replay controls, assertion policy, and local CI are owned by [`TESTING.md`](TESTING.md).
-
+- Deterministic unit, persistence, conservation, soak, and gameplay coverage exists for implemented
+  ownership and production paths.
+- Gameplay tests distinguish runtime-reachable actions from fixture-only capability evaluation.
+- [`TESTING.md`](TESTING.md) owns test selection, harness boundaries, replay controls, and local CI.
 
 ## Not implemented
 

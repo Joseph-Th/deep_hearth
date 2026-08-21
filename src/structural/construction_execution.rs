@@ -1,8 +1,7 @@
 //! Geometry-constrained construction-material transfer into planned structural members.
 //!
-//! Member geometry and material density now determine the exact conservative solid-mass requirement.
-//! Labor, tools, joints, cutting/placement waste, and build duration remain future physical resolver
-//! responsibilities, so arbitrary runtime construction authorization is still intentionally absent.
+//! Member geometry and material density determine the exact conservative solid-mass requirement. This
+//! module does not authorize labor, tools, joints, cutting/placement waste, or build duration.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};

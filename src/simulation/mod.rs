@@ -1,4 +1,4 @@
-//! Canonical synchronous simulation pipeline; future subsystem phases are wired here in visible order.
+//! Canonical synchronous simulation tick pipeline with active subsystem phases wired in visible order.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};

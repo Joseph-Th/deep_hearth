@@ -1,4 +1,4 @@
-//! Exact scalar rotational mechanics; topology, shafts, gearing, slip, inertia, and network ownership remain separate future systems.
+//! Exact scalar rotational mechanics for torque, speed, power, efficiency, ratios, and operating limits.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
