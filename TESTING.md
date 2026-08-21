@@ -44,8 +44,8 @@ Specialized feature shapes remain isolated from ordinary builds:
 - `test-unit-*` selects one ordinary unit-test shard.
 
 `python tools/check_authority_docs.py` validates authority-page links, repository routes, Cargo aliases,
-and the README/STATUS/TESTING authority graph. `cargo test-doc` validates Rust documentation.
-`python ci.py gate --docs` runs both.
+the README/STATUS/TESTING authority graph, and required `//!` module-purpose headers across `src/`.
+`cargo test-doc` validates Rust documentation. `python ci.py gate --docs` runs both.
 
 ## Test structure and assertions
 

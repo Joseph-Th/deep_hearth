@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate Deep Hearth's Markdown authority graph and concrete repository references."""
+"""Validate Deep Hearth's documentation graph, references, and source-module orientation."""
 
 from __future__ import annotations
 
@@ -142,19 +142,41 @@ def check_authority_graph() -> list[str]:
         return errors
 
     print(
-        "authority-docs: PASS "
+        "documentation-authority: PASS "
         f"({len(documents)} pages, {checked_links} links, "
         f"{checked_routes} routes, {checked_aliases} Cargo aliases)"
     )
     return []
 
 
+def check_source_module_docs() -> tuple[list[str], int]:
+    errors: list[str] = []
+    sources = sorted((ROOT / "src").rglob("*.rs"))
+    if not sources:
+        return ["src/: no Rust source files found"], 0
+
+    for path in sources:
+        relative = project_relative(path)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        first_nonblank = next((line.strip() for line in lines if line.strip()), "")
+        if not first_nonblank.startswith("//!"):
+            errors.append(f"{relative}: first nonblank line must be a //! module-purpose comment")
+            continue
+        if not first_nonblank.removeprefix("//!").strip():
+            errors.append(f"{relative}: module-purpose comment must describe the module")
+
+    return errors, len(sources)
+
+
 def main() -> int:
     errors = check_authority_graph()
+    source_errors, checked_sources = check_source_module_docs()
+    errors.extend(source_errors)
     if not errors:
+        print(f"source-module-docs: PASS ({checked_sources} Rust files)")
         return 0
     for error in sorted(set(errors)):
-        print(f"authority-docs: {error}", file=sys.stderr)
+        print(f"documentation-contracts: {error}", file=sys.stderr)
     return 1
 
 

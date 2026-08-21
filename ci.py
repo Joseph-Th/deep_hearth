@@ -99,7 +99,7 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
         plan.extend(
             [
                 (
-                    "documentation authority graph",
+                    "documentation contracts",
                     [sys.executable, "tools/check_authority_docs.py"],
                 ),
                 ("rustdoc", cargo("test-doc")),
