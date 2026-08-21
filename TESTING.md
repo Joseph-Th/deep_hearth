@@ -27,7 +27,7 @@ compiles the same surface.
 | Markdown authority, links, routes, and source-doc policy | `python tools/check_authority_docs.py` |
 | Rust API documentation build | `python ci.py gate --rustdoc` |
 | Production-library lint | `python ci.py gate --lint` |
-| Broad maintained core + gameplay checkpoint | `python ci.py audit` |
+| Broad maintained core + gameplay checkpoint | `python ci.py audit --all` |
 
 `python ci.py quick` is the default and intentionally performs no Cargo build. It runs formatting, the
 compile-free repository contract checker, and millisecond-scale Python tests that keep the CI plan itself
@@ -36,12 +36,14 @@ flags it adds only the production-library compile. Focused gameplay gates requir
 Complete core behavior and all-gameplay verification are deliberately audit-only, so `gate --core` and
 an unscoped/all `gate --gameplay` are rejected instead of turning a repair loop into a broad relink.
 
-Git Wizard follows the same policy through Cargo metadata: `quick` is build-free, `standard` maps to the
-production compile gate, and `full` maps to the broad maintained audit. Do not request `standard` or
-`full` after each mutation. Use them after a coherent batch or once at task completion as appropriate.
+Git Wizard follows the same policy through Cargo metadata: `quick` is build-free and `standard` maps to
+the production compile gate. There is intentionally no automatic `full` validation level because a
+generic full request has no information about which expensive runtime surface changed. Broad audits are
+invoked explicitly as `audit --core`, `audit --gameplay`, or `audit --all` only when that surface is
+actually required.
 
-Clippy is an explicit quality audit, not part of `quick`, `standard`, or `full`. It uses a distinct
-compiler wrapper and may require a cold dependency build, so run `python ci.py gate --lint` when lint
+Clippy is an explicit quality audit, not part of `quick` or `standard`. It uses a distinct compiler
+wrapper and may require a cold dependency build, so run `python ci.py gate --lint` when lint
 policy, broadly shared production code, or a deliberate quality sweep warrants it—not as an automatic
 follow-up to every successful runtime audit.
 
@@ -53,7 +55,8 @@ moving and run the exact executable proof once the behavior is coherent. `python
 reads that catalog directly and invokes neither Cargo, rustc, nor the linker. Feature-gated or
 integration-target catalogs use the same `--features` and `--target` arguments as exact execution.
 
-Broad audit runs are terminal checkpoints, not diagnostic loops. When a broad audit exposes one defect,
+Broad audit runs are terminal checkpoints, not diagnostic loops, and the audit preset requires an
+explicit scope instead of defaulting to every maintained artifact. When a broad audit exposes one defect,
 repair that defect with `quick`, `cargo check-fast`, or the single failed exact/focused target. Do not
 rerun the broad audit after every repair; rerun it once after the repair batch is complete and only when
 that broad surface is actually required for completion.
@@ -166,9 +169,10 @@ part of the repository contract.
 - `python ci.py gate --soak`: complete core behavior plus long-horizon soak coverage.
 - `python ci.py gate --shaders`: shader validation.
 - `python ci.py gate --rustdoc`: Rust API documentation build.
-- `python ci.py audit`: broad maintained core + gameplay checkpoint; use only when both surfaces are required.
+- `python ci.py audit --all`: broad maintained core + gameplay checkpoint; use only when both surfaces are required.
 
 Choose the smallest completion gate that covers the changed contract. Add specialized lanes only when
 their distinct surface changed. `gate` deliberately cannot launch the complete core suite or all five
-gameplay binaries. Do not rerun narrower lanes after a broader selected lane already covers them, and do
-not run build-producing lanes merely because another file was edited.
+gameplay binaries, and unscoped `audit` is rejected rather than silently selecting both. Do not rerun
+narrower lanes after a broader selected lane already covers them, and do not run build-producing lanes
+merely because another file was edited.

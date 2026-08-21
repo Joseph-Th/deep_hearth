@@ -12,6 +12,10 @@ use super::{MiningJobId, MiningState};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MiningValidationError {
     InvalidIdCursor,
+    JobIdMismatch {
+        key: MiningJobId,
+        record: MiningJobId,
+    },
     JobIdBeyondCursor {
         job: MiningJobId,
     },
@@ -54,6 +58,12 @@ impl Display for MiningValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidIdCursor => formatter.write_str("mining job identifier cursor is invalid"),
+            Self::JobIdMismatch { key, record } => write!(
+                formatter,
+                "mining job map key {} disagrees with record id {}",
+                key.value(),
+                record.value()
+            ),
             Self::JobIdBeyondCursor { job } => write!(
                 formatter,
                 "mining job {} is not below the next identifier cursor",
@@ -135,7 +145,13 @@ pub(crate) fn validate_loaded_mining(
     }
     let mut expected_due = BTreeMap::<SimulationTick, BTreeSet<MiningJobId>>::new();
     let mut expected_equipment = BTreeMap::<EquipmentId, MiningJobId>::new();
-    for job in state.jobs.values() {
+    for (key, job) in &state.jobs {
+        if *key != job.identity.id {
+            return Err(MiningValidationError::JobIdMismatch {
+                key: *key,
+                record: job.identity.id,
+            });
+        }
         if job.identity.id.value() >= state.next_job_id {
             return Err(MiningValidationError::JobIdBeyondCursor {
                 job: job.identity.id,

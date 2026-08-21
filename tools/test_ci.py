@@ -20,6 +20,7 @@ from tools import check_authority_docs, run_test  # noqa: E402
 def gate_args(**overrides: object) -> argparse.Namespace:
     values: dict[str, object] = {
         "preset": "gate",
+        "all": False,
         "core": False,
         "soak": False,
         "gameplay": None,
@@ -59,6 +60,10 @@ class LocalCiPlanTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "audit-only"):
             ci.plan_for(gate_args(core=True))
 
+    def test_gate_rejects_broad_all_scope_as_a_repair_loop(self) -> None:
+        with self.assertRaisesRegex(ValueError, "audit-only"):
+            ci.plan_for(gate_args(all=True))
+
     def test_gate_rejects_all_gameplay_as_a_repair_loop(self) -> None:
         with self.assertRaisesRegex(ValueError, "all-gameplay.*audit-only"):
             ci.plan_for(gate_args(gameplay="all"))
@@ -68,7 +73,7 @@ class LocalCiPlanTests(unittest.TestCase):
             ci.plan_for(gate_args(soak=True, gameplay="ore"))
 
     def test_audit_has_no_redundant_compile_only_stage(self) -> None:
-        builds = cargo_build_commands(ci.audit_plan())
+        builds = cargo_build_commands(ci.audit_plan("all"))
         self.assertFalse(any("check-fast" in command for command in builds))
         self.assertEqual(sum(command == ["cargo", "test-fast"] for command in builds), 1)
         self.assertEqual(sum("test-gameplay" in command for command in builds), 1)
@@ -111,7 +116,12 @@ class LocalCiPlanTests(unittest.TestCase):
         validation = manifest["package"]["metadata"]["git-wizard"]["validation"]
         self.assertEqual(validation["quick"], "python ci.py quick")
         self.assertEqual(validation["standard"], "python ci.py gate")
-        self.assertEqual(validation["full"], "python ci.py audit")
+        self.assertNotIn("full", validation)
+
+    def test_audit_requires_explicit_scope(self) -> None:
+        with self.assertRaises(SystemExit):
+            ci.parse_args(["audit"])
+        self.assertTrue(ci.parse_args(["audit", "--all"]).all)
 
     def test_documented_ci_command_checker_rejects_removed_flags(self) -> None:
         self.assertIsNone(check_authority_docs.ci_command_error("python ci.py gate --rustdoc"))
@@ -125,6 +135,10 @@ class LocalCiPlanTests(unittest.TestCase):
         )
         self.assertIsNone(check_authority_docs.ci_command_error("python ci.py audit --core"))
         self.assertIsNone(check_authority_docs.ci_command_error("python ci.py audit --gameplay"))
+        self.assertIsNone(check_authority_docs.ci_command_error("python ci.py audit --all"))
+        audit_error = check_authority_docs.ci_command_error("python ci.py audit")
+        self.assertIsNotNone(audit_error)
+        self.assertIn("invalid local CI command", audit_error or "")
         broad_gate_error = check_authority_docs.ci_command_error("python ci.py gate --core")
         self.assertIsNotNone(broad_gate_error)
         self.assertIn("invalid local CI command", broad_gate_error or "")

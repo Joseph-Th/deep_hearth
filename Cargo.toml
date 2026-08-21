@@ -8,7 +8,6 @@ publish = false
 [package.metadata.git-wizard.validation]
 quick = "python ci.py quick"
 standard = "python ci.py gate"
-full = "python ci.py audit"
 
 [[bin]]
 name = "validate-shaders"

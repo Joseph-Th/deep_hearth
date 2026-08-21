@@ -61,8 +61,11 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
     return None
 
 
-def audit_plan(scope: str = "all") -> list[tuple[str, list[str]]]:
-    """Run an explicitly broad runtime audit, optionally limited to one maintained surface."""
+def audit_plan(scope: str) -> list[tuple[str, list[str]]]:
+    """Run an explicitly selected broad runtime audit surface."""
+
+    if scope not in ("core", "gameplay", "all"):
+        raise ValueError(f"unknown audit scope: {scope}")
 
     plan = quick_plan()
     if scope in ("core", "all"):
@@ -131,14 +134,20 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
     if args.preset == "quick":
         return quick_plan()
     if args.preset == "audit":
+        if args.all:
+            return audit_plan("all")
         if args.core:
             return audit_plan("core")
         if args.gameplay:
             return audit_plan("gameplay")
-        return audit_plan()
+        raise ValueError(
+            "audit requires an explicit scope: use `--core`, `--gameplay`, or `--all`"
+        )
     if args.preset == "report":
         return report_plan()
 
+    if args.all:
+        raise ValueError("broad verification is audit-only; use `python ci.py audit --all`")
     if args.core:
         raise ValueError("complete core behavior is audit-only; use `python ci.py audit --core`")
     if args.gameplay == "all":
@@ -241,6 +250,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="run production-library Clippy as the gate's single build lane",
     )
     lane.add_argument(
+        "--all",
+        action="store_true",
+        help="run both maintained audit surfaces; valid only with the audit preset",
+    )
+    lane.add_argument(
         "--core",
         action="store_true",
         help="run the complete ordinary core behavior suite as an explicit audit-only lane",
@@ -278,27 +292,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     args = parser.parse_args(argv)
     if args.preset == "quick" and any(
-        (args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)
+        (args.all, args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)
     ):
         parser.error("quick is intentionally build-free and does not accept build-producing flags")
     if args.preset == "audit" and any((args.lint, args.soak, args.shaders, args.rustdoc)):
         parser.error(
             "audit has a fixed runtime scope; run change-scoped lint/rustdoc/shader lanes separately"
         )
-    if args.preset == "audit" and args.core and args.gameplay:
-        parser.error("audit accepts at most one scope selector: --core or --gameplay")
+    if args.preset == "audit" and not any((args.all, args.core, args.gameplay)):
+        parser.error("audit requires an explicit scope: --core, --gameplay, or --all")
     if args.preset == "audit" and args.gameplay not in (None, "all"):
         parser.error(
             "focused gameplay belongs in gate; audit --gameplay always means all maintained gameplay targets"
         )
     if args.preset == "gate" and args.core:
         parser.error("complete core behavior is audit-only; use `python ci.py audit --core`")
+    if args.preset == "gate" and args.all:
+        parser.error("broad verification is audit-only; use `python ci.py audit --all`")
     if args.preset == "gate" and args.gameplay == "all":
         parser.error(
             "gate requires an explicit gameplay scope; use `python ci.py audit --gameplay` for all targets"
         )
     if args.preset == "report" and any(
-        (args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)
+        (args.all, args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)
     ):
         parser.error("report is a fixed exploratory lane and does not accept gate flags")
     return args

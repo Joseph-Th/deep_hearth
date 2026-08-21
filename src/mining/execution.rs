@@ -6,18 +6,12 @@ use std::fmt::{Display, Formatter};
 use crate::capability::{CapabilityId, CapabilityValueKind};
 use crate::core::quantity::{Mass, Pressure};
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
-use crate::equipment::{
-    EquipmentId, EquipmentOperationConditionOutcome, EquipmentProviderError,
-    resolve_equipment_provider,
-};
+use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
 use crate::geology::{GeologicalDepositId, GeologicalDepositLifecycle};
 use crate::inventory::{
-    InboundReservationError, ReservedDepositPlan, ReservedDepositPlanError, ReservedDepositRequest,
-    StockpileId, StockpileStorageError, StockpileStoredMassChange, StockpileStructuralLoadError,
-    ValidatedInboundReservation, ValidatedStockpileStructuralLoad, apply_reserved_deposits,
-    decide_reserved_deposits, validate_inbound_reservation, validate_stockpile_storage,
-    validate_stockpile_stored_mass_changes, validate_stockpile_support_for_new_inbound,
+    InboundReservationError, StockpileId, StockpileStorageError, StockpileStructuralLoadError,
+    ValidatedInboundReservation, validate_inbound_reservation, validate_stockpile_storage,
+    validate_stockpile_support_for_new_inbound,
 };
 use crate::labor::{
     PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ValidatedPlayerWorkStart,
@@ -28,7 +22,6 @@ use crate::material::{MaterialLotSpec, MaterialLotSpecError};
 use crate::ore_processing::MassFlowDurationError;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
-use crate::structural::StructuralCommitError;
 
 use super::physics::{MiningPhysicsError, resolve_mining_physics};
 use super::state::{MiningJobIdentity, MiningJobResources, MiningJobSchedule};
@@ -672,286 +665,13 @@ pub fn validate_start_mining(
     })
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MiningTickError {
-    MiningRevisionExhausted,
-    EquipmentRevisionExhausted,
-}
+mod claim;
+mod tick;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct MiningTickPlan {
-    expected_revision: u64,
-    next_revision: u64,
-    ready_at: SimulationTick,
-    equipment_outcomes: Vec<EquipmentOperationConditionOutcome>,
-}
-
-pub(crate) fn decide_mining_tick(
-    state: &AppState,
-    next_tick: SimulationTick,
-) -> Result<Option<MiningTickPlan>, MiningTickError> {
-    let Some(due_jobs) = state.mining().jobs_due_at(next_tick) else {
-        return Ok(None);
-    };
-    let expected_revision = state.mining().revision();
-    let next_revision = expected_revision
-        .checked_add(1)
-        .ok_or(MiningTickError::MiningRevisionExhausted)?;
-    let mut equipment_outcomes = Vec::with_capacity(due_jobs.len());
-    for &job in due_jobs {
-        let record = state
-            .mining()
-            .get_job(job)
-            .unwrap_or_else(|| panic!("runtime invariant broken: due mining job disappeared"));
-        let equipment = state
-            .equipment()
-            .get_equipment(record.equipment())
-            .unwrap_or_else(|| panic!("runtime invariant broken: mining equipment disappeared"));
-        assert_eq!(
-            equipment.condition(),
-            record.equipment_condition_before(),
-            "mining occupancy must prevent equipment condition mutation while work is active"
-        );
-        if record.equipment_condition_after() != record.equipment_condition_before() {
-            equipment_outcomes.push(EquipmentOperationConditionOutcome::new(
-                record.equipment(),
-                record.equipment_condition_before(),
-                record.equipment_condition_after(),
-            ));
-        }
-    }
-    if !equipment_outcomes.is_empty() {
-        state
-            .equipment()
-            .revision()
-            .checked_add(2)
-            .ok_or(MiningTickError::EquipmentRevisionExhausted)?;
-    }
-    Ok(Some(MiningTickPlan {
-        expected_revision,
-        next_revision,
-        ready_at: next_tick,
-        equipment_outcomes,
-    }))
-}
-
-pub(crate) fn apply_mining_tick(
-    state: &mut AppState,
-    plan: Option<MiningTickPlan>,
-) -> Vec<MiningJobId> {
-    let Some(plan) = plan else {
-        return Vec::new();
-    };
-    if !plan.equipment_outcomes.is_empty() {
-        let expected_equipment_revision = state.equipment().revision();
-        let next_equipment_revision = expected_equipment_revision
-            .checked_add(1)
-            .unwrap_or_else(|| panic!("prevalidated mining equipment revision exhausted"));
-        state
-            .equipment_state_mut()
-            .apply_operation_condition_outcomes(
-                expected_equipment_revision,
-                next_equipment_revision,
-                &plan.equipment_outcomes,
-            );
-    }
-    state.mining_state_mut().mark_due_jobs_ready(
-        plan.expected_revision,
-        plan.next_revision,
-        plan.ready_at,
-    )
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum MiningClaimError {
-    UnknownJob { job: MiningJobId },
-    NotReady { job: MiningJobId },
-    LotIdExhausted,
-    InventoryRevisionExhausted,
-    MiningRevisionExhausted,
-    DestinationMassOverflow { stockpile: StockpileId },
-    StructuralLoad(StockpileStructuralLoadError),
-}
-
-impl Display for MiningClaimError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownJob { job } => write!(formatter, "unknown mining job {}", job.value()),
-            Self::NotReady { job } => {
-                write!(
-                    formatter,
-                    "mining job {} output is not ready to claim",
-                    job.value()
-                )
-            }
-            Self::LotIdExhausted => {
-                formatter.write_str("material lot identifier space is exhausted")
-            }
-            Self::InventoryRevisionExhausted => {
-                formatter.write_str("inventory revision space is exhausted")
-            }
-            Self::MiningRevisionExhausted => {
-                formatter.write_str("mining revision space is exhausted")
-            }
-            Self::DestinationMassOverflow { stockpile } => write!(
-                formatter,
-                "claimed mining output overflows destination stockpile {} mass",
-                stockpile.value()
-            ),
-            Self::StructuralLoad(error) => {
-                write!(
-                    formatter,
-                    "claimed mining output structural load failed: {error}"
-                )
-            }
-        }
-    }
-}
-impl Error for MiningClaimError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::StructuralLoad(error) => Some(error),
-            Self::UnknownJob { .. }
-            | Self::NotReady { .. }
-            | Self::LotIdExhausted
-            | Self::InventoryRevisionExhausted
-            | Self::MiningRevisionExhausted
-            | Self::DestinationMassOverflow { .. } => None,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum MiningClaimCommitError {
-    StaleInventory { expected: u64, actual: u64 },
-    StaleMining { expected: u64, actual: u64 },
-    Structure(StructuralCommitError),
-}
-impl Display for MiningClaimCommitError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::StaleInventory { expected, actual } => write!(
-                formatter,
-                "validated mining claim expected inventory revision {expected} but current revision is {actual}"
-            ),
-            Self::StaleMining { expected, actual } => write!(
-                formatter,
-                "validated mining claim expected mining revision {expected} but current revision is {actual}"
-            ),
-            Self::Structure(error) => {
-                write!(
-                    formatter,
-                    "validated mining claim structural commit failed: {error}"
-                )
-            }
-        }
-    }
-}
-impl Error for MiningClaimCommitError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Structure(error) => Some(error),
-            Self::StaleInventory { .. } | Self::StaleMining { .. } => None,
-        }
-    }
-}
-
-#[must_use]
-pub struct ValidatedMiningClaim {
-    job: MiningJobId,
-    expected_mining_revision: u64,
-    next_mining_revision: u64,
-    inventory: ReservedDepositPlan,
-    structural_load: Option<ValidatedStockpileStructuralLoad>,
-}
-
-impl ValidatedMiningClaim {
-    pub fn commit(self, state: &mut AppState) -> Result<(), MiningClaimCommitError> {
-        if state.inventory().revision() != self.inventory.expected_revision() {
-            return Err(MiningClaimCommitError::StaleInventory {
-                expected: self.inventory.expected_revision(),
-                actual: state.inventory().revision(),
-            });
-        }
-        if state.mining().revision() != self.expected_mining_revision {
-            return Err(MiningClaimCommitError::StaleMining {
-                expected: self.expected_mining_revision,
-                actual: state.mining().revision(),
-            });
-        }
-        if let Some(load) = self.structural_load {
-            load.commit(state)
-                .map_err(MiningClaimCommitError::Structure)?;
-        }
-        apply_reserved_deposits(state.inventory_state_mut(), self.inventory);
-        state.mining_state_mut().remove_ready_job(
-            self.job,
-            self.expected_mining_revision,
-            self.next_mining_revision,
-        );
-        Ok(())
-    }
-}
-
-pub fn validate_claim_mining_output(
-    registries: &Registries,
-    state: &AppState,
-    job: MiningJobId,
-) -> Result<ValidatedMiningClaim, MiningClaimError> {
-    let record = state
-        .mining()
-        .get_job(job)
-        .ok_or(MiningClaimError::UnknownJob { job })?;
-    let ready_at = record
-        .ready_at()
-        .ok_or(MiningClaimError::NotReady { job })?;
-    let mass = record.output().mass();
-    let inventory = decide_reserved_deposits(
-        registries,
-        state.inventory(),
-        ready_at,
-        vec![ReservedDepositRequest::new(
-            record.destination(),
-            vec![record.output().clone()],
-            mass,
-        )],
-    )
-    .map_err(|error| match error {
-        ReservedDepositPlanError::LotIdExhausted => MiningClaimError::LotIdExhausted,
-        ReservedDepositPlanError::RevisionExhausted => MiningClaimError::InventoryRevisionExhausted,
-    })?;
-    let destination = state
-        .inventory()
-        .get_stockpile(record.destination())
-        .ok_or(MiningClaimError::DestinationMassOverflow {
-            stockpile: record.destination(),
-        })?;
-    let stored_after = destination.stored_mass().checked_add(mass).ok_or(
-        MiningClaimError::DestinationMassOverflow {
-            stockpile: record.destination(),
-        },
-    )?;
-    let structural_load = validate_stockpile_stored_mass_changes(
-        registries,
-        state,
-        [StockpileStoredMassChange::new_committed_inbound(
-            record.destination(),
-            stored_after,
-        )],
-    )
-    .map_err(MiningClaimError::StructuralLoad)?;
-    let expected_mining_revision = state.mining().revision();
-    let next_mining_revision = expected_mining_revision
-        .checked_add(1)
-        .ok_or(MiningClaimError::MiningRevisionExhausted)?;
-    Ok(ValidatedMiningClaim {
-        job,
-        expected_mining_revision,
-        next_mining_revision,
-        inventory,
-        structural_load,
-    })
-}
+pub use claim::{
+    MiningClaimCommitError, MiningClaimError, ValidatedMiningClaim, validate_claim_mining_output,
+};
+pub(crate) use tick::{MiningTickError, apply_mining_tick, decide_mining_tick};
 
 #[cfg(test)]
 mod tests {
@@ -982,7 +702,7 @@ mod tests {
     use crate::maintenance::Condition;
     use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
     use crate::matter::calculate_matter_accounting;
-    use crate::mining::MiningJobValidationError;
+    use crate::mining::{MiningJobValidationError, MiningValidationError};
     use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
     use crate::simulation::advance_tick;
     use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -1089,6 +809,54 @@ mod tests {
                     job,
                     stored: forged,
                     required,
+                }
+            )))
+        );
+    }
+
+    #[test]
+    fn loaded_mining_state_rejects_job_map_key_identity_mismatch() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0xA11E_0024));
+        initialize_player_survival(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("mining key-audit survival setup failed: {error}"));
+        let pick = assemble_pick_for_test(&registries, &mut state);
+        let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+            .unwrap_or_else(|error| panic!("mining key-audit destination failed: {error}"));
+        let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+            .unwrap_or_else(|error| panic!("mining key-audit deposit failed: {error}"));
+        let job = validate_start_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        )
+        .unwrap_or_else(|error| panic!("mining key-audit start failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("mining key-audit commit failed: {error}"));
+
+        let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| panic!("mining key-audit serialization failed: {error}"));
+        let jobs = encoded["state"]["systems"]["mining"]["jobs"]
+            .as_object_mut()
+            .unwrap_or_else(|| panic!("serialized mining jobs were not an object"));
+        let record = jobs
+            .remove(&job.value().to_string())
+            .unwrap_or_else(|| panic!("serialized mining job disappeared"));
+        let forged_key = job.value() + 1;
+        assert!(jobs.insert(forged_key.to_string(), record).is_none());
+        let tampered: LoadedSaveEnvelope = serde_json::from_value(encoded)
+            .unwrap_or_else(|error| panic!("mining key-audit tamper decode failed: {error}"));
+
+        assert_eq!(
+            tampered.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Mining(
+                MiningValidationError::JobIdMismatch {
+                    key: MiningJobId::new(forged_key),
+                    record: job,
                 }
             )))
         );

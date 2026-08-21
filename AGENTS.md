@@ -16,8 +16,11 @@ Use this file as the repository execution card. [`README.md`](README.md) routes 
 6. Use the narrowest validation lane in [`TESTING.md`](TESTING.md) that proves the change.
 
 During implementation, use the build-free `quick` lane for frequent feedback. Batch related edits and
-run a build-producing `standard`, focused executable, or `full` lane only at a coherent checkpoint; do
-not compile the project after every file mutation.
+use at most one build-producing operation at a coherent checkpoint: either `standard` for compile proof
+or the focused executable/audit that directly proves the changed behavior. Do not run a compile-only
+lane immediately before or after an executable lane that compiles the same surface, and do not compile
+the project after every file mutation. Git Wizard deliberately exposes no automatic `full` lane;
+broad audits require an explicit surface selection from [`TESTING.md`](TESTING.md).
 
 When code, tests, and documentation disagree, reconcile them to the actual authoritative contract.
 
@@ -40,4 +43,6 @@ When code, tests, and documentation disagree, reconcile them to the actual autho
 ## Finish
 
 Review the task-scoped diff, update the authority document that owns any changed contract, and run the
-smallest completion gate from [`TESTING.md`](TESTING.md) that covers the changed surface.
+smallest completion gate from [`TESTING.md`](TESTING.md) that covers the changed surface. A successful
+focused executable is completion evidence for that surface and does not need a follow-up `standard`
+compile merely for reassurance.
