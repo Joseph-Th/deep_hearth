@@ -12,7 +12,6 @@ use crate::inventory::{
 };
 use crate::maintenance::Condition;
 use crate::material::MaterialComposition;
-use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
@@ -42,11 +41,6 @@ pub enum EquipmentAssemblyError {
     StaleInventorySelection {
         expected: u64,
         actual: u64,
-    },
-    SourceBusy {
-        stockpile: StockpileId,
-        job: ProductionJobId,
-        release: ProductionOccupancyRelease,
     },
     InventoryRevisionExhausted,
     EquipmentIdExhausted,
@@ -95,16 +89,6 @@ impl Display for EquipmentAssemblyError {
                 formatter,
                 "equipment assembly material selection expected inventory revision {expected} but current revision is {actual}"
             ),
-            Self::SourceBusy {
-                stockpile,
-                job,
-                release,
-            } => write!(
-                formatter,
-                "assembly source {} is occupied by production job {} {release}",
-                stockpile.value(),
-                job.value()
-            ),
             Self::InventoryRevisionExhausted => {
                 formatter.write_str("inventory revision space is exhausted")
             }
@@ -139,11 +123,6 @@ impl Error for EquipmentAssemblyError {
                 expected: _,
                 actual: _,
             }
-            | Self::SourceBusy {
-                stockpile: _,
-                job: _,
-                release: _,
-            }
             | Self::InventoryRevisionExhausted
             | Self::EquipmentIdExhausted
             | Self::EquipmentRevisionExhausted => None,
@@ -153,18 +132,8 @@ impl Error for EquipmentAssemblyError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentAssemblyCommitError {
-    StaleInventory {
-        expected: u64,
-        actual: u64,
-    },
-    StaleEquipment {
-        expected: u64,
-        actual: u64,
-    },
-    SourceBusy {
-        stockpile: StockpileId,
-        job: ProductionJobId,
-    },
+    StaleInventory { expected: u64, actual: u64 },
+    StaleEquipment { expected: u64, actual: u64 },
     Structure(StructuralCommitError),
 }
 
@@ -178,12 +147,6 @@ impl Display for EquipmentAssemblyCommitError {
             Self::StaleEquipment { expected, actual } => write!(
                 formatter,
                 "equipment assembly expected equipment revision {expected} but current revision is {actual}"
-            ),
-            Self::SourceBusy { stockpile, job } => write!(
-                formatter,
-                "equipment assembly source {} became occupied by production job {}",
-                stockpile.value(),
-                job.value()
             ),
             Self::Structure(error) => {
                 write!(formatter, "equipment assembly structure failed: {error}")
@@ -203,10 +166,6 @@ impl Error for EquipmentAssemblyCommitError {
             | Self::StaleEquipment {
                 expected: _,
                 actual: _,
-            }
-            | Self::SourceBusy {
-                stockpile: _,
-                job: _,
             } => None,
         }
     }
@@ -234,15 +193,6 @@ impl ValidatedEquipmentAssembly {
             return Err(EquipmentAssemblyCommitError::StaleEquipment {
                 expected: self.expected_equipment_revision,
                 actual: state.equipment().revision(),
-            });
-        }
-        if let Some(job) = state
-            .production()
-            .get_stockpile_occupant(self.egress.source())
-        {
-            return Err(EquipmentAssemblyCommitError::SourceBusy {
-                stockpile: self.egress.source(),
-                job: job.id(),
             });
         }
         if let Some(load) = self.structural_load {
@@ -300,13 +250,6 @@ pub fn validate_assemble_equipment(
         return Err(EquipmentAssemblyError::ImpureAssemblyMaterial);
     }
     let embodied_material = selection.consumed_inputs().to_vec();
-    if let Some(job) = state.production().get_stockpile_occupant(source) {
-        return Err(EquipmentAssemblyError::SourceBusy {
-            stockpile: source,
-            job: job.id(),
-            release: job.occupancy_release(),
-        });
-    }
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {
             match error {

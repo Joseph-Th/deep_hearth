@@ -748,7 +748,11 @@ mod tests {
             assert!(systems[owner].get("equipment_occupancy").is_none());
         }
         assert!(systems["production"].get("energy_occupancy").is_none());
-        assert!(systems["production"].get("stockpile_occupancy").is_none());
+        assert!(
+            systems["production"]
+                .get("output_stockpile_occupancy")
+                .is_none()
+        );
         let stockpile_value = &inventory["stockpiles"][stockpile.value().to_string()];
         assert!(stockpile_value.get("lot_ids").is_none());
         let decoded: LoadedSaveEnvelope = match serde_json::from_slice(&encoded) {

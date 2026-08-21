@@ -139,6 +139,8 @@ pub enum EatError {
         age: TickSpan,
     },
     ShelfLifeOverflow,
+    MetabolicEnergyOverflow,
+    HydrationOverflow,
     NutritionOverflow,
     NoReserveGain {
         mass: Mass,
@@ -226,6 +228,10 @@ impl Display for EatError {
             Self::ShelfLifeOverflow => {
                 formatter.write_str("food shelf-life calculation overflowed")
             }
+            Self::MetabolicEnergyOverflow => {
+                formatter.write_str("food metabolic-energy calculation overflowed")
+            }
+            Self::HydrationOverflow => formatter.write_str("food hydration calculation overflowed"),
             Self::NutritionOverflow => formatter.write_str("food nutrition calculation overflowed"),
             Self::NoReserveGain { mass } => write!(
                 formatter,
@@ -274,6 +280,8 @@ impl Error for EatError {
             | Self::NotEdible { commodity: _ }
             | Self::Spoiled { .. }
             | Self::ShelfLifeOverflow
+            | Self::MetabolicEnergyOverflow
+            | Self::HydrationOverflow
             | Self::NutritionOverflow
             | Self::NoReserveGain { .. }
             | Self::UnsupportedComposition { .. }
@@ -483,16 +491,6 @@ fn allocate_nutrition(total_ppm: u32, offered: NutritionEnergy) -> NutritionGain
     }
 }
 
-fn add_food_hydration_up_to_capacity(
-    current: Volume,
-    gain: Volume,
-    maximum: Volume,
-) -> (Volume, Volume) {
-    let after = current.checked_add(gain).unwrap_or(maximum).min(maximum);
-    let gained = after.checked_sub(current).unwrap_or(Volume::ZERO);
-    (after, gained)
-}
-
 pub fn validate_eat(
     registries: &Registries,
     state: &AppState,
@@ -593,10 +591,10 @@ pub fn validate_eat(
         }
         let portion_energy = u128::from(selection.mass().milligrams())
             .checked_mul(u128::from(food.dietary_energy().nanojoules_per_milligram()))
-            .ok_or(EatError::NutritionOverflow)?;
+            .ok_or(EatError::MetabolicEnergyOverflow)?;
         offered_energy_nj = offered_energy_nj
             .checked_add(portion_energy)
-            .ok_or(EatError::NutritionOverflow)?;
+            .ok_or(EatError::MetabolicEnergyOverflow)?;
         category_energy
             .checked_add(food.category(), portion_energy)
             .ok_or(EatError::NutritionOverflow)?;
@@ -604,9 +602,9 @@ pub fn validate_eat(
             .checked_add(
                 u128::from(selection.mass().milligrams())
                     .checked_mul(u128::from(food.hydration_microliters_per_milligram()))
-                    .ok_or(EatError::NutritionOverflow)?,
+                    .ok_or(EatError::HydrationOverflow)?,
             )
-            .ok_or(EatError::NutritionOverflow)?;
+            .ok_or(EatError::HydrationOverflow)?;
         let addition = AggregateMass::from_mass(selection.mass());
         let current = consumed_additions
             .get(&metabolic_material)
@@ -631,12 +629,12 @@ pub fn validate_eat(
     let available_energy = physiology
         .maximum_metabolic_energy()
         .checked_sub(player.metabolic_energy())
-        .ok_or(EatError::NutritionOverflow)?;
+        .ok_or(EatError::MetabolicEnergyOverflow)?;
     let energy_gained = offered_energy.min(available_energy);
     let energy_after = player
         .metabolic_energy()
         .checked_add(energy_gained)
-        .ok_or(EatError::NutritionOverflow)?;
+        .ok_or(EatError::MetabolicEnergyOverflow)?;
     let egress = validate_material_egress_from_selection(state.inventory(), exact_selection)
         .map_err(|error| match error {
             MaterialEgressError::StaleSelection {
@@ -661,12 +659,16 @@ pub fn validate_eat(
     .map_err(EatError::StructuralLoad)?;
 
     let hydration_gain_ul =
-        u64::try_from(offered_hydration_ul).map_err(|_| EatError::NutritionOverflow)?;
-    let (hydration_after, hydration_gained) = add_food_hydration_up_to_capacity(
-        player.hydration(),
-        Volume::from_microliters(hydration_gain_ul),
-        physiology.maximum_hydration(),
-    );
+        u64::try_from(offered_hydration_ul).map_err(|_| EatError::HydrationOverflow)?;
+    let available_hydration = physiology
+        .maximum_hydration()
+        .checked_sub(player.hydration())
+        .ok_or(EatError::HydrationOverflow)?;
+    let hydration_gained = Volume::from_microliters(hydration_gain_ul).min(available_hydration);
+    let hydration_after = player
+        .hydration()
+        .checked_add(hydration_gained)
+        .ok_or(EatError::HydrationOverflow)?;
     let nutrition_gain_ppm = offered_energy
         .nanojoules()
         .checked_mul(u128::from(super::NUTRITION_PARTS_PER_MILLION))
@@ -1265,6 +1267,55 @@ mod tests {
                 .metabolic_energy(),
             physiology.maximum_metabolic_energy()
         );
+    }
+
+    #[test]
+    fn eating_rejects_over_capacity_hydration_without_normalizing_or_consuming_food() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x5A70_0017));
+        initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("invalid-hydration survival initialization failed: {error}")
+        });
+        let physiology = registries.survival().physiology();
+        let invalid_hydration = physiology
+            .maximum_hydration()
+            .checked_add(Volume::from_microliters(1))
+            .unwrap_or_else(|| panic!("invalid-hydration fixture overflowed"));
+        let expected_revision = state.survival().revision();
+        state.survival_state_mut().apply_player(
+            expected_revision,
+            expected_revision + 1,
+            player_record(
+                physiology.maximum_metabolic_energy(),
+                invalid_hydration,
+                Vitality::MAXIMUM,
+                NutritionReserves::from_parts_per_million(0, 0, 0),
+            ),
+        );
+        let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
+            .unwrap_or_else(|error| panic!("invalid-hydration food stockpile failed: {error}"));
+        let lot = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            stockpile,
+            CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+            Mass::from_milligrams(1),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("invalid-hydration food lot failed: {error}"));
+        let before = state.clone();
+
+        assert_eq!(
+            validate_eat(
+                &registries,
+                &state,
+                stockpile,
+                &[MaterialLotSelection::new(lot, Mass::from_milligrams(1))],
+            )
+            .err(),
+            Some(EatError::HydrationOverflow)
+        );
+        assert_eq!(state, before);
     }
 
     #[test]

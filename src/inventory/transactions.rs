@@ -150,9 +150,6 @@ pub(crate) enum MaterialReformError {
     UnknownDestination {
         stockpile: StockpileId,
     },
-    SameStockpile {
-        stockpile: StockpileId,
-    },
     UnknownTargetMaterial {
         material: MaterialId,
     },
@@ -232,9 +229,6 @@ pub(crate) fn validate_material_reform_from_selection(
             .ok_or(MaterialReformError::UnknownDestination {
                 stockpile: destination,
             })?;
-    if source == destination {
-        return Err(MaterialReformError::SameStockpile { stockpile: source });
-    }
     validate_commodity_reference(registries, target).map_err(|error| match error {
         CommodityReferenceError::UnknownMaterial { material } => {
             MaterialReformError::UnknownTargetMaterial { material }
@@ -264,19 +258,38 @@ pub(crate) fn validate_material_reform_from_selection(
         .map_err(MaterialReformError::DestinationStorage)?;
     }
 
-    let committed = destination_record
+    let source_after = source_record
         .stored_mass()
-        .checked_add(destination_record.reserved_inbound())
-        .ok_or(MaterialReformError::DestinationMassOverflow {
-            stockpile: destination,
+        .checked_sub(total_consumed)
+        .ok_or(MaterialReformError::StaleSelection {
+            expected: expected_revision,
+            actual: inventories.revision(),
         })?;
-    let destination_after = destination_record
-        .stored_mass()
-        .checked_add(total_consumed)
-        .ok_or(MaterialReformError::DestinationMassOverflow {
-            stockpile: destination,
-        })?;
-    let after_with_reserved = committed.checked_add(total_consumed).ok_or(
+    let destination_after = if source == destination {
+        source_record.stored_mass()
+    } else {
+        destination_record
+            .stored_mass()
+            .checked_add(total_consumed)
+            .ok_or(MaterialReformError::DestinationMassOverflow {
+                stockpile: destination,
+            })?
+    };
+    let committed_before_output = if source == destination {
+        source_after
+            .checked_add(destination_record.reserved_inbound())
+            .ok_or(MaterialReformError::DestinationMassOverflow {
+                stockpile: destination,
+            })?
+    } else {
+        destination_record
+            .stored_mass()
+            .checked_add(destination_record.reserved_inbound())
+            .ok_or(MaterialReformError::DestinationMassOverflow {
+                stockpile: destination,
+            })?
+    };
+    let after_with_reserved = committed_before_output.checked_add(total_consumed).ok_or(
         MaterialReformError::DestinationMassOverflow {
             stockpile: destination,
         },
@@ -285,32 +298,31 @@ pub(crate) fn validate_material_reform_from_selection(
         return Err(MaterialReformError::DestinationCapacityExceeded {
             stockpile: destination,
             capacity: destination_record.capacity(),
-            committed,
+            committed: committed_before_output,
             requested: total_consumed,
         });
     }
-    destination_record
-        .get_mass(target)
-        .checked_add(total_consumed)
-        .ok_or(MaterialReformError::DestinationMassOverflow {
-            stockpile: destination,
-        })?;
-    let source_after = source_record
-        .stored_mass()
-        .checked_sub(total_consumed)
-        .ok_or(MaterialReformError::StaleSelection {
-            expected: expected_revision,
-            actual: inventories.revision(),
-        })?;
-    let structural = validate_stockpile_stored_mass_changes(
-        registries,
-        state,
-        [
-            StockpileStoredMassChange::new(source, source_after),
-            StockpileStoredMassChange::new(destination, destination_after),
-        ],
-    )
-    .map_err(MaterialReformError::StructuralLoad)?;
+    if source != destination {
+        destination_record
+            .get_mass(target)
+            .checked_add(total_consumed)
+            .ok_or(MaterialReformError::DestinationMassOverflow {
+                stockpile: destination,
+            })?;
+    }
+    let structural = if source == destination {
+        None
+    } else {
+        validate_stockpile_stored_mass_changes(
+            registries,
+            state,
+            [
+                StockpileStoredMassChange::new(source, source_after),
+                StockpileStoredMassChange::new(destination, destination_after),
+            ],
+        )
+        .map_err(MaterialReformError::StructuralLoad)?
+    };
 
     let mut allocated_lot_ids = Vec::with_capacity(consumed_inputs.len());
     let mut next_lot_id = inventories.next_lot_id();
@@ -355,10 +367,6 @@ impl ValidatedMaterialEgress {
 
     pub(crate) const fn total_consumed(&self) -> Mass {
         self.total_consumed
-    }
-
-    pub(crate) const fn source(&self) -> StockpileId {
-        self.source
     }
 
     pub(crate) fn consumed_inputs(&self) -> &[ConsumedMaterialTrace] {
@@ -2362,6 +2370,51 @@ mod tests {
         );
         validate_loaded_inventory(registries.materials(), state.inventory(), state.tick())
             .unwrap_or_else(|error| panic!("reformed inventory failed validation: {error}"));
+    }
+
+    #[test]
+    fn exact_reform_can_return_changed_form_to_the_source_stockpile() {
+        let registries = build_registries();
+        let mut state = AppState::new(WorldSeed::new(0x1A70_2008));
+        let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
+            .unwrap_or_else(|error| panic!("in-place reform stockpile failed: {error}"));
+        deposit_bulk_for_test(
+            &registries,
+            &mut state,
+            stockpile,
+            wood_log(),
+            Mass::from_milligrams(10),
+        )
+        .unwrap_or_else(|error| panic!("in-place reform source deposit failed: {error}"));
+        let before = calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("in-place reform accounting failed: {error:?}"))
+            .total();
+        let target = CommodityKey::new(MATERIAL_WOOD, FORM_CHIP);
+        let selection = validate_consumption_selection(
+            state.inventory(),
+            stockpile,
+            &[MaterialInputSpec::new(wood_log(), Mass::from_milligrams(6))],
+        )
+        .unwrap_or_else(|error| panic!("in-place reform selection failed: {error:?}"));
+
+        validate_material_reform_from_selection(&registries, &state, stockpile, target, selection)
+            .unwrap_or_else(|error| panic!("in-place reform validation failed: {error:?}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("in-place reform commit failed: {error:?}"));
+
+        let record = state
+            .inventory()
+            .get_stockpile(stockpile)
+            .unwrap_or_else(|| panic!("in-place reform stockpile disappeared"));
+        assert_eq!(record.stored_mass(), Mass::from_milligrams(10));
+        assert_eq!(record.get_mass(wood_log()), Mass::from_milligrams(4));
+        assert_eq!(record.get_mass(target), Mass::from_milligrams(6));
+        assert_eq!(
+            calculate_matter_accounting(&state).map(|accounting| accounting.total()),
+            Ok(before)
+        );
+        validate_loaded_inventory(registries.materials(), state.inventory(), state.tick())
+            .unwrap_or_else(|error| panic!("in-place reform failed validation: {error}"));
     }
 
     #[test]

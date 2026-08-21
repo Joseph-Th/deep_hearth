@@ -371,9 +371,6 @@ pub enum EquipmentRepairMaterialError {
     UnknownSpentDestination {
         stockpile: StockpileId,
     },
-    SpentDestinationIsSource {
-        stockpile: StockpileId,
-    },
     UnknownSpentMaterial {
         material: crate::material::MaterialId,
     },
@@ -414,11 +411,6 @@ impl Display for EquipmentRepairMaterialError {
             Self::UnknownSpentDestination { stockpile } => write!(
                 formatter,
                 "spent maintenance destination stockpile {} does not exist",
-                stockpile.value()
-            ),
-            Self::SpentDestinationIsSource { stockpile } => write!(
-                formatter,
-                "spent maintenance material must leave source stockpile {}",
                 stockpile.value()
             ),
             Self::UnknownSpentMaterial { material } => write!(
@@ -487,9 +479,6 @@ impl Error for EquipmentRepairMaterialError {
                 stockpile: _stockpile,
             }
             | Self::UnknownSpentDestination {
-                stockpile: _stockpile,
-            }
-            | Self::SpentDestinationIsSource {
                 stockpile: _stockpile,
             }
             | Self::SpentMassOverflow {
@@ -888,9 +877,6 @@ fn map_material_error(error: MaterialReformError) -> EquipmentRepairMaterialErro
         }
         MaterialReformError::UnknownDestination { stockpile } => {
             EquipmentRepairMaterialError::UnknownSpentDestination { stockpile }
-        }
-        MaterialReformError::SameStockpile { stockpile } => {
-            EquipmentRepairMaterialError::SpentDestinationIsSource { stockpile }
         }
         MaterialReformError::UnknownTargetMaterial { material } => {
             EquipmentRepairMaterialError::UnknownSpentMaterial { material }
@@ -1465,7 +1451,7 @@ mod tests {
     }
 
     #[test]
-    fn repair_rejects_non_improvement_and_same_spent_destination_without_mutation() {
+    fn repair_rejects_non_improvement_and_allows_spent_material_to_return_to_source() {
         let registries = registries();
         let mut state = AppState::new(WorldSeed::new(0x8120_0002));
         let equipment =
@@ -1501,23 +1487,39 @@ mod tests {
                 after: condition(500_000),
             })
         );
+        assert_eq!(state, before);
 
-        let same_destination = bind(
+        let same_destination = resolve_equipment_maintenance(
+            &registries,
             &state,
-            equipment,
-            source,
-            lot,
-            Mass::from_milligrams(1),
-            source,
-            condition(600_000),
+            EquipmentMaintenanceRequest::new(equipment, source, source),
+        )
+        .unwrap_or_else(|error| panic!("same-stockpile maintenance resolution failed: {error}"));
+        let outcome = validate_equipment_repair(&registries, &state, same_destination)
+            .unwrap_or_else(|error| panic!("same-stockpile repair validation failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("same-stockpile repair commit failed: {error}"));
+        assert_eq!(outcome.material_mass(), Mass::from_milligrams(7));
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(equipment)
+                .map(|record| record.condition()),
+            Some(condition(700_000))
+        );
+        let source_record = state
+            .inventory()
+            .get_stockpile(source)
+            .unwrap_or_else(|| panic!("same-stockpile repair source disappeared"));
+        assert_eq!(source_record.stored_mass(), Mass::from_milligrams(10));
+        assert_eq!(
+            source_record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_LOG)),
+            Mass::from_milligrams(3)
         );
         assert_eq!(
-            validate_equipment_repair(&registries, &state, same_destination),
-            Err(EquipmentRepairError::Material(
-                EquipmentRepairMaterialError::SpentDestinationIsSource { stockpile: source }
-            ))
+            source_record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)),
+            Mass::from_milligrams(7)
         );
-        assert_eq!(state, before);
     }
 
     #[test]

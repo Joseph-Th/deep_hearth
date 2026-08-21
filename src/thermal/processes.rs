@@ -1699,10 +1699,11 @@ mod tests {
                 release: ProductionOccupancyRelease::AwaitingResume,
             })
         );
+        assert!(validate_mount_stockpile(&registries, &state, source, recovery_support).is_ok());
         assert_eq!(
-            validate_mount_stockpile(&registries, &state, source, recovery_support),
+            validate_mount_stockpile(&registries, &state, destination, recovery_support),
             Err(StockpileSupportError::StockpileBusy {
-                stockpile: source,
+                stockpile: destination,
                 job,
                 release: ProductionOccupancyRelease::AwaitingResume,
             })

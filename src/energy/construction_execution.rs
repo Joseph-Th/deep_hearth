@@ -11,7 +11,6 @@ use crate::inventory::{
     validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
 };
 use crate::material::MaterialComposition;
-use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
@@ -41,11 +40,6 @@ pub enum EnergyStoreAssemblyError {
     StaleInventorySelection {
         expected: u64,
         actual: u64,
-    },
-    SourceBusy {
-        stockpile: StockpileId,
-        job: ProductionJobId,
-        release: ProductionOccupancyRelease,
     },
     InventoryRevisionExhausted,
     StoreIdExhausted,
@@ -94,16 +88,6 @@ impl Display for EnergyStoreAssemblyError {
                 formatter,
                 "energy-store construction material selection expected inventory revision {expected} but current revision is {actual}"
             ),
-            Self::SourceBusy {
-                stockpile,
-                job,
-                release,
-            } => write!(
-                formatter,
-                "energy-store construction source {} is occupied by production job {} {release}",
-                stockpile.value(),
-                job.value()
-            ),
             Self::InventoryRevisionExhausted => {
                 formatter.write_str("inventory revision space is exhausted")
             }
@@ -132,7 +116,6 @@ impl Error for EnergyStoreAssemblyError {
             | Self::SourceMassOverflow { .. }
             | Self::ImpureAssemblyMaterial
             | Self::StaleInventorySelection { .. }
-            | Self::SourceBusy { .. }
             | Self::InventoryRevisionExhausted
             | Self::StoreIdExhausted
             | Self::EnergyRevisionExhausted => None,
@@ -142,18 +125,8 @@ impl Error for EnergyStoreAssemblyError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreAssemblyCommitError {
-    StaleInventory {
-        expected: u64,
-        actual: u64,
-    },
-    StaleEnergy {
-        expected: u64,
-        actual: u64,
-    },
-    SourceBusy {
-        stockpile: StockpileId,
-        job: ProductionJobId,
-    },
+    StaleInventory { expected: u64, actual: u64 },
+    StaleEnergy { expected: u64, actual: u64 },
     Structure(StructuralCommitError),
 }
 
@@ -168,12 +141,6 @@ impl Display for EnergyStoreAssemblyCommitError {
                 formatter,
                 "energy-store construction expected energy revision {expected} but current revision is {actual}"
             ),
-            Self::SourceBusy { stockpile, job } => write!(
-                formatter,
-                "energy-store construction source {} became occupied by production job {}",
-                stockpile.value(),
-                job.value()
-            ),
             Self::Structure(error) => write!(
                 formatter,
                 "energy-store construction structure failed: {error}"
@@ -186,9 +153,7 @@ impl Error for EnergyStoreAssemblyCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleInventory { .. } | Self::StaleEnergy { .. } | Self::SourceBusy { .. } => {
-                None
-            }
+            Self::StaleInventory { .. } | Self::StaleEnergy { .. } => None,
         }
     }
 }
@@ -218,15 +183,6 @@ impl ValidatedEnergyStoreAssembly {
             return Err(EnergyStoreAssemblyCommitError::StaleEnergy {
                 expected: self.expected_energy_revision,
                 actual: state.energy().revision(),
-            });
-        }
-        if let Some(job) = state
-            .production()
-            .get_stockpile_occupant(self.egress.source())
-        {
-            return Err(EnergyStoreAssemblyCommitError::SourceBusy {
-                stockpile: self.egress.source(),
-                job: job.id(),
             });
         }
         if let Some(load) = self.structural_load {
@@ -284,13 +240,6 @@ pub fn validate_assemble_energy_store(
         return Err(EnergyStoreAssemblyError::ImpureAssemblyMaterial);
     }
     let embodied_material = selection.consumed_inputs().to_vec();
-    if let Some(job) = state.production().get_stockpile_occupant(source) {
-        return Err(EnergyStoreAssemblyError::SourceBusy {
-            stockpile: source,
-            job: job.id(),
-            release: job.occupancy_release(),
-        });
-    }
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {
             match error {

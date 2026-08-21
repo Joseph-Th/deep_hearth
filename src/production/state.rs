@@ -303,7 +303,7 @@ pub struct ProductionState {
     #[serde(skip)]
     equipment_occupancy: BTreeMap<EquipmentId, ProductionJobId>,
     #[serde(skip)]
-    stockpile_occupancy: BTreeMap<StockpileId, BTreeSet<ProductionJobId>>,
+    output_stockpile_occupancy: BTreeMap<StockpileId, BTreeSet<ProductionJobId>>,
 }
 
 impl ProductionState {
@@ -316,7 +316,7 @@ impl ProductionState {
             due_jobs: BTreeMap::new(),
             energy_occupancy: BTreeMap::new(),
             equipment_occupancy: BTreeMap::new(),
-            stockpile_occupancy: BTreeMap::new(),
+            output_stockpile_occupancy: BTreeMap::new(),
         }
     }
 
@@ -336,7 +336,8 @@ impl ProductionState {
         let mut due_jobs = BTreeMap::<SimulationTick, BTreeSet<ProductionJobId>>::new();
         let mut energy_occupancy = BTreeMap::<EnergyStoreId, ProductionJobId>::new();
         let mut equipment_occupancy = BTreeMap::<EquipmentId, ProductionJobId>::new();
-        let mut stockpile_occupancy = BTreeMap::<StockpileId, BTreeSet<ProductionJobId>>::new();
+        let mut output_stockpile_occupancy =
+            BTreeMap::<StockpileId, BTreeSet<ProductionJobId>>::new();
         for job in self.jobs.values() {
             if !job.is_suspended() {
                 due_jobs
@@ -362,11 +363,13 @@ impl ProductionState {
                     .entry(provider.equipment())
                     .or_insert(job.id());
             }
-            let stockpiles = std::iter::once(job.identity.source)
-                .chain(job.output_streams.iter().map(|stream| stream.destination))
+            let stockpiles = job
+                .output_streams
+                .iter()
+                .map(|stream| stream.destination)
                 .collect::<BTreeSet<_>>();
             for stockpile in stockpiles {
-                stockpile_occupancy
+                output_stockpile_occupancy
                     .entry(stockpile)
                     .or_default()
                     .insert(job.id());
@@ -375,7 +378,7 @@ impl ProductionState {
         self.due_jobs = due_jobs;
         self.energy_occupancy = energy_occupancy;
         self.equipment_occupancy = equipment_occupancy;
-        self.stockpile_occupancy = stockpile_occupancy;
+        self.output_stockpile_occupancy = output_stockpile_occupancy;
     }
 
     fn expected_energy_occupancy(
@@ -455,11 +458,15 @@ impl ProductionState {
         Ok(None)
     }
 
-    fn expected_stockpile_occupancy(&self) -> BTreeMap<StockpileId, BTreeSet<ProductionJobId>> {
+    fn expected_output_stockpile_occupancy(
+        &self,
+    ) -> BTreeMap<StockpileId, BTreeSet<ProductionJobId>> {
         let mut occupied = BTreeMap::<StockpileId, BTreeSet<ProductionJobId>>::new();
         for job in self.jobs.values() {
-            let stockpiles = std::iter::once(job.identity.source)
-                .chain(job.output_streams.iter().map(|stream| stream.destination))
+            let stockpiles = job
+                .output_streams
+                .iter()
+                .map(|stream| stream.destination)
                 .collect::<BTreeSet<_>>();
             for stockpile in stockpiles {
                 occupied
@@ -471,17 +478,17 @@ impl ProductionState {
         occupied
     }
 
-    fn stockpile_occupancy_mismatch(&self) -> Option<StockpileId> {
-        let expected = self.expected_stockpile_occupancy();
+    fn output_stockpile_occupancy_mismatch(&self) -> Option<StockpileId> {
+        let expected = self.expected_output_stockpile_occupancy();
         let stockpiles = self
-            .stockpile_occupancy
+            .output_stockpile_occupancy
             .keys()
             .chain(expected.keys())
             .copied()
             .collect::<BTreeSet<_>>();
-        stockpiles
-            .into_iter()
-            .find(|stockpile| self.stockpile_occupancy.get(stockpile) != expected.get(stockpile))
+        stockpiles.into_iter().find(|stockpile| {
+            self.output_stockpile_occupancy.get(stockpile) != expected.get(stockpile)
+        })
     }
 
     pub(crate) fn earliest_due_tick(&self) -> Option<SimulationTick> {
@@ -527,13 +534,13 @@ impl ProductionState {
         self.equipment_occupancy.values().copied()
     }
 
-    /// Returns the lowest-ID active production job involving one stockpile, if any.
+    /// Returns the lowest-ID active production job with in-flight output reserved for a stockpile.
     #[must_use]
-    pub(crate) fn get_stockpile_occupant(
+    pub(crate) fn get_output_stockpile_occupant(
         &self,
         stockpile: StockpileId,
     ) -> Option<&ProductionJobRecord> {
-        self.stockpile_occupancy
+        self.output_stockpile_occupancy
             .get(&stockpile)
             .and_then(BTreeSet::first)
             .and_then(|job| self.jobs.get(job))
@@ -553,8 +560,10 @@ impl ProductionState {
             .released_energy
             .map(|trace| trace.destination());
         let equipment = job.equipment.provider.map(|provider| provider.equipment());
-        let stockpiles = std::iter::once(job.identity.source)
-            .chain(job.output_streams.iter().map(|stream| stream.destination))
+        let output_stockpiles = job
+            .output_streams
+            .iter()
+            .map(|stream| stream.destination)
             .collect::<BTreeSet<_>>();
         if let (Some(consumed), Some(released)) = (consumed_energy_store, released_energy_store) {
             assert_ne!(
@@ -586,13 +595,13 @@ impl ProductionState {
             "runtime invariant broken: production due index already contains job {}",
             id.value()
         );
-        for stockpile in &stockpiles {
+        for stockpile in &output_stockpiles {
             assert!(
                 !self
-                    .stockpile_occupancy
+                    .output_stockpile_occupancy
                     .get(stockpile)
                     .is_some_and(|occupants| occupants.contains(&id)),
-                "runtime invariant broken: production stockpile occupancy already contains job {}",
+                "runtime invariant broken: production output-stockpile occupancy already contains job {}",
                 id.value()
             );
         }
@@ -623,15 +632,15 @@ impl ProductionState {
                 "runtime invariant broken: production equipment occupancy replaced an existing job"
             );
         }
-        for stockpile in stockpiles {
+        for stockpile in output_stockpiles {
             let inserted = self
-                .stockpile_occupancy
+                .output_stockpile_occupancy
                 .entry(stockpile)
                 .or_default()
                 .insert(id);
             assert!(
                 inserted,
-                "runtime invariant broken: production stockpile occupancy already contains job {}",
+                "runtime invariant broken: production output-stockpile occupancy already contains job {}",
                 id.value()
             );
         }
@@ -772,27 +781,29 @@ impl ProductionState {
                 id.value()
             );
         }
-        let stockpiles = std::iter::once(job.identity.source)
-            .chain(job.output_streams.iter().map(|stream| stream.destination))
+        let output_stockpiles = job
+            .output_streams
+            .iter()
+            .map(|stream| stream.destination)
             .collect::<BTreeSet<_>>();
-        for stockpile in stockpiles {
+        for stockpile in output_stockpiles {
             let remove_bucket = {
-                let occupants = match self.stockpile_occupancy.get_mut(&stockpile) {
+                let occupants = match self.output_stockpile_occupancy.get_mut(&stockpile) {
                     Some(occupants) => occupants,
                     None => panic!(
-                        "runtime invariant broken: stockpile occupancy index missing production job {}",
+                        "runtime invariant broken: output-stockpile occupancy index missing production job {}",
                         id.value()
                     ),
                 };
                 assert!(
                     occupants.remove(&id),
-                    "runtime invariant broken: stockpile occupancy index disagrees with production job {}",
+                    "runtime invariant broken: output-stockpile occupancy index disagrees with production job {}",
                     id.value()
                 );
                 occupants.is_empty()
             };
             if remove_bucket {
-                self.stockpile_occupancy.remove(&stockpile);
+                self.output_stockpile_occupancy.remove(&stockpile);
             }
         }
         job

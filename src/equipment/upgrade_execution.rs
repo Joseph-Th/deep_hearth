@@ -68,11 +68,6 @@ pub enum EquipmentUpgradeError {
         expected: u64,
         actual: u64,
     },
-    SourceBusy {
-        stockpile: StockpileId,
-        job: ProductionJobId,
-        release: ProductionOccupancyRelease,
-    },
     InventoryRevisionExhausted,
     EquipmentRevisionExhausted,
     StructuralLoad(StockpileStructuralLoadError),
@@ -160,16 +155,6 @@ impl Display for EquipmentUpgradeError {
                 formatter,
                 "equipment-upgrade material selection expected inventory revision {expected} but current revision is {actual}"
             ),
-            Self::SourceBusy {
-                stockpile,
-                job,
-                release,
-            } => write!(
-                formatter,
-                "equipment-upgrade source {} is occupied by production job {} {release}",
-                stockpile.value(),
-                job.value()
-            ),
             Self::InventoryRevisionExhausted => {
                 formatter.write_str("inventory revision space is exhausted")
             }
@@ -200,7 +185,6 @@ impl Error for EquipmentUpgradeError {
             | Self::SourceMassOverflow { .. }
             | Self::ImpureUpgradeMaterial
             | Self::StaleInventorySelection { .. }
-            | Self::SourceBusy { .. }
             | Self::InventoryRevisionExhausted
             | Self::EquipmentRevisionExhausted => None,
         }
@@ -239,10 +223,6 @@ pub enum EquipmentUpgradeCommitError {
     },
     EquipmentBusyManualPower {
         equipment: EquipmentId,
-    },
-    SourceBusy {
-        stockpile: StockpileId,
-        job: ProductionJobId,
     },
     Structure(StructuralCommitError),
 }
@@ -297,12 +277,6 @@ impl Display for EquipmentUpgradeCommitError {
                 "equipment {} became occupied by direct player-powered generation before upgrade commit",
                 equipment.value()
             ),
-            Self::SourceBusy { stockpile, job } => write!(
-                formatter,
-                "equipment-upgrade source {} became occupied by production job {} before commit",
-                stockpile.value(),
-                job.value()
-            ),
             Self::Structure(error) => {
                 write!(formatter, "equipment upgrade structure failed: {error}")
             }
@@ -321,8 +295,7 @@ impl Error for EquipmentUpgradeCommitError {
             | Self::EquipmentMounted { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
-            | Self::EquipmentBusyManualPower { .. }
-            | Self::SourceBusy { .. } => None,
+            | Self::EquipmentBusyManualPower { .. } => None,
         }
     }
 }
@@ -392,15 +365,6 @@ impl ValidatedEquipmentUpgrade {
         {
             return Err(EquipmentUpgradeCommitError::EquipmentBusyManualPower {
                 equipment: self.equipment,
-            });
-        }
-        if let Some(job) = state
-            .production()
-            .get_stockpile_occupant(self.egress.source())
-        {
-            return Err(EquipmentUpgradeCommitError::SourceBusy {
-                stockpile: self.egress.source(),
-                job: job.id(),
             });
         }
         if let Some(load) = self.structural_load {
@@ -498,13 +462,6 @@ pub fn validate_upgrade_equipment(
         return Err(EquipmentUpgradeError::ImpureUpgradeMaterial);
     }
     let additions = selection.consumed_inputs().to_vec();
-    if let Some(job) = state.production().get_stockpile_occupant(source) {
-        return Err(EquipmentUpgradeError::SourceBusy {
-            stockpile: source,
-            job: job.id(),
-            release: job.occupancy_release(),
-        });
-    }
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {
             match error {

@@ -200,7 +200,7 @@ pub enum ProductionValidationError {
     EquipmentDoubleBooked {
         equipment: EquipmentId,
     },
-    StockpileOccupancyIndexMismatch {
+    OutputStockpileOccupancyIndexMismatch {
         stockpile: StockpileId,
     },
 }
@@ -527,9 +527,9 @@ impl Display for ProductionValidationError {
                 "multiple production jobs exclusively occupy equipment {}",
                 equipment.value()
             ),
-            Self::StockpileOccupancyIndexMismatch { stockpile } => write!(
+            Self::OutputStockpileOccupancyIndexMismatch { stockpile } => write!(
                 formatter,
-                "stockpile occupancy index for stockpile {} disagrees with active production jobs",
+                "output-stockpile occupancy index for stockpile {} disagrees with active production jobs",
                 stockpile.value()
             ),
         }
@@ -857,8 +857,8 @@ pub(crate) fn validate_loaded_production(
             expected,
         });
     }
-    if let Some(stockpile) = state.stockpile_occupancy_mismatch() {
-        return Err(ProductionValidationError::StockpileOccupancyIndexMismatch { stockpile });
+    if let Some(stockpile) = state.output_stockpile_occupancy_mismatch() {
+        return Err(ProductionValidationError::OutputStockpileOccupancyIndexMismatch { stockpile });
     }
     Ok(())
 }

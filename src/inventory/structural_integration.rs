@@ -428,7 +428,7 @@ impl Display for StockpileSupportError {
                 release,
             } => write!(
                 formatter,
-                "stockpile {} participates in production job {} {release} and cannot be moved",
+                "stockpile {} is an in-flight output destination for production job {} {release} and cannot be moved",
                 stockpile.value(),
                 job.value()
             ),
@@ -518,7 +518,7 @@ impl Display for StockpileSupportCommitError {
                 release,
             } => write!(
                 formatter,
-                "stockpile {} became occupied by production job {} {release} before support commit",
+                "stockpile {} became an in-flight output destination for production job {} {release} before support commit",
                 stockpile.value(),
                 job.value()
             ),
@@ -606,7 +606,10 @@ impl ValidatedStockpileSupportChange {
                 actual: record.supported_by(),
             });
         }
-        if let Some(job) = state.production().get_stockpile_occupant(self.stockpile) {
+        if let Some(job) = state
+            .production()
+            .get_output_stockpile_occupant(self.stockpile)
+        {
             return Err(StockpileSupportCommitError::StockpileBusy {
                 stockpile: self.stockpile,
                 job: job.id(),
@@ -640,7 +643,7 @@ fn validate_not_busy(
     state: &AppState,
     stockpile: StockpileId,
 ) -> Result<(), StockpileSupportError> {
-    if let Some(job) = state.production().get_stockpile_occupant(stockpile) {
+    if let Some(job) = state.production().get_output_stockpile_occupant(stockpile) {
         return Err(StockpileSupportError::StockpileBusy {
             stockpile,
             job: job.id(),
