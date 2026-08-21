@@ -168,10 +168,14 @@ impl FluidState {
         next_store_id: u64,
         next_revision: u64,
     ) {
-        let previous = self.records.insert(record.id, record);
-        debug_assert!(
-            previous.is_none(),
+        assert!(
+            !self.records.contains_key(&record.id),
             "Runtime Invariant 4 (Index Uniqueness): fluid store allocation replaced an existing record"
+        );
+        let previous = self.records.insert(record.id, record);
+        assert!(
+            previous.is_none(),
+            "prechecked fluid store insertion unexpectedly replaced a record"
         );
         self.next_store_id = next_store_id;
         self.revision = next_revision;
@@ -211,6 +215,40 @@ impl FluidState {
         after: Option<StructuralElementId>,
         next_revision: u64,
     ) {
+        let record = match self.records.get(&store) {
+            Some(record) => record,
+            None => panic!(
+                "runtime invariant broken: fluid store {} disappeared during support update",
+                store.value()
+            ),
+        };
+        assert_eq!(
+            record.supported_by, before,
+            "runtime invariant broken: fluid store support record disagrees with support index"
+        );
+        if let Some(before) = before {
+            assert!(
+                self.stores_by_support
+                    .get(&before)
+                    .is_some_and(|indexed| indexed.contains(&store)),
+                "runtime invariant broken: fluid support index element {} missing store {}",
+                before.value(),
+                store.value()
+            );
+        }
+        if after != before
+            && let Some(after) = after
+        {
+            assert!(
+                !self
+                    .stores_by_support
+                    .get(&after)
+                    .is_some_and(|indexed| indexed.contains(&store)),
+                "runtime invariant broken: fluid support index element {} already contains store {}",
+                after.value(),
+                store.value()
+            );
+        }
         if let Some(before) = before {
             let remove_entry = {
                 let indexed = match self.stores_by_support.get_mut(&before) {
@@ -248,12 +286,8 @@ impl FluidState {
         }
         let record = match self.records.get_mut(&store) {
             Some(record) => record,
-            None => panic!(
-                "runtime invariant broken: fluid store {} disappeared during support update",
-                store.value()
-            ),
+            None => unreachable!("fluid support record was prechecked before index mutation"),
         };
-        debug_assert_eq!(record.supported_by, before);
         record.supported_by = after;
         self.revision = next_revision;
     }

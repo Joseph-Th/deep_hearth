@@ -202,12 +202,32 @@ impl MiningState {
         assert!(record.schedule.ready_at.is_none());
         assert!(!self.equipment_occupancy.contains_key(&record.equipment()));
         let id = record.identity.id;
-        self.due_jobs
+        assert!(
+            !self.jobs.contains_key(&id),
+            "validated mining job ID must be unique"
+        );
+        assert!(
+            self.due_jobs.values().all(|jobs| !jobs.contains(&id)),
+            "runtime invariant broken: mining due index already contains job {}",
+            id.value()
+        );
+        let inserted = self
+            .due_jobs
             .entry(record.schedule.completes_at)
             .or_default()
             .insert(id);
-        self.equipment_occupancy.insert(record.equipment(), id);
-        assert!(self.jobs.insert(id, record).is_none());
+        assert!(
+            inserted,
+            "prechecked mining due index rejected job {}",
+            id.value()
+        );
+        let previous = self.equipment_occupancy.insert(record.equipment(), id);
+        assert!(
+            previous.is_none(),
+            "prechecked mining equipment occupancy replaced an existing job"
+        );
+        let previous = self.jobs.insert(id, record);
+        assert!(previous.is_none(), "prechecked mining job ID was replaced");
         self.next_job_id = next_job_id;
         self.revision = next_revision;
     }

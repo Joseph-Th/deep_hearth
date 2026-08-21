@@ -283,11 +283,15 @@ fn apply_insert_lot_record(state: &mut InventoryState, lot: MaterialLotRecord) {
     let id = lot.id;
     let stockpile = lot.stockpile;
     let commodity = lot.commodity();
+    assert!(
+        !state.lots.contains_key(&id),
+        "validated material lot ID must be globally unique"
+    );
     state.insert_lot_index(stockpile, commodity, id);
     let replaced = state.lots.insert(id, lot);
     assert!(
         replaced.is_none(),
-        "validated material lot ID must be globally unique"
+        "prechecked material lot ID was replaced"
     );
 }
 

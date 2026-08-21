@@ -379,10 +379,7 @@ pub fn validate_builtin_shader_programs() -> Result<usize, BuiltInShaderValidati
     Ok(EXECUTABLE_PROGRAMS.len())
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-render")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::shader::ShaderProgramKind;

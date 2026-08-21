@@ -234,10 +234,7 @@ pub(crate) fn make_test_state_at_tick(world_seed: WorldSeed, tick: SimulationTic
     state
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-foundation")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::content::build_registries;

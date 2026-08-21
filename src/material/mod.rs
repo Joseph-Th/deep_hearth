@@ -663,10 +663,7 @@ impl MaterialRegistry {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-foundation")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::quantity::Length;

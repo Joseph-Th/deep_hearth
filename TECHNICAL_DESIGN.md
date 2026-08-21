@@ -341,7 +341,9 @@ matter and fluid rather than pretending it is live body mass or body water. Acce
 consume the exact requested physical portion while individual physiological gains clamp at authored
 reserve capacities. Validation rejects a meal when none of metabolic energy, hydration, or nutrition
 would increase, and rejects a drink when hydration would not increase. This prevents pure no-benefit
-resource waste without silently resizing an otherwise useful requested portion.
+resource waste without silently resizing an otherwise useful requested portion. Drink hydration
+multipliers are constrained to `1..=1,000,000` ppm so physiological hydration credit can never exceed
+the physical fluid volume removed from its finite store.
 
 ## Structural matter
 

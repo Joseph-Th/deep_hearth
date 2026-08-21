@@ -1095,10 +1095,7 @@ impl ValidatedDrink {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-player")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::content::{

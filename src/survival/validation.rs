@@ -117,10 +117,7 @@ pub(crate) fn validate_loaded_survival(
     Ok(())
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-player")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::content::build_registries;

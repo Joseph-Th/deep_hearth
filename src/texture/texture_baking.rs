@@ -474,10 +474,7 @@ fn resolve_mip_texel(samples: [PackedTexel; 4]) -> PackedTexel {
     )
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-render")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::texture::{

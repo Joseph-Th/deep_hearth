@@ -23,104 +23,15 @@ use std::env;
 mod capability_boundary;
 mod configuration;
 mod contracts;
-#[cfg(feature = "test-gameplay-full")]
-mod focused_runner;
 mod focused_seeds;
-#[cfg(feature = "test-gameplay-full")]
-mod foundry_probe;
-#[cfg(feature = "test-gameplay-full")]
-mod foundry_setup;
 mod fresh_seed;
-#[cfg(feature = "test-gameplay-full")]
-mod ore_probe;
-#[cfg(feature = "test-gameplay-full")]
-mod ore_setup;
-#[cfg(feature = "test-gameplay-full")]
-mod production_support;
-#[cfg(feature = "test-gameplay-full")]
-mod progression_probe;
 mod report;
 mod scenario;
 mod seed;
+#[cfg(test)]
+mod seed_contract_tests;
 mod seed_input;
 mod support;
-#[cfg(feature = "test-gameplay-full")]
-mod survival_probe;
-
-#[cfg(test)]
-mod seed_contract_tests {
-    use super::focused_seeds::{FocusedProbeSeedError, focused_probe_seeds_from};
-    use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
-
-    #[test]
-    fn seed_parser_accepts_decimal_hex_and_u64_boundaries() {
-        assert_eq!(parse_seed("  42  "), Some(42));
-        assert_eq!(parse_seed("0x2A"), Some(42));
-        assert_eq!(parse_seed("18446744073709551615"), Some(u64::MAX));
-        assert_eq!(parse_seed("0xFFFFFFFFFFFFFFFF"), Some(u64::MAX));
-        assert_eq!(parse_seed(""), None);
-        assert_eq!(parse_seed("not-a-seed"), None);
-    }
-
-    #[test]
-    fn seed_list_reports_empty_and_exact_invalid_position() {
-        assert_eq!(parse_seed_list(""), Err(SeedListError::Empty));
-        assert_eq!(
-            parse_seed_list("1,nope,4"),
-            Err(SeedListError::Invalid { index: 1 })
-        );
-        assert_eq!(parse_seed_list("1, 0x2A,3"), Ok(vec![1, 42, 3]));
-    }
-
-    #[test]
-    fn focused_default_keeps_anchor_and_adds_a_tiny_replayable_variation_sample() {
-        let first = focused_probe_seeds_from(None, None, 0x1111, 0x2222, 0x3333)
-            .unwrap_or_else(|error| panic!("first focused probe plan failed: {error:?}"));
-        let second = focused_probe_seeds_from(None, None, 0x1111, 0x2222, 0x3333)
-            .unwrap_or_else(|error| panic!("second focused probe plan failed: {error:?}"));
-
-        assert_eq!(first, second);
-        assert_eq!(first.len(), 3);
-        assert_eq!(first[0], 0x1111);
-        assert_ne!(first[1], first[0]);
-        assert_ne!(first[2], first[0]);
-        assert_ne!(first[2], first[1]);
-    }
-
-    #[test]
-    fn focused_generated_variation_changes_when_the_default_root_changes() {
-        let first = focused_probe_seeds_from(None, None, 0x1111, 0x2222, 0x3333)
-            .unwrap_or_else(|error| panic!("first focused generated plan failed: {error:?}"));
-        let second = focused_probe_seeds_from(None, None, 0x1111, 0x2222, 0x4444)
-            .unwrap_or_else(|error| panic!("second focused generated plan failed: {error:?}"));
-
-        assert_eq!(first[0], second[0]);
-        assert_ne!(first[1], second[1]);
-        assert_ne!(first[2], second[2]);
-    }
-
-    #[test]
-    fn focused_explicit_variation_root_replays_exactly() {
-        let first = focused_probe_seeds_from(None, Some("0xBAD"), 0x1111, 0x2222, 0x3333)
-            .unwrap_or_else(|error| panic!("first focused replay plan failed: {error:?}"));
-        let second = focused_probe_seeds_from(None, Some("0xBAD"), 0x1111, 0x2222, 0x4444)
-            .unwrap_or_else(|error| panic!("second focused replay plan failed: {error:?}"));
-
-        assert_eq!(first, second);
-    }
-
-    #[test]
-    fn focused_explicit_seed_list_is_exact_and_invalid_variation_is_rejected() {
-        assert_eq!(
-            focused_probe_seeds_from(Some("1,0x2A,3"), Some("ignored"), 1, 2, 3),
-            Ok(vec![1, 42, 3])
-        );
-        assert_eq!(
-            focused_probe_seeds_from(None, Some("nope"), 1, 2, 3),
-            Err(FocusedProbeSeedError::InvalidVariationSeed)
-        );
-    }
-}
 
 use capability_boundary::{assert_capability_only_energy_store, assert_capability_only_equipment};
 use configuration::{
@@ -133,18 +44,7 @@ use deep_hearth::content::gameplay_fixture::{
     seed_energy_store as bootstrap_seed_energy_store, seed_equipment, seed_lot,
     seed_player_survival_at_warning,
 };
-#[cfg(feature = "test-gameplay-full")]
-use focused_runner::run_focused_probe;
-#[cfg(feature = "test-gameplay-full")]
-use foundry_probe::run_foundry_capability_probe;
 use fresh_seed::fresh_root;
-#[cfg(feature = "test-gameplay-full")]
-use ore_probe::run_ore_preparation_capability_probe;
-#[cfg(feature = "test-gameplay-full")]
-use progression_probe::{
-    PrimitiveProgressionReview, evaluate_primitive_progression_probe,
-    run_primitive_progression_probe,
-};
 use report::{
     EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioChoiceReport,
     ScenarioPolicyVariation, ScenarioProgressReport, ScenarioReport, ScenarioResourceReport,
@@ -153,11 +53,6 @@ use report::{
 use scenario::{ScenarioDeliveryVariation, ScenarioVariation};
 use seed::mix64;
 use support::{ROOM_TEMPERATURE, add_solid_stockpile, nominal_equipment_mass_capability};
-#[cfg(feature = "test-gameplay-full")]
-use survival_probe::{
-    SurvivalProvisioningReview, evaluate_survival_provisioning_probe,
-    run_survival_provisioning_probe,
-};
 
 fn has_verbose_output() -> bool {
     env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some()
@@ -2638,8 +2533,6 @@ enum AgencyFocus {
     PowerAndStructure,
     SurvivalRecovery,
     MaintenanceTiming,
-    #[cfg(feature = "test-gameplay-full")]
-    CustomInput,
 }
 
 impl AgencyFocus {
@@ -2648,8 +2541,6 @@ impl AgencyFocus {
             Self::PowerAndStructure => "power+structure",
             Self::SurvivalRecovery => "survival-recovery",
             Self::MaintenanceTiming => "maintenance-timing",
-            #[cfg(feature = "test-gameplay-full")]
-            Self::CustomInput => "custom-input",
         }
     }
 }
@@ -2659,62 +2550,6 @@ struct AgencyWorld {
     focus: AgencyFocus,
     world_seed: u64,
     anchor: Option<MaintainedAnchor>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct AgencyExperienceReview {
-    worlds_with_distinct_paths: usize,
-    worlds_with_work_difference: usize,
-    power_effect: bool,
-    survival_effect: bool,
-    maintenance_effect: bool,
-    structure_effect: bool,
-}
-
-#[cfg(feature = "test-gameplay-full")]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct WorkshopExperienceReview {
-    adaptive_operations: u32,
-    condition_adaptive_operations: u32,
-    manual_recharges: u32,
-    maintenance_services: u32,
-    relocations: usize,
-    production_suspensions: usize,
-    survival_preservation_stops: usize,
-}
-
-#[cfg(feature = "test-gameplay-full")]
-fn review_workshop_experience(reports: &[ScenarioReport]) -> WorkshopExperienceReview {
-    WorkshopExperienceReview {
-        adaptive_operations: reports
-            .iter()
-            .map(|report| u32::from(report.progress.adaptive_batch_operations))
-            .sum(),
-        condition_adaptive_operations: reports
-            .iter()
-            .map(|report| u32::from(report.progress.condition_adaptive_batch_operations))
-            .sum(),
-        manual_recharges: reports
-            .iter()
-            .map(|report| u32::from(report.choices.manual_recharges))
-            .sum(),
-        maintenance_services: reports
-            .iter()
-            .map(|report| u32::from(report.maintenance.services))
-            .sum(),
-        relocations: reports
-            .iter()
-            .filter(|report| report.structure.support_relocation)
-            .count(),
-        production_suspensions: reports
-            .iter()
-            .filter(|report| report.structure.production_suspension)
-            .count(),
-        survival_preservation_stops: reports
-            .iter()
-            .filter(|report| report.limits.manual_recovery_declined)
-            .count(),
-    }
 }
 
 fn power_counterfactual_changed(baseline: &ScenarioReport, variant: &ScenarioReport) -> bool {
@@ -2750,7 +2585,7 @@ fn structure_counterfactual_changed(baseline: &ScenarioReport, variant: &Scenari
         || baseline.resources.elapsed_ticks != variant.resources.elapsed_ticks
 }
 
-fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) -> AgencyExperienceReview {
+fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
     let policies = agency_probe_policies();
     let mut worlds_with_distinct_paths = 0_usize;
     let mut worlds_with_work_difference = 0_usize;
@@ -2928,8 +2763,6 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) -> AgencyEx
                     "maintained maintenance-timing agency world must make preventive versus delayed service consequential"
                 );
             }
-            #[cfg(feature = "test-gameplay-full")]
-            AgencyFocus::CustomInput => {}
         }
         std::println!(
             "AGENCY focus={focus} world=0x{world_seed:016X} variants={} unique_paths={} actionable=[power:{} survival:{} maintenance:{} structure:{}] policy-effects=[processed:{}..{}mg adaptive:{}..{} high-power:{}..{} manual-recharges:{}..{} services:{}..{} final-condition:{}..{}ppm relocations:{}/{} suspensions:{}/{} elapsed:{}..{}t survival-energy:{}..{}nJ]",
@@ -3002,127 +2835,10 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) -> AgencyEx
         observed_maintenance_effect,
         observed_structure_effect,
     );
-    AgencyExperienceReview {
-        worlds_with_distinct_paths,
-        worlds_with_work_difference,
-        power_effect: observed_power_effect,
-        survival_effect: observed_survival_effect,
-        maintenance_effect: observed_maintenance_effect,
-        structure_effect: observed_structure_effect,
-    }
 }
 
-#[cfg(feature = "test-gameplay-full")]
-fn print_player_experience_assessment(
-    survival: SurvivalProvisioningReview,
-    progression: PrimitiveProgressionReview,
-    agency: AgencyExperienceReview,
-    workshop: WorkshopExperienceReview,
-) {
-    let survival_provisioning = survival.preservation_age_saved_ticks > 0
-        && survival.selected_category_count >= 2
-        && survival.retained_preserved_mass_mg > 0
-        && survival.reserve_recovered;
-    let material_upgrades =
-        progression.tool_attention_saved_ticks > 0 && progression.crank_attention_saved_ticks > 0;
-    let scarce_upgrade_choice = progression.extraction_ore_lead_ticks > 0
-        && progression.mechanization_output_lead_ticks > 0;
-    let automation_attention = progression.machine_work_ticks > 0
-        && progression.mechanization_useful_overlap_ticks > 0
-        && progression.mechanization_idle_wait_saved_ticks > 0
-        && progression.mechanization_elapsed_saved_ticks > 0;
-    let workshop_agency = agency.power_effect
-        && agency.survival_effect
-        && agency.maintenance_effect
-        && agency.structure_effect;
-    let emergent_coupling = workshop.adaptive_operations > 0
-        && workshop.condition_adaptive_operations > 0
-        && workshop.manual_recharges > 0
-        && workshop.maintenance_services > 0
-        && workshop.relocations > 0
-        && workshop.production_suspensions > 0
-        && workshop.survival_preservation_stops > 0
-        && agency.worlds_with_distinct_paths > 0
-        && agency.worlds_with_work_difference > 0
-        && workshop_agency;
-
-    let measured = [
-        ("survival-provisioning+food-rotation", survival_provisioning),
-        ("material-upgrades-save-attention", material_upgrades),
-        ("scarce-upgrade-priority-tradeoff", scarce_upgrade_choice),
-        ("automation-frees-player-attention", automation_attention),
-        ("workshop-policy-agency", workshop_agency),
-        ("cross-system-emergent-coupling", emergent_coupling),
-    ];
-    let working = measured
-        .iter()
-        .filter_map(|(name, works)| works.then_some(*name))
-        .collect::<Vec<_>>()
-        .join(",");
-    let weak = measured
-        .iter()
-        .filter_map(|(name, works)| (!works).then_some(*name))
-        .collect::<Vec<_>>()
-        .join(",");
-    std::println!(
-        "PLAYER EXPERIENCE ASSESSMENT core-fantasy=convert-vulnerable-direct-labor-into-material-backed-systems-that-return-attention-and-create-new-physical-debts working=[{}] weak=[{}] current-frontier=[geological-discovery,industrial-acquisition+generation,mixed-ore-concentration+smelting] basis=measured-runtime-episodes+matched-world-counterfactuals",
-        if working.is_empty() { "none" } else { &working },
-        if weak.is_empty() {
-            "none-observed"
-        } else {
-            &weak
-        },
-    );
-    std::println!(
-        "PLAYER EXPERIENCE EVIDENCE survival=[preservation-saved:{}t categories:{} pressure:{}ppm/{}ppm retained:{}mg recovered:{}] progression=[tool-saved:{}t crank-saved:{}t extraction-lead:{}t output-lead:{}t machine:{}t useful-overlap:{}t idle-wait-saved:{}t elapsed-saved:{}t] workshop=[adaptive:{} condition-adaptive:{} manual-recharges:{} maintenance-services:{} relocations:{} suspensions:{} survival-preservation-stops:{} distinct-policy-worlds:{} processed-work-difference-worlds:{} power:{} survival:{} maintenance:{} structure:{}]",
-        survival.preservation_age_saved_ticks,
-        survival.selected_category_count,
-        survival.energy_deficit_ppm,
-        survival.hydration_deficit_ppm,
-        survival.retained_preserved_mass_mg,
-        survival.reserve_recovered,
-        progression.tool_attention_saved_ticks,
-        progression.crank_attention_saved_ticks,
-        progression.extraction_ore_lead_ticks,
-        progression.mechanization_output_lead_ticks,
-        progression.machine_work_ticks,
-        progression.mechanization_useful_overlap_ticks,
-        progression.mechanization_idle_wait_saved_ticks,
-        progression.mechanization_elapsed_saved_ticks,
-        workshop.adaptive_operations,
-        workshop.condition_adaptive_operations,
-        workshop.manual_recharges,
-        workshop.maintenance_services,
-        workshop.relocations,
-        workshop.production_suspensions,
-        workshop.survival_preservation_stops,
-        agency.worlds_with_distinct_paths,
-        agency.worlds_with_work_difference,
-        agency.power_effect,
-        agency.survival_effect,
-        agency.maintenance_effect,
-        agency.structure_effect,
-    );
-}
-
-#[cfg(feature = "test-gameplay-full")]
-fn push_unique_agency_world(
-    worlds: &mut Vec<AgencyWorld>,
-    focus: AgencyFocus,
-    world_seed: u64,
-    anchor: Option<MaintainedAnchor>,
-) {
-    if worlds.iter().all(|world| world.world_seed != world_seed) {
-        worlds.push(AgencyWorld {
-            focus,
-            world_seed,
-            anchor,
-        });
-    }
-}
-
-/// Runs the bootstrapped industrial workshop capability matrix with optional broader play evidence.
-fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
+/// Runs the bootstrapped industrial workshop capability matrix.
+fn run_gameplay_harness(mode: ScenarioPlanMode) {
     let registries = build_registries();
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
@@ -3158,28 +2874,13 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
         plan.behavior_label(),
         plan.replay_label(),
     );
-    print_content_summary(&registries, include_probes || has_verbose_output());
+    print_content_summary(&registries, has_verbose_output());
     std::println!(
         "PLAYABILITY runtime-actions-after-controlled-bootstrap=[survival-provisioning,manual-shaping,equipment-assembly+upgrade,hand-mining,material-backed-flywheel-construction,survival-costed-manual-power,primitive-autonomous-crushing] bootstrap-assumptions=[starting-authored-food+drink+storage-profile,raw-gathered-matter,preauthorized-mining-site-identities] discovery=not-implemented capability-only=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] missing-bridge=[industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting]"
     );
     std::println!(
         "PLAYER LOOP runtime-after-bootstrap=[survive->shape-tools->mine->reinforce->store-work->mechanize] capability-workshop=[site-machine->process-total-mass->adapt-batch-to-condition+stored-work->choose-power->hand-charge-or-protect-survival->react-to-world-load->maintain-or-relocate->iterate] utility=[survival-reserve,machine-condition,structural-margin,stored-work,time]"
     );
-    #[cfg(feature = "test-gameplay-full")]
-    let probe_seed = plan
-        .cases()
-        .iter()
-        .fold(0xD33F_C01D_5EED_u64, |combined, case| {
-            mix64(combined ^ case.world_seed ^ case.behavior_seed.rotate_left(17))
-        });
-    #[cfg(feature = "test-gameplay-full")]
-    let runtime_reviews = include_probes.then(|| {
-        std::println!("\n=== RUNTIME PLAY ACTIONS AFTER CONTROLLED WORLD BOOTSTRAP ===");
-        (
-            evaluate_survival_provisioning_probe(&registries, probe_seed ^ 0x5355_5256_4956_414C),
-            evaluate_primitive_progression_probe(&registries, probe_seed ^ 0x5052_4F47_5245_5353),
-        )
-    });
     println!(
         "\n=== DEEP HEARTH INDUSTRIAL WORKSHOP CAPABILITY MATRIX: {} scenario(s), registry schema {} ===",
         plan.cases().len(),
@@ -3209,8 +2910,6 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
         })
         .map(|variation| run_scenario(&registries, variation))
         .collect();
-    #[cfg(feature = "test-gameplay-full")]
-    let workshop_review = include_probes.then(|| review_workshop_experience(&reports));
     assert_scenario_contracts(&reports);
     let anchor_reports = plan
         .cases()
@@ -3221,80 +2920,16 @@ fn run_gameplay_harness(mode: ScenarioPlanMode, include_probes: bool) {
     if !anchor_reports.is_empty() {
         assert_anchor_diversity(&anchor_reports);
     }
-    #[cfg(feature = "test-gameplay-full")]
-    if include_probes {
-        let mut agency_worlds: Vec<AgencyWorld> = Vec::new();
-        for (anchor, focus) in [
-            (
-                MaintainedAnchor::NormalBaseline,
-                AgencyFocus::PowerAndStructure,
-            ),
-            (
-                MaintainedAnchor::SurvivalRecovery,
-                AgencyFocus::SurvivalRecovery,
-            ),
-            (
-                MaintainedAnchor::WarningMaintenance,
-                AgencyFocus::MaintenanceTiming,
-            ),
-        ] {
-            if let Some(case) = plan.maintained_case(anchor) {
-                push_unique_agency_world(&mut agency_worlds, focus, case.world_seed, case.anchor);
-            }
-        }
-        if agency_worlds.is_empty() {
-            for case in plan.cases().iter().take(4) {
-                push_unique_agency_world(
-                    &mut agency_worlds,
-                    AgencyFocus::CustomInput,
-                    case.world_seed,
-                    None,
-                );
-            }
-        }
-        std::println!(
-            "AGENCY INPUT selected={} focuses=[{}] selection=maintained-choice-pressure-not-outcome",
-            agency_worlds.len(),
-            agency_worlds
-                .iter()
-                .map(|world| match world.anchor {
-                    Some(anchor) => format!(
-                        "{}:0x{:016X}:{}",
-                        world.focus.label(),
-                        world.world_seed,
-                        anchor.label()
-                    ),
-                    None => format!("{}:0x{:016X}:custom", world.focus.label(), world.world_seed),
-                })
-                .collect::<Vec<_>>()
-                .join(","),
-        );
-        let agency_review = run_agency_probe(&registries, &agency_worlds);
-        let (survival_review, progression_review) = runtime_reviews.unwrap_or_else(|| {
-            unreachable!("full gameplay report always evaluates runtime play reviews")
-        });
-        print_player_experience_assessment(
-            survival_review,
-            progression_review,
-            agency_review,
-            workshop_review.unwrap_or_else(|| {
-                unreachable!("full gameplay report always evaluates workshop experience")
-            }),
-        );
-        std::println!("\n=== BOOTSTRAPPED INDUSTRIAL CAPABILITY PROBES ===");
-        run_ore_preparation_capability_probe(&registries, probe_seed);
-        run_foundry_capability_probe(&registries, probe_seed);
-    }
     let evidence_mode = match mode {
         ScenarioPlanMode::Gate => "controlled",
         ScenarioPlanMode::Explore => "exploratory",
     };
-    print_harness_summary(evidence_mode, &reports, include_probes);
+    print_harness_summary(evidence_mode, &reports, false);
 }
 
 #[test]
 fn gameplay_harness_gate() {
-    run_gameplay_harness(ScenarioPlanMode::Gate, false);
+    run_gameplay_harness(ScenarioPlanMode::Gate);
 }
 
 #[test]
@@ -3349,32 +2984,7 @@ fn gameplay_machine_process_catalog_has_cold_agent_evidence() {
 }
 
 #[test]
-#[cfg(feature = "test-gameplay-full")]
-fn gameplay_ore_preparation_probe() {
-    run_focused_probe("ore-preparation", run_ore_preparation_capability_probe);
-}
-
-#[test]
-#[cfg(feature = "test-gameplay-full")]
-fn gameplay_primitive_progression_probe() {
-    run_focused_probe("primitive-progression", run_primitive_progression_probe);
-}
-
-#[test]
-#[cfg(feature = "test-gameplay-full")]
-fn gameplay_foundry_probe() {
-    run_focused_probe("foundry", run_foundry_capability_probe);
-}
-
-#[test]
-#[cfg(feature = "test-gameplay-full")]
-fn gameplay_survival_provisioning_probe() {
-    run_focused_probe("survival-provisioning", run_survival_provisioning_probe);
-}
-
-#[test]
-#[cfg(feature = "test-gameplay-full")]
 #[ignore = "exploratory gameplay report"]
 fn gameplay_harness_exploratory_report() {
-    run_gameplay_harness(ScenarioPlanMode::Explore, true);
+    run_gameplay_harness(ScenarioPlanMode::Explore);
 }

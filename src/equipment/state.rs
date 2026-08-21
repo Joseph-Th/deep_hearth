@@ -215,10 +215,14 @@ impl EquipmentState {
         next_equipment_id: u32,
         next_revision: u64,
     ) {
-        let replaced = self.records.insert(record.id, record);
         assert!(
-            replaced.is_none(),
+            !self.records.contains_key(&record.id),
             "Runtime Invariant 4 (Index Uniqueness): equipment allocation replaced an existing id"
+        );
+        let previous = self.records.insert(record.id, record);
+        assert!(
+            previous.is_none(),
+            "prechecked equipment insertion unexpectedly replaced a record"
         );
         self.next_equipment_id = next_equipment_id;
         self.revision = next_revision;
@@ -404,6 +408,40 @@ impl EquipmentState {
         after: Option<StructuralElementId>,
         next_revision: u64,
     ) {
+        let record = match self.records.get(&equipment) {
+            Some(record) => record,
+            None => panic!(
+                "runtime invariant broken: equipment {} disappeared during support update",
+                equipment.value()
+            ),
+        };
+        assert_eq!(
+            record.supported_by, before,
+            "runtime invariant broken: equipment support record disagrees with support index"
+        );
+        if let Some(before) = before {
+            assert!(
+                self.equipment_by_support
+                    .get(&before)
+                    .is_some_and(|indexed| indexed.contains(&equipment)),
+                "runtime invariant broken: support index element {} missing equipment {}",
+                before.value(),
+                equipment.value()
+            );
+        }
+        if after != before
+            && let Some(after) = after
+        {
+            assert!(
+                !self
+                    .equipment_by_support
+                    .get(&after)
+                    .is_some_and(|indexed| indexed.contains(&equipment)),
+                "runtime invariant broken: support index element {} already contains equipment {}",
+                after.value(),
+                equipment.value()
+            );
+        }
         if let Some(before) = before {
             let remove_entry = {
                 let indexed = match self.equipment_by_support.get_mut(&before) {
@@ -441,12 +479,8 @@ impl EquipmentState {
         }
         let record = match self.records.get_mut(&equipment) {
             Some(record) => record,
-            None => panic!(
-                "runtime invariant broken: equipment {} disappeared during support update",
-                equipment.value()
-            ),
+            None => unreachable!("equipment support record was prechecked before index mutation"),
         };
-        debug_assert_eq!(record.supported_by, before);
         record.supported_by = after;
         self.revision = next_revision;
     }

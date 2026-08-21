@@ -1,15 +1,13 @@
+[target.x86_64-pc-windows-msvc]
+# This is a single-developer Windows workspace and LLVM is part of the local toolchain. `lld-link`
+# materially reduces the link cost of the large gameplay/test binaries compared with the MSVC linker.
+linker = "lld-link.exe"
+
 [alias]
 # Daily feedback stays on the smallest artifact that can catch the current class of mistake. The
-# compile-only aliases avoid codegen/linking while editing production tests or the gameplay harness;
-# behavior aliases pay that cost only when an executable assertion is ready to run.
+# compile-only aliases avoid codegen/linking while code is unstable; executable proof reuses one
+# stable default-feature unit-test artifact instead of rebuilding alternate shard feature shapes.
 check-fast = "check --quiet --locked --lib"
-check-tests = "check --quiet --locked --tests"
-check-gameplay = "check --quiet --locked --features test-gameplay --test gameplay_workshop --test gameplay_survival --test gameplay_progression --test gameplay_ore --test gameplay_foundry"
-check-gameplay-workshop = "check --quiet --locked --test gameplay_workshop --features test-gameplay"
-check-gameplay-survival = "check --quiet --locked --test gameplay_survival --features test-gameplay"
-check-gameplay-progression = "check --quiet --locked --test gameplay_progression --features test-gameplay"
-check-gameplay-ore = "check --quiet --locked --test gameplay_ore --features test-gameplay"
-check-gameplay-foundry = "check --quiet --locked --test gameplay_foundry --features test-gameplay"
 check-all = "check --locked --all-targets"
 # The optional fast lint checkpoint checks production code only. Routine correctness feedback comes
 # from `test-fast` with Rust warnings denied package-wide; `test-lint-all` remains the explicit
@@ -17,27 +15,12 @@ check-all = "check --locked --all-targets"
 test-lint = "clippy --locked --lib -- -D warnings"
 test-lint-all = "clippy --locked --all-targets --all-features -- -D warnings"
 test-fast = "test --quiet --locked --lib"
-# Focused unit shards keep ordinary `cargo test` complete while letting one subsystem family compile
-# only its own test modules. Cargo retains each feature-shape incrementally, and dependencies remain
-# shared in the normal target directory, so switching shards does not require clean rebuilds.
-test-unit-foundation = "test --quiet --locked --lib --features test-unit-foundation"
-test-unit-resources = "test --quiet --locked --lib --features test-unit-resources"
-test-unit-player = "test --quiet --locked --lib --features test-unit-player"
-test-unit-industry = "test --quiet --locked --lib --features test-unit-industry"
-test-unit-render = "test --quiet --locked --lib --features test-unit-render"
 # Soak-only code is feature-gated out of the ordinary unit-test artifact so daily edits do not
 # type-check/codegen long-horizon fixtures. The explicit soak/all lanes pay that cost only on demand.
 test-soak = "test --quiet --locked --lib --features test-soak -- --ignored"
 test-all = "test --quiet --locked --lib --features test-soak -- --include-ignored"
-test-gameplay = "test --quiet --locked --features test-gameplay --test gameplay_workshop --test gameplay_survival --test gameplay_progression --test gameplay_ore --test gameplay_foundry"
-test-gameplay-workshop = "test --quiet --locked --test gameplay_workshop --features test-gameplay"
-# Gameplay aliases are checked by tools/check_gameplay_aliases.py. Maintained lanes run whole small
-# targets so Cargo cannot silently accept a stale test-name filter; only the explicit report is exact.
-test-gameplay-survival = "test --quiet --locked --test gameplay_survival --features test-gameplay"
-test-gameplay-progression = "test --quiet --locked --test gameplay_progression --features test-gameplay"
-test-gameplay-ore = "test --quiet --locked --test gameplay_ore --features test-gameplay"
-test-gameplay-foundry = "test --quiet --locked --test gameplay_foundry --features test-gameplay"
-test-gameplay-report = "test --quiet --locked --test gameplay_harness --features test-gameplay-full gameplay_harness_exploratory_report -- --exact --ignored --nocapture"
+# Gameplay target selection and exploratory reporting are owned by ci.py so the target catalog is not
+# repeated across a family of Cargo aliases.
 test-shaders = "run --quiet --locked --profile validation --bin validate-shaders --features test-shader-validation"
 test-release = "test --quiet --release --locked --all-features -- --include-ignored"
 test-doc = "doc --quiet --locked --no-deps"

@@ -247,10 +247,7 @@ pub(crate) fn calculate_usable_condition_after_active_ticks(
     ))
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-player")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

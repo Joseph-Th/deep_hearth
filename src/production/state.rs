@@ -577,10 +577,29 @@ impl ProductionState {
                 "validated production job cannot replace an existing equipment reservation"
             );
         }
+        assert!(
+            !self.jobs.contains_key(&id),
+            "validated production job ID must be unique"
+        );
+        assert!(
+            self.due_jobs.values().all(|jobs| !jobs.contains(&id)),
+            "runtime invariant broken: production due index already contains job {}",
+            id.value()
+        );
+        for stockpile in &stockpiles {
+            assert!(
+                !self
+                    .stockpile_occupancy
+                    .get(stockpile)
+                    .is_some_and(|occupants| occupants.contains(&id)),
+                "runtime invariant broken: production stockpile occupancy already contains job {}",
+                id.value()
+            );
+        }
         let replaced = self.jobs.insert(id, job);
         assert!(
             replaced.is_none(),
-            "validated production job ID must be unique"
+            "prechecked production job ID was replaced"
         );
         let inserted = self.due_jobs.entry(completes_at).or_default().insert(id);
         assert!(
@@ -592,11 +611,17 @@ impl ProductionState {
             .chain(released_energy_store)
         {
             let previous = self.energy_occupancy.insert(store, id);
-            debug_assert!(previous.is_none());
+            assert!(
+                previous.is_none(),
+                "runtime invariant broken: production energy occupancy replaced an existing job"
+            );
         }
         if let Some(equipment) = equipment {
             let previous = self.equipment_occupancy.insert(equipment, id);
-            debug_assert!(previous.is_none());
+            assert!(
+                previous.is_none(),
+                "runtime invariant broken: production equipment occupancy replaced an existing job"
+            );
         }
         for stockpile in stockpiles {
             let inserted = self
@@ -604,7 +629,11 @@ impl ProductionState {
                 .entry(stockpile)
                 .or_default()
                 .insert(id);
-            debug_assert!(inserted);
+            assert!(
+                inserted,
+                "runtime invariant broken: production stockpile occupancy already contains job {}",
+                id.value()
+            );
         }
         self.next_job_id = next_job_id;
         self.revision = next_revision;

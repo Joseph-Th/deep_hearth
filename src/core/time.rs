@@ -217,10 +217,7 @@ impl CalendarDate {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-foundation")
-))]
+#[cfg(test)]
 mod calendar_tests {
     use super::*;
 
@@ -290,10 +287,7 @@ impl TickSpan {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-foundation")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

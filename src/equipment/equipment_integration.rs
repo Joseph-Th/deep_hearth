@@ -261,10 +261,7 @@ pub fn resolve_equipment_provider<'state>(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::capability::{

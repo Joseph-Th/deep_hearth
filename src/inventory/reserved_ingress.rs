@@ -198,10 +198,7 @@ pub(crate) fn apply_reserved_deposits(state: &mut InventoryState, plan: Reserved
     state.apply_lot_cursor_and_revision(next_lot_id, next_revision);
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::content::{FORM_LUMP, MATERIAL_CHARCOAL, build_registries};

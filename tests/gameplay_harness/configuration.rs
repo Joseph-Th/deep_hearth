@@ -137,11 +137,6 @@ impl ScenarioSeedPlan {
             .count()
     }
 
-    #[cfg(feature = "test-gameplay-full")]
-    pub(super) fn maintained_case(&self, anchor: MaintainedAnchor) -> Option<&ScenarioSeedPair> {
-        self.cases.iter().find(|case| case.anchor == Some(anchor))
-    }
-
     pub(super) fn variation_seed_count(&self) -> usize {
         match self.source {
             ScenarioSeedSource::Custom => 0,

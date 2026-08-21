@@ -268,10 +268,14 @@ impl GeologyState {
         next_deposit_id: u32,
         next_revision: u64,
     ) {
-        let replaced = self.deposits.insert(record.id, record);
         assert!(
-            replaced.is_none(),
+            !self.deposits.contains_key(&record.id),
             "geological deposit ID allocation must be unique"
+        );
+        let previous = self.deposits.insert(record.id, record);
+        assert!(
+            previous.is_none(),
+            "prechecked geological deposit insertion unexpectedly replaced a record"
         );
         self.next_deposit_id = next_deposit_id;
         self.revision = next_revision;
@@ -303,10 +307,7 @@ mod validation;
 pub use validation::GeologyValidationError;
 pub(crate) use validation::validate_loaded_geology;
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-player")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::content::{FORM_CRUSHED, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, build_registries};

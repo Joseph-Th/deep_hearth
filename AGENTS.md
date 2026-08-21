@@ -15,6 +15,10 @@ Use this file as the repository execution card. [`README.md`](README.md) routes 
 5. Read only the authority documents relevant to the changed contract.
 6. Use the narrowest validation lane in [`TESTING.md`](TESTING.md) that proves the change.
 
+During implementation, use the build-free `quick` lane for frequent feedback. Batch related edits and
+run a build-producing `standard`, focused executable, or `full` lane only at a coherent checkpoint; do
+not compile the project after every file mutation.
+
 When code, tests, and documentation disagree, reconcile them to the actual authoritative contract.
 
 ## Project rules

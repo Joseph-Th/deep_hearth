@@ -13,104 +13,128 @@ import time
 
 ROOT = Path(__file__).resolve().parent
 
-GAMEPLAY_SCOPES = ("all", "workshop", "survival", "progression", "ore", "foundry")
-UNIT_SCOPES = ("all", "foundation", "resources", "player", "industry", "render")
-FOCUSED_GAMEPLAY_ALIASES = {
-    "workshop": "test-gameplay-workshop",
-    "survival": "test-gameplay-survival",
-    "progression": "test-gameplay-progression",
-    "ore": "test-gameplay-ore",
-    "foundry": "test-gameplay-foundry",
+GAMEPLAY_TARGETS = {
+    "workshop": "gameplay_workshop",
+    "survival": "gameplay_survival",
+    "progression": "gameplay_progression",
+    "ore": "gameplay_ore",
+    "foundry": "gameplay_foundry",
 }
-FOCUSED_UNIT_ALIASES = {
-    "foundation": "test-unit-foundation",
-    "resources": "test-unit-resources",
-    "player": "test-unit-player",
-    "industry": "test-unit-industry",
-    "render": "test-unit-render",
-}
+GAMEPLAY_SCOPES = ("all", *GAMEPLAY_TARGETS)
 
 
 def cargo(alias: str) -> list[str]:
     return ["cargo", alias]
 
 
+def quick_plan() -> list[tuple[str, list[str]]]:
+    """Run the build-free edit-loop checks that are safe after every coherent text edit."""
+
+    return [
+        ("format", ["cargo", "fmt", "--check"]),
+        (
+            "repository contracts",
+            [sys.executable, "tools/check_authority_docs.py"],
+        ),
+        ("local CI contracts", [sys.executable, "tools/test_ci.py"]),
+    ]
+
+
 def audit_plan() -> list[tuple[str, list[str]]]:
     """Run the broad maintained runtime checkpoint without optional long-horizon/lint shapes."""
 
     return [
-        ("format", ["cargo", "fmt", "--check"]),
+        *quick_plan(),
         ("core", cargo("test-fast")),
-        ("gameplay", cargo("test-gameplay")),
-        (
-            "gameplay command policy",
-            [sys.executable, "tools/check_gameplay_aliases.py"],
-        ),
+        ("gameplay", gameplay_command("all")),
     ]
+
+
+def gameplay_command(scope: str, *, nocapture: bool = False) -> list[str]:
+    command = ["cargo", "test", "--quiet", "--locked", "--features", "test-gameplay"]
+    targets = GAMEPLAY_TARGETS.values() if scope == "all" else [GAMEPLAY_TARGETS[scope]]
+    for target in targets:
+        command.extend(("--test", target))
+    if nocapture:
+        command.extend(("--", "--nocapture"))
+    return command
 
 
 def gameplay_plan(scope: str) -> list[tuple[str, list[str]]]:
-    if scope == "all":
-        return [
-            ("gameplay", cargo("test-gameplay")),
-            (
-                "gameplay command policy",
-                [sys.executable, "tools/check_gameplay_aliases.py"],
-            ),
-        ]
+    label = "gameplay" if scope == "all" else f"gameplay {scope}"
+    return [(label, gameplay_command(scope))]
 
-    alias = FOCUSED_GAMEPLAY_ALIASES[scope]
+
+def exact_gameplay_command(name: str, *, ignored: bool = False) -> list[str]:
+    command = [
+        sys.executable,
+        "tools/run_test.py",
+        "--target",
+        "gameplay_workshop",
+        "--features",
+        "test-gameplay",
+        "--nocapture",
+    ]
+    if ignored:
+        command.append("--ignored")
+    command.append(name)
+    return command
+
+
+def report_plan() -> list[tuple[str, list[str]]]:
     return [
-        (f"gameplay {scope}", cargo(alias)),
         (
-            "gameplay command policy",
-            [sys.executable, "tools/check_gameplay_aliases.py"],
+            "workshop exploration",
+            exact_gameplay_command("gameplay_harness_exploratory_report", ignored=True),
         ),
+        (
+            "workshop agency",
+            exact_gameplay_command("gameplay_maintained_agency_counterfactuals"),
+        ),
+        ("survival probe", gameplay_command("survival", nocapture=True)),
+        ("progression probe", gameplay_command("progression", nocapture=True)),
+        ("ore probe", gameplay_command("ore", nocapture=True)),
+        ("foundry probe", gameplay_command("foundry", nocapture=True)),
     ]
 
 
-def unit_plan(scope: str) -> list[tuple[str, list[str]]]:
-    if scope == "all":
-        return [("core", cargo("test-fast"))]
-    return [(f"unit {scope}", cargo(FOCUSED_UNIT_ALIASES[scope]))]
-
-
 def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
+    if args.preset == "quick":
+        return quick_plan()
     if args.preset == "audit":
         return audit_plan()
+    if args.preset == "report":
+        return report_plan()
 
-    plan = [("format", ["cargo", "fmt", "--check"])]
+    plan = quick_plan()
     has_explicit_lane = any(
-        (args.core, args.unit, args.soak, args.gameplay, args.shaders, args.docs, args.lint)
+        (args.core, args.soak, args.gameplay, args.shaders, args.rustdoc, args.lint)
     )
     if args.soak:
         plan.append(("core + soak", cargo("test-all")))
     elif args.core:
         plan.append(("core", cargo("test-fast")))
-    elif args.unit:
-        plan.extend(unit_plan(args.unit))
     elif not has_explicit_lane:
         plan.append(("compile", cargo("check-fast")))
     if args.gameplay:
         plan.extend(gameplay_plan(args.gameplay))
     if args.shaders:
         plan.append(("shaders", cargo("test-shaders")))
-    if args.docs:
-        plan.extend(
-            [
-                (
-                    "documentation contracts",
-                    [sys.executable, "tools/check_authority_docs.py"],
-                ),
-                ("rustdoc", cargo("test-doc")),
-            ]
-        )
+    if args.rustdoc:
+        plan.append(("rustdoc", cargo("test-doc")))
     if args.lint:
         plan.append(("clippy", cargo("test-lint")))
     return plan
 
 
-def run_stage(index: int, total: int, label: str, command: list[str]) -> float | None:
+def run_stage(
+    index: int,
+    total: int,
+    label: str,
+    command: list[str],
+    *,
+    echo_success: bool = False,
+) -> float | None:
     started = time.perf_counter()
     print(f"[{index}/{total}] {label} ... ", end="", flush=True)
     environment = os.environ.copy()
@@ -133,6 +157,8 @@ def run_stage(index: int, total: int, label: str, command: list[str]) -> float |
     elapsed = time.perf_counter() - started
     if result.returncode == 0:
         print(f"PASS ({elapsed:.1f}s)")
+        if echo_success and result.stdout.strip():
+            print(result.stdout.rstrip())
         return elapsed
 
     print(f"FAIL ({elapsed:.1f}s)")
@@ -151,9 +177,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "preset",
         nargs="?",
-        choices=("gate", "audit"),
-        default="gate",
-        help="fast routine gate or broad maintained runtime checkpoint",
+        choices=("quick", "gate", "audit", "report"),
+        default="quick",
+        help=(
+            "build-free edit-loop check, coherent compile/test gate, broad maintained checkpoint, "
+            "or explicit gameplay report"
+        ),
     )
     parser.add_argument(
         "--lint",
@@ -165,15 +194,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="include the complete ordinary core behavior suite alongside selected specialized lanes",
     )
-    parser.add_argument(
-        "--unit",
-        choices=UNIT_SCOPES,
-        metavar="SCOPE",
-        help=(
-            "run one focused unit-test shard: foundation, resources, player, industry, or render; "
-            "use all for the complete ordinary core suite"
-        ),
-    )
     parser.add_argument("--soak", action="store_true", help="include ignored core soak tests")
     parser.add_argument(
         "--gameplay",
@@ -183,14 +203,14 @@ def parse_args() -> argparse.Namespace:
         metavar="SCOPE",
         help=(
             "include gameplay verification; omit SCOPE for all maintained targets or choose "
-            "workshop, survival, progression, ore, or foundry for a focused edit-loop gate"
+            "workshop, survival, progression, ore, or foundry for a focused coherent gate"
         ),
     )
     parser.add_argument("--shaders", action="store_true", help="include WGSL validation")
     parser.add_argument(
-        "--docs",
+        "--rustdoc",
         action="store_true",
-        help="include Markdown authority checks and the documentation build",
+        help="build Rust API documentation when that surface changed",
     )
     parser.add_argument(
         "--dry-run",
@@ -198,16 +218,22 @@ def parse_args() -> argparse.Namespace:
         help="print the resolved stages without executing them",
     )
     args = parser.parse_args()
-    if args.core and args.unit:
-        parser.error("--core and --unit are alternatives; use --unit all for the complete core suite")
-    if args.soak and (args.core or args.unit):
+    if args.soak and args.core:
         parser.error("--soak already includes complete core behavior")
+    if args.preset == "quick" and any(
+        (args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)
+    ):
+        parser.error("quick is intentionally build-free and does not accept build-producing flags")
     if args.preset == "audit" and any(
-        (args.core, args.unit, args.lint, args.soak, args.gameplay, args.shaders, args.docs)
+        (args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)
     ):
         parser.error(
-            "audit has a fixed runtime scope; run change-scoped lint/docs/shader lanes separately"
+            "audit has a fixed runtime scope; run change-scoped lint/rustdoc/shader lanes separately"
         )
+    if args.preset == "report" and any(
+        (args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)
+    ):
+        parser.error("report is a fixed exploratory lane and does not accept gate flags")
     return args
 
 
@@ -224,7 +250,13 @@ def main() -> int:
     print(f"local-ci {args.preset}: {len(plan)} stage(s)")
     try:
         for index, (label, command) in enumerate(plan, start=1):
-            elapsed = run_stage(index, len(plan), label, command)
+            elapsed = run_stage(
+                index,
+                len(plan),
+                label,
+                command,
+                echo_success=args.preset == "report",
+            )
             if elapsed is None:
                 return 1
             timings.append((label, elapsed))

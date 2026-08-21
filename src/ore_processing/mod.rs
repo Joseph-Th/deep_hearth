@@ -588,10 +588,7 @@ pub fn calculate_mass_flow_duration_ceiling(
     Ok(TickSpan::new(ticks))
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-industry")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

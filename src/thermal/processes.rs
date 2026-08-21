@@ -12,10 +12,7 @@ pub use registry::{SensibleHeatingProcessDefinition, ThermalRegistry};
 pub use validation::ThermalJobValidationError;
 pub(crate) use validation::validate_loaded_thermal_job;
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-industry")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::capability::{

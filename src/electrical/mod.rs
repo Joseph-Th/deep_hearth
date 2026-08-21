@@ -117,10 +117,7 @@ pub fn calculate_resistive_voltage_drop(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-industry")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

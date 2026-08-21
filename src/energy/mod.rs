@@ -236,10 +236,7 @@ pub fn calculate_mass_specific_energy(mass: Mass, specific: MassSpecificEnergy) 
     )
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

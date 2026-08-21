@@ -517,10 +517,14 @@ impl InventoryState {
         next_revision: u64,
     ) {
         let id = record.id;
-        let replaced = self.stockpiles.insert(id, record);
         assert!(
-            replaced.is_none(),
+            !self.stockpiles.contains_key(&id),
             "validated stockpile ID must be globally unique"
+        );
+        let previous = self.stockpiles.insert(id, record);
+        assert!(
+            previous.is_none(),
+            "prechecked stockpile insertion unexpectedly replaced a record"
         );
         self.next_stockpile_id = next_stockpile_id;
         self.revision = next_revision;
@@ -654,6 +658,40 @@ impl InventoryState {
         after: Option<StructuralElementId>,
         next_revision: u64,
     ) {
+        let record = match self.stockpiles.get(&stockpile) {
+            Some(record) => record,
+            None => panic!(
+                "runtime invariant broken: stockpile {} disappeared during support update",
+                stockpile.value()
+            ),
+        };
+        assert_eq!(
+            record.supported_by, before,
+            "runtime invariant broken: stockpile support record disagrees with support index"
+        );
+        if let Some(before) = before {
+            assert!(
+                self.stockpiles_by_support
+                    .get(&before)
+                    .is_some_and(|indexed| indexed.contains(&stockpile)),
+                "runtime invariant broken: inventory support index element {} missing stockpile {}",
+                before.value(),
+                stockpile.value()
+            );
+        }
+        if after != before
+            && let Some(after) = after
+        {
+            assert!(
+                !self
+                    .stockpiles_by_support
+                    .get(&after)
+                    .is_some_and(|indexed| indexed.contains(&stockpile)),
+                "runtime invariant broken: inventory support index element {} already contains stockpile {}",
+                after.value(),
+                stockpile.value()
+            );
+        }
         if let Some(before) = before {
             let remove_entry = {
                 let indexed = match self.stockpiles_by_support.get_mut(&before) {
@@ -691,12 +729,8 @@ impl InventoryState {
         }
         let record = match self.stockpiles.get_mut(&stockpile) {
             Some(record) => record,
-            None => panic!(
-                "runtime invariant broken: stockpile {} disappeared during support update",
-                stockpile.value()
-            ),
+            None => unreachable!("stockpile support record was prechecked before index mutation"),
         };
-        debug_assert_eq!(record.supported_by, before);
         record.supported_by = after;
         self.revision = next_revision;
     }

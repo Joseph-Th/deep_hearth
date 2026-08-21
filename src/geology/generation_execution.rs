@@ -163,10 +163,7 @@ pub fn insert_generated_deposit(
     Ok(id)
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-player")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::content::{FORM_CRUSHED, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, build_registries};

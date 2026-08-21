@@ -212,10 +212,7 @@ impl PhysiologyDefinition {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-player")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -269,6 +266,16 @@ mod tests {
             })
             .is_err()
         );
+    }
+
+    #[test]
+    fn drink_hydration_multiplier_cannot_create_hydration_volume() {
+        let fluid = FluidDefinitionId::new(1);
+        let maximum = DrinkDefinition::new(fluid, 1_000_000);
+        assert_eq!(maximum.hydration_multiplier_ppm(), 1_000_000);
+
+        assert!(std::panic::catch_unwind(|| DrinkDefinition::new(fluid, 0)).is_err());
+        assert!(std::panic::catch_unwind(|| DrinkDefinition::new(fluid, 1_000_001)).is_err());
     }
 }
 
@@ -342,8 +349,8 @@ impl DrinkDefinition {
     #[must_use]
     pub fn new(fluid: FluidDefinitionId, hydration_multiplier_ppm: u32) -> Self {
         assert!(
-            hydration_multiplier_ppm > 0,
-            "drink hydration multiplier must be nonzero"
+            (1..=1_000_000).contains(&hydration_multiplier_ppm),
+            "drink hydration multiplier must be inside 1..=1,000,000 ppm"
         );
         Self {
             fluid,

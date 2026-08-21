@@ -100,10 +100,7 @@ fn validate_dimensions(cross_section: Area, length: Length) -> Result<(), Struct
     Ok(())
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::content::{MATERIAL_COPPER, MATERIAL_WOOD, build_registries};

@@ -145,10 +145,7 @@ impl Display for ScheduleAdvanceError {
 
 impl Error for ScheduleAdvanceError {}
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-foundation")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

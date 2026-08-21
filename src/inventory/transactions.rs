@@ -1245,10 +1245,7 @@ pub(crate) fn validate_material_relocation_from_selection(
     })
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::content::{

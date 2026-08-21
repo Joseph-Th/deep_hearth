@@ -14,28 +14,42 @@ pub(super) struct StockpileLotIndex {
 
 impl StockpileLotIndex {
     pub(super) fn insert(&mut self, lot: MaterialLotId, commodity: CommodityKey) {
-        let inserted = self.all.insert(lot);
         assert!(
-            inserted,
+            !self.all.contains(&lot),
             "material lot index must not contain duplicate ids"
         );
-        let inserted = self.by_commodity.entry(commodity).or_default().insert(lot);
         assert!(
-            inserted,
-            "commodity lot index must not contain duplicate ids"
+            self.by_commodity
+                .values()
+                .all(|indexed| !indexed.contains(&lot)),
+            "commodity lot index must not contain a lot under any commodity before insertion"
         );
+        let inserted = self.all.insert(lot);
+        assert!(inserted, "prechecked material lot index insertion failed");
+        let inserted = self.by_commodity.entry(commodity).or_default().insert(lot);
+        assert!(inserted, "prechecked commodity lot index insertion failed");
     }
 
     pub(super) fn remove(&mut self, lot: MaterialLotId, commodity: CommodityKey) {
+        assert!(
+            self.all.contains(&lot),
+            "material lot index must contain removed ids"
+        );
+        assert!(
+            self.by_commodity
+                .get(&commodity)
+                .is_some_and(|indexed| indexed.contains(&lot)),
+            "commodity lot index must contain removed ids"
+        );
         let removed = self.all.remove(&lot);
-        assert!(removed, "material lot index must contain removed ids");
+        assert!(removed, "prechecked material lot index removal failed");
         let remove_entry = {
             let indexed = match self.by_commodity.get_mut(&commodity) {
                 Some(indexed) => indexed,
-                None => panic!("commodity lot index must contain removed commodity"),
+                None => unreachable!("commodity lot index presence was prechecked"),
             };
             let removed = indexed.remove(&lot);
-            assert!(removed, "commodity lot index must contain removed ids");
+            assert!(removed, "prechecked commodity lot index removal failed");
             indexed.is_empty()
         };
         if remove_entry {

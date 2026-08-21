@@ -249,10 +249,7 @@ impl Error for MaterialLotSpecError {
     }
 }
 
-#[cfg(all(
-    test,
-    any(not(feature = "test-unit-sharded"), feature = "test-unit-foundation")
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::material::{COMPOSITION_PARTS_PER_MILLION, CompositionComponent, FormId};

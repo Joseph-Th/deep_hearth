@@ -117,10 +117,14 @@ impl EnergyState {
         next_store_id: u64,
         next_revision: u64,
     ) {
+        assert!(
+            !self.records.contains_key(&record.id),
+            "Runtime Invariant 4 (Index Uniqueness): energy store allocation replaced an existing record"
+        );
         let previous = self.records.insert(record.id, record);
         assert!(
             previous.is_none(),
-            "Runtime Invariant 4 (Index Uniqueness): energy store allocation replaced an existing record"
+            "prechecked energy store insertion unexpectedly replaced a record"
         );
         self.next_store_id = next_store_id;
         self.revision = next_revision;
