@@ -17,11 +17,11 @@ compiles the same surface.
 | Build-free edit-loop sanity | `python ci.py quick` |
 | Fast production compile | `cargo check-fast` |
 | Coherent production checkpoint | `python ci.py gate` |
-| Complete ordinary core behavior | `cargo test-fast` |
+| Complete ordinary core behavior | `python ci.py audit --core` |
 | One exact ordinary test | `python tools/run_test.py <qualified-name>` |
 | Discover ordinary test names | `python tools/run_test.py --list [substring]` |
 | One gameplay concern | `python ci.py gate --gameplay {workshop,survival,progression,ore,foundry}` |
-| All maintained gameplay concerns | `python ci.py gate --gameplay` |
+| All maintained gameplay concerns | `python ci.py audit --gameplay` |
 | Long-horizon invariants/conservation | `cargo test-soak` |
 | Shader assembly and WGSL validation | `cargo test-shaders` |
 | Markdown authority, links, routes, and source-doc policy | `python tools/check_authority_docs.py` |
@@ -32,8 +32,9 @@ compiles the same surface.
 `python ci.py quick` is the default and intentionally performs no Cargo build. It runs formatting, the
 compile-free repository contract checker, and millisecond-scale Python tests that keep the CI plan itself
 from regressing into redundant builds. `python ci.py gate` is the standard coherent checkpoint: with no
-flags it adds the production-library compile. Add only the build-producing lane owned by the change:
-`--core`, `--gameplay [scope]`, `--soak`, `--shaders`, `--rustdoc`, or `--lint`.
+flags it adds only the production-library compile. Focused gameplay gates require an explicit scope.
+Complete core behavior and all-gameplay verification are deliberately audit-only, so `gate --core` and
+an unscoped/all `gate --gameplay` are rejected instead of turning a repair loop into a broad relink.
 
 Git Wizard follows the same policy through Cargo metadata: `quick` is build-free, `standard` maps to the
 production compile gate, and `full` maps to the broad maintained audit. Do not request `standard` or
@@ -44,12 +45,18 @@ compiler wrapper and may require a cold dependency build, so run `python ci.py g
 policy, broadly shared production code, or a deliberate quality sweep warrants it—not as an automatic
 follow-up to every successful runtime audit.
 
-Ordinary unit tests deliberately do not use compile-time shard features. Test execution is cheap relative
-to building another crate feature shape, so `cargo test-fast` keeps one reusable default-feature test
-binary. For diagnosis after that artifact exists, `python tools/run_test.py <qualified-name>` runs one
-fully qualified test and fails when the selector is stale or empty. `python tools/run_test.py --list`
-exposes libtest's live catalog; optional substring filtering happens after discovery and never creates
-another test build configuration.
+Ordinary unit tests deliberately do not use compile-time shard features. `cargo test-fast` therefore
+owns one reusable default-feature audit artifact, not the normal edit loop. An exact library test still
+has to link that whole test binary when it is stale, so use `cargo check-fast` while implementation is
+moving and run the exact executable proof once the behavior is coherent. `python tools/run_test.py
+<qualified-name>` preflights the selector against a source-derived catalog before Cargo; `--list`
+reads that catalog directly and invokes neither Cargo, rustc, nor the linker. Feature-gated or
+integration-target catalogs use the same `--features` and `--target` arguments as exact execution.
+
+Broad audit runs are terminal checkpoints, not diagnostic loops. When a broad audit exposes one defect,
+repair that defect with `quick`, `cargo check-fast`, or the single failed exact/focused target. Do not
+rerun the broad audit after every repair; rerun it once after the repair batch is complete and only when
+that broad surface is actually required for completion.
 
 `cargo check-all` is the explicit all-target compile diagnostic. For a gameplay target, use
 `cargo check --locked --features test-gameplay --test <target>` only when type feedback is useful before
@@ -111,25 +118,31 @@ power, and time progression use canonical runtime transactions.
 | --- | --- |
 | `--gameplay survival` | Runtime survival provisioning, preservation, eating, and drinking after controlled world bootstrap |
 | `--gameplay progression` | Runtime primitive crafting, assembly, mining, upgrades, manual power, and primitive mechanization after controlled world bootstrap |
-| `--gameplay workshop` | Bootstrapped industrial workshop capability and policy behavior |
-| `--gameplay ore` | Bootstrapped crushing, grinding, screening, and regrinding capability |
-| `--gameplay foundry` | Bootstrapped pure-copper heating, melting, and casting capability |
+| `--gameplay workshop` | Bootstrapped industrial workshop capability and consequential player-policy behavior |
+| `--gameplay ore` | Bootstrapped, structurally installed crushing/grinding/screening/regrinding pipeline capability; not an agency claim |
+| `--gameplay foundry` | Bootstrapped, structurally installed pure-copper heating/melting/casting pipeline capability; not an agency claim |
 
 The industrial targets are capability evaluations, not claims of end-to-end runtime progression.
-`STATUS.md` remains authoritative for acquisition and world-system availability.
+The ore/foundry targets deliberately report `agency=pipeline-evidence`; they prove physical integration
+and installation obligations, while workshop counterfactuals own evidence that player policies actually
+change outcomes. `STATUS.md` remains authoritative for acquisition and world-system availability.
 
-`python ci.py gate --gameplay` runs all five maintained targets. `python ci.py report` reuses those same
+`python ci.py audit --gameplay` runs all five maintained targets. `python ci.py report` reuses those same
 `test-gameplay` artifacts for an exploratory workshop sample, maintained agency counterfactuals, and
 verbose survival/progression/ore/foundry evidence. It is not a routine completion gate and deliberately
 does not introduce a second monolithic gameplay feature shape. Gameplay target commands are composed in
-`ci.py` directly rather than duplicated across a family of Cargo aliases.
+`ci.py` directly rather than duplicated across a family of Cargo aliases; the four focused report probes
+share one multi-target Cargo invocation instead of launching four independent build commands.
 
 ### Variation and replay
 
-Maintained gameplay tests combine fixed anchors with small deterministic bounded variations. Generated
-cases print replay inputs. Hard assertions cover legality, ownership, conservation, persistence,
-authored capability agreement, catalog/reachability boundaries, and other balance-independent contracts.
-Balance-sensitive outcomes remain observations unless an anchor explicitly owns them.
+Maintained gameplay tests combine fixed semantic anchors with a minimal deterministic variation sample.
+Each focused concern runs its maintained anchor plus one generated case; the workshop gate retains all
+of its distinct semantic anchors plus one generated case. Explicit seed lists remain the mechanism for
+deliberate multi-seed sweeps. Generated cases print replay inputs. Hard assertions cover legality,
+ownership, conservation, persistence, authored capability agreement, catalog/reachability boundaries,
+and other balance-independent contracts. Balance-sensitive outcomes remain observations unless an anchor
+explicitly owns them.
 
 Replay controls:
 
@@ -147,13 +160,15 @@ part of the repository contract.
 
 - `python ci.py quick`: build-free formatting + repository-contract check; use during editing.
 - `python ci.py gate`: standard coherent checkpoint; formatting/contracts + production compile.
-- `python ci.py gate --core`: complete ordinary core behavior.
-- `python ci.py gate --gameplay [scope]`: one or all maintained gameplay targets.
+- `python ci.py gate --gameplay {workshop,survival,progression,ore,foundry}`: one maintained gameplay target.
+- `python ci.py audit --core`: complete ordinary core behavior.
+- `python ci.py audit --gameplay`: all maintained gameplay targets.
 - `python ci.py gate --soak`: complete core behavior plus long-horizon soak coverage.
 - `python ci.py gate --shaders`: shader validation.
 - `python ci.py gate --rustdoc`: Rust API documentation build.
-- `python ci.py audit`: broad maintained core + gameplay checkpoint.
+- `python ci.py audit`: broad maintained core + gameplay checkpoint; use only when both surfaces are required.
 
 Choose the smallest completion gate that covers the changed contract. Add specialized lanes only when
-their distinct surface changed. Do not rerun narrower lanes after a broader selected lane already covers
-them, and do not run build-producing lanes merely because another file was edited.
+their distinct surface changed. `gate` deliberately cannot launch the complete core suite or all five
+gameplay binaries. Do not rerun narrower lanes after a broader selected lane already covers them, and do
+not run build-producing lanes merely because another file was edited.

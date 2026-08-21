@@ -9,11 +9,9 @@ linker = "lld-link.exe"
 # stable default-feature unit-test artifact instead of rebuilding alternate shard feature shapes.
 check-fast = "check --quiet --locked --lib"
 check-all = "check --locked --all-targets"
-# The optional fast lint checkpoint checks production code only. Routine correctness feedback comes
-# from `test-fast` with Rust warnings denied package-wide; `test-lint-all` remains the explicit
-# all-target/all-feature Clippy audit for cross-cutting and release hardening.
+# The optional lint checkpoint checks production code only. Broader alternate feature shapes are
+# verified by their owning executable lanes rather than one expensive all-features Clippy ritual.
 test-lint = "clippy --locked --lib -- -D warnings"
-test-lint-all = "clippy --locked --all-targets --all-features -- -D warnings"
 test-fast = "test --quiet --locked --lib"
 # Soak-only code is feature-gated out of the ordinary unit-test artifact so daily edits do not
 # type-check/codegen long-horizon fixtures. The explicit soak/all lanes pay that cost only on demand.
@@ -22,5 +20,4 @@ test-all = "test --quiet --locked --lib --features test-soak -- --include-ignore
 # Gameplay target selection and exploratory reporting are owned by ci.py so the target catalog is not
 # repeated across a family of Cargo aliases.
 test-shaders = "run --quiet --locked --profile validation --bin validate-shaders --features test-shader-validation"
-test-release = "test --quiet --release --locked --all-features -- --include-ignored"
 test-doc = "doc --quiet --locked --no-deps"

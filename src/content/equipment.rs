@@ -171,6 +171,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             thresholds(),
             vec![crusher_curve],
         )
+        .with_required_structural_support()
         .with_maintenance_profile(workshop_maintenance()),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_ELECTRIC_FURNACE,
@@ -193,6 +194,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             thresholds(),
             vec![furnace_curve],
         )
+        .with_required_structural_support()
         .with_maintenance_profile(workshop_maintenance()),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_CASTING_MOLD,
@@ -215,6 +217,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             thresholds(),
             vec![casting_mold_curve],
         )
+        .with_required_structural_support()
         .with_maintenance_profile(workshop_maintenance()),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_DRY_SCREEN,
@@ -233,6 +236,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             thresholds(),
             vec![screen_curve],
         )
+        .with_required_structural_support()
         .with_maintenance_profile(workshop_maintenance()),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_GRINDING_MILL,
@@ -251,6 +255,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             thresholds(),
             vec![grinder_curve],
         )
+        .with_required_structural_support()
         .with_maintenance_profile(workshop_maintenance()),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_STONE_PICK,
@@ -444,6 +449,41 @@ mod tests {
                     || definition.worn_recovery_form().is_some(),
                 "built-in equipment {} must be repairable or destructively recoverable after wear",
                 definition.id().value()
+            );
+        }
+    }
+
+    #[test]
+    fn industrial_machines_are_fixed_while_primitive_equipment_remains_portable() {
+        let registry = build_equipment_registry();
+        for equipment in [
+            EQUIPMENT_JAW_CRUSHER,
+            EQUIPMENT_ELECTRIC_FURNACE,
+            EQUIPMENT_CASTING_MOLD,
+            EQUIPMENT_DRY_SCREEN,
+            EQUIPMENT_GRINDING_MILL,
+        ] {
+            assert!(
+                registry
+                    .get_equipment(equipment)
+                    .is_some_and(|definition| definition.requires_structural_support()),
+                "industrial equipment {} must require structural installation",
+                equipment.value()
+            );
+        }
+        for equipment in [
+            EQUIPMENT_STONE_PICK,
+            EQUIPMENT_STONE_HAND_CRANK,
+            EQUIPMENT_COPPER_REINFORCED_PICK,
+            EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+            EQUIPMENT_STONE_CRUSHER,
+        ] {
+            assert!(
+                registry
+                    .get_equipment(equipment)
+                    .is_some_and(|definition| !definition.requires_structural_support()),
+                "primitive equipment {} must remain portable",
+                equipment.value()
             );
         }
     }

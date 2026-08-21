@@ -6,6 +6,8 @@ mod capability_boundary;
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
 mod focused_seeds;
+#[path = "gameplay_harness/industrial_support.rs"]
+mod industrial_support;
 #[path = "gameplay_harness/ore_probe.rs"]
 mod ore_probe;
 #[path = "gameplay_harness/ore_setup.rs"]

@@ -175,6 +175,9 @@ pub enum EquipmentProviderError {
         equipment: EquipmentId,
         definition: EquipmentDefinitionId,
     },
+    StructuralSupportRequired {
+        equipment: EquipmentId,
+    },
     UnknownStructuralSupport {
         equipment: EquipmentId,
         element: StructuralElementId,
@@ -200,6 +203,11 @@ impl Display for EquipmentProviderError {
                 "equipment {} references unknown definition {}",
                 equipment.value(),
                 definition.value()
+            ),
+            Self::StructuralSupportRequired { equipment } => write!(
+                formatter,
+                "equipment {} requires an active structural support before it can authorize work",
+                equipment.value()
             ),
             Self::UnknownStructuralSupport { equipment, element } => write!(
                 formatter,
@@ -238,6 +246,9 @@ pub fn resolve_equipment_provider<'state>(
             definition: record.definition(),
         });
     };
+    if definition.requires_structural_support() && record.supported_by().is_none() {
+        return Err(EquipmentProviderError::StructuralSupportRequired { equipment });
+    }
     let expected_structure_revision = if let Some(element) = record.supported_by() {
         let Some(support) = state.structures().get_element(element) else {
             return Err(EquipmentProviderError::UnknownStructuralSupport { equipment, element });
@@ -278,8 +289,9 @@ mod tests {
     };
     use crate::spatial::{VoxelBounds, VoxelCoord};
     use crate::structural::{
-        StructuralLoadKind, add_structural_element, materialize_structural_element_for_test,
-        validate_activate_structural_element, validate_set_structural_load,
+        StructuralElementId, StructuralLoadKind, add_structural_element,
+        materialize_structural_element_for_test, validate_activate_structural_element,
+        validate_set_structural_load,
     };
 
     const TEST_CAPABILITY: CapabilityId = CapabilityId::new(820_001);
@@ -290,6 +302,34 @@ mod tests {
             Ok(condition) => condition,
             Err(error) => panic!("condition fixture failed: {error}"),
         }
+    }
+
+    fn add_active_support(
+        registries: &Registries,
+        state: &mut AppState,
+        x: i64,
+    ) -> StructuralElementId {
+        let bounds = VoxelBounds::new(VoxelCoord::new(x, 0, 0), VoxelCoord::new(x + 1, 1, 1))
+            .unwrap_or_else(|error| panic!("support-aware structural bounds failed: {error}"));
+        let support = add_structural_element(
+            registries,
+            state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            crate::structural::make_test_structural_geometry(
+                bounds,
+                crate::core::quantity::Length::from_micrometers(1),
+                Area::from_square_millimeters(1_000),
+            ),
+            true,
+        )
+        .unwrap_or_else(|error| panic!("support-aware structural fixture failed: {error}"));
+        materialize_structural_element_for_test(registries, state, support, FORM_LOG);
+        validate_activate_structural_element(registries, state, support)
+            .unwrap_or_else(|error| panic!("support-aware activation validation failed: {error}"))
+            .commit(state)
+            .unwrap_or_else(|error| panic!("support-aware activation commit failed: {error}"));
+        support
     }
 
     #[test]
@@ -423,6 +463,53 @@ mod tests {
     }
 
     #[test]
+    fn fixed_equipment_requires_active_structural_installation_before_use() {
+        let profile = CapabilityProfile::new([(
+            TEST_CAPABILITY,
+            CapabilityValue::Mass(Mass::from_milligrams(100_000)),
+        )])
+        .unwrap_or_else(|error| panic!("fixed-equipment capability fixture failed: {error}"));
+        let thresholds = MaintenanceThresholds::new(condition(600_000), condition(250_000))
+            .unwrap_or_else(|error| panic!("fixed-equipment maintenance fixture failed: {error}"));
+        let registries = make_test_registries_with_equipment(
+            CapabilityDefinition::new(
+                TEST_CAPABILITY,
+                "fixed-equipment fixture capability",
+                CapabilityValueKind::Mass,
+            ),
+            EquipmentDefinition::new(
+                TEST_DEFINITION,
+                "fixed-equipment fixture",
+                Mass::from_milligrams(25_000),
+                profile,
+                thresholds,
+            )
+            .with_required_structural_support(),
+        );
+        let mut state = AppState::new(WorldSeed::new(0x8200_0002));
+        let equipment = add_equipment(
+            &registries,
+            &mut state,
+            TEST_DEFINITION,
+            Condition::PRISTINE,
+        )
+        .unwrap_or_else(|error| panic!("fixed-equipment fixture failed: {error}"));
+
+        assert_eq!(
+            resolve_equipment_provider(&registries, &state, equipment).map(|_| ()),
+            Err(EquipmentProviderError::StructuralSupportRequired { equipment })
+        );
+
+        let support = add_active_support(&registries, &mut state, 0);
+        validate_mount_equipment(&registries, &state, equipment, support)
+            .unwrap_or_else(|error| panic!("fixed-equipment mount failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("fixed-equipment mount commit failed: {error}"));
+
+        assert!(resolve_equipment_provider(&registries, &state, equipment).is_ok());
+    }
+
+    #[test]
     fn collapsed_structural_support_blocks_new_equipment_use() {
         let profile = match CapabilityProfile::new([(
             TEST_CAPABILITY,
@@ -450,33 +537,7 @@ mod tests {
             ),
         );
         let mut state = AppState::new(WorldSeed::new(0x8200_0003));
-        let bounds = match VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(1, 1, 1)) {
-            Ok(bounds) => bounds,
-            Err(error) => panic!("support-aware structural bounds failed: {error}"),
-        };
-        let support = match add_structural_element(
-            &registries,
-            &mut state,
-            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-            MATERIAL_WOOD,
-            crate::structural::make_test_structural_geometry(
-                bounds,
-                crate::core::quantity::Length::from_micrometers(1),
-                Area::from_square_millimeters(1_000),
-            ),
-            true,
-        ) {
-            Ok(element) => element,
-            Err(error) => panic!("support-aware structural fixture failed: {error}"),
-        };
-        materialize_structural_element_for_test(&registries, &mut state, support, FORM_LOG);
-        let activation = match validate_activate_structural_element(&registries, &state, support) {
-            Ok(token) => token,
-            Err(error) => panic!("support-aware activation validation failed: {error}"),
-        };
-        if let Err(error) = activation.commit(&mut state) {
-            panic!("support-aware activation commit failed: {error}");
-        }
+        let support = add_active_support(&registries, &mut state, 0);
         let equipment = match add_equipment(
             &registries,
             &mut state,

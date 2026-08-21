@@ -101,9 +101,12 @@ implementation contracts, [`GAME_DESIGN.md`](GAME_DESIGN.md) for product intent,
   traces. Authored worn assembled equipment can be decommissioned into conserved same-material scrap,
   preventing wear from becoming either a reset button or a permanent matter trap. Maintenance-scrap
   recovery is not implemented.
-- Mounted equipment contributes an equipment-owned structural load and requires active support for new
-  machine work. Direct player-power and hand-mining tools must be unmounted while their labor is active,
-  so structural failure cannot leave portable work running through an unusable support.
+- Authored fixed machinery requires structural installation before it can authorize work. Mounted
+  equipment contributes an equipment-owned structural load, and its support must remain active for new
+  work; industrial jaw crushing, grinding, screening, furnace, and casting equipment therefore cannot
+  bypass siting/infrastructure constraints by remaining unmounted. Portable primitive tools and devices
+  remain usable without a support assignment. Direct player-power and hand-mining tools must be
+  unmounted while their labor is active.
 
 ### Energy, structures, fluids, and physical scalars
 

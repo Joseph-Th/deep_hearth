@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -21,6 +22,9 @@ GAMEPLAY_TARGETS = {
     "foundry": "gameplay_foundry",
 }
 GAMEPLAY_SCOPES = ("all", *GAMEPLAY_TARGETS)
+GAMEPLAY_SCOPE_BY_TARGET = {target: scope for scope, target in GAMEPLAY_TARGETS.items()}
+FAILED_CORE_TEST = re.compile(r"^    (?P<name>[A-Za-z0-9_:]+)$", re.MULTILINE)
+FAILED_GAMEPLAY_TARGET = re.compile(r"to rerun pass `--test (?P<target>gameplay_[a-z_]+)`")
 
 
 def cargo(alias: str) -> list[str]:
@@ -40,24 +44,46 @@ def quick_plan() -> list[tuple[str, list[str]]]:
     ]
 
 
-def audit_plan() -> list[tuple[str, list[str]]]:
-    """Run the broad maintained runtime checkpoint without optional long-horizon/lint shapes."""
+def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
+    """Return the narrow follow-up command for a failed broad executable lane when detectable."""
 
-    return [
-        *quick_plan(),
-        ("core", cargo("test-fast")),
-        ("gameplay", gameplay_command("all")),
-    ]
+    combined = f"{stdout}\n{stderr}"
+    if command == cargo("test-fast"):
+        failed = FAILED_CORE_TEST.findall(combined)
+        if failed:
+            return f"python tools/run_test.py {failed[-1]}"
+    if "test-gameplay" in command:
+        match = FAILED_GAMEPLAY_TARGET.search(combined)
+        if match is not None:
+            scope = GAMEPLAY_SCOPE_BY_TARGET.get(match.group("target"))
+            if scope is not None:
+                return f"python ci.py gate --gameplay {scope}"
+    return None
 
 
-def gameplay_command(scope: str, *, nocapture: bool = False) -> list[str]:
+def audit_plan(scope: str = "all") -> list[tuple[str, list[str]]]:
+    """Run an explicitly broad runtime audit, optionally limited to one maintained surface."""
+
+    plan = quick_plan()
+    if scope in ("core", "all"):
+        plan.append(("core", cargo("test-fast")))
+    if scope in ("gameplay", "all"):
+        plan.append(("gameplay", gameplay_command("all")))
+    return plan
+
+
+def gameplay_targets_command(scopes: tuple[str, ...], *, nocapture: bool = False) -> list[str]:
     command = ["cargo", "test", "--quiet", "--locked", "--features", "test-gameplay"]
-    targets = GAMEPLAY_TARGETS.values() if scope == "all" else [GAMEPLAY_TARGETS[scope]]
-    for target in targets:
-        command.extend(("--test", target))
+    for scope in scopes:
+        command.extend(("--test", GAMEPLAY_TARGETS[scope]))
     if nocapture:
         command.extend(("--", "--nocapture"))
     return command
+
+
+def gameplay_command(scope: str, *, nocapture: bool = False) -> list[str]:
+    scopes = tuple(GAMEPLAY_TARGETS) if scope == "all" else (scope,)
+    return gameplay_targets_command(scopes, nocapture=nocapture)
 
 
 def gameplay_plan(scope: str) -> list[tuple[str, list[str]]]:
@@ -91,10 +117,13 @@ def report_plan() -> list[tuple[str, list[str]]]:
             "workshop agency",
             exact_gameplay_command("gameplay_maintained_agency_counterfactuals"),
         ),
-        ("survival probe", gameplay_command("survival", nocapture=True)),
-        ("progression probe", gameplay_command("progression", nocapture=True)),
-        ("ore probe", gameplay_command("ore", nocapture=True)),
-        ("foundry probe", gameplay_command("foundry", nocapture=True)),
+        (
+            "focused probes",
+            gameplay_targets_command(
+                ("survival", "progression", "ore", "foundry"),
+                nocapture=True,
+            ),
+        ),
     ]
 
 
@@ -102,28 +131,47 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
     if args.preset == "quick":
         return quick_plan()
     if args.preset == "audit":
+        if args.core:
+            return audit_plan("core")
+        if args.gameplay:
+            return audit_plan("gameplay")
         return audit_plan()
     if args.preset == "report":
         return report_plan()
 
-    plan = quick_plan()
-    has_explicit_lane = any(
-        (args.core, args.soak, args.gameplay, args.shaders, args.rustdoc, args.lint)
+    if args.core:
+        raise ValueError("complete core behavior is audit-only; use `python ci.py audit --core`")
+    if args.gameplay == "all":
+        raise ValueError(
+            "all-gameplay verification is audit-only; use `python ci.py audit --gameplay`"
+        )
+
+    selected_lanes = sum(
+        bool(selected)
+        for selected in (
+            args.soak,
+            args.gameplay,
+            args.shaders,
+            args.rustdoc,
+            args.lint,
+        )
     )
+    if selected_lanes > 1:
+        raise ValueError("gate accepts exactly one build-producing lane at a time")
+
+    plan = quick_plan()
     if args.soak:
         plan.append(("core + soak", cargo("test-all")))
-    elif args.core:
-        plan.append(("core", cargo("test-fast")))
-    elif not has_explicit_lane:
-        plan.append(("compile", cargo("check-fast")))
-    if args.gameplay:
+    elif args.gameplay:
         plan.extend(gameplay_plan(args.gameplay))
-    if args.shaders:
+    elif args.shaders:
         plan.append(("shaders", cargo("test-shaders")))
-    if args.rustdoc:
+    elif args.rustdoc:
         plan.append(("rustdoc", cargo("test-doc")))
-    if args.lint:
+    elif args.lint:
         plan.append(("clippy", cargo("test-lint")))
+    else:
+        plan.append(("compile", cargo("check-fast")))
     return plan
 
 
@@ -167,10 +215,12 @@ def run_stage(
         print(result.stdout.rstrip(), file=sys.stderr)
     if result.stderr.strip():
         print(result.stderr.rstrip(), file=sys.stderr)
+    if hint := repair_hint(command, result.stdout, result.stderr):
+        print(f"repair: {hint}", file=sys.stderr)
     return None
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run concise local verification without hosted CI or implicit change detection."
     )
@@ -184,51 +234,68 @@ def parse_args() -> argparse.Namespace:
             "or explicit gameplay report"
         ),
     )
-    parser.add_argument(
+    lane = parser.add_mutually_exclusive_group()
+    lane.add_argument(
         "--lint",
         action="store_true",
-        help="add production-library Clippy",
+        help="run production-library Clippy as the gate's single build lane",
     )
-    parser.add_argument(
+    lane.add_argument(
         "--core",
         action="store_true",
-        help="include the complete ordinary core behavior suite alongside selected specialized lanes",
+        help="run the complete ordinary core behavior suite as an explicit audit-only lane",
     )
-    parser.add_argument("--soak", action="store_true", help="include ignored core soak tests")
-    parser.add_argument(
+    lane.add_argument(
+        "--soak",
+        action="store_true",
+        help="run complete core behavior plus ignored soak tests as the gate's single build lane",
+    )
+    lane.add_argument(
         "--gameplay",
         nargs="?",
         const="all",
         choices=GAMEPLAY_SCOPES,
         metavar="SCOPE",
         help=(
-            "include gameplay verification; omit SCOPE for all maintained targets or choose "
-            "workshop, survival, progression, ore, or foundry for a focused coherent gate"
+            "run gameplay verification; gate requires an explicit focused scope, while audit accepts "
+            "omitted SCOPE/all for every maintained gameplay target"
         ),
     )
-    parser.add_argument("--shaders", action="store_true", help="include WGSL validation")
-    parser.add_argument(
+    lane.add_argument(
+        "--shaders",
+        action="store_true",
+        help="run WGSL validation as the gate's single build lane",
+    )
+    lane.add_argument(
         "--rustdoc",
         action="store_true",
-        help="build Rust API documentation when that surface changed",
+        help="build Rust API documentation as the gate's single build lane",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="print the resolved stages without executing them",
     )
-    args = parser.parse_args()
-    if args.soak and args.core:
-        parser.error("--soak already includes complete core behavior")
+    args = parser.parse_args(argv)
     if args.preset == "quick" and any(
         (args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)
     ):
         parser.error("quick is intentionally build-free and does not accept build-producing flags")
-    if args.preset == "audit" and any(
-        (args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)
-    ):
+    if args.preset == "audit" and any((args.lint, args.soak, args.shaders, args.rustdoc)):
         parser.error(
             "audit has a fixed runtime scope; run change-scoped lint/rustdoc/shader lanes separately"
+        )
+    if args.preset == "audit" and args.core and args.gameplay:
+        parser.error("audit accepts at most one scope selector: --core or --gameplay")
+    if args.preset == "audit" and args.gameplay not in (None, "all"):
+        parser.error(
+            "focused gameplay belongs in gate; audit --gameplay always means all maintained gameplay targets"
+        )
+    if args.preset == "gate" and args.core:
+        parser.error("complete core behavior is audit-only; use `python ci.py audit --core`")
+    if args.preset == "gate" and args.gameplay == "all":
+        parser.error(
+            "gate requires an explicit gameplay scope; use `python ci.py audit --gameplay` for all targets"
         )
     if args.preset == "report" and any(
         (args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)

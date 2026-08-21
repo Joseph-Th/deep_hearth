@@ -3,6 +3,7 @@
 use super::capability_boundary::{
     assert_capability_only_energy_store, assert_capability_only_equipment,
 };
+use super::industrial_support::install_equipment_on_grounded_support;
 use super::support::add_solid_stockpile;
 use deep_hearth::content::gameplay_fixture::{
     seed_energy_store as seed_energy_store_exact, seed_equipment, seed_lot, seed_stockpile,
@@ -91,6 +92,8 @@ pub(super) fn setup_foundry_probe(
         EQUIPMENT_CASTING_MOLD,
         mold_condition,
     );
+    install_equipment_on_grounded_support(registries, &mut state, furnace, 0);
+    install_equipment_on_grounded_support(registries, &mut state, mold, 2);
     let electrical_buffer = seed_energy_store_exact(
         registries,
         &mut state,

@@ -222,6 +222,7 @@ pub struct EquipmentDefinition {
     id: EquipmentDefinitionId,
     name: String,
     mass: Mass,
+    requires_structural_support: bool,
     capabilities: CapabilityProfile,
     capability_condition_curves: BTreeMap<CapabilityId, CapabilityConditionCurve>,
     maintenance_thresholds: MaintenanceThresholds,
@@ -322,6 +323,7 @@ impl EquipmentDefinition {
             id,
             name,
             mass,
+            requires_structural_support: false,
             capabilities,
             capability_condition_curves: curves_by_capability,
             maintenance_thresholds,
@@ -330,6 +332,17 @@ impl EquipmentDefinition {
             upgrade_profile: None,
             worn_recovery_form: None,
         }
+    }
+
+    /// Requires an active structural support assignment before this equipment can authorize work.
+    ///
+    /// Portable tools and small devices remain usable unmounted. Installed machinery uses this
+    /// requirement so its mass, site condition, and structural consequences cannot be bypassed by
+    /// simply leaving the runtime support field empty.
+    #[must_use]
+    pub const fn with_required_structural_support(mut self) -> Self {
+        self.requires_structural_support = true;
+        self
     }
 
     /// Adds the authored replacement-material service available to runtime maintenance resolution.
@@ -389,6 +402,11 @@ impl EquipmentDefinition {
     #[must_use]
     pub const fn mass(&self) -> Mass {
         self.mass
+    }
+
+    #[must_use]
+    pub const fn requires_structural_support(&self) -> bool {
+        self.requires_structural_support
     }
 
     #[must_use]

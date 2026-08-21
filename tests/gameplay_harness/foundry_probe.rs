@@ -209,7 +209,7 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
         "foundry capability probe must conserve cast output mass"
     );
     std::println!(
-        "CAPABILITY FOUNDRY seed=0x{seed:016X} reachability=bootstrapped-industrial batch={}mg input={}mK initial-condition=[furnace:{} mold:{}ppm] electrical=[initial:{}nJ melt:{}nJ remaining:{}nJ] melt={}t cast={}t matter=conserved",
+        "CAPABILITY FOUNDRY seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported agency=pipeline-evidence batch={}mg input={}mK initial-condition=[furnace:{} mold:{}ppm] electrical=[initial:{}nJ melt:{}nJ remaining:{}nJ] melt={}t cast={}t matter=conserved",
         mass.milligrams(),
         input_temperature.millikelvin(),
         initial_furnace_condition.parts_per_million(),

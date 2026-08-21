@@ -36,8 +36,6 @@ fn focused_default_keeps_anchor_and_adds_a_tiny_replayable_variation_sample() {
     assert_eq!(first.len(), 1 + FOCUSED_VARIATION_COUNT);
     assert_eq!(first[0], 0x1111);
     assert_ne!(first[1], first[0]);
-    assert_ne!(first[2], first[0]);
-    assert_ne!(first[2], first[1]);
 }
 
 #[test]
@@ -49,7 +47,6 @@ fn focused_generated_variation_changes_when_the_default_root_changes() {
 
     assert_eq!(first[0], second[0]);
     assert_ne!(first[1], second[1]);
-    assert_ne!(first[2], second[2]);
 }
 
 #[test]

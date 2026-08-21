@@ -590,7 +590,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
     }
 
     std::println!(
-        "CAPABILITY ORE_PREP seed=0x{seed:016X} reachability=bootstrapped-industrial batch={}mg copper={}ppm initial-condition=[crusher:{} grinder:{} screen:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t] matter=conserved energy=resolved",
+        "CAPABILITY ORE_PREP seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported agency=pipeline-evidence batch={}mg copper={}ppm initial-condition=[crusher:{} grinder:{} screen:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t] matter=conserved energy=resolved",
         batch_mass.milligrams(),
         copper_ppm,
         initial_crusher_condition.parts_per_million(),

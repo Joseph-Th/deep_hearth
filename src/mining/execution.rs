@@ -957,10 +957,10 @@ pub fn validate_claim_mining_output(
 mod tests {
     use super::*;
     use crate::content::{
-        EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_PICK, FORM_HANDLE,
-        FORM_LOG, FORM_LUMP, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER,
-        MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK, PROCESS_KNAP_STONE_TOOL,
-        PROCESS_SHAPE_WOOD_HANDLE, build_registries,
+        EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
+        FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL,
+        MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK,
+        PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE, build_registries,
     };
     use crate::core::quantity::{Temperature, Volume};
     use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -970,8 +970,8 @@ mod tests {
     };
     use crate::energy::calculate_explicit_energy_accounting;
     use crate::equipment::{
-        add_equipment, apply_equipment_condition_plan, decide_equipment_wear,
-        validate_assemble_equipment, validate_upgrade_equipment,
+        apply_equipment_condition_plan, decide_equipment_wear, validate_assemble_equipment,
+        validate_upgrade_equipment,
     };
     use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
     use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
@@ -1333,6 +1333,35 @@ mod tests {
             .unwrap_or_else(|error| panic!("pick assembly commit failed: {error}"))
     }
 
+    fn assemble_hand_crank_for_test(registries: &Registries, state: &mut AppState) -> EquipmentId {
+        let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_100_000))
+            .unwrap_or_else(|error| panic!("hand-crank assembly source failed: {error}"));
+        for (commodity, mass) in [
+            (
+                CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+                Mass::from_milligrams(900_000),
+            ),
+            (
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(200_000),
+            ),
+        ] {
+            deposit_lot_for_test(
+                registries,
+                state,
+                source,
+                commodity,
+                mass,
+                Temperature::from_millikelvin(293_150),
+            )
+            .unwrap_or_else(|error| panic!("hand-crank assembly material failed: {error}"));
+        }
+        validate_assemble_equipment(registries, state, EQUIPMENT_STONE_HAND_CRANK, source)
+            .unwrap_or_else(|error| panic!("hand-crank assembly validation failed: {error}"))
+            .commit(state)
+            .unwrap_or_else(|error| panic!("hand-crank assembly commit failed: {error}"))
+    }
+
     fn assemble_reinforced_pick_for_test(
         registries: &Registries,
         state: &mut AppState,
@@ -1609,13 +1638,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("missing-capability destination failed: {error}"));
         let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
             .unwrap_or_else(|error| panic!("missing-capability deposit failed: {error}"));
-        let crusher = add_equipment(
-            &registries,
-            &mut state,
-            EQUIPMENT_JAW_CRUSHER,
-            Condition::PRISTINE,
-        )
-        .unwrap_or_else(|error| panic!("missing-capability equipment failed: {error}"));
+        let hand_crank = assemble_hand_crank_for_test(&registries, &mut state);
         let expected_capability = registries
             .mining()
             .get_method(MINING_METHOD_HAND_PICK)
@@ -1628,11 +1651,11 @@ mod tests {
             MINING_METHOD_HAND_PICK,
             deposit,
             destination,
-            crusher,
+            hand_crank,
             Mass::from_milligrams(1),
         )
         .err()
-        .unwrap_or_else(|| panic!("crusher unexpectedly satisfied hand-mining capabilities"));
+        .unwrap_or_else(|| panic!("hand crank unexpectedly satisfied hand-mining capabilities"));
 
         assert_eq!(
             error,

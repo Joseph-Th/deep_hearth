@@ -66,6 +66,17 @@ pub(super) struct ScenarioDeliveryVariation {
     pub(super) delivery_at_tick: u64,
 }
 
+fn ensure_generated_critical_recovery_supply(
+    maintenance_band: MaintenanceBand,
+    replacement_units: u8,
+) -> u8 {
+    if maintenance_band == MaintenanceBand::Critical {
+        replacement_units.max(1)
+    } else {
+        replacement_units
+    }
+}
+
 impl ScenarioVariation {
     pub(super) fn from_seeds(
         registries: &Registries,
@@ -181,10 +192,11 @@ impl ScenarioVariation {
                 (k % 3) as u8,
             ),
         };
-        if anchor.is_none()
-            && thresholds.classify(initial_crusher_condition) == MaintenanceBand::Critical
-        {
-            maintenance_replacement_units = maintenance_replacement_units.max(1);
+        if anchor.is_none() {
+            maintenance_replacement_units = ensure_generated_critical_recovery_supply(
+                thresholds.classify(initial_crusher_condition),
+                maintenance_replacement_units,
+            );
         }
 
         let crusher_weight =
@@ -354,29 +366,18 @@ mod tests {
     }
 
     #[test]
-    fn generated_critical_starts_always_have_a_recovery_supply() {
-        let registries = build_registries();
-        let thresholds = registries
-            .equipment()
-            .get_equipment(EQUIPMENT_JAW_CRUSHER)
-            .unwrap_or_else(|| panic!("canonical crusher definition disappeared"))
-            .maintenance_thresholds();
-        let mut critical_cases = 0_usize;
-        for world_seed in 1..=512 {
-            let variation = ScenarioVariation::from_seeds(&registries, world_seed, 1, None);
-            if thresholds.classify(variation.crusher.initial_crusher_condition)
-                == MaintenanceBand::Critical
-            {
-                critical_cases += 1;
-                assert!(
-                    variation.crusher.maintenance_replacement_units > 0,
-                    "fresh critical workshop world 0x{world_seed:016X} must include at least one recovery service"
-                );
-            }
-        }
-        assert!(
-            critical_cases > 0,
-            "critical-start generator contract must be exercised by the bounded seed sweep"
+    fn generated_critical_start_cannot_have_empty_recovery_supply() {
+        assert_eq!(
+            ensure_generated_critical_recovery_supply(MaintenanceBand::Critical, 0),
+            1
+        );
+        assert_eq!(
+            ensure_generated_critical_recovery_supply(MaintenanceBand::Critical, 2),
+            2
+        );
+        assert_eq!(
+            ensure_generated_critical_recovery_supply(MaintenanceBand::Normal, 0),
+            0
         );
     }
 }

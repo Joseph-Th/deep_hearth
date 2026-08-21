@@ -298,6 +298,13 @@ condition lifetime. The final useful tick may reduce condition to `FAILED`; no l
 authorized because failed condition-sensitive equipment contributes zero usable capability. Runtime
 resolution and persisted-job replay enforce the same discrete-tick boundary.
 
+Equipment definitions also own whether the provider is portable or requires structural installation.
+Fixed machinery cannot authorize work while unmounted. Once mounted, the assigned structural member
+must exist and remain active, so equipment weight, structural damage, suspension, relocation, and site
+recovery are mandatory physical constraints rather than harness conventions. Portable hand tools and
+small devices remain usable without a support assignment and may have separate labor rules requiring
+them to be unmounted during direct use.
+
 Maintenance is a conserved cross-owner operation. `EquipmentMaintenanceProfile` specifies exact
 replacement matter, a distinct same-material spent form, and a restored condition. Resolver output is
 an opaque single-use `EquipmentRepairResolution`; validation binds equipment/inventory state,

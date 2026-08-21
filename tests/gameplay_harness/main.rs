@@ -2,16 +2,16 @@
 //
 // The harness deliberately varies physical initial conditions and player priorities, then lets a
 // small operational policy react only to observed state and resolver projections. The required gate
-// runs seven maintained anchor cases plus two deterministic bounded variation cases. The explicit report
-// lane uses a larger fresh bounded sample. Every generated root is printed so any result can be reproduced.
-// Physical scenario and
+// runs seven maintained anchor cases plus one deterministic bounded variation case. The explicit
+// report lane uses a larger fresh bounded sample. Every generated root is printed so any result can
+// be reproduced. Physical scenario and
 // automated-player behavior randomness are independent. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED`
 // reproduces the world/scenario sample and `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` reproduces policy
-// variation. Focused gameplay probes use one maintained anchor plus two deterministic bounded physical
-// variations by default; an explicit variation seed reproduces a specific sample and
-// `DEEP_HEARTH_GAMEPLAY_SEEDS` provides an exact focused-probe sweep. Each scenario schedules a real material
-// transfer into supported storage, so ordinary inventory ownership can change structural margin while
-// production is active.
+// variation. Focused gameplay probes use one maintained anchor plus one deterministic bounded physical
+// variation by default; an explicit variation seed reproduces a specific sample and
+// `DEEP_HEARTH_GAMEPLAY_SEEDS` provides an exact focused-probe sweep. Each scenario schedules a real
+// material transfer into supported storage, so ordinary inventory ownership can change structural
+// margin while production is active.
 // The controlled delivery event is hidden from the acting policy until its effects are observable.
 // `DEEP_HEARTH_GAMEPLAY_SEEDS` replaces the whole matrix with an exact comma-separated decimal or
 // `0x` hexadecimal seed list; malformed entries are rejected instead of ignored. Detailed trace
@@ -25,6 +25,7 @@ mod configuration;
 mod contracts;
 mod focused_seeds;
 mod fresh_seed;
+mod industrial_support;
 mod report;
 mod scenario;
 mod seed;
@@ -45,6 +46,7 @@ use deep_hearth::content::gameplay_fixture::{
     seed_player_survival_at_warning,
 };
 use fresh_seed::fresh_root;
+use industrial_support::install_equipment_on_grounded_support;
 use report::{
     EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioChoiceReport,
     ScenarioPolicyVariation, ScenarioProgressReport, ScenarioReport, ScenarioResourceReport,
@@ -439,6 +441,7 @@ fn setup_workshop(
         EQUIPMENT_ELECTRIC_FURNACE,
         Condition::PRISTINE,
     );
+    install_equipment_on_grounded_support(registries, &mut state, furnace, 6);
     let electrical_buffer = seed_energy_store(registries, &mut state, ENERGY_ELECTRICAL_BUFFER, 2);
 
     let compact_support = active_support(
@@ -1783,45 +1786,9 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
             );
         }
     }
-    schedule_controlled_delivery_event(registries, &state, ids, &mut variation);
     let maintenance_profile = crusher_definition
         .maintenance_profile()
         .unwrap_or_else(|| panic!("canonical crusher maintenance profile disappeared"));
-    let delivery_target = if variation.delivery.destination_is_compact {
-        "compact"
-    } else {
-        "reinforced"
-    };
-    println!(
-        "\nSCENARIO world=0x{:016X} behavior=0x{:016X} ore={}ppm Cu order={}mg nominal_batch={}mg crusher={}ppm controller_event=[tick:{} mass:{}mg target:{} actor_visibility:hidden] policy=[power:{} recovery:{} maintenance:{} structure:{}] stored_work=[small:{}+{}ppm nominal-batches, high-power:{}+{}ppm nominal-batches] maintenance=[units:{} replacement:{}mg target:{}ppm]",
-        variation.world_seed,
-        variation.behavior_seed,
-        variation.ore.ore_copper_ppm,
-        variation.ore.order_mass.milligrams(),
-        variation.ore.nominal_batch_mass.milligrams(),
-        variation
-            .crusher
-            .initial_crusher_condition
-            .parts_per_million(),
-        variation.delivery.delivery_at_tick,
-        variation.delivery.mass.milligrams(),
-        delivery_target,
-        variation.policy.power_preference.label(),
-        variation.policy.energy_recovery_preference.label(),
-        variation.policy.maintenance_preference.label(),
-        variation.policy.structural_preference.label(),
-        variation.crusher.small_drive_batch_budget,
-        variation.crusher.small_drive_partial_batch_ppm,
-        variation.crusher.large_drive_batch_budget,
-        variation.crusher.large_drive_partial_batch_ppm,
-        variation.crusher.maintenance_replacement_units,
-        maintenance_profile.replacement_mass().milligrams(),
-        maintenance_profile.restored_condition().parts_per_million(),
-    );
-    println!(
-        "  objective: complete the ore work order using observable workshop state; react to the controlled delivery only after it occurs"
-    );
-
     let compact_mount =
         validate_mount_equipment(registries, &state, ids.crusher, ids.compact_support)
             .unwrap_or_else(|error| panic!("compact bay mount prediction failed: {error}"));
@@ -1880,6 +1847,42 @@ fn run_scenario(registries: &Registries, mut variation: ScenarioVariation) -> Sc
     selected_mount
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("selected crusher mount failed: {error}"));
+
+    schedule_controlled_delivery_event(registries, &state, ids, &mut variation);
+    let delivery_target = if variation.delivery.destination_is_compact {
+        "compact"
+    } else {
+        "reinforced"
+    };
+    println!(
+        "\nSCENARIO world=0x{:016X} behavior=0x{:016X} ore={}ppm Cu order={}mg nominal_batch={}mg crusher={}ppm controller_event=[tick:{} mass:{}mg target:{} actor_visibility:hidden] policy=[power:{} recovery:{} maintenance:{} structure:{}] stored_work=[small:{}+{}ppm nominal-batches, high-power:{}+{}ppm nominal-batches] maintenance=[units:{} replacement:{}mg target:{}ppm]",
+        variation.world_seed,
+        variation.behavior_seed,
+        variation.ore.ore_copper_ppm,
+        variation.ore.order_mass.milligrams(),
+        variation.ore.nominal_batch_mass.milligrams(),
+        variation
+            .crusher
+            .initial_crusher_condition
+            .parts_per_million(),
+        variation.delivery.delivery_at_tick,
+        variation.delivery.mass.milligrams(),
+        delivery_target,
+        variation.policy.power_preference.label(),
+        variation.policy.energy_recovery_preference.label(),
+        variation.policy.maintenance_preference.label(),
+        variation.policy.structural_preference.label(),
+        variation.crusher.small_drive_batch_budget,
+        variation.crusher.small_drive_partial_batch_ppm,
+        variation.crusher.large_drive_batch_budget,
+        variation.crusher.large_drive_partial_batch_ppm,
+        variation.crusher.maintenance_replacement_units,
+        maintenance_profile.replacement_mass().milligrams(),
+        maintenance_profile.restored_condition().parts_per_million(),
+    );
+    println!(
+        "  objective: complete the ore work order using observable workshop state; react to the controlled delivery only after it occurs"
+    );
 
     'work_order: while report.progress.processed_mass < report.progress.target_mass {
         if report.structure.structural_stop {
@@ -2924,7 +2927,7 @@ fn run_gameplay_harness(mode: ScenarioPlanMode) {
         ScenarioPlanMode::Gate => "controlled",
         ScenarioPlanMode::Explore => "exploratory",
     };
-    print_harness_summary(evidence_mode, &reports, false);
+    print_harness_summary(evidence_mode, &reports);
 }
 
 #[test]

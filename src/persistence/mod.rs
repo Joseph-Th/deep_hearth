@@ -1110,14 +1110,14 @@ mod tests {
     }
 
     #[test]
-    fn current_save_rejects_pre_active_tick_ore_wear_registry_schema() {
+    fn current_save_rejects_prior_registry_schema_after_authored_equipment_semantics_change() {
         let registries = build_registries();
         let state = AppState::new(WorldSeed::new(0x5700_0005));
         let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
             Ok(encoded) => encoded,
             Err(error) => panic!("registry compatibility save serialization failed: {error}"),
         };
-        encoded["registry_schema_version"] = serde_json::json!(34_u32);
+        encoded["registry_schema_version"] = serde_json::json!(35_u32);
         let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
             Ok(decoded) => decoded,
             Err(error) => panic!("registry compatibility save failed decode: {error}"),
@@ -1126,7 +1126,7 @@ mod tests {
         assert_eq!(
             decoded.into_state(&registries),
             Err(LoadError::RegistrySchemaMismatch {
-                found: RegistrySchemaVersion::new(34),
+                found: RegistrySchemaVersion::new(35),
                 supported: registries.schema_version(),
             })
         );

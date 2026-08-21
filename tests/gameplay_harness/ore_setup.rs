@@ -3,6 +3,7 @@
 use super::capability_boundary::{
     assert_capability_only_energy_store, assert_capability_only_equipment,
 };
+use super::industrial_support::install_equipment_on_grounded_support;
 use super::support::{ROOM_TEMPERATURE, add_solid_stockpile};
 use deep_hearth::content::gameplay_fixture::{
     seed_composed_lot, seed_energy_store as seed_energy_store_exact, seed_equipment,
@@ -107,6 +108,9 @@ pub(super) fn setup_ore_preparation_probe(
         EQUIPMENT_DRY_SCREEN,
         screen_condition,
     );
+    install_equipment_on_grounded_support(registries, &mut state, crusher, 0);
+    install_equipment_on_grounded_support(registries, &mut state, grinder, 2);
+    install_equipment_on_grounded_support(registries, &mut state, screen, 4);
     let drive = seed_energy_store_exact(
         registries,
         &mut state,
