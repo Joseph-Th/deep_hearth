@@ -12,7 +12,7 @@ use crate::spatial::VoxelBounds;
 
 use super::knowledge::{
     GeologicalEvidenceKind, GeologicalObservationId, GeologicalObservationRecord,
-    MaterialAbundanceEstimate,
+    MaterialAbundanceEstimate, PARTS_PER_MILLION, total_lower_bound_ppm,
 };
 
 /// Immutable result of a future physical prospecting or analytical resolver.
@@ -53,6 +53,9 @@ pub enum RecordProspectingError {
         previous: MaterialId,
         current: MaterialId,
     },
+    ImpossibleLowerBoundTotal {
+        total_ppm: u64,
+    },
     UnknownMaterial {
         material: MaterialId,
     },
@@ -71,6 +74,10 @@ impl Display for RecordProspectingError {
                 "resolved prospecting findings are not strictly ordered: material {} before {}",
                 previous.value(),
                 current.value()
+            ),
+            Self::ImpossibleLowerBoundTotal { total_ppm } => write!(
+                formatter,
+                "resolved prospecting findings have combined lower abundance bounds of {total_ppm} ppm, exceeding {PARTS_PER_MILLION} ppm"
             ),
             Self::UnknownMaterial { material } => write!(
                 formatter,
@@ -176,6 +183,12 @@ pub fn validate_record_prospecting(
                 current: pair[1].material(),
             });
         }
+    }
+    let total_lower_ppm = total_lower_bound_ppm(&resolution.findings);
+    if total_lower_ppm > u64::from(PARTS_PER_MILLION) {
+        return Err(RecordProspectingError::ImpossibleLowerBoundTotal {
+            total_ppm: total_lower_ppm,
+        });
     }
     for finding in &resolution.findings {
         if registries
@@ -459,6 +472,28 @@ mod tests {
                 upper_ppm: 500_000,
             }
         );
+    }
+
+    #[test]
+    fn prospecting_rejects_physically_impossible_combined_abundance_minima() {
+        let registries = build_registries();
+        let state = AppState::new(WorldSeed::new(0x6B00_0009));
+        let resolution = make_test_prospecting_resolution(
+            bounds(0, 8),
+            GeologicalEvidenceKind::LaboratoryAssay,
+            vec![
+                estimate(MATERIAL_COPPER, 600_000, 900_000),
+                estimate(MATERIAL_SLAG, 500_000, 800_000),
+            ],
+        );
+
+        assert_eq!(
+            validate_record_prospecting(&registries, &state, resolution),
+            Err(RecordProspectingError::ImpossibleLowerBoundTotal {
+                total_ppm: 1_100_000,
+            })
+        );
+        assert_eq!(state.geological_knowledge().observations().count(), 0);
     }
 
     #[test]

@@ -272,6 +272,10 @@ impl Error for TickError {
     }
 }
 
+fn has_revision_capacity(current: u64, steps: u64) -> bool {
+    current.checked_add(steps).is_some()
+}
+
 /// Advances the full authoritative simulation by exactly one base tick.
 ///
 /// All future subsystem phases belong in this visible sequence. The registry parameter is already
@@ -324,6 +328,35 @@ pub fn advance_tick(
         MiningTickError::MiningRevisionExhausted => TickError::MiningRevisionExhausted,
         MiningTickError::EquipmentRevisionExhausted => TickError::EquipmentRevisionExhausted,
     })?;
+    let equipment_revision_steps = completion_plan
+        .equipment_revision_steps()
+        .checked_add(
+            mining_plan
+                .as_ref()
+                .map_or(0, |plan| plan.equipment_revision_steps()),
+        )
+        .and_then(|steps| {
+            steps.checked_add(
+                manual_power_plan
+                    .as_ref()
+                    .map_or(0, |plan| plan.equipment_revision_steps()),
+            )
+        })
+        .unwrap_or_else(|| panic!("fixed per-tick equipment revision budget overflowed"));
+    if !has_revision_capacity(state.equipment().revision(), equipment_revision_steps) {
+        return Err(TickError::EquipmentRevisionExhausted);
+    }
+    let energy_revision_steps = completion_plan
+        .energy_revision_steps()
+        .checked_add(
+            manual_power_plan
+                .as_ref()
+                .map_or(0, |plan| plan.energy_revision_steps()),
+        )
+        .unwrap_or_else(|| panic!("fixed per-tick energy revision budget overflowed"));
+    if !has_revision_capacity(state.energy().revision(), energy_revision_steps) {
+        return Err(TickError::EnergyRevisionExhausted);
+    }
     let exertion = player_work_exertion(registries, state);
     let survival_plan =
         decide_survival_tick(registries, state, exertion).map_err(|error| match error {
@@ -408,6 +441,13 @@ mod tests {
             })
         );
         assert_eq!(state, before);
+    }
+
+    #[test]
+    fn shared_owner_revision_capacity_accounts_for_all_same_tick_mutations() {
+        assert!(has_revision_capacity(u64::MAX - 2, 2));
+        assert!(!has_revision_capacity(u64::MAX - 2, 3));
+        assert!(!has_revision_capacity(u64::MAX - 1, 2));
     }
 
     #[test]

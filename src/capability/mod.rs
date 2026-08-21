@@ -123,7 +123,7 @@ impl CapabilityValue {
         }
     }
 
-    fn compare(self, other: Self) -> Option<Ordering> {
+    pub(crate) fn compare(self, other: Self) -> Option<Ordering> {
         if self.kind() != other.kind() {
             return None;
         }

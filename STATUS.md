@@ -90,9 +90,9 @@ implementation contracts, [`GAME_DESIGN.md`](GAME_DESIGN.md) for product intent,
 - Equipment is persistent, condition-bearing, mass-bearing, and optionally assembled from exact
   material/provenance traces. Equipment can be occupied exclusively by production, mining, or direct
   player-power work as applicable.
-- Authored condition curves can derate numeric capabilities. Failed productive equipment reaches zero
-  productive rate where that curve is authored. Productive work with active-tick wear is rejected when
-  its requested duration would require any tick after the provider reaches failed condition.
+- Authored condition curves can derate numeric capabilities and must move monotonically toward the
+  pristine nominal value. Failed equipment exposes no capabilities. Productive work with active-tick
+  wear is rejected when its requested duration would require any tick after failure.
 - Maintenance consumes an exact authored replacement commodity and produces a distinct conserved spent
   material form while restoring an authored condition target. It cannot run through active occupancy.
 - Additive equipment upgrades preserve identity, accumulated condition, and existing material traces

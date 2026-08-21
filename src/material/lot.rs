@@ -6,8 +6,8 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    CommodityKey, CompositionConstraint, CompositionError, MaterialComposition, MaterialId,
-    ParticleSizeDistribution, ParticleSizeRange,
+    COMPOSITION_PARTS_PER_MILLION, CommodityKey, CompositionConstraint, CompositionError,
+    MaterialComposition, MaterialId, ParticleSizeDistribution, ParticleSizeRange,
 };
 use crate::core::quantity::{Mass, Temperature};
 
@@ -51,6 +51,15 @@ impl MaterialInputSpec {
                 });
             }
         }
+        let minimum_total_ppm = constraints
+            .iter()
+            .map(|constraint| u64::from(constraint.minimum_parts_per_million()))
+            .sum::<u64>();
+        if minimum_total_ppm > u64::from(COMPOSITION_PARTS_PER_MILLION) {
+            return Err(MaterialInputSpecError::ImpossibleMinimumTotal {
+                total_ppm: minimum_total_ppm,
+            });
+        }
         Ok(Self {
             commodity,
             mass,
@@ -86,6 +95,7 @@ impl MaterialInputSpec {
 pub enum MaterialInputSpecError {
     ZeroMass,
     DuplicateConstraint { material: MaterialId },
+    ImpossibleMinimumTotal { total_ppm: u64 },
 }
 
 impl Display for MaterialInputSpecError {
@@ -98,6 +108,10 @@ impl Display for MaterialInputSpecError {
                 formatter,
                 "material input specification repeats constraint for material {}",
                 material.value()
+            ),
+            Self::ImpossibleMinimumTotal { total_ppm } => write!(
+                formatter,
+                "material input specification requires combined minimum fractions of {total_ppm} ppm, exceeding {COMPOSITION_PARTS_PER_MILLION} ppm"
             ),
         }
     }
@@ -267,6 +281,27 @@ mod tests {
                 vec![constraint, constraint],
             ),
             Err(MaterialInputSpecError::DuplicateConstraint { material })
+        );
+    }
+
+    #[test]
+    fn input_spec_rejects_physically_impossible_combined_minimums() {
+        let host = MaterialId::new(3);
+        let other = MaterialId::new(4);
+        let host_constraint = CompositionConstraint::new(host, 600_000, 900_000)
+            .unwrap_or_else(|error| panic!("host constraint fixture failed: {error}"));
+        let other_constraint = CompositionConstraint::new(other, 500_000, 800_000)
+            .unwrap_or_else(|error| panic!("other constraint fixture failed: {error}"));
+
+        assert_eq!(
+            MaterialInputSpec::with_constraints(
+                CommodityKey::new(host, FormId::new(1)),
+                Mass::from_milligrams(10),
+                vec![host_constraint, other_constraint],
+            ),
+            Err(MaterialInputSpecError::ImpossibleMinimumTotal {
+                total_ppm: 1_100_000,
+            })
         );
     }
 

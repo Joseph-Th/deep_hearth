@@ -156,6 +156,9 @@ pub(crate) fn resolve_equipment_capability(
     condition: Condition,
     capability: CapabilityId,
 ) -> Option<CapabilityValue> {
+    if condition == Condition::FAILED {
+        return None;
+    }
     let nominal = definition.capabilities().get_capability(capability)?;
     Some(
         match definition.get_capability_condition_curve(capability) {
@@ -460,6 +463,54 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn failed_equipment_exposes_no_capabilities() {
+        let profile = CapabilityProfile::new([(
+            TEST_CAPABILITY,
+            CapabilityValue::Mass(Mass::from_milligrams(100_000)),
+        )])
+        .unwrap_or_else(|error| panic!("failed-equipment capability fixture failed: {error}"));
+        let thresholds = MaintenanceThresholds::new(condition(600_000), condition(250_000))
+            .unwrap_or_else(|error| panic!("failed-equipment maintenance fixture failed: {error}"));
+        let registries = make_test_registries_with_equipment(
+            CapabilityDefinition::new(
+                TEST_CAPABILITY,
+                "failed-equipment fixture capability",
+                CapabilityValueKind::Mass,
+            ),
+            EquipmentDefinition::new(
+                TEST_DEFINITION,
+                "failed-equipment fixture",
+                Mass::from_milligrams(25_000),
+                profile,
+                thresholds,
+            ),
+        );
+        let mut state = AppState::new(WorldSeed::new(0x8200_0004));
+        let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, Condition::FAILED)
+            .unwrap_or_else(|error| panic!("failed-equipment fixture failed: {error}"));
+        let provider = resolve_equipment_provider(&registries, &state, equipment)
+            .unwrap_or_else(|error| panic!("failed-equipment provider resolution failed: {error}"));
+
+        assert_eq!(provider.get_capability(TEST_CAPABILITY), None);
+        assert!(matches!(
+            evaluate_capabilities(
+                registries.capabilities(),
+                &provider,
+                &[CapabilityRequirement::new(
+                    TEST_CAPABILITY,
+                    CapabilityComparison::AtMost,
+                    CapabilityValue::Mass(Mass::from_milligrams(100_000)),
+                )],
+            ),
+            Err(
+                crate::capability::CapabilityEvaluationError::MissingCapability {
+                    capability: TEST_CAPABILITY,
+                }
+            )
+        ));
     }
 
     #[test]

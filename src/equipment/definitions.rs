@@ -1,5 +1,6 @@
 //! Immutable maintainable-equipment definitions; sibling state stores only persistent references and changing condition.
 
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -193,6 +194,39 @@ impl CapabilityConditionCurve {
     pub(crate) fn value_kind(&self) -> crate::capability::CapabilityValueKind {
         self.points[0].value().kind()
     }
+
+    fn assert_monotonic_toward(&self, nominal: CapabilityValue) {
+        let failed = self.points[0].value();
+        let direction = failed
+            .compare(nominal)
+            .unwrap_or_else(|| panic!("condition curve and nominal capability kinds must match"));
+        let mut previous = failed;
+        for point in &self.points[1..] {
+            let current = point.value();
+            let previous_to_current = previous
+                .compare(current)
+                .unwrap_or_else(|| panic!("condition curve value kinds must match"));
+            let current_to_nominal = current.compare(nominal).unwrap_or_else(|| {
+                panic!("condition curve and nominal capability kinds must match")
+            });
+            let monotonic = match direction {
+                Ordering::Less => {
+                    previous_to_current != Ordering::Greater
+                        && current_to_nominal != Ordering::Greater
+                }
+                Ordering::Greater => {
+                    previous_to_current != Ordering::Less && current_to_nominal != Ordering::Less
+                }
+                Ordering::Equal => current == nominal,
+            };
+            assert!(
+                monotonic,
+                "equipment capability condition curve {} reverses or overshoots while approaching its nominal pristine value",
+                self.capability.value()
+            );
+            previous = current;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -209,6 +243,51 @@ mod tests {
                     Condition::FAILED,
                     CapabilityValue::Present,
                 )],
+            )
+        });
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn condition_curve_rejects_nonmonotonic_recovery_toward_nominal_value() {
+        let capability = CapabilityId::new(810_002);
+        let nominal = CapabilityValue::Mass(Mass::from_milligrams(100));
+        let profile = CapabilityProfile::new([(capability, nominal)])
+            .unwrap_or_else(|error| panic!("capability profile fixture failed: {error}"));
+        let thresholds = MaintenanceThresholds::new(
+            Condition::new(600_000)
+                .unwrap_or_else(|error| panic!("warning condition fixture failed: {error}")),
+            Condition::new(250_000)
+                .unwrap_or_else(|error| panic!("critical condition fixture failed: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("maintenance threshold fixture failed: {error}"));
+        let curve = CapabilityConditionCurve::new(
+            capability,
+            vec![
+                CapabilityConditionPoint::new(Condition::FAILED, CapabilityValue::Mass(Mass::ZERO)),
+                CapabilityConditionPoint::new(
+                    Condition::new(500_000).unwrap_or_else(|error| {
+                        panic!("midpoint condition fixture failed: {error}")
+                    }),
+                    CapabilityValue::Mass(Mass::from_milligrams(80)),
+                ),
+                CapabilityConditionPoint::new(
+                    Condition::new(750_000)
+                        .unwrap_or_else(|error| panic!("late condition fixture failed: {error}")),
+                    CapabilityValue::Mass(Mass::from_milligrams(70)),
+                ),
+            ],
+        );
+
+        let result = std::panic::catch_unwind(|| {
+            EquipmentDefinition::new_with_capability_condition_curves(
+                EquipmentDefinitionId::new(810_002),
+                "nonmonotonic condition fixture",
+                Mass::from_milligrams(1),
+                profile,
+                thresholds,
+                vec![curve],
             )
         });
 
@@ -312,6 +391,7 @@ impl EquipmentDefinition {
                 id.value(),
                 capability.value()
             );
+            curve.assert_monotonic_toward(nominal);
             assert!(
                 curves_by_capability.insert(capability, curve).is_none(),
                 "equipment definition {} contains duplicate condition curves for capability {}",

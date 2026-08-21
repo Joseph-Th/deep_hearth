@@ -93,6 +93,8 @@ Read-heavy decisions with narrow writes use explicit decide/apply boundaries.
 Top-level tick order remains visible in one function. Subsystems do not hide gameplay mutation in
 callbacks, record methods, adapter hooks, or engine lifecycle events. Resolvers calculate physical
 outcomes; validators authorize state transitions; commit tokens apply already-validated mutations.
+When multiple tick phases can mutate the same revisioned owner, the top-level tick aggregates those
+planned revision steps and validates the complete shared-owner budget before any phase applies.
 
 ## Persistence
 
@@ -184,7 +186,9 @@ particle-state policy. `CommodityKey` combines one material and one form for coa
 
 `MaterialComposition` is canonical normalized mass fraction in integer parts per million, sorted by
 material ID and totaling exactly 1,000,000 ppm. Mixed matter therefore preserves composition without
-requiring a synthetic material definition for every mixture.
+requiring a synthetic material definition for every mixture. Composition-constrained process inputs
+are validated jointly so their distinct minimum constituent fractions cannot require more than the
+same normalized whole.
 
 Particulate forms use validated `ParticleSizeDistribution` values containing non-overlapping size
 classes with canonical relative weights. A single class represents an unresolved envelope. Screening
@@ -242,7 +246,8 @@ material-abundance estimates.
 
 `ProspectingResolution` is opaque, non-cloneable, and consumed by validation. A physical survey owner
 must determine findings before knowledge can be recorded. Knowledge persistence never queries hidden
-deposits.
+deposits. Within one observation, reported lower mass-fraction bounds must remain jointly physically
+possible: their sum cannot exceed one million parts per million.
 
 Assessment reads acquired evidence only. Bounds are combined only where observations share a common
 locality; disjoint evidence is marked spatially incomparable and contradictory overlapping evidence
@@ -291,12 +296,14 @@ semantics. Static definitions provide nominal values; runtime providers may expo
 values through the same evaluator.
 
 Equipment uses normalized `Condition`. Authored numeric capability curves may interpolate from a
-failed endpoint to the nominal pristine value using checked integer arithmetic. Presence-only
+failed endpoint to the nominal pristine value using checked integer arithmetic. Intermediate values
+must move monotonically toward that nominal endpoint and cannot reverse or overshoot it. Presence-only
 capabilities require explicit discrete policy and are not represented by numeric interpolation.
 Productive operations with authored active-tick wear must fit entirely inside the provider's remaining
 condition lifetime. The final useful tick may reduce condition to `FAILED`; no later productive tick is
-authorized because failed condition-sensitive equipment contributes zero usable capability. Runtime
-resolution and persisted-job replay enforce the same discrete-tick boundary.
+authorized because a failed equipment provider exposes no capabilities, independent of requirement
+comparison direction. Runtime resolution and persisted-job replay enforce the same discrete-tick
+boundary.
 
 Equipment definitions also own whether the provider is portable or requires structural installation.
 Fixed machinery cannot authorize work while unmounted. Once mounted, the assigned structural member

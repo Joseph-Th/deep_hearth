@@ -11,7 +11,7 @@ use crate::core::time::SimulationTick;
 use crate::material::{MaterialId, MaterialRegistry};
 use crate::spatial::VoxelBounds;
 
-const PARTS_PER_MILLION: u32 = 1_000_000;
+pub(super) const PARTS_PER_MILLION: u32 = 1_000_000;
 
 /// Persistent identity of one acquired geological observation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -106,6 +106,13 @@ impl MaterialAbundanceEstimate {
     pub const fn width_ppm(self) -> u32 {
         self.upper_ppm - self.lower_ppm
     }
+}
+
+pub(super) fn total_lower_bound_ppm(findings: &[MaterialAbundanceEstimate]) -> u64 {
+    findings
+        .iter()
+        .map(|finding| u64::from(finding.lower_ppm()))
+        .sum()
 }
 
 #[derive(Deserialize)]
@@ -578,6 +585,10 @@ pub enum GeologicalKnowledgeValidationError {
         previous: MaterialId,
         current: MaterialId,
     },
+    ImpossibleLowerBoundTotal {
+        observation: GeologicalObservationId,
+        total_ppm: u64,
+    },
     UnknownFindingMaterial {
         observation: GeologicalObservationId,
         material: MaterialId,
@@ -642,6 +653,14 @@ impl Display for GeologicalKnowledgeValidationError {
                 observation.value(),
                 previous.value(),
                 current.value()
+            ),
+            Self::ImpossibleLowerBoundTotal {
+                observation,
+                total_ppm,
+            } => write!(
+                formatter,
+                "geological observation {} has combined lower abundance bounds of {total_ppm} ppm, exceeding {PARTS_PER_MILLION} ppm",
+                observation.value(),
             ),
             Self::UnknownFindingMaterial {
                 observation,
@@ -744,6 +763,15 @@ pub(crate) fn validate_loaded_geological_knowledge(
                     current: pair[1].material(),
                 });
             }
+        }
+        let total_lower_ppm = total_lower_bound_ppm(&record.findings);
+        if total_lower_ppm > u64::from(PARTS_PER_MILLION) {
+            return Err(
+                GeologicalKnowledgeValidationError::ImpossibleLowerBoundTotal {
+                    observation: *id,
+                    total_ppm: total_lower_ppm,
+                },
+            );
         }
         for finding in &record.findings {
             let material = finding.material();
@@ -908,6 +936,43 @@ mod tests {
                 previous: MATERIAL_COPPER,
                 current: MATERIAL_COPPER,
             })
+        );
+    }
+
+    #[test]
+    fn loaded_validation_rejects_impossible_combined_abundance_minima() {
+        let registries = build_registries();
+        let id = GeologicalObservationId::new(1);
+        let mut findings = vec![
+            estimate(MATERIAL_COPPER, 600_000, 900_000),
+            estimate(MATERIAL_SLAG, 500_000, 800_000),
+        ];
+        findings.sort_by_key(|finding| finding.material());
+        let mut state = GeologicalKnowledgeState::new();
+        state.next_observation_id = 2;
+        state.observations.insert(
+            id,
+            GeologicalObservationRecord {
+                id,
+                region: bounds(),
+                evidence: GeologicalEvidenceKind::LaboratoryAssay,
+                findings,
+                observed_at: SimulationTick::ZERO,
+            },
+        );
+
+        assert_eq!(
+            validate_loaded_geological_knowledge(
+                registries.materials(),
+                &state,
+                SimulationTick::ZERO,
+            ),
+            Err(
+                GeologicalKnowledgeValidationError::ImpossibleLowerBoundTotal {
+                    observation: id,
+                    total_ppm: 1_100_000,
+                }
+            )
         );
     }
 

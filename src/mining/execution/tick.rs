@@ -20,6 +20,12 @@ pub(crate) struct MiningTickPlan {
     equipment_outcomes: Vec<EquipmentOperationConditionOutcome>,
 }
 
+impl MiningTickPlan {
+    pub(crate) fn equipment_revision_steps(&self) -> u64 {
+        u64::from(!self.equipment_outcomes.is_empty())
+    }
+}
+
 pub(crate) fn decide_mining_tick(
     state: &AppState,
     next_tick: SimulationTick,
@@ -58,7 +64,7 @@ pub(crate) fn decide_mining_tick(
         state
             .equipment()
             .revision()
-            .checked_add(2)
+            .checked_add(1)
             .ok_or(MiningTickError::EquipmentRevisionExhausted)?;
     }
     Ok(Some(MiningTickPlan {

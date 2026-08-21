@@ -424,7 +424,7 @@ mod tests {
     use crate::equipment::resolve_equipment_capability;
 
     #[test]
-    fn failed_thermal_equipment_has_no_productive_heat_transfer_rate() {
+    fn failed_thermal_equipment_exposes_no_heat_transfer_capability() {
         let registry = build_equipment_registry();
         for (equipment, capability) in [
             (EQUIPMENT_ELECTRIC_FURNACE, CAPABILITY_HEATING_POWER),
@@ -435,7 +435,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("built-in thermal equipment disappeared"));
             assert_eq!(
                 resolve_equipment_capability(definition, Condition::FAILED, capability),
-                Some(CapabilityValue::Power(Power::ZERO))
+                None
             );
         }
     }

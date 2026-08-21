@@ -585,6 +585,16 @@ pub(crate) struct ManualPowerTickPlan {
     stored_before: Energy,
 }
 
+impl ManualPowerTickPlan {
+    pub(crate) const fn equipment_revision_steps(&self) -> u64 {
+        1
+    }
+
+    pub(crate) const fn energy_revision_steps(&self) -> u64 {
+        1
+    }
+}
+
 pub(crate) fn decide_manual_power_tick(
     state: &AppState,
     next_tick: SimulationTick,
@@ -598,12 +608,12 @@ pub(crate) fn decide_manual_power_tick(
     state
         .energy()
         .revision()
-        .checked_add(2)
+        .checked_add(1)
         .ok_or(ManualPowerTickError::EnergyRevisionExhausted)?;
     state
         .equipment()
         .revision()
-        .checked_add(2)
+        .checked_add(1)
         .ok_or(ManualPowerTickError::EquipmentRevisionExhausted)?;
     let stored_before = state
         .energy()

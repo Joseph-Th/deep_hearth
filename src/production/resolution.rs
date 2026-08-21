@@ -507,6 +507,11 @@ fn scale_input(
         }) => {
             unreachable!("authored input constraints were validated before repeat scaling")
         }
+        Err(MaterialInputSpecError::ImpossibleMinimumTotal { total_ppm: _ }) => {
+            unreachable!(
+                "authored input constraint feasibility was validated before repeat scaling"
+            )
+        }
     }
 }
 

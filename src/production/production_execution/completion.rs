@@ -94,6 +94,16 @@ pub(crate) struct CompletionPlan {
     structural_load: Option<ValidatedStockpileStructuralLoad>,
 }
 
+impl CompletionPlan {
+    pub(crate) fn equipment_revision_steps(&self) -> u64 {
+        u64::from(!self.equipment_outcomes.is_empty())
+    }
+
+    pub(crate) fn energy_revision_steps(&self) -> u64 {
+        u64::from(!self.released_energy_outcomes.is_empty())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct CompletionRevisionPlan {
     expected_production_revision: u64,

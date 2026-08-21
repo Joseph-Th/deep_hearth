@@ -54,8 +54,10 @@ mod tests {
         let after = timing
             .condition_after(1_000, Condition::PRISTINE)
             .unwrap_or_else(|error| panic!("power-limited wear calculation failed: {error}"));
+        let expected = Condition::new(994_000)
+            .unwrap_or_else(|error| panic!("expected condition fixture failed: {error}"));
 
         assert_eq!(timing.duration(), TickSpan::new(6));
-        assert_eq!(after, Condition::new(994_000).unwrap());
+        assert_eq!(after, expected);
     }
 }
