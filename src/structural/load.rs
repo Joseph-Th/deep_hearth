@@ -2,14 +2,6 @@
 
 use crate::core::quantity::{Acceleration, AggregateMass, Area, Force, Mass, Pressure};
 
-fn divide_ceiling(numerator: u128, denominator: u128) -> u128 {
-    if numerator == 0 {
-        0
-    } else {
-        1 + (numerator - 1) / denominator
-    }
-}
-
 /// Converts a world-scale aggregate mass under explicit acceleration into structural force.
 ///
 /// The calculation decomposes the division before multiplication so totals beyond one `Mass`
@@ -27,8 +19,7 @@ pub fn calculate_aggregate_weight_force_ceiling(
     let remainder_mass = mass_milligrams % MILLIGRAM_MICROMETER_PER_MILLI_NEWTON;
     let whole_force = whole_mass_units.checked_mul(acceleration_value)?;
     let remainder_numerator = remainder_mass.checked_mul(acceleration_value)?;
-    let remainder_force =
-        divide_ceiling(remainder_numerator, MILLIGRAM_MICROMETER_PER_MILLI_NEWTON);
+    let remainder_force = remainder_numerator.div_ceil(MILLIGRAM_MICROMETER_PER_MILLI_NEWTON);
     whole_force
         .checked_add(remainder_force)
         .map(Force::from_millinewtons)
@@ -44,7 +35,7 @@ pub fn calculate_aggregate_weight_force_ceiling(
 pub fn calculate_weight_force_ceiling(mass: Mass, acceleration: Acceleration) -> Force {
     let numerator =
         u128::from(mass.milligrams()) * u128::from(acceleration.micrometers_per_second_squared());
-    Force::from_millinewtons(divide_ceiling(numerator, 1_000_000_000))
+    Force::from_millinewtons(numerator.div_ceil(1_000_000_000))
 }
 
 /// Converts uniform pressure over explicit area into conservative whole-millinewton force.
@@ -54,7 +45,7 @@ pub fn calculate_weight_force_ceiling(mass: Mass, acceleration: Acceleration) ->
 #[must_use]
 pub fn calculate_pressure_force_ceiling(pressure: Pressure, area: Area) -> Force {
     let numerator = u128::from(pressure.pascals()) * u128::from(area.square_millimeters());
-    Force::from_millinewtons(divide_ceiling(numerator, 1_000))
+    Force::from_millinewtons(numerator.div_ceil(1_000))
 }
 
 #[cfg(all(

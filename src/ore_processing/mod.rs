@@ -583,7 +583,7 @@ pub fn calculate_mass_flow_duration_ceiling(
     let numerator = u128::from(mass.milligrams()) * 1_000_000;
     let denominator = u128::from(rate.milligrams_per_second())
         * u128::from(physical_tick_duration.microseconds());
-    let ticks = 1 + (numerator - 1) / denominator;
+    let ticks = numerator.div_ceil(denominator);
     let ticks = u64::try_from(ticks).map_err(|_| MassFlowDurationError::TickRangeExceeded)?;
     Ok(TickSpan::new(ticks))
 }

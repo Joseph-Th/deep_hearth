@@ -668,13 +668,8 @@ mod tests {
 
     fn registries() -> Registries {
         make_test_registries_with_fluids(vec![
-            FluidDefinition::new(
-                WATER_LIKE,
-                "fluid transfer fixture A",
-                MATERIAL_COPPER,
-                1_000,
-            ),
-            FluidDefinition::new(OIL_LIKE, "fluid transfer fixture B", MATERIAL_SLAG, 850),
+            FluidDefinition::new(WATER_LIKE, "fluid transfer fixture A", MATERIAL_COPPER),
+            FluidDefinition::new(OIL_LIKE, "fluid transfer fixture B", MATERIAL_SLAG),
         ])
     }
 

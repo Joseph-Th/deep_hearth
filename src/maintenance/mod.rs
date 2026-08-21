@@ -230,11 +230,7 @@ pub(crate) fn calculate_usable_condition_after_active_ticks(
     assert_valid_condition_wear_ppm_per_tick(wear_ppm_per_active_tick);
     let remaining = u64::from(before.parts_per_million());
     let wear = u64::from(wear_ppm_per_active_tick);
-    let maximum_ticks = if remaining == 0 {
-        0
-    } else {
-        1 + (remaining - 1) / wear
-    };
+    let maximum_ticks = remaining.div_ceil(wear);
     let maximum = TickSpan::new(maximum_ticks);
     if duration > maximum {
         return Err(ActiveConditionDurationError {

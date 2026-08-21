@@ -70,8 +70,9 @@ impl StructuralProfileDefinition {
             "structural profile cracking threshold exceeds normalized strength"
         );
         assert!(
-            cracked_capacity_ppm > 0 && cracked_capacity_ppm <= STRUCTURAL_PARTS_PER_MILLION,
-            "structural profile cracked capacity must be within normalized bounds"
+            cracking_at_ppm < cracked_capacity_ppm
+                && cracked_capacity_ppm < STRUCTURAL_PARTS_PER_MILLION,
+            "structural profile cracked capacity must leave a nonzero damaged range between cracking and pristine strength"
         );
         Self {
             id,
@@ -118,6 +119,38 @@ impl StructuralProfileDefinition {
     #[must_use]
     pub const fn damaged_recovery_form(&self) -> FormId {
         self.damaged_recovery_form
+    }
+}
+
+#[cfg(all(
+    test,
+    any(not(feature = "test-unit-sharded"), feature = "test-unit-resources")
+))]
+mod tests {
+    use super::*;
+    use crate::content::FORM_SCRAP;
+
+    const TEST_PROFILE: StructuralProfileId = StructuralProfileId::new(950_001);
+
+    fn profile(cracking_at_ppm: u32, cracked_capacity_ppm: u32) -> StructuralProfileDefinition {
+        StructuralProfileDefinition::new(
+            TEST_PROFILE,
+            "structural profile fixture",
+            StructuralLoadMode::Compression,
+            500_000,
+            cracking_at_ppm,
+            cracked_capacity_ppm,
+            FORM_SCRAP,
+        )
+    }
+
+    #[test]
+    fn cracked_capacity_requires_a_real_post_crack_operating_range() {
+        let valid = profile(800_000, 900_000);
+        assert_eq!(valid.cracked_capacity_ppm(), 900_000);
+
+        assert!(std::panic::catch_unwind(|| profile(800_000, 800_000)).is_err());
+        assert!(std::panic::catch_unwind(|| profile(800_000, 1_000_000)).is_err());
     }
 }
 

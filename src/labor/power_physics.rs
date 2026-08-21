@@ -34,12 +34,10 @@ pub(crate) fn calculate_metabolic_duration(
     if per_tick.is_zero() {
         return Err(ManualPowerMetabolicDurationError::ZeroOutput);
     }
-    let quotient = required.nanojoules() / per_tick.nanojoules();
-    let remainder = required.nanojoules() % per_tick.nanojoules();
-    let ticks = quotient + u128::from(remainder != 0);
+    let ticks = required.nanojoules().div_ceil(per_tick.nanojoules());
     let ticks =
         u64::try_from(ticks).map_err(|_| ManualPowerMetabolicDurationError::DurationOverflow)?;
-    Ok(TickSpan::new(ticks.max(1)))
+    Ok(TickSpan::new(ticks))
 }
 
 /// Resolves actual per-tick physiological effort for a manual-power work order.
@@ -63,8 +61,8 @@ pub(crate) fn resolve_manual_power_exertion(
         .nanojoules()
         .checked_mul(PARTS_PER_MILLION)
         .ok_or(ManualPowerExertionError::EnergyOverflow)?;
-    let total_metabolic = div_ceil(scaled_output, u128::from(efficiency_ppm));
-    let metabolic_per_tick = div_ceil(total_metabolic, ticks);
+    let total_metabolic = scaled_output.div_ceil(u128::from(efficiency_ppm));
+    let metabolic_per_tick = total_metabolic.div_ceil(ticks);
     if metabolic_per_tick > maximum.energy_cost_per_tick().nanojoules() {
         return Err(ManualPowerExertionError::ExceedsAuthoredMaximum);
     }
@@ -72,10 +70,7 @@ pub(crate) fn resolve_manual_power_exertion(
     let scaled_hydration = metabolic_per_tick
         .checked_mul(u128::from(maximum.hydration_loss_per_tick().microliters()))
         .ok_or(ManualPowerExertionError::HydrationOverflow)?;
-    let hydration_per_tick = div_ceil(
-        scaled_hydration,
-        maximum.energy_cost_per_tick().nanojoules(),
-    );
+    let hydration_per_tick = scaled_hydration.div_ceil(maximum.energy_cost_per_tick().nanojoules());
     let hydration_per_tick = u64::try_from(hydration_per_tick)
         .map_err(|_| ManualPowerExertionError::HydrationOverflow)?;
 
@@ -85,17 +80,20 @@ pub(crate) fn resolve_manual_power_exertion(
     ))
 }
 
-const fn div_ceil(value: u128, divisor: u128) -> u128 {
-    let quotient = value / divisor;
-    quotient + ((!value.is_multiple_of(divisor)) as u128)
-}
-
 #[cfg(all(
     test,
     any(not(feature = "test-unit-sharded"), feature = "test-unit-player")
 ))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zero_required_output_has_zero_metabolic_duration() {
+        assert_eq!(
+            calculate_metabolic_duration(Energy::ZERO, Energy::from_nanojoules(1)),
+            Ok(TickSpan::ZERO)
+        );
+    }
 
     #[test]
     fn bottlenecked_manual_power_scales_effort_to_actual_output() {

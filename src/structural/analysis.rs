@@ -649,11 +649,7 @@ fn is_at_or_above_fraction(load: Force, capacity: Force, threshold_ppm: u32) -> 
     }
     let scaled_capacity = capacity.millinewtons() * u128::from(threshold_ppm);
     let denominator = u128::from(STRUCTURAL_PARTS_PER_MILLION);
-    let threshold_load = if scaled_capacity == 0 {
-        0
-    } else {
-        1 + (scaled_capacity - 1) / denominator
-    };
+    let threshold_load = scaled_capacity.div_ceil(denominator);
     load.millinewtons() >= threshold_load
 }
 

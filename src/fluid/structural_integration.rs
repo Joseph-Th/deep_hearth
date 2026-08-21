@@ -167,8 +167,18 @@ fn contents_mass_numerator(
             definition: contents.fluid(),
         },
     )?;
+    let material = registries
+        .materials()
+        .get_material(definition.material())
+        .unwrap_or_else(|| {
+            panic!(
+                "validated fluid definition {} references missing material {}",
+                definition.id().value(),
+                definition.material().value()
+            )
+        });
     u128::from(contents.volume().microliters())
-        .checked_mul(u128::from(definition.density_kg_per_m3()))
+        .checked_mul(u128::from(material.properties().density_kg_per_m3()))
         .ok_or(FluidStructuralLoadError::StoreMassNumeratorOverflow { store })
 }
 
@@ -198,12 +208,7 @@ fn supported_mass_numerator(
 }
 
 fn numerator_to_mass(numerator: u128) -> AggregateMass {
-    let milligrams = if numerator == 0 {
-        0
-    } else {
-        1 + (numerator - 1) / MICROLITERS_DENSITY_PER_MILLIGRAM
-    };
-    AggregateMass::from_milligrams(milligrams)
+    AggregateMass::from_milligrams(numerator.div_ceil(MICROLITERS_DENSITY_PER_MILLIGRAM))
 }
 
 fn support_force(
@@ -675,8 +680,8 @@ pub fn validate_unmount_fluid_store(
 mod tests {
     use super::*;
     use crate::content::{
-        FORM_LOG, MATERIAL_COPPER, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-        make_test_registries_with_fluids,
+        FORM_LOG, MATERIAL_CHARCOAL, MATERIAL_WATER, MATERIAL_WOOD,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION, make_test_registries_with_fluids,
     };
     use crate::core::quantity::{Area, Volume};
     use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -702,13 +707,16 @@ mod tests {
     const TEST_TEMPERATURE: crate::core::quantity::Temperature =
         crate::core::quantity::Temperature::from_millikelvin(293_150);
 
-    fn registries(density_kg_per_m3: u32) -> Registries {
+    fn registries_with_material(material: crate::material::MaterialId) -> Registries {
         make_test_registries_with_fluids(vec![FluidDefinition::new(
             TEST_FLUID,
             "structural fluid fixture",
-            MATERIAL_COPPER,
-            density_kg_per_m3,
+            material,
         )])
+    }
+
+    fn registries() -> Registries {
+        registries_with_material(MATERIAL_WATER)
     }
 
     fn bounds(x: i64) -> VoxelBounds {
@@ -784,8 +792,8 @@ mod tests {
     }
 
     #[test]
-    fn mounted_fluid_uses_authored_density_for_structural_weight() {
-        let registries = registries(1_000);
+    fn mounted_fluid_uses_material_density_for_structural_weight() {
+        let registries = registries();
         let mut state = AppState::new(WorldSeed::new(0x9410_0001));
         let support = add_active_support(&registries, &mut state, 0);
         let store = add_filled(&registries, &mut state, 1_000_000);
@@ -819,19 +827,19 @@ mod tests {
 
     #[test]
     fn fluid_mass_rounding_occurs_after_support_local_aggregation() {
-        let registries = registries(1);
+        let registries = registries_with_material(MATERIAL_CHARCOAL);
         let mut state = AppState::new(WorldSeed::new(0x9410_0002));
         let support = add_active_support(&registries, &mut state, 0);
-        for _ in 0..102 {
+        for _ in 0..4 {
             let store = add_filled(&registries, &mut state, 1);
             mount(&registries, &mut state, store, support);
         }
 
         assert_eq!(
             supported_mass_numerator(&registries, &state, support, &BTreeMap::new(), None),
-            Ok(102)
+            Ok(1_000)
         );
-        assert_eq!(numerator_to_mass(102).milligrams(), 1);
+        assert_eq!(numerator_to_mass(1_000).milligrams(), 1);
         assert_eq!(
             state
                 .structures()
@@ -844,7 +852,7 @@ mod tests {
 
     #[test]
     fn direct_fluid_load_write_and_supported_member_removal_are_blocked() {
-        let registries = registries(1_000);
+        let registries = registries();
         let mut state = AppState::new(WorldSeed::new(0x9410_0003));
         let support = add_active_support(&registries, &mut state, 0);
         let store = add_filled(&registries, &mut state, 1_000);
@@ -873,7 +881,7 @@ mod tests {
 
     #[test]
     fn failed_support_can_be_drained_but_cannot_receive_new_fluid_weight() {
-        let registries = registries(1_000);
+        let registries = registries();
         let mut state = AppState::new(WorldSeed::new(0x9410_0004));
         let support = add_active_support(&registries, &mut state, 0);
         let source = add_filled(&registries, &mut state, 5_000_000_000);
@@ -948,7 +956,7 @@ mod tests {
 
     #[test]
     fn fluid_transfer_can_collapse_destination_support_and_reports_damage() {
-        let registries = registries(1_000);
+        let registries = registries();
         let mut state = AppState::new(WorldSeed::new(0x9410_0010));
         let support = add_active_support(&registries, &mut state, 0);
         let source = add_filled(&registries, &mut state, 5_000_000_000);
@@ -1000,7 +1008,7 @@ mod tests {
 
     #[test]
     fn failed_support_allows_same_support_redistribution_without_added_weight() {
-        let registries = registries(1_000);
+        let registries = registries();
         let mut state = AppState::new(WorldSeed::new(0x9410_0011));
         let support = add_active_support(&registries, &mut state, 0);
         let source = add_filled(&registries, &mut state, 1_000);
@@ -1074,7 +1082,7 @@ mod tests {
 
     #[test]
     fn transfer_binds_structure_even_when_support_local_weight_is_unchanged() {
-        let registries = registries(1_000);
+        let registries = registries();
         let mut state = AppState::new(WorldSeed::new(0x9410_0005));
         let support = add_active_support(&registries, &mut state, 0);
         let source = add_filled(&registries, &mut state, 1_000_000);
@@ -1125,7 +1133,7 @@ mod tests {
 
     #[test]
     fn fluid_support_change_rejects_stale_fluid_owner_before_structural_mutation() {
-        let registries = registries(1_000);
+        let registries = registries();
         let mut state = AppState::new(WorldSeed::new(0x9410_0006));
         let support = add_active_support(&registries, &mut state, 0);
         let store = add_filled(&registries, &mut state, 1_000_000);
@@ -1157,7 +1165,7 @@ mod tests {
 
     #[test]
     fn supported_fluid_round_trip_preserves_support_index_and_derived_load() {
-        let registries = registries(1_000);
+        let registries = registries();
         let mut state = AppState::new(WorldSeed::new(0x9410_0007));
         let support = add_active_support(&registries, &mut state, 0);
         let store = add_filled(&registries, &mut state, 1_000_000);
@@ -1199,7 +1207,7 @@ mod tests {
 
     #[test]
     fn tampered_fluid_derived_load_is_rejected_on_load() {
-        let registries = registries(1_000);
+        let registries = registries();
         let mut state = AppState::new(WorldSeed::new(0x9410_0008));
         let support = add_active_support(&registries, &mut state, 0);
         let store = add_filled(&registries, &mut state, 1_000_000);
@@ -1238,7 +1246,7 @@ mod tests {
     #[test]
     #[ignore = "long-horizon soak"]
     fn supported_fluid_transfer_soak_preserves_volume_load_invariants_and_replay() {
-        let registries = registries(1_000);
+        let registries = registries();
         let mut first = AppState::new(WorldSeed::new(0x9410_0009));
         let left_support = add_active_support(&registries, &mut first, 0);
         let right_support = add_active_support(&registries, &mut first, 2);

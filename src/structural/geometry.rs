@@ -56,7 +56,7 @@ pub fn calculate_prismatic_volume_ceiling(
     let numerator = u128::from(cross_section.square_millimeters())
         .checked_mul(u128::from(length.micrometers()))
         .ok_or(StructuralGeometryError::ArithmeticOverflow)?;
-    let microliters = ceiling_divide(numerator, 1_000);
+    let microliters = numerator.div_ceil(1_000);
     let microliters =
         u64::try_from(microliters).map_err(|_| StructuralGeometryError::VolumeOutOfRange)?;
     Ok(Volume::from_microliters(microliters))
@@ -84,7 +84,7 @@ pub fn calculate_prismatic_material_mass_ceiling(
             value.checked_mul(u128::from(definition.properties().density_kg_per_m3()))
         })
         .ok_or(StructuralGeometryError::ArithmeticOverflow)?;
-    let milligrams = ceiling_divide(numerator, 1_000_000);
+    let milligrams = numerator.div_ceil(1_000_000);
     let milligrams =
         u64::try_from(milligrams).map_err(|_| StructuralGeometryError::MassOutOfRange)?;
     Ok(Mass::from_milligrams(milligrams))
@@ -98,14 +98,6 @@ fn validate_dimensions(cross_section: Area, length: Length) -> Result<(), Struct
         return Err(StructuralGeometryError::ZeroLength);
     }
     Ok(())
-}
-
-fn ceiling_divide(numerator: u128, denominator: u128) -> u128 {
-    if numerator == 0 {
-        0
-    } else {
-        1 + (numerator - 1) / denominator
-    }
 }
 
 #[cfg(all(

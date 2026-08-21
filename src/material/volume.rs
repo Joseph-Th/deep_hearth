@@ -63,11 +63,7 @@ pub fn calculate_volume_ceiling(
             denominator > 0,
             "material density invariant must be nonzero"
         );
-        let rounded_up = if numerator == 0 {
-            0
-        } else {
-            1 + (numerator - 1) / denominator
-        };
+        let rounded_up = numerator.div_ceil(denominator);
         total_microliters = total_microliters
             .checked_add(rounded_up)
             .ok_or(MaterialVolumeError::ArithmeticOverflow)?;
