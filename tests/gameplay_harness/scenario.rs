@@ -10,13 +10,14 @@ use deep_hearth::structural::{
     STRUCTURAL_PARTS_PER_MILLION, StructuralLoadMode, calculate_weight_force_ceiling,
 };
 
+use super::condition;
 use super::configuration::MaintainedAnchor;
 use super::report::{
     EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioPolicyVariation,
     StructuralPreference,
 };
 use super::seed::mix64;
-use super::{condition, nominal_equipment_mass_capability};
+use super::support::nominal_equipment_mass_capability;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ScenarioVariation {

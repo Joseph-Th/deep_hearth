@@ -19,9 +19,12 @@ ZERO_TESTS = re.compile(r"\brunning 0 tests\b")
 ATTRIBUTE = re.compile(r"^\s*#\[(?P<body>.+)\]\s*$")
 FUNCTION = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?fn\s+(?P<name>[A-Za-z_]\w*)\s*\(")
 INLINE_MODULE = re.compile(r"^mod\s+(?P<name>[A-Za-z_]\w*)\s*\{$")
-EXTERNAL_MODULE = re.compile(r"^mod\s+(?P<name>[A-Za-z_]\w*)\s*;$")
+EXTERNAL_MODULE = re.compile(
+    r"^(?:pub(?:\([^)]*\))?\s+)?mod\s+(?P<name>[A-Za-z_]\w*)\s*;$"
+)
 PATH_ATTRIBUTE = re.compile(r'^#\[path\s*=\s*"(?P<path>[^"]+)"\]$')
 FEATURE_NAME = re.compile(r'feature\s*=\s*"(?P<name>[^"]+)"')
+BARE_TEST_CFG = re.compile(r"(?:^|[,(])\s*test\s*(?:[,)]|$)")
 
 
 def feature_set(raw: str | None) -> set[str]:
@@ -30,16 +33,69 @@ def feature_set(raw: str | None) -> set[str]:
     return {feature for feature in re.split(r"[,\s]+", raw.strip()) if feature}
 
 
+def expand_local_features(
+    declared: dict[str, list[str]], requested: set[str], *, include_default: bool
+) -> set[str]:
+    """Expand Cargo-local feature groups without treating dependency features as local cfgs."""
+
+    enabled = set(requested)
+    if include_default and "default" in declared:
+        enabled.add("default")
+    pending = list(enabled)
+    while pending:
+        feature = pending.pop()
+        for activated in declared.get(feature, []):
+            if activated not in declared or activated in enabled:
+                continue
+            enabled.add(activated)
+            pending.append(activated)
+    return enabled
+
+
+def cargo_manifest() -> dict:
+    return tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+
+
+def cargo_test_target_definition(target: str) -> dict:
+    for definition in cargo_manifest().get("test", []):
+        if definition.get("name") == target:
+            return definition
+    raise ValueError(f"unknown Cargo test target: {target}")
+
+
+def requested_target_features(target: str, raw: str | None) -> set[str]:
+    """Return explicit features plus the target's Cargo-declared required features."""
+
+    requested = feature_set(raw)
+    if target != "lib":
+        requested.update(cargo_test_target_definition(target).get("required-features", []))
+    return requested
+
+
+def cargo_feature_set(target: str, raw: str | None) -> set[str]:
+    """Resolve the local cfg(feature) set Cargo enables for the exact-test command."""
+
+    manifest = cargo_manifest()
+    declared = manifest.get("features", {})
+    return expand_local_features(
+        declared, requested_target_features(target, raw), include_default=True
+    )
+
+
 def attributes_enabled(attributes: list[str], features: set[str]) -> bool:
     """Evaluate the simple feature cfgs used by this repository's test declarations."""
 
     for attribute in attributes:
         if not attribute.startswith("#[cfg("):
             continue
+        if attribute == "#[cfg(test)]":
+            continue
         required = FEATURE_NAME.findall(attribute)
         if not required:
             continue
         if "any(" in attribute:
+            if BARE_TEST_CFG.search(attribute):
+                continue
             if not any(feature in features for feature in required):
                 return False
         elif not all(feature in features for feature in required):
@@ -92,24 +148,8 @@ def file_test_names(path: Path, prefix: tuple[str, ...], features: set[str]) -> 
     return names
 
 
-def lib_module_prefix(path: Path) -> tuple[str, ...]:
-    relative = path.relative_to(ROOT / "src")
-    parts = list(relative.parts)
-    if parts[-1] == "lib.rs":
-        return ()
-    if parts[-1] == "mod.rs":
-        parts.pop()
-    else:
-        parts[-1] = Path(parts[-1]).stem
-    return tuple(parts)
-
-
 def cargo_test_target_path(target: str) -> Path:
-    manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
-    for definition in manifest.get("test", []):
-        if definition.get("name") == target:
-            return ROOT / definition["path"]
-    raise ValueError(f"unknown Cargo test target: {target}")
+    return ROOT / cargo_test_target_definition(target)["path"]
 
 
 def external_modules(path: Path, features: set[str]) -> list[tuple[str, Path]]:
@@ -133,8 +173,13 @@ def external_modules(path: Path, features: set[str]) -> list[tuple[str, Path]]:
                 if explicit_path is not None:
                     module_path = path.parent / explicit_path
                 else:
-                    direct = path.parent / f"{name}.rs"
-                    nested = path.parent / name / "mod.rs"
+                    module_root = (
+                        path.parent
+                        if path.name in {"lib.rs", "main.rs", "mod.rs"}
+                        else path.parent / path.stem
+                    )
+                    direct = module_root / f"{name}.rs"
+                    nested = module_root / name / "mod.rs"
                     module_path = direct if direct.is_file() else nested
                 if not module_path.is_file():
                     raise ValueError(
@@ -152,8 +197,9 @@ def external_modules(path: Path, features: set[str]) -> list[tuple[str, Path]]:
     return modules
 
 
-def integration_test_names(target: str, features: set[str]) -> list[str]:
-    root = cargo_test_target_path(target)
+def reachable_test_names(root: Path, features: set[str]) -> list[str]:
+    """Walk one Rust crate/module graph and return only tests reachable from its root."""
+
     names: list[str] = []
     pending: list[tuple[Path, tuple[str, ...]]] = [(root, ())]
     visited: set[tuple[Path, tuple[str, ...]]] = set()
@@ -170,19 +216,38 @@ def integration_test_names(target: str, features: set[str]) -> list[str]:
     return names
 
 
+def integration_test_names(target: str, features: set[str]) -> list[str]:
+    return reachable_test_names(cargo_test_target_path(target), features)
+
+
 def source_test_catalog(target: str, raw_features: str | None) -> list[str]:
     """Return exact test names from source without invoking Cargo or rustc."""
 
-    features = feature_set(raw_features)
+    features = cargo_feature_set(target, raw_features)
     if target == "lib":
-        names = [
-            name
-            for path in sorted((ROOT / "src").rglob("*.rs"))
-            for name in file_test_names(path, lib_module_prefix(path), features)
-        ]
+        names = reachable_test_names(ROOT / "src" / "lib.rs", features)
     else:
         names = integration_test_names(target, features)
     return sorted(set(names))
+
+
+def source_test_matches(selector: str, catalog: list[str]) -> list[str]:
+    """Return source-catalog tests selected by an exact name or substring."""
+
+    if selector in catalog:
+        return [selector]
+    return [name for name in catalog if selector in name]
+
+
+def resolve_test_name(selector: str, catalog: list[str]) -> str:
+    """Resolve one source selector without ever widening execution beyond one exact test."""
+
+    matches = source_test_matches(selector, catalog)
+    if len(matches) == 1:
+        return matches[0]
+    if matches:
+        raise ValueError(f"test selector is ambiguous: {selector} ({len(matches)} matches)")
+    raise ValueError(f"test selector not found: {selector}")
 
 
 def cargo_command(args: argparse.Namespace) -> list[str]:
@@ -193,8 +258,9 @@ def cargo_command(args: argparse.Namespace) -> list[str]:
         command.append("--lib")
     else:
         command.extend(("--test", args.target))
-    if args.features:
-        command.extend(("--features", args.features))
+    requested_features = requested_target_features(args.target, args.features)
+    if requested_features:
+        command.extend(("--features", ",".join(sorted(requested_features))))
     command.extend((args.name, "--", "--exact"))
     if args.ignored:
         command.append("--ignored")
@@ -205,16 +271,26 @@ def cargo_command(args: argparse.Namespace) -> list[str]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run one exact cached Rust test, or inspect its build-free source catalog."
+        description=(
+            "Run one exact cached Rust test from an exact or uniquely matching source selector, "
+            "or inspect the build-free source catalog."
+        )
     )
-    parser.add_argument("name", nargs="?", help="fully qualified exact test name")
+    parser.add_argument(
+        "name",
+        nargs="?",
+        help="fully qualified test name or unique source-catalog substring",
+    )
     parser.add_argument(
         "--list",
         action="store_true",
         help="list exact source test names without compiling or linking",
     )
     parser.add_argument("--target", default="lib", help="Cargo test target name; defaults to lib")
-    parser.add_argument("--features", help="Cargo feature set required by the selected target")
+    parser.add_argument(
+        "--features",
+        help="extra Cargo features; target required-features are inferred from Cargo.toml",
+    )
     parser.add_argument("--ignored", action="store_true", help="select an ignored exact test")
     parser.add_argument("--nocapture", action="store_true", help="show exact-test output")
     args = parser.parse_args()
@@ -242,19 +318,22 @@ def main() -> int:
         print(f"{len(names)} test(s)")
         return 0
 
-    if args.name not in catalog:
-        candidates = [name for name in catalog if args.name in name or name.endswith(args.name)]
+    selector = args.name
+    try:
+        args.name = resolve_test_name(selector, catalog)
+    except ValueError as error:
+        candidates = source_test_matches(selector, catalog)
         if not candidates:
-            candidates = difflib.get_close_matches(args.name, catalog, n=5, cutoff=0.45)
-        print(f"FAIL exact test not found in source catalog: {args.name}", file=sys.stderr)
-        print(f"catalog: python tools/run_test.py --list {args.name}", file=sys.stderr)
+            candidates = difflib.get_close_matches(selector, catalog, n=5, cutoff=0.45)
+        print(f"FAIL {error}", file=sys.stderr)
+        print(f"catalog: python tools/run_test.py --list {selector}", file=sys.stderr)
         for candidate in candidates[:8]:
             print(f"candidate: {candidate}", file=sys.stderr)
         return 2
 
     command = cargo_command(args)
     environment = os.environ.copy()
-    environment.setdefault("CARGO_TERM_COLOR", "never")
+    environment["CARGO_TERM_COLOR"] = "never"
     started = time.perf_counter()
     result = subprocess.run(
         command,

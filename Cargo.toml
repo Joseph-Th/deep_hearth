@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.97"
 publish = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 
 [package.metadata.git-wizard.validation]
 quick = "python ci.py quick"
@@ -67,12 +71,6 @@ wildcard_enum_match_arm = "deny"
 [profile.test]
 # Test failures already carry source locations and typed assertion context; omitting debug symbols
 # keeps local test-binary codegen/linking out of the ordinary feedback bottleneck.
-debug = 0
-
-[profile.validation]
-# One-shot validation binaries need fast codegen/linking, not debugger symbols. Keep ordinary dev
-# builds unchanged so interactive debugging remains available without profile overrides.
-inherits = "dev"
 debug = 0
 
 [profile.release]

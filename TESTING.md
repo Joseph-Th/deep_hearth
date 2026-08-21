@@ -18,7 +18,7 @@ compiles the same surface.
 | Fast production compile | `cargo check-fast` |
 | Coherent production checkpoint | `python ci.py gate` |
 | Complete ordinary core behavior | `python ci.py audit --core` |
-| One exact ordinary test | `python tools/run_test.py <qualified-name>` |
+| One exact ordinary test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
 | Discover ordinary test names | `python tools/run_test.py --list [substring]` |
 | One gameplay concern | `python ci.py gate --gameplay {workshop,survival,progression,ore,foundry}` |
 | All maintained gameplay concerns | `python ci.py audit --gameplay` |
@@ -51,9 +51,11 @@ Ordinary unit tests deliberately do not use compile-time shard features. `cargo 
 owns one reusable default-feature audit artifact, not the normal edit loop. An exact library test still
 has to link that whole test binary when it is stale, so use `cargo check-fast` while implementation is
 moving and run the exact executable proof once the behavior is coherent. `python tools/run_test.py
-<qualified-name>` preflights the selector against a source-derived catalog before Cargo; `--list`
-reads that catalog directly and invokes neither Cargo, rustc, nor the linker. Feature-gated or
-integration-target catalogs use the same `--features` and `--target` arguments as exact execution.
+<qualified-name-or-unique-substring>` preflights the selector against a source-derived catalog before
+Cargo. A unique partial selector resolves to one full test name; ambiguous selectors fail before
+compilation instead of broadening execution. `--list` reads that catalog directly and invokes neither
+Cargo, rustc, nor the linker. Integration targets infer their Cargo-declared `required-features`;
+`--features` is only needed for additional feature-gated library tests or extra target features.
 
 Broad audit runs are terminal checkpoints, not diagnostic loops, and the audit preset requires an
 explicit scope instead of defaulting to every maintained artifact. When a broad audit exposes one defect,
@@ -61,9 +63,9 @@ repair that defect with `quick`, `cargo check-fast`, or the single failed exact/
 rerun the broad audit after every repair; rerun it once after the repair batch is complete and only when
 that broad surface is actually required for completion.
 
-`cargo check-all` is the explicit all-target compile diagnostic. For a gameplay target, use
-`cargo check --locked --features test-gameplay --test <target>` only when type feedback is useful before
-execution; do not add another permanent alias for every target.
+For a gameplay target, use `cargo check --locked --features test-gameplay --test <target>` only when
+type feedback is useful before execution; do not add permanent aliases or broad all-target checks for
+diagnostics that are cheaper to scope directly.
 
 On the maintained Windows workstation Cargo uses LLVM `lld-link` for Rust test and gameplay binaries.
 This is a local iteration optimization; the project does not require hosted CI portability.
@@ -129,6 +131,9 @@ The industrial targets are capability evaluations, not claims of end-to-end runt
 The ore/foundry targets deliberately report `agency=pipeline-evidence`; they prove physical integration
 and installation obligations, while workshop counterfactuals own evidence that player policies actually
 change outcomes. `STATUS.md` remains authoritative for acquisition and world-system availability.
+Workshop agency counterfactuals hold both world variation and behavior RNG seed fixed across compared
+policies. A maintained agency assertion therefore varies the named player policy only, not hidden random
+input alongside it.
 
 `python ci.py audit --gameplay` runs all five maintained targets. `python ci.py report` reuses those same
 `test-gameplay` artifacts for an exploratory workshop sample, maintained agency counterfactuals, and
@@ -136,6 +141,14 @@ verbose survival/progression/ore/foundry evidence. It is not a routine completio
 does not introduce a second monolithic gameplay feature shape. Gameplay target commands are composed in
 `ci.py` directly rather than duplicated across a family of Cargo aliases; the four focused report probes
 share one multi-target Cargo invocation instead of launching four independent build commands.
+The focused concerns intentionally remain separate test binaries: an edit to survival provisioning must
+not relink the ore/foundry harness merely to prove the survival contract. Broad gameplay audits accept
+the extra links because they are explicit checkpoints, while failure output points back to one exact test
+inside the failed target whenever Cargo reports that identity.
+Cargo target auto-discovery is disabled for binaries, examples, integration tests, and benches. Every
+independently linked local tool or gameplay binary is listed explicitly in `Cargo.toml`; shared harness
+modules stay below `tests/gameplay_harness/` so adding a helper cannot silently create another executable
+and expand the build graph.
 
 ### Variation and replay
 
@@ -166,7 +179,7 @@ part of the repository contract.
 - `python ci.py gate --gameplay {workshop,survival,progression,ore,foundry}`: one maintained gameplay target.
 - `python ci.py audit --core`: complete ordinary core behavior.
 - `python ci.py audit --gameplay`: all maintained gameplay targets.
-- `python ci.py gate --soak`: complete core behavior plus long-horizon soak coverage.
+- `python ci.py gate --soak`: ignored long-horizon soak coverage only; ordinary core behavior remains a separate audit.
 - `python ci.py gate --shaders`: shader validation.
 - `python ci.py gate --rustdoc`: Rust API documentation build.
 - `python ci.py audit --all`: broad maintained core + gameplay checkpoint; use only when both surfaces are required.

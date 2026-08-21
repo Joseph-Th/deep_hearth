@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 from pathlib import Path
 import sys
 import tomllib
@@ -49,6 +51,10 @@ class LocalCiPlanTests(unittest.TestCase):
         builds = cargo_build_commands(ci.plan_for(gate_args()))
         self.assertEqual(builds, [["cargo", "check-fast"]])
 
+    def test_soak_gate_does_not_repeat_ordinary_core_tests(self) -> None:
+        builds = cargo_build_commands(ci.plan_for(gate_args(soak=True)))
+        self.assertEqual(builds, [["cargo", "test-soak"]])
+
     def test_focused_gameplay_does_not_precompile_production(self) -> None:
         builds = cargo_build_commands(ci.plan_for(gate_args(gameplay="survival")))
         self.assertEqual(len(builds), 1)
@@ -93,12 +99,34 @@ class LocalCiPlanTests(unittest.TestCase):
             "python tools/run_test.py mining::execution::tests::missing_capability",
         )
 
-    def test_all_gameplay_failure_points_to_one_focused_target(self) -> None:
+    def test_gameplay_failure_points_to_one_exact_repair(self) -> None:
+        output = "failures:\n    configuration::tests::broken_contract\n"
+        error = "error: test failed, to rerun pass `--test gameplay_workshop`"
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("all"), output, error),
+            "python tools/run_test.py --target gameplay_workshop configuration::tests::broken_contract",
+        )
+
+    def test_gameplay_failure_without_test_name_falls_back_to_focused_target(self) -> None:
         error = "error: test failed, to rerun pass `--test gameplay_workshop`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), "", error),
             "python ci.py gate --gameplay workshop",
         )
+
+    def test_integration_exact_command_infers_target_required_features(self) -> None:
+        args = argparse.Namespace(
+            target="gameplay_ore",
+            features=None,
+            list=False,
+            name="gameplay_ore_preparation_probe",
+            ignored=False,
+            nocapture=False,
+        )
+        command = run_test.cargo_command(args)
+        self.assertEqual(command.count("--features"), 1)
+        self.assertIn("test-gameplay", command)
+        self.assertIn("gameplay_ore", command)
 
     def test_report_reuses_ordinary_gameplay_feature_shape(self) -> None:
         plan = ci.report_plan()
@@ -118,9 +146,29 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertEqual(validation["standard"], "python ci.py gate")
         self.assertNotIn("full", validation)
 
+    def test_build_producing_cargo_targets_are_explicit_not_auto_discovered(self) -> None:
+        manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+        package = manifest["package"]
+        for key in ("autobins", "autoexamples", "autotests", "autobenches"):
+            self.assertFalse(package[key])
+        targets = {definition["name"] for definition in manifest.get("test", [])}
+        self.assertEqual(targets, set(ci.GAMEPLAY_TARGETS.values()))
+        binaries = {definition["name"] for definition in manifest.get("bin", [])}
+        self.assertEqual(binaries, {"validate-shaders"})
+
+    def test_shader_validation_reuses_existing_test_profile(self) -> None:
+        manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+        config = tomllib.loads((ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8"))
+        shader_alias = config["alias"]["test-shaders"]
+        self.assertNotIn("test-all", config["alias"])
+        self.assertNotIn("validation", manifest.get("profile", {}))
+        self.assertIn("--profile test", shader_alias)
+        self.assertNotIn("--profile validation", shader_alias)
+
     def test_audit_requires_explicit_scope(self) -> None:
-        with self.assertRaises(SystemExit):
-            ci.parse_args(["audit"])
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                ci.parse_args(["audit"])
         self.assertTrue(ci.parse_args(["audit", "--all"]).all)
 
     def test_documented_ci_command_checker_rejects_removed_flags(self) -> None:
@@ -148,6 +196,53 @@ class LocalCiPlanTests(unittest.TestCase):
 
 
 class ExactTestCommandTests(unittest.TestCase):
+    def test_source_cfg_evaluation_treats_test_as_enabled_and_expands_local_features(self) -> None:
+        declared = {
+            "default": ["base"],
+            "base": [],
+            "group": ["leaf", "dep:external", "external/feature"],
+            "leaf": [],
+        }
+        features = run_test.expand_local_features(
+            declared, {"group"}, include_default=True
+        )
+        self.assertEqual(features, {"default", "base", "group", "leaf"})
+        self.assertTrue(
+            run_test.attributes_enabled(
+                ['#[cfg(any(test, feature = "missing"))]'], features
+            )
+        )
+        self.assertFalse(
+            run_test.attributes_enabled(
+                ['#[cfg(any(feature = "test-soak", feature = "missing"))]'], set()
+            )
+        )
+        self.assertFalse(
+            run_test.attributes_enabled(['#[cfg(feature = "missing")]'], features)
+        )
+
+    def test_unique_test_selector_resolves_to_one_exact_catalog_name(self) -> None:
+        catalog = [
+            "inventory::tests::transfer_preserves_mass",
+            "mining::tests::mining_preserves_mass",
+        ]
+        self.assertEqual(
+            run_test.resolve_test_name("transfer_preserves_mass", catalog),
+            "inventory::tests::transfer_preserves_mass",
+        )
+        self.assertEqual(
+            run_test.resolve_test_name("mining::tests::mining_preserves_mass", catalog),
+            "mining::tests::mining_preserves_mass",
+        )
+
+    def test_ambiguous_test_selector_is_rejected_before_cargo(self) -> None:
+        catalog = [
+            "inventory::tests::preserves_mass",
+            "mining::tests::preserves_mass",
+        ]
+        with self.assertRaisesRegex(ValueError, "ambiguous.*2 matches"):
+            run_test.resolve_test_name("preserves_mass", catalog)
+
     def test_default_exact_command_reuses_default_library_shape(self) -> None:
         args = argparse.Namespace(
             target="lib",
@@ -194,9 +289,10 @@ class ExactTestCommandTests(unittest.TestCase):
         )
 
     def test_source_catalog_resolves_gameplay_target_modules(self) -> None:
-        workshop = run_test.source_test_catalog("gameplay_workshop", "test-gameplay")
-        ore = run_test.source_test_catalog("gameplay_ore", "test-gameplay")
+        workshop = run_test.source_test_catalog("gameplay_workshop", None)
+        ore = run_test.source_test_catalog("gameplay_ore", None)
         self.assertIn("gameplay_harness_gate", workshop)
+        self.assertIn("agency::gameplay_maintained_agency_counterfactuals", workshop)
         self.assertIn(
             "configuration::tests::default_gate_keeps_maintained_anchors_and_adds_a_bounded_variation_sample",
             workshop,
@@ -217,4 +313,4 @@ class ExactTestCommandTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    unittest.main(verbosity=1)

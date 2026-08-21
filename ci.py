@@ -23,7 +23,7 @@ GAMEPLAY_TARGETS = {
 }
 GAMEPLAY_SCOPES = ("all", *GAMEPLAY_TARGETS)
 GAMEPLAY_SCOPE_BY_TARGET = {target: scope for scope, target in GAMEPLAY_TARGETS.items()}
-FAILED_CORE_TEST = re.compile(r"^    (?P<name>[A-Za-z0-9_:]+)$", re.MULTILINE)
+FAILED_TEST = re.compile(r"^    (?P<name>[A-Za-z0-9_:]+)$", re.MULTILINE)
 FAILED_GAMEPLAY_TARGET = re.compile(r"to rerun pass `--test (?P<target>gameplay_[a-z_]+)`")
 
 
@@ -49,13 +49,17 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
 
     combined = f"{stdout}\n{stderr}"
     if command == cargo("test-fast"):
-        failed = FAILED_CORE_TEST.findall(combined)
+        failed = FAILED_TEST.findall(combined)
         if failed:
             return f"python tools/run_test.py {failed[-1]}"
     if "test-gameplay" in command:
-        match = FAILED_GAMEPLAY_TARGET.search(combined)
-        if match is not None:
-            scope = GAMEPLAY_SCOPE_BY_TARGET.get(match.group("target"))
+        failed_targets = FAILED_GAMEPLAY_TARGET.findall(combined)
+        if failed_targets:
+            target = failed_targets[-1]
+            failed = FAILED_TEST.findall(combined)
+            if failed:
+                return f"python tools/run_test.py --target {target} {failed[-1]}"
+            scope = GAMEPLAY_SCOPE_BY_TARGET.get(target)
             if scope is not None:
                 return f"python ci.py gate --gameplay {scope}"
     return None
@@ -100,8 +104,6 @@ def exact_gameplay_command(name: str, *, ignored: bool = False) -> list[str]:
         "tools/run_test.py",
         "--target",
         "gameplay_workshop",
-        "--features",
-        "test-gameplay",
         "--nocapture",
     ]
     if ignored:
@@ -118,7 +120,7 @@ def report_plan() -> list[tuple[str, list[str]]]:
         ),
         (
             "workshop agency",
-            exact_gameplay_command("gameplay_maintained_agency_counterfactuals"),
+            exact_gameplay_command("agency::gameplay_maintained_agency_counterfactuals"),
         ),
         (
             "focused probes",
@@ -170,7 +172,7 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
 
     plan = quick_plan()
     if args.soak:
-        plan.append(("core + soak", cargo("test-all")))
+        plan.append(("soak", cargo("test-soak")))
     elif args.gameplay:
         plan.extend(gameplay_plan(args.gameplay))
     elif args.shaders:
@@ -195,7 +197,7 @@ def run_stage(
     started = time.perf_counter()
     print(f"[{index}/{total}] {label} ... ", end="", flush=True)
     environment = os.environ.copy()
-    environment.setdefault("CARGO_TERM_COLOR", "never")
+    environment["CARGO_TERM_COLOR"] = "never"
     try:
         result = subprocess.run(
             command,
@@ -262,7 +264,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     lane.add_argument(
         "--soak",
         action="store_true",
-        help="run complete core behavior plus ignored soak tests as the gate's single build lane",
+        help="run ignored long-horizon soak tests as the gate's single build lane",
     )
     lane.add_argument(
         "--gameplay",
