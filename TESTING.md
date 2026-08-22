@@ -96,8 +96,11 @@ to both matched policies, reconstructs each branch independently rather than clo
 the material/water cost of a compact-calorie meal against the recovery resilience of a balanced meal.
 Primitive progression provides only one direct native-copper reinforcement parcel. The matched-world
 counterfactual therefore measures sequencing without making the first choice permanent. Before allocating
-that parcel, both branches naturally construct the same baseline stone pick and stone processing line, then
-mine the same copper parcel so the pick and crank are both real existing upgrade targets at the matched
+that parcel, setup seeds controlled surface/loose-indicator observations through the canonical geological-
+knowledge transaction, and acting code must resolve opaque region/material mining targets from those
+observations without retaining hidden deposit IDs. Physical prospecting actions remain a bootstrap boundary.
+Both branches then naturally construct the same baseline stone pick and stone processing line and mine the
+same copper parcel so the pick and crank are both real existing upgrade targets at the matched
 decision point. Reinforce the pick first for an exclusive hard-material access window and faster extraction,
 or reinforce the crank first for an exclusive processed-output/stored-work window and faster charging. The
 probe requires both choices to occur at the same simulation tick and reports the duration of both exclusive

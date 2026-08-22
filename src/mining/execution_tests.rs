@@ -18,7 +18,10 @@ use crate::equipment::{
     apply_equipment_condition_plan, decide_equipment_wear, validate_assemble_equipment,
     validate_upgrade_equipment,
 };
-use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
+use crate::geology::{
+    GeneratedDepositSpec, GeologicalDepositId, GeologicalEvidenceKind, MaterialAbundanceEstimate,
+    ProspectingResolution, validate_record_prospecting,
+};
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{
     PlayerWork, PlayerWorkStartError, PlayerWorkValidationError,
@@ -27,7 +30,9 @@ use crate::labor::{
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
-use crate::mining::{MiningJobValidationError, MiningValidationError};
+use crate::mining::{
+    MiningJobValidationError, MiningTargetRequest, MiningValidationError, resolve_mining_target,
+};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -47,6 +52,179 @@ fn deposit_spec() -> GeneratedDepositSpec {
     .unwrap_or_else(|error| panic!("mining test deposit failed: {error}"))
 }
 
+fn insert_known_deposit(
+    registries: &Registries,
+    state: &mut AppState,
+    spec: GeneratedDepositSpec,
+) -> Result<GeologicalDepositId, crate::geology::InsertGeneratedDepositError> {
+    let region = spec.bounds();
+    let material = spec.commodity().material();
+    let deposit = crate::geology::insert_generated_deposit(registries, state, spec)?;
+    let estimate = MaterialAbundanceEstimate::new(material, 1, 1_000_000)
+        .unwrap_or_else(|error| panic!("mining known-deposit estimate failed: {error}"));
+    let evidence = ProspectingResolution::new_for_fixture(
+        region,
+        GeologicalEvidenceKind::ExcavationSample,
+        vec![estimate],
+    );
+    validate_record_prospecting(registries, state, evidence)
+        .unwrap_or_else(|error| panic!("mining known-deposit evidence failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("mining known-deposit evidence commit failed: {error}"));
+    Ok(deposit)
+}
+
+fn validate_known_mining(
+    registries: &Registries,
+    state: &AppState,
+    method: MiningMethodId,
+    deposit: GeologicalDepositId,
+    destination: StockpileId,
+    equipment: EquipmentId,
+    mass: Mass,
+) -> Result<ValidatedMiningStart, MiningStartError> {
+    let deposit_record = state
+        .geology()
+        .get_deposit(deposit)
+        .unwrap_or_else(|| panic!("known mining fixture deposit disappeared"));
+    let target = resolve_mining_target(
+        state,
+        MiningTargetRequest::new(
+            deposit_record.bounds(),
+            deposit_record.commodity().material(),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("known mining target resolution failed: {error}"));
+    super::validate_start_mining(
+        registries,
+        state,
+        method,
+        target,
+        destination,
+        equipment,
+        mass,
+    )
+}
+
+#[test]
+fn resolved_mining_target_is_invalidated_by_new_geological_knowledge() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_0030));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("stale-target knowledge survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+        .unwrap_or_else(|error| panic!("stale-target knowledge destination failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("stale-target knowledge deposit failed: {error}"));
+    let deposit_record = state
+        .geology()
+        .get_deposit(deposit)
+        .unwrap_or_else(|| panic!("stale-target knowledge deposit disappeared"));
+    let target = resolve_mining_target(
+        &state,
+        MiningTargetRequest::new(
+            deposit_record.bounds(),
+            deposit_record.commodity().material(),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("stale-target knowledge resolution failed: {error}"));
+    let expected = state.geological_knowledge().revision();
+    let remote = VoxelBounds::new(VoxelCoord::new(100, -8, 0), VoxelCoord::new(101, -7, 1))
+        .unwrap_or_else(|error| panic!("stale-target knowledge evidence bounds failed: {error}"));
+    let estimate = MaterialAbundanceEstimate::new(MATERIAL_STONE, 1, 1_000_000)
+        .unwrap_or_else(|error| panic!("stale-target knowledge estimate failed: {error}"));
+    validate_record_prospecting(
+        &registries,
+        &state,
+        ProspectingResolution::new_for_fixture(
+            remote,
+            GeologicalEvidenceKind::SurfaceExposure,
+            vec![estimate],
+        ),
+    )
+    .unwrap_or_else(|error| panic!("stale-target knowledge evidence validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("stale-target knowledge evidence commit failed: {error}"));
+    let actual = state.geological_knowledge().revision();
+    let before = state.clone();
+
+    assert!(matches!(
+        super::validate_start_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            target,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        ),
+        Err(MiningStartError::StaleTargetKnowledge {
+            expected: found_expected,
+            actual: found_actual,
+        }) if found_expected == expected && found_actual == actual
+    ));
+    assert_eq!(state, before);
+}
+
+#[test]
+fn resolved_mining_target_is_invalidated_by_geology_change() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_0031));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("stale-target geology survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+        .unwrap_or_else(|error| panic!("stale-target geology destination failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("stale-target geology deposit failed: {error}"));
+    let deposit_record = state
+        .geology()
+        .get_deposit(deposit)
+        .unwrap_or_else(|| panic!("stale-target geology deposit disappeared"));
+    let target = resolve_mining_target(
+        &state,
+        MiningTargetRequest::new(
+            deposit_record.bounds(),
+            deposit_record.commodity().material(),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("stale-target geology resolution failed: {error}"));
+    let expected = state.geology().revision();
+    let remote_bounds = VoxelBounds::new(VoxelCoord::new(100, -8, 0), VoxelCoord::new(101, -7, 1))
+        .unwrap_or_else(|error| panic!("stale-target geology deposit bounds failed: {error}"));
+    let remote = GeneratedDepositSpec::new(
+        remote_bounds,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(1),
+        Temperature::from_millikelvin(300_000),
+        Pressure::from_pascals(100_000_000),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap_or_else(|error| panic!("stale-target geology deposit spec failed: {error}"));
+    crate::geology::insert_generated_deposit(&registries, &mut state, remote)
+        .unwrap_or_else(|error| panic!("stale-target geology mutation failed: {error}"));
+    let actual = state.geology().revision();
+    let before = state.clone();
+
+    assert!(matches!(
+        super::validate_start_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            target,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        ),
+        Err(MiningStartError::StaleTargetGeology {
+            expected: found_expected,
+            actual: found_actual,
+        }) if found_expected == expected && found_actual == actual
+    ));
+    assert_eq!(state, before);
+}
+
 #[test]
 fn mining_rejects_work_that_would_continue_after_tool_failure() {
     let registries = build_registries();
@@ -56,7 +234,7 @@ fn mining_rejects_work_that_would_continue_after_tool_failure() {
     let pick = assemble_pick_for_test(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("condition-lifetime destination failed: {error}"));
-    let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("condition-lifetime deposit failed: {error}"));
     let wear = decide_equipment_wear(&state, pick, 999_500)
         .unwrap_or_else(|error| panic!("condition-lifetime wear decision failed: {error}"));
@@ -74,7 +252,7 @@ fn mining_rejects_work_that_would_continue_after_tool_failure() {
     let before = state.clone();
 
     assert!(matches!(
-        validate_start_mining(
+        validate_known_mining(
             &registries,
             &state,
             MINING_METHOD_HAND_PICK,
@@ -97,9 +275,9 @@ fn loaded_mining_job_reconstructs_authored_condition_outcome() {
     let pick = assemble_pick_for_test(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
         .unwrap_or_else(|error| panic!("mining wear-audit destination failed: {error}"));
-    let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining wear-audit deposit failed: {error}"));
-    let job = validate_start_mining(
+    let job = validate_known_mining(
         &registries,
         &state,
         MINING_METHOD_HAND_PICK,
@@ -148,9 +326,9 @@ fn loaded_mining_state_rejects_job_map_key_identity_mismatch() {
     let pick = assemble_pick_for_test(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
         .unwrap_or_else(|error| panic!("mining key-audit destination failed: {error}"));
-    let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining key-audit deposit failed: {error}"));
-    let job = validate_start_mining(
+    let job = validate_known_mining(
         &registries,
         &state,
         MINING_METHOD_HAND_PICK,
@@ -203,7 +381,7 @@ fn deposit_excavation_hardness_is_independent_of_assay_composition() {
         CompositionComponent::new(MATERIAL_STONE, 1_000),
     ])
     .unwrap_or_else(|error| panic!("mixed-hardness composition failed: {error}"));
-    let deposit = insert_generated_deposit(
+    let deposit = insert_known_deposit(
         &registries,
         &mut state,
         GeneratedDepositSpec::new(
@@ -218,7 +396,7 @@ fn deposit_excavation_hardness_is_independent_of_assay_composition() {
     )
     .unwrap_or_else(|error| panic!("mixed-hardness deposit insertion failed: {error}"));
 
-    let error = validate_start_mining(
+    let error = validate_known_mining(
         &registries,
         &state,
         MINING_METHOD_HAND_PICK,
@@ -231,8 +409,7 @@ fn deposit_excavation_hardness_is_independent_of_assay_composition() {
     .unwrap_or_else(|| panic!("stone pick unexpectedly ignored deposit excavation hardness"));
     assert_eq!(
         error,
-        MiningStartError::DepositTooHard {
-            hardness: Pressure::from_pascals(600_000_000),
+        MiningStartError::TargetTooHard {
             maximum: Pressure::from_pascals(500_000_000),
         }
     );
@@ -256,9 +433,9 @@ fn ready_mining_job_keeps_historical_tool_physics_after_tool_upgrade() {
     let pick = assemble_pick_for_test(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
         .unwrap_or_else(|error| panic!("mining trace destination failed: {error}"));
-    let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining trace deposit failed: {error}"));
-    let job = validate_start_mining(
+    let job = validate_known_mining(
         &registries,
         &state,
         MINING_METHOD_HAND_PICK,
@@ -344,9 +521,9 @@ fn loaded_ready_mining_job_reconstructs_authored_duration() {
     let pick = assemble_pick_for_test(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
         .unwrap_or_else(|error| panic!("mining duration-audit destination failed: {error}"));
-    let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining duration-audit deposit failed: {error}"));
-    let job = validate_start_mining(
+    let job = validate_known_mining(
         &registries,
         &state,
         MINING_METHOD_HAND_PICK,
@@ -497,7 +674,7 @@ fn stone_pick_refuses_deposit_above_authored_excavation_hardness() {
         .unwrap_or_else(|error| panic!("hardness destination failed: {error}"));
     let bounds = VoxelBounds::new(VoxelCoord::new(8, -8, 0), VoxelCoord::new(9, -7, 1))
         .unwrap_or_else(|error| panic!("hardness bounds failed: {error}"));
-    let deposit = insert_generated_deposit(
+    let deposit = insert_known_deposit(
         &registries,
         &mut state,
         GeneratedDepositSpec::new(
@@ -512,7 +689,7 @@ fn stone_pick_refuses_deposit_above_authored_excavation_hardness() {
     )
     .unwrap_or_else(|error| panic!("hardness deposit insertion failed: {error}"));
 
-    let error = validate_start_mining(
+    let error = validate_known_mining(
         &registries,
         &state,
         MINING_METHOD_HAND_PICK,
@@ -525,8 +702,7 @@ fn stone_pick_refuses_deposit_above_authored_excavation_hardness() {
     .unwrap_or_else(|| panic!("stone pick unexpectedly mined deposit above its hardness"));
     assert_eq!(
         error,
-        MiningStartError::DepositTooHard {
-            hardness: Pressure::from_pascals(700_000_000),
+        MiningStartError::TargetTooHard {
             maximum: Pressure::from_pascals(500_000_000),
         }
     );
@@ -550,7 +726,7 @@ fn mining_requires_enough_hydration_reserve_to_finish() {
     let pick = assemble_pick_for_test(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
         .unwrap_or_else(|error| panic!("mining reserve destination failed: {error}"));
-    let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining reserve deposit failed: {error}"));
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("mining reserve serialization failed: {error}"));
@@ -563,7 +739,7 @@ fn mining_requires_enough_hydration_reserve_to_finish() {
     let before = low_reserve.clone();
 
     assert!(matches!(
-        validate_start_mining(
+        validate_known_mining(
             &registries,
             &low_reserve,
             MINING_METHOD_HAND_PICK,
@@ -588,9 +764,9 @@ fn active_mining_save_requires_enough_hydration_to_finish_remaining_work() {
     let pick = assemble_pick_for_test(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
         .unwrap_or_else(|error| panic!("mining save reserve destination failed: {error}"));
-    let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining save reserve deposit failed: {error}"));
-    let token = validate_start_mining(
+    let token = validate_known_mining(
         &registries,
         &state,
         MINING_METHOD_HAND_PICK,
@@ -663,12 +839,12 @@ fn copper_reinforcement_turns_cold_worked_native_metal_into_more_capable_extract
 
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(300_000))
         .unwrap_or_else(|error| panic!("reinforced mining destination failed: {error}"));
-    let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("reinforced mining deposit failed: {error}"));
     let requested = Mass::from_milligrams(250_000);
 
     assert_eq!(
-        validate_start_mining(
+        validate_known_mining(
             &registries,
             &state,
             MINING_METHOD_HAND_PICK,
@@ -684,7 +860,7 @@ fn copper_reinforcement_turns_cold_worked_native_metal_into_more_capable_extract
         })
     );
 
-    let job = validate_start_mining(
+    let job = validate_known_mining(
         &registries,
         &state,
         MINING_METHOD_HAND_PICK,
@@ -724,7 +900,7 @@ fn missing_mining_capability_reports_the_exact_authored_requirement() {
         .unwrap_or_else(|error| panic!("missing-capability survival setup failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
         .unwrap_or_else(|error| panic!("missing-capability destination failed: {error}"));
-    let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("missing-capability deposit failed: {error}"));
     let hand_crank = assemble_hand_crank_for_test(&registries, &mut state);
     let expected_capability = registries
@@ -733,7 +909,7 @@ fn missing_mining_capability_reports_the_exact_authored_requirement() {
         .unwrap_or_else(|| panic!("hand-pick mining method disappeared"))
         .mass_flow_capability();
 
-    let error = validate_start_mining(
+    let error = validate_known_mining(
         &registries,
         &state,
         MINING_METHOD_HAND_PICK,
@@ -851,7 +1027,7 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
             && trace.mass() == Mass::from_milligrams(200_000)
     }));
 
-    let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining copper deposit insertion failed: {error}"));
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("mining initial matter accounting failed: {error}"))
@@ -868,7 +1044,7 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
         .unwrap_or_else(|| panic!("mining pick disappeared before work"))
         .condition();
 
-    let mining = validate_start_mining(
+    let mining = validate_known_mining(
         &registries,
         &state,
         MINING_METHOD_HAND_PICK,
@@ -1044,7 +1220,7 @@ fn run_mining_soak(seed: WorldSeed) -> AppState {
     let pick = assemble_pick_for_test(&registries, &mut state);
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("mining soak destination failed: {error}"));
-    let deposit = insert_generated_deposit(&registries, &mut state, deposit_spec())
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
         .unwrap_or_else(|error| panic!("mining soak deposit failed: {error}"));
     let initial_matter = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("mining soak matter accounting failed: {error}"))
@@ -1055,7 +1231,7 @@ fn run_mining_soak(seed: WorldSeed) -> AppState {
         .unwrap_or_else(|| panic!("mining soak energy total overflowed"));
 
     for step in 0_u64..1_000 {
-        let job = validate_start_mining(
+        let job = validate_known_mining(
             &registries,
             &state,
             MINING_METHOD_HAND_PICK,

@@ -29,6 +29,22 @@ pub struct ProspectingResolution {
 }
 
 impl ProspectingResolution {
+    /// Controlled stand-in for an observation that a not-yet-implemented physical survey action
+    /// would have resolved. Production callers cannot use this constructor.
+    #[cfg(any(test, feature = "test-gameplay"))]
+    pub(crate) fn new_for_fixture(
+        region: VoxelBounds,
+        evidence: GeologicalEvidenceKind,
+        mut findings: Vec<MaterialAbundanceEstimate>,
+    ) -> Self {
+        findings.sort_by_key(|finding| finding.material());
+        Self {
+            region,
+            evidence,
+            findings,
+        }
+    }
+
     #[must_use]
     pub const fn region(&self) -> VoxelBounds {
         self.region

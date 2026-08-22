@@ -137,6 +137,25 @@ while the processed material itself opens the next capability. A useful early ch
 industrial systems should deepen the same relationship with richer separation, power, maintenance,
 logistics, and control rather than replacing it with recipe-tier unlocks.
 
+Progression pacing follows several additional constraints:
+
+- Early critical resources should have legible world clues and a reliable first use. Richer, deeper, or
+  more specialized resources may demand better surveys, access, and infrastructure rather than simply
+  increasing search randomness.
+- Manual work may teach a physical operation, but repeated manual input must become delegable before it
+  dominates play. Automation earns value by returning attention, increasing scale, improving control,
+  or reducing waste, not by merely replacing one crafting interface with another.
+- Survival and industry should overlap. Early mechanisms should help solve provisioning, storage,
+  shelter, transport, or other survival obligations while those obligations continue to constrain
+  industrial choices. They should not feel like two unrelated games played sequentially.
+- Long processes are meaningful when the player has useful parallel work, preparation, observation, or
+  logistics to perform. Forced inactivity is not a progression cost.
+- Earlier infrastructure should remain useful as a component, backup, branch, or lower-scale solution
+  whenever the physics permits it. New capability should extend the production graph rather than
+  routinely invalidate prior investment.
+- Complexity should come primarily from interacting physical constraints, routing, quality, energy,
+  maintenance, and information. Extra recipe nesting is not a substitute for system depth.
+
 ## Player information
 
 Complex systems must explain themselves. Basic problems should normally have visible, audible, or

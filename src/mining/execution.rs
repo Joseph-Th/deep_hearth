@@ -7,7 +7,7 @@ use crate::capability::{CapabilityId, CapabilityValueKind};
 use crate::core::quantity::{Mass, Pressure};
 use crate::core::state::AppState;
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
-use crate::geology::{GeologicalDepositId, GeologicalDepositLifecycle};
+use crate::geology::GeologicalDepositLifecycle;
 use crate::inventory::{
     InboundReservationError, StockpileId, StockpileStorageError, StockpileStructuralLoadError,
     ValidatedInboundReservation, validate_inbound_reservation, validate_stockpile_storage,
@@ -25,22 +25,25 @@ use crate::registry::Registries;
 
 use super::physics::{MiningPhysicsError, resolve_mining_physics};
 use super::state::{MiningJobIdentity, MiningJobResources, MiningJobSchedule};
-use super::{MiningJobId, MiningJobRecord, MiningMethodId};
+use super::{MiningJobId, MiningJobRecord, MiningMethodId, MiningTargetResolution};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MiningStartError {
     UnknownMethod {
         method: MiningMethodId,
     },
-    UnknownDeposit {
-        deposit: GeologicalDepositId,
+    TargetUnavailable,
+    StaleTargetGeology {
+        expected: u64,
+        actual: u64,
     },
-    DepositDepleted {
-        deposit: GeologicalDepositId,
+    StaleTargetKnowledge {
+        expected: u64,
+        actual: u64,
     },
+    TargetDepleted,
     ZeroMass,
-    InsufficientDepositMass {
-        available: Mass,
+    InsufficientTargetMass {
         requested: Mass,
     },
     Equipment(EquipmentProviderError),
@@ -68,8 +71,7 @@ pub enum MiningStartError {
         maximum: Mass,
         requested: Mass,
     },
-    DepositTooHard {
-        hardness: Pressure,
+    TargetTooHard {
         maximum: Pressure,
     },
     ZeroThroughput,
@@ -104,24 +106,20 @@ impl Display for MiningStartError {
             Self::UnknownMethod { method } => {
                 write!(formatter, "unknown mining method {}", method.value())
             }
-            Self::UnknownDeposit { deposit } => {
-                write!(formatter, "unknown geological deposit {}", deposit.value())
-            }
-            Self::DepositDepleted { deposit } => {
-                write!(
-                    formatter,
-                    "geological deposit {} is depleted",
-                    deposit.value()
-                )
-            }
-            Self::ZeroMass => formatter.write_str("mining request mass must be nonzero"),
-            Self::InsufficientDepositMass {
-                available,
-                requested,
-            } => write!(
+            Self::TargetUnavailable => formatter.write_str("resolved mining target is unavailable"),
+            Self::StaleTargetGeology { expected, actual } => write!(
                 formatter,
-                "geological deposit contains {} mg but mining requests {} mg",
-                available.milligrams(),
+                "resolved mining target expected geology revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleTargetKnowledge { expected, actual } => write!(
+                formatter,
+                "resolved mining target expected geological-knowledge revision {expected} but current revision is {actual}"
+            ),
+            Self::TargetDepleted => formatter.write_str("resolved mining target is depleted"),
+            Self::ZeroMass => formatter.write_str("mining request mass must be nonzero"),
+            Self::InsufficientTargetMass { requested } => write!(
+                formatter,
+                "resolved mining target cannot supply the requested {} mg",
                 requested.milligrams()
             ),
             Self::Equipment(error) => write!(formatter, "mining equipment failed: {error}"),
@@ -166,10 +164,9 @@ impl Display for MiningStartError {
                 requested.milligrams(),
                 maximum.milligrams()
             ),
-            Self::DepositTooHard { hardness, maximum } => write!(
+            Self::TargetTooHard { maximum } => write!(
                 formatter,
-                "deposit excavation hardness {} Pa exceeds equipment maximum {} Pa",
-                hardness.pascals(),
+                "resolved mining target exceeds equipment maximum excavation hardness {} Pa",
                 maximum.pascals()
             ),
             Self::ZeroThroughput => formatter.write_str("resolved mining throughput is zero"),
@@ -243,17 +240,19 @@ impl Error for MiningStartError {
             Self::DestinationSupport(error) => Some(error),
             Self::Work(error) => Some(error),
             Self::UnknownMethod { .. }
-            | Self::UnknownDeposit { .. }
-            | Self::DepositDepleted { .. }
+            | Self::TargetUnavailable
+            | Self::StaleTargetGeology { .. }
+            | Self::StaleTargetKnowledge { .. }
+            | Self::TargetDepleted
             | Self::ZeroMass
-            | Self::InsufficientDepositMass { .. }
+            | Self::InsufficientTargetMass { .. }
             | Self::EquipmentMounted { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::MissingCapability { .. }
             | Self::CapabilityKindMismatch { .. }
             | Self::BatchTooLarge { .. }
-            | Self::DepositTooHard { .. }
+            | Self::TargetTooHard { .. }
             | Self::ZeroThroughput
             | Self::CompletionTickOverflow
             | Self::UnknownDestination { .. }
@@ -285,9 +284,10 @@ impl From<MiningPhysicsError> for MiningStartError {
             MiningPhysicsError::BatchTooLarge { maximum, requested } => {
                 Self::BatchTooLarge { maximum, requested }
             }
-            MiningPhysicsError::DepositTooHard { hardness, maximum } => {
-                Self::DepositTooHard { hardness, maximum }
-            }
+            MiningPhysicsError::DepositTooHard {
+                hardness: _hardness,
+                maximum,
+            } => Self::TargetTooHard { maximum },
             MiningPhysicsError::ZeroThroughput => Self::ZeroThroughput,
             MiningPhysicsError::Duration(error) => Self::Duration(error),
             MiningPhysicsError::ConditionDuration(error) => Self::ConditionDuration(error),
@@ -487,7 +487,7 @@ pub fn validate_start_mining(
     registries: &Registries,
     state: &AppState,
     method: MiningMethodId,
-    deposit: GeologicalDepositId,
+    target: MiningTargetResolution,
     destination: StockpileId,
     equipment: EquipmentId,
     mass: Mass,
@@ -499,18 +499,28 @@ pub fn validate_start_mining(
         .mining()
         .get_method(method)
         .ok_or(MiningStartError::UnknownMethod { method })?;
+    if state.geology().revision() != target.expected_geology_revision {
+        return Err(MiningStartError::StaleTargetGeology {
+            expected: target.expected_geology_revision,
+            actual: state.geology().revision(),
+        });
+    }
+    if state.geological_knowledge().revision() != target.expected_knowledge_revision {
+        return Err(MiningStartError::StaleTargetKnowledge {
+            expected: target.expected_knowledge_revision,
+            actual: state.geological_knowledge().revision(),
+        });
+    }
+    let deposit = target.deposit;
     let deposit_record = state
         .geology()
         .get_deposit(deposit)
-        .ok_or(MiningStartError::UnknownDeposit { deposit })?;
+        .ok_or(MiningStartError::TargetUnavailable)?;
     if deposit_record.lifecycle() == GeologicalDepositLifecycle::Depleted {
-        return Err(MiningStartError::DepositDepleted { deposit });
+        return Err(MiningStartError::TargetDepleted);
     }
     if mass > deposit_record.remaining_mass() {
-        return Err(MiningStartError::InsufficientDepositMass {
-            available: deposit_record.remaining_mass(),
-            requested: mass,
-        });
+        return Err(MiningStartError::InsufficientTargetMass { requested: mass });
     }
 
     let provider = resolve_equipment_provider(registries, state, equipment)
@@ -603,12 +613,10 @@ pub fn validate_start_mining(
     let next_geology_revision = expected_geology_revision
         .checked_add(1)
         .ok_or(MiningStartError::GeologyRevisionExhausted)?;
-    let remaining_after = deposit_record.remaining_mass().checked_sub(mass).ok_or(
-        MiningStartError::InsufficientDepositMass {
-            available: deposit_record.remaining_mass(),
-            requested: mass,
-        },
-    )?;
+    let remaining_after = deposit_record
+        .remaining_mass()
+        .checked_sub(mass)
+        .ok_or(MiningStartError::InsufficientTargetMass { requested: mass })?;
     let expected_equipment_revision = state.equipment().revision();
     let expected_mining_revision = state.mining().revision();
     let next_mining_revision = expected_mining_revision

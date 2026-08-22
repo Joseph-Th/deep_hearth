@@ -16,7 +16,11 @@ use crate::energy::{
 };
 use crate::equipment::{EquipmentDefinitionId, EquipmentId, add_equipment};
 use crate::fluid::{FluidDefinitionId, FluidStoreId, add_fluid_store_with_contents_for_fixture};
-use crate::geology::{GeneratedDepositSpec, GeologicalDepositId, insert_generated_deposit};
+use crate::geology::{
+    GeneratedDepositSpec, GeologicalDepositId, GeologicalEvidenceKind, GeologicalObservationId,
+    MaterialAbundanceEstimate, ProspectingResolution, insert_generated_deposit,
+    validate_record_prospecting,
+};
 use crate::inventory::{
     MaterialLotId, MaterialLotSelection, MaterialTransferResolution, StockpileId,
     StockpileStorageProfile, add_stockpile, deposit_composed_lot_for_fixture,
@@ -39,6 +43,25 @@ use crate::survival::initialize_player_survival_at_warning_for_fixture;
 pub fn seed_player_survival_at_warning(registries: &Registries, state: &mut AppState) {
     initialize_player_survival_at_warning_for_fixture(registries, state)
         .unwrap_or_else(|error| panic!("gameplay bootstrap survival seed failed: {error}"));
+}
+
+/// Seeds acquired geological evidence for a controlled gameplay world through the canonical
+/// geological-knowledge transaction. The harness may use the resulting public observation, but it
+/// does not receive or inspect hidden deposit identity from this operation.
+pub fn seed_geological_observation(
+    registries: &Registries,
+    state: &mut AppState,
+    region: VoxelBounds,
+    evidence: GeologicalEvidenceKind,
+    findings: Vec<MaterialAbundanceEstimate>,
+) -> GeologicalObservationId {
+    let resolution = ProspectingResolution::new_for_fixture(region, evidence, findings);
+    validate_record_prospecting(registries, state, resolution)
+        .unwrap_or_else(|error| panic!("gameplay bootstrap geological evidence failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| {
+            panic!("gameplay bootstrap geological evidence commit failed: {error}")
+        })
 }
 
 pub fn seed_stockpile(

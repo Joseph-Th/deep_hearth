@@ -187,6 +187,16 @@ pub struct GeologicalDepositRecord {
 
 impl GeologicalDepositRecord {
     #[must_use]
+    pub(crate) const fn id(&self) -> GeologicalDepositId {
+        self.id
+    }
+
+    #[must_use]
+    pub(crate) const fn bounds(&self) -> VoxelBounds {
+        self.bounds
+    }
+
+    #[must_use]
     pub const fn commodity(&self) -> CommodityKey {
         self.commodity
     }

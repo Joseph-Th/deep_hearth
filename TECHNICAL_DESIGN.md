@@ -146,9 +146,18 @@ Geological knowledge is a separate persisted owner. Observations contain authori
 bounded abundance estimates, not deposit identity. Recording requires an opaque `ProspectingResolution`;
 assessment combines only acquired evidence and preserves contradiction or spatial incomparability.
 
-Mining moves exact geological matter into `MiningState` after tool, labor, capability, wear, destination,
-and reservation validation. Completion releases work occupancy; claim transfers the already-owned output
-to inventory.
+Mining target resolution converts compatible acquired geological evidence into an opaque deposit-bound
+authorization without exposing hidden deposit identity. No evidence, contradictory or spatially
+incomparable evidence, evidence that rules the material out, and evidence that still covers multiple live
+deposits all refuse extraction instead of using hidden truth as a tie-break. Candidate deposits must also
+fit the compatible evidence's bounded local material fraction. A resolved target binds both the geology
+and geological-knowledge revisions and mining rechecks them before work admission. Public
+mining records and start failures do not expose exact deposit identity, exact hidden remaining mass,
+pre-claim output composition, or exact target hardness.
+
+Mining then moves exact geological matter into `MiningState` after target, tool, labor, capability, wear,
+destination, and reservation validation. Completion releases work occupancy; claim transfers the
+already-owned output to inventory.
 
 ## Production and processing
 

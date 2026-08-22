@@ -84,7 +84,7 @@ impl MiningJobRecord {
         self.identity.method
     }
     #[must_use]
-    pub const fn deposit(&self) -> GeologicalDepositId {
+    pub(crate) const fn deposit(&self) -> GeologicalDepositId {
         self.identity.deposit
     }
     #[must_use]
@@ -108,7 +108,7 @@ impl MiningJobRecord {
         self.schedule.completes_at
     }
     #[must_use]
-    pub const fn output(&self) -> &MaterialLotSpec {
+    pub(crate) const fn output(&self) -> &MaterialLotSpec {
         &self.resources.output
     }
     #[must_use]

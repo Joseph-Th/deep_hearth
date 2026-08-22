@@ -4,6 +4,7 @@ mod definitions;
 mod execution;
 mod physics;
 mod state;
+mod target_resolution;
 mod validation;
 
 pub use definitions::{MiningMethodDefinition, MiningMethodId, MiningRegistry};
@@ -15,5 +16,8 @@ pub use execution::{
 pub(crate) use execution::{MiningTickError, apply_mining_tick, decide_mining_tick};
 pub(crate) use state::validate_loaded_mining;
 pub use state::{MiningJobId, MiningJobRecord, MiningState, MiningValidationError};
+pub use target_resolution::{
+    MiningTargetRequest, MiningTargetResolution, MiningTargetResolutionError, resolve_mining_target,
+};
 pub use validation::MiningJobValidationError;
 pub(crate) use validation::validate_loaded_mining_jobs;
