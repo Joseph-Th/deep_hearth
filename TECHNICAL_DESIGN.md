@@ -195,9 +195,11 @@ store. Duration respects provider/store transfer limits and sustainable metaboli
 cost scales to actual mechanical work at authored efficiency. Energy creation and equipment wear commit
 together.
 
-Survival tracks metabolic energy, hydration, vitality, and nutrition. Eating and drinking consume exact
-physical portions into terminal conservation owners; physiological gains clamp independently to authored
-reserve capacities. No-benefit consumption is rejected rather than silently wasting finite resources.
+Survival tracks metabolic energy, hydration, vitality, and category-specific recent nutrition. Eating and
+drinking consume exact physical portions into terminal conservation owners; physiological gains clamp
+independently to authored reserve capacities. Vitality recovery scales with the weakest Grain/Fruit/Protein
+reserve, so calories concentrated in one category cannot mathematically stand in for a balanced recent
+diet. No-benefit consumption is rejected rather than silently wasting finite resources.
 
 Energy stores own carrier, capacity, directional power envelopes, stored energy, identity, revision, and
 optional embodied traces. Transfer requires an opaque same-carrier authorization; storage does not choose

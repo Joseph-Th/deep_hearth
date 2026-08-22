@@ -58,12 +58,31 @@ fn advance_exact(registries: &Registries, state: &mut AppState, ticks: u64) {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ProvisioningPriority {
+    MetabolicEnergy,
+    Hydration,
+    Balanced,
+}
+
+impl ProvisioningPriority {
+    pub(super) const fn label(self) -> &'static str {
+        match self {
+            Self::MetabolicEnergy => "energy",
+            Self::Hydration => "hydration",
+            Self::Balanced => "balanced",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct SurvivalProvisioningReview {
     pub(super) preservation_age_saved_ticks: u64,
     pub(super) selected_category_count: usize,
-    pub(super) drink_first: bool,
+    pub(super) authored_category_count: usize,
+    pub(super) provisioning_priority: ProvisioningPriority,
     pub(super) energy_deficit_ppm: u32,
     pub(super) hydration_deficit_ppm: u32,
+    pub(super) diet_quality_gain_ppm: u32,
     pub(super) retained_preserved_mass_mg: u64,
     pub(super) reserve_recovered: bool,
 }
@@ -280,9 +299,17 @@ pub(super) fn evaluate_survival_provisioning_probe(
     let hydration_pressure = u128::from(hydration_deficit.microliters())
         .checked_mul(physiology.maximum_metabolic_energy().nanojoules())
         .unwrap_or_else(|| panic!("survival probe normalized hydration pressure overflowed"));
-    let drink_first = hydration_pressure > energy_pressure
-        || (hydration_pressure == energy_pressure
-            && mix64(seed ^ 0x5052_4F56_4953_494F).is_multiple_of(2));
+    let provisioning_priority = match hydration_pressure.cmp(&energy_pressure) {
+        std::cmp::Ordering::Greater => ProvisioningPriority::Hydration,
+        std::cmp::Ordering::Less => ProvisioningPriority::MetabolicEnergy,
+        std::cmp::Ordering::Equal => ProvisioningPriority::Balanced,
+    };
+    let drink_first = match provisioning_priority {
+        ProvisioningPriority::Hydration => true,
+        ProvisioningPriority::MetabolicEnergy => false,
+        ProvisioningPriority::Balanced => mix64(seed ^ 0x5052_4F56_4953_494F).is_multiple_of(2),
+    };
+    let diet_quality_before = before.diet_quality_ppm();
     let (meal, drank, action_order) = if drink_first {
         let drank = validate_drink(registries, &state, drink_store, drink_volume)
             .unwrap_or_else(|error| panic!("survival probe drinking validation failed: {error}"))
@@ -342,6 +369,18 @@ pub(super) fn evaluate_survival_provisioning_probe(
     assert!(after.hydration() > before.hydration());
     let reserve_recovered = after.metabolic_energy() > before.metabolic_energy()
         && after.hydration() > before.hydration();
+    let diet_quality_gain_ppm = after.diet_quality_ppm().saturating_sub(diet_quality_before);
+    if selected_categories.len() == authored_categories.len() {
+        assert!(
+            diet_quality_gain_ppm > 0,
+            "a meal covering every authored dietary category must improve limiting diet quality"
+        );
+    } else {
+        assert_eq!(
+            diet_quality_gain_ppm, 0,
+            "a meal that leaves one equally depleted dietary category untouched must not improve limiting diet quality"
+        );
+    }
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("survival probe final matter audit failed: {error}"))
@@ -370,12 +409,15 @@ pub(super) fn evaluate_survival_provisioning_probe(
         .collect::<Vec<_>>()
         .join("+");
     std::println!(
-        "PLAYABLE SURVIVAL seed=0x{seed:016X} catalog=registry-derived world-bootstrap=[authored-food,authored-drink,storage-profile] player-present-from=t0 food-rotation=[witness:{} elapsed:{age_ticks}t preservation:{preservation_multiplier_ppm}ppm ambient-age:{ambient_age}t preserved-age:{preserved_age}t age-saved:{preservation_age_saved}t consume:older-ambient retain-preserved:{}mg] depletion={depletion_ticks}t wait={provisioning_wait_ticks}t action-order={action_order} meal=[foods:{food_label} categories:{category_label} mass:{}mg energy:+{}nJ nutrition:+{}ppm] drink=[fluid:{} volume:{}uL hydration:+{}uL] matter=conserved fluid=conserved tick={}",
+        "PLAYABLE SURVIVAL seed=0x{seed:016X} catalog=registry-derived world-bootstrap=[authored-food,authored-drink,storage-profile] player-present-from=t0 food-rotation=[witness:{} elapsed:{age_ticks}t preservation:{preservation_multiplier_ppm}ppm ambient-age:{ambient_age}t preserved-age:{preserved_age}t age-saved:{preservation_age_saved}t consume:older-ambient retain-preserved:{}mg] depletion={depletion_ticks}t wait={provisioning_wait_ticks}t provisioning=[priority:{} action-order:{action_order}] meal=[foods:{food_label} categories:{category_label} mass:{}mg energy:+{}nJ nutrition:+{}ppm diet-quality:{}->{}ppm] drink=[fluid:{} volume:{}uL hydration:+{}uL] matter=conserved fluid=conserved tick={}",
         witness_food.commodity().value(),
         witness_mass.milligrams(),
+        provisioning_priority.label(),
         meal.total_mass().milligrams(),
         meal.energy_gained().nanojoules(),
         meal.nutrition_gained().total_ppm(),
+        diet_quality_before,
+        after.diet_quality_ppm(),
         drink_fluid.value(),
         drank.volume().microliters(),
         drank.hydration_gained().microliters(),
@@ -384,20 +426,24 @@ pub(super) fn evaluate_survival_provisioning_probe(
     let review = SurvivalProvisioningReview {
         preservation_age_saved_ticks: preservation_age_saved,
         selected_category_count: selected_categories.len(),
-        drink_first,
+        authored_category_count: authored_categories.len(),
+        provisioning_priority,
         energy_deficit_ppm,
         hydration_deficit_ppm,
+        diet_quality_gain_ppm,
         retained_preserved_mass_mg: witness_mass.milligrams(),
         reserve_recovered,
     };
     std::println!(
-        "SURVIVAL REVIEW evidence=[food-rotation:{} preservation-age-saved:{}t categories:{} pressure=[energy:{}ppm hydration:{}ppm first:{}] retained-preserved:{}mg reserve-recovered:{}]",
+        "SURVIVAL REVIEW fantasy=prepare+provision evidence=[food-rotation:{} preservation-age-saved:{}t diet=[selected:{}/{} limiting-quality-gain:{}ppm] pressure=[energy:{}ppm hydration:{}ppm dominant:{}] retained-preserved:{}mg reserve-recovered:{}]",
         review.preservation_age_saved_ticks > 0 && review.retained_preserved_mass_mg > 0,
         review.preservation_age_saved_ticks,
         review.selected_category_count,
+        review.authored_category_count,
+        review.diet_quality_gain_ppm,
         review.energy_deficit_ppm,
         review.hydration_deficit_ppm,
-        if review.drink_first { "drink" } else { "eat" },
+        review.provisioning_priority.label(),
         review.retained_preserved_mass_mg,
         review.reserve_recovered,
     );

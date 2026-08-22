@@ -117,7 +117,7 @@ fn balanced_recent_diet_recovers_vitality_faster_than_one_category() {
             physiology.maximum_metabolic_energy(),
             physiology.maximum_hydration(),
             Vitality::from_parts_per_million_unchecked(500_000),
-            NutritionReserves::FULL,
+            NutritionReserves::from_parts_per_million(300_000, 300_000, 300_000),
         ),
     );
     let mut one_category = balanced.clone();
@@ -129,7 +129,7 @@ fn balanced_recent_diet_recovers_vitality_faster_than_one_category() {
             physiology.maximum_metabolic_energy(),
             physiology.maximum_hydration(),
             Vitality::from_parts_per_million_unchecked(500_000),
-            NutritionReserves::from_parts_per_million(NUTRITION_PARTS_PER_MILLION, 0, 0),
+            NutritionReserves::from_parts_per_million(900_000, 0, 0),
         ),
     );
 
@@ -145,4 +145,6 @@ fn balanced_recent_diet_recovers_vitality_faster_than_one_category() {
 
     assert!(balanced_after.vitality() > one_category_after.vitality());
     assert!(balanced_after.diet_quality_ppm() > one_category_after.diet_quality_ppm());
+    assert_eq!(balanced_after.diet_quality_ppm(), 299_995);
+    assert_eq!(one_category_after.diet_quality_ppm(), 0);
 }

@@ -1059,6 +1059,27 @@ fn current_save_rejects_pre_energy_store_embodiment_schema() {
 }
 
 #[test]
+fn current_save_rejects_pre_limiting_diet_quality_semantics() {
+    let registries = build_registries();
+    let state = AppState::new(WorldSeed::new(0x5700_0024));
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("diet-quality schema fixture failed serialization: {error}")
+        });
+    encoded["schema_version"] = serde_json::json!(47_u32);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("diet-quality schema fixture failed decode: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::UnsupportedSchemaVersion {
+            found: 47,
+            supported: CURRENT_SAVE_SCHEMA_VERSION,
+        })
+    );
+}
+
+#[test]
 fn supported_stockpile_round_trip_preserves_reverse_index_and_derived_load() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5700_0021));

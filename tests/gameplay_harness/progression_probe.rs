@@ -1663,8 +1663,17 @@ pub(super) fn evaluate_primitive_progression_probe(
             mechanization.elapsed_ticks,
         ),
     };
+    let fantasy_captured = review.tool_attention_delta_ticks > 0
+        && review.crank_attention_delta_ticks > 0
+        && review.extraction_ore_lead_ticks > 0
+        && review.mechanization_output_delta_ticks > 0
+        && review.mechanization_useful_overlap_ticks > 0;
+    assert!(
+        fantasy_captured,
+        "primitive progression must turn scarce material and stored work into measurable attention recovery"
+    );
     std::println!(
-        "PROGRESSION REVIEW observations=[tool-attention-delta:{:+}t crank-attention-delta:{:+}t extraction-ore-lead:{}t mechanization-output-delta:{:+}t autonomous-work:{}t mechanization-useful-overlap:{}t mechanization-idle-wait-delta:{:+}t mechanization-elapsed-delta:{:+}t] sign=[tool/crank:+ means reinforcement saved attention; mechanization-output/idle-wait/elapsed:+ means mechanization-first was earlier/lower]",
+        "PROGRESSION REVIEW fantasy=bootstrap-by-hand->invest-scarce-copper->store-work->delegate-repetition captured:{fantasy_captured} agency=earlier-extraction-vs-earlier-autonomy observations=[tool-attention-delta:{:+}t crank-attention-delta:{:+}t extraction-ore-lead:{}t mechanization-output-delta:{:+}t autonomous-work:{}t mechanization-useful-overlap:{}t mechanization-idle-wait-delta:{:+}t mechanization-elapsed-delta:{:+}t] sign=[tool/crank:+ means reinforcement saved attention; mechanization-output/idle-wait/elapsed:+ means mechanization-first was earlier/lower]",
         review.tool_attention_delta_ticks,
         review.crank_attention_delta_ticks,
         review.extraction_ore_lead_ticks,

@@ -804,4 +804,58 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
     std::println!(
         "CAPABILITY SCOPE evidence=bootstrapped-industrial exercised=[canonical-industrial-comminution,adaptive-batching,manual-energy-recovery,power-choice,wear,maintenance,structural-siting,controlled-supported-stockpile-delivery] observed=[{observed}] unobserved=[{unobserved}] outside-this-workshop-test=[playable-survival,playable-primitive-progression,industrial-ore-preparation,pure-copper-foundry] bootstrap=[industrial-workshop-equipment,industrial-energy-stores,constructed-bays,starting-workshop-matter,preauthorized-controlled-delivery] missing-bridge=[industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting] actor-oracle=none fixture-guard=fail-if-injected-machine-becomes-runtime-acquirable capability-boundary=STATUS.md"
     );
+
+    let stored_work_pressure = reports
+        .iter()
+        .filter(|report| {
+            report.progress.energy_adaptive_batch_operations > 0
+                || report.limits.energy_bottleneck_batches > 0
+                || report.limits.energy_stop
+        })
+        .count();
+    let body_power_pressure = reports
+        .iter()
+        .filter(|report| {
+            report.choices.manual_recharges > 0
+                || report.limits.manual_recovery_declined
+                || report.limits.manual_recovery_survival_limited
+        })
+        .count();
+    let wear_maintenance_pressure = reports
+        .iter()
+        .filter(|report| report.limits.maintenance_warning || report.maintenance.services > 0)
+        .count();
+    let structure_production_pressure = reports
+        .iter()
+        .filter(|report| {
+            report.structure.structural_consequence
+                || report.structure.support_relocation
+                || report.structure.production_suspension
+        })
+        .count();
+    let multi_system_adaptation = reports
+        .iter()
+        .filter(|report| {
+            let dimensions = u8::from(
+                report.progress.energy_adaptive_batch_operations > 0
+                    || report.limits.energy_bottleneck_batches > 0
+                    || report.limits.energy_stop,
+            ) + u8::from(
+                report.choices.manual_recharges > 0
+                    || report.limits.manual_recovery_declined
+                    || report.limits.manual_recovery_survival_limited,
+            ) + u8::from(
+                report.limits.maintenance_warning || report.maintenance.services > 0,
+            ) + u8::from(
+                report.structure.structural_consequence
+                    || report.structure.support_relocation
+                    || report.structure.production_suspension,
+            );
+            dimensions >= 2
+        })
+        .count();
+    std::println!(
+        "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt-physical-infrastructure sample=pressure-rich+hidden-controlled-delivery loop=observe-pressure->choose-power/batch/service/site->run->recover dynamic-scenarios:{multi_system_adaptation}/{} interlocks=[stored-work+throughput:{stored_work_pressure} body+power:{body_power_pressure} wear+maintenance:{wear_maintenance_pressure} structure+production:{structure_production_pressure}] recovery=[suspensions:{suspensions} resumed:{recovered_work_in_process} stranded:{stranded_work_in_process}] agency=matched-policy-counterfactuals-in-AGENCY-SUMMARY dormant=[ore-grade:composition-only-until-concentration/smelting]",
+        reports.len(),
+    );
 }

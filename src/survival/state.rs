@@ -57,7 +57,20 @@ impl NutritionReserves {
 
     #[must_use]
     pub const fn quality_ppm(self) -> u32 {
-        ((self.grain as u64 + self.fruit as u64 + self.protein as u64) / 3) as u32
+        // Vitality recovery is limited by the weakest broad dietary contribution rather than by
+        // total calories averaged across categories. A player can therefore live on an unbalanced
+        // diet without taking arbitrary direct damage, but recovering well requires maintaining all
+        // represented categories instead of repeatedly overfilling one reserve.
+        let grain_or_fruit = if self.grain < self.fruit {
+            self.grain
+        } else {
+            self.fruit
+        };
+        if grain_or_fruit < self.protein {
+            grain_or_fruit
+        } else {
+            self.protein
+        }
     }
 
     pub(crate) fn add(self, category: FoodCategory, gain: u32) -> (Self, u32) {

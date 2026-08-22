@@ -74,15 +74,19 @@ truth, hidden future events, setup-only state, or cloned `AppState` previews.
 
 | Target | Contract |
 | --- | --- |
-| `survival` | Runtime preservation, eating, drinking, and reserve recovery after controlled bootstrap |
-| `progression` | Runtime primitive crafting, assembly, mining, upgrades, manual power, and mechanization |
-| `workshop` | Industrial workshop capability plus matched-world player-policy consequences |
-| `ore` | Bootstrapped installed crushing, grinding, screening, and regrinding capability |
-| `foundry` | Bootstrapped installed pure-copper heating, melting, and casting capability |
+| `survival` | Runtime preservation, dominant reserve pressure, diet-balance consequence, eating, drinking, and reserve recovery after controlled bootstrap |
+| `progression` | Runtime primitive crafting, assembly, mining, scarce-upgrade choice, manual power, mechanization, and measured attention recovery |
+| `workshop` | Pressure-rich industrial workshop capability, multi-system adaptation, recoverable disruption, and matched-world player-policy consequences |
+| `ore` | Bootstrapped installed crushing, grinding, screening, and regrinding capability; pipeline-depth evidence only |
+| `foundry` | Bootstrapped installed pure-copper heating, melting, casting, and finite heat recovery capability; pipeline-depth evidence only |
 
 `ore` and `foundry` are capability tests, not end-to-end acquisition claims. `STATUS.md` is authoritative
-for runtime reachability. Workshop agency comparisons hold world variation and behavior RNG fixed except
-for the policy being compared.
+for runtime reachability. Workshop exploration intentionally samples constrained stored work, wear, and a
+hidden controlled delivery to expose adaptation paths; its event density is stress evidence, not a claim
+about baseline world-event frequency. Workshop agency comparisons hold world variation and behavior RNG
+fixed except for the policy being compared. `python ci.py report` emits explicit survival, progression,
+workshop-experience, agency, and capability-role review lines so the experiential conclusions do not have
+to be reconstructed from raw per-scenario counters.
 
 Broad gameplay audit links `gameplay_workshop` and `gameplay_audit`; the latter contains the four focused
 probe modules. Focused gates keep their own binaries so repairing one concern does not require relinking

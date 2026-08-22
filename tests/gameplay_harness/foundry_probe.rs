@@ -14,6 +14,7 @@ use deep_hearth::core::quantity::{Energy, Mass, Temperature};
 use deep_hearth::core::state::validate_loaded_state;
 use deep_hearth::inventory::MaterialLotSelection;
 use deep_hearth::material::MaterialComposition;
+use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::production::validate_start_process;
 use deep_hearth::registry::Registries;
 use deep_hearth::thermal::{
@@ -118,11 +119,19 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
     let initial_furnace_condition = setup.furnace_condition;
     let initial_mold_condition = setup.mold_condition;
     let (mut state, ids) = setup_foundry_probe(registries, seed, setup);
+    let initial_matter = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("foundry initial matter accounting failed: {error}"))
+        .total();
     let initial_electrical = state
         .energy()
         .get_store(ids.electrical_buffer)
         .map(|store| store.stored())
         .unwrap_or_else(|| panic!("foundry electrical buffer disappeared after setup"));
+    let initial_thermal = state
+        .energy()
+        .get_store(ids.heat_sink)
+        .map(|store| store.stored())
+        .unwrap_or_else(|| panic!("foundry heat sink disappeared after setup"));
     let pure_selection = [MaterialLotSelection::new(ids.pure_copper_lot, mass)];
     let melt = resolve_melting_process(
         registries,
@@ -170,6 +179,7 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
     )
     .unwrap_or_else(|error| panic!("foundry probe pure-copper casting failed: {error}"));
     let cast_duration = casting.process_resolution().duration();
+    let released_heat = casting.released_energy();
     let cast_job = validate_start_process(
         registries,
         &state,
@@ -190,15 +200,32 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
 
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("foundry probe final state audit failed: {error}"));
+    let final_matter = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("foundry final matter accounting failed: {error}"))
+        .total();
     let final_electrical = state
         .energy()
         .get_store(ids.electrical_buffer)
         .map(|store| store.stored())
         .unwrap_or_else(|| panic!("foundry electrical buffer disappeared after processing"));
+    let final_thermal = state
+        .energy()
+        .get_store(ids.heat_sink)
+        .map(|store| store.stored())
+        .unwrap_or_else(|| panic!("foundry heat sink disappeared after processing"));
+    assert_eq!(
+        final_matter, initial_matter,
+        "foundry melt/cast cycle must conserve represented matter"
+    );
     assert_eq!(
         initial_electrical.checked_sub(melt.required_energy()),
         Some(final_electrical),
         "foundry melt must consume exactly its resolved electrical energy"
+    );
+    assert_eq!(
+        initial_thermal.checked_add(released_heat),
+        Some(final_thermal),
+        "foundry casting must recover exactly its resolved released heat into the finite sink"
     );
     assert_eq!(
         state
@@ -209,7 +236,7 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
         "foundry capability probe must conserve cast output mass"
     );
     std::println!(
-        "CAPABILITY FOUNDRY seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported agency=pipeline-evidence batch={}mg input={}mK initial-condition=[furnace:{} mold:{}ppm] electrical=[initial:{}nJ melt:{}nJ remaining:{}nJ] melt={}t cast={}t matter=conserved",
+        "CAPABILITY FOUNDRY seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[phase-change,finite-electrical-input,finite-thermal-recovery,wear] batch={}mg input={}mK initial-condition=[furnace:{} mold:{}ppm] electrical=[initial:{}nJ melt:{}nJ remaining:{}nJ] thermal=[released:{}nJ sink:{}nJ] melt={}t cast={}t matter=conserved",
         mass.milligrams(),
         input_temperature.millikelvin(),
         initial_furnace_condition.parts_per_million(),
@@ -217,6 +244,8 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
         initial_electrical.nanojoules(),
         melt.required_energy().nanojoules(),
         final_electrical.nanojoules(),
+        released_heat.nanojoules(),
+        final_thermal.nanojoules(),
         melt_duration.value(),
         cast_duration.value(),
     );
