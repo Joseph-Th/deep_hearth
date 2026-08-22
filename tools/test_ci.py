@@ -228,6 +228,23 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIsNotNone(error)
         self.assertIn("invalid local CI command", error or "")
 
+    def test_documentation_checker_covers_specialized_docs_not_generated_output(self) -> None:
+        documents = set(check_authority_docs.documentation_files())
+        self.assertTrue(set(check_authority_docs.AUTHORITY_FILES).issubset(documents))
+        self.assertIn("assets/shaders/README.md", documents)
+        self.assertFalse(any(path.startswith("target/") for path in documents))
+
+    def test_documentation_routes_resolve_from_nested_document_location(self) -> None:
+        nested = ROOT / "assets" / "shaders" / "README.md"
+        self.assertEqual(
+            check_authority_docs.resolve_route(nested, "../../TESTING.md"),
+            ROOT / "TESTING.md",
+        )
+        self.assertEqual(
+            check_authority_docs.resolve_route(nested, "src/shader/"),
+            ROOT / "src" / "shader",
+        )
+
 
 class ExactTestCommandTests(unittest.TestCase):
     def test_source_cfg_evaluation_treats_test_as_enabled_and_expands_local_features(self) -> None:

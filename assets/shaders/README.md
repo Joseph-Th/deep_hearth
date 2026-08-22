@@ -1,12 +1,28 @@
-# Deep Hearth Shader Contract
+# Shader Contract
 
-These WGSL modules are renderer-neutral immutable content. Call
-`registries.shaders().bake_shader_set()` once at startup, compile the assembled programs, and retain
-the resulting backend pipelines. Shared libraries are dependency-expanded exactly once in stable ID
-order. Naga parsing and validation run only in the default-off `test-shader-validation` lane; the
-default shipping crate has no graphics dependency.
+This document owns the adapter-facing contract for Deep Hearth's renderer-neutral WGSL content. See
+[`../../TECHNICAL_DESIGN.md`](../../TECHNICAL_DESIGN.md) for the presentation boundary and
+[`../../TESTING.md`](../../TESTING.md) for repository validation policy.
 
-## Frame Order
+## Where to work
+
+| Concern | Location |
+| --- | --- |
+| WGSL libraries and executable sources | `assets/shaders/*.wgsl` |
+| Built-in shader IDs, dependencies, pipeline profiles, and work budgets | `src/content/shaders.rs` |
+| Shader registry and deterministic assembly | `src/shader/` |
+| Indexed texture definitions and upload contract | `src/content/textures.rs`, `src/texture/` |
+| Standalone WGSL validator | `src/bin/validate_shaders.rs` |
+
+Run `python ci.py gate --shaders` after changing WGSL, shader assembly, built-in shader definitions, or
+their adapter contract. Naga is available only through the `test-shader-validation` feature; the default
+crate has no graphics dependency.
+
+At adapter startup, call `registries.shaders().bake_shader_set()` once, compile the assembled executable
+programs, and retain the backend pipelines. Assembly expands each shared library once in stable shader-ID
+order.
+
+## Frame order
 
 1. Render opaque casters with `SHADER_SHADOW` and cutout casters with `SHADER_SHADOW_CUTOUT` into a
    directional-light depth texture. Both pipelines have no color target.
@@ -20,88 +36,77 @@ default shipping crate has no graphics dependency.
 8. Render `SHADER_POST_PROCESS` to the display target. The display target performs the final linear
    to sRGB conversion; do not pre-encode the HDR inputs.
 
-Shadowing and bloom are optional. Bind valid neutral resources when a program remains compiled but
-an effect is disabled: a depth texture containing 1.0 for shadows and a black texture for bloom.
+Shadowing and bloom are optional. If their programs remain compiled while disabled, bind valid neutral
+resources: depth 1.0 for shadows and black for bloom.
 
 WGSL/WebGPU depth is 0.0 to 1.0. The supplied projection and inverse projection matrices must use
 that convention. Water and smoke output premultiplied alpha and require ONE / ONE_MINUS_SRC_ALPHA
 color blending with depth testing enabled and depth writes disabled.
 
-Each render definition exposes an explicit depth mode (`Disabled`, `ReadOnly`, or `ReadWrite`) and
-color-target class (`None`, `LinearHdr`, or `Display`). Use a less-equal depth comparison for read
-modes. Linear samplers for scene color, bloom, and post processing use clamp-to-edge addressing; the
-shadow comparison sampler also clamps to edge and uses less-equal comparison.
+Each render definition declares a depth mode (`Disabled`, `ReadOnly`, `ReadWrite`) and color target
+(`None`, `LinearHdr`, `Display`). Read modes use less-equal depth comparison. Scene-color, bloom, and
+post-process linear samplers clamp to edge; the shadow comparison sampler also clamps to edge and uses
+less-equal comparison.
 
-## Compact Surface Resources
+## Surface resources
 
 The surface and cutout-shadow programs consume the texture baker without transcoding:
 
 | Binding resource | GPU representation |
-|---|---|
+| --- | --- |
 | indexed texture mips | `R8Uint` 2D array, loaded as `texture_2d_array<u32>` |
 | palette rows | `R16Uint` 2D texture, width 16 |
 | palette colors | `Rgba8Unorm` 2D texture, width 16 |
 | mesh texture key | low 16 bits: array layer; high 16 bits: palette row |
 
-Index data is always fetched with `textureLoad`; never linearly filter palette indices. Surface
-derivatives select one of the authored 32/16/8/4/2/1 discrete mips. Lighting adjusts the low-nibble
-shade before the global ramp lookup, preserving hue-shaped shadows and highlights.
-The Rust texture contract injects the base side and maximum mip into the common WGSL library, and the
-surface and cutout-shadow programs share those values rather than maintaining duplicate constants.
-Route baked `Opaque` descriptors through `SHADER_SHADOW`, baked `Cutout` descriptors through
-`SHADER_SHADOW_CUTOUT`, and require an explicit adapter policy before blend-mode geometry casts a
-shadow. This keeps alpha classification outside fragment invocations.
+Fetch palette indices with `textureLoad`; never linearly filter them. Surface derivatives select one of
+the authored 32/16/8/4/2/1 discrete mips. The Rust texture contract injects the base side and maximum mip
+into shared WGSL so surface and cutout-shadow code do not duplicate those constants.
+
+Route baked `Opaque` descriptors through `SHADER_SHADOW` and `Cutout` descriptors through
+`SHADER_SHADOW_CUTOUT`. Blend-mode geometry needs an explicit adapter policy before casting shadows.
 
 Surface vertex locations are:
 
 | Location | Value |
-|---|---|
+| --- | --- |
 | 0 | world position `vec3<f32>` |
 | 1 | texture UV plus sky/block light `vec4<f32>` |
 | 2 | world normal plus ambient occlusion `vec4<f32>` |
 | 3 | packed texture key `u32` |
 | 4 | linear tint `vec4<f32>` |
 
-The opaque shadow pass reads only world position at location 0 and performs no fragment work or
-texture sampling. The cutout shadow pass uses world position at location 0, the same UV/light value
-at location 1, and the same packed texture key at location 3 as the surface pass. It samples palette
-alpha so cutout geometry casts accurate silhouettes without a separate shadow-mesh layout.
+The opaque shadow pass reads only world position and has no fragment stage. The cutout shadow pass reuses
+surface locations 0, 1, and 3 and samples palette alpha, so it needs no separate shadow-mesh layout.
 
-## Tiled Lighting
+## Tiled lighting
 
 `SHADER_LIGHT_CULL` dispatches one `[64, 1, 1]` workgroup per 16x16 tile. In `LightCullFrame`,
 `viewport_tiles.xy` is viewport size in pixels and `.zw` is tile count. `light_count.x` is the valid
 point-light count. The output count buffer has one `u32` per tile; the index buffer has 32 `u32`
 entries per tile.
 
-The adapter must order the point-light buffer deterministically by visual priority and a stable light
-ID. The culler considers at most 512 lights and retains the first 32 overlapping lights in that
-stable order. A logarithmic workgroup prefix scan compacts lane results without allocation-order
-atomics, so overflowing tiles do not flicker between different light subsets.
-`SurfaceFrame.light_grid.x` is tile columns and `.z` is the valid point-light count.
+Order the point-light buffer deterministically by visual priority plus stable light ID. The culler
+considers at most 512 lights and retains the first 32 overlaps in that order. `SurfaceFrame.light_grid.x`
+is tile columns and `.z` is the valid point-light count.
 
-## Effect Inputs
+## Effect inputs
 
-- Water receives an opaque scene-color texture and the matching depth texture. It uses three analytic
-  vertex waves, one depth reconstruction, one refracted color lookup, exponential absorption,
-  Fresnel reflection, shore foam, and shared height fog. `viewport_size_inverse.xy` is viewport size;
+- Water receives opaque scene color plus matching depth. `viewport_size_inverse.xy` is viewport size and
   `.zw` is inverse size.
 - Smoke instances use corners in location 0, center plus normalized age in location 1, size plus
-  rotation/seed in location 2, and linear color in location 3. One procedural billboard has no sprite
-  texture. Soft particles need the opaque depth texture. `near_far_viewport` contains near plane, far
-  plane, viewport width, and viewport height.
-- Sky uses a fullscreen triangle generated by `vertex_index`. Three fixed noise layers produce clouds;
-  integer cell hashing produces stars without textures.
-- Bloom uses four bilinear HDR reads per half-resolution output and a soft brightness knee.
-  `source_inverse_size.xy` is inverse source size, `output_size.xy` is the output extent, and
-  `threshold_knee.xy` is threshold and soft-knee width.
-- Post process uses ACES-fit tone mapping, saturation/contrast, a scalar color gain, vignette, and
-  temporal dither. `exposure_bloom.xy` is exposure and bloom intensity; `.zw` is inverse bloom size.
+  rotation/seed in location 2, and linear color in location 3. Soft particles use opaque depth.
+  `near_far_viewport` contains near, far, viewport width, and viewport height.
+- Sky uses a fullscreen triangle generated by `vertex_index` and no textures.
+- Bloom writes half-resolution HDR. `source_inverse_size.xy` is inverse source size, `output_size.xy` is
+  output extent, and `threshold_knee.xy` is threshold plus soft-knee width.
+- Post process performs tone mapping and display effects. `exposure_bloom.xy` is exposure plus bloom
+  intensity; `.zw` is inverse bloom size.
 
-## Audited Maximum Work
+## Maximum shader work
 
 | Program | Texture reads | Noise layers | Local lights | Largest loop |
-|---|---:|---:|---:|---:|
+| --- | ---: | ---: | ---: | ---: |
 | surface | 7 | 0 | 32 | 32 |
 | light cull | 0 | 0 | 0 | 8 |
 | water | 2 | 1 | 0 | 0 |
@@ -112,5 +117,5 @@ atomics, so overflowing tiles do not flicker between different light subsets.
 | opaque shadow | 0 | 0 | 0 | 0 |
 | cutout shadow | 3 | 0 | 0 | 0 |
 
-These are explicit worst-case invocation budgets, not measured timing. Keep the same boundaries when
-tuning an effect, then profile the real adapter on target GPUs before increasing them.
+These are authored worst-case invocation budgets, not measured timings. Update the definition, tests,
+and this table together when a budget changes; profile the real adapter before increasing a limit.

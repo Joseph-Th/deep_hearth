@@ -28,6 +28,8 @@ AUTHORITY_FILES = (
     "GAME_DESIGN.md",
 )
 
+IGNORED_DOCUMENTATION_ROOTS = {".git", "target"}
+
 REQUIRED_LINKS = {
     "README.md": {
         "AGENTS.md",
@@ -76,6 +78,26 @@ def project_relative(path: Path) -> str:
         return path.relative_to(ROOT).as_posix()
     except ValueError:
         return path.as_posix()
+
+
+def resolve_route(document: Path, route: str) -> Path:
+    """Resolve a documented repository route from the location where it is written."""
+
+    if route.startswith("../"):
+        return (document.parent / route).resolve()
+    return (ROOT / route).resolve()
+
+
+def documentation_files() -> tuple[str, ...]:
+    """Return maintained Markdown documents, excluding generated/build metadata trees."""
+
+    return tuple(
+        sorted(
+            project_relative(path)
+            for path in ROOT.rglob("*.md")
+            if not any(part in IGNORED_DOCUMENTATION_ROOTS for part in path.relative_to(ROOT).parts)
+        )
+    )
 
 
 def load_aliases() -> set[str]:
@@ -139,7 +161,9 @@ def check_authority_graph() -> list[str]:
         path = ROOT / relative
         if not path.is_file():
             errors.append(f"missing required authority page: {relative}")
-            continue
+
+    for relative in documentation_files():
+        path = ROOT / relative
         documents[relative] = path.read_text(encoding="utf-8")
 
     aliases = load_aliases()
@@ -168,7 +192,7 @@ def check_authority_graph() -> list[str]:
                 documented_ci_commands.setdefault(code, set()).add(relative)
             for match in ROUTE_REFERENCE.finditer(code):
                 route = match.group(1).rstrip(".,;:")
-                candidate = (ROOT / route).resolve()
+                candidate = resolve_route(document, route)
                 checked_routes += 1
                 if not candidate.exists():
                     errors.append(f"{relative}: missing repository route: {route}")
@@ -199,8 +223,8 @@ def check_authority_graph() -> list[str]:
         return errors
 
     print(
-        "documentation-authority: PASS "
-        f"({len(documents)} pages, {checked_links} links, "
+        "documentation-contracts: PASS "
+        f"({len(documents)} documents, {len(AUTHORITY_FILES)} authority pages, {checked_links} links, "
         f"{checked_routes} routes, {checked_aliases} Cargo aliases, "
         f"{len(documented_ci_commands)} local CI commands)"
     )

@@ -22,7 +22,7 @@ checkpoints, not edit hooks.
 | Shader validation | `python ci.py gate --shaders` |
 | Rust API documentation | `python ci.py gate --rustdoc` |
 | Clippy with warnings denied | `python ci.py gate --lint` |
-| Documentation authority and route checks | `python tools/check_authority_docs.py` |
+| Maintained Markdown links/routes + source-module docs | `python tools/check_authority_docs.py` |
 | Human-readable gameplay report | `python ci.py report` |
 
 `python ci.py quick` is build-free. It checks formatting, repository/documentation contracts, and the

@@ -40,9 +40,9 @@ capability from design intent.
 | Energy, electrical, mechanical, fluids | `src/energy/`, `src/electrical/`, `src/mechanical/`, `src/fluid/` |
 | Structures and spatial primitives | `src/structural/`, `src/spatial/` |
 | Persistence admission | `src/persistence/` and each state owner |
-| Renderer-neutral assets | `src/texture/`, `src/shader/`, `assets/shaders/` |
+| Renderer-neutral assets | `src/texture/`, `src/shader/`, `src/content/textures.rs`, `src/content/shaders.rs`, `assets/shaders/` |
 | Gameplay evaluation | `tests/gameplay_harness/` |
-| Local verification tooling | `ci.py`, `.cargo/config.toml`, `tools/` |
+| Local verification tooling | `ci.py`, `.cargo/config.toml`, `tools/`, `src/bin/validate_shaders.rs` |
 
 Start with the owner of the authoritative state. Cross-owner behavior coordinates owner operations; it
 does not create a second mutation path.
