@@ -75,7 +75,7 @@ truth, hidden future events, setup-only state, or cloned `AppState` previews.
 | Target | Contract |
 | --- | --- |
 | `survival` | Runtime preservation, dominant reserve pressure, matched-world compact-calorie versus balanced-diet provisioning, eating, drinking, and reserve recovery after controlled bootstrap |
-| `progression` | Runtime primitive crafting, assembly, mining, scarce-upgrade choice, manual power, mechanization, productive overlap, and autonomous player-free time |
+| `progression` | Runtime primitive crafting, assembly, mining, scarce-upgrade sequencing, manual power, mechanization, productive overlap, convergence, and autonomous player-free time |
 | `workshop` | Pressure-rich industrial workshop capability, multi-system adaptation, recoverable disruption, and matched-world player-policy consequences |
 | `ore` | Bootstrapped installed crushing, grinding, screening, and regrinding capability; pipeline-depth evidence only |
 | `foundry` | Bootstrapped installed pure-copper heating, melting, casting, and finite heat recovery capability; pipeline-depth evidence only |
@@ -94,14 +94,21 @@ pressure. This prevents successful completion or an unavoidable physical stop fr
 missing agency. The survival probe makes every authored dietary category in its controlled world available
 to both matched policies, reconstructs each branch independently rather than cloning actor state, and reports
 the material/water cost of a compact-calorie meal against the recovery resilience of a balanced meal.
-Primitive progression provisions only one usable native-copper reinforcement, so the matched-world
-counterfactual is a real competing investment: reinforce the pick for hard-material access and faster
-extraction, or reinforce the crank for higher stored-work rate and earlier mechanization. The probe keeps
-the unchosen upgrade unavailable for the whole episode, exercises repeated charge/crush cycles including a
-full accumulator recharge, reports relative capability and attention effects rather than relying on one-tick
-differences, distinguishes useful
-player work overlapping autonomous machine time from genuinely returned player-free time, and reports
-whether the processed output has a current playable acquisition use. `python ci.py report` emits explicit
+Primitive progression provisions finite native copper for both reinforcements but initially extracts only
+one upgrade parcel. The matched-world counterfactual therefore measures sequencing rather than manufacturing
+a permanent fork: reinforce the pick first for immediate hard-material access and faster extraction, or
+reinforce the crank first for earlier mechanization and faster stored-work generation. While the first
+autonomous crusher batch runs, the actor acquires the second copper parcel and begins the second upgrade;
+the probe requires both branches to converge on the same final capabilities and extracted hard-ore total.
+It then runs the same bounded 64-cycle post-convergence workload in both branches. The probe records whether
+returned player-free time repays the direct attention invested in preparing the primitive machine and, when
+it does, the exact payback cycle; payback remains balance evidence rather than a hard legality gate. Final
+material/workload parity remains matched between the counterfactuals. It also projects a full accumulator
+charge through the canonical manual-power validator on each branch's actual pre-charge state, so equipment,
+store, physiology, condition, and whole-tick limits all remain authoritative while random partial-fill
+quantization cannot hide a real work-rate improvement. Reports distinguish useful player work overlapping autonomous machine
+time from genuinely returned player-free time and state whether the processed output has a current playable
+acquisition use. `python ci.py report` emits explicit
 survival, progression, workshop-experience, agency, and capability-role review lines so the
 experiential conclusions do not have to be reconstructed from raw per-scenario counters. Its default
 output stays concise: aggregate workshop evidence, representative disruption/recovery/constraint

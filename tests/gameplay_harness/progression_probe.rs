@@ -39,6 +39,8 @@ use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
+const MAX_STEADY_STATE_CRUSH_CYCLES: u64 = 64;
+
 /// Fail closed when the authored player-facing acquisition/action catalog grows beyond what this
 /// cold-agent progression episode either exercises naturally or explicitly classifies outside the
 /// episode fantasy.
@@ -264,6 +266,7 @@ fn primitive_material_plan(registries: &Registries) -> PrimitiveMaterialPlan {
         "primitive progression competing copper upgrades must consume the same reinforcement parcel"
     );
     add_profile_requirements(&mut requirements, pick_additions);
+    add_profile_requirements(&mut requirements, crank_additions);
 
     let mut process_batches: BTreeMap<deep_hearth::production::ProcessId, u64> = BTreeMap::new();
     for (commodity, required) in requirements {
@@ -580,9 +583,14 @@ fn primitive_priority(seed: u64) -> PrimitivePriority {
 struct PrimitiveProgressionExperience {
     priority: PrimitivePriority,
     primary_batch_mass: Mass,
+    first_upgrade_at: u64,
+    second_upgrade_at: u64,
     pick_upgraded_at: Option<u64>,
     hard_seam_accessed_at: Option<u64>,
     machine_started_at: u64,
+    machine_preparation_ticks: u64,
+    attention_payback_cycles: Option<u64>,
+    initial_full_charge_ticks: u64,
     first_processed_output_at: u64,
     elapsed_ticks: u64,
     soft_ore_mining_ticks: u64,
@@ -595,8 +603,10 @@ struct PrimitiveProgressionExperience {
     reserve_useful_overlap_ticks: u64,
     machine_player_free_ticks: u64,
     hard_ore_mined: Mass,
+    hard_ore_before_convergence: Mass,
     total_ore_mined: Mass,
     native_copper_remaining: Mass,
+    initial_crank_reinforced: bool,
     crank_reinforced: bool,
     final_pick_condition_ppm: u32,
     metabolic_energy_spent_nj: u128,
@@ -675,6 +685,50 @@ fn reinforce_pick(
     );
 }
 
+fn reinforce_crank(
+    registries: &Registries,
+    state: &mut AppState,
+    raw: deep_hearth::inventory::StockpileId,
+    native_storage: deep_hearth::inventory::StockpileId,
+    shaped: deep_hearth::inventory::StockpileId,
+    crank: deep_hearth::equipment::EquipmentId,
+) {
+    let condition_before = state
+        .equipment()
+        .get_equipment(crank)
+        .unwrap_or_else(|| panic!("primitive progression crank disappeared before reinforcement"))
+        .condition();
+    craft_for_profile(
+        registries,
+        state,
+        raw,
+        native_storage,
+        shaped,
+        equipment_upgrade_additions(registries, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK),
+    );
+    validate_upgrade_equipment(
+        registries,
+        state,
+        crank,
+        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+        shaped,
+    )
+    .unwrap_or_else(|error| panic!("primitive progression crank reinforcement failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| {
+        panic!("primitive progression crank reinforcement commit failed: {error}")
+    });
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(crank)
+            .unwrap_or_else(|| panic!("primitive progression reinforced crank disappeared"))
+            .condition(),
+        condition_before,
+        "reinforcement must not repair accumulated crank wear"
+    );
+}
+
 #[derive(Clone, Copy)]
 struct PrimitiveMachine {
     crank: deep_hearth::equipment::EquipmentId,
@@ -686,7 +740,10 @@ struct PrimitiveMachine {
     reserve_mass: Mass,
     charge_fill_ppm: u32,
     charge_ticks: u64,
+    full_charge_ticks: u64,
+    preparation_ticks: u64,
     crank_reinforced: bool,
+    crank_upgraded_at: Option<u64>,
 }
 
 fn build_and_charge_primitive_machine(
@@ -697,8 +754,9 @@ fn build_and_charge_primitive_machine(
     shaped: deep_hearth::inventory::StockpileId,
     mined_mass: Mass,
     seed: u64,
-    reinforce_crank: bool,
+    reinforce_crank_before_charge: bool,
 ) -> PrimitiveMachine {
+    let preparation_started_at = state.tick().value();
     craft_for_profile(
         registries,
         state,
@@ -799,28 +857,26 @@ fn build_and_charge_primitive_machine(
             .unwrap_or_else(|| panic!("primitive progression flywheel fill ratio overflowed")),
     )
     .unwrap_or_else(|_| panic!("primitive progression flywheel fill ratio exceeded u32"));
-    if reinforce_crank {
-        craft_for_profile(
-            registries,
-            state,
-            raw,
-            native_storage,
-            shaped,
-            equipment_upgrade_additions(registries, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK),
-        );
-        validate_upgrade_equipment(
-            registries,
-            state,
-            crank,
-            EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-            shaped,
-        )
-        .unwrap_or_else(|error| panic!("primitive progression crank reinforcement failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| {
-            panic!("primitive progression crank reinforcement commit failed: {error}")
-        });
-    }
+    let crank_upgraded_at = if reinforce_crank_before_charge {
+        reinforce_crank(registries, state, raw, native_storage, shaped, crank);
+        Some(state.tick().value())
+    } else {
+        None
+    };
+
+    let full_charge = validate_start_manual_power(
+        registries,
+        state,
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, drive_capacity),
+    )
+    .unwrap_or_else(|error| {
+        panic!("primitive progression full-accumulator charge projection failed: {error}")
+    });
+    let full_charge_work = full_charge.work();
+    let full_charge_ticks = duration(
+        full_charge_work.started_at().value(),
+        full_charge_work.completes_at().value(),
+    );
 
     craft_for_profile(
         registries,
@@ -870,24 +926,31 @@ fn build_and_charge_primitive_machine(
         reserve_mass,
         charge_fill_ppm,
         charge_ticks,
-        crank_reinforced: reinforce_crank,
+        full_charge_ticks,
+        preparation_ticks: duration(preparation_started_at, state.tick().value()),
+        crank_reinforced: reinforce_crank_before_charge,
+        crank_upgraded_at,
     }
 }
 
-fn recharge_primitive_machine(
+fn fill_primitive_accumulator(
     registries: &Registries,
     state: &mut AppState,
     machine: PrimitiveMachine,
-    energy: Energy,
 ) -> u64 {
-    assert_eq!(
-        state
-            .energy()
-            .get_store(machine.drive)
-            .map(|store| store.stored()),
-        Some(Energy::ZERO),
-        "primitive recharge begins only after the prior stored-work cycle is exhausted"
-    );
+    let stored_before = state
+        .energy()
+        .get_store(machine.drive)
+        .map(|store| store.stored())
+        .unwrap_or_else(|| panic!("primitive progression flywheel disappeared before charging"));
+    if stored_before >= machine.required_energy {
+        return 0;
+    }
+    let energy = machine
+        .drive_capacity
+        .checked_sub(stored_before)
+        .unwrap_or_else(|| panic!("primitive accumulator exceeds its authored capacity"));
+    assert!(!energy.is_zero());
     let power = validate_start_manual_power(
         registries,
         state,
@@ -910,54 +973,79 @@ fn recharge_primitive_machine(
             .energy()
             .get_store(machine.drive)
             .map(|store| store.stored()),
-        Some(energy),
-        "primitive recharge must restore exactly the requested stored work"
+        Some(machine.drive_capacity),
+        "primitive accumulator fill must reach its authored capacity exactly"
     );
     ticks
 }
 
-fn crush_autonomous_batch(
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct SteadyStateWork {
+    cycles: u64,
+    payback_cycle: Option<u64>,
+    charge_ticks: u64,
+    machine_ticks: u64,
+    useful_overlap_ticks: u64,
+    player_free_ticks: u64,
+}
+
+fn run_steady_state_crushing(
     registries: &Registries,
     state: &mut AppState,
     ore_storage: deep_hearth::inventory::StockpileId,
     crushed_storage: deep_hearth::inventory::StockpileId,
     machine: PrimitiveMachine,
+    hard_ore_deposit: deep_hearth::geology::GeologicalDepositId,
+    pick: deep_hearth::equipment::EquipmentId,
     mass: Mass,
-    expected_energy: Energy,
-) -> u64 {
-    assert_eq!(state.player_work().active(), None);
-    let selection = select_stockpile_mass(state, ore_storage, mass);
-    let resolved = resolve_comminution_process(
-        registries,
-        state,
-        ComminutionRequest::new(
-            PROCESS_CRUSH_ORE,
+    required_player_free_ticks: u64,
+) -> SteadyStateWork {
+    let mut totals = SteadyStateWork::default();
+    let mut payback_cycle = None;
+    for cycle in 1..=MAX_STEADY_STATE_CRUSH_CYCLES {
+        totals.cycles = cycle;
+        totals.charge_ticks = totals
+            .charge_ticks
+            .checked_add(fill_primitive_accumulator(registries, state, machine))
+            .unwrap_or_else(|| panic!("primitive steady-state charge duration overflowed"));
+        let work = crush_while_mining(
+            registries,
+            state,
             ore_storage,
-            selection.as_slice(),
-            machine.crusher,
-            machine.drive,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("primitive autonomous repeat resolution failed: {error}"));
-    assert_eq!(resolved.required_energy(), expected_energy);
-    let ticks = resolved.process_resolution().duration().value();
-    let job = validate_start_process(
-        registries,
-        state,
-        resolved.process_resolution(),
-        ore_storage,
-        crushed_storage,
-    )
-    .unwrap_or_else(|error| panic!("primitive autonomous repeat start failed: {error}"))
-    .commit(state)
-    .unwrap_or_else(|error| panic!("primitive autonomous repeat commit failed: {error}"));
-    assert!(state.production().get_job(job).is_some());
-    advance_exact(registries, state, ticks);
-    assert!(
-        state.production().get_job(job).is_none(),
-        "primitive autonomous repeat must complete without direct player labor"
-    );
-    ticks
+            crushed_storage,
+            machine,
+            mass,
+            machine.required_energy,
+            ConcurrentMiningPlan {
+                deposit: hard_ore_deposit,
+                destination: ore_storage,
+                pick,
+                mass,
+            },
+        );
+        let player_free = finish_autonomous_crush(registries, state, work);
+        let useful_overlap = work
+            .crush_ticks
+            .checked_sub(player_free)
+            .unwrap_or_else(|| panic!("steady-state free time exceeded machine duration"));
+        totals.machine_ticks = totals
+            .machine_ticks
+            .checked_add(work.crush_ticks)
+            .unwrap_or_else(|| panic!("primitive steady-state machine duration overflowed"));
+        totals.useful_overlap_ticks = totals
+            .useful_overlap_ticks
+            .checked_add(useful_overlap)
+            .unwrap_or_else(|| panic!("primitive steady-state overlap duration overflowed"));
+        totals.player_free_ticks = totals
+            .player_free_ticks
+            .checked_add(player_free)
+            .unwrap_or_else(|| panic!("primitive steady-state free duration overflowed"));
+        if payback_cycle.is_none() && totals.player_free_ticks >= required_player_free_ticks {
+            payback_cycle = Some(cycle);
+        }
+    }
+    totals.payback_cycle = payback_cycle;
+    totals
 }
 
 #[derive(Clone, Copy)]
@@ -1146,9 +1234,12 @@ fn run_primitive_progression_case(
     let three_mining_batches = two_mining_batches
         .checked_add(mined_mass)
         .unwrap_or_else(|| panic!("primitive progression ore fixture mass overflowed"));
-    let ore_total = three_mining_batches
-        .checked_add(mined_mass)
-        .unwrap_or_else(|| panic!("primitive progression ore fixture mass overflowed"));
+    let ore_storage_capacity = three_mining_batches;
+    let crushed_storage_capacity = multiply_mass(
+        mined_mass,
+        MAX_STEADY_STATE_CRUSH_CYCLES + 2,
+        "crushed-storage capacity",
+    );
     let soft_ore_surplus = Mass::from_milligrams(
         1 + mix64(seed ^ 0x534F_4654_5F4F_5245) % mined_mass.milligrams().max(1),
     );
@@ -1159,15 +1250,19 @@ fn run_primitive_progression_case(
     let soft_ore_deposit_mass = three_mining_batches
         .checked_add(soft_ore_surplus)
         .unwrap_or_else(|| panic!("primitive progression soft-ore reserve mass overflowed"));
-    let hard_ore_deposit_mass = three_mining_batches
-        .checked_add(hard_ore_surplus)
-        .unwrap_or_else(|| panic!("primitive progression hard-ore reserve mass overflowed"));
+    let hard_ore_deposit_mass = multiply_mass(
+        mined_mass,
+        MAX_STEADY_STATE_CRUSH_CYCLES + 2,
+        "hard-ore reserve",
+    )
+    .checked_add(hard_ore_surplus)
+    .unwrap_or_else(|| panic!("primitive progression hard-ore reserve mass overflowed"));
     let ore_copper_ppm = 450_000 + (mix64(seed ^ 0x5052_4F47_4752_4144) % 300_001) as u32;
     let PrimitiveMaterialPlan {
         raw_inputs,
         raw_capacity,
         shaped_capacity,
-        native_copper,
+        native_copper: total_native_copper,
     } = primitive_material_plan(registries);
     let raw_seed_inputs = raw_inputs
         .into_iter()
@@ -1203,18 +1298,21 @@ fn run_primitive_progression_case(
         pick_upgrade_native, crank_upgrade_native,
         "primitive competing copper upgrades must require the same scarce native-copper investment"
     );
+    let two_upgrade_native = pick_upgrade_native
+        .checked_add(crank_upgrade_native)
+        .unwrap_or_else(|| panic!("primitive two-upgrade native-copper requirement overflowed"));
     assert_eq!(
-        pick_upgrade_native, native_copper,
-        "primitive material plan must provision exactly one competing copper upgrade"
+        two_upgrade_native, total_native_copper,
+        "primitive material plan must provision both sequential copper upgrades"
     );
     assert!(
-        native_copper.milligrams() > 1,
+        pick_upgrade_native.milligrams() > 1,
         "primitive scarce-copper episode requires a nontrivial upgrade parcel"
     );
     let native_surplus = Mass::from_milligrams(
-        1 + mix64(seed ^ 0x4E41_5449_5645_5355) % (native_copper.milligrams() - 1),
+        1 + mix64(seed ^ 0x4E41_5449_5645_5355) % (pick_upgrade_native.milligrams() - 1),
     );
-    let native_deposit_mass = native_copper
+    let native_deposit_mass = total_native_copper
         .checked_add(native_surplus)
         .unwrap_or_else(|| panic!("primitive progression native-copper reserve overflowed"));
 
@@ -1223,9 +1321,9 @@ fn run_primitive_progression_case(
         .unwrap_or_else(|error| panic!("primitive progression survival setup failed: {error}"));
     let raw = add_solid_stockpile(&mut state, raw_seed_capacity);
     let shaped = add_solid_stockpile(&mut state, shaped_capacity);
-    let ore_storage = add_solid_stockpile(&mut state, ore_total);
-    let native_storage = add_solid_stockpile(&mut state, native_copper);
-    let crushed_storage = add_solid_stockpile(&mut state, ore_total);
+    let ore_storage = add_solid_stockpile(&mut state, ore_storage_capacity);
+    let native_storage = add_solid_stockpile(&mut state, total_native_copper);
+    let crushed_storage = add_solid_stockpile(&mut state, crushed_storage_capacity);
     for (commodity, mass) in raw_seed_inputs {
         seed_lot(
             registries,
@@ -1320,14 +1418,13 @@ fn run_primitive_progression_case(
         native_deposit,
         native_storage,
         pick,
-        native_copper,
+        pick_upgrade_native,
         stone_pick_batch_limit,
     );
-    let native_copper_remaining = native_surplus;
-    assert!(
-        native_copper_remaining < native_copper,
-        "primitive priority episode must leave too little native copper for the competing second upgrade"
-    );
+    let native_copper_remaining_after_first = crank_upgrade_native
+        .checked_add(native_surplus)
+        .unwrap_or_else(|| panic!("primitive remaining native-copper reserve overflowed"));
+    assert!(native_copper_remaining_after_first >= crank_upgrade_native);
     assert_eq!(
         validate_start_mining(
             registries,
@@ -1346,12 +1443,15 @@ fn run_primitive_progression_case(
         "the known hard seam must be a real blocked affordance before pick reinforcement"
     );
     let (
-        machine,
-        reinforced_mining_ticks,
+        mut machine,
+        mut reinforced_mining_ticks,
         concurrent_work,
         concurrent_task,
-        pick_upgraded_at,
-        hard_seam_accessed_at,
+        mut pick_upgraded_at,
+        mut hard_seam_accessed_at,
+        first_upgrade_at,
+        hard_ore_before_convergence,
+        initial_crank_reinforced,
     ) = match priority {
         PrimitivePriority::ExtractionFirst => {
             reinforce_pick(registries, &mut state, raw, native_storage, shaped, pick);
@@ -1384,19 +1484,22 @@ fn run_primitive_progression_case(
                 mined_mass,
                 machine.required_energy,
                 ConcurrentMiningPlan {
-                    deposit: hard_ore_deposit,
-                    destination: ore_storage,
+                    deposit: native_deposit,
+                    destination: native_storage,
                     pick,
-                    mass: mined_mass,
+                    mass: crank_upgrade_native,
                 },
             );
             (
                 machine,
                 Some(reinforced_mining_ticks),
                 concurrent_work,
-                "hard-ore",
+                "second-native-copper",
                 Some(pick_upgraded_at),
                 Some(hard_seam_accessed_at),
+                pick_upgraded_at,
+                mined_mass,
+                false,
             )
         }
         PrimitivePriority::MechanizationFirst => {
@@ -1419,15 +1522,77 @@ fn run_primitive_progression_case(
                 mined_mass,
                 machine.required_energy,
                 ConcurrentMiningPlan {
-                    deposit: soft_ore_deposit,
-                    destination: ore_storage,
+                    deposit: native_deposit,
+                    destination: native_storage,
                     pick,
-                    mass: mined_mass,
+                    mass: pick_upgrade_native,
                 },
             );
-            (machine, None, concurrent_work, "soft-ore", None, None)
+            let first_upgrade_at = machine.crank_upgraded_at.unwrap_or_else(|| {
+                panic!("mechanization-first machine did not record its crank reinforcement")
+            });
+            (
+                machine,
+                None,
+                concurrent_work,
+                "second-native-copper",
+                None,
+                None,
+                first_upgrade_at,
+                Mass::ZERO,
+                true,
+            )
         }
     };
+
+    let first_processed_output_at = concurrent_work
+        .machine_started_at
+        .checked_add(concurrent_work.crush_ticks)
+        .unwrap_or_else(|| panic!("primitive processed-output milestone overflowed"));
+    assert!(
+        state.tick().value() < first_processed_output_at,
+        "the second copper parcel must be acquired while the primary crusher is still working so automation actually returns useful player attention"
+    );
+    let second_upgrade_work_started_at = state.tick().value();
+    let second_upgrade_at = match priority {
+        PrimitivePriority::ExtractionFirst => {
+            reinforce_crank(
+                registries,
+                &mut state,
+                raw,
+                native_storage,
+                shaped,
+                machine.crank,
+            );
+            let upgraded_at = state.tick().value();
+            machine = PrimitiveMachine {
+                crank_reinforced: true,
+                crank_upgraded_at: Some(upgraded_at),
+                ..machine
+            };
+            upgraded_at
+        }
+        PrimitivePriority::MechanizationFirst => {
+            reinforce_pick(registries, &mut state, raw, native_storage, shaped, pick);
+            let upgraded_at = state.tick().value();
+            pick_upgraded_at = Some(upgraded_at);
+            upgraded_at
+        }
+    };
+    assert!(
+        second_upgrade_at > first_upgrade_at,
+        "the competing copper upgrades must remain a real sequencing decision"
+    );
+    let second_upgrade_machine_overlap_ticks = first_processed_output_at
+        .checked_sub(second_upgrade_work_started_at)
+        .unwrap_or_else(|| {
+            panic!("second-upgrade work began after the primary machine had already finished")
+        });
+    assert!(
+        second_upgrade_machine_overlap_ticks > 0,
+        "autonomous crushing must free at least one tick for acquiring or forging the second upgrade"
+    );
+
     let primary_player_free_ticks =
         finish_autonomous_crush(registries, &mut state, concurrent_work);
     let machine_useful_overlap_ticks = concurrent_work
@@ -1450,11 +1615,27 @@ fn run_primitive_progression_case(
                 pick_upgraded_at < concurrent_work.machine_started_at,
                 "extraction-first priority must improve extraction before starting autonomous work"
             );
-            assert!(!machine.crank_reinforced);
+            assert!(!initial_crank_reinforced && machine.crank_reinforced);
         }
         PrimitivePriority::MechanizationFirst => {
-            assert!(pick_upgraded_at.is_none() && hard_seam_accessed_at.is_none());
-            assert!(machine.crank_reinforced);
+            assert!(initial_crank_reinforced && machine.crank_reinforced);
+            let pick_upgraded_at = pick_upgraded_at.unwrap_or_else(|| {
+                panic!("mechanization-first never acquired its second pick upgrade")
+            });
+            assert!(
+                first_processed_output_at < pick_upgraded_at,
+                "mechanization-first must produce autonomous output before converging on the pick upgrade"
+            );
+            let ticks = mine_and_claim(
+                registries,
+                &mut state,
+                hard_ore_deposit,
+                ore_storage,
+                pick,
+                mined_mass,
+            );
+            reinforced_mining_ticks = Some(ticks);
+            hard_seam_accessed_at = Some(state.tick().value());
         }
     }
 
@@ -1473,10 +1654,6 @@ fn run_primitive_progression_case(
             .unwrap_or_else(|| unreachable!("charge is bounded below by required crusher energy")),
         "primary crushing must preserve the player's intentionally banked follow-up work"
     );
-    let reserve_deposit = match priority {
-        PrimitivePriority::ExtractionFirst => hard_ore_deposit,
-        PrimitivePriority::MechanizationFirst => soft_ore_deposit,
-    };
     let reserve_work = crush_while_mining(
         registries,
         &mut state,
@@ -1486,7 +1663,7 @@ fn run_primitive_progression_case(
         machine.reserve_mass,
         banked_energy,
         ConcurrentMiningPlan {
-            deposit: reserve_deposit,
+            deposit: hard_ore_deposit,
             destination: ore_storage,
             pick,
             mass: mined_mass,
@@ -1509,16 +1686,20 @@ fn run_primitive_progression_case(
             panic!("primitive progression flywheel disappeared after reserve crushing")
         });
     assert_eq!(drive_after_reserve, Energy::ZERO);
-    let recharge_ticks =
-        recharge_primitive_machine(registries, &mut state, machine, machine.drive_capacity);
-    let repeated_crush_ticks = crush_autonomous_batch(
+    let required_steady_state_free_ticks = machine
+        .preparation_ticks
+        .saturating_sub(primary_player_free_ticks)
+        .saturating_sub(reserve_player_free_ticks);
+    let steady_state = run_steady_state_crushing(
         registries,
         &mut state,
         ore_storage,
         crushed_storage,
         machine,
+        hard_ore_deposit,
+        pick,
         mined_mass,
-        machine.required_energy,
+        required_steady_state_free_ticks,
     );
     let drive_remaining = state
         .energy()
@@ -1527,46 +1708,20 @@ fn run_primitive_progression_case(
         .unwrap_or_else(|| {
             panic!("primitive progression flywheel disappeared after repeated crushing")
         });
-    let expected_remaining = machine
-        .drive_capacity
-        .checked_sub(machine.required_energy)
-        .unwrap_or_else(|| unreachable!("one crusher batch fits the primitive flywheel"));
-    assert_eq!(
-        drive_remaining, expected_remaining,
-        "full recharge should leave unused stored work after one repeated crusher batch"
-    );
-    if priority == PrimitivePriority::MechanizationFirst {
-        assert_eq!(
-            validate_start_mining(
-                registries,
-                &state,
-                MINING_METHOD_HAND_PICK,
-                hard_ore_deposit,
-                ore_storage,
-                pick,
-                mined_mass,
-            )
-            .err(),
-            Some(MiningStartError::DepositTooHard {
-                hardness: hard_seam_hardness,
-                maximum: stone_hardness_limit,
-            }),
-            "mechanization-first must still own the consequences of spending scarce copper on the crank"
-        );
-    }
+    assert!(drive_remaining <= machine.drive_capacity);
     let survival_after = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("primitive progression final survival state disappeared"));
     let total_ore_reserve = soft_ore_deposit_mass
         .checked_add(hard_ore_deposit_mass)
         .unwrap_or_else(|| panic!("primitive progression combined ore reserve overflowed"));
-    let hard_ore_mined = match priority {
-        PrimitivePriority::ExtractionFirst => three_mining_batches,
-        PrimitivePriority::MechanizationFirst => Mass::ZERO,
-    };
-    let total_ore_mined = match priority {
-        PrimitivePriority::ExtractionFirst => ore_total,
-        PrimitivePriority::MechanizationFirst => three_mining_batches,
-    };
+    let steady_mined = multiply_mass(mined_mass, steady_state.cycles, "steady-state mined");
+    let hard_ore_mined = two_mining_batches
+        .checked_add(steady_mined)
+        .unwrap_or_else(|| panic!("primitive hard-ore accounting overflowed"));
+    let total_ore_mined = three_mining_batches
+        .checked_add(steady_mined)
+        .unwrap_or_else(|| panic!("primitive total-ore accounting overflowed"));
+    let native_copper_remaining = native_surplus;
     let unmined_ore_reserve = total_ore_reserve
         .checked_sub(total_ore_mined)
         .unwrap_or_else(|| unreachable!("ore world fixture exceeds the actor's actual extraction"));
@@ -1583,7 +1738,7 @@ fn run_primitive_progression_case(
     );
     let processed_mass = mined_mass
         .checked_add(machine.reserve_mass)
-        .and_then(|mass| mass.checked_add(mined_mass))
+        .and_then(|mass| mass.checked_add(steady_mined))
         .unwrap_or_else(|| panic!("primitive progression processed mass overflowed"));
     assert_eq!(
         state
@@ -1621,29 +1776,32 @@ fn run_primitive_progression_case(
     let total_machine_work_ticks = concurrent_work
         .crush_ticks
         .checked_add(reserve_work.crush_ticks)
-        .and_then(|ticks| ticks.checked_add(repeated_crush_ticks))
+        .and_then(|ticks| ticks.checked_add(steady_state.machine_ticks))
         .unwrap_or_else(|| panic!("primitive autonomous-work duration overflowed"));
     let total_useful_overlap_ticks = machine_useful_overlap_ticks
         .checked_add(reserve_useful_overlap_ticks)
+        .and_then(|ticks| ticks.checked_add(steady_state.useful_overlap_ticks))
         .unwrap_or_else(|| panic!("primitive useful-overlap duration overflowed"));
     let total_player_free_ticks = primary_player_free_ticks
         .checked_add(reserve_player_free_ticks)
-        .and_then(|ticks| ticks.checked_add(repeated_crush_ticks))
+        .and_then(|ticks| ticks.checked_add(steady_state.player_free_ticks))
         .unwrap_or_else(|| panic!("primitive player-free autonomous duration overflowed"));
     let total_charge_ticks = machine
         .charge_ticks
-        .checked_add(recharge_ticks)
+        .checked_add(steady_state.charge_ticks)
         .unwrap_or_else(|| panic!("primitive charging attention overflowed"));
     let experience = PrimitiveProgressionExperience {
         priority,
         primary_batch_mass: mined_mass,
+        first_upgrade_at,
+        second_upgrade_at,
         pick_upgraded_at,
         hard_seam_accessed_at,
         machine_started_at: concurrent_work.machine_started_at,
-        first_processed_output_at: concurrent_work
-            .machine_started_at
-            .checked_add(concurrent_work.crush_ticks)
-            .unwrap_or_else(|| panic!("primitive processed-output milestone overflowed")),
+        machine_preparation_ticks: machine.preparation_ticks,
+        attention_payback_cycles: steady_state.payback_cycle,
+        initial_full_charge_ticks: machine.full_charge_ticks,
+        first_processed_output_at,
         elapsed_ticks: state.tick().value(),
         soft_ore_mining_ticks: stone_mining_ticks,
         reinforced_mining_ticks,
@@ -1655,14 +1813,16 @@ fn run_primitive_progression_case(
         reserve_useful_overlap_ticks,
         machine_player_free_ticks: total_player_free_ticks,
         hard_ore_mined,
+        hard_ore_before_convergence,
         total_ore_mined,
         native_copper_remaining,
+        initial_crank_reinforced,
         crank_reinforced: machine.crank_reinforced,
         final_pick_condition_ppm,
         metabolic_energy_spent_nj,
         hydration_spent_ul,
     };
-    let (chosen_upgrade, foregone_upgrade) = match priority {
+    let (first_upgrade, second_upgrade) = match priority {
         PrimitivePriority::ExtractionFirst => ("pick", "hand-crank"),
         PrimitivePriority::MechanizationFirst => ("hand-crank", "pick"),
     };
@@ -1675,62 +1835,74 @@ fn run_primitive_progression_case(
 
     if emit_detail && std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
-            "PLAYABLE PROGRESSION seed=0x{seed:016X} priority={} world-bootstrap=[raw-gathered-matter-surplus:{}mg,preauthorized-soft+hard-ore-site-identities,preauthorized-native-copper-site-identity,empty-storage] discovery=not-modeled episode-scope=[natural-actions-only catalog-outside-episode:clay-vessel] canonical=shape->assemble->mine-soft->encounter-hardness-gate->spend-one-scarce-upgrade->pursue-extraction-or-mechanization->store-work->autonomous-crush fantasy=survive->craft-tools->make-competing-material-investments->turn-investment-into-affordance->store-work->delegate-repetition->work-in-parallel",
+            "PLAYABLE PROGRESSION seed=0x{seed:016X} priority={} world-bootstrap=[raw-gathered-matter-surplus:{}mg,preauthorized-soft+hard-ore-site-identities,preauthorized-native-copper-site-identity,empty-storage] discovery=not-modeled episode-scope=[natural-actions-only catalog-outside-episode:clay-vessel] canonical=shape->assemble->mine-soft->encounter-hardness-gate->choose-first-copper-upgrade->exercise-new-affordance->store-work->autonomous-crush+acquire-second-copper->forge-second-upgrade->converge->repeat fantasy=survive->craft-tools->sequence-competing-investments->turn-investment-into-affordance->store-work->delegate-repetition->spend-returned-attention-on-further-progression",
             priority.label(),
             raw_surplus.milligrams(),
         );
         std::println!(
-            "PROGRESSION DECISION choice=[spent:{}:{}mg foregone:{} second-affordable:false native-remaining:{}mg] milestones=[pick-upgrade:{} hard-seam-access:{} machine-start:{}t] hardness=[hard-seam:{}Pa stone-limit:{}Pa reinforced-limit:{}Pa blocked-before-choice:true]",
-            chosen_upgrade,
-            native_copper.milligrams(),
-            foregone_upgrade,
+            "PROGRESSION DECISION sequence=[first:{}:{}mg@{}t second:{}:{}mg@{}t native-after-first:{}mg final-native-reserve:{}mg] milestones=[pick-upgrade:{} hard-seam-access:{} machine-start:{}t first-output:{}t] hardness=[hard-seam:{}Pa stone-limit:{}Pa reinforced-limit:{}Pa blocked-before-choice:true]",
+            first_upgrade,
+            pick_upgrade_native.milligrams(),
+            first_upgrade_at,
+            second_upgrade,
+            crank_upgrade_native.milligrams(),
+            second_upgrade_at,
+            native_copper_remaining_after_first.milligrams(),
             native_copper_remaining.milligrams(),
             pick_milestone,
             hard_seam_milestone,
             concurrent_work.machine_started_at,
+            first_processed_output_at,
             hard_seam_hardness.pascals(),
             stone_hardness_limit.pascals(),
             reinforced_hardness_limit.pascals(),
         );
         std::println!(
-            "PROGRESSION SYSTEMS ore=[grade:{}ppm:composition-only batch:{}mg stone-mining:{}t reinforced-mining:{:?} total-mined:{}mg hard-mined:{}mg remaining:{}mg] native=[mining:{}t invested:{}mg remaining:{}mg] infrastructure=[drive:{}mg crusher:{}mg] stored-work=[fill:{}ppm initial-charge:{}nJ primary:{}nJ banked:{}nJ follow-up:{}mg:{}t recharge:{}nJ:{}t repeat:{}mg:{}t final:{}nJ] charge=[crank-reinforced:{} initial:{}t total:{}t] mechanization=[primary:{}t initial-concurrent:{}:{}t initial-overlap:{}t primary-productive-overlap:{}t primary-player-free:{}t reserve:{}t reserve-mining:{}t reserve-productive-overlap:{}t reserve-player-free:{}t repeated-autonomous:{}t total-productive-overlap:{}t total-player-free:{}t processed:{}mg] durability=[pick:{}ppm] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
+            "PROGRESSION SYSTEMS ore=[grade:{}ppm:composition-only batch:{}mg stone-mining:{}t reinforced-mining:{:?} total-mined:{}mg hard-before-convergence:{}mg hard-mined:{}mg remaining:{}mg] native=[initial-mining:{}t second-mining:{}t invested-total:{}mg remaining:{}mg] infrastructure=[drive:{}mg crusher:{}mg preparation:{}t] stored-work=[fill:{}ppm initial-charge:{}nJ primary:{}nJ banked:{}nJ follow-up:{}mg:{}t steady-cycles:{} payback:{:?} steady-charge:{}t final:{}nJ] charge=[crank-reinforced-initial:{} final:{} full-accumulator:{}t initial:{}t total:{}t] mechanization=[primary:{}t initial-concurrent:{}:{}t initial-overlap:{}t second-upgrade-overlap:{}t primary-productive-overlap:{}t primary-player-free:{}t reserve:{}t reserve-mining:{}t reserve-productive-overlap:{}t reserve-player-free:{}t steady-machine:{}t steady-productive-overlap:{}t steady-player-free:{}t total-productive-overlap:{}t total-player-free:{}t processed:{}mg] durability=[pick:{}ppm] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
             ore_copper_ppm,
             mined_mass.milligrams(),
             stone_mining_ticks,
             reinforced_mining_ticks,
             total_ore_mined.milligrams(),
+            hard_ore_before_convergence.milligrams(),
             hard_ore_mined.milligrams(),
             unmined_ore_reserve.milligrams(),
             native_mining_ticks,
-            native_copper.milligrams(),
+            concurrent_work.player_work_ticks,
+            total_native_copper.milligrams(),
             native_copper_remaining.milligrams(),
             drive_mass.milligrams(),
             crusher_mass.milligrams(),
+            machine.preparation_ticks,
             machine.charge_fill_ppm,
             machine.charge_energy.nanojoules(),
             machine.required_energy.nanojoules(),
             banked_energy.nanojoules(),
             machine.reserve_mass.milligrams(),
             reserve_work.crush_ticks,
-            machine.drive_capacity.nanojoules(),
-            recharge_ticks,
-            mined_mass.milligrams(),
-            repeated_crush_ticks,
+            steady_state.cycles,
+            steady_state.payback_cycle,
+            steady_state.charge_ticks,
             drive_remaining.nanojoules(),
+            initial_crank_reinforced,
             machine.crank_reinforced,
+            machine.full_charge_ticks,
             machine.charge_ticks,
             total_charge_ticks,
             concurrent_work.crush_ticks,
             concurrent_task,
             concurrent_work.player_work_ticks,
             concurrent_work.overlap_ticks,
+            second_upgrade_machine_overlap_ticks,
             machine_useful_overlap_ticks,
             primary_player_free_ticks,
             reserve_work.crush_ticks,
             reserve_work.player_work_ticks,
             reserve_useful_overlap_ticks,
             reserve_player_free_ticks,
-            repeated_crush_ticks,
+            steady_state.machine_ticks,
+            steady_state.useful_overlap_ticks,
+            steady_state.player_free_ticks,
             total_useful_overlap_ticks,
             total_player_free_ticks,
             processed_mass.milligrams(),
@@ -1755,17 +1927,22 @@ pub(super) struct PrimitiveProgressionReview {
     pub(super) processed_output_has_playable_acquisition_use: bool,
     pub(super) crank_power_gain_ppm: u32,
     pub(super) crank_attention_reduction_ppm: u32,
+    pub(super) extraction_hard_access_lead_ticks: u64,
     pub(super) mechanization_autonomy_lead_ticks: u64,
     pub(super) mechanization_output_delta_ticks: i128,
-    pub(super) extraction_hard_ore_mass_mg: u64,
-    pub(super) extraction_extra_ore_mass_mg: u64,
+    pub(super) mechanization_convergence_delta_ticks: i128,
+    pub(super) extraction_hard_ore_before_convergence_mg: u64,
     pub(super) scarce_copper_remaining_mg: u64,
-    pub(super) persistent_upgrade_tradeoff: bool,
-    pub(super) mechanization_processed_without_pick_upgrade: bool,
+    pub(super) sequencing_tradeoff: bool,
+    pub(super) converged_both_upgrades: bool,
+    pub(super) mechanization_processed_before_pick_upgrade: bool,
+    pub(super) machine_preparation_ticks: u64,
+    pub(super) attention_payback_cycles: Option<u64>,
     pub(super) machine_work_ticks: u64,
     pub(super) reserve_machine_work_ticks: u64,
     pub(super) mechanization_useful_overlap_ticks: u64,
     pub(super) reserve_useful_overlap_ticks: u64,
+    pub(super) returned_player_free_ticks: u64,
     pub(super) mechanization_player_free_delta_ticks: i128,
     pub(super) mechanization_elapsed_delta_ticks: i128,
 }
@@ -1865,19 +2042,32 @@ pub(super) fn evaluate_primitive_progression_probe(
 
     let extraction_pick_at = extraction
         .pick_upgraded_at
-        .unwrap_or_else(|| panic!("extraction-first failed to spend scarce copper on the pick"));
+        .unwrap_or_else(|| panic!("extraction-first never acquired its pick reinforcement"));
+    let mechanization_pick_at = mechanization
+        .pick_upgraded_at
+        .unwrap_or_else(|| panic!("mechanization-first never converged on the pick reinforcement"));
     let extraction_hard_at = extraction.hard_seam_accessed_at.unwrap_or_else(|| {
         panic!("extraction-first pick upgrade failed to unlock the known hard seam")
+    });
+    let mechanization_hard_at = mechanization.hard_seam_accessed_at.unwrap_or_else(|| {
+        panic!("mechanization-first failed to reach the hard seam after convergence")
     });
     let extraction_reinforced_mining_ticks = extraction
         .reinforced_mining_ticks
         .unwrap_or_else(|| panic!("extraction-first never exercised its reinforced pick"));
-    assert!(mechanization.pick_upgraded_at.is_none());
-    assert!(mechanization.hard_seam_accessed_at.is_none());
-    assert!(!extraction.crank_reinforced && mechanization.crank_reinforced);
+    let mechanization_reinforced_mining_ticks = mechanization
+        .reinforced_mining_ticks
+        .unwrap_or_else(|| panic!("mechanization-first never exercised its reinforced pick"));
+    assert!(!extraction.initial_crank_reinforced);
+    assert!(mechanization.initial_crank_reinforced);
+    assert!(extraction.crank_reinforced && mechanization.crank_reinforced);
+    assert_eq!(extraction.first_upgrade_at, extraction_pick_at);
+    assert!(mechanization.first_upgrade_at < mechanization_pick_at);
+    assert!(extraction.second_upgrade_at > extraction.first_upgrade_at);
+    assert!(mechanization.second_upgrade_at > mechanization.first_upgrade_at);
     assert_eq!(
         extraction.native_copper_remaining, mechanization.native_copper_remaining,
-        "matched-world scarce copper residue must not depend on the chosen upgrade"
+        "matched-world native-copper residue must not depend on upgrade order"
     );
     assert!(
         mechanization.machine_started_at < extraction.machine_started_at,
@@ -1885,11 +2075,13 @@ pub(super) fn evaluate_primitive_progression_probe(
     );
     assert!(
         extraction_reinforced_mining_ticks < extraction.soft_ore_mining_ticks,
-        "spending scarce copper on the pick must reduce actual mining attention"
+        "pick reinforcement must reduce actual mining attention"
     );
-    assert!(extraction.hard_ore_mined > Mass::ZERO);
-    assert_eq!(mechanization.hard_ore_mined, Mass::ZERO);
-    assert!(extraction.total_ore_mined > mechanization.total_ore_mined);
+    assert!(mechanization_reinforced_mining_ticks < mechanization.soft_ore_mining_ticks);
+    assert_eq!(extraction.hard_ore_mined, mechanization.hard_ore_mined);
+    assert_eq!(extraction.total_ore_mined, mechanization.total_ore_mined);
+    assert!(extraction.hard_ore_before_convergence > Mass::ZERO);
+    assert_eq!(mechanization.hard_ore_before_convergence, Mass::ZERO);
     assert_eq!(
         extraction.machine_work_ticks, mechanization.machine_work_ticks,
         "matched-world priorities must compare the same autonomous crusher workload"
@@ -1907,22 +2099,26 @@ pub(super) fn evaluate_primitive_progression_probe(
         .machine_started_at
         .checked_sub(mechanization.machine_started_at)
         .unwrap_or_else(|| unreachable!("mechanization-first already wins autonomous-work access"));
-    let mechanization_processed_without_pick_upgrade = mechanization.pick_upgraded_at.is_none()
-        && mechanization.hard_seam_accessed_at.is_none()
-        && mechanization.first_processed_output_at > mechanization.machine_started_at;
-    let persistent_upgrade_tradeoff = extraction.pick_upgraded_at.is_some()
+    let extraction_hard_access_lead_ticks = mechanization_hard_at
+        .checked_sub(extraction_hard_at)
+        .unwrap_or_else(|| panic!("extraction-first must reach the hard seam before convergence"));
+    let mechanization_processed_before_pick_upgrade = mechanization.machine_started_at
+        < mechanization.first_processed_output_at
+        && mechanization.first_processed_output_at < mechanization_pick_at;
+    let sequencing_tradeoff = extraction.first_upgrade_at == extraction_pick_at
+        && extraction_hard_at < extraction.machine_started_at
+        && extraction.hard_ore_before_convergence > Mass::ZERO
+        && mechanization.initial_crank_reinforced
+        && mechanization.machine_started_at < mechanization_pick_at
+        && mechanization.hard_ore_before_convergence == Mass::ZERO
+        && mechanization_processed_before_pick_upgrade;
+    let converged_both_upgrades = extraction.pick_upgraded_at.is_some()
+        && mechanization.pick_upgraded_at.is_some()
+        && extraction.crank_reinforced
+        && mechanization.crank_reinforced
         && extraction.hard_seam_accessed_at.is_some()
-        && !extraction.crank_reinforced
-        && mechanization.pick_upgraded_at.is_none()
-        && mechanization.hard_seam_accessed_at.is_none()
-        && mechanization.crank_reinforced;
-    let extraction_extra_ore_mass_mg = extraction
-        .total_ore_mined
-        .checked_sub(mechanization.total_ore_mined)
-        .unwrap_or_else(|| {
-            unreachable!("extraction-first mines more ore in the maintained episode")
-        })
-        .milligrams();
+        && mechanization.hard_seam_accessed_at.is_some()
+        && extraction.hard_ore_mined == mechanization.hard_ore_mined;
     let tool_attention_reduction_ppm = attention_reduction_ppm(
         extraction.soft_ore_mining_ticks,
         extraction_reinforced_mining_ticks,
@@ -1931,83 +2127,118 @@ pub(super) fn evaluate_primitive_progression_probe(
         nominal_manual_power(registries, EQUIPMENT_STONE_HAND_CRANK),
         nominal_manual_power(registries, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK),
     );
+    let stone_full_charge_ticks = extraction.initial_full_charge_ticks;
+    let reinforced_full_charge_ticks = mechanization.initial_full_charge_ticks;
     assert!(
-        mechanization.charge_ticks < extraction.charge_ticks,
+        reinforced_full_charge_ticks < stone_full_charge_ticks,
         "full flywheel recharge must make the reinforced crank's higher work rate observable"
     );
     let crank_attention_reduction_ppm =
-        attention_reduction_ppm(extraction.charge_ticks, mechanization.charge_ticks);
+        attention_reduction_ppm(stone_full_charge_ticks, reinforced_full_charge_ticks);
     let processed_output_has_playable_acquisition_use =
         playable_acquisition_consumes_crushed_material(registries);
-
-    std::println!(
-        "PROGRESSION STRATEGIC CHOICE seed=0x{seed:016X} scarce-copper={}mg residue={}mg second-upgrade-affordable:false persistent=[extraction-first:pick-upgraded@{}t hard-seam@{}t crank=stone hard-ore={}mg; mechanization-first:pick=stone hard-seam=locked crank=reinforced machine@{}t] autonomy-lead:{}t extraction-extra-ore:{}mg convergence=not-within-episode",
-        native_input_for_upgrade(registries, EQUIPMENT_COPPER_REINFORCED_PICK).milligrams(),
-        extraction.native_copper_remaining.milligrams(),
-        extraction_pick_at,
-        extraction_hard_at,
-        extraction.hard_ore_mined.milligrams(),
-        mechanization.machine_started_at,
-        mechanization_autonomy_lead_ticks,
-        extraction_extra_ore_mass_mg,
-    );
-    std::println!(
-        "PROGRESSION AGENCY seed=0x{seed:016X} matched-world choices=[extraction-first,mechanization-first] milestones=[machine-start:{}vs{}t first-processed-output:{}vs{}t] attention=[mining:stone:{}t reinforced:{}t reduction:{}ppm charge:stone:{}t reinforced:{}t reduction:{}ppm] resources=[ore-mined:{}vs{}mg hard-ore:{}vs{}mg native-residue:{}vs{}mg] autonomy=[machine-total:{}t reserve-cycle:{}t initial-overlap:{}vs{}t productive-overlap:{}vs{}t reserve-productive:{}vs{}t player-free-during-machine:{}vs{}t] final-pick=[{}vs{}ppm] survival=[energy:{}vs{}nJ hydration:{}vs{}uL] elapsed=[{}vs{}t] tradeoff=hard-material-access+greater-extraction-vs-earlier-autonomy+faster-stored-work",
-        extraction.machine_started_at,
-        mechanization.machine_started_at,
+    let mechanization_output_delta_ticks = tick_delta(
         extraction.first_processed_output_at,
         mechanization.first_processed_output_at,
-        extraction.soft_ore_mining_ticks,
-        extraction_reinforced_mining_ticks,
-        tool_attention_reduction_ppm,
-        extraction.charge_ticks,
-        mechanization.charge_ticks,
-        crank_attention_reduction_ppm,
-        extraction.total_ore_mined.milligrams(),
-        mechanization.total_ore_mined.milligrams(),
-        extraction.hard_ore_mined.milligrams(),
-        mechanization.hard_ore_mined.milligrams(),
-        extraction.native_copper_remaining.milligrams(),
-        mechanization.native_copper_remaining.milligrams(),
-        extraction.machine_work_ticks,
-        extraction.reserve_machine_work_ticks,
-        extraction.overlap_ticks,
-        mechanization.overlap_ticks,
-        extraction.machine_useful_overlap_ticks,
-        mechanization.machine_useful_overlap_ticks,
-        extraction.reserve_useful_overlap_ticks,
-        mechanization.reserve_useful_overlap_ticks,
-        extraction.machine_player_free_ticks,
-        mechanization.machine_player_free_ticks,
-        extraction.final_pick_condition_ppm,
-        mechanization.final_pick_condition_ppm,
-        extraction.metabolic_energy_spent_nj,
-        mechanization.metabolic_energy_spent_nj,
-        extraction.hydration_spent_ul,
-        mechanization.hydration_spent_ul,
-        extraction.elapsed_ticks,
-        mechanization.elapsed_ticks,
     );
+    let mechanization_convergence_delta_ticks = tick_delta(
+        extraction.second_upgrade_at,
+        mechanization.second_upgrade_at,
+    );
+    let returned_player_free_ticks = extraction
+        .machine_player_free_ticks
+        .min(mechanization.machine_player_free_ticks);
+    let machine_preparation_ticks = extraction
+        .machine_preparation_ticks
+        .max(mechanization.machine_preparation_ticks);
+    let attention_payback_cycles = match (
+        extraction.attention_payback_cycles,
+        mechanization.attention_payback_cycles,
+    ) {
+        (Some(extraction), Some(mechanization)) => Some(extraction.max(mechanization)),
+        _ => None,
+    };
+
+    if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
+        std::println!(
+            "PROGRESSION SEQUENCING seed=0x{seed:016X} first-investment=[extraction:pick@{}t hard-seam@{}t hard-before-convergence:{}mg; mechanization:crank@{}t machine@{}t output@{}t] convergence=[extraction:{}t mechanization:{}t lead:{:+}t mechanization-pick:{}t hard-seam:{}t] resource-parity=[final-hard-ore:{}vs{}mg total-ore:{}vs{}mg native-residue:{}mg]",
+            extraction.first_upgrade_at,
+            extraction_hard_at,
+            extraction.hard_ore_before_convergence.milligrams(),
+            mechanization.first_upgrade_at,
+            mechanization.machine_started_at,
+            mechanization.first_processed_output_at,
+            extraction.second_upgrade_at,
+            mechanization.second_upgrade_at,
+            mechanization_convergence_delta_ticks,
+            mechanization_pick_at,
+            mechanization_hard_at,
+            extraction.hard_ore_mined.milligrams(),
+            mechanization.hard_ore_mined.milligrams(),
+            extraction.total_ore_mined.milligrams(),
+            mechanization.total_ore_mined.milligrams(),
+            extraction.native_copper_remaining.milligrams(),
+        );
+        std::println!(
+            "PROGRESSION AGENCY seed=0x{seed:016X} matched-world choices=[extraction-first,mechanization-first] milestones=[machine-start:{}vs{}t first-output:{}vs{}t second-upgrade:{}vs{}t] attention=[mining:stone:{}t reinforced:{}t reduction:{}ppm episode-charge:{}vs{}t full-accumulator:stone:{}t reinforced:{}t reduction:{}ppm] autonomy=[machine-total:{}t reserve-cycle:{}t initial-overlap:{}vs{}t productive-overlap:{}vs{}t reserve-productive:{}vs{}t player-free:{}vs{}t] durability=[pick:{}vs{}ppm] survival=[energy:{}vs{}nJ hydration:{}vs{}uL] elapsed=[{}vs{}t]",
+            extraction.machine_started_at,
+            mechanization.machine_started_at,
+            extraction.first_processed_output_at,
+            mechanization.first_processed_output_at,
+            extraction.second_upgrade_at,
+            mechanization.second_upgrade_at,
+            extraction.soft_ore_mining_ticks,
+            extraction_reinforced_mining_ticks,
+            tool_attention_reduction_ppm,
+            extraction.charge_ticks,
+            mechanization.charge_ticks,
+            stone_full_charge_ticks,
+            reinforced_full_charge_ticks,
+            crank_attention_reduction_ppm,
+            extraction.machine_work_ticks,
+            extraction.reserve_machine_work_ticks,
+            extraction.overlap_ticks,
+            mechanization.overlap_ticks,
+            extraction.machine_useful_overlap_ticks,
+            mechanization.machine_useful_overlap_ticks,
+            extraction.reserve_useful_overlap_ticks,
+            mechanization.reserve_useful_overlap_ticks,
+            extraction.machine_player_free_ticks,
+            mechanization.machine_player_free_ticks,
+            extraction.final_pick_condition_ppm,
+            mechanization.final_pick_condition_ppm,
+            extraction.metabolic_energy_spent_nj,
+            mechanization.metabolic_energy_spent_nj,
+            extraction.hydration_spent_ul,
+            mechanization.hydration_spent_ul,
+            extraction.elapsed_ticks,
+            mechanization.elapsed_ticks,
+        );
+    }
 
     let review = PrimitiveProgressionReview {
         tool_attention_reduction_ppm,
         processed_output_has_playable_acquisition_use,
         crank_power_gain_ppm,
         crank_attention_reduction_ppm,
+        extraction_hard_access_lead_ticks,
         mechanization_autonomy_lead_ticks,
-        mechanization_output_delta_ticks: tick_delta(
-            extraction.first_processed_output_at,
-            mechanization.first_processed_output_at,
-        ),
-        extraction_hard_ore_mass_mg: extraction.hard_ore_mined.milligrams(),
-        extraction_extra_ore_mass_mg,
+        mechanization_output_delta_ticks,
+        mechanization_convergence_delta_ticks,
+        extraction_hard_ore_before_convergence_mg: extraction
+            .hard_ore_before_convergence
+            .milligrams(),
         scarce_copper_remaining_mg: extraction.native_copper_remaining.milligrams(),
-        persistent_upgrade_tradeoff,
-        mechanization_processed_without_pick_upgrade,
+        sequencing_tradeoff,
+        converged_both_upgrades,
+        mechanization_processed_before_pick_upgrade,
+        machine_preparation_ticks,
+        attention_payback_cycles,
         machine_work_ticks: mechanization.machine_work_ticks,
         reserve_machine_work_ticks: mechanization.reserve_machine_work_ticks,
         mechanization_useful_overlap_ticks: mechanization.machine_useful_overlap_ticks,
         reserve_useful_overlap_ticks: mechanization.reserve_useful_overlap_ticks,
+        returned_player_free_ticks,
         mechanization_player_free_delta_ticks: tick_delta(
             extraction.machine_player_free_ticks,
             mechanization.machine_player_free_ticks,
@@ -2017,43 +2248,55 @@ pub(super) fn evaluate_primitive_progression_probe(
             mechanization.elapsed_ticks,
         ),
     };
-    let fantasy_captured = review.persistent_upgrade_tradeoff
+    let fantasy_captured = review.sequencing_tradeoff
+        && review.converged_both_upgrades
         && review.tool_attention_reduction_ppm > 0
         && review.crank_power_gain_ppm > 0
         && review.crank_attention_reduction_ppm > 0
+        && review.extraction_hard_access_lead_ticks > 0
         && review.mechanization_autonomy_lead_ticks > 0
         && review.mechanization_output_delta_ticks > 0
-        && review.extraction_hard_ore_mass_mg > 0
-        && review.extraction_extra_ore_mass_mg > 0
-        && review.mechanization_processed_without_pick_upgrade
+        && review.mechanization_convergence_delta_ticks > 0
+        && review.extraction_hard_ore_before_convergence_mg > 0
+        && review.mechanization_processed_before_pick_upgrade
         && review.mechanization_useful_overlap_ticks > 0
-        && review.reserve_useful_overlap_ticks > 0;
+        && review.reserve_useful_overlap_ticks > 0
+        && review.returned_player_free_ticks > 0;
     assert!(
         fantasy_captured,
-        "primitive progression must turn one genuinely competing material investment into distinct persistent affordances"
+        "primitive progression must make upgrade order change immediate affordances while autonomous work accelerates convergence"
     );
     let output_material_utility = if review.processed_output_has_playable_acquisition_use {
         "playable-acquisition"
     } else {
         "capability-only-downstream"
     };
+    let payback = review
+        .attention_payback_cycles
+        .map(|cycles| format!("{cycles}cycles"))
+        .unwrap_or_else(|| format!("unreached-within-{MAX_STEADY_STATE_CRUSH_CYCLES}-cycles"));
     std::println!(
-        "PROGRESSION REVIEW fantasy=bootstrap-by-hand->invest-scarce-copper->choose-affordance->store-work->delegate-repetition captured:{fantasy_captured} agency=persistent-competing-upgrade observations=[tool-attention-reduction:{}ppm crank-power-gain:{}ppm observed-crank-attention-reduction:{}ppm extraction-hard-ore:{}mg extraction-extra-ore:{}mg scarce-copper-residue:{}mg autonomy-lead:{}t output-lead:{:+}t processed-without-pick:{} autonomous-work:{}t reserve-cycle:{}t mechanization-productive-overlap:{}t reserve-productive-overlap:{}t player-free-during-machine-delta:{:+}t mechanization-elapsed-delta:{:+}t] output-utility=[attention:direct material-progression:{output_material_utility}] interpretation=[copper-pick=hard-material-access+faster-extraction copper-crank=doubled-work-rate-leveraged-by-full-accumulator-recharge productive-overlap=useful-player-work-while-machine-runs crushed-ore-material-advancement-remains-outside-current-playable-slice] sign=[output/elapsed:+ means mechanization-first was earlier/lower; player-free:+ means extraction-first had more autonomous free-attention time]",
+        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=bootstrap-by-hand->sequence-investment->delegate-work->spend-returned-attention captured:{fantasy_captured} agency=sequencing+convergence observations=[tool-attention-reduction:{}ppm crank-power-gain:{}ppm charge-attention-reduction:{}ppm hard-before-convergence:{}mg hard-access-lead:{}t automation-lead:{}t output-lead:{:+}t convergence-lead:{:+}t processed-before-pick:{} both-upgrades:{} setup:{}t payback:{payback} autonomous-work:{}t productive-overlap:{}t reserve-overlap:{}t returned-free:{}t branch-free-delta:{:+}t elapsed-delta:{:+}t] final-parity=[hard-ore:{}vs{}mg native-residue:{}mg] output-utility=[attention:direct material-progression:{output_material_utility}] interpretation=[pick-first=hard-material-access-sooner crank-first=automation+faster-stored-work-sooner current-slice-balance=pick-first-has-stronger-immediate-material-affordance-until-crushed-ore-gains-material-use automation-window=second-upgrade-work crushed-ore-material-advancement=remaining-playable-frontier]",
         review.tool_attention_reduction_ppm,
         review.crank_power_gain_ppm,
         review.crank_attention_reduction_ppm,
-        review.extraction_hard_ore_mass_mg,
-        review.extraction_extra_ore_mass_mg,
-        review.scarce_copper_remaining_mg,
+        review.extraction_hard_ore_before_convergence_mg,
+        review.extraction_hard_access_lead_ticks,
         review.mechanization_autonomy_lead_ticks,
         review.mechanization_output_delta_ticks,
-        review.mechanization_processed_without_pick_upgrade,
+        review.mechanization_convergence_delta_ticks,
+        review.mechanization_processed_before_pick_upgrade,
+        review.converged_both_upgrades,
+        review.machine_preparation_ticks,
         review.machine_work_ticks,
-        review.reserve_machine_work_ticks,
         review.mechanization_useful_overlap_ticks,
         review.reserve_useful_overlap_ticks,
+        review.returned_player_free_ticks,
         review.mechanization_player_free_delta_ticks,
         review.mechanization_elapsed_delta_ticks,
+        extraction.hard_ore_mined.milligrams(),
+        mechanization.hard_ore_mined.milligrams(),
+        review.scarce_copper_remaining_mg,
     );
     review
 }
