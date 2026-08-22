@@ -21,7 +21,7 @@ use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
 use super::definitions::EquipmentDefinitionId;
-use super::maintenance_resolution::EquipmentRepairResolution;
+use super::maintenance_resolution::{EquipmentRepairResolution, impure_replacement_commodity};
 use super::state::EquipmentId;
 
 #[cfg(test)]
@@ -65,6 +65,9 @@ pub enum EquipmentRepairError {
         equipment: EquipmentId,
         before: Condition,
         after: Condition,
+    },
+    ImpureReplacementMaterial {
+        commodity: CommodityKey,
     },
     EquipmentRevisionExhausted,
     Material(EquipmentRepairMaterialError),
@@ -293,6 +296,11 @@ impl Display for EquipmentRepairError {
                 before.parts_per_million(),
                 after.parts_per_million()
             ),
+            Self::ImpureReplacementMaterial { commodity } => write!(
+                formatter,
+                "equipment repair replacement commodity {} must be pure authored material",
+                commodity.value()
+            ),
             Self::EquipmentRevisionExhausted => {
                 formatter.write_str("equipment revision space is exhausted during repair")
             }
@@ -341,6 +349,9 @@ impl Error for EquipmentRepairError {
                 equipment: _equipment,
                 before: _before,
                 after: _after,
+            } => None,
+            Self::ImpureReplacementMaterial {
+                commodity: _commodity,
             } => None,
             Self::EquipmentRevisionExhausted => None,
         }
@@ -709,6 +720,9 @@ pub fn validate_equipment_repair(
             before: condition_before,
             after: resolution.condition_after,
         });
+    }
+    if let Some(commodity) = impure_replacement_commodity(&resolution.material) {
+        return Err(EquipmentRepairError::ImpureReplacementMaterial { commodity });
     }
     let next_equipment_revision = state
         .equipment()

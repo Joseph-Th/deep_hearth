@@ -237,17 +237,76 @@ fn constituent_separation_turns_liberated_mixed_ore_into_exact_pure_streams() {
 }
 
 #[test]
-fn constituent_separation_keeps_sub_milligram_target_rounding_in_residue() {
+fn constituent_separation_preserves_fractional_target_in_mixed_residue_boundary() {
     let mass = Mass::from_milligrams(3);
     let fixture = fixture(mass, copper_stone_composition(500_000));
     let resolved = resolve(&fixture, mass);
 
     assert_eq!(resolved.target_mass(), Mass::from_milligrams(1));
     assert_eq!(resolved.residue_mass(), Mass::from_milligrams(2));
+    let streams = resolved.process_resolution().output_streams();
+    let target_outputs = streams
+        .iter()
+        .find(|stream| stream.id() == ConstituentSeparationProcessDefinition::TARGET_STREAM)
+        .unwrap_or_else(|| panic!("fractional separation target stream disappeared"))
+        .outputs();
+    let residue_outputs = streams
+        .iter()
+        .find(|stream| stream.id() == ConstituentSeparationProcessDefinition::RESIDUE_STREAM)
+        .unwrap_or_else(|| panic!("fractional separation residue stream disappeared"))
+        .outputs();
+    assert_eq!(target_outputs.len(), 1);
+    assert_eq!(target_outputs[0].mass(), Mass::from_milligrams(1));
     assert_eq!(
-        resolved.target_mass().checked_add(resolved.residue_mass()),
-        Some(mass)
+        residue_outputs
+            .iter()
+            .map(|output| output.mass().milligrams())
+            .sum::<u64>(),
+        2
     );
+    assert!(residue_outputs.iter().any(|output| {
+        output.mass() == Mass::from_milligrams(1)
+            && output.composition().parts_per_million(MATERIAL_COPPER) == 500_000
+            && output.composition().parts_per_million(MATERIAL_STONE) == 500_000
+    }));
+    let represented_copper_ppm_mg = target_outputs
+        .iter()
+        .chain(residue_outputs)
+        .map(|output| {
+            u128::from(output.mass().milligrams())
+                * u128::from(output.composition().parts_per_million(MATERIAL_COPPER))
+        })
+        .sum::<u128>();
+    assert_eq!(represented_copper_ppm_mg, 3_u128 * 500_000_u128);
+}
+
+#[test]
+fn constituent_separation_rejects_batch_with_no_whole_milligram_target_recovery() {
+    let mass = Mass::from_milligrams(1);
+    let fixture = fixture(mass, copper_stone_composition(500_000));
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        resolve_constituent_separation_process(
+            &fixture.registries,
+            &fixture.state,
+            ConstituentSeparationRequest::new(
+                PROCESS_SEPARATE_NATIVE_COPPER,
+                fixture.source,
+                &[MaterialLotSelection::new(fixture.lot, mass)],
+                fixture.separator,
+                fixture.energy,
+            ),
+        )
+        .err(),
+        Some(ConstituentSeparationResolutionError::Batch(
+            ConstituentSeparationBatchError::TargetBelowMassResolution {
+                material: MATERIAL_COPPER,
+                selected: mass,
+            }
+        ))
+    );
+    assert_eq!(fixture.state, before);
 }
 
 #[test]

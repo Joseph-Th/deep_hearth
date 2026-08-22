@@ -10,7 +10,6 @@ use crate::inventory::{
     ValidatedStockpileStructuralLoad, apply_material_egress, validate_consumption_selection,
     validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
 };
-use crate::material::MaterialComposition;
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
@@ -234,8 +233,8 @@ pub fn validate_assemble_energy_store(
             }
         })?;
     if selection.consumed_inputs().iter().any(|trace| {
-        trace.profile().composition()
-            != &MaterialComposition::pure(trace.profile().commodity().material())
+        trace.profile().composition().pure_material()
+            != Some(trace.profile().commodity().material())
     }) {
         return Err(EnergyStoreAssemblyError::ImpureAssemblyMaterial);
     }

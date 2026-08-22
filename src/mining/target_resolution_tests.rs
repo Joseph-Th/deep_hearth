@@ -100,6 +100,25 @@ fn zero_upper_bound_rules_out_target_even_when_hidden_truth_contains_material() 
 }
 
 #[test]
+fn uncertain_zero_lower_bound_cannot_use_hidden_truth_as_presence_oracle() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_1008));
+    let region = bounds(0, 1);
+    insert_copper_deposit(&registries, &mut state, region);
+    record_copper_evidence(&registries, &mut state, region, 0, 100_000);
+
+    assert_eq!(
+        resolve_mining_target(&state, MiningTargetRequest::new(region, MATERIAL_COPPER),),
+        Err(
+            MiningTargetResolutionError::EvidenceInsufficientToResolveTarget {
+                material: MATERIAL_COPPER,
+                region,
+            }
+        )
+    );
+}
+
+#[test]
 fn broad_evidence_does_not_choose_between_multiple_hidden_deposits() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xA11E_1004));

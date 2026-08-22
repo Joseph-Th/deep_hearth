@@ -11,7 +11,6 @@ use crate::inventory::{
     validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
 };
 use crate::maintenance::Condition;
-use crate::material::MaterialComposition;
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
@@ -244,8 +243,8 @@ pub fn validate_assemble_equipment(
             }
         })?;
     if selection.consumed_inputs().iter().any(|trace| {
-        trace.profile().composition()
-            != &MaterialComposition::pure(trace.profile().commodity().material())
+        trace.profile().composition().pure_material()
+            != Some(trace.profile().commodity().material())
     }) {
         return Err(EquipmentAssemblyError::ImpureAssemblyMaterial);
     }

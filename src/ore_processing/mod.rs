@@ -112,10 +112,10 @@ pub struct ScreeningProcessDefinition {
 ///
 /// The resolver derives both output masses from the exact selected lot composition. It does not
 /// invent a fixed recipe yield, average unlike temperatures, or claim arbitrary mixed ores are
-/// separable. The current model represents ideal recovery at the authoritative whole-milligram
-/// boundary for explicitly authored two-constituent feed. The target stream is a consolidated
-/// non-particulate commodity; the residue stream remains particulate and retains the selected feed's
-/// particle-size state.
+/// separable. Physically identical selected fragments are aggregated before partitioning. Whole
+/// milligrams of recovered target become a pure consolidated stream; any sub-milligram target
+/// remainder is retained exactly in one milligram of mixed particulate residue rather than being
+/// relabeled as gangue. The residue stream retains the selected feed's particle-size state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConstituentSeparationProcessDefinition {
     process: ProcessId,

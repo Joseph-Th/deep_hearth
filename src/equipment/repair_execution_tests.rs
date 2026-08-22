@@ -5,7 +5,7 @@ use crate::capability::{
     CapabilityDefinition, CapabilityId, CapabilityProfile, CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{
-    FORM_CHIP, FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    FORM_CHIP, FORM_LOG, MATERIAL_STONE, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
     make_test_registries_with_equipment, make_test_registries_with_sensible_heating,
 };
 use crate::core::quantity::{AggregateMass, Area, Energy, Force, Length, Power, Temperature};
@@ -21,11 +21,11 @@ use crate::equipment::{
 };
 
 use crate::inventory::{
-    MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test,
-    validate_explicit_consumption_selection, validate_mount_stockpile,
+    MaterialLotSelection, add_solid_stockpile_for_test, deposit_composed_lot_for_test,
+    deposit_lot_for_test, validate_explicit_consumption_selection, validate_mount_stockpile,
 };
 use crate::maintenance::MaintenanceThresholds;
-use crate::material::CommodityKey;
+use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::production::{ProcessDefinition, ProcessId, validate_start_process};
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -361,6 +361,66 @@ fn authored_maintenance_resolution_rejects_unneeded_or_understocked_service() {
             }
         )
     );
+}
+
+#[test]
+fn maintenance_rejects_contaminated_replacement_material_at_both_boundaries() {
+    let registries = registries();
+    let mut state = AppState::new(WorldSeed::new(0x8120_000B));
+    let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
+        .unwrap_or_else(|error| panic!("impure maintenance equipment fixture failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("impure maintenance source fixture failed: {error}"));
+    let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("impure maintenance spent fixture failed: {error}"));
+    let composition = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_WOOD, 900_000),
+        CompositionComponent::new(MATERIAL_STONE, 100_000),
+    ])
+    .unwrap_or_else(|error| panic!("impure maintenance composition fixture failed: {error}"));
+    let lot = deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(20),
+        Temperature::from_millikelvin(300_000),
+        composition,
+    )
+    .unwrap_or_else(|error| panic!("impure maintenance lot fixture failed: {error}"));
+    let before = state.clone();
+    let replacement = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+
+    assert_eq!(
+        resolve_equipment_maintenance(
+            &registries,
+            &state,
+            EquipmentMaintenanceRequest::new(equipment, source, spent),
+        ),
+        Err(
+            EquipmentMaintenanceResolutionError::ImpureReplacementMaterial {
+                commodity: replacement,
+            }
+        )
+    );
+    assert_eq!(state, before);
+
+    let resolution = bind(
+        &state,
+        equipment,
+        source,
+        lot,
+        Mass::from_milligrams(7),
+        spent,
+        condition(700_000),
+    );
+    assert_eq!(
+        validate_equipment_repair(&registries, &state, resolution),
+        Err(EquipmentRepairError::ImpureReplacementMaterial {
+            commodity: replacement,
+        })
+    );
+    assert_eq!(state, before);
 }
 
 #[test]

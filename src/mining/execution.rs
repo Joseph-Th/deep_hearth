@@ -301,6 +301,10 @@ pub enum MiningStartCommitError {
         expected: u64,
         actual: u64,
     },
+    StaleKnowledge {
+        expected: u64,
+        actual: u64,
+    },
     StaleInventory {
         expected: u64,
         actual: u64,
@@ -334,6 +338,10 @@ impl Display for MiningStartCommitError {
             Self::StaleGeology { expected, actual } => write!(
                 formatter,
                 "validated mining start expected geology revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleKnowledge { expected, actual } => write!(
+                formatter,
+                "validated mining start expected geological-knowledge revision {expected} but current revision is {actual}"
             ),
             Self::StaleInventory { expected, actual } => write!(
                 formatter,
@@ -376,6 +384,7 @@ impl Error for MiningStartCommitError {
         match self {
             Self::Work(error) => Some(error),
             Self::StaleGeology { .. }
+            | Self::StaleKnowledge { .. }
             | Self::StaleInventory { .. }
             | Self::StaleEquipment { .. }
             | Self::StaleMining { .. }
@@ -405,6 +414,7 @@ struct RevisionTransition {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MiningStartRevisions {
     geology: RevisionTransition,
+    knowledge: u64,
     equipment: u64,
     mining: RevisionTransition,
     structure: Option<u64>,
@@ -419,6 +429,12 @@ impl ValidatedMiningStart {
             return Err(MiningStartCommitError::StaleGeology {
                 expected: self.revisions.geology.expected,
                 actual: state.geology().revision(),
+            });
+        }
+        if state.geological_knowledge().revision() != self.revisions.knowledge {
+            return Err(MiningStartCommitError::StaleKnowledge {
+                expected: self.revisions.knowledge,
+                actual: state.geological_knowledge().revision(),
             });
         }
         if state.inventory().revision() != self.reservation.expected_revision() {
@@ -641,6 +657,7 @@ pub fn validate_start_mining(
                 expected: expected_geology_revision,
                 next: next_geology_revision,
             },
+            knowledge: target.expected_knowledge_revision,
             equipment: expected_equipment_revision,
             mining: RevisionTransition {
                 expected: expected_mining_revision,

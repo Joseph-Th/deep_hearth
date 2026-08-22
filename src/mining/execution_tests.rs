@@ -168,6 +168,72 @@ fn resolved_mining_target_is_invalidated_by_new_geological_knowledge() {
 }
 
 #[test]
+fn validated_mining_start_is_invalidated_by_new_geological_knowledge() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_0032));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("stale-start knowledge survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+        .unwrap_or_else(|error| panic!("stale-start knowledge destination failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("stale-start knowledge deposit failed: {error}"));
+    let deposit_record = state
+        .geology()
+        .get_deposit(deposit)
+        .unwrap_or_else(|| panic!("stale-start knowledge deposit disappeared"));
+    let target = resolve_mining_target(
+        &state,
+        MiningTargetRequest::new(
+            deposit_record.bounds(),
+            deposit_record.commodity().material(),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("stale-start knowledge target resolution failed: {error}"));
+    let start = super::validate_start_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        target,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("stale-start knowledge mining validation failed: {error}"));
+    let expected = state.geological_knowledge().revision();
+    let contradiction = MaterialAbundanceEstimate::new(MATERIAL_COPPER, 0, 0)
+        .unwrap_or_else(|error| panic!("stale-start knowledge estimate failed: {error}"));
+    validate_record_prospecting(
+        &registries,
+        &state,
+        ProspectingResolution::new_for_fixture(
+            deposit_record.bounds(),
+            GeologicalEvidenceKind::SurfaceExposure,
+            vec![contradiction],
+        ),
+    )
+    .unwrap_or_else(|error| panic!("stale-start knowledge evidence validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("stale-start knowledge evidence commit failed: {error}"));
+    let actual = state.geological_knowledge().revision();
+    let before = state.clone();
+
+    assert_eq!(
+        start.commit(&mut state),
+        Err(MiningStartCommitError::StaleKnowledge { expected, actual })
+    );
+    assert_eq!(state, before);
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state
+            .geology()
+            .get_deposit(deposit)
+            .map(|record| record.remaining_mass()),
+        Some(Mass::from_milligrams(1_000_000))
+    );
+}
+
+#[test]
 fn resolved_mining_target_is_invalidated_by_geology_change() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xA11E_0031));

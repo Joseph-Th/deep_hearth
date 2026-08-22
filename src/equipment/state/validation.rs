@@ -375,9 +375,7 @@ pub(crate) fn validate_loaded_equipment(
                             commodity,
                         });
                     }
-                    if trace.profile().composition()
-                        != &crate::material::MaterialComposition::pure(commodity.material())
-                    {
+                    if trace.profile().composition().pure_material() != Some(commodity.material()) {
                         return Err(EquipmentValidationError::ImpureEmbodiedMaterial {
                             equipment: record.id,
                             commodity,

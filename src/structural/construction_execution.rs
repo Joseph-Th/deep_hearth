@@ -19,9 +19,7 @@ use crate::inventory::{
     ExplicitConsumptionSelectionError, MaterialLotSelection,
     validate_explicit_consumption_selection,
 };
-use crate::material::{
-    FormId, MaterialComposition, MaterialId, MaterialPhase, ParticleSizeStatePolicy,
-};
+use crate::material::{FormId, MaterialId, MaterialPhase, ParticleSizeStatePolicy};
 use crate::registry::Registries;
 
 use super::StructuralCommitError;
@@ -602,7 +600,7 @@ pub fn validate_structural_construction(
                 found,
             });
         }
-        if trace.profile().composition() != &MaterialComposition::pure(record.material()) {
+        if trace.profile().composition().pure_material() != Some(record.material()) {
             return Err(StructuralConstructionError::UnsupportedComposition {
                 element,
                 material: record.material(),

@@ -621,9 +621,7 @@ pub(crate) fn validate_loaded_structure(
                     found: commodity.material(),
                 });
             }
-            if trace.profile().composition()
-                != &crate::material::MaterialComposition::pure(record.material())
-            {
+            if trace.profile().composition().pure_material() != Some(record.material()) {
                 return Err(StructureValidationError::UnsupportedEmbodiedComposition {
                     element: record.id,
                     material: record.material(),

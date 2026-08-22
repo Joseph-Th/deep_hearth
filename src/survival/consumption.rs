@@ -24,7 +24,7 @@ use crate::inventory::{
 use crate::labor::{
     PlayerAttentionError, PlayerWork, ValidatedPlayerAttention, validate_player_attention,
 };
-use crate::material::{CommodityKey, MaterialComposition, MaterialId};
+use crate::material::{CommodityKey, MaterialId};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
@@ -515,7 +515,7 @@ pub fn validate_eat(
                 commodity: lot.commodity(),
             })?;
         let metabolic_material = food.commodity().material();
-        if lot.composition() != &MaterialComposition::pure(metabolic_material) {
+        if lot.composition().pure_material() != Some(metabolic_material) {
             return Err(EatError::UnsupportedComposition {
                 lot: selection.lot(),
                 material: metabolic_material,

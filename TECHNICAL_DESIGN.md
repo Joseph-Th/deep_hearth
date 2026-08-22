@@ -186,9 +186,11 @@ Implemented physical resolvers include:
 - dry screening that partitions fully resolved particle classes around an authored aperture without
   inventing fractional or unresolved splits;
 - constituent separation for explicitly authored liberated two-constituent feed. Output mass is derived
-  from the exact selected composition rather than a fixed recipe yield; target mass floors at the whole-
-  milligram ownership boundary, the bounded remainder stays in residue, residue retains input particulate
-  state, and persisted jobs replay composition, streams, energy, duration, and wear;
+  from the exact selected composition rather than a fixed recipe yield; physically identical selected
+  fragments are aggregated before partitioning, whole-milligram target recovery becomes a pure stream,
+  any fractional target remainder stays represented in a one-milligram mixed residue boundary, residue
+  retains input particulate state, and persisted jobs replay composition, streams, energy, duration, and
+  wear;
 - sensible heating, pure-material melting, and pure-material casting with real selected matter, finite
   energy sources/sinks, equipment limits, phase boundaries, and latent heat.
 

@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Energy, Mass};
 use crate::core::time::SimulationTick;
-use crate::material::{CommodityKey, MaterialComposition, MaterialRegistry};
+use crate::material::{CommodityKey, MaterialRegistry};
 
 use super::super::definitions::{EnergyRegistry, EnergyStoreDefinitionId};
 use super::{EnergyState, EnergyStoreId};
@@ -267,9 +267,7 @@ pub(crate) fn validate_loaded_energy(
                             commodity,
                         });
                     }
-                    if trace.profile().composition()
-                        != &MaterialComposition::pure(commodity.material())
-                    {
+                    if trace.profile().composition().pure_material() != Some(commodity.material()) {
                         return Err(EnergyValidationError::ImpureEmbodiedMaterial {
                             store: record.id,
                             commodity,

@@ -179,6 +179,18 @@ pub fn resolve_mining_target(
                     region: request.region,
                 });
             }
+            if lower_ppm == 0 {
+                return Err(
+                    MiningTargetResolutionError::EvidenceInsufficientToResolveTarget {
+                        material: request.material,
+                        region: assessment.common_evidence_region().unwrap_or_else(|| {
+                            unreachable!(
+                                "compatible geological evidence must share a common region"
+                            )
+                        }),
+                    },
+                );
+            }
             (
                 assessment.common_evidence_region().unwrap_or_else(|| {
                     unreachable!("compatible geological evidence must share a common region")
@@ -193,6 +205,7 @@ pub fn resolve_mining_target(
         let abundance = deposit.composition().parts_per_million(request.material);
         deposit.lifecycle() == GeologicalDepositLifecycle::Available
             && deposit.bounds().has_intersection(evidence_region)
+            && abundance != 0
             && abundance >= lower_ppm
             && abundance <= upper_ppm
     });
