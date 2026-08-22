@@ -8,8 +8,8 @@ use crate::production::{ProcessDefinition, ProcessId, ProductionRegistry};
 use super::capabilities::{
     CAPABILITY_COOLING_POWER, CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW,
     CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW, CAPABILITY_HEATING_POWER,
-    CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW, CAPABILITY_THERMAL_BATCH,
-    CAPABILITY_THERMAL_MAX_TEMPERATURE,
+    CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW, CAPABILITY_SEPARATOR_BATCH,
+    CAPABILITY_SEPARATOR_FLOW, CAPABILITY_THERMAL_BATCH, CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
 use super::{
     FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_STONE,
@@ -27,6 +27,7 @@ pub const PROCESS_FORM_CLAY_VESSEL: ProcessId = ProcessId::new(8);
 pub const PROCESS_SHAPE_WOOD_HANDLE: ProcessId = ProcessId::new(9);
 pub const PROCESS_SHAPE_STONE_FLYWHEEL: ProcessId = ProcessId::new(10);
 pub const PROCESS_COLD_WORK_COPPER_REINFORCEMENT: ProcessId = ProcessId::new(11);
+pub const PROCESS_SEPARATE_NATIVE_COPPER: ProcessId = ProcessId::new(12);
 
 pub(crate) fn build_production_registry() -> ProductionRegistry {
     let mut registry = ProductionRegistry::new();
@@ -132,6 +133,22 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
                 ),
                 CapabilityRequirement::new(
                     CAPABILITY_GRINDER_BATCH,
+                    CapabilityComparison::AtLeast,
+                    CapabilityValue::Mass(Mass::from_milligrams(1)),
+                ),
+            ],
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_SEPARATE_NATIVE_COPPER,
+            "separate native copper from crushed ore",
+            vec![
+                CapabilityRequirement::new(
+                    CAPABILITY_SEPARATOR_FLOW,
+                    CapabilityComparison::AtLeast,
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1)),
+                ),
+                CapabilityRequirement::new(
+                    CAPABILITY_SEPARATOR_BATCH,
                     CapabilityComparison::AtLeast,
                     CapabilityValue::Mass(Mass::from_milligrams(1)),
                 ),

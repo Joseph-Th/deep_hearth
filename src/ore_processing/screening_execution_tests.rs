@@ -19,7 +19,7 @@ use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_spec_for_test};
 use crate::maintenance::MaintenanceThresholds;
 use crate::material::{CompositionComponent, ParticleSizeClass};
 use crate::matter::calculate_matter_accounting;
-use crate::ore_processing::{ScreeningOperatingProfile, ScreeningProcessDefinition};
+use crate::ore_processing::{PoweredOreProcessProfile, ScreeningProcessDefinition};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{ProcessDefinition, ProcessOutputRoute, validate_start_process_routed};
 use crate::simulation::advance_tick;
@@ -118,7 +118,7 @@ fn registries_with_power(aperture: Length, max_output_power: Power) -> Registrie
             FORM_CRUSHED,
             FORM_CRUSHED,
             aperture,
-            ScreeningOperatingProfile::new(
+            PoweredOreProcessProfile::new(
                 FLOW_CAPABILITY,
                 BATCH_CAPABILITY,
                 EnergyCarrier::Mechanical,

@@ -310,7 +310,7 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
         .collect::<Vec<_>>()
         .join(",");
     std::println!(
-        "CONTENT ACQUISITION declared-equipment=[{acquisition_declared_equipment}] declared-energy=[{assembly_declared_energy}] no-runtime-path-equipment=[{no_acquisition_equipment}] no-runtime-path-energy=[{no_assembly_energy}] evidence-note=declaration-is-not-end-to-end-reachability missing-bridge=[runtime-industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting]"
+        "CONTENT ACQUISITION declared-equipment=[{acquisition_declared_equipment}] declared-energy=[{assembly_declared_energy}] no-runtime-path-equipment=[{no_acquisition_equipment}] no-runtime-path-energy=[{no_assembly_energy}] evidence-note=declaration-is-not-end-to-end-reachability missing-bridge=[runtime-industrial-acquisition,industrial-power-generation,generalized-mixed-ore-concentration/smelting]"
     );
     if !include_catalog {
         return;
@@ -933,7 +933,7 @@ pub(super) fn print_harness_summary(
     let observed = observed.join(",");
     let unobserved = unobserved.join(",");
     std::println!(
-        "CAPABILITY SCOPE evidence=bootstrapped-industrial surface=[canonical-industrial-comminution,adaptive-batching,manual-energy-recovery,power-choice,wear,maintenance,structural-siting,controlled-supported-stockpile-delivery] observed=[{observed}] unobserved=[{unobserved}] outside-this-workshop-test=[playable-survival,playable-primitive-progression,industrial-ore-preparation,pure-copper-foundry] bootstrap=[industrial-workshop-equipment,industrial-energy-stores,constructed-bays,starting-workshop-matter,preauthorized-controlled-delivery] missing-bridge=[industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting] actor-oracle=none fixture-guard=fail-if-injected-machine-becomes-runtime-acquirable capability-boundary=STATUS.md"
+        "CAPABILITY SCOPE evidence=bootstrapped-industrial surface=[canonical-industrial-comminution,adaptive-batching,manual-energy-recovery,power-choice,wear,maintenance,structural-siting,controlled-supported-stockpile-delivery] observed=[{observed}] unobserved=[{unobserved}] outside-this-workshop-test=[playable-survival,playable-primitive-progression,industrial-ore-preparation,pure-copper-foundry] bootstrap=[industrial-workshop-equipment,industrial-energy-stores,constructed-bays,starting-workshop-matter,preauthorized-controlled-delivery] missing-bridge=[industrial-acquisition,industrial-power-generation,generalized-mixed-ore-concentration/smelting] actor-oracle=none fixture-guard=fail-if-injected-machine-becomes-runtime-acquirable capability-boundary=STATUS.md"
     );
 
     let stored_work_pressure = reports
@@ -1007,7 +1007,7 @@ pub(super) fn print_harness_summary(
         })
         .count();
     std::println!(
-        "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt-physical-infrastructure sample=pressure-rich+hidden-controlled-delivery reached-events:{controlled_deliveries}/{} loop=observe-pressure->choose-power/batch/service/site->run->recover dynamic-scenarios:{multi_system_adaptation}/{} interlocks=[stored-work+throughput:{stored_work_pressure} body+power:{body_power_pressure} wear+maintenance:{wear_maintenance_pressure} structure+production:{structure_production_pressure}] terminal=[maintenance:{maintenance_terminal} energy:{energy_terminal} structural:{structural_terminal} before-first-operation:{prework_terminal}] recovery=[suspensions:{suspensions} resumed:{recovered_work_in_process} stranded:{stranded_work_in_process}] agency=matched-policy-counterfactuals-in-AGENCY-SUMMARY dormant=[ore-grade:composition-only-until-concentration/smelting]",
+        "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt-physical-infrastructure sample=pressure-rich+hidden-controlled-delivery reached-events:{controlled_deliveries}/{} loop=observe-pressure->choose-power/batch/service/site->run->recover dynamic-scenarios:{multi_system_adaptation}/{} interlocks=[stored-work+throughput:{stored_work_pressure} body+power:{body_power_pressure} wear+maintenance:{wear_maintenance_pressure} structure+production:{structure_production_pressure}] terminal=[maintenance:{maintenance_terminal} energy:{energy_terminal} structural:{structural_terminal} before-first-operation:{prework_terminal}] recovery=[suspensions:{suspensions} resumed:{recovered_work_in_process} stranded:{stranded_work_in_process}] agency=matched-policy-counterfactuals-in-AGENCY-SUMMARY dormant=[ore-grade:composition-only-in-this-workshop-without-generalized-concentration/smelting]",
         reports.len(),
         reports.len(),
     );

@@ -169,6 +169,10 @@ Implemented physical resolvers include:
   finite work energy, power-limited duration, and active-tick wear;
 - dry screening that partitions fully resolved particle classes around an authored aperture without
   inventing fractional or unresolved splits;
+- constituent separation for explicitly authored liberated two-constituent feed. Output mass is derived
+  from the exact selected composition rather than a fixed recipe yield; target mass floors at the whole-
+  milligram ownership boundary, the bounded remainder stays in residue, residue retains input particulate
+  state, and persisted jobs replay composition, streams, energy, duration, and wear;
 - sensible heating, pure-material melting, and pure-material casting with real selected matter, finite
   energy sources/sinks, equipment limits, phase boundaries, and latent heat.
 

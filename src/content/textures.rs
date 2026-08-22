@@ -13,7 +13,7 @@ use super::equipment::{
     EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
     EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE,
     EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_CRUSHER,
-    EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
+    EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_SEPARATOR,
 };
 use super::materials::{
     FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED, FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_LOG,
@@ -83,6 +83,7 @@ pub const OBJECT_STONE_CRUSHER: ObjectAppearanceId = ObjectAppearanceId::new(23)
 pub const OBJECT_COPPER_REINFORCEMENT: ObjectAppearanceId = ObjectAppearanceId::new(24);
 pub const OBJECT_NATIVE_COPPER: ObjectAppearanceId = ObjectAppearanceId::new(25);
 pub const OBJECT_COPPER_SCRAP: ObjectAppearanceId = ObjectAppearanceId::new(26);
+pub const OBJECT_STONE_SEPARATOR: ObjectAppearanceId = ObjectAppearanceId::new(27);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(
@@ -410,6 +411,11 @@ fn build_object_appearances() -> Vec<ObjectAppearanceDefinition> {
             &[TEXTURE_STONE, TEXTURE_WOOD_SIDE],
         ),
         object(
+            OBJECT_STONE_SEPARATOR,
+            "stone rocking separator",
+            &[TEXTURE_STONE, TEXTURE_WOOD_SIDE, TEXTURE_SCREEN_MESH],
+        ),
+        object(
             OBJECT_COPPER_REINFORCEMENT,
             "cold-worked copper reinforcement",
             &[TEXTURE_COPPER_HAMMERED],
@@ -540,6 +546,7 @@ fn build_equipment_bindings() -> Vec<EquipmentAppearanceBinding> {
         EquipmentAppearanceBinding::new(EQUIPMENT_STONE_PICK, OBJECT_STONE_PICK),
         EquipmentAppearanceBinding::new(EQUIPMENT_STONE_HAND_CRANK, OBJECT_STONE_HAND_CRANK),
         EquipmentAppearanceBinding::new(EQUIPMENT_STONE_CRUSHER, OBJECT_STONE_CRUSHER),
+        EquipmentAppearanceBinding::new(EQUIPMENT_STONE_SEPARATOR, OBJECT_STONE_SEPARATOR),
         EquipmentAppearanceBinding::new(
             EQUIPMENT_COPPER_REINFORCED_PICK,
             OBJECT_COPPER_REINFORCED_PICK,

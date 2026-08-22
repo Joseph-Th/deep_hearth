@@ -114,6 +114,7 @@ fn industrial_machines_are_fixed_while_primitive_equipment_remains_portable() {
         EQUIPMENT_COPPER_REINFORCED_PICK,
         EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
         EQUIPMENT_STONE_CRUSHER,
+        EQUIPMENT_STONE_SEPARATOR,
     ] {
         assert!(
             registry

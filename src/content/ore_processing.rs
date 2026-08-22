@@ -4,18 +4,21 @@ use crate::core::quantity::{Length, MassSpecificEnergy};
 use crate::energy::EnergyCarrier;
 use crate::material::{ParticleSizeClass, ParticleSizeDistribution, ParticleSizeRange};
 use crate::ore_processing::{
-    ComminutionOperatingProfile, ComminutionProcessDefinition, OreProcessingRegistry,
-    ScreeningOperatingProfile, ScreeningProcessDefinition,
+    ComminutionProcessDefinition, ConstituentSeparationProcessDefinition, OreProcessingRegistry,
+    PoweredOreProcessProfile, ScreeningProcessDefinition,
 };
 
 use super::capabilities::{
     CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW, CAPABILITY_GRINDER_BATCH,
     CAPABILITY_GRINDER_FLOW, CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW,
+    CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW,
 };
-use super::materials::{FORM_CRUSHED, FORM_ORE};
+use super::materials::{
+    FORM_CRUSHED, FORM_NATIVE_METAL, FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE,
+};
 use super::processes::{
     PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE,
-    PROCESS_SCREEN_CRUSHED_ORE,
+    PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
 };
 
 fn particle_size_class(minimum_micrometers: u64, maximum_micrometers: u64) -> ParticleSizeClass {
@@ -48,14 +51,14 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
     .unwrap_or_else(|error| panic!("built-in screen oversize range is invalid: {error}"));
     let fine_particle_size = ParticleSizeDistribution::new(vec![particle_size_class(500, 2_000)])
         .unwrap_or_else(|error| panic!("built-in fine particle distribution is invalid: {error}"));
-    OreProcessingRegistry::new_with_screening(
+    OreProcessingRegistry::new_with_processes(
         [
             ComminutionProcessDefinition::new(
                 PROCESS_CRUSH_ORE,
                 FORM_ORE,
                 FORM_CRUSHED,
                 particle_size,
-                ComminutionOperatingProfile::new(
+                PoweredOreProcessProfile::new(
                     CAPABILITY_CRUSHER_FLOW,
                     CAPABILITY_CRUSHER_BATCH,
                     EnergyCarrier::Mechanical,
@@ -68,7 +71,7 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                 FORM_CRUSHED,
                 FORM_CRUSHED,
                 ground_particle_size,
-                ComminutionOperatingProfile::new(
+                PoweredOreProcessProfile::new(
                     CAPABILITY_GRINDER_FLOW,
                     CAPABILITY_GRINDER_BATCH,
                     EnergyCarrier::Mechanical,
@@ -82,7 +85,7 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                 FORM_CRUSHED,
                 screen_oversize_range,
                 fine_particle_size,
-                ComminutionOperatingProfile::new(
+                PoweredOreProcessProfile::new(
                     CAPABILITY_GRINDER_FLOW,
                     CAPABILITY_GRINDER_BATCH,
                     EnergyCarrier::Mechanical,
@@ -96,12 +99,27 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
             FORM_CRUSHED,
             FORM_CRUSHED,
             Length::from_micrometers(2_000),
-            ScreeningOperatingProfile::new(
+            PoweredOreProcessProfile::new(
                 CAPABILITY_SCREEN_FLOW,
                 CAPABILITY_SCREEN_BATCH,
                 EnergyCarrier::Mechanical,
                 MassSpecificEnergy::from_nanojoules_per_milligram(100_000),
                 100,
+            ),
+        )],
+        [ConstituentSeparationProcessDefinition::new(
+            PROCESS_SEPARATE_NATIVE_COPPER,
+            FORM_CRUSHED,
+            MATERIAL_COPPER,
+            FORM_NATIVE_METAL,
+            MATERIAL_STONE,
+            FORM_CRUSHED,
+            PoweredOreProcessProfile::new(
+                CAPABILITY_SEPARATOR_FLOW,
+                CAPABILITY_SEPARATOR_BATCH,
+                EnergyCarrier::Mechanical,
+                MassSpecificEnergy::from_nanojoules_per_milligram(250_000),
+                150,
             ),
         )],
     )

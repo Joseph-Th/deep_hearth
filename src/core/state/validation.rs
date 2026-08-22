@@ -30,7 +30,10 @@ use crate::mining::{
     MiningJobValidationError, MiningValidationError, validate_loaded_mining,
     validate_loaded_mining_jobs,
 };
-use crate::ore_processing::{ComminutionJobValidationError, ScreeningJobValidationError};
+use crate::ore_processing::{
+    ComminutionJobValidationError, ConstituentSeparationJobValidationError,
+    ScreeningJobValidationError,
+};
 use crate::production::{
     ProcessId, ProductionJobId, ProductionValidationError, validate_loaded_production,
 };
@@ -211,6 +214,7 @@ pub enum StateValidationError {
     },
     FluidStructuralLoad(FluidStructuralLoadError),
     ComminutionJob(ComminutionJobValidationError),
+    ConstituentSeparationJob(ConstituentSeparationJobValidationError),
     ScreeningJob(ScreeningJobValidationError),
     ThermalJob(ThermalJobValidationError),
     ManualCraftJob(ManualCraftJobValidationError),
@@ -564,6 +568,12 @@ impl Display for StateValidationError {
             Self::ComminutionJob(error) => {
                 write!(formatter, "invalid comminution production job: {error}")
             }
+            Self::ConstituentSeparationJob(error) => {
+                write!(
+                    formatter,
+                    "invalid constituent-separation production job: {error}"
+                )
+            }
             Self::ScreeningJob(error) => {
                 write!(formatter, "invalid screening production job: {error}")
             }
@@ -650,6 +660,7 @@ impl Error for StateValidationError {
             Self::PlayerWork(error) => Some(error),
             Self::Survival(error) => Some(error),
             Self::ComminutionJob(error) => Some(error),
+            Self::ConstituentSeparationJob(error) => Some(error),
             Self::ScreeningJob(error) => Some(error),
             Self::ThermalJob(error) => Some(error),
             Self::ManualCraftJob(error) => Some(error),

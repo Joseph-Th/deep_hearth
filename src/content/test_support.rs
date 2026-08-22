@@ -140,8 +140,11 @@ pub(crate) fn make_test_registries_with_screening(
     domains.equipment = EquipmentRegistry::new([equipment_definition]);
     domains.energy = EnergyRegistry::new([energy_definition]);
     domains.production = build_production_registry(process);
-    domains.ore_processing =
-        OreProcessingRegistry::new_with_screening(std::iter::empty(), [screening_definition]);
+    domains.ore_processing = OreProcessingRegistry::new_with_processes(
+        std::iter::empty(),
+        [screening_definition],
+        std::iter::empty(),
+    );
     domains.build()
 }
 

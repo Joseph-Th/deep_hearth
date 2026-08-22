@@ -59,7 +59,7 @@ use workshop::run_gameplay_harness;
 use deep_hearth::content::{
     PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
     PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
-    build_registries,
+    PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
 };
 use deep_hearth::maintenance::Condition;
 
@@ -113,10 +113,11 @@ fn gameplay_machine_process_catalog_has_cold_agent_evidence() {
         PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
         PROCESS_MELT_PURE_COPPER,
         PROCESS_CAST_PURE_COPPER,
+        PROCESS_SEPARATE_NATIVE_COPPER,
     ]);
     assert_eq!(
         actual_machine_processes, exercised_machine_processes,
-        "cold-agent capability coverage is stale: update workshop/ore/foundry probes so every authored non-manual production process has gameplay evidence"
+        "cold-agent capability coverage is stale: update progression/workshop/ore/foundry probes so every authored non-manual production process has gameplay evidence"
     );
 }
 

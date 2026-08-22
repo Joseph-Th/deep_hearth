@@ -14,7 +14,8 @@ use super::capabilities::{
     CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW, CAPABILITY_HEATING_POWER,
     CAPABILITY_MANUAL_POWER_OUTPUT, CAPABILITY_MINING_FLOW, CAPABILITY_MINING_MAX_BATCH,
     CAPABILITY_MINING_MAX_HARDNESS, CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW,
-    CAPABILITY_THERMAL_BATCH, CAPABILITY_THERMAL_MAX_TEMPERATURE,
+    CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW, CAPABILITY_THERMAL_BATCH,
+    CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
 use super::materials::{
     FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_REINFORCEMENT, FORM_SCRAP, FORM_TOOL,
@@ -32,6 +33,7 @@ pub const EQUIPMENT_COPPER_REINFORCED_PICK: EquipmentDefinitionId = EquipmentDef
 pub const EQUIPMENT_COPPER_REINFORCED_HAND_CRANK: EquipmentDefinitionId =
     EquipmentDefinitionId::new(9);
 pub const EQUIPMENT_STONE_CRUSHER: EquipmentDefinitionId = EquipmentDefinitionId::new(10);
+pub const EQUIPMENT_STONE_SEPARATOR: EquipmentDefinitionId = EquipmentDefinitionId::new(11);
 
 fn condition(parts_per_million: u32) -> Condition {
     match Condition::new(parts_per_million) {
@@ -112,6 +114,11 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
         CAPABILITY_CRUSHER_FLOW,
         600_000,
         MassFlow::from_milligrams_per_second(2_500),
+    );
+    let stone_separator_curve = mass_flow_condition_curve(
+        CAPABILITY_SEPARATOR_FLOW,
+        600_000,
+        MassFlow::from_milligrams_per_second(1_500),
     );
     let reinforced_hand_crank_curve = power_condition_curve(
         CAPABILITY_MANUAL_POWER_OUTPUT,
@@ -412,6 +419,34 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
                 Mass::from_milligrams(600_000),
+            ),
+        ]))
+        .with_worn_recovery_form(FORM_SCRAP),
+        EquipmentDefinition::new_with_capability_condition_curves(
+            EQUIPMENT_STONE_SEPARATOR,
+            "stone rocking separator",
+            Mass::from_milligrams(1_200_000),
+            profile([
+                (
+                    CAPABILITY_SEPARATOR_FLOW,
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(3_000)),
+                ),
+                (
+                    CAPABILITY_SEPARATOR_BATCH,
+                    CapabilityValue::Mass(Mass::from_milligrams(500_000)),
+                ),
+            ]),
+            thresholds(),
+            vec![stone_separator_curve],
+        )
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(800_000),
+            ),
+            MaterialInputSpec::new(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(400_000),
             ),
         ]))
         .with_worn_recovery_form(FORM_SCRAP),

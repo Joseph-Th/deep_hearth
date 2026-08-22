@@ -128,6 +128,15 @@ Industrialization shifts the dominant cost of work:
 Each transition should increase scale while preserving meaningful sources, sinks, bottlenecks, and
 failure modes.
 
+The early industrial loop should establish that pattern before full settlement-scale industry exists.
+Scarce material should force a real choice between improving extraction and improving stored-work
+generation; primitive machinery should then turn repeated processing into returned player attention,
+while the processed material itself opens the next capability. A useful early chain is therefore not
+"build machine, receive abstract progress," but "invest matter and labor -> delegate a physical process
+-> use the freed attention elsewhere -> recover a materially useful stream -> reinvest it." Later
+industrial systems should deepen the same relationship with richer separation, power, maintenance,
+logistics, and control rather than replacing it with recipe-tier unlocks.
+
 ## Player information
 
 Complex systems must explain themselves. Basic problems should normally have visible, audible, or

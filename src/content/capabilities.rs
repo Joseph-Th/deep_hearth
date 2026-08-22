@@ -18,6 +18,8 @@ pub(crate) const CAPABILITY_MINING_FLOW: CapabilityId = CapabilityId::new(11);
 pub(crate) const CAPABILITY_MINING_MAX_BATCH: CapabilityId = CapabilityId::new(12);
 pub(crate) const CAPABILITY_MINING_MAX_HARDNESS: CapabilityId = CapabilityId::new(13);
 pub(crate) const CAPABILITY_MANUAL_POWER_OUTPUT: CapabilityId = CapabilityId::new(14);
+pub(crate) const CAPABILITY_SEPARATOR_FLOW: CapabilityId = CapabilityId::new(15);
+pub(crate) const CAPABILITY_SEPARATOR_BATCH: CapabilityId = CapabilityId::new(16);
 
 pub(crate) fn build_capability_registry() -> CapabilityRegistry {
     let mut registry = CapabilityRegistry::new();
@@ -91,6 +93,16 @@ pub(crate) fn build_capability_registry() -> CapabilityRegistry {
             CAPABILITY_MANUAL_POWER_OUTPUT,
             "direct manual mechanical power output",
             CapabilityValueKind::Power,
+        ),
+        CapabilityDefinition::new(
+            CAPABILITY_SEPARATOR_FLOW,
+            "separator material throughput",
+            CapabilityValueKind::MassFlow,
+        ),
+        CapabilityDefinition::new(
+            CAPABILITY_SEPARATOR_BATCH,
+            "separator maximum batch mass",
+            CapabilityValueKind::Mass,
         ),
     ] {
         registry.register_capability(definition);

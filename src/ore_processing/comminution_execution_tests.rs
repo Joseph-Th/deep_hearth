@@ -25,7 +25,7 @@ use crate::inventory::{
 use crate::maintenance::MaintenanceThresholds;
 use crate::material::CompositionComponent;
 use crate::matter::calculate_matter_accounting;
-use crate::ore_processing::{ComminutionOperatingProfile, ComminutionProcessDefinition};
+use crate::ore_processing::{ComminutionProcessDefinition, PoweredOreProcessProfile};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{ProcessDefinition, validate_start_process};
 use crate::simulation::advance_tick;
@@ -91,7 +91,7 @@ fn make_registries_with_energy(carrier: EnergyCarrier, max_output_power: Power) 
             FORM_ORE,
             FORM_CRUSHED,
             crushed_particle_size(),
-            ComminutionOperatingProfile::new(
+            PoweredOreProcessProfile::new(
                 MASS_FLOW_CAPABILITY,
                 MAX_BATCH_MASS_CAPABILITY,
                 EnergyCarrier::Mechanical,
@@ -189,7 +189,7 @@ fn comminution_can_reduce_particle_size_without_relabeling_the_material_form() {
             FORM_CRUSHED,
             crushed_particle_size(),
             ground_particle_size(),
-            ComminutionOperatingProfile::new(
+            PoweredOreProcessProfile::new(
                 MASS_FLOW_CAPABILITY,
                 MAX_BATCH_MASS_CAPABILITY,
                 EnergyCarrier::Mechanical,
@@ -274,7 +274,7 @@ fn constrained_comminution_rejects_out_of_range_feed_without_mutation() {
             FORM_CRUSHED,
             required,
             ground_particle_size(),
-            ComminutionOperatingProfile::new(
+            PoweredOreProcessProfile::new(
                 MASS_FLOW_CAPABILITY,
                 MAX_BATCH_MASS_CAPABILITY,
                 EnergyCarrier::Mechanical,
@@ -344,7 +344,7 @@ fn constrained_comminution_persistence_rejects_forged_feed_size_trace() {
             FORM_CRUSHED,
             required,
             ground_particle_size(),
-            ComminutionOperatingProfile::new(
+            PoweredOreProcessProfile::new(
                 MASS_FLOW_CAPABILITY,
                 MAX_BATCH_MASS_CAPABILITY,
                 EnergyCarrier::Mechanical,

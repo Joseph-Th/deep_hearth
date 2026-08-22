@@ -9,7 +9,7 @@ use crate::core::quantity::{Length, Mass, MassSpecificEnergy, Temperature};
 use crate::energy::EnergyCarrier;
 use crate::material::{CommodityKey, MaterialInputSpec, ParticleSizeRange};
 use crate::ore_processing::{
-    ComminutionOperatingProfile, ComminutionProcessDefinition, OreProcessingRegistry,
+    ComminutionProcessDefinition, OreProcessingRegistry, PoweredOreProcessProfile,
 };
 use crate::production::{ProcessDefinition, ProcessId, ProductionRegistry};
 use crate::thermal::{SensibleHeatingProcessDefinition, ThermalRegistry};
@@ -54,6 +54,7 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         EQUIPMENT_DRY_SCREEN,
         EQUIPMENT_GRINDING_MILL,
         EQUIPMENT_STONE_CRUSHER,
+        EQUIPMENT_STONE_SEPARATOR,
     ] {
         assert!(registries.equipment().get_equipment(equipment).is_some());
     }
@@ -74,6 +75,7 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         PROCESS_GRIND_CRUSHED_ORE,
         PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
         PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+        PROCESS_SEPARATE_NATIVE_COPPER,
     ] {
         assert!(registries.production().get_process(process).is_some());
     }
@@ -99,6 +101,12 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         registries
             .ore_processing()
             .get_screening(PROCESS_SCREEN_CRUSHED_ORE)
+            .is_some()
+    );
+    assert!(
+        registries
+            .ore_processing()
+            .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
             .is_some()
     );
     assert!(
@@ -223,6 +231,7 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
         (EQUIPMENT_STONE_PICK, OBJECT_STONE_PICK),
         (EQUIPMENT_STONE_HAND_CRANK, OBJECT_STONE_HAND_CRANK),
         (EQUIPMENT_STONE_CRUSHER, OBJECT_STONE_CRUSHER),
+        (EQUIPMENT_STONE_SEPARATOR, OBJECT_STONE_SEPARATOR),
     ] {
         let binding = match textures.get_equipment_appearance(equipment) {
             Some(binding) => binding,
@@ -346,7 +355,7 @@ fn process_cannot_own_multiple_physical_resolver_semantics() {
             Ok(range) => range,
             Err(error) => panic!("comminution particle-size fixture failed: {error}"),
         },
-        ComminutionOperatingProfile::new(
+        PoweredOreProcessProfile::new(
             TEST_MASS_FLOW,
             TEST_MAX_BATCH_MASS,
             EnergyCarrier::Mechanical,

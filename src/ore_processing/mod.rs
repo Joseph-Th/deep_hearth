@@ -2,6 +2,7 @@
 
 mod comminution_execution;
 mod screening_execution;
+mod separation_execution;
 mod timing;
 
 use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
@@ -10,8 +11,8 @@ use crate::core::time::{PhysicalTickDuration, TickSpan};
 use crate::energy::EnergyCarrier;
 use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::material::{
-    FormId, MaterialPhase, MaterialRegistry, ParticleSizeDistribution, ParticleSizeRange,
-    ParticleSizeStatePolicy,
+    CommodityKey, FormId, MaterialId, MaterialPhase, MaterialRegistry, ParticleSizeDistribution,
+    ParticleSizeRange, ParticleSizeStatePolicy,
 };
 use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
 use std::collections::BTreeMap;
@@ -26,12 +27,60 @@ pub use comminution_execution::{
 
 pub(crate) use comminution_execution::validate_loaded_comminution_job;
 
+pub use separation_execution::{
+    ConstituentSeparationBatchError, ConstituentSeparationBottleneck,
+    ConstituentSeparationJobValidationError, ConstituentSeparationRequest,
+    ConstituentSeparationResolutionError, ResolvedConstituentSeparation,
+    resolve_constituent_separation_process,
+};
+
+pub(crate) use separation_execution::validate_loaded_constituent_separation_job;
+
 pub use screening_execution::{
     ResolvedScreening, ScreeningBatchError, ScreeningBottleneck, ScreeningJobValidationError,
     ScreeningRequest, ScreeningResolutionError, resolve_screening_process,
 };
 
 pub(crate) use screening_execution::validate_loaded_screening_job;
+
+/// Shared powered-throughput envelope for ore-preparation operations.
+///
+/// Comminution, screening, and constituent separation all consume finite work energy while an
+/// equipment provider moves a bounded mass through the operation. Keeping that physical envelope in
+/// one type prevents the three resolvers from drifting into subtly different rate, energy, or wear
+/// contracts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PoweredOreProcessProfile {
+    mass_flow_capability: CapabilityId,
+    max_batch_mass_capability: CapabilityId,
+    energy_carrier: EnergyCarrier,
+    specific_energy: MassSpecificEnergy,
+    condition_wear_ppm_per_active_tick: u32,
+}
+
+impl PoweredOreProcessProfile {
+    #[must_use]
+    pub const fn new(
+        mass_flow_capability: CapabilityId,
+        max_batch_mass_capability: CapabilityId,
+        energy_carrier: EnergyCarrier,
+        specific_energy: MassSpecificEnergy,
+        condition_wear_ppm_per_active_tick: u32,
+    ) -> Self {
+        assert!(
+            !specific_energy.is_zero(),
+            "powered ore-processing mass-specific energy must be nonzero"
+        );
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
+        Self {
+            mass_flow_capability,
+            max_batch_mass_capability,
+            energy_carrier,
+            specific_energy,
+            condition_wear_ppm_per_active_tick,
+        }
+    }
+}
 
 /// Immutable declaration that one selected-batch process reduces solid material to a finer form.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,7 +90,7 @@ pub struct ComminutionProcessDefinition {
     output_form: FormId,
     input_particle_size_range: Option<ParticleSizeRange>,
     output_particle_size: ParticleSizeDistribution,
-    operating: ComminutionOperatingProfile,
+    operating: PoweredOreProcessProfile,
 }
 
 /// Immutable declaration that one selected-batch process classifies particulate material by size.
@@ -55,40 +104,113 @@ pub struct ScreeningProcessDefinition {
     input_form: FormId,
     output_form: FormId,
     aperture: Length,
-    operating: ScreeningOperatingProfile,
+    operating: PoweredOreProcessProfile,
 }
 
-/// Immutable equipment/work envelope used to resolve one screening process.
+/// Immutable declaration that one selected-batch process separates an authored target constituent
+/// from one authored residue constituent after the feed has been physically liberated.
+///
+/// The resolver derives both output masses from the exact selected lot composition. It does not
+/// invent a fixed recipe yield, average unlike temperatures, or claim arbitrary mixed ores are
+/// separable. The current model represents ideal recovery at the authoritative whole-milligram
+/// boundary for explicitly authored two-constituent feed. The target stream is a consolidated
+/// non-particulate commodity; the residue stream remains particulate and retains the selected feed's
+/// particle-size state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ScreeningOperatingProfile {
-    mass_flow_capability: CapabilityId,
-    max_batch_mass_capability: CapabilityId,
-    energy_carrier: EnergyCarrier,
-    specific_energy: MassSpecificEnergy,
-    condition_wear_ppm_per_active_tick: u32,
+pub struct ConstituentSeparationProcessDefinition {
+    process: ProcessId,
+    input_form: FormId,
+    target_material: MaterialId,
+    target_output_form: FormId,
+    residue_material: MaterialId,
+    residue_output_form: FormId,
+    operating: PoweredOreProcessProfile,
 }
 
-impl ScreeningOperatingProfile {
+impl ConstituentSeparationProcessDefinition {
+    pub const TARGET_STREAM: crate::production::ProcessOutputStreamId =
+        crate::production::ProcessOutputStreamId::new(1);
+    pub const RESIDUE_STREAM: crate::production::ProcessOutputStreamId =
+        crate::production::ProcessOutputStreamId::new(2);
+
     #[must_use]
     pub const fn new(
-        mass_flow_capability: CapabilityId,
-        max_batch_mass_capability: CapabilityId,
-        energy_carrier: EnergyCarrier,
-        specific_energy: MassSpecificEnergy,
-        condition_wear_ppm_per_active_tick: u32,
+        process: ProcessId,
+        input_form: FormId,
+        target_material: MaterialId,
+        target_output_form: FormId,
+        residue_material: MaterialId,
+        residue_output_form: FormId,
+        operating: PoweredOreProcessProfile,
     ) -> Self {
         assert!(
-            !specific_energy.is_zero(),
-            "screening mass-specific energy must be nonzero"
+            target_material.value() != residue_material.value(),
+            "constituent separation target and residue materials must differ"
         );
-        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
         Self {
-            mass_flow_capability,
-            max_batch_mass_capability,
-            energy_carrier,
-            specific_energy,
-            condition_wear_ppm_per_active_tick,
+            process,
+            input_form,
+            target_material,
+            target_output_form,
+            residue_material,
+            residue_output_form,
+            operating,
         }
+    }
+
+    #[must_use]
+    pub const fn process(self) -> ProcessId {
+        self.process
+    }
+
+    #[must_use]
+    pub const fn input_form(self) -> FormId {
+        self.input_form
+    }
+
+    #[must_use]
+    pub const fn target_material(self) -> MaterialId {
+        self.target_material
+    }
+
+    #[must_use]
+    pub const fn target_output_form(self) -> FormId {
+        self.target_output_form
+    }
+
+    #[must_use]
+    pub const fn residue_material(self) -> MaterialId {
+        self.residue_material
+    }
+
+    #[must_use]
+    pub const fn residue_output_form(self) -> FormId {
+        self.residue_output_form
+    }
+
+    #[must_use]
+    pub const fn mass_flow_capability(self) -> CapabilityId {
+        self.operating.mass_flow_capability
+    }
+
+    #[must_use]
+    pub const fn max_batch_mass_capability(self) -> CapabilityId {
+        self.operating.max_batch_mass_capability
+    }
+
+    #[must_use]
+    pub const fn energy_carrier(self) -> EnergyCarrier {
+        self.operating.energy_carrier
+    }
+
+    #[must_use]
+    pub const fn specific_energy(self) -> MassSpecificEnergy {
+        self.operating.specific_energy
+    }
+
+    #[must_use]
+    pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
+        self.operating.condition_wear_ppm_per_active_tick
     }
 }
 
@@ -106,7 +228,7 @@ impl ScreeningProcessDefinition {
         input_form: FormId,
         output_form: FormId,
         aperture: Length,
-        operating: ScreeningOperatingProfile,
+        operating: PoweredOreProcessProfile,
     ) -> Self {
         assert!(!aperture.is_zero(), "screening aperture must be nonzero");
         Self {
@@ -164,40 +286,6 @@ impl ScreeningProcessDefinition {
     }
 }
 
-/// Immutable equipment/work envelope used to resolve one comminution process.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ComminutionOperatingProfile {
-    mass_flow_capability: CapabilityId,
-    max_batch_mass_capability: CapabilityId,
-    energy_carrier: EnergyCarrier,
-    specific_energy: MassSpecificEnergy,
-    condition_wear_ppm_per_active_tick: u32,
-}
-
-impl ComminutionOperatingProfile {
-    #[must_use]
-    pub const fn new(
-        mass_flow_capability: CapabilityId,
-        max_batch_mass_capability: CapabilityId,
-        energy_carrier: EnergyCarrier,
-        specific_energy: MassSpecificEnergy,
-        condition_wear_ppm_per_active_tick: u32,
-    ) -> Self {
-        assert!(
-            !specific_energy.is_zero(),
-            "comminution mass-specific energy must be nonzero"
-        );
-        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
-        Self {
-            mass_flow_capability,
-            max_batch_mass_capability,
-            energy_carrier,
-            specific_energy,
-            condition_wear_ppm_per_active_tick,
-        }
-    }
-}
-
 impl ComminutionProcessDefinition {
     #[must_use]
     pub fn new<P>(
@@ -205,7 +293,7 @@ impl ComminutionProcessDefinition {
         input_form: FormId,
         output_form: FormId,
         output_particle_size: P,
-        operating: ComminutionOperatingProfile,
+        operating: PoweredOreProcessProfile,
     ) -> Self
     where
         P: Into<ParticleSizeDistribution>,
@@ -232,7 +320,7 @@ impl ComminutionProcessDefinition {
         output_form: FormId,
         input_particle_size_range: ParticleSizeRange,
         output_particle_size: P,
-        operating: ComminutionOperatingProfile,
+        operating: PoweredOreProcessProfile,
     ) -> Self
     where
         P: Into<ParticleSizeDistribution>,
@@ -310,17 +398,19 @@ impl ComminutionProcessDefinition {
 pub struct OreProcessingRegistry {
     comminution: BTreeMap<ProcessId, ComminutionProcessDefinition>,
     screening: BTreeMap<ProcessId, ScreeningProcessDefinition>,
+    separation: BTreeMap<ProcessId, ConstituentSeparationProcessDefinition>,
 }
 
 impl OreProcessingRegistry {
     #[cfg(test)]
     pub(crate) fn new(definitions: impl IntoIterator<Item = ComminutionProcessDefinition>) -> Self {
-        Self::new_with_screening(definitions, std::iter::empty())
+        Self::new_with_processes(definitions, std::iter::empty(), std::iter::empty())
     }
 
-    pub(crate) fn new_with_screening(
+    pub(crate) fn new_with_processes(
         comminution_definitions: impl IntoIterator<Item = ComminutionProcessDefinition>,
         screening_definitions: impl IntoIterator<Item = ScreeningProcessDefinition>,
+        separation_definitions: impl IntoIterator<Item = ConstituentSeparationProcessDefinition>,
     ) -> Self {
         let mut comminution = BTreeMap::new();
         for definition in comminution_definitions {
@@ -345,9 +435,24 @@ impl OreProcessingRegistry {
                 process.value()
             );
         }
+        let mut separation = BTreeMap::new();
+        for definition in separation_definitions {
+            let process = definition.process();
+            assert!(
+                !comminution.contains_key(&process) && !screening.contains_key(&process),
+                "process {} cannot own multiple ore-processing resolver semantics",
+                process.value()
+            );
+            assert!(
+                separation.insert(process, definition).is_none(),
+                "duplicate constituent-separation definition for process {}",
+                process.value()
+            );
+        }
         Self {
             comminution,
             screening,
+            separation,
         }
     }
 
@@ -361,15 +466,26 @@ impl OreProcessingRegistry {
         self.screening.get(&process).copied()
     }
 
+    #[must_use]
+    pub fn get_constituent_separation(
+        &self,
+        process: ProcessId,
+    ) -> Option<ConstituentSeparationProcessDefinition> {
+        self.separation.get(&process).copied()
+    }
+
     pub(crate) fn process_ids(&self) -> impl Iterator<Item = ProcessId> + '_ {
         self.comminution
             .keys()
             .chain(self.screening.keys())
+            .chain(self.separation.keys())
             .copied()
     }
 
     pub(crate) fn has_process(&self, process: ProcessId) -> bool {
-        self.comminution.contains_key(&process) || self.screening.contains_key(&process)
+        self.comminution.contains_key(&process)
+            || self.screening.contains_key(&process)
+            || self.separation.contains_key(&process)
     }
 
     pub(crate) fn validate_references(
@@ -543,6 +659,111 @@ impl OreProcessingRegistry {
                     "screening process {} {role} form {} must require particle-size state",
                     definition.process().value(),
                     form.value()
+                );
+            }
+        }
+        for definition in self.separation.values().copied() {
+            let process = production
+                .get_process(definition.process())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "constituent-separation definition references missing process {}",
+                        definition.process().value()
+                    )
+                });
+            assert!(
+                matches!(process.input_policy(), ProcessInputPolicy::SelectedBatch),
+                "constituent-separation process {} must use selected-batch input policy",
+                definition.process().value()
+            );
+            for (capability, kind, role) in [
+                (
+                    definition.mass_flow_capability(),
+                    CapabilityValueKind::MassFlow,
+                    "throughput",
+                ),
+                (
+                    definition.max_batch_mass_capability(),
+                    CapabilityValueKind::Mass,
+                    "maximum-batch",
+                ),
+            ] {
+                let authored = capabilities.get_capability(capability).unwrap_or_else(|| {
+                    panic!(
+                        "constituent-separation process {} references missing {role} capability {}",
+                        definition.process().value(),
+                        capability.value()
+                    )
+                });
+                assert_eq!(
+                    authored.kind(),
+                    kind,
+                    "constituent-separation process {} {role} capability has wrong physical kind",
+                    definition.process().value()
+                );
+            }
+            let input_form = materials
+                .get_form(definition.input_form())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "constituent-separation process {} references missing input form {}",
+                        definition.process().value(),
+                        definition.input_form().value()
+                    )
+                });
+            assert_eq!(
+                input_form.phase(),
+                MaterialPhase::Solid,
+                "constituent-separation process {} input must be solid",
+                definition.process().value()
+            );
+            assert_eq!(
+                input_form.particle_size_policy(),
+                ParticleSizeStatePolicy::Required,
+                "constituent-separation process {} requires liberated particulate feed",
+                definition.process().value()
+            );
+            for (material, form, role, particle_policy) in [
+                (
+                    definition.target_material(),
+                    definition.target_output_form(),
+                    "target",
+                    ParticleSizeStatePolicy::Untracked,
+                ),
+                (
+                    definition.residue_material(),
+                    definition.residue_output_form(),
+                    "residue",
+                    ParticleSizeStatePolicy::Required,
+                ),
+            ] {
+                assert!(
+                    materials.get_material(material).is_some(),
+                    "constituent-separation process {} references missing {role} material {}",
+                    definition.process().value(),
+                    material.value()
+                );
+                assert!(
+                    materials.has_commodity(CommodityKey::new(material, form)),
+                    "constituent-separation process {} references invalid {role} material/form {}:{}",
+                    definition.process().value(),
+                    material.value(),
+                    form.value()
+                );
+                let output_form = materials.get_form(form).unwrap_or_else(|| {
+                    unreachable!("validated output commodity requires its form")
+                });
+                assert_eq!(
+                    output_form.phase(),
+                    MaterialPhase::Solid,
+                    "constituent-separation process {} {role} output must be solid",
+                    definition.process().value()
+                );
+                assert_eq!(
+                    output_form.particle_size_policy(),
+                    particle_policy,
+                    "constituent-separation process {} {role} output has incompatible particle-state policy",
+                    definition.process().value()
                 );
             }
         }
