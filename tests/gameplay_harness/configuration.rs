@@ -3,7 +3,7 @@
 use super::seed::mix64;
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 
-const GATE_VARIATION_SCENARIO_COUNT: usize = 1;
+const GATE_VARIATION_SCENARIO_COUNT: usize = 2;
 const EXPLORATORY_VARIATION_SCENARIO_COUNT: usize = 4;
 const SEED_STRIDE: u64 = 0xD1B5_4A32_D192_ED03;
 

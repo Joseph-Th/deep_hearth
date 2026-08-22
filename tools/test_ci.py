@@ -170,6 +170,28 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("--test-threads=1", focused)
         self.assertNotIn("gameplay_workshop", focused)
 
+    def test_report_replay_environment_is_fresh_by_default_and_preserves_explicit_roots(self) -> None:
+        generated: dict[str, str] = {}
+        rolls = iter((0x1234, 0x5678))
+        variation, behavior = ci.configure_report_replay_environment(
+            generated, randbits=lambda _bits: next(rolls)
+        )
+        self.assertEqual(variation, "0x0000000000001234")
+        self.assertEqual(behavior, "0x0000000000005678")
+        self.assertEqual(generated["DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"], variation)
+        self.assertEqual(generated["DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"], behavior)
+
+        explicit = {
+            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAA",
+            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0xBB",
+        }
+        self.assertEqual(
+            ci.configure_report_replay_environment(
+                explicit, randbits=lambda _bits: self.fail("explicit replay roots must not consume entropy")
+            ),
+            ("0xAA", "0xBB"),
+        )
+
     def test_git_wizard_validation_levels_match_iteration_policy(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
         validation = manifest["package"]["metadata"]["git-wizard"]["validation"]

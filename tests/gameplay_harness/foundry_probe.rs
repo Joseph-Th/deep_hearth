@@ -2,7 +2,7 @@
 
 use super::foundry_setup::{FoundrySetup, setup_foundry_probe};
 use super::production_support::{
-    finish_production_job, only_lot_in_stockpile, varied_healthy_condition,
+    finish_production_job, select_stockpile_mass, varied_healthy_condition,
 };
 use super::seed::mix64;
 use super::support::{ROOM_TEMPERATURE, nominal_equipment_mass_capability};
@@ -164,15 +164,15 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
         "foundry melt",
     );
 
-    let molten_lot = only_lot_in_stockpile(&state, ids.molten_vessel, "foundry molten output");
-    let molten_selection = [MaterialLotSelection::new(molten_lot, mass)];
+    let molten_selection =
+        select_stockpile_mass(&state, ids.molten_vessel, mass, "foundry molten output");
     let casting = resolve_casting_process(
         registries,
         &state,
         CastingRequest::new(
             PROCESS_CAST_PURE_COPPER,
             ids.molten_vessel,
-            &molten_selection,
+            molten_selection.as_slice(),
             ids.mold,
             ids.heat_sink,
         ),

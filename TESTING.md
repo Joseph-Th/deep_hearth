@@ -82,11 +82,13 @@ truth, hidden future events, setup-only state, or cloned `AppState` previews.
 
 `ore` and `foundry` are capability tests, not end-to-end acquisition claims. `STATUS.md` is authoritative
 for runtime reachability. Workshop exploration intentionally samples constrained stored work, wear, and a
-hidden controlled delivery to expose adaptation paths; its event density is stress evidence, not a claim
-about baseline world-event frequency. Workshop agency comparisons hold world variation and behavior RNG
-fixed except for the policy being compared. `python ci.py report` emits explicit survival, progression,
-workshop-experience, agency, and capability-role review lines so the experiential conclusions do not have
-to be reconstructed from raw per-scenario counters.
+scheduled hidden controlled delivery to expose adaptation paths; the event is not forced after an order
+has already completed or reached a terminal stop. Its event density is stress evidence, not a claim about
+baseline world-event frequency. Workshop agency comparisons hold world variation and behavior RNG
+fixed except for the policy being compared. The agency surface also includes one bounded generated world
+so the same policy family is observed outside the maintained edge-case fixtures. `python ci.py report`
+emits explicit survival, progression, workshop-experience, agency, and capability-role review lines so the
+experiential conclusions do not have to be reconstructed from raw per-scenario counters.
 
 Broad gameplay audit links `gameplay_workshop` and `gameplay_audit`; the latter contains the four focused
 probe modules. Focused gates keep their own binaries so repairing one concern does not require relinking
@@ -95,9 +97,18 @@ the others. Broad-audit failures map back to the corresponding focused target an
 ### Variation and replay
 
 Maintained gameplay tests combine fixed semantic anchors with a small deterministic variation sample.
-Hard assertions cover legality, ownership, conservation, persistence, authored capability agreement,
-information boundaries, and other balance-independent contracts. Balance-sensitive results are report
-observations unless an anchor explicitly owns them.
+The workshop gate retains seven semantic anchors and adds two generated physical worlds. Each focused
+probe retains one semantic anchor and adds two independently salted generated worlds, so a shared replay
+root does not collapse different gameplay concerns onto the same scenario seed. Hard assertions cover
+legality, ownership, conservation, persistence, authored capability agreement, information boundaries,
+and other balance-independent contracts. Balance-sensitive results are report observations unless an
+anchor explicitly owns them.
+
+`python ci.py report` is deliberately experiential rather than a deterministic gate. Unless replay roots
+are already present in the environment, it creates fresh physical and behavior roots once for the whole
+report, then passes them through workshop exploration, agency evaluation, and the independently salted
+focused probes. The roots and realized seeds are printed, so any surprising run remains exactly
+replayable. Ordinary gates and audits keep stable defaults for repeatable verification.
 
 Replay controls:
 

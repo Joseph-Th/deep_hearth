@@ -14,6 +14,12 @@ pub(super) fn run_scenario(
             panic!("gameplay harness initial matter accounting failed: {error}")
         })
         .total();
+    let initial_ore_composition = state
+        .inventory()
+        .get_lot(ids.ore_lot)
+        .unwrap_or_else(|| panic!("workshop input ore lot disappeared after setup"))
+        .composition()
+        .clone();
     let crusher_definition = registries
         .equipment()
         .get_equipment(EQUIPMENT_JAW_CRUSHER)
@@ -102,6 +108,7 @@ pub(super) fn run_scenario(
         .unwrap_or_else(|error| panic!("selected crusher mount failed: {error}"));
 
     schedule_controlled_delivery_event(registries, &state, ids, &mut variation);
+    report.inputs.delivery_at_tick = variation.delivery.delivery_at_tick;
     let delivery_target = if variation.delivery.destination_is_compact {
         "compact"
     } else {
@@ -492,30 +499,11 @@ pub(super) fn run_scenario(
         }
     }
     if !report.progress.delivery_applied {
-        let current_tick = state.tick().value();
-        if current_tick < variation.delivery.delivery_at_tick {
-            println!(
-                "  timeline: scenario controller advances from tick={current_tick} to controlled delivery at tick={}",
-                variation.delivery.delivery_at_tick
-            );
-            finish_operation(
-                registries,
-                &mut state,
-                TickSpan::new(variation.delivery.delivery_at_tick - current_tick),
-            );
-        }
-        let mut controller = ControlledDeliveryRuntime {
-            delivery: variation.delivery,
-            authorization: &mut delivery_authorization,
-        };
-        let mut actor = ScenarioActorRuntime::new(
-            variation.policy,
-            variation.ore.nominal_batch_mass,
-            &mut current_support,
-            &mut alternate_support,
-            &mut report,
+        println!(
+            "  controlled event: not reached before the actor's work-order episode ended at tick={} (scheduled tick={})",
+            state.tick().value(),
+            variation.delivery.delivery_at_tick,
         );
-        apply_delivery_and_adapt(registries, &mut state, ids, &mut controller, &mut actor);
     }
     let final_condition = state
         .equipment()
@@ -552,21 +540,13 @@ pub(super) fn run_scenario(
             !crushed_lots.is_empty(),
             "positive crushed storage mass must have at least one owned output lot"
         );
-        let expected_composition = MaterialComposition::new(vec![
-            CompositionComponent::new(MATERIAL_COPPER, variation.ore.ore_copper_ppm),
-            CompositionComponent::new(MATERIAL_STONE, 1_000_000 - variation.ore.ore_copper_ppm),
-        ])
-        .unwrap_or_else(|error| panic!("workshop expected crushed composition failed: {error}"));
-        let first_record = state
-            .inventory()
-            .get_lot(crushed_lots[0])
-            .unwrap_or_else(|| panic!("crushed output lot disappeared"));
-        let particle_distribution = first_record
-            .particle_size_distribution()
-            .unwrap_or_else(|| panic!("canonical crushed ore lost particle-size state"));
-        let particle_envelope = first_record
-            .particle_size()
-            .unwrap_or_else(|| panic!("canonical crushed ore lost particle-size envelope"));
+        let crusher_process = registries
+            .ore_processing()
+            .get_comminution(PROCESS_CRUSH_ORE)
+            .unwrap_or_else(|| panic!("canonical crusher process definition disappeared"));
+        let particle_distribution = crusher_process.output_particle_size_distribution();
+        let particle_envelope = particle_distribution.envelope();
+        let input_copper_ppm = initial_ore_composition.parts_per_million(MATERIAL_COPPER);
         let contained_copper_floor = crushed_lots
             .iter()
             .map(|lot| {
@@ -576,7 +556,7 @@ pub(super) fn run_scenario(
                     .unwrap_or_else(|| panic!("crushed output lot disappeared"));
                 assert_eq!(
                     record.composition(),
-                    &expected_composition,
+                    &initial_ore_composition,
                     "every crushed batch must preserve the work-order ore composition"
                 );
                 assert_eq!(
@@ -594,8 +574,8 @@ pub(super) fn run_scenario(
             "  material: crushed={}mg lots={} composition={}ppm Cu / {}ppm gangue contained_copper_floor={}mg particle_classes={} envelope={}..={}um",
             crushed_mass.milligrams(),
             crushed_lots.len(),
-            variation.ore.ore_copper_ppm,
-            1_000_000 - variation.ore.ore_copper_ppm,
+            input_copper_ppm,
+            1_000_000 - input_copper_ppm,
             contained_copper_floor.milligrams(),
             particle_distribution.classes().len(),
             particle_envelope.minimum_diameter().micrometers(),

@@ -4,7 +4,7 @@ use deep_hearth::content::{
     EQUIPMENT_JAW_CRUSHER, MATERIAL_WOOD, PROCESS_CRUSH_ORE, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
 };
 use deep_hearth::core::quantity::{Area, Force, Mass};
-use deep_hearth::maintenance::{CONDITION_PARTS_PER_MILLION, Condition, MaintenanceBand};
+use deep_hearth::maintenance::{CONDITION_PARTS_PER_MILLION, Condition};
 use deep_hearth::registry::Registries;
 use deep_hearth::structural::{
     STRUCTURAL_PARTS_PER_MILLION, StructuralLoadMode, calculate_weight_force_ceiling,
@@ -67,17 +67,6 @@ pub(super) struct ScenarioDeliveryVariation {
     pub(super) delivery_at_tick: u64,
 }
 
-fn ensure_generated_critical_recovery_supply(
-    maintenance_band: MaintenanceBand,
-    replacement_units: u8,
-) -> u8 {
-    if maintenance_band == MaintenanceBand::Critical {
-        replacement_units.max(1)
-    } else {
-        replacement_units
-    }
-}
-
 impl ScenarioVariation {
     pub(super) fn from_seeds(
         registries: &Registries,
@@ -98,6 +87,7 @@ impl ScenarioVariation {
         let k = mix64(j);
         let l = mix64(k);
         let m = mix64(l);
+        let n = mix64(m);
         let crusher_definition = registries
             .equipment()
             .get_equipment(EQUIPMENT_JAW_CRUSHER)
@@ -160,7 +150,7 @@ impl ScenarioVariation {
             small_drive_partial_batch_ppm,
             large_drive_batch_budget,
             large_drive_partial_batch_ppm,
-            mut maintenance_replacement_units,
+            maintenance_replacement_units,
         ) = match anchor {
             Some(MaintainedAnchor::AdaptiveEnergy) => {
                 (nominal_batch_count.saturating_sub(1), 450_000, 0, 0, 1)
@@ -193,13 +183,6 @@ impl ScenarioVariation {
                 (k % 3) as u8,
             ),
         };
-        if anchor.is_none() {
-            maintenance_replacement_units = ensure_generated_critical_recovery_supply(
-                thresholds.classify(initial_crusher_condition),
-                maintenance_replacement_units,
-            );
-        }
-
         let crusher_weight =
             calculate_weight_force_ceiling(crusher_definition.mass(), registries.core().gravity());
         let target_low = 350_000_u32;
@@ -249,7 +232,11 @@ impl ScenarioVariation {
             world_seed,
             behavior_seed,
             survival: ScenarioSurvivalVariation {
-                start_at_hydration_warning: anchor == Some(MaintainedAnchor::SurvivalRecovery),
+                start_at_hydration_warning: match anchor {
+                    Some(MaintainedAnchor::SurvivalRecovery) => true,
+                    Some(_) => false,
+                    None => n.is_multiple_of(4),
+                },
             },
             ore: ScenarioOreVariation {
                 ore_copper_ppm: 450_000 + (b % 300_001) as u32,
@@ -350,6 +337,7 @@ mod tests {
         let second = ScenarioVariation::from_seeds(&registries, 0x1234, 0x2222, None);
 
         assert_eq!(first.world_seed, second.world_seed);
+        assert_eq!(first.survival, second.survival);
         assert_eq!(first.ore, second.ore);
         assert_eq!(first.crusher, second.crusher);
         assert_eq!(first.structure, second.structure);
@@ -364,21 +352,5 @@ mod tests {
 
         assert_eq!(first.behavior_seed, second.behavior_seed);
         assert_eq!(first.policy, second.policy);
-    }
-
-    #[test]
-    fn generated_critical_start_cannot_have_empty_recovery_supply() {
-        assert_eq!(
-            ensure_generated_critical_recovery_supply(MaintenanceBand::Critical, 0),
-            1
-        );
-        assert_eq!(
-            ensure_generated_critical_recovery_supply(MaintenanceBand::Critical, 2),
-            2
-        );
-        assert_eq!(
-            ensure_generated_critical_recovery_supply(MaintenanceBand::Normal, 0),
-            0
-        );
     }
 }

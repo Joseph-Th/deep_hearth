@@ -21,7 +21,7 @@ pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, u64)) {
     let (maintained_seed, salt) = probe_seed_spec(name);
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
-    let default_variation_root = MAINTAINED_VARIATION_ROOT ^ salt;
+    let default_variation_root = MAINTAINED_VARIATION_ROOT;
     let seeds = focused_probe_seeds_from(
         scenario_raw.as_deref(),
         variation_raw.as_deref(),

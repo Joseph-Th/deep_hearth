@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
 import re
+import secrets
 import subprocess
 import sys
 import time
@@ -22,6 +23,24 @@ GAMEPLAY_TARGETS = {
     "ore": "gameplay_ore",
     "foundry": "gameplay_foundry",
 }
+
+
+def configure_report_replay_environment(
+    environ,
+    *,
+    randbits=secrets.randbits,
+) -> tuple[str, str]:
+    """Give exploratory gameplay a fresh bounded sample unless the caller requested a replay."""
+
+    variation_key = "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"
+    behavior_key = "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"
+    if variation_key not in environ:
+        environ[variation_key] = f"0x{randbits(64):016X}"
+    if behavior_key not in environ:
+        environ[behavior_key] = f"0x{randbits(64):016X}"
+    variation = environ[variation_key]
+    behavior = environ[behavior_key]
+    return variation, behavior
 GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
 GAMEPLAY_SCOPES = ("all", *GAMEPLAY_TARGETS)
 GAMEPLAY_SCOPE_BY_TARGET = {target: scope for scope, target in GAMEPLAY_TARGETS.items()}
@@ -413,6 +432,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.preset == "report":
+        configure_report_replay_environment(os.environ)
     plan = plan_for(args)
     if args.dry_run:
         for label, command in plan:

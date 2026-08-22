@@ -35,7 +35,15 @@ fn focused_default_keeps_anchor_and_adds_a_tiny_replayable_variation_sample() {
     assert_eq!(first, second);
     assert_eq!(first.len(), 1 + FOCUSED_VARIATION_COUNT);
     assert_eq!(first[0], 0x1111);
-    assert_ne!(first[1], first[0]);
+    assert_eq!(
+        first
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        first.len(),
+        "focused probe planning must keep the anchor and every generated world distinct"
+    );
 }
 
 #[test]
@@ -47,6 +55,17 @@ fn focused_generated_variation_changes_when_the_default_root_changes() {
 
     assert_eq!(first[0], second[0]);
     assert_ne!(first[1], second[1]);
+}
+
+#[test]
+fn focused_probe_salt_partitions_generated_variation_between_concerns() {
+    let first = focused_probe_seeds_from(None, None, 0x1111, 0x2222, 0x3333)
+        .unwrap_or_else(|error| panic!("first focused salted plan failed: {error:?}"));
+    let second = focused_probe_seeds_from(None, None, 0x1111, 0x4444, 0x3333)
+        .unwrap_or_else(|error| panic!("second focused salted plan failed: {error:?}"));
+
+    assert_eq!(first[0], second[0]);
+    assert_ne!(&first[1..], &second[1..]);
 }
 
 #[test]

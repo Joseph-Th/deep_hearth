@@ -101,6 +101,7 @@ impl ScenarioReport {
                 ore_copper_ppm: variation.ore.ore_copper_ppm,
                 nominal_batch_mass: variation.ore.nominal_batch_mass,
                 order_mass: variation.ore.order_mass,
+                start_at_hydration_warning: variation.survival.start_at_hydration_warning,
                 initial_condition_ppm: variation
                     .crusher
                     .initial_crusher_condition
@@ -113,6 +114,7 @@ impl ScenarioReport {
                 maintenance_replacement_units: variation.crusher.maintenance_replacement_units,
                 delivery_mass: variation.delivery.mass,
                 delivery_is_compact: variation.delivery.destination_is_compact,
+                delivery_at_tick: 0,
             },
             structure: ScenarioStructureReport::default(),
             choices: ScenarioChoiceReport::default(),
@@ -160,6 +162,7 @@ pub(super) struct ScenarioInputReport {
     pub(super) ore_copper_ppm: u32,
     pub(super) nominal_batch_mass: Mass,
     pub(super) order_mass: Mass,
+    pub(super) start_at_hydration_warning: bool,
     pub(super) initial_condition_ppm: u32,
     pub(super) initial_maintenance_band: MaintenanceBand,
     pub(super) small_drive_batch_budget: u8,
@@ -169,6 +172,7 @@ pub(super) struct ScenarioInputReport {
     pub(super) maintenance_replacement_units: u8,
     pub(super) delivery_mass: Mass,
     pub(super) delivery_is_compact: bool,
+    pub(super) delivery_at_tick: u64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -389,6 +393,10 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
         .iter()
         .map(|report| u32::from(report.progress.operations_before_delivery))
         .sum();
+    let controlled_deliveries = reports
+        .iter()
+        .filter(|report| report.progress.delivery_applied)
+        .count();
     let adaptive_operations: u32 = reports
         .iter()
         .map(|report| u32::from(report.progress.adaptive_batch_operations))
@@ -480,6 +488,16 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
         .map(|report| report.inputs.delivery_mass.milligrams())
         .max()
         .unwrap_or_else(|| unreachable!("nonempty reports have a delivery-mass maximum"));
+    let delivery_tick_min = reports
+        .iter()
+        .map(|report| report.inputs.delivery_at_tick)
+        .min()
+        .unwrap_or_else(|| unreachable!("nonempty reports have a delivery-tick minimum"));
+    let delivery_tick_max = reports
+        .iter()
+        .map(|report| report.inputs.delivery_at_tick)
+        .max()
+        .unwrap_or_else(|| unreachable!("nonempty reports have a delivery-tick maximum"));
     let compact_deliveries = reports
         .iter()
         .filter(|report| report.inputs.delivery_is_compact)
@@ -495,6 +513,10 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
     let initial_critical = reports
         .iter()
         .filter(|report| report.inputs.initial_maintenance_band == MaintenanceBand::Critical)
+        .count();
+    let survival_warning_starts = reports
+        .iter()
+        .filter(|report| report.inputs.start_at_hydration_warning)
         .count();
     let small_drive_batches: u32 = reports
         .iter()
@@ -567,11 +589,28 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
         } else {
             "partial"
         };
+        let survival_start = if report.inputs.start_at_hydration_warning {
+            "hydration-warning"
+        } else {
+            "full-reserve"
+        };
+        let event_progress = if report.progress.delivery_applied {
+            format!(
+                "scheduled:{}t reached:true operations-before:{}",
+                report.inputs.delivery_at_tick, report.progress.operations_before_delivery
+            )
+        } else {
+            format!(
+                "scheduled:{}t reached:false operations-before:n/a",
+                report.inputs.delivery_at_tick
+            )
+        };
         std::println!(
-            "CAPABILITY EXPERIENCE world=0x{:016X} behavior=0x{:016X} start={:?} policy=[power:{} recovery:{} maintenance:{} structure:{}] initial=[small:{}+{}ppm nominal-batches large:{}+{}ppm nominal-batches maintenance:{}unit] order=[processed:{}/{}mg operations:{} adaptive:[total:{} condition:{} stored-work:{}] before-event:{}] power=[small:{} large:{} manual-recharges:{} generated:{}nJ manual-ticks:{}] maintenance={} relocation={} suspension={} stranded={} final=[crusher:{}ppm crank:{}ppm small:{}nJ large:{}nJ maintenance:{}mg ticks:{} survival-energy:-{}nJ hydration:-{}uL vitality:{}ppm] outcome={}",
+            "CAPABILITY EXPERIENCE world=0x{:016X} behavior=0x{:016X} start=[crusher:{:?} survival:{}] policy=[power:{} recovery:{} maintenance:{} structure:{}] initial=[small:{}+{}ppm nominal-batches large:{}+{}ppm nominal-batches maintenance:{}unit] order=[processed:{}/{}mg operations:{} adaptive:[total:{} condition:{} stored-work:{}] event:[{}]] power=[small:{} large:{} manual-recharges:{} generated:{}nJ manual-ticks:{}] maintenance={} relocation={} suspension={} stranded={} final=[crusher:{}ppm crank:{}ppm small:{}nJ large:{}nJ maintenance:{}mg ticks:{} survival-energy:-{}nJ hydration:-{}uL vitality:{}ppm] outcome={}",
             report.world_seed,
             report.behavior_seed,
             report.inputs.initial_maintenance_band,
+            survival_start,
             report.policy.power_preference.label(),
             report.policy.energy_recovery_preference.label(),
             report.policy.maintenance_preference.label(),
@@ -587,7 +626,7 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
             report.progress.adaptive_batch_operations,
             report.progress.condition_adaptive_batch_operations,
             report.progress.energy_adaptive_batch_operations,
-            report.progress.operations_before_delivery,
+            event_progress,
             report.choices.small_drive_batches,
             report.choices.large_drive_batches,
             report.choices.manual_recharges,
@@ -611,7 +650,8 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
     }
 
     std::println!(
-        "SAMPLE ore=[grade:{ore_grade_min}..{ore_grade_max}ppm nominal-batch:{batch_mass_min}..{batch_mass_max}mg order:{order_mass_min}..{order_mass_max}mg] crusher-condition=[{initial_condition_min}..{initial_condition_max}ppm normal:{initial_normal} warning:{initial_warning} critical:{initial_critical}] resources=[small-drive:{}..{}+{}..{}ppm nominal-batches large-drive:{}..{}+{}..{}ppm maintenance-units:{}..{}] controlled-event=[mass:{delivery_mass_min}..{delivery_mass_max}mg compact:{compact_deliveries} reinforced:{} actor-visibility:hidden]",
+        "SAMPLE ore=[grade:{ore_grade_min}..{ore_grade_max}ppm nominal-batch:{batch_mass_min}..{batch_mass_max}mg order:{order_mass_min}..{order_mass_max}mg] crusher-condition=[{initial_condition_min}..{initial_condition_max}ppm normal:{initial_normal} warning:{initial_warning} critical:{initial_critical}] survival-start=[hydration-warning:{survival_warning_starts} full-reserve:{}] resources=[small-drive:{}..{}+{}..{}ppm nominal-batches large-drive:{}..{}+{}..{}ppm maintenance-units:{}..{}] scheduled-event=[tick:{delivery_tick_min}..{delivery_tick_max}t mass:{delivery_mass_min}..{delivery_mass_max}mg compact:{compact_deliveries} reinforced:{} actor-visibility:hidden]",
+        reports.len() - survival_warning_starts,
         reports
             .iter()
             .map(|report| report.inputs.small_drive_batch_budget)
@@ -665,7 +705,8 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
         reports.len() - compact_deliveries,
     );
     std::println!(
-        "WORKSHOP CAPABILITY mode={mode} scenarios={} orders=[complete:{completed_orders} partial:{partial_orders} productive:{productive_orders}/{}] ore={processed_mass_mg}/{target_mass_mg}mg operations={completed_operations} adaptive=[total:{adaptive_operations} condition:{condition_adaptive_operations} stored-work:{energy_adaptive_operations}] before-event={operations_before_delivery} stops=[structural:{} maintenance:{} energy:{} declined-manual:{} survival-limited-manual:{}] manual-recovery=[charges:{manual_recharges} generated:{manually_generated_energy}nJ ticks:{manual_power_ticks} metabolic:{manual_metabolic_energy}nJ hydration:{manual_hydration}uL] material=[mixed-ore-melt-rejected:{mixed_ore_melt_rejections}/{}]",
+        "WORKSHOP CAPABILITY mode={mode} scenarios={} orders=[complete:{completed_orders} partial:{partial_orders} productive:{productive_orders}/{}] ore={processed_mass_mg}/{target_mass_mg}mg operations={completed_operations} adaptive=[total:{adaptive_operations} condition:{condition_adaptive_operations} stored-work:{energy_adaptive_operations}] events=[reached:{controlled_deliveries}/{} operations-before-reached:{operations_before_delivery}] stops=[structural:{} maintenance:{} energy:{} declined-manual:{} survival-limited-manual:{}] manual-recovery=[charges:{manual_recharges} generated:{manually_generated_energy}nJ ticks:{manual_power_ticks} metabolic:{manual_metabolic_energy}nJ hydration:{manual_hydration}uL] material=[mixed-ore-melt-rejected:{mixed_ore_melt_rejections}/{}]",
+        reports.len(),
         reports.len(),
         reports.len(),
         reports
@@ -799,10 +840,15 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
     } else {
         unobserved.push("adaptive-batching");
     }
+    if controlled_deliveries > 0 {
+        observed.push("controlled-supported-stockpile-delivery");
+    } else {
+        unobserved.push("controlled-supported-stockpile-delivery");
+    }
     let observed = observed.join(",");
     let unobserved = unobserved.join(",");
     std::println!(
-        "CAPABILITY SCOPE evidence=bootstrapped-industrial exercised=[canonical-industrial-comminution,adaptive-batching,manual-energy-recovery,power-choice,wear,maintenance,structural-siting,controlled-supported-stockpile-delivery] observed=[{observed}] unobserved=[{unobserved}] outside-this-workshop-test=[playable-survival,playable-primitive-progression,industrial-ore-preparation,pure-copper-foundry] bootstrap=[industrial-workshop-equipment,industrial-energy-stores,constructed-bays,starting-workshop-matter,preauthorized-controlled-delivery] missing-bridge=[industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting] actor-oracle=none fixture-guard=fail-if-injected-machine-becomes-runtime-acquirable capability-boundary=STATUS.md"
+        "CAPABILITY SCOPE evidence=bootstrapped-industrial surface=[canonical-industrial-comminution,adaptive-batching,manual-energy-recovery,power-choice,wear,maintenance,structural-siting,controlled-supported-stockpile-delivery] observed=[{observed}] unobserved=[{unobserved}] outside-this-workshop-test=[playable-survival,playable-primitive-progression,industrial-ore-preparation,pure-copper-foundry] bootstrap=[industrial-workshop-equipment,industrial-energy-stores,constructed-bays,starting-workshop-matter,preauthorized-controlled-delivery] missing-bridge=[industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting] actor-oracle=none fixture-guard=fail-if-injected-machine-becomes-runtime-acquirable capability-boundary=STATUS.md"
     );
 
     let stored_work_pressure = reports
@@ -855,7 +901,8 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
         })
         .count();
     std::println!(
-        "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt-physical-infrastructure sample=pressure-rich+hidden-controlled-delivery loop=observe-pressure->choose-power/batch/service/site->run->recover dynamic-scenarios:{multi_system_adaptation}/{} interlocks=[stored-work+throughput:{stored_work_pressure} body+power:{body_power_pressure} wear+maintenance:{wear_maintenance_pressure} structure+production:{structure_production_pressure}] recovery=[suspensions:{suspensions} resumed:{recovered_work_in_process} stranded:{stranded_work_in_process}] agency=matched-policy-counterfactuals-in-AGENCY-SUMMARY dormant=[ore-grade:composition-only-until-concentration/smelting]",
+        "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt-physical-infrastructure sample=pressure-rich+hidden-controlled-delivery reached-events:{controlled_deliveries}/{} loop=observe-pressure->choose-power/batch/service/site->run->recover dynamic-scenarios:{multi_system_adaptation}/{} interlocks=[stored-work+throughput:{stored_work_pressure} body+power:{body_power_pressure} wear+maintenance:{wear_maintenance_pressure} structure+production:{structure_production_pressure}] recovery=[suspensions:{suspensions} resumed:{recovered_work_in_process} stranded:{stranded_work_in_process}] agency=matched-policy-counterfactuals-in-AGENCY-SUMMARY dormant=[ore-grade:composition-only-until-concentration/smelting]",
+        reports.len(),
         reports.len(),
     );
 }

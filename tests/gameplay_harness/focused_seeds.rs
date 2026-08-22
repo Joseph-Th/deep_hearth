@@ -4,7 +4,7 @@ use super::seed::mix64;
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 
 pub(super) const MAINTAINED_VARIATION_ROOT: u64 = 0xE7A1_0A7E_5EED_2026;
-pub(super) const FOCUSED_VARIATION_COUNT: usize = 1;
+pub(super) const FOCUSED_VARIATION_COUNT: usize = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum FocusedProbeSeedError {

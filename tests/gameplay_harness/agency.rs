@@ -1,8 +1,10 @@
 //! Matched-world workshop policy counterfactuals and agency evidence.
 
 use std::collections::BTreeSet;
+use std::env;
 
 use super::configuration::MaintainedAnchor;
+use super::focused_seeds::MAINTAINED_VARIATION_ROOT;
 use super::has_verbose_output;
 use super::report::{
     EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioPolicyVariation,
@@ -10,6 +12,7 @@ use super::report::{
 };
 use super::scenario::ScenarioVariation;
 use super::seed::mix64;
+use super::seed_input::parse_seed;
 use super::workshop::run_scenario;
 use deep_hearth::content::build_registries;
 use deep_hearth::core::quantity::{Energy, Mass};
@@ -81,6 +84,7 @@ enum AgencyFocus {
     PowerAndStructure,
     SurvivalRecovery,
     MaintenanceTiming,
+    OrganicVariation,
 }
 
 impl AgencyFocus {
@@ -89,6 +93,7 @@ impl AgencyFocus {
             Self::PowerAndStructure => "power+structure",
             Self::SurvivalRecovery => "survival-recovery",
             Self::MaintenanceTiming => "maintenance-timing",
+            Self::OrganicVariation => "organic-variation",
         }
     }
 }
@@ -369,6 +374,7 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
                     "maintained maintenance-timing agency world must make preventive versus delayed service consequential"
                 );
             }
+            AgencyFocus::OrganicVariation => {}
         }
         std::println!(
             "AGENCY focus={focus} world=0x{world_seed:016X} variants={} unique_paths={} actionable=[power:{} survival:{} maintenance:{} structure:{}] policy-effects=[processed:{}..{}mg adaptive:{}..{} high-power:{}..{} manual-recharges:{}..{} services:{}..{} final-condition:{}..{}ppm relocations:{}/{} suspensions:{}/{} elapsed:{}..{}t survival-energy:{}..{}nJ]",
@@ -447,6 +453,14 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
 #[test]
 fn gameplay_maintained_agency_counterfactuals() {
     let registries = build_registries();
+    let variation_root = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED")
+        .ok()
+        .map(|raw| {
+            parse_seed(&raw)
+                .unwrap_or_else(|| panic!("agency gameplay variation seed is invalid: {raw:?}"))
+        })
+        .unwrap_or(MAINTAINED_VARIATION_ROOT);
+    let organic_world_seed = mix64(variation_root ^ 0xA63E_4E43_594F_5247);
     let worlds = [
         AgencyWorld {
             focus: AgencyFocus::PowerAndStructure,
@@ -462,6 +476,11 @@ fn gameplay_maintained_agency_counterfactuals() {
             focus: AgencyFocus::MaintenanceTiming,
             world_seed: 4,
             anchor: Some(MaintainedAnchor::WarningMaintenance),
+        },
+        AgencyWorld {
+            focus: AgencyFocus::OrganicVariation,
+            world_seed: organic_world_seed,
+            anchor: None,
         },
     ];
     run_agency_probe(&registries, &worlds);

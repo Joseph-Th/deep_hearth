@@ -13,11 +13,23 @@ use deep_hearth::maintenance::MaintenanceBand;
 
 pub(super) fn assert_scenario_contracts(reports: &[ScenarioReport]) {
     for report in reports {
-        assert!(
-            report.progress.delivery_applied,
-            "gameplay world 0x{:016X} / behavior 0x{:016X} never executed its controlled supported-stockpile delivery",
-            report.world_seed, report.behavior_seed,
-        );
+        if !report.progress.delivery_applied {
+            assert!(
+                report.progress.processed_mass == report.progress.target_mass
+                    || report.structure.structural_stop
+                    || report.limits.maintenance_stop
+                    || report.limits.energy_stop,
+                "gameplay world 0x{:016X} / behavior 0x{:016X} ended before its controlled event without completing or reaching a terminal gameplay constraint",
+                report.world_seed,
+                report.behavior_seed,
+            );
+            assert!(
+                report.resources.elapsed_ticks <= report.inputs.delivery_at_tick,
+                "gameplay world 0x{:016X} / behavior 0x{:016X} passed its scheduled controlled-event tick without applying the event",
+                report.world_seed,
+                report.behavior_seed,
+            );
+        }
     }
 }
 
@@ -47,6 +59,12 @@ pub(super) fn assert_anchor_diversity(reports: &[(MaintainedAnchor, ScenarioRepo
     for anchor in MaintainedAnchor::ALL {
         let _ = anchor_report(reports, anchor);
     }
+    assert!(
+        reports
+            .iter()
+            .any(|(_, report)| report.progress.delivery_applied),
+        "maintained gameplay anchors must include at least one workshop episode that reaches the hidden controlled world-change event"
+    );
 
     for (name, preference) in [
         ("reserve-conserving", PowerPreference::PreserveReserve),

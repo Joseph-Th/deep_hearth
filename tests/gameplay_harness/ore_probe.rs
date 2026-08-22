@@ -1,14 +1,14 @@
 //! Focused ore-preparation capability probe.
 
-use super::ore_setup::{OrePreparationSetup, mixed_ore_composition, setup_ore_preparation_probe};
+use super::ore_setup::{OrePreparationSetup, setup_ore_preparation_probe};
 use super::production_support::{
-    finish_production_job, only_lot_in_stockpile, varied_healthy_condition,
+    finish_production_job, select_stockpile_mass, varied_healthy_condition,
 };
 use super::seed::mix64;
 use super::support::nominal_equipment_mass_capability;
 use deep_hearth::content::{
     ENERGY_MECHANICAL_LARGE_DRIVE, EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRINDING_MILL,
-    EQUIPMENT_JAW_CRUSHER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+    EQUIPMENT_JAW_CRUSHER, MATERIAL_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
     PROCESS_GRIND_CRUSHED_ORE, PROCESS_SCREEN_CRUSHED_ORE,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
@@ -169,7 +169,6 @@ fn probe_parameters(registries: &Registries, seed: u64) -> OrePreparationSetup {
 pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed: u64) {
     let setup = probe_parameters(registries, seed);
     let batch_mass = setup.batch_mass;
-    let copper_ppm = setup.copper_ppm;
     let initial_crusher_condition = setup.crusher_condition;
     let initial_grinder_condition = setup.grinder_condition;
     let initial_screen_condition = setup.screen_condition;
@@ -198,6 +197,13 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         .get_store(ids.drive)
         .map(|store| store.stored())
         .unwrap_or_else(|| panic!("ore preparation drive disappeared"));
+    let input_composition = state
+        .inventory()
+        .get_lot(ids.ore_lot)
+        .unwrap_or_else(|| panic!("ore preparation input lot disappeared after setup"))
+        .composition()
+        .clone();
+    let input_copper_ppm = input_composition.parts_per_million(MATERIAL_COPPER);
 
     let crush_selection = [MaterialLotSelection::new(ids.ore_lot, batch_mass)];
     let crushed = resolve_comminution_process(
@@ -235,22 +241,26 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("ore preparation post-crush audit failed: {error}"));
 
-    let crushed_lot = only_lot_in_stockpile(&state, ids.crushed_storage, "crushed ore output");
-    let crushed_distribution = state
-        .inventory()
-        .get_lot(crushed_lot)
-        .and_then(|lot| lot.particle_size_distribution())
-        .unwrap_or_else(|| panic!("canonical crushing output lost particle-size state"));
-    let crusher_output_matches_authoring =
-        crushed_distribution == crusher_definition.output_particle_size_distribution();
-    let direct_screen_selection = [MaterialLotSelection::new(crushed_lot, batch_mass)];
+    let crushed_selection = select_stockpile_mass(
+        &state,
+        ids.crushed_storage,
+        batch_mass,
+        "crushed ore output",
+    );
+    let crusher_output_matches_authoring = crushed_selection.iter().all(|selection| {
+        state
+            .inventory()
+            .get_lot(selection.lot())
+            .and_then(|lot| lot.particle_size_distribution())
+            == Some(crusher_definition.output_particle_size_distribution())
+    });
     match resolve_screening_process(
         registries,
         &state,
         ScreeningRequest::new(
             PROCESS_SCREEN_CRUSHED_ORE,
             ids.crushed_storage,
-            &direct_screen_selection,
+            crushed_selection.as_slice(),
             ids.screen,
             ids.drive,
         ),
@@ -267,7 +277,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         ComminutionRequest::new(
             PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
             ids.crushed_storage,
-            &direct_screen_selection,
+            crushed_selection.as_slice(),
             ids.grinder,
             ids.drive,
         ),
@@ -279,14 +289,13 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         Err(error) => panic!("direct fine-grind route failed unexpectedly: {error}"),
     }
 
-    let grind_selection = [MaterialLotSelection::new(crushed_lot, batch_mass)];
     let ground = resolve_comminution_process(
         registries,
         &state,
         ComminutionRequest::new(
             PROCESS_GRIND_CRUSHED_ORE,
             ids.crushed_storage,
-            &grind_selection,
+            crushed_selection.as_slice(),
             ids.grinder,
             ids.drive,
         ),
@@ -323,29 +332,30 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         "grinder condition must match the resolved wear projection"
     );
 
-    let ground_lot = only_lot_in_stockpile(&state, ids.ground_storage, "ground ore output");
-    let ground_distribution = state
-        .inventory()
-        .get_lot(ground_lot)
-        .and_then(|lot| lot.particle_size_distribution())
-        .cloned()
-        .unwrap_or_else(|| panic!("canonical grinding output lost particle-size state"));
-    let ground_classes = ground_distribution.classes();
-    let grinding_matches_authoring =
-        &ground_distribution == grinder_definition.output_particle_size_distribution();
+    let ground_selection =
+        select_stockpile_mass(&state, ids.ground_storage, batch_mass, "ground ore output");
+    let grinding_matches_authoring = ground_selection.iter().all(|selection| {
+        state
+            .inventory()
+            .get_lot(selection.lot())
+            .and_then(|lot| lot.particle_size_distribution())
+            == Some(grinder_definition.output_particle_size_distribution())
+    });
+    let ground_classes = grinder_definition
+        .output_particle_size_distribution()
+        .classes();
     let grinding_resolved_screen_cut = ground_classes.iter().all(|class| {
         class.range().maximum_diameter() <= screen_definition.aperture()
             || class.range().minimum_diameter() > screen_definition.aperture()
     });
 
-    let screen_selection = [MaterialLotSelection::new(ground_lot, batch_mass)];
     let screened = resolve_screening_process(
         registries,
         &state,
         ScreeningRequest::new(
             PROCESS_SCREEN_CRUSHED_ORE,
             ids.ground_storage,
-            &screen_selection,
+            ground_selection.as_slice(),
             ids.screen,
             ids.drive,
         ),
@@ -389,7 +399,6 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("ore preparation post-screen audit failed: {error}"));
 
-    let output_composition = mixed_ore_composition(copper_ppm);
     let fine_output_fits_undersize = fine_grind_definition
         .output_particle_size_distribution()
         .classes()
@@ -399,33 +408,36 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         if screened_oversize_mass.is_zero() {
             (Energy::ZERO, 0, grinder_condition, true)
         } else {
-            let oversize_lot =
-                only_lot_in_stockpile(&state, ids.oversize_storage, "screen oversize output");
-            let oversize_before_regrind = state
-                .inventory()
-                .get_lot(oversize_lot)
-                .unwrap_or_else(|| panic!("ore preparation oversize lot disappeared"));
-            let oversize_profile_is_preserved = oversize_before_regrind.composition()
-                == &output_composition
-                && oversize_before_regrind
-                    .particle_size_distribution()
-                    .is_some_and(|distribution| {
-                        distribution.classes().iter().all(|class| {
-                            class.range().minimum_diameter() > screen_definition.aperture()
-                                && ground_classes.contains(class)
-                        })
-                    });
-            let fine_selection = [MaterialLotSelection::new(
-                oversize_lot,
+            let fine_selection = select_stockpile_mass(
+                &state,
+                ids.oversize_storage,
                 screened_oversize_mass,
-            )];
+                "screen oversize output",
+            );
+            let oversize_profile_is_preserved = fine_selection.iter().all(|selection| {
+                state
+                    .inventory()
+                    .get_lot(selection.lot())
+                    .is_some_and(|lot| {
+                        lot.composition() == &input_composition
+                            && lot
+                                .particle_size_distribution()
+                                .is_some_and(|distribution| {
+                                    distribution.classes().iter().all(|class| {
+                                        class.range().minimum_diameter()
+                                            > screen_definition.aperture()
+                                            && ground_classes.contains(class)
+                                    })
+                                })
+                    })
+            });
             let fine_ground = resolve_comminution_process(
                 registries,
                 &state,
                 ComminutionRequest::new(
                     PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
                     ids.oversize_storage,
-                    &fine_selection,
+                    fine_selection.as_slice(),
                     ids.grinder,
                     ids.drive,
                 ),
@@ -501,7 +513,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         state
             .inventory()
             .get_lot(lot)
-            .is_some_and(|lot| lot.composition() == &output_composition)
+            .is_some_and(|lot| lot.composition() == &input_composition)
     });
     let final_distribution_is_fine = state.inventory().lot_ids(ids.undersize_storage).all(|lot| {
         state
@@ -592,7 +604,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
     std::println!(
         "CAPABILITY ORE_PREP seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[particle-state,routing,finite-work,wear] batch={}mg copper={}ppm composition-effect=preserved-not-concentrated initial-condition=[crusher:{} grinder:{} screen:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t] matter=conserved energy=resolved",
         batch_mass.milligrams(),
-        copper_ppm,
+        input_copper_ppm,
         initial_crusher_condition.parts_per_million(),
         initial_grinder_condition.parts_per_million(),
         initial_screen_condition.parts_per_million(),

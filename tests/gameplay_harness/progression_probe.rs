@@ -17,7 +17,7 @@ use deep_hearth::content::{
     PROCESS_CRUSH_ORE, PROCESS_FORM_CLAY_VESSEL, PROCESS_KNAP_STONE_TOOL,
     PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE,
 };
-use deep_hearth::core::quantity::{Energy, Mass, Pressure, Temperature};
+use deep_hearth::core::quantity::{Energy, Mass, Pressure};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::crafting::{
@@ -1124,6 +1124,8 @@ fn run_primitive_progression_case(
     let stone_pick_batch_limit = stone_pick_mining_batch_limit(registries);
     let (stone_hardness_limit, reinforced_hardness_limit, hard_seam_hardness) =
         mining_hardness_limits(registries);
+    let native_seam_hardness =
+        Pressure::from_pascals(stone_hardness_limit.pascals().div_ceil(2).max(1));
     let pick_upgrade_native =
         native_input_for_upgrade(registries, EQUIPMENT_COPPER_REINFORCED_PICK);
     let crank_upgrade_native =
@@ -1174,7 +1176,7 @@ fn run_primitive_progression_case(
             soft_ore_bounds,
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
             soft_ore_deposit_mass,
-            Temperature::from_millikelvin(293_150),
+            ROOM_TEMPERATURE,
             stone_hardness_limit,
             ore_composition.clone(),
         ),
@@ -1188,7 +1190,7 @@ fn run_primitive_progression_case(
             hard_ore_bounds,
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
             hard_ore_deposit_mass,
-            Temperature::from_millikelvin(293_150),
+            ROOM_TEMPERATURE,
             hard_seam_hardness,
             ore_composition,
         ),
@@ -1202,8 +1204,8 @@ fn run_primitive_progression_case(
             native_bounds,
             CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
             native_deposit_mass,
-            Temperature::from_millikelvin(293_150),
-            Pressure::from_pascals(350_000_000),
+            ROOM_TEMPERATURE,
+            native_seam_hardness,
             MaterialComposition::pure(MATERIAL_COPPER),
         ),
     );
