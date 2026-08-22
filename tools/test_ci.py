@@ -43,9 +43,22 @@ def cargo_build_commands(plan: list[tuple[str, list[str]]]) -> list[list[str]]:
     ]
 
 
+def cargo_test_targets(command: list[str]) -> list[str]:
+    return [command[index + 1] for index, value in enumerate(command[:-1]) if value == "--test"]
+
+
 class LocalCiPlanTests(unittest.TestCase):
     def test_quick_lane_is_build_free(self) -> None:
         self.assertEqual(cargo_build_commands(ci.quick_plan()), [])
+
+    def test_unit_test_bodies_stay_out_of_production_source_files(self) -> None:
+        inline_marker = "#[cfg(test)]\nmod tests {"
+        offenders = [
+            path.relative_to(ROOT).as_posix()
+            for path in (ROOT / "src").rglob("*.rs")
+            if inline_marker in path.read_text(encoding="utf-8")
+        ]
+        self.assertEqual(offenders, [])
 
     def test_standard_gate_compiles_production_once(self) -> None:
         builds = cargo_build_commands(ci.plan_for(gate_args()))
@@ -92,6 +105,13 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("test-gameplay", gameplay_builds[0])
         self.assertNotIn(["cargo", "test-fast"], gameplay_builds)
 
+    def test_broad_gameplay_audit_links_only_workshop_and_consolidated_focused_target(self) -> None:
+        command = ci.gameplay_command("all")
+        self.assertEqual(
+            cargo_test_targets(command),
+            [ci.GAMEPLAY_TARGETS["workshop"], ci.GAMEPLAY_AUDIT_TARGET],
+        )
+
     def test_broad_core_failure_points_to_one_exact_repair(self) -> None:
         output = "failures:\n    mining::execution::tests::missing_capability\n"
         self.assertEqual(
@@ -112,6 +132,14 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), "", error),
             "python ci.py gate --gameplay workshop",
+        )
+
+    def test_consolidated_gameplay_failure_points_back_to_narrow_focused_target(self) -> None:
+        output = "failures:\n    focused::gameplay_ore_preparation_probe\n"
+        error = "error: test failed, to rerun pass `--test gameplay_audit`"
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("all"), output, error),
+            "python tools/run_test.py --target gameplay_ore gameplay_ore_preparation_probe",
         )
 
     def test_integration_exact_command_infers_target_required_features(self) -> None:
@@ -136,7 +164,10 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("test-gameplay", flattened)
         self.assertNotIn("test-gameplay-full", flattened)
         focused = plan[-1][1]
-        self.assertEqual(focused.count("--test"), 4)
+        self.assertEqual(focused.count("--test"), 1)
+        self.assertIn(ci.GAMEPLAY_AUDIT_TARGET, focused)
+        self.assertIn("focused::", focused)
+        self.assertIn("--test-threads=1", focused)
         self.assertNotIn("gameplay_workshop", focused)
 
     def test_git_wizard_validation_levels_match_iteration_policy(self) -> None:
@@ -152,7 +183,10 @@ class LocalCiPlanTests(unittest.TestCase):
         for key in ("autobins", "autoexamples", "autotests", "autobenches"):
             self.assertFalse(package[key])
         targets = {definition["name"] for definition in manifest.get("test", [])}
-        self.assertEqual(targets, set(ci.GAMEPLAY_TARGETS.values()))
+        self.assertEqual(
+            targets,
+            set(ci.GAMEPLAY_TARGETS.values()) | {ci.GAMEPLAY_AUDIT_TARGET},
+        )
         binaries = {definition["name"] for definition in manifest.get("bin", [])}
         self.assertEqual(binaries, {"validate-shaders"})
 
@@ -276,6 +310,14 @@ class ExactTestCommandTests(unittest.TestCase):
             "core::time::calendar_tests::calendar_exposes_exact_physical_world_time_per_tick",
             catalog,
         )
+        self.assertIn(
+            "content::equipment::tests::primitive_copper_upgrades_improve_their_intended_nominal_capability",
+            catalog,
+        )
+        self.assertIn(
+            "thermal::processes::tests::sensible_heating_rejects_heater_after_mounted_support_fails",
+            catalog,
+        )
         self.assertNotIn(
             "content::shaders::tests::built_in_programs_assemble_and_validate_as_portable_wgsl",
             catalog,
@@ -291,6 +333,7 @@ class ExactTestCommandTests(unittest.TestCase):
     def test_source_catalog_resolves_gameplay_target_modules(self) -> None:
         workshop = run_test.source_test_catalog("gameplay_workshop", None)
         ore = run_test.source_test_catalog("gameplay_ore", None)
+        audit = run_test.source_test_catalog("gameplay_audit", None)
         self.assertIn("gameplay_harness_gate", workshop)
         self.assertIn("agency::gameplay_maintained_agency_counterfactuals", workshop)
         self.assertIn(
@@ -298,6 +341,15 @@ class ExactTestCommandTests(unittest.TestCase):
             workshop,
         )
         self.assertEqual(ore, ["gameplay_ore_preparation_probe"])
+        self.assertEqual(
+            set(audit),
+            {
+                "focused::gameplay_survival_provisioning_probe",
+                "focused::gameplay_primitive_progression_probe",
+                "focused::gameplay_ore_preparation_probe",
+                "focused::gameplay_foundry_probe",
+            },
+        )
 
     def test_source_catalog_listing_never_builds_through_cargo_command(self) -> None:
         args = argparse.Namespace(

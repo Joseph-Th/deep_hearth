@@ -3,16 +3,20 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 from pathlib import Path
 import re
 import shlex
-import subprocess
 import sys
 import tomllib
 from urllib.parse import unquote
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+import ci  # noqa: E402
 
 AUTHORITY_FILES = (
     "AGENTS.md",
@@ -99,7 +103,7 @@ def normalize_ci_command(command: str) -> str | None:
 
 
 def ci_command_error(command: str) -> str | None:
-    """Return an error for one documented ci.py command without executing its plan."""
+    """Return an error for one documented ci.py command without spawning or executing its plan."""
 
     normalized = normalize_ci_command(command)
     if normalized is None:
@@ -111,23 +115,19 @@ def ci_command_error(command: str) -> str | None:
     if parts[:2] != ["python", "ci.py"]:
         return None
     args = parts[2:]
-    if "--dry-run" not in args:
-        args.append("--dry-run")
+    stderr = io.StringIO()
     try:
-        result = subprocess.run(
-            [sys.executable, str(ROOT / "ci.py"), *args],
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=5,
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        return f"unable to validate local CI command {command}: {error}"
-    if result.returncode == 0:
+        with contextlib.redirect_stderr(stderr):
+            parsed = ci.parse_args(args)
+        ci.plan_for(parsed)
+    except SystemExit:
+        detail = stderr.getvalue().strip().splitlines()
+        reason = detail[-1] if detail else "argument parsing failed"
+        return f"invalid local CI command: {command} ({reason})"
+    except ValueError as error:
+        return f"invalid local CI command: {command} ({error})"
+    else:
         return None
-    detail = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else "command rejected"
-    return f"invalid local CI command: {command} ({detail})"
 
 
 def check_authority_graph() -> list[str]:

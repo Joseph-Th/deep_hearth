@@ -24,6 +24,11 @@ path = "tests/gameplay_harness/main.rs"
 required-features = ["test-gameplay"]
 
 [[test]]
+name = "gameplay_audit"
+path = "tests/gameplay_audit.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
 name = "gameplay_survival"
 path = "tests/gameplay_survival.rs"
 required-features = ["test-gameplay"]

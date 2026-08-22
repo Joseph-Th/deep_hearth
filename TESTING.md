@@ -31,7 +31,9 @@ compiles the same surface.
 
 `python ci.py quick` is the default and intentionally performs no Cargo build. It runs formatting, the
 compile-free repository contract checker, and millisecond-scale Python tests that keep the CI plan itself
-from regressing into redundant builds. `python ci.py gate` is the standard coherent checkpoint: with no
+from regressing into redundant builds. Those independent read-only checks run concurrently and are
+reported in stable stage order, so adding cheap policy coverage does not linearly lengthen the edit loop.
+`python ci.py gate` is the standard coherent checkpoint: with no
 flags it adds only the production-library compile. Focused gameplay gates require an explicit scope.
 Complete core behavior and all-gameplay verification are deliberately audit-only, so `gate --core` and
 an unscoped/all `gate --gameplay` are rejected instead of turning a repair loop into a broad relink.
@@ -56,6 +58,12 @@ Cargo. A unique partial selector resolves to one full test name; ambiguous selec
 compilation instead of broadening execution. `--list` reads that catalog directly and invokes neither
 Cargo, rustc, nor the linker. Integration targets infer their Cargo-declared `required-features`;
 `--features` is only needed for additional feature-gated library tests or extra target features.
+
+Unit-test bodies live in sibling test files referenced by the owning production module with
+`#[cfg(test)] #[path = "..."] mod tests;`. The module identity and private access are unchanged, but the
+test body is no longer an input to production-only Cargo builds. Editing an assertion, fixture, or test
+diagnostic therefore does not invalidate a warm `cargo check-fast` artifact. Keep new unit-test bodies in
+the sibling `*_tests.rs`/`mod_tests.rs` file instead of reintroducing inline `mod tests { ... }` blocks.
 
 Broad audit runs are terminal checkpoints, not diagnostic loops, and the audit preset requires an
 explicit scope instead of defaulting to every maintained artifact. When a broad audit exposes one defect,
@@ -84,8 +92,8 @@ fraction of a second. `cargo test-doc` validates Rust API documentation and is o
 
 ## Test structure and assertions
 
-Tests stay colocated with the owning source module under `#[cfg(test)]`. Use the smallest fixture and
-shortest canonical execution that prove the named rule.
+Tests stay adjacent to the owning source module in sibling test files loaded only under `#[cfg(test)]`.
+Use the smallest fixture and shortest canonical execution that prove the named rule.
 
 - Rejections assert the exact typed error and unchanged authoritative state when atomicity matters.
 - Successes assert the identity, quantity, lifecycle, relationship, or durable result that defines the
@@ -135,16 +143,17 @@ Workshop agency counterfactuals hold both world variation and behavior RNG seed 
 policies. A maintained agency assertion therefore varies the named player policy only, not hidden random
 input alongside it.
 
-`python ci.py audit --gameplay` runs all five maintained targets. `python ci.py report` reuses those same
-`test-gameplay` artifacts for an exploratory workshop sample, maintained agency counterfactuals, and
-verbose survival/progression/ore/foundry evidence. It is not a routine completion gate and deliberately
-does not introduce a second monolithic gameplay feature shape. Gameplay target commands are composed in
-`ci.py` directly rather than duplicated across a family of Cargo aliases; the four focused report probes
-share one multi-target Cargo invocation instead of launching four independent build commands.
-The focused concerns intentionally remain separate test binaries: an edit to survival provisioning must
-not relink the ore/foundry harness merely to prove the survival contract. Broad gameplay audits accept
-the extra links because they are explicit checkpoints, while failure output points back to one exact test
-inside the failed target whenever Cargo reports that identity.
+`python ci.py audit --gameplay` runs all five maintained concerns while linking only two broad-checkpoint
+binaries: `gameplay_workshop` plus `gameplay_audit`, which compiles the four focused probe modules once.
+`python ci.py report` reuses those same `test-gameplay` artifacts for an exploratory workshop sample,
+maintained agency counterfactuals, and verbose survival/progression/ore/foundry evidence. It is not a
+routine completion gate and deliberately does not introduce a second gameplay feature shape. Gameplay
+target commands are composed in `ci.py` directly rather than duplicated across a family of Cargo aliases.
+The focused concerns intentionally remain separate test binaries for targeted gates: an edit to survival
+provisioning does not relink the ore/foundry harness merely to prove the survival contract. The explicit
+broad audit trades that isolation for one consolidated focused-probe link, avoiding four redundant
+checkpoint links. Failures from the consolidated target point back to the corresponding narrow focused
+target whenever Cargo reports the exact failed test.
 Cargo target auto-discovery is disabled for binaries, examples, integration tests, and benches. Every
 independently linked local tool or gameplay binary is listed explicitly in `Cargo.toml`; shared harness
 modules stay below `tests/gameplay_harness/` so adding a helper cannot silently create another executable

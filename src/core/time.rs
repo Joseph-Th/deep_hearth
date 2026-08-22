@@ -288,21 +288,8 @@ impl TickSpan {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn absolute_tick_and_relative_span_add_without_wraparound() {
-        assert_eq!(
-            SimulationTick::new(10).checked_add_span(TickSpan::new(7)),
-            Some(SimulationTick::new(17))
-        );
-        assert_eq!(
-            SimulationTick::new(u64::MAX).checked_add_span(TickSpan::new(1)),
-            None
-        );
-    }
-}
+#[path = "time_tests.rs"]
+mod tests;
 
 /// Monotonic authoritative simulation tick.
 #[derive(

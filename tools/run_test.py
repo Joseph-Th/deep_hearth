@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+from functools import lru_cache
 import os
 from pathlib import Path
 import re
@@ -52,6 +53,7 @@ def expand_local_features(
     return enabled
 
 
+@lru_cache(maxsize=1)
 def cargo_manifest() -> dict:
     return tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
 
@@ -220,15 +222,22 @@ def integration_test_names(target: str, features: set[str]) -> list[str]:
     return reachable_test_names(cargo_test_target_path(target), features)
 
 
-def source_test_catalog(target: str, raw_features: str | None) -> list[str]:
-    """Return exact test names from source without invoking Cargo or rustc."""
+@lru_cache(maxsize=None)
+def _source_test_catalog(target: str, raw_features: str | None) -> tuple[str, ...]:
+    """Cache exact source test names for repeated build-free discovery in one process."""
 
     features = cargo_feature_set(target, raw_features)
     if target == "lib":
         names = reachable_test_names(ROOT / "src" / "lib.rs", features)
     else:
         names = integration_test_names(target, features)
-    return sorted(set(names))
+    return tuple(sorted(set(names)))
+
+
+def source_test_catalog(target: str, raw_features: str | None) -> list[str]:
+    """Return exact test names from source without invoking Cargo or rustc."""
+
+    return list(_source_test_catalog(target, raw_features))
 
 
 def source_test_matches(selector: str, catalog: list[str]) -> list[str]:

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
 import re
@@ -21,8 +22,27 @@ GAMEPLAY_TARGETS = {
     "ore": "gameplay_ore",
     "foundry": "gameplay_foundry",
 }
+GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
 GAMEPLAY_SCOPES = ("all", *GAMEPLAY_TARGETS)
 GAMEPLAY_SCOPE_BY_TARGET = {target: scope for scope, target in GAMEPLAY_TARGETS.items()}
+GAMEPLAY_AUDIT_REPAIRS = {
+    "focused::gameplay_survival_provisioning_probe": (
+        "gameplay_survival",
+        "gameplay_survival_provisioning_probe",
+    ),
+    "focused::gameplay_primitive_progression_probe": (
+        "gameplay_progression",
+        "gameplay_primitive_progression_probe",
+    ),
+    "focused::gameplay_ore_preparation_probe": (
+        "gameplay_ore",
+        "gameplay_ore_preparation_probe",
+    ),
+    "focused::gameplay_foundry_probe": (
+        "gameplay_foundry",
+        "gameplay_foundry_probe",
+    ),
+}
 FAILED_TEST = re.compile(r"^    (?P<name>[A-Za-z0-9_:]+)$", re.MULTILINE)
 FAILED_GAMEPLAY_TARGET = re.compile(r"to rerun pass `--test (?P<target>gameplay_[a-z_]+)`")
 
@@ -58,6 +78,14 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
             target = failed_targets[-1]
             failed = FAILED_TEST.findall(combined)
             if failed:
+                if target == GAMEPLAY_AUDIT_TARGET:
+                    repair = GAMEPLAY_AUDIT_REPAIRS.get(failed[-1])
+                    if repair is not None:
+                        focused_target, focused_test = repair
+                        return (
+                            "python tools/run_test.py "
+                            f"--target {focused_target} {focused_test}"
+                        )
                 return f"python tools/run_test.py --target {target} {failed[-1]}"
             scope = GAMEPLAY_SCOPE_BY_TARGET.get(target)
             if scope is not None:
@@ -79,18 +107,29 @@ def audit_plan(scope: str) -> list[tuple[str, list[str]]]:
     return plan
 
 
-def gameplay_targets_command(scopes: tuple[str, ...], *, nocapture: bool = False) -> list[str]:
+def gameplay_targets_command(
+    targets: tuple[str, ...],
+    *,
+    test_filter: str | None = None,
+    nocapture: bool = False,
+) -> list[str]:
     command = ["cargo", "test", "--quiet", "--locked", "--features", "test-gameplay"]
-    for scope in scopes:
-        command.extend(("--test", GAMEPLAY_TARGETS[scope]))
+    for target in targets:
+        command.extend(("--test", target))
+    if test_filter is not None:
+        command.append(test_filter)
     if nocapture:
         command.extend(("--", "--nocapture"))
     return command
 
 
 def gameplay_command(scope: str, *, nocapture: bool = False) -> list[str]:
-    scopes = tuple(GAMEPLAY_TARGETS) if scope == "all" else (scope,)
-    return gameplay_targets_command(scopes, nocapture=nocapture)
+    targets = (
+        (GAMEPLAY_TARGETS["workshop"], GAMEPLAY_AUDIT_TARGET)
+        if scope == "all"
+        else (GAMEPLAY_TARGETS[scope],)
+    )
+    return gameplay_targets_command(targets, nocapture=nocapture)
 
 
 def gameplay_plan(scope: str) -> list[tuple[str, list[str]]]:
@@ -113,6 +152,12 @@ def exact_gameplay_command(name: str, *, ignored: bool = False) -> list[str]:
 
 
 def report_plan() -> list[tuple[str, list[str]]]:
+    focused = gameplay_targets_command(
+        (GAMEPLAY_AUDIT_TARGET,),
+        test_filter="focused::",
+        nocapture=True,
+    )
+    focused.append("--test-threads=1")
     return [
         (
             "workshop exploration",
@@ -122,13 +167,7 @@ def report_plan() -> list[tuple[str, list[str]]]:
             "workshop agency",
             exact_gameplay_command("agency::gameplay_maintained_agency_counterfactuals"),
         ),
-        (
-            "focused probes",
-            gameplay_targets_command(
-                ("survival", "progression", "ore", "foundry"),
-                nocapture=True,
-            ),
-        ),
+        ("focused probes", focused),
     ]
 
 
@@ -186,16 +225,8 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
     return plan
 
 
-def run_stage(
-    index: int,
-    total: int,
-    label: str,
-    command: list[str],
-    *,
-    echo_success: bool = False,
-) -> float | None:
+def execute_stage(command: list[str]) -> tuple[subprocess.CompletedProcess[str] | None, float, OSError | None]:
     started = time.perf_counter()
-    print(f"[{index}/{total}] {label} ... ", end="", flush=True)
     environment = os.environ.copy()
     environment["CARGO_TERM_COLOR"] = "never"
     try:
@@ -208,12 +239,29 @@ def run_stage(
             check=False,
         )
     except OSError as error:
-        elapsed = time.perf_counter() - started
+        return None, time.perf_counter() - started, error
+    return result, time.perf_counter() - started, None
+
+
+def report_stage(
+    index: int,
+    total: int,
+    label: str,
+    command: list[str],
+    execution: tuple[subprocess.CompletedProcess[str] | None, float, OSError | None],
+    *,
+    echo_success: bool = False,
+    announced: bool = False,
+) -> float | None:
+    result, elapsed, start_error = execution
+    if not announced:
+        print(f"[{index}/{total}] {label} ... ", end="")
+    if start_error is not None:
         print(f"FAIL ({elapsed:.1f}s)")
         print(f"reproduce: {' '.join(command)}", file=sys.stderr)
-        print(f"unable to start command: {error}", file=sys.stderr)
+        print(f"unable to start command: {start_error}", file=sys.stderr)
         return None
-    elapsed = time.perf_counter() - started
+    assert result is not None
     if result.returncode == 0:
         print(f"PASS ({elapsed:.1f}s)")
         if echo_success and result.stdout.strip():
@@ -229,6 +277,47 @@ def run_stage(
     if hint := repair_hint(command, result.stdout, result.stderr):
         print(f"repair: {hint}", file=sys.stderr)
     return None
+
+
+def run_stage(
+    index: int,
+    total: int,
+    label: str,
+    command: list[str],
+    *,
+    echo_success: bool = False,
+) -> float | None:
+    print(f"[{index}/{total}] {label} ... ", end="", flush=True)
+    return report_stage(
+        index,
+        total,
+        label,
+        command,
+        execute_stage(command),
+        echo_success=echo_success,
+        announced=True,
+    )
+
+
+def run_parallel_stages(
+    stages: list[tuple[str, list[str]]],
+    *,
+    total: int,
+    start_index: int,
+) -> list[tuple[str, float]] | None:
+    """Run independent build-free stages concurrently and report them in stable plan order."""
+
+    with ThreadPoolExecutor(max_workers=len(stages)) as executor:
+        executions = list(executor.map(lambda stage: execute_stage(stage[1]), stages))
+    timings: list[tuple[str, float]] = []
+    failed = False
+    for offset, ((label, command), execution) in enumerate(zip(stages, executions, strict=True)):
+        elapsed = report_stage(start_index + offset, total, label, command, execution)
+        if elapsed is None:
+            failed = True
+        else:
+            timings.append((label, elapsed))
+    return None if failed else timings
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -334,7 +423,19 @@ def main() -> int:
     timings: list[tuple[str, float]] = []
     print(f"local-ci {args.preset}: {len(plan)} stage(s)")
     try:
-        for index, (label, command) in enumerate(plan, start=1):
+        quick = quick_plan()
+        quick_count = len(quick) if plan[: len(quick)] == quick else 0
+        if quick_count:
+            quick_timings = run_parallel_stages(
+                plan[:quick_count],
+                total=len(plan),
+                start_index=1,
+            )
+            if quick_timings is None:
+                return 1
+            timings.extend(quick_timings)
+
+        for index, (label, command) in enumerate(plan[quick_count:], start=quick_count + 1):
             elapsed = run_stage(
                 index,
                 len(plan),
