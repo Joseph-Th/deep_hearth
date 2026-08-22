@@ -7,6 +7,7 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::arithmetic::scale_u128_fraction_floor;
 use crate::core::quantity::{
     AngularSpeed, Area, ElectricCurrent, ElectricPotential, ElectricalResistance, Energy, Force,
     Mass, MassFlow, Power, Pressure, Temperature, Torque, Volume, VolumetricFlow,
@@ -147,12 +148,8 @@ fn interpolate_magnitude_toward(
     }
 
     let delta = degraded.abs_diff(improved);
-    let denominator = u128::from(denominator);
-    let numerator = u128::from(numerator);
-    // Split before multiplying so interpolation remains valid even for u128::MAX capability
-    // magnitudes. Rounding stays toward the degraded endpoint, never overstating recovery.
-    let scaled_delta =
-        (delta / denominator) * numerator + ((delta % denominator) * numerator) / denominator;
+    // Rounding stays toward the degraded endpoint, never overstating recovery.
+    let scaled_delta = scale_u128_fraction_floor(delta, numerator, denominator);
     if improved >= degraded {
         degraded + scaled_delta
     } else {

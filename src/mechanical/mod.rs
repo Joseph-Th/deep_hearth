@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::core::arithmetic::scale_u128_fraction_floor;
 use crate::core::quantity::{AngularSpeed, Power, Torque};
 
 /// Normalization scale for authored mechanical transfer efficiency.
@@ -250,12 +251,12 @@ pub fn apply_mechanical_efficiency(
     input: Power,
     efficiency: MechanicalEfficiency,
 ) -> MechanicalPowerTransfer {
-    let denominator = u128::from(MECHANICAL_EFFICIENCY_PARTS_PER_MILLION);
-    let numerator = u128::from(efficiency.parts_per_million());
     let input_value = input.picowatts();
-    let whole = (input_value / denominator) * numerator;
-    let fractional = (input_value % denominator) * numerator / denominator;
-    let output_value = whole + fractional;
+    let output_value = scale_u128_fraction_floor(
+        input_value,
+        efficiency.parts_per_million(),
+        MECHANICAL_EFFICIENCY_PARTS_PER_MILLION,
+    );
     debug_assert!(output_value <= input_value);
     let output = Power::from_picowatts(output_value);
     let loss = Power::from_picowatts(input_value - output_value);

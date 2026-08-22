@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::core::arithmetic::checked_mul_div_with_remainder;
 use crate::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass, Volume};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
@@ -472,9 +473,16 @@ fn allocate_nutrition(total_ppm: u32, offered: NutritionEnergy) -> NutritionGain
     let mut remainders = [(0_u128, 0_usize); 3];
     let mut allocated_total = 0_u32;
     for (index, category) in categories.into_iter().enumerate() {
-        let numerator = offered.get(category) * u128::from(total_ppm);
-        allocated[index] = (numerator / offered_total) as u32;
-        remainders[index] = (numerator % offered_total, index);
+        let (share, remainder) = checked_mul_div_with_remainder(
+            offered.get(category),
+            u128::from(total_ppm),
+            offered_total,
+            0,
+        )
+        .unwrap_or_else(|| panic!("bounded nutrition allocation overflowed"));
+        allocated[index] = u32::try_from(share)
+            .unwrap_or_else(|_| panic!("nutrition category allocation exceeded total gain"));
+        remainders[index] = (remainder, index);
         allocated_total += allocated[index];
     }
     remainders.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));

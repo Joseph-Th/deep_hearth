@@ -5,6 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::core::arithmetic::{
+    scale_u128_fraction_ceil, scale_u128_fraction_floor, scaled_ratio_floor_saturating,
+};
 use crate::core::quantity::Force;
 use crate::material::{MaterialId, MaterialRegistry};
 
@@ -625,31 +628,33 @@ fn pristine_capacity(
 }
 
 fn scale_capacity(capacity: Force, ppm: u32) -> Force {
-    Force::from_millinewtons(
-        capacity.millinewtons() * u128::from(ppm) / u128::from(STRUCTURAL_PARTS_PER_MILLION),
-    )
+    Force::from_millinewtons(scale_u128_fraction_floor(
+        capacity.millinewtons(),
+        ppm,
+        STRUCTURAL_PARTS_PER_MILLION,
+    ))
 }
 
 fn utilization_ppm(load: Force, capacity: Force) -> u128 {
     if capacity.is_zero() {
         return if load.is_zero() { 0 } else { u128::MAX };
     }
-    let denominator = capacity.millinewtons();
-    let numerator = load.millinewtons();
-    let whole = numerator / denominator;
-    let remainder = numerator % denominator;
-    whole
-        .saturating_mul(u128::from(STRUCTURAL_PARTS_PER_MILLION))
-        .saturating_add(remainder * u128::from(STRUCTURAL_PARTS_PER_MILLION) / denominator)
+    scaled_ratio_floor_saturating(
+        load.millinewtons(),
+        capacity.millinewtons(),
+        STRUCTURAL_PARTS_PER_MILLION,
+    )
 }
 
 fn is_at_or_above_fraction(load: Force, capacity: Force, threshold_ppm: u32) -> bool {
     if capacity.is_zero() {
         return !load.is_zero();
     }
-    let scaled_capacity = capacity.millinewtons() * u128::from(threshold_ppm);
-    let denominator = u128::from(STRUCTURAL_PARTS_PER_MILLION);
-    let threshold_load = scaled_capacity.div_ceil(denominator);
+    let threshold_load = scale_u128_fraction_ceil(
+        capacity.millinewtons(),
+        threshold_ppm,
+        STRUCTURAL_PARTS_PER_MILLION,
+    );
     load.millinewtons() >= threshold_load
 }
 

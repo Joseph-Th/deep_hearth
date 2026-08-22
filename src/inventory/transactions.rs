@@ -74,7 +74,7 @@ pub(crate) struct ValidatedMaterialReform {
     destination: StockpileId,
     source_inputs: Vec<MaterialInputSpec>,
     lot_slices: Vec<LotSlice>,
-    outputs: Vec<ConsumedMaterialTrace>,
+    outputs: Vec<(ConsumedMaterialTrace, MaterialStorageHistory)>,
     target: CommodityKey,
     total_mass: Mass,
     allocated_lot_ids: Vec<MaterialLotId>,
@@ -115,7 +115,9 @@ impl ValidatedMaterialReform {
         for slice in self.lot_slices {
             apply_consume_lot_slice(inventories, slice);
         }
-        for (trace, lot_id) in self.outputs.into_iter().zip(self.allocated_lot_ids) {
+        for ((trace, storage_history), lot_id) in
+            self.outputs.into_iter().zip(self.allocated_lot_ids)
+        {
             let mut profile: MaterialLotProfile = trace.profile().clone();
             profile.commodity = self.target;
             apply_insert_or_merge_new_lot(
@@ -126,7 +128,7 @@ impl ValidatedMaterialReform {
                     mass: trace.mass(),
                     profile,
                     provenance: trace.provenance(),
-                    storage_history: MaterialStorageHistory::new(current_tick),
+                    storage_history,
                 },
                 self.merge_policy,
                 current_tick,
@@ -324,9 +326,40 @@ pub(crate) fn validate_material_reform_from_selection(
         .map_err(MaterialReformError::StructuralLoad)?
     };
 
-    let mut allocated_lot_ids = Vec::with_capacity(consumed_inputs.len());
+    let source_preservation_multiplier_ppm = source_record
+        .storage_profile()
+        .preservation_multiplier_ppm();
+    let output_storage_histories = lot_slices
+        .iter()
+        .map(|slice| {
+            inventories
+                .get_lot(slice.lot)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "validated material reform references missing lot {}",
+                        slice.lot.value()
+                    )
+                })
+                .storage_history()
+                .rebase(state.tick(), source_preservation_multiplier_ppm)
+                .unwrap_or_else(|| {
+                    panic!("valid inventory lot storage history could not be rebased for reform")
+                })
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        output_storage_histories.len(),
+        consumed_inputs.len(),
+        "consumption selection trace count must match selected lot slices"
+    );
+    let outputs: Vec<(ConsumedMaterialTrace, MaterialStorageHistory)> = consumed_inputs
+        .into_iter()
+        .zip(output_storage_histories)
+        .collect();
+
+    let mut allocated_lot_ids = Vec::with_capacity(outputs.len());
     let mut next_lot_id = inventories.next_lot_id();
-    for _ in &consumed_inputs {
+    for _ in &outputs {
         allocated_lot_ids.push(MaterialLotId::new(next_lot_id));
         next_lot_id = next_lot_id
             .checked_add(1)
@@ -344,7 +377,7 @@ pub(crate) fn validate_material_reform_from_selection(
         destination,
         source_inputs: inputs,
         lot_slices,
-        outputs: consumed_inputs,
+        outputs,
         target,
         total_mass: total_consumed,
         allocated_lot_ids,

@@ -500,7 +500,6 @@ pub fn validate_start_manual_power(
     )
     .map_err(|error| match error {
         ManualPowerExertionError::EnergyOverflow
-        | ManualPowerExertionError::HydrationOverflow
         | ManualPowerExertionError::ExceedsAuthoredMaximum => {
             ManualPowerError::ExertionResolution {
                 method: request.method,

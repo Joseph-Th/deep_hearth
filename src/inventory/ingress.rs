@@ -58,7 +58,8 @@ impl MaterialIngressEntry {
         }
     }
 
-    /// Preserves the complete physical history of matter transferred from another owner.
+    /// Preserves the complete material profile and lot provenance of matter transferred from
+    /// another owner. Inventory storage exposure starts when custody returns to a stockpile.
     #[must_use]
     pub(crate) fn from_consumed_trace(trace: &ConsumedMaterialTrace) -> Self {
         Self {

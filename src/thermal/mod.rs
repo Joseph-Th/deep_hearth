@@ -23,6 +23,7 @@ pub(crate) use processes::validate_loaded_thermal_job;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::core::arithmetic::checked_mul_div_with_remainder;
 use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::material::{
     CommodityKey, CompositionError, FormId, MaterialComposition, MaterialId, MaterialPhase,
@@ -149,13 +150,18 @@ fn calculate_linear_sensible_heat(
     }
 
     let delta_millikelvin = u128::from(current.millikelvin().abs_diff(target.millikelvin()));
-    let numerator = u128::from(mass.milligrams())
-        .checked_mul(delta_millikelvin)
-        .and_then(|value| value.checked_mul(weighted_specific_heat))
-        .ok_or(SensibleHeatError::ArithmeticOverflow)?;
-    let energy = Energy::from_nanojoules(
-        numerator / u128::from(crate::material::COMPOSITION_PARTS_PER_MILLION),
-    );
+    // `mass` is u64-backed and the temperature delta is u32-backed, so this base product always
+    // fits in u128. Divide the ppm-weighted heat-capacity product through the shared full-width
+    // scaler instead of materializing an unnecessary extra factor of one million first.
+    let thermal_base = u128::from(mass.milligrams()) * delta_millikelvin;
+    let (energy_nanojoules, _remainder) = checked_mul_div_with_remainder(
+        thermal_base,
+        weighted_specific_heat,
+        u128::from(crate::material::COMPOSITION_PARTS_PER_MILLION),
+        0,
+    )
+    .ok_or(SensibleHeatError::ArithmeticOverflow)?;
+    let energy = Energy::from_nanojoules(energy_nanojoules);
     let direction = if target > current {
         HeatDirection::IntoMaterial
     } else {

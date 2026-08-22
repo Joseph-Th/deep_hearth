@@ -11,6 +11,28 @@ fn zero_required_output_has_zero_metabolic_duration() {
 }
 
 #[test]
+fn full_width_manual_power_scaling_does_not_reject_representable_effort() {
+    let maximum = SurvivalExertion::new(
+        Energy::from_nanojoules(u128::MAX),
+        Volume::from_microliters(u64::MAX),
+    );
+
+    assert_eq!(
+        metabolic_output_per_tick(maximum.energy_cost_per_tick(), PARTS_PER_MILLION),
+        Energy::from_nanojoules(u128::MAX)
+    );
+    assert_eq!(
+        resolve_manual_power_exertion(
+            Energy::from_nanojoules(u128::MAX),
+            TickSpan::new(1),
+            maximum,
+            PARTS_PER_MILLION,
+        ),
+        Ok(maximum)
+    );
+}
+
+#[test]
 fn bottlenecked_manual_power_scales_effort_to_actual_output() {
     let maximum = SurvivalExertion::new(
         Energy::from_nanojoules(1_500_000_000_000),

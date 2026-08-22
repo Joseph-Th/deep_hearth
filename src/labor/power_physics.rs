@@ -1,10 +1,11 @@
 //! Pure direct-labor power calculations shared by admission and persistence replay.
 
+use crate::core::arithmetic::{checked_mul_div_ceil, scale_u128_fraction_floor};
 use crate::core::quantity::{Energy, Volume};
 use crate::core::time::TickSpan;
 use crate::survival::SurvivalExertion;
 
-const PARTS_PER_MILLION: u128 = 1_000_000;
+const PARTS_PER_MILLION: u32 = 1_000_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ManualPowerMetabolicDurationError {
@@ -15,16 +16,15 @@ pub(crate) enum ManualPowerMetabolicDurationError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ManualPowerExertionError {
     EnergyOverflow,
-    HydrationOverflow,
     ExceedsAuthoredMaximum,
 }
 
 pub(crate) fn metabolic_output_per_tick(energy_cost: Energy, efficiency_ppm: u32) -> Energy {
-    let energy = energy_cost.nanojoules();
-    let efficiency = u128::from(efficiency_ppm);
-    let whole = (energy / PARTS_PER_MILLION) * efficiency;
-    let fractional = (energy % PARTS_PER_MILLION) * efficiency / PARTS_PER_MILLION;
-    Energy::from_nanojoules(whole + fractional)
+    Energy::from_nanojoules(scale_u128_fraction_floor(
+        energy_cost.nanojoules(),
+        efficiency_ppm,
+        PARTS_PER_MILLION,
+    ))
 }
 
 pub(crate) fn calculate_metabolic_duration(
@@ -57,22 +57,28 @@ pub(crate) fn resolve_manual_power_exertion(
         return Err(ManualPowerExertionError::ExceedsAuthoredMaximum);
     }
 
-    let scaled_output = required_output
-        .nanojoules()
-        .checked_mul(PARTS_PER_MILLION)
-        .ok_or(ManualPowerExertionError::EnergyOverflow)?;
-    let total_metabolic = scaled_output.div_ceil(u128::from(efficiency_ppm));
+    let total_metabolic = checked_mul_div_ceil(
+        required_output.nanojoules(),
+        u128::from(PARTS_PER_MILLION),
+        u128::from(efficiency_ppm),
+    )
+    .ok_or(ManualPowerExertionError::EnergyOverflow)?;
     let metabolic_per_tick = total_metabolic.div_ceil(ticks);
     if metabolic_per_tick > maximum.energy_cost_per_tick().nanojoules() {
         return Err(ManualPowerExertionError::ExceedsAuthoredMaximum);
     }
 
-    let scaled_hydration = metabolic_per_tick
-        .checked_mul(u128::from(maximum.hydration_loss_per_tick().microliters()))
-        .ok_or(ManualPowerExertionError::HydrationOverflow)?;
-    let hydration_per_tick = scaled_hydration.div_ceil(maximum.energy_cost_per_tick().nanojoules());
-    let hydration_per_tick = u64::try_from(hydration_per_tick)
-        .map_err(|_| ManualPowerExertionError::HydrationOverflow)?;
+    let hydration_per_tick = checked_mul_div_ceil(
+        metabolic_per_tick,
+        u128::from(maximum.hydration_loss_per_tick().microliters()),
+        maximum.energy_cost_per_tick().nanojoules(),
+    )
+    .unwrap_or_else(|| {
+        panic!("bounded manual-power hydration scaling exceeded its authored maximum")
+    });
+    let hydration_per_tick = u64::try_from(hydration_per_tick).unwrap_or_else(|_| {
+        panic!("bounded manual-power hydration result exceeded the volume backing range")
+    });
 
     Ok(SurvivalExertion::new(
         Energy::from_nanojoules(metabolic_per_tick),

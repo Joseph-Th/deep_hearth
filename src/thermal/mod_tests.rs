@@ -2,7 +2,10 @@
 
 use super::*;
 use crate::content::{MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
-use crate::material::{CompositionComponent, MaterialComposition};
+use crate::material::{
+    CompositionComponent, ElectricalProperties, MaterialComposition, MaterialDefinition,
+    MaterialProperties, MechanicalProperties, ThermalProperties,
+};
 
 #[test]
 fn pure_copper_sensible_heat_is_exact_at_integer_scales() {
@@ -57,6 +60,38 @@ fn mixed_composition_weights_specific_heat_by_normalized_fraction() {
     };
 
     assert_eq!(heat.energy().nanojoules(), expected_energy);
+}
+
+#[test]
+fn sensible_heat_accepts_full_width_representable_energy_without_ppm_intermediate_overflow() {
+    let material = MaterialId::new(99_001);
+    let mut materials = MaterialRegistry::new();
+    materials.register_material(MaterialDefinition::new(
+        material,
+        "full-width thermal fixture",
+        MaterialProperties::new(
+            1,
+            ThermalProperties::new(u32::MAX, None, 1),
+            MechanicalProperties::new(0, 0, 0),
+            ElectricalProperties::new(None),
+        ),
+    ));
+    let mass = Mass::from_milligrams(u64::MAX);
+    let current = Temperature::ZERO;
+    let target = Temperature::from_millikelvin(u32::MAX);
+    let expected = u128::from(u64::MAX) * u128::from(u32::MAX) * u128::from(u32::MAX);
+
+    let heat = calculate_sensible_heat(
+        &materials,
+        mass,
+        &MaterialComposition::pure(material),
+        current,
+        target,
+    )
+    .unwrap_or_else(|error| panic!("full-width sensible heat failed: {error}"));
+
+    assert_eq!(heat.energy(), Energy::from_nanojoules(expected));
+    assert_eq!(heat.direction(), HeatDirection::IntoMaterial);
 }
 
 #[test]

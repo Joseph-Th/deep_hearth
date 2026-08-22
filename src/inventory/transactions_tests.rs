@@ -2,9 +2,12 @@
 
 use super::*;
 use crate::content::{
-    FORM_CHIP, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE, MATERIAL_CHARCOAL, MATERIAL_COPPER,
-    MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD, build_registries,
+    FORM_CHIP, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE, MATERIAL_BERRIES,
+    MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
+    build_registries,
 };
+use crate::core::state::apply_clock_advance;
+use crate::core::time::SimulationTick;
 use crate::core::time::WorldSeed;
 use crate::inventory::{
     MaterialFixtureError, add_solid_stockpile_for_test, deposit_bulk_for_test,
@@ -1143,6 +1146,74 @@ fn exact_reform_can_return_changed_form_to_the_source_stockpile() {
     );
     validate_loaded_inventory(registries.materials(), state.inventory(), state.tick())
         .unwrap_or_else(|error| panic!("in-place reform failed validation: {error}"));
+}
+
+#[test]
+fn material_reform_preserves_accumulated_storage_exposure() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_2009));
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("reform-age stockpile failed: {error}"));
+    let food = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        food,
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("reform-age food fixture failed: {error}"));
+    apply_clock_advance(&mut state, SimulationTick::new(72_000));
+    let preservation = state
+        .inventory()
+        .get_stockpile(stockpile)
+        .unwrap_or_else(|| panic!("reform-age stockpile disappeared"))
+        .storage_profile()
+        .preservation_multiplier_ppm();
+    let exposure_before = state
+        .inventory()
+        .get_lot(lot)
+        .unwrap_or_else(|| panic!("reform-age source lot disappeared"))
+        .storage_history()
+        .project(state.tick(), preservation)
+        .unwrap_or_else(|| panic!("reform-age source exposure overflowed"));
+    let selection = validate_consumption_selection(
+        state.inventory(),
+        stockpile,
+        &[MaterialInputSpec::new(food, Mass::from_milligrams(10))],
+    )
+    .unwrap_or_else(|error| panic!("reform-age selection failed: {error:?}"));
+
+    validate_material_reform_from_selection(
+        &registries,
+        &state,
+        stockpile,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_CHIP),
+        selection,
+    )
+    .unwrap_or_else(|error| panic!("reform-age validation failed: {error:?}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("reform-age commit failed: {error:?}"));
+
+    let reformed = state
+        .inventory()
+        .lot_ids(stockpile)
+        .find(|lot| {
+            state.inventory().get_lot(*lot).is_some_and(|record| {
+                record.commodity() == CommodityKey::new(MATERIAL_BERRIES, FORM_CHIP)
+            })
+        })
+        .unwrap_or_else(|| panic!("reform-age output lot disappeared"));
+    let exposure_after = state
+        .inventory()
+        .get_lot(reformed)
+        .unwrap_or_else(|| panic!("reform-age output record disappeared"))
+        .storage_history()
+        .project(state.tick(), preservation)
+        .unwrap_or_else(|| panic!("reform-age output exposure overflowed"));
+
+    assert_eq!(exposure_after, exposure_before);
 }
 
 #[test]

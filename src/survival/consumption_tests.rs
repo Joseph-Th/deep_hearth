@@ -390,6 +390,22 @@ fn nutrition_credit_uses_consumed_food_even_when_metabolic_reserve_is_full() {
 }
 
 #[test]
+fn nutrition_allocation_handles_full_width_energy_without_intermediate_overflow() {
+    let offered = NutritionEnergy {
+        grain: u128::MAX - 2,
+        fruit: 1,
+        protein: 1,
+    };
+
+    let gain = allocate_nutrition(NUTRITION_PARTS_PER_MILLION, offered);
+
+    assert_eq!(gain.total_ppm(), NUTRITION_PARTS_PER_MILLION);
+    assert_eq!(gain.get(FoodCategory::Grain), NUTRITION_PARTS_PER_MILLION);
+    assert_eq!(gain.get(FoodCategory::Fruit), 0);
+    assert_eq!(gain.get(FoodCategory::Protein), 0);
+}
+
+#[test]
 fn drinking_at_full_hydration_is_rejected_without_consuming_water() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5A70_0011));
