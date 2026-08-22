@@ -122,8 +122,8 @@ impl Error for MaterialInputSpecError {}
 /// Specification for creating one homogeneous runtime material lot.
 ///
 /// This is a boundary value shared by systems that produce matter. It is not a runtime record and
-/// carries no owner or persistent lot ID; the inventory owner allocates those during canonical
-/// commit.
+/// carries no owner or persistent lot ID; the inventory owner binds persistent identity during
+/// canonical transaction planning and realizes it during commit.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MaterialLotSpec {

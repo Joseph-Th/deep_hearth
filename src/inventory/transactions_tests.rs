@@ -457,6 +457,7 @@ fn repeated_partial_transfers_coalesce_new_fragments_in_destination() {
     ) {
         panic!("fixture deposit failed: {error}");
     }
+    let cursor_before_transfers = state.inventory().next_lot_id();
 
     for _ in 0..2 {
         let token = match validate_material_transfer_for_test(
@@ -491,8 +492,67 @@ fn repeated_partial_transfers_coalesce_new_fragments_in_destination() {
     assert_eq!(state.inventory().lot_ids(destination).count(), 1);
     assert_eq!(state.inventory().lots().count(), 2);
     assert_eq!(
+        state.inventory().next_lot_id(),
+        cursor_before_transfers + 1,
+        "only the first surviving destination fragment should consume a lot identity"
+    );
+    assert_eq!(
         validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
         Ok(())
+    );
+}
+
+#[test]
+fn material_reform_reuses_compatible_destination_identity_without_advancing_cursor() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_2010));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("reform source fixture failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("reform destination fixture failed: {error}"));
+    deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(6),
+    )
+    .unwrap_or_else(|error| panic!("reform source deposit failed: {error}"));
+    let target = CommodityKey::new(MATERIAL_WOOD, FORM_CHIP);
+    deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        destination,
+        target,
+        Mass::from_milligrams(4),
+    )
+    .unwrap_or_else(|error| panic!("reform destination deposit failed: {error}"));
+    let existing = state
+        .inventory()
+        .lot_ids(destination)
+        .next()
+        .unwrap_or_else(|| panic!("reform destination lot disappeared"));
+    let cursor_before = state.inventory().next_lot_id();
+    let selection = validate_consumption_selection(
+        state.inventory(),
+        source,
+        &[MaterialInputSpec::new(wood_log(), Mass::from_milligrams(6))],
+    )
+    .unwrap_or_else(|error| panic!("reform selection failed: {error:?}"));
+
+    validate_material_reform_from_selection(&registries, &state, destination, target, selection)
+        .unwrap_or_else(|error| panic!("reform validation failed: {error:?}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("reform commit failed: {error:?}"));
+
+    assert_eq!(state.inventory().next_lot_id(), cursor_before);
+    assert_eq!(state.inventory().lot_ids(destination).count(), 1);
+    assert_eq!(
+        state
+            .inventory()
+            .get_lot(existing)
+            .map(MaterialLotRecord::mass),
+        Some(Mass::from_milligrams(10))
     );
 }
 
@@ -1262,6 +1322,43 @@ fn exact_reform_can_return_changed_form_to_the_source_stockpile() {
     );
     validate_loaded_inventory(registries.materials(), state.inventory(), state.tick())
         .unwrap_or_else(|error| panic!("in-place reform failed validation: {error}"));
+}
+
+#[test]
+fn material_reform_rejects_a_noop_target_form_without_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_2011));
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
+        .unwrap_or_else(|error| panic!("noop reform stockpile failed: {error}"));
+    deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        wood_log(),
+        Mass::from_milligrams(10),
+    )
+    .unwrap_or_else(|error| panic!("noop reform source deposit failed: {error}"));
+    let selection = validate_consumption_selection(
+        state.inventory(),
+        stockpile,
+        &[MaterialInputSpec::new(wood_log(), Mass::from_milligrams(6))],
+    )
+    .unwrap_or_else(|error| panic!("noop reform selection failed: {error:?}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_material_reform_from_selection(
+            &registries,
+            &state,
+            stockpile,
+            wood_log(),
+            selection,
+        ),
+        Err(MaterialReformError::TargetUnchanged {
+            commodity: wood_log(),
+        })
+    );
+    assert_eq!(state, before);
 }
 
 #[test]

@@ -125,11 +125,15 @@ fusion temperature and latent heat.
 
 `MaterialLotRecord` is the stored-matter authority. A lot owns stockpile, material profile, mass,
 temperature/composition/particle state, provenance, and exposure. Physically relevant profile differences
-prevent unsafe coalescing.
+prevent unsafe coalescing. Lot IDs identify persistent distinct lots, not transaction attempts: compatible
+ingress, completion output, reform output, and relocation fragments bind to the identity that will survive
+coalescing, and the monotonic lot cursor advances only when a distinct lot will actually persist.
 
 Stockpiles own capacity, containment, preservation, inbound reservations, and derived routing/mass
 indexes. Inventory is custody, not movement authorization: material relocation requires an opaque
 physical/logistics resolution or an already-bound exact selection from another canonical resolver.
+Same-material reform must perform a real commodity-form change; a selection already entirely in the
+target commodity is rejected instead of manufacturing a meaningless inventory mutation.
 
 Supported stockpiles contribute `StructuralLoadKind::StoredMatter`. Every canonical stored-mass mutation
 updates inventory ownership and the resulting structural load atomically.

@@ -6,6 +6,7 @@ use crate::material::MaterialLotSpec;
 use crate::registry::Registries;
 
 use super::coalescing::LotMergePolicy;
+use super::lot_identity::LotIdentityPlanner;
 use super::state::{
     InventoryState, MaterialLotId, MaterialLotProfile, MaterialLotProvenance, MaterialLotRecord,
     MaterialStorageHistory, StockpileId, apply_insert_or_merge_new_lot, get_stockpile_mut_or_panic,
@@ -85,7 +86,7 @@ pub(crate) fn decide_reserved_deposits(
     let next_revision = expected_revision
         .checked_add(1)
         .ok_or(ReservedDepositPlanError::RevisionExhausted)?;
-    let mut next_lot_id = state.next_lot_id();
+    let mut identity_planner = LotIdentityPlanner::new(state, std::iter::empty());
     let mut entries = Vec::with_capacity(requests.len());
     for request in requests {
         let ReservedDepositRequest {
@@ -98,11 +99,30 @@ pub(crate) fn decide_reserved_deposits(
             .iter()
             .map(|output| LotMergePolicy::for_commodity(registries, output.commodity()))
             .collect::<Vec<_>>();
-        for _ in &outputs {
-            lot_ids.push(MaterialLotId::new(next_lot_id));
-            next_lot_id = next_lot_id
-                .checked_add(1)
-                .ok_or(ReservedDepositPlanError::LotIdExhausted)?;
+        let preservation_multiplier_ppm = state
+            .get_stockpile(destination)
+            .unwrap_or_else(|| panic!("reserved output destination disappeared during planning"))
+            .storage_profile()
+            .preservation_multiplier_ppm();
+        for (output, merge_policy) in outputs.iter().zip(&merge_policies) {
+            let profile = MaterialLotProfile {
+                commodity: output.commodity(),
+                temperature: output.temperature(),
+                composition: output.composition().clone(),
+                particle_size: output.particle_size_distribution().cloned(),
+            };
+            lot_ids.push(
+                identity_planner
+                    .plan(
+                        destination,
+                        &profile,
+                        MaterialStorageHistory::new(created_at),
+                        created_at,
+                        preservation_multiplier_ppm,
+                        *merge_policy,
+                    )
+                    .ok_or(ReservedDepositPlanError::LotIdExhausted)?,
+            );
         }
         entries.push(ReservedDepositPlanEntry {
             destination,
@@ -116,7 +136,7 @@ pub(crate) fn decide_reserved_deposits(
     Ok(ReservedDepositPlan {
         expected_revision,
         next_revision,
-        next_lot_id,
+        next_lot_id: identity_planner.next_lot_id(),
         created_at,
         entries,
     })

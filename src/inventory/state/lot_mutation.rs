@@ -4,7 +4,7 @@ use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
 use crate::material::CommodityKey;
 
-use crate::inventory::coalescing::LotMergePolicy;
+use crate::inventory::coalescing::{LotMergePolicy, lots_are_merge_compatible};
 
 use super::{
     InventoryState, MaterialLotId, MaterialLotProfile, MaterialLotRecord, MaterialStorageHistory,
@@ -322,31 +322,19 @@ fn find_mergeable_lot(
     preservation_multiplier_ppm: u32,
     merge_policy: LotMergePolicy,
 ) -> Option<MaterialLotId> {
-    let incoming_age = storage_history
-        .project(at, preservation_multiplier_ppm)
-        .unwrap_or_else(|| panic!("validated incoming lot has invalid storage history"));
     state
         .lot_ids_for_commodity(stockpile, profile.commodity())
         .find(|id| {
             state.lots.get(id).is_some_and(|existing| {
-                if &existing.profile != profile {
-                    return false;
-                }
-                match merge_policy {
-                    LotMergePolicy::OldestStorageExposure => true,
-                    LotMergePolicy::ExactStorageExposure => {
-                        existing
-                            .storage_history
-                            .project(at, preservation_multiplier_ppm)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "validated destination lot {} has invalid storage history",
-                                    id.value()
-                                )
-                            })
-                            == incoming_age
-                    }
-                }
+                lots_are_merge_compatible(
+                    &existing.profile,
+                    existing.storage_history,
+                    profile,
+                    storage_history,
+                    at,
+                    preservation_multiplier_ppm,
+                    merge_policy,
+                )
             })
         })
 }

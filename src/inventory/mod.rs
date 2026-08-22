@@ -5,6 +5,7 @@ mod coalescing;
 mod fixture;
 mod inbound_reservation;
 mod ingress;
+mod lot_identity;
 mod reserved_ingress;
 mod selection;
 mod state;

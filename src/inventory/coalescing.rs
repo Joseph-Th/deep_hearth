@@ -3,6 +3,9 @@
 use crate::material::CommodityKey;
 use crate::registry::Registries;
 
+use super::state::{MaterialLotProfile, MaterialStorageHistory};
+use crate::core::time::SimulationTick;
+
 /// Determines how compatible lot storage histories may be compacted.
 ///
 /// Storage exposure is persisted for every material lot, but only commodities with authored
@@ -24,6 +27,31 @@ impl LotMergePolicy {
             Self::ExactStorageExposure
         } else {
             Self::OldestStorageExposure
+        }
+    }
+}
+
+pub(in crate::inventory) fn lots_are_merge_compatible(
+    existing_profile: &MaterialLotProfile,
+    existing_storage_history: MaterialStorageHistory,
+    incoming_profile: &MaterialLotProfile,
+    incoming_storage_history: MaterialStorageHistory,
+    at: SimulationTick,
+    preservation_multiplier_ppm: u32,
+    merge_policy: LotMergePolicy,
+) -> bool {
+    if existing_profile != incoming_profile {
+        return false;
+    }
+    match merge_policy {
+        LotMergePolicy::OldestStorageExposure => true,
+        LotMergePolicy::ExactStorageExposure => {
+            existing_storage_history
+                .project(at, preservation_multiplier_ppm)
+                .unwrap_or_else(|| panic!("validated destination lot has invalid storage history"))
+                == incoming_storage_history
+                    .project(at, preservation_multiplier_ppm)
+                    .unwrap_or_else(|| panic!("validated incoming lot has invalid storage history"))
         }
     }
 }

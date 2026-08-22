@@ -46,6 +46,86 @@ fn empty_ingress_is_rejected_without_mutation() {
 }
 
 #[test]
+fn compatible_ingress_reuses_existing_identity_without_advancing_lot_cursor() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A61_0004));
+    let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
+    let current_tick = state.tick();
+    let first = validate_material_ingress(
+        &registries,
+        state.inventory(),
+        destination,
+        [MaterialIngressEntry::from_lot_spec(
+            wood_log_spec(Mass::from_milligrams(2)),
+            current_tick,
+        )],
+        current_tick,
+    )
+    .unwrap_or_else(|error| panic!("first ingress validation failed: {error:?}"));
+    let first_lots = apply_material_ingress(state.inventory_state_mut(), first);
+    let [first_lot] = first_lots.as_slice() else {
+        panic!("single first ingress must resolve one lot identity");
+    };
+    let cursor_before_merge = state.inventory().next_lot_id();
+
+    let second = validate_material_ingress(
+        &registries,
+        state.inventory(),
+        destination,
+        [MaterialIngressEntry::from_lot_spec(
+            wood_log_spec(Mass::from_milligrams(3)),
+            current_tick,
+        )],
+        current_tick,
+    )
+    .unwrap_or_else(|error| panic!("second ingress validation failed: {error:?}"));
+    let second_lots = apply_material_ingress(state.inventory_state_mut(), second);
+
+    assert_eq!(second_lots.as_slice(), &[*first_lot]);
+    assert_eq!(state.inventory().next_lot_id(), cursor_before_merge);
+    assert_eq!(state.inventory().lot_ids(destination).count(), 1);
+    assert_eq!(
+        state
+            .inventory()
+            .get_lot(*first_lot)
+            .map(MaterialLotRecord::mass),
+        Some(Mass::from_milligrams(5))
+    );
+}
+
+#[test]
+fn compatible_parcels_in_one_ingress_allocate_only_one_persistent_identity() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A61_0005));
+    let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
+    let current_tick = state.tick();
+    let cursor_before = state.inventory().next_lot_id();
+    let ingress = validate_material_ingress(
+        &registries,
+        state.inventory(),
+        destination,
+        [
+            MaterialIngressEntry::from_lot_spec(
+                wood_log_spec(Mass::from_milligrams(2)),
+                current_tick,
+            ),
+            MaterialIngressEntry::from_lot_spec(
+                wood_log_spec(Mass::from_milligrams(3)),
+                current_tick,
+            ),
+        ],
+        current_tick,
+    )
+    .unwrap_or_else(|error| panic!("batched ingress validation failed: {error:?}"));
+    let resulting_lots = apply_material_ingress(state.inventory_state_mut(), ingress);
+
+    assert_eq!(resulting_lots.len(), 2);
+    assert_eq!(resulting_lots[0], resulting_lots[1]);
+    assert_eq!(state.inventory().next_lot_id(), cursor_before + 1);
+    assert_eq!(state.inventory().lot_ids(destination).count(), 1);
+}
+
+#[test]
 fn future_provenance_is_rejected_without_mutation() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x1A61_0002));

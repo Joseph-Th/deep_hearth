@@ -10,6 +10,7 @@ use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
 use super::coalescing::LotMergePolicy;
+use super::lot_identity::LotIdentityPlanner;
 use super::selection::{
     ConsumptionSelection, ConsumptionSelectionError, validate_consumption_selection,
 };
@@ -44,7 +45,7 @@ pub(crate) struct ValidatedMaterialReform {
     outputs: Vec<(ConsumedMaterialTrace, MaterialStorageHistory)>,
     target: CommodityKey,
     total_mass: Mass,
-    allocated_lot_ids: Vec<MaterialLotId>,
+    lot_ids: Vec<MaterialLotId>,
     merge_policy: LotMergePolicy,
     next_lot_id: u64,
     structural: Option<ValidatedStockpileStructuralLoad>,
@@ -82,9 +83,7 @@ impl ValidatedMaterialReform {
         for slice in self.lot_slices {
             apply_consume_lot_slice(inventories, slice);
         }
-        for ((trace, storage_history), lot_id) in
-            self.outputs.into_iter().zip(self.allocated_lot_ids)
-        {
+        for ((trace, storage_history), lot_id) in self.outputs.into_iter().zip(self.lot_ids) {
             let mut profile: MaterialLotProfile = trace.profile().clone();
             profile.commodity = self.target;
             apply_insert_or_merge_new_lot(
@@ -128,6 +127,9 @@ pub(crate) enum MaterialReformError {
     MaterialChanged {
         source: MaterialId,
         target: MaterialId,
+    },
+    TargetUnchanged {
+        commodity: CommodityKey,
     },
     DestinationStorage(StockpileStorageError),
     DestinationMassOverflow {
@@ -206,6 +208,12 @@ pub(crate) fn validate_material_reform_from_selection(
             MaterialReformError::UnknownTargetForm { form }
         }
     })?;
+    if consumed_inputs
+        .iter()
+        .all(|trace| trace.profile().commodity() == target)
+    {
+        return Err(MaterialReformError::TargetUnchanged { commodity: target });
+    }
 
     for trace in &consumed_inputs {
         let source_material = trace.profile().commodity().material();
@@ -324,14 +332,34 @@ pub(crate) fn validate_material_reform_from_selection(
         .zip(output_storage_histories)
         .collect();
 
-    let mut allocated_lot_ids = Vec::with_capacity(outputs.len());
-    let mut next_lot_id = inventories.next_lot_id();
-    for _ in &outputs {
-        allocated_lot_ids.push(MaterialLotId::new(next_lot_id));
-        next_lot_id = next_lot_id
-            .checked_add(1)
-            .ok_or(MaterialReformError::LotIdExhausted)?;
+    let excluded_existing = lot_slices.iter().filter_map(|slice| {
+        inventories
+            .get_lot(slice.lot)
+            .and_then(|lot| (slice.mass == lot.mass()).then_some(slice.lot))
+    });
+    let merge_policy = LotMergePolicy::for_commodity(registries, target);
+    let destination_preservation_multiplier_ppm = destination_record
+        .storage_profile()
+        .preservation_multiplier_ppm();
+    let mut identity_planner = LotIdentityPlanner::new(inventories, excluded_existing);
+    let mut lot_ids = Vec::with_capacity(outputs.len());
+    for (trace, storage_history) in &outputs {
+        let mut profile: MaterialLotProfile = trace.profile().clone();
+        profile.commodity = target;
+        lot_ids.push(
+            identity_planner
+                .plan(
+                    destination,
+                    &profile,
+                    *storage_history,
+                    state.tick(),
+                    destination_preservation_multiplier_ppm,
+                    merge_policy,
+                )
+                .ok_or(MaterialReformError::LotIdExhausted)?,
+        );
     }
+    let next_lot_id = identity_planner.next_lot_id();
     let next_revision = inventories
         .revision()
         .checked_add(1)
@@ -347,8 +375,8 @@ pub(crate) fn validate_material_reform_from_selection(
         outputs,
         target,
         total_mass: total_consumed,
-        allocated_lot_ids,
-        merge_policy: LotMergePolicy::for_commodity(registries, target),
+        lot_ids,
+        merge_policy,
         next_lot_id,
         structural,
     })
@@ -443,11 +471,17 @@ impl ValidatedMaterialRelocation {
                 input.mass(),
             );
         }
-        for ((slice, split_lot_id), merge_policy) in self
+        let transfers = self
             .lot_slices
             .into_iter()
             .zip(self.split_lot_ids)
             .zip(self.merge_policies)
+            .map(|((slice, split_lot_id), merge_policy)| (slice, split_lot_id, merge_policy))
+            .collect::<Vec<_>>();
+        for (slice, _split_lot_id, merge_policy) in transfers
+            .iter()
+            .copied()
+            .filter(|(_, split_lot_id, _)| split_lot_id.is_none())
         {
             let lot_mass = match inventories.get_lot(slice.lot) {
                 Some(lot) => lot.mass,
@@ -456,33 +490,35 @@ impl ValidatedMaterialRelocation {
                     slice.lot.value()
                 ),
             };
-            if slice.mass == lot_mass {
-                debug_assert!(split_lot_id.is_none());
-                apply_move_full_lot(
-                    inventories,
-                    slice.lot,
-                    self.source,
-                    self.destination,
-                    storage_transition,
-                    merge_policy,
-                );
-            } else {
-                let split_lot_id = match split_lot_id {
-                    Some(split_lot_id) => split_lot_id,
-                    None => panic!(
-                        "validated partial material relocation is missing an allocated lot id"
-                    ),
-                };
-                apply_split_lot(
-                    inventories,
-                    slice.lot,
-                    split_lot_id,
-                    self.destination,
-                    slice.mass,
-                    storage_transition,
-                    merge_policy,
-                );
-            }
+            assert_eq!(
+                slice.mass, lot_mass,
+                "validated full material relocation no longer covers its complete lot"
+            );
+            apply_move_full_lot(
+                inventories,
+                slice.lot,
+                self.source,
+                self.destination,
+                storage_transition,
+                merge_policy,
+            );
+        }
+        for (slice, split_lot_id, merge_policy) in transfers
+            .into_iter()
+            .filter(|(_, split_lot_id, _)| split_lot_id.is_some())
+        {
+            let split_lot_id = split_lot_id.unwrap_or_else(|| {
+                unreachable!("partial relocation filter requires a planned lot identity")
+            });
+            apply_split_lot(
+                inventories,
+                slice.lot,
+                split_lot_id,
+                self.destination,
+                slice.mass,
+                storage_transition,
+                merge_policy,
+            );
         }
         if let Some(next_lot_id) = self.next_lot_id_after {
             inventories.apply_lot_cursor_and_revision(next_lot_id, self.next_revision);
@@ -1146,10 +1182,22 @@ pub(crate) fn validate_material_relocation_from_selection(
     )
     .map_err(MaterialRelocationError::StructuralLoad)?;
 
-    let mut split_lot_ids = Vec::with_capacity(lot_slices.len());
-    let mut merge_policies = Vec::with_capacity(lot_slices.len());
-    let mut next_lot_id = inventories.next_lot_id();
-    let mut allocated_any = false;
+    let merge_policies = lot_slices
+        .iter()
+        .map(|slice| {
+            let lot = inventories.get_lot(slice.lot).unwrap_or_else(|| {
+                panic!(
+                    "validated exact selection references missing lot {}",
+                    slice.lot.value()
+                )
+            });
+            LotMergePolicy::for_commodity(registries, lot.commodity())
+        })
+        .collect::<Vec<_>>();
+    let destination_preservation_multiplier_ppm = destination_record
+        .storage_profile()
+        .preservation_multiplier_ppm();
+    let mut identity_planner = LotIdentityPlanner::new(inventories, std::iter::empty());
     for slice in &lot_slices {
         let lot = match inventories.get_lot(slice.lot) {
             Some(lot) => lot,
@@ -1158,18 +1206,55 @@ pub(crate) fn validate_material_relocation_from_selection(
                 slice.lot.value()
             ),
         };
-        merge_policies.push(LotMergePolicy::for_commodity(registries, lot.commodity()));
         if slice.mass == lot.mass {
-            split_lot_ids.push(None);
-        } else {
-            split_lot_ids.push(Some(MaterialLotId::new(next_lot_id)));
-            next_lot_id = next_lot_id
-                .checked_add(1)
-                .ok_or(MaterialRelocationError::LotIdExhausted)?;
-            allocated_any = true;
+            let storage_history = lot
+                .storage_history()
+                .rebase(state.tick(), source_preservation_multiplier_ppm)
+                .unwrap_or_else(|| {
+                    panic!("valid full-lot relocation storage history could not be rebased")
+                });
+            identity_planner.note_preserved_arrival(
+                lot.id(),
+                destination,
+                &lot.profile,
+                storage_history,
+            );
         }
     }
-    let next_lot_id_after = allocated_any.then_some(next_lot_id);
+    let mut split_lot_ids = Vec::with_capacity(lot_slices.len());
+    for (slice, merge_policy) in lot_slices.iter().zip(&merge_policies) {
+        let lot = inventories.get_lot(slice.lot).unwrap_or_else(|| {
+            panic!(
+                "validated exact selection references missing lot {}",
+                slice.lot.value()
+            )
+        });
+        if slice.mass == lot.mass() {
+            split_lot_ids.push(None);
+            continue;
+        }
+        let storage_history = lot
+            .storage_history()
+            .rebase(state.tick(), source_preservation_multiplier_ppm)
+            .unwrap_or_else(|| {
+                panic!("valid partial relocation storage history could not be rebased")
+            });
+        split_lot_ids.push(Some(
+            identity_planner
+                .plan(
+                    destination,
+                    &lot.profile,
+                    storage_history,
+                    state.tick(),
+                    destination_preservation_multiplier_ppm,
+                    *merge_policy,
+                )
+                .ok_or(MaterialRelocationError::LotIdExhausted)?,
+        ));
+    }
+    let next_lot_id_after = identity_planner
+        .allocated_any()
+        .then_some(identity_planner.next_lot_id());
     let next_revision = inventories
         .revision()
         .checked_add(1)

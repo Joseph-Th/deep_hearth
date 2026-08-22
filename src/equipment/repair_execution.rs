@@ -292,6 +292,7 @@ pub(crate) fn bind_equipment_repair_for_test(
     equipment: EquipmentId,
     source: StockpileId,
     selections: &[MaterialLotSelection],
+    spent: CommodityKey,
     spent_destination: StockpileId,
     condition_after: Condition,
 ) -> Result<EquipmentRepairResolution, EquipmentRepairBindingError> {
@@ -301,11 +302,6 @@ pub(crate) fn bind_equipment_repair_for_test(
         .ok_or(EquipmentRepairBindingError::UnknownEquipment { equipment })?;
     let material = validate_explicit_consumption_selection(state.inventory(), source, selections)
         .map_err(EquipmentRepairBindingError::Inventory)?;
-    let spent = material
-        .consumed_inputs()
-        .first()
-        .map(|trace| trace.profile().commodity())
-        .unwrap_or_else(|| unreachable!("explicit repair selection is nonempty"));
     Ok(EquipmentRepairResolution {
         equipment,
         expected_equipment_revision: state.equipment().revision(),
@@ -381,6 +377,9 @@ pub enum EquipmentRepairMaterialError {
         source: crate::material::MaterialId,
         target: crate::material::MaterialId,
     },
+    SpentFormUnchanged {
+        commodity: CommodityKey,
+    },
     SpentStorage(StockpileStorageError),
     SpentMassOverflow {
         stockpile: StockpileId,
@@ -428,6 +427,11 @@ impl Display for EquipmentRepairMaterialError {
                 "equipment maintenance cannot change material identity from {} to {}",
                 source.value(),
                 target.value()
+            ),
+            Self::SpentFormUnchanged { commodity } => write!(
+                formatter,
+                "equipment maintenance spent output must differ from replacement commodity {}",
+                commodity.value()
             ),
             Self::SpentStorage(error) => {
                 write!(
@@ -490,6 +494,9 @@ impl Error for EquipmentRepairMaterialError {
             | Self::SpentMaterialChanged {
                 source: _material,
                 target: _,
+            } => None,
+            Self::SpentFormUnchanged {
+                commodity: _commodity,
             } => None,
             Self::UnknownSpentForm { form: _form } => None,
             Self::SpentCapacityExceeded {
@@ -886,6 +893,9 @@ fn map_material_error(error: MaterialReformError) -> EquipmentRepairMaterialErro
         }
         MaterialReformError::MaterialChanged { source, target } => {
             EquipmentRepairMaterialError::SpentMaterialChanged { source, target }
+        }
+        MaterialReformError::TargetUnchanged { commodity } => {
+            EquipmentRepairMaterialError::SpentFormUnchanged { commodity }
         }
         MaterialReformError::DestinationStorage(error) => {
             EquipmentRepairMaterialError::SpentStorage(error)

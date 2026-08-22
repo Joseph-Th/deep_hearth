@@ -20,8 +20,6 @@ use crate::equipment::{
     apply_equipment_condition_plan, decide_equipment_wear,
 };
 
-#[cfg(feature = "test-soak")]
-use crate::inventory::validate_material_transfer_for_test;
 use crate::inventory::{
     MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test,
     validate_mount_stockpile,
@@ -202,6 +200,7 @@ fn bind(
         equipment,
         source,
         &[MaterialLotSelection::new(lot, mass)],
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
         spent,
         after,
     ) {
@@ -365,7 +364,6 @@ fn repair_moves_exact_material_to_spent_storage_and_preserves_conservation() {
         Some(record) => record,
         None => panic!("repair source lot disappeared"),
     };
-    let commodity_before = source_lot.commodity();
     let temperature_before = source_lot.temperature();
     let composition_before = source_lot.composition().clone();
     let particle_size_before = source_lot.particle_size();
@@ -419,7 +417,10 @@ fn repair_moves_exact_material_to_spent_storage_and_preserves_conservation() {
         None => panic!("repair spent material missing"),
     };
     assert_eq!(spent_lot.mass(), Mass::from_milligrams(7));
-    assert_eq!(spent_lot.commodity(), commodity_before);
+    assert_eq!(
+        spent_lot.commodity(),
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)
+    );
     assert_eq!(spent_lot.temperature(), temperature_before);
     assert_eq!(spent_lot.composition(), &composition_before);
     assert_eq!(spent_lot.particle_size(), particle_size_before);
@@ -815,6 +816,7 @@ fn repair_preserves_multiple_partial_lot_profiles_without_id_collision() {
             MaterialLotSelection::new(first, Mass::from_milligrams(2)),
             MaterialLotSelection::new(second, Mass::from_milligrams(2)),
         ],
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
         spent,
         condition(700_000),
     ) {
@@ -919,15 +921,15 @@ fn equipment_repair_soak_preserves_resource_conservation_and_replay() {
         Ok(equipment) => equipment,
         Err(error) => panic!("repair soak equipment fixture failed: {error}"),
     };
-    let source = match add_solid_stockpile_for_test(&mut first, Mass::from_milligrams(1)) {
+    let source = match add_solid_stockpile_for_test(&mut first, Mass::from_milligrams(500)) {
         Ok(stockpile) => stockpile,
         Err(error) => panic!("repair soak source fixture failed: {error}"),
     };
-    let spent = match add_solid_stockpile_for_test(&mut first, Mass::from_milligrams(1)) {
+    let spent = match add_solid_stockpile_for_test(&mut first, Mass::from_milligrams(500)) {
         Ok(stockpile) => stockpile,
         Err(error) => panic!("repair soak spent fixture failed: {error}"),
     };
-    add_material(&registries, &mut first, source, Mass::from_milligrams(1));
+    add_material(&registries, &mut first, source, Mass::from_milligrams(500));
     let initial_matter = match calculate_matter_accounting(&first) {
         Ok(accounting) => accounting.total(),
         Err(error) => panic!("repair soak initial matter accounting failed: {error}"),
@@ -968,22 +970,6 @@ fn equipment_repair_soak_preserves_resource_conservation_and_replay() {
             if let Err(error) = repair.commit(state) {
                 panic!("repair soak commit failed at {cycle}: {error}");
             }
-            let return_material = match validate_material_transfer_for_test(
-                &registries,
-                state,
-                spent,
-                source,
-                CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-                Mass::from_milligrams(1),
-            ) {
-                Ok(token) => token,
-                Err(error) => {
-                    panic!("repair soak return validation failed at {cycle}: {error}")
-                }
-            };
-            if let Err(error) = return_material.commit(state) {
-                panic!("repair soak return commit failed at {cycle}: {error}");
-            }
         }
         if cycle % 53 == 0 {
             assert_eq!(validate_loaded_state(&registries, &first), Ok(()));
@@ -1008,6 +994,20 @@ fn equipment_repair_soak_preserves_resource_conservation_and_replay() {
             .get_equipment(equipment)
             .map(|record| record.condition()),
         Some(Condition::PRISTINE)
+    );
+    assert_eq!(
+        first
+            .inventory()
+            .get_stockpile(source)
+            .map(|record| record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_LOG))),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(
+        first
+            .inventory()
+            .get_stockpile(spent)
+            .map(|record| record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP))),
+        Some(Mass::from_milligrams(500))
     );
 }
 

@@ -6,6 +6,7 @@ use crate::core::quantity::Temperature;
 use crate::core::state::AppState;
 use crate::core::time::WorldSeed;
 use crate::inventory::add_solid_stockpile_for_test;
+use crate::inventory::deposit_lot_for_test;
 use crate::material::CommodityKey;
 
 #[test]
@@ -71,4 +72,52 @@ fn empty_reserved_deposit_plan_is_a_true_noop() {
     apply_reserved_deposits(state.inventory_state_mut(), plan);
 
     assert_eq!(state, before);
+}
+
+#[test]
+fn reserved_output_merges_without_consuming_an_unused_lot_identity() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_3003));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("reserved ingress stockpile fixture failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        destination,
+        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        Mass::from_milligrams(4),
+        Temperature::from_millikelvin(500_000),
+    )
+    .unwrap_or_else(|error| panic!("reserved ingress seed lot failed: {error}"));
+    let cursor_before = state.inventory().next_lot_id();
+    get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
+        Mass::from_milligrams(6);
+    let output = MaterialLotSpec::new(
+        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        Mass::from_milligrams(6),
+        Temperature::from_millikelvin(500_000),
+    );
+    let plan = decide_reserved_deposits(
+        &registries,
+        state.inventory(),
+        state.tick(),
+        vec![ReservedDepositRequest::new(
+            destination,
+            vec![output],
+            Mass::from_milligrams(6),
+        )],
+    )
+    .unwrap_or_else(|error| panic!("reserved ingress merge planning failed: {error:?}"));
+
+    apply_reserved_deposits(state.inventory_state_mut(), plan);
+
+    assert_eq!(state.inventory().next_lot_id(), cursor_before);
+    assert_eq!(state.inventory().lot_ids(destination).count(), 1);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|record| record.stored_mass()),
+        Some(Mass::from_milligrams(10))
+    );
 }
