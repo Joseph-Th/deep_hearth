@@ -1,48 +1,43 @@
 # Deep Hearth Agent Guide
 
-Use this file as the repository execution card. [`README.md`](README.md) routes the codebase;
-[`STATUS.md`](STATUS.md) defines the current capability boundary; [`ARCHITECTURE.md`](ARCHITECTURE.md),
-[`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md), [`GAME_DESIGN.md`](GAME_DESIGN.md), and
-[`TESTING.md`](TESTING.md) own their respective contracts.
+Use this file as the execution card. [`README.md`](README.md) maps the repository;
+[`STATUS.md`](STATUS.md) defines the current capability boundary; the remaining authority documents own
+architecture, technical contracts, game intent, and verification.
 
 ## Start
 
 1. Read [`../AGENTS.md`](../AGENTS.md) and preserve unrelated working-tree state.
 2. Run `python ../tools/tasks.py list deep_hearth`; do not overlap active claimed work.
-3. Use [`README.md`](README.md) to find the owning subsystem and [`STATUS.md`](STATUS.md) to confirm the
-   capability exists.
-4. Read the owner implementation and adjacent tests before editing.
-5. Read only the authority documents relevant to the changed contract.
-6. Use the narrowest validation lane in [`TESTING.md`](TESTING.md) that proves the change.
+3. Confirm the requested capability in [`STATUS.md`](STATUS.md).
+4. Find the owning subsystem in [`README.md`](README.md), then read its production source and adjacent
+   tests.
+5. Read only the authority document that owns the contract being changed.
 
-During implementation, use the build-free `quick` lane for frequent feedback. Batch related edits and
-use at most one build-producing operation at a coherent checkpoint: either `standard` for compile proof
-or the focused executable/audit that directly proves the changed behavior. Do not run a compile-only
-lane immediately before or after an executable lane that compiles the same surface, and do not compile
-the project after every file mutation. Git Wizard deliberately exposes no automatic `full` lane;
-broad audits require an explicit surface selection from [`TESTING.md`](TESTING.md).
+## Rules
 
-When code, tests, and documentation disagree, reconcile them to the actual authoritative contract.
-
-## Project rules
-
-- Registries own immutable definitions. `AppState` and subsystem state types own generated runtime state.
-- Each consequential operation has one canonical production path. Tests and tooling do not gain alternate
+- Registries own immutable definitions. `AppState` and subsystem states own generated runtime state.
+- Each consequential operation has one canonical production path. Tests and tools do not gain alternate
   mutation paths.
-- Fallible multi-owner work validates before mutation. Use consumed validated tokens for atomicity and
-  staleness; use decide/apply boundaries for read-heavy decisions with narrow writes.
-- Preserve typed identity, synchronized indexes, state-owned deterministic RNG, stable ordering, checked
-  physical arithmetic, and explicit top-level simulation order.
-- Matter, fluid, and modeled energy move or transform only through an implemented physical owner and path.
-- Future-affecting state is serializable. Load admission validates references and complete invariants.
-- Core systems perform no implicit IO; adapters own external effects.
-- Remove obsolete production paths and stale documentation. Do not add compatibility scaffolding, public
-  test shims, fake callers, or broad warning suppressions without an active contract.
-- Verification is local. Do not create or depend on GitHub Actions or hosted CI.
+- Validate fallible multi-owner work before mutation. Use consumed validated tokens for atomicity and
+  stale-state rejection; use decide/apply boundaries for read-heavy decisions with narrow writes.
+- Preserve typed identity, synchronized indexes, deterministic RNG and ordering, checked physical
+  arithmetic, explicit simulation order, and exact represented matter/fluid/energy ownership.
+- Persist future-affecting state. Load admission rebuilds derived indexes and validates complete runtime
+  invariants before returning trusted state.
+- Core systems perform no implicit IO. Adapters own external effects.
+- Remove obsolete paths and stale documentation. Do not add compatibility scaffolding, public test shims,
+  fake callers, or broad warning suppressions without an active contract.
+- Verification is local. Do not add or depend on GitHub Actions or hosted CI.
+
+## Verification
+
+Use [`TESTING.md`](TESTING.md) to select the smallest proof for the changed contract. `python ci.py quick`
+is the build-free edit loop. Batch related edits before any build-producing checkpoint and do not run a
+compile-only lane when the selected executable lane already compiles the same surface.
+
+For documentation-only changes, run `python tools/check_authority_docs.py`.
 
 ## Finish
 
 Review the task-scoped diff, update the authority document that owns any changed contract, and run the
-smallest completion gate from [`TESTING.md`](TESTING.md) that covers the changed surface. A successful
-focused executable is completion evidence for that surface and does not need a follow-up `standard`
-compile merely for reassurance.
+smallest completion gate that covers the changed surface. Do not add broader verification for reassurance.
