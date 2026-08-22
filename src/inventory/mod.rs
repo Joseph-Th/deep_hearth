@@ -14,6 +14,8 @@ mod structural_integration;
 mod test_support;
 mod transactions;
 
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) use fixture::add_stockpile;
 #[cfg(feature = "test-gameplay")]
 pub(crate) use fixture::{deposit_composed_lot_for_fixture, deposit_lot_for_fixture};
 pub(crate) use inbound_reservation::{
@@ -62,13 +64,9 @@ pub(crate) use transactions::{
     validate_material_reform_from_selection,
 };
 
-#[cfg(any(test, feature = "test-gameplay"))]
-pub(crate) use transactions::add_stockpile;
-#[cfg(test)]
-pub(crate) use transactions::validate_material_transfer_for_test;
-
 #[cfg(test)]
 pub(crate) use test_support::{
     MaterialFixtureError, add_solid_stockpile_for_test, deposit_bulk_for_test,
     deposit_composed_lot_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
+    validate_material_transfer_for_test,
 };

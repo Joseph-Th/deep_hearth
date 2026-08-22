@@ -4,6 +4,8 @@ mod definitions;
 mod production_execution;
 mod resolution;
 mod state;
+#[cfg(test)]
+mod test_support;
 
 pub use definitions::{ProcessDefinition, ProcessId, ProcessInputPolicy, ProductionRegistry};
 pub use production_execution::{

@@ -2,10 +2,14 @@
 
 pub(crate) use super::fixture::MaterialFixtureError;
 use super::fixture::{
-    deposit_composed_lot_for_fixture, deposit_lot_for_fixture, deposit_lot_spec_for_fixture,
+    AddStockpileError, add_stockpile, deposit_composed_lot_for_fixture, deposit_lot_for_fixture,
+    deposit_lot_spec_for_fixture,
 };
 use super::state::{MaterialLotId, StockpileId, StockpileStorageProfile};
-use super::transactions::{AddStockpileError, add_stockpile};
+use super::transactions::{
+    MaterialTransferError, MaterialTransferResolution, ValidatedMaterialTransfer,
+    validate_material_transfer,
+};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
 use crate::material::{CommodityKey, MaterialComposition, MaterialLotSpec};
@@ -19,6 +23,22 @@ pub(crate) fn add_solid_stockpile_for_test(
     capacity: Mass,
 ) -> Result<StockpileId, AddStockpileError> {
     add_stockpile(state, capacity, StockpileStorageProfile::solid_only())
+}
+
+/// Validates one controlled pathless transfer fixture through the canonical transfer boundary.
+pub(crate) fn validate_material_transfer_for_test(
+    registries: &Registries,
+    state: &AppState,
+    source: StockpileId,
+    destination: StockpileId,
+    commodity: CommodityKey,
+    mass: Mass,
+) -> Result<ValidatedMaterialTransfer, MaterialTransferError> {
+    validate_material_transfer(
+        registries,
+        state,
+        MaterialTransferResolution::new(source, destination, commodity, mass),
+    )
 }
 
 /// Deposits explicitly sourced matter after validating references and capacity.

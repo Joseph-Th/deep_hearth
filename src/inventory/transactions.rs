@@ -1,39 +1,17 @@
 //! Canonical inventory transactions; sibling state records remain passive and privately mutable.
 
-#[cfg(any(test, feature = "test-gameplay"))]
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
-#[cfg(test)]
-use crate::core::quantity::Temperature;
 use crate::core::state::AppState;
-#[cfg(test)]
-use crate::material::MaterialComposition;
-#[cfg(test)]
-use crate::material::MaterialLotSpec;
-#[cfg(test)]
-use crate::material::MaterialPhase;
 use crate::material::{CommodityKey, FormId, MaterialId, MaterialInputSpec};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
 use super::coalescing::LotMergePolicy;
-#[cfg(test)]
-use super::ingress::{
-    MaterialIngressEntry, MaterialIngressError, apply_material_ingress, validate_material_ingress,
-};
-#[cfg(test)]
-use super::reserved_ingress::{
-    ReservedDepositRequest, apply_reserved_deposits, decide_reserved_deposits,
-};
 use super::selection::{
     ConsumptionSelection, ConsumptionSelectionError, validate_consumption_selection,
-};
-#[cfg(test)]
-use super::selection::{
-    apply_consumption_reservation, validate_consumption_reservation_from_selection,
 };
 use super::state::{
     ConsumedMaterialTrace, InventoryState, LotSlice, LotStorageTransition, MaterialLotId,
@@ -41,8 +19,6 @@ use super::state::{
     apply_aggregate_deposit, apply_aggregate_withdraw, apply_consume_lot_slice,
     apply_insert_or_merge_new_lot, apply_move_full_lot, apply_split_lot,
 };
-#[cfg(any(test, feature = "test-gameplay"))]
-use super::state::{StockpileRecord, StockpileStorageProfile};
 use super::storage_validation::{
     CommodityReferenceError, StockpileStorageError, validate_commodity_reference,
     validate_stockpile_storage,
@@ -51,15 +27,6 @@ use super::{
     StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedStockpileStructuralLoad,
     validate_stockpile_stored_mass_changes,
 };
-
-/// Failure while allocating a new stockpile record for controlled fixtures.
-#[cfg(any(test, feature = "test-gameplay"))]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum AddStockpileError {
-    ZeroCapacity,
-    IdExhausted,
-    RevisionExhausted,
-}
 
 /// Revision-bound reforming of exact selected matter into another physical form of the same material.
 ///
@@ -682,17 +649,6 @@ impl Error for MaterialRelocationCommitError {
     }
 }
 
-#[cfg(any(test, feature = "test-gameplay"))]
-impl Display for AddStockpileError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ZeroCapacity => formatter.write_str("stockpile capacity must be nonzero"),
-            Self::IdExhausted => formatter.write_str("stockpile identifier space is exhausted"),
-            Self::RevisionExhausted => formatter.write_str("inventory revision space is exhausted"),
-        }
-    }
-}
-
 /// Converts an exact read-only selection into a one-shot inventory withdrawal for another owner.
 pub(crate) fn validate_material_egress_from_selection(
     state: &InventoryState,
@@ -750,9 +706,6 @@ pub(crate) fn apply_material_egress(state: &mut InventoryState, egress: Validate
     }
     state.apply_revision(next_revision);
 }
-
-#[cfg(any(test, feature = "test-gameplay"))]
-impl Error for AddStockpileError {}
 
 /// Opaque authorization for one already physically resolved stockpile-to-stockpile movement.
 ///
@@ -993,40 +946,6 @@ impl ValidatedMaterialTransfer {
     }
 }
 
-/// Adds empty material storage for tests and controlled gameplay bootstrap only.
-#[cfg(any(test, feature = "test-gameplay"))]
-pub(crate) fn add_stockpile(
-    state: &mut AppState,
-    capacity: Mass,
-    storage_profile: StockpileStorageProfile,
-) -> Result<StockpileId, AddStockpileError> {
-    if capacity.is_zero() {
-        return Err(AddStockpileError::ZeroCapacity);
-    }
-
-    let inventories = state.inventory_state_mut();
-    let id = StockpileId::new(inventories.next_stockpile_id());
-    let Some(next_id) = inventories.next_stockpile_id().checked_add(1) else {
-        return Err(AddStockpileError::IdExhausted);
-    };
-    let Some(next_revision) = inventories.revision().checked_add(1) else {
-        return Err(AddStockpileError::RevisionExhausted);
-    };
-
-    let record = StockpileRecord {
-        id,
-        capacity,
-        storage_profile,
-        supported_by: None,
-        stored_mass: Mass::ZERO,
-        reserved_inbound: Mass::ZERO,
-        contents: BTreeMap::new(),
-    };
-
-    inventories.insert_stockpile(record, next_id, next_revision);
-    Ok(id)
-}
-
 /// Validates one already physically resolved material transfer without mutating either stockpile.
 pub fn validate_material_transfer(
     registries: &Registries,
@@ -1057,22 +976,6 @@ pub fn validate_material_transfer(
         validate_material_relocation_from_selection(registries, state, destination, selection)
             .map_err(map_transfer_relocation_error)?;
     Ok(ValidatedMaterialTransfer { relocation })
-}
-
-#[cfg(test)]
-pub(crate) fn validate_material_transfer_for_test(
-    registries: &Registries,
-    state: &AppState,
-    source: StockpileId,
-    destination: StockpileId,
-    commodity: CommodityKey,
-    mass: Mass,
-) -> Result<ValidatedMaterialTransfer, MaterialTransferError> {
-    validate_material_transfer(
-        registries,
-        state,
-        MaterialTransferResolution::new(source, destination, commodity, mass),
-    )
 }
 
 fn map_transfer_selection_error(error: ConsumptionSelectionError) -> MaterialTransferError {

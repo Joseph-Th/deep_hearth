@@ -1,19 +1,26 @@
 //! Tests for the sibling transactions module; isolated so test-only edits do not invalidate production builds.
 
+use std::collections::BTreeMap;
+
 use super::*;
 use crate::content::{
     FORM_CHIP, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE, MATERIAL_BERRIES,
     MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
     build_registries,
 };
+use crate::core::quantity::Temperature;
 use crate::core::state::apply_clock_advance;
 use crate::core::time::SimulationTick;
 use crate::core::time::WorldSeed;
 use crate::inventory::{
-    MaterialFixtureError, add_solid_stockpile_for_test, deposit_bulk_for_test,
-    deposit_composed_lot_for_test, deposit_lot_for_test, validate_loaded_inventory,
+    MaterialFixtureError, MaterialIngressEntry, MaterialIngressError, ReservedDepositRequest,
+    StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
+    apply_consumption_reservation, apply_material_ingress, apply_reserved_deposits,
+    decide_reserved_deposits, deposit_bulk_for_test, deposit_composed_lot_for_test,
+    deposit_lot_for_test, validate_consumption_reservation_from_selection,
+    validate_loaded_inventory, validate_material_ingress, validate_material_transfer_for_test,
 };
-use crate::material::CompositionComponent;
+use crate::material::{CompositionComponent, MaterialComposition, MaterialLotSpec, MaterialPhase};
 use crate::matter::calculate_matter_accounting;
 
 fn wood_log() -> CommodityKey {

@@ -252,25 +252,6 @@ impl ValidatedProcessInputs {
         self.selection.total_consumed()
     }
 
-    #[cfg(test)]
-    pub(crate) fn resolve(
-        self,
-        duration: TickSpan,
-        outputs: Vec<MaterialLotSpec>,
-    ) -> Result<ProcessResolution, ProcessResolutionError> {
-        self.resolve_inner(
-            duration,
-            vec![ProcessOutputStream::new(
-                ProcessOutputStreamId::PRIMARY,
-                outputs,
-            )],
-            None,
-            None,
-            None,
-            None,
-        )
-    }
-
     pub(crate) fn resolve_without_resources(
         self,
         duration: TickSpan,
@@ -776,14 +757,6 @@ impl ProcessResolution {
         Some(stream)
     }
 
-    #[cfg(test)]
-    pub(crate) fn outputs(&self) -> &[MaterialLotSpec] {
-        match self.single_output_stream() {
-            Some(stream) => stream.outputs(),
-            None => panic!("single-stream test helper used with multi-stream process resolution"),
-        }
-    }
-
     pub(crate) const fn selection(&self) -> &ConsumptionSelection {
         &self.selection
     }
@@ -840,7 +813,7 @@ pub(crate) fn make_test_process_resolution(
     duration_ticks: u64,
     outputs: Vec<MaterialLotSpec>,
 ) -> ProcessResolution {
-    match inputs.resolve(TickSpan::new(duration_ticks), outputs) {
+    match inputs.resolve_without_resources(TickSpan::new(duration_ticks), outputs) {
         Ok(resolution) => resolution,
         Err(error) => panic!("test process resolution fixture failed: {error}"),
     }

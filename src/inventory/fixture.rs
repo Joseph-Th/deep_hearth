@@ -1,9 +1,11 @@
-//! Controlled material-fixture admission shared by tests and external gameplay setup.
+//! Controlled inventory-fixture admission shared by tests and external gameplay setup.
 //!
-//! This module does not own alternate inventory behavior. It constructs explicit starting matter and
-//! delegates validation, structural load updates, and mutation to the same canonical ingress path used
-//! by runtime source owners. The gameplay harness reaches it only through `content::gameplay_fixture`.
+//! This module does not own alternate inventory behavior. It allocates empty bootstrap storage,
+//! constructs explicit starting matter, and delegates material admission and load updates to the same
+//! canonical owner paths used by runtime systems. The gameplay harness reaches it only through
+//! `content::gameplay_fixture`.
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -16,7 +18,7 @@ use crate::structural::StructuralCommitError;
 use super::ingress::{
     MaterialIngressEntry, MaterialIngressError, apply_material_ingress, validate_material_ingress,
 };
-use super::state::{MaterialLotId, StockpileId};
+use super::state::{MaterialLotId, StockpileId, StockpileRecord, StockpileStorageProfile};
 use super::structural_integration::{
     StockpileStoredMassChange, StockpileStructuralLoadError, validate_stockpile_stored_mass_changes,
 };
@@ -29,6 +31,26 @@ pub(crate) enum MaterialFixtureError {
     StructuralLoad(StockpileStructuralLoadError),
     StructuralCommit(StructuralCommitError),
 }
+
+/// Failure while allocating a controlled empty stockpile fixture.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum AddStockpileError {
+    ZeroCapacity,
+    IdExhausted,
+    RevisionExhausted,
+}
+
+impl Display for AddStockpileError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ZeroCapacity => formatter.write_str("stockpile capacity must be nonzero"),
+            Self::IdExhausted => formatter.write_str("stockpile identifier space is exhausted"),
+            Self::RevisionExhausted => formatter.write_str("inventory revision space is exhausted"),
+        }
+    }
+}
+
+impl Error for AddStockpileError {}
 
 impl Display for MaterialFixtureError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
@@ -45,6 +67,39 @@ impl Display for MaterialFixtureError {
             ),
         }
     }
+}
+
+/// Adds empty material storage for tests and controlled gameplay bootstrap only.
+pub(crate) fn add_stockpile(
+    state: &mut AppState,
+    capacity: Mass,
+    storage_profile: StockpileStorageProfile,
+) -> Result<StockpileId, AddStockpileError> {
+    if capacity.is_zero() {
+        return Err(AddStockpileError::ZeroCapacity);
+    }
+
+    let inventories = state.inventory_state_mut();
+    let id = StockpileId::new(inventories.next_stockpile_id());
+    let Some(next_id) = inventories.next_stockpile_id().checked_add(1) else {
+        return Err(AddStockpileError::IdExhausted);
+    };
+    let Some(next_revision) = inventories.revision().checked_add(1) else {
+        return Err(AddStockpileError::RevisionExhausted);
+    };
+
+    let record = StockpileRecord {
+        id,
+        capacity,
+        storage_profile,
+        supported_by: None,
+        stored_mass: Mass::ZERO,
+        reserved_inbound: Mass::ZERO,
+        contents: BTreeMap::new(),
+    };
+
+    inventories.insert_stockpile(record, next_id, next_revision);
+    Ok(id)
 }
 
 impl Error for MaterialFixtureError {

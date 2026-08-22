@@ -7,8 +7,8 @@ use crate::core::state::AppState;
 use crate::core::time::WorldSeed;
 use crate::material::CommodityKey;
 
+use super::super::fixture::add_stockpile;
 use super::super::state::StockpileStorageProfile;
-use super::super::transactions::add_stockpile;
 
 fn add_test_stockpile(state: &mut AppState, capacity: Mass) -> StockpileId {
     match add_stockpile(state, capacity, StockpileStorageProfile::solid_only()) {

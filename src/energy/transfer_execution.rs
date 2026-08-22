@@ -41,19 +41,6 @@ impl EnergyTransferResolution {
     }
 }
 
-#[cfg(test)]
-pub(crate) const fn make_test_energy_transfer_resolution(
-    source: EnergyStoreId,
-    destination: EnergyStoreId,
-    energy: Energy,
-) -> EnergyTransferResolution {
-    EnergyTransferResolution {
-        source,
-        destination,
-        energy,
-    }
-}
-
 /// Failure while validating one already physically resolved finite-energy transfer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EnergyTransferError {
@@ -458,6 +445,11 @@ impl EnergyTransferOutcome {
         self.energy
     }
 }
+
+#[cfg(test)]
+mod test_support;
+#[cfg(test)]
+pub(crate) use test_support::make_test_energy_transfer_resolution;
 
 impl ValidatedEnergyTransfer {
     /// Commits this transfer exactly once after rechecking both authoritative owner revisions and
