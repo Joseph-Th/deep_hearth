@@ -387,11 +387,35 @@ fn scenario_outcome(report: &ScenarioReport) -> &'static str {
     }
 }
 
+fn scenario_constraint(report: &ScenarioReport) -> &'static str {
+    if report.structure.structural_stop {
+        "structural-capacity"
+    } else if report.limits.maintenance_stop {
+        if report.resources.maintenance_stock_remaining.is_zero() {
+            "maintenance-supply-exhausted"
+        } else {
+            "maintenance-safety"
+        }
+    } else if report.limits.energy_stop {
+        if report.limits.manual_recovery_declined {
+            "manual-recovery-declined"
+        } else if report.limits.manual_recovery_survival_limited {
+            "manual-recovery-survival-limited"
+        } else {
+            "stored-work-insufficient"
+        }
+    } else {
+        "none"
+    }
+}
+
 fn print_capability_highlight(kind: &str, report: &ScenarioReport) {
     std::println!(
-        "CAPABILITY HIGHLIGHT kind={kind} world=0x{:016X} behavior=0x{:016X} processed={}/{}mg operations={} adaptive={} manual-recharges={} maintenance={} relocation={} suspension={} stranded={} elapsed={}t outcome={}",
+        "CAPABILITY HIGHLIGHT kind={kind} world=0x{:016X} behavior=0x{:016X} start=[crusher:{:?} maintenance-units:{}] processed={}/{}mg operations={} adaptive={} manual-recharges={} maintenance={} relocation={} suspension={} stranded={} elapsed={}t outcome={} constraint={}",
         report.world_seed,
         report.behavior_seed,
+        report.inputs.initial_maintenance_band,
+        report.inputs.maintenance_replacement_units,
         report.progress.processed_mass.milligrams(),
         report.progress.target_mass.milligrams(),
         report.progress.operations_completed,
@@ -403,6 +427,7 @@ fn print_capability_highlight(kind: &str, report: &ScenarioReport) {
         report.structure.stranded_work_in_process,
         report.resources.elapsed_ticks,
         scenario_outcome(report),
+        scenario_constraint(report),
     );
 }
 
@@ -635,10 +660,14 @@ pub(super) fn print_harness_summary(
             highlighted.insert((report.world_seed, report.behavior_seed));
             print_capability_highlight("manual-energy-recovery", report);
         }
-        if let Some(report) = reports.iter().find(|report| {
-            report.progress.processed_mass < report.progress.target_mass
-                && !highlighted.contains(&(report.world_seed, report.behavior_seed))
-        }) {
+        if let Some(report) = reports
+            .iter()
+            .filter(|report| {
+                report.progress.processed_mass < report.progress.target_mass
+                    && !highlighted.contains(&(report.world_seed, report.behavior_seed))
+            })
+            .min_by_key(|report| report.progress.processed_mass.milligrams())
+        {
             print_capability_highlight("terminal-constraint", report);
         }
     }

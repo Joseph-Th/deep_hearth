@@ -134,6 +134,13 @@ fn balanced_recent_diet_recovers_vitality_faster_than_one_category() {
         ),
     );
 
+    let balanced_before = assess_survival(&registries, &balanced)
+        .unwrap_or_else(|| panic!("balanced nutrition assessment disappeared"));
+    assert_eq!(
+        balanced_before.diet_supported_vitality_recovery_ppm_per_tick(),
+        3
+    );
+
     let balanced_plan = decide_survival_tick(&registries, &balanced, SurvivalExertion::REST)
         .unwrap_or_else(|error| panic!("balanced nutrition tick failed: {error:?}"));
     let one_category_plan =
@@ -145,6 +152,11 @@ fn balanced_recent_diet_recovers_vitality_faster_than_one_category() {
         .unwrap_or_else(|| panic!("single-category nutrition player disappeared"));
 
     assert!(balanced_after.vitality() > one_category_after.vitality());
+    assert_eq!(
+        balanced_after.vitality().parts_per_million(),
+        500_000 + balanced_before.diet_supported_vitality_recovery_ppm_per_tick()
+    );
+    assert_eq!(one_category_after.vitality().parts_per_million(), 500_000);
     assert!(balanced_after.diet_quality_ppm() > one_category_after.diet_quality_ppm());
     assert_eq!(balanced_after.diet_quality_ppm(), 299_995);
     assert_eq!(one_category_after.diet_quality_ppm(), 0);

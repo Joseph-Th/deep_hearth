@@ -605,7 +605,7 @@ struct PrimitiveProgressionExperience {
     overlap_ticks: u64,
     machine_useful_overlap_ticks: u64,
     reserve_useful_overlap_ticks: u64,
-    machine_unassigned_ticks: u64,
+    machine_player_free_ticks: u64,
     final_pick_condition_ppm: u32,
     metabolic_energy_spent_nj: u128,
     hydration_spent_ul: u64,
@@ -1052,17 +1052,17 @@ fn finish_autonomous_crush(
         !job.is_suspended(),
         "primitive progression has no world mutation that should suspend its autonomous crusher"
     );
-    let unassigned_ticks = job
+    let player_free_ticks = job
         .completes_at()
         .value()
         .checked_sub(state.tick().value())
         .unwrap_or_else(|| panic!("primitive crusher completion fell behind authoritative time"));
-    advance_exact(registries, state, unassigned_ticks);
+    advance_exact(registries, state, player_free_ticks);
     assert!(
         state.production().get_job(concurrent.job).is_none(),
         "primitive crusher should complete after its remaining autonomous work"
     );
-    unassigned_ticks
+    player_free_ticks
 }
 
 fn run_primitive_progression_case(
@@ -1394,12 +1394,13 @@ fn run_primitive_progression_case(
             )
         }
     };
-    let primary_unassigned_ticks = finish_autonomous_crush(registries, &mut state, concurrent_work);
+    let primary_player_free_ticks =
+        finish_autonomous_crush(registries, &mut state, concurrent_work);
     let machine_useful_overlap_ticks = concurrent_work
         .crush_ticks
-        .checked_sub(primary_unassigned_ticks)
+        .checked_sub(primary_player_free_ticks)
         .unwrap_or_else(|| {
-            panic!("primitive machine unassigned time exceeded active process time")
+            panic!("primitive machine player-free time exceeded active process time")
         });
     assert!(
         reinforced_mining_ticks < stone_mining_ticks,
@@ -1446,11 +1447,11 @@ fn run_primitive_progression_case(
             mass: mined_mass,
         },
     );
-    let reserve_unassigned_ticks = finish_autonomous_crush(registries, &mut state, reserve_work);
+    let reserve_player_free_ticks = finish_autonomous_crush(registries, &mut state, reserve_work);
     let reserve_useful_overlap_ticks = reserve_work
         .crush_ticks
-        .checked_sub(reserve_unassigned_ticks)
-        .unwrap_or_else(|| panic!("reserve crusher unassigned time exceeded active process time"));
+        .checked_sub(reserve_player_free_ticks)
+        .unwrap_or_else(|| panic!("reserve crusher player-free time exceeded active process time"));
     assert!(
         reserve_useful_overlap_ticks > 0,
         "banked mechanical work must support another cycle while the player performs useful extraction"
@@ -1530,9 +1531,9 @@ fn run_primitive_progression_case(
     let total_useful_overlap_ticks = machine_useful_overlap_ticks
         .checked_add(reserve_useful_overlap_ticks)
         .unwrap_or_else(|| panic!("primitive useful-overlap duration overflowed"));
-    let total_unassigned_ticks = primary_unassigned_ticks
-        .checked_add(reserve_unassigned_ticks)
-        .unwrap_or_else(|| panic!("primitive unassigned autonomous duration overflowed"));
+    let total_player_free_ticks = primary_player_free_ticks
+        .checked_add(reserve_player_free_ticks)
+        .unwrap_or_else(|| panic!("primitive player-free autonomous duration overflowed"));
     let experience = PrimitiveProgressionExperience {
         priority,
         primary_batch_mass: mined_mass,
@@ -1556,7 +1557,7 @@ fn run_primitive_progression_case(
         overlap_ticks: concurrent_work.overlap_ticks,
         machine_useful_overlap_ticks: total_useful_overlap_ticks,
         reserve_useful_overlap_ticks,
-        machine_unassigned_ticks: total_unassigned_ticks,
+        machine_player_free_ticks: total_player_free_ticks,
         final_pick_condition_ppm,
         metabolic_energy_spent_nj,
         hydration_spent_ul,
@@ -1586,7 +1587,7 @@ fn run_primitive_progression_case(
             reinforced_hardness_limit.pascals(),
         );
         std::println!(
-            "PROGRESSION SYSTEMS ore=[grade:{}ppm:composition-only batch:{}mg soft-stone:{}t hard-reinforced:{}+{}t reserve-concurrent-hard:{}t remaining:{}mg] native=[first:{}t second:{}t total:{}mg remaining:{}mg] infrastructure=[drive:{}mg crusher:{}mg] stored-work=[fill:{}ppm charge:{}nJ primary:{}nJ banked:{}nJ follow-up:{}mg:{}t final:{}nJ] charge=[stone:{}t reinforced:{}t delta:{:+}t] mechanization=[primary:{}t initial-concurrent:{}:{}t initial-overlap:{}t primary-useful:{}t primary-unassigned:{}t reserve:{}t reserve-mining:{}t reserve-useful:{}t reserve-unassigned:{}t total-useful:{}t total-unassigned:{}t processed:{}mg] durability=[pick:{}ppm] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
+            "PROGRESSION SYSTEMS ore=[grade:{}ppm:composition-only batch:{}mg soft-stone:{}t hard-reinforced:{}+{}t reserve-concurrent-hard:{}t remaining:{}mg] native=[first:{}t second:{}t total:{}mg remaining:{}mg] infrastructure=[drive:{}mg crusher:{}mg] stored-work=[fill:{}ppm charge:{}nJ primary:{}nJ banked:{}nJ follow-up:{}mg:{}t final:{}nJ] charge=[stone:{}t reinforced:{}t delta:{:+}t] mechanization=[primary:{}t initial-concurrent:{}:{}t initial-overlap:{}t primary-productive-overlap:{}t primary-player-free:{}t reserve:{}t reserve-mining:{}t reserve-productive-overlap:{}t reserve-player-free:{}t total-productive-overlap:{}t total-player-free:{}t processed:{}mg] durability=[pick:{}ppm] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
             ore_copper_ppm,
             mined_mass.milligrams(),
             stone_mining_ticks,
@@ -1615,13 +1616,13 @@ fn run_primitive_progression_case(
             concurrent_work.player_work_ticks,
             concurrent_work.overlap_ticks,
             machine_useful_overlap_ticks,
-            primary_unassigned_ticks,
+            primary_player_free_ticks,
             reserve_work.crush_ticks,
             reserve_work.player_work_ticks,
             reserve_useful_overlap_ticks,
-            reserve_unassigned_ticks,
+            reserve_player_free_ticks,
             total_useful_overlap_ticks,
-            total_unassigned_ticks,
+            total_player_free_ticks,
             processed_mass.milligrams(),
             final_pick_condition_ppm,
             metabolic_energy_spent_nj,
@@ -1651,7 +1652,7 @@ pub(super) struct PrimitiveProgressionReview {
     pub(super) reserve_machine_work_ticks: u64,
     pub(super) mechanization_useful_overlap_ticks: u64,
     pub(super) reserve_useful_overlap_ticks: u64,
-    pub(super) mechanization_unassigned_delta_ticks: i128,
+    pub(super) mechanization_player_free_delta_ticks: i128,
     pub(super) mechanization_elapsed_delta_ticks: i128,
 }
 
@@ -1727,7 +1728,7 @@ pub(super) fn evaluate_primitive_progression_probe(
         mechanization_autonomy_lead_ticks,
     );
     std::println!(
-        "PROGRESSION AGENCY seed=0x{seed:016X} matched-world choices=[extraction-first,mechanization-first] milestones=[pick-upgrade:{}vs{}t hard-seam-access:{}vs{}t machine-start:{}vs{}t first-processed-output:{}vs{}t] tool=[soft-stone:{}t hard-reinforced:{}vs{}t] charge=[stone:{}vs{}t reinforced:{}vs{}t] native=[first:{}vs{}t second:{}vs{}t] hard-ore-after-upgrade=[{}+{}vs{}+{}t] attention=[machine-total:{}t reserve-cycle:{}t initial-overlap:{}vs{}t useful-overlap:{}vs{}t reserve-useful:{}vs{}t bounded-episode-unassigned:{}vs{}t] final-pick=[{}vs{}ppm] survival=[energy:{}vs{}nJ hydration:{}vs{}uL] elapsed=[{}vs{}t] tradeoff=earlier-hard-seam-access-vs-earlier-autonomy+attention-recovery",
+        "PROGRESSION AGENCY seed=0x{seed:016X} matched-world choices=[extraction-first,mechanization-first] milestones=[pick-upgrade:{}vs{}t hard-seam-access:{}vs{}t machine-start:{}vs{}t first-processed-output:{}vs{}t] tool=[soft-stone:{}t hard-reinforced:{}vs{}t] charge=[stone:{}vs{}t reinforced:{}vs{}t] native=[first:{}vs{}t second:{}vs{}t] hard-ore-after-upgrade=[{}+{}vs{}+{}t] attention=[machine-total:{}t reserve-cycle:{}t initial-overlap:{}vs{}t productive-overlap:{}vs{}t reserve-productive:{}vs{}t player-free-during-machine:{}vs{}t] final-pick=[{}vs{}ppm] survival=[energy:{}vs{}nJ hydration:{}vs{}uL] elapsed=[{}vs{}t] tradeoff=earlier-hard-seam-access-vs-earlier-autonomy+attention-recovery",
         extraction.pick_upgraded_at,
         mechanization.pick_upgraded_at,
         extraction.hard_seam_accessed_at,
@@ -1759,8 +1760,8 @@ pub(super) fn evaluate_primitive_progression_probe(
         mechanization.machine_useful_overlap_ticks,
         extraction.reserve_useful_overlap_ticks,
         mechanization.reserve_useful_overlap_ticks,
-        extraction.machine_unassigned_ticks,
-        mechanization.machine_unassigned_ticks,
+        extraction.machine_player_free_ticks,
+        mechanization.machine_player_free_ticks,
         extraction.final_pick_condition_ppm,
         mechanization.final_pick_condition_ppm,
         extraction.metabolic_energy_spent_nj,
@@ -1794,9 +1795,9 @@ pub(super) fn evaluate_primitive_progression_probe(
         reserve_machine_work_ticks: mechanization.reserve_machine_work_ticks,
         mechanization_useful_overlap_ticks: mechanization.machine_useful_overlap_ticks,
         reserve_useful_overlap_ticks: mechanization.reserve_useful_overlap_ticks,
-        mechanization_unassigned_delta_ticks: tick_delta(
-            extraction.machine_unassigned_ticks,
-            mechanization.machine_unassigned_ticks,
+        mechanization_player_free_delta_ticks: tick_delta(
+            extraction.machine_player_free_ticks,
+            mechanization.machine_player_free_ticks,
         ),
         mechanization_elapsed_delta_ticks: tick_delta(
             extraction.elapsed_ticks,
@@ -1817,7 +1818,7 @@ pub(super) fn evaluate_primitive_progression_probe(
         "primitive progression must turn scarce material and stored work into measurable attention recovery"
     );
     std::println!(
-        "PROGRESSION REVIEW fantasy=bootstrap-by-hand->invest-scarce-copper->unlock-hard-material->store-work->delegate-repetition captured:{fantasy_captured} agency=front-loaded-affordance-choice-then-eventual-convergence observations=[tool-attention-delta:{:+}t crank-attention-delta:{:+}t hard-seam-exclusive:{}t autonomy-exclusive:{}t pre-machine-hard-ore:{}mg processed-before-pick:{} mechanization-output-delta:{:+}t autonomous-work:{}t reserve-cycle:{}t mechanization-useful-overlap:{}t reserve-useful-overlap:{}t bounded-episode-unassigned-delta:{:+}t mechanization-elapsed-delta:{:+}t] sign=[tool/crank:+ means reinforcement saved attention; output/unassigned/elapsed:+ means mechanization-first was earlier/lower]",
+        "PROGRESSION REVIEW fantasy=bootstrap-by-hand->invest-scarce-copper->unlock-hard-material->store-work->delegate-repetition captured:{fantasy_captured} agency=front-loaded-affordance-choice-then-eventual-convergence observations=[tool-attention-delta:{:+}t crank-attention-delta:{:+}t hard-seam-exclusive:{}t autonomy-exclusive:{}t pre-machine-hard-ore:{}mg processed-before-pick:{} mechanization-output-delta:{:+}t autonomous-work:{}t reserve-cycle:{}t mechanization-productive-overlap:{}t reserve-productive-overlap:{}t player-free-during-machine-delta:{:+}t mechanization-elapsed-delta:{:+}t] interpretation=[productive-overlap=player-occupied-by-useful-work-while-machine-runs player-free=autonomous-time-returned-to-player-with-no-forced-input] sign=[tool/crank:+ means reinforcement saved attention; output/elapsed:+ means mechanization-first was earlier/lower; player-free:+ means extraction-first left more autonomous free-attention time in this bounded episode]",
         review.tool_attention_delta_ticks,
         review.crank_attention_delta_ticks,
         review.hard_seam_access_lead_ticks,
@@ -1829,7 +1830,7 @@ pub(super) fn evaluate_primitive_progression_probe(
         review.reserve_machine_work_ticks,
         review.mechanization_useful_overlap_ticks,
         review.reserve_useful_overlap_ticks,
-        review.mechanization_unassigned_delta_ticks,
+        review.mechanization_player_free_delta_ticks,
         review.mechanization_elapsed_delta_ticks,
     );
     review

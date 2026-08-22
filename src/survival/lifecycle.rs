@@ -318,7 +318,10 @@ pub(crate) fn decide_survival_tick(
     } else if energy_after >= physiology.hungry_below()
         && hydration_after >= physiology.thirsty_below()
     {
-        let recovery = diet_supported_vitality_recovery_ppm_per_tick(physiology, nutrition_after);
+        // Current reserves support the current tick. Nutrition decays into the next persisted state
+        // after supplying this tick's recovery, matching the assessment visible before the tick.
+        let recovery =
+            diet_supported_vitality_recovery_ppm_per_tick(physiology, before.nutrition());
         before
             .vitality()
             .parts_per_million()

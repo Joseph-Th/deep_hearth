@@ -106,6 +106,7 @@ struct AgencyWorld {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+// Physical outcomes only. Policy bookkeeping must never manufacture an agency path.
 struct AgencyPathSignature {
     processed_mass: Mass,
     operations_completed: u16,
@@ -118,8 +119,6 @@ struct AgencyPathSignature {
     production_suspension: bool,
     stranded_work_in_process: bool,
     structural_stop: bool,
-    policy_power_choices: u16,
-    single_source_power_choices: u16,
     final_condition_ppm: u32,
     small_drive_remaining: Energy,
     large_drive_remaining: Energy,
@@ -143,8 +142,6 @@ impl AgencyPathSignature {
             production_suspension: report.structure.production_suspension,
             stranded_work_in_process: report.structure.stranded_work_in_process,
             structural_stop: report.structure.structural_stop,
-            policy_power_choices: report.choices.policy_power_choices,
-            single_source_power_choices: report.choices.single_source_power_choices,
             final_condition_ppm: report.resources.final_condition_ppm,
             small_drive_remaining: report.resources.small_drive_remaining,
             large_drive_remaining: report.resources.large_drive_remaining,
@@ -219,6 +216,8 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
     let mut observed_survival_effect = false;
     let mut observed_maintenance_effect = false;
     let mut observed_structure_effect = false;
+    let mut organic_worlds = 0_usize;
+    let mut organic_actionable_worlds = 0_usize;
     for world in worlds {
         let focus = world.focus.label();
         let world_seed = world.world_seed;
@@ -352,6 +351,7 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
         observed_survival_effect |= survival_effect;
         observed_maintenance_effect |= maintenance_effect;
         observed_structure_effect |= structure_effect;
+        let actionable = power_effect || survival_effect || maintenance_effect || structure_effect;
         match world.focus {
             AgencyFocus::PowerAndStructure => {
                 assert!(
@@ -374,10 +374,18 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
                     "maintained maintenance-timing agency world must make preventive versus delayed service consequential"
                 );
             }
-            AgencyFocus::OrganicVariation => {}
+            AgencyFocus::OrganicVariation => {
+                organic_worlds += 1;
+                organic_actionable_worlds += usize::from(actionable);
+            }
         }
+        let evidence = if actionable {
+            "actionable"
+        } else {
+            "dormant-policy-pressure"
+        };
         std::println!(
-            "AGENCY focus={focus} world=0x{world_seed:016X} variants={} unique_paths={} actionable=[power:{} survival:{} maintenance:{} structure:{}] policy-effects=[processed:{}..{}mg adaptive:{}..{} high-power:{}..{} manual-recharges:{}..{} services:{}..{} final-condition:{}..{}ppm relocations:{}/{} suspensions:{}/{} elapsed:{}..{}t survival-energy:{}..{}nJ]",
+            "AGENCY focus={focus} world=0x{world_seed:016X} variants={} physical-paths={} evidence={evidence} actionable=[power:{} survival:{} maintenance:{} structure:{}] policy-effects=[processed:{}..{}mg adaptive:{}..{} high-power:{}..{} manual-recharges:{}..{} services:{}..{} final-condition:{}..{}ppm relocations:{}/{} suspensions:{}/{} elapsed:{}..{}t survival-energy:{}..{}nJ]",
             reports.len(),
             signatures.len(),
             power_effect,
@@ -438,8 +446,9 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
             );
         }
     }
+    let organic_dormant_worlds = organic_worlds.saturating_sub(organic_actionable_worlds);
     std::println!(
-        "AGENCY SUMMARY worlds={} distinct_paths={} processed-work-differences={} demonstrated-choice-effects=[power:{} survival:{} maintenance:{} structure:{}] basis=matched-world-one-factor-counterfactual+maintained-choice-pressure",
+        "AGENCY SUMMARY worlds={} distinct-physical-paths={} processed-work-differences={} demonstrated-choice-effects=[power:{} survival:{} maintenance:{} structure:{}] organic=[actionable:{}/{} dormant:{}] basis=matched-world-one-factor-counterfactual+maintained-choice-pressure",
         worlds.len(),
         worlds_with_distinct_paths,
         worlds_with_work_difference,
@@ -447,7 +456,21 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
         observed_survival_effect,
         observed_maintenance_effect,
         observed_structure_effect,
+        organic_actionable_worlds,
+        organic_worlds,
+        organic_dormant_worlds,
     );
+}
+
+fn organic_agency_worlds(variation_root: u64) -> [AgencyWorld; 3] {
+    let first = mix64(variation_root ^ 0xA63E_4E43_594F_5247);
+    let second = mix64(first ^ 0xD1B5_4A32_D192_ED03);
+    let third = mix64(second ^ 0xD1B5_4A32_D192_ED03);
+    [first, second, third].map(|world_seed| AgencyWorld {
+        focus: AgencyFocus::OrganicVariation,
+        world_seed,
+        anchor: None,
+    })
 }
 
 #[test]
@@ -460,8 +483,8 @@ fn gameplay_maintained_agency_counterfactuals() {
                 .unwrap_or_else(|| panic!("agency gameplay variation seed is invalid: {raw:?}"))
         })
         .unwrap_or(MAINTAINED_VARIATION_ROOT);
-    let organic_world_seed = mix64(variation_root ^ 0xA63E_4E43_594F_5247);
-    let worlds = [
+    let organic = organic_agency_worlds(variation_root);
+    let mut worlds = vec![
         AgencyWorld {
             focus: AgencyFocus::PowerAndStructure,
             world_seed: 1,
@@ -477,11 +500,7 @@ fn gameplay_maintained_agency_counterfactuals() {
             world_seed: 4,
             anchor: Some(MaintainedAnchor::WarningMaintenance),
         },
-        AgencyWorld {
-            focus: AgencyFocus::OrganicVariation,
-            world_seed: organic_world_seed,
-            anchor: None,
-        },
     ];
+    worlds.extend(organic);
     run_agency_probe(&registries, &worlds);
 }

@@ -74,8 +74,8 @@ truth, hidden future events, setup-only state, or cloned `AppState` previews.
 
 | Target | Contract |
 | --- | --- |
-| `survival` | Runtime preservation, dominant reserve pressure, diet-balance consequence, eating, drinking, and reserve recovery after controlled bootstrap |
-| `progression` | Runtime primitive crafting, assembly, mining, scarce-upgrade choice, manual power, mechanization, and measured attention recovery |
+| `survival` | Runtime preservation, dominant reserve pressure, matched-world compact-calorie versus balanced-diet provisioning, eating, drinking, and reserve recovery after controlled bootstrap |
+| `progression` | Runtime primitive crafting, assembly, mining, scarce-upgrade choice, manual power, mechanization, productive overlap, and autonomous player-free time |
 | `workshop` | Pressure-rich industrial workshop capability, multi-system adaptation, recoverable disruption, and matched-world player-policy consequences |
 | `ore` | Bootstrapped installed crushing, grinding, screening, and regrinding capability; pipeline-depth evidence only |
 | `foundry` | Bootstrapped installed pure-copper heating, melting, casting, and finite heat recovery capability; pipeline-depth evidence only |
@@ -85,8 +85,16 @@ for runtime reachability. Workshop exploration intentionally samples constrained
 scheduled hidden controlled delivery to expose adaptation paths; the event is not forced after an order
 has already completed or reached a terminal stop. Its event density is stress evidence, not a claim about
 baseline world-event frequency. Workshop agency comparisons hold world variation and behavior RNG
-fixed except for the policy being compared. The agency surface also includes one bounded generated world
-so the same policy family is observed outside the maintained edge-case fixtures. `python ci.py report`
+fixed except for the policy being compared. Agency path signatures contain physical outcomes only;
+decision counters and other activity bookkeeping cannot create a distinct path. The agency surface also
+includes three bounded generated worlds so the same policy family is observed outside the maintained
+edge-case fixtures without requiring those worlds to be actionable. Generated worlds are explicitly
+reported as actionable or dormant policy pressure rather than being forced to demonstrate agency.
+The survival probe makes every authored dietary category in its controlled world available to both
+matched policies, reconstructs each branch independently rather than cloning actor state, and reports
+the material/water cost of a compact-calorie meal against the recovery resilience of a balanced meal.
+Primitive-progression reporting distinguishes useful player work overlapping autonomous machine time
+from machine time that is genuinely returned to the player with no forced input. `python ci.py report`
 emits explicit survival, progression, workshop-experience, agency, and capability-role review lines so the
 experiential conclusions do not have to be reconstructed from raw per-scenario counters. Its default
 output stays concise: aggregate workshop evidence, representative disruption/recovery/constraint
