@@ -77,6 +77,13 @@ pub(crate) fn player_work_exertion(registries: &Registries, state: &AppState) ->
                 panic!("runtime invariant broken: manual power exertion is invalid: {error:?}")
             })
         }
+        PlayerWork::Prospecting { work } => registries
+            .labor()
+            .get_prospecting(work.method())
+            .unwrap_or_else(|| {
+                panic!("runtime invariant broken: player prospecting work has no method definition")
+            })
+            .exertion(),
     }
 }
 
@@ -277,6 +284,7 @@ pub(crate) fn decide_player_work_tick(
             record.is_working() && record.completes_at() == next_tick
         }
         PlayerWork::ManualPower { work } => work.completes_at() == next_tick,
+        PlayerWork::Prospecting { work } => work.completes_at() == next_tick,
     };
     if !releases_now {
         return Ok(None);

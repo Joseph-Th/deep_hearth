@@ -95,10 +95,12 @@ missing agency. The survival probe makes every authored dietary category in its 
 to both matched policies, reconstructs each branch independently rather than cloning actor state, and reports
 the material/water cost of a compact-calorie meal against the recovery resilience of a balanced meal.
 Primitive progression provides only one direct native-copper reinforcement parcel. The matched-world
-counterfactual therefore measures sequencing without making the first choice permanent. Before allocating
-that parcel, setup seeds controlled surface/loose-indicator observations through the canonical geological-
-knowledge transaction, and acting code must resolve opaque region/material mining targets from those
-observations without retaining hidden deposit IDs. Physical prospecting actions remain a bootstrap boundary.
+counterfactual therefore measures sequencing without making the first choice permanent. Setup supplies only
+bounded visible clue regions and hidden geological truth. Acting code must perform the canonical timed field-
+inspection action for each initial clue, pay its survival cost, persist the resulting uncertain geological
+evidence, and only then resolve opaque region/material mining targets without retaining hidden deposit IDs.
+World-scale discovery of clue locations remains a bootstrap boundary because terrain/world representation is
+not implemented; evidence acquisition itself is no longer bootstrapped.
 Both branches then naturally construct the same baseline stone pick and stone processing line and mine the
 same copper parcel so the pick and crank are both real existing upgrade targets at the matched
 decision point. Reinforce the pick first for an exclusive hard-material access window and faster extraction,

@@ -146,6 +146,13 @@ Geological knowledge is a separate persisted owner. Observations contain authori
 bounded abundance estimates, not deposit identity. Recording requires an opaque `ProspectingResolution`;
 assessment combines only acquired evidence and preserves contradiction or spatial incomparability.
 
+The implemented field-inspection method is a bounded `PlayerWorkState` operation. Start validation checks
+the authored prospecting method, requested known material, one-voxel spatial limit, full duration, and
+survival budget. Completion consults hidden geology internally, derives an uncertainty-bounded local material
+fraction without exposing hidden deposit identity or count, commits one observation at the completion tick,
+and releases player attention. Empty ground produces an uncertainty interval rather than a hidden-presence
+oracle. In-progress inspection is persisted and exhaustively validated like other exclusive player work.
+
 Mining target resolution converts compatible acquired geological evidence into an opaque deposit-bound
 authorization without exposing hidden deposit identity. No evidence, contradictory or spatially
 incomparable evidence, evidence that rules the material out, and evidence that still covers multiple live
@@ -203,7 +210,7 @@ reset wear through reassembly.
 Maintenance consumes an exact replacement commodity, produces a distinct conserved spent form, and
 restores the authored condition target. It is a physical material reform, not condition-only mutation.
 
-`PlayerWorkState` is exclusive across manual crafting, hand mining, and direct manual power. Work
+`PlayerWorkState` is exclusive across manual crafting, field prospecting, hand mining, and direct manual power. Work
 admission binds projected metabolic-energy and hydration cost. Successful completion consumes that same
 budget.
 

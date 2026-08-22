@@ -11,6 +11,7 @@ use crate::equipment::resolve_equipment_capability;
 use crate::maintenance::{
     ActiveConditionDurationError, calculate_usable_condition_after_active_ticks,
 };
+use crate::material::MaterialId;
 use crate::registry::Registries;
 use crate::survival::Vitality;
 
@@ -51,6 +52,12 @@ pub enum PlayerWorkValidationError {
     ManualPowerConditionDuration(ActiveConditionDurationError),
     ManualPowerConditionMismatch,
     ManualPowerResourceDoubleBooked,
+    ProspectingMethodMissing,
+    ProspectingUnknownMaterial { material: MaterialId },
+    ProspectingRegionVolumeOverflow,
+    ProspectingRegionTooLarge { actual: u128, maximum: u128 },
+    ProspectingScheduleInvalid,
+    ProspectingDurationMismatch,
     PlayerDead,
     MetabolicCostOverflow,
     InsufficientMetabolicEnergy { available: Energy, required: Energy },
@@ -135,6 +142,26 @@ impl Display for PlayerWorkValidationError {
             Self::ManualPowerResourceDoubleBooked => formatter.write_str(
                 "manual power equipment or destination is simultaneously owned elsewhere",
             ),
+            Self::ProspectingMethodMissing => {
+                formatter.write_str("player prospecting work references a missing authored method")
+            }
+            Self::ProspectingUnknownMaterial { material } => write!(
+                formatter,
+                "player prospecting work references unknown material {}",
+                material.value()
+            ),
+            Self::ProspectingRegionVolumeOverflow => {
+                formatter.write_str("player prospecting region voxel count overflowed")
+            }
+            Self::ProspectingRegionTooLarge { actual, maximum } => write!(
+                formatter,
+                "player prospecting region contains {actual} voxels but method allows at most {maximum}"
+            ),
+            Self::ProspectingScheduleInvalid => {
+                formatter.write_str("player prospecting work has an invalid persisted schedule")
+            }
+            Self::ProspectingDurationMismatch => formatter
+                .write_str("player prospecting duration disagrees with its authored method"),
             Self::PlayerDead => {
                 formatter.write_str("player-owned work remains active for a dead player")
             }
@@ -196,6 +223,12 @@ impl Error for PlayerWorkValidationError {
             | Self::ManualPowerDurationMismatch
             | Self::ManualPowerConditionMismatch
             | Self::ManualPowerResourceDoubleBooked
+            | Self::ProspectingMethodMissing
+            | Self::ProspectingUnknownMaterial { .. }
+            | Self::ProspectingRegionVolumeOverflow
+            | Self::ProspectingRegionTooLarge { .. }
+            | Self::ProspectingScheduleInvalid
+            | Self::ProspectingDurationMismatch
             | Self::PlayerDead
             | Self::MetabolicCostOverflow
             | Self::InsufficientMetabolicEnergy { .. }
@@ -412,6 +445,54 @@ pub(crate) fn validate_loaded_player_work(
                 player.metabolic_energy(),
                 player.hydration(),
                 exertion,
+                TickSpan::new(remaining_ticks),
+            )?;
+        }
+        PlayerWork::Prospecting { work } => {
+            if !manual_jobs.is_empty() || !mining_jobs.is_empty() {
+                return Err(PlayerWorkValidationError::MultiplePlayerJobs);
+            }
+            let method = registries
+                .labor()
+                .get_prospecting(work.method())
+                .copied()
+                .ok_or(PlayerWorkValidationError::ProspectingMethodMissing)?;
+            if registries
+                .materials()
+                .get_material(work.material())
+                .is_none()
+            {
+                return Err(PlayerWorkValidationError::ProspectingUnknownMaterial {
+                    material: work.material(),
+                });
+            }
+            let region_voxels = work
+                .region()
+                .voxel_count()
+                .ok_or(PlayerWorkValidationError::ProspectingRegionVolumeOverflow)?;
+            if region_voxels > method.maximum_region_voxels() {
+                return Err(PlayerWorkValidationError::ProspectingRegionTooLarge {
+                    actual: region_voxels,
+                    maximum: method.maximum_region_voxels(),
+                });
+            }
+            if work.started_at() > state.tick()
+                || work.completes_at() <= state.tick()
+                || work.completes_at() <= work.started_at()
+            {
+                return Err(PlayerWorkValidationError::ProspectingScheduleInvalid);
+            }
+            let stored_duration =
+                TickSpan::new(work.completes_at().value() - work.started_at().value());
+            if stored_duration != method.duration() {
+                return Err(PlayerWorkValidationError::ProspectingDurationMismatch);
+            }
+            let remaining_ticks = work.completes_at().value() - state.tick().value();
+            validate_remaining_resources(
+                registries,
+                player.metabolic_energy(),
+                player.hydration(),
+                method.exertion(),
                 TickSpan::new(remaining_ticks),
             )?;
         }

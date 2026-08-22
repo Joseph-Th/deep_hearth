@@ -9,13 +9,16 @@ mod state;
 mod validation;
 mod work_resources;
 
-pub use definitions::{LaborRegistry, ManualPowerDefinition, ManualPowerMethodId};
+pub use definitions::{
+    LaborRegistry, ManualPowerDefinition, ManualPowerMethodId, ProspectingDefinition,
+    ProspectingMethodId,
+};
 pub use lifecycle::{PlayerWorkCommitError, PlayerWorkStartError};
 pub use power_execution::{
     ManualPowerCommitError, ManualPowerError, ManualPowerOutcome, ManualPowerRequest,
     ValidatedManualPowerStart, validate_start_manual_power,
 };
-pub use state::{ManualPowerWork, PlayerWork, PlayerWorkState};
+pub use state::{ManualPowerWork, PlayerWork, PlayerWorkState, ProspectingWork};
 pub use validation::PlayerWorkValidationError;
 pub use work_resources::PlayerWorkResourceBudget;
 

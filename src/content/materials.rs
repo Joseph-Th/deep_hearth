@@ -28,7 +28,6 @@ pub const FORM_CRUSHED: FormId = FormId::new(7);
 pub const FORM_FOOD: FormId = FormId::new(8);
 pub const FORM_TOOL: FormId = FormId::new(9);
 pub const FORM_CHIP: FormId = FormId::new(10);
-pub const FORM_UNFIRED_POTTERY: FormId = FormId::new(11);
 pub const FORM_HANDLE: FormId = FormId::new(12);
 pub const FORM_FLYWHEEL: FormId = FormId::new(13);
 pub const FORM_REINFORCEMENT: FormId = FormId::new(14);
@@ -59,12 +58,6 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
     registry.register_form(FormDefinition::new(
         FORM_CHIP,
         "chip",
-        MaterialPhase::Solid,
-        ParticleSizeStatePolicy::Untracked,
-    ));
-    registry.register_form(FormDefinition::new(
-        FORM_UNFIRED_POTTERY,
-        "unfired pottery",
         MaterialPhase::Solid,
         ParticleSizeStatePolicy::Untracked,
     ));

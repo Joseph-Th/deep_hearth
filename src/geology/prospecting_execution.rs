@@ -29,9 +29,21 @@ pub struct ProspectingResolution {
 }
 
 impl ProspectingResolution {
-    /// Controlled stand-in for an observation that a not-yet-implemented physical survey action
-    /// would have resolved. Production callers cannot use this constructor.
-    #[cfg(any(test, feature = "test-gameplay"))]
+    pub(super) fn new_runtime(
+        region: VoxelBounds,
+        evidence: GeologicalEvidenceKind,
+        mut findings: Vec<MaterialAbundanceEstimate>,
+    ) -> Self {
+        findings.sort_by_key(|finding| finding.material());
+        Self {
+            region,
+            evidence,
+            findings,
+        }
+    }
+
+    /// Unit-test constructor for deliberately synthetic or contradictory evidence.
+    #[cfg(test)]
     pub(crate) fn new_for_fixture(
         region: VoxelBounds,
         evidence: GeologicalEvidenceKind,
@@ -189,6 +201,15 @@ pub fn validate_record_prospecting(
     state: &AppState,
     resolution: ProspectingResolution,
 ) -> Result<ValidatedGeologicalObservation, RecordProspectingError> {
+    validate_record_prospecting_at(registries, state, resolution, state.tick())
+}
+
+pub(super) fn validate_record_prospecting_at(
+    registries: &Registries,
+    state: &AppState,
+    resolution: ProspectingResolution,
+    observed_at: SimulationTick,
+) -> Result<ValidatedGeologicalObservation, RecordProspectingError> {
     if resolution.findings.is_empty() {
         return Err(RecordProspectingError::NoFindings);
     }
@@ -240,7 +261,7 @@ pub fn validate_record_prospecting(
         region,
         evidence,
         findings,
-        observed_at: state.tick(),
+        observed_at,
     })
 }
 

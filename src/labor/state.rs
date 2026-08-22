@@ -6,10 +6,12 @@ use crate::core::time::SimulationTick;
 use crate::energy::{EnergyStoreId, ReleasedEnergyTrace};
 use crate::equipment::{EquipmentId, EquipmentOperationTrace};
 use crate::maintenance::Condition;
+use crate::material::MaterialId;
 use crate::mining::MiningJobId;
 use crate::production::ProductionJobId;
+use crate::spatial::VoxelBounds;
 
-use super::ManualPowerMethodId;
+use super::{ManualPowerMethodId, ProspectingMethodId};
 
 /// Durable direct-labor work order that converts player effort into finite mechanical energy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,6 +23,60 @@ pub struct ManualPowerWork {
     output: ReleasedEnergyTrace,
     started_at: SimulationTick,
     completes_at: SimulationTick,
+}
+
+/// Durable bounded field-inspection work that will resolve one geological observation at completion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProspectingWork {
+    method: ProspectingMethodId,
+    region: VoxelBounds,
+    material: MaterialId,
+    started_at: SimulationTick,
+    completes_at: SimulationTick,
+}
+
+impl ProspectingWork {
+    pub(crate) const fn new(
+        method: ProspectingMethodId,
+        region: VoxelBounds,
+        material: MaterialId,
+        started_at: SimulationTick,
+        completes_at: SimulationTick,
+    ) -> Self {
+        Self {
+            method,
+            region,
+            material,
+            started_at,
+            completes_at,
+        }
+    }
+
+    #[must_use]
+    pub const fn method(self) -> ProspectingMethodId {
+        self.method
+    }
+
+    #[must_use]
+    pub const fn region(self) -> VoxelBounds {
+        self.region
+    }
+
+    #[must_use]
+    pub const fn material(self) -> MaterialId {
+        self.material
+    }
+
+    #[must_use]
+    pub const fn started_at(self) -> SimulationTick {
+        self.started_at
+    }
+
+    #[must_use]
+    pub const fn completes_at(self) -> SimulationTick {
+        self.completes_at
+    }
 }
 
 impl ManualPowerWork {
@@ -90,6 +146,7 @@ pub enum PlayerWork {
     ManualCraft { job: ProductionJobId },
     Mining { job: MiningJobId },
     ManualPower { work: ManualPowerWork },
+    Prospecting { work: ProspectingWork },
 }
 
 /// Single-player labor owner with an explicit revision for cross-system transactions.
@@ -125,6 +182,9 @@ impl PlayerWorkState {
             Some(PlayerWork::ManualPower { work }) => {
                 work.started_at() <= current && work.completes_at() > current
             }
+            Some(PlayerWork::Prospecting { work }) => {
+                work.started_at() <= current && work.completes_at() > current
+            }
             Some(PlayerWork::ManualCraft { job: _ })
             | Some(PlayerWork::Mining { job: _ })
             | None => true,
@@ -141,6 +201,7 @@ impl PlayerWorkState {
             Some(PlayerWork::ManualCraft { job: _ })
             | Some(PlayerWork::Mining { job: _ })
             | Some(PlayerWork::ManualPower { work: _ })
+            | Some(PlayerWork::Prospecting { work: _ })
             | None => None,
         }
     }
@@ -155,6 +216,7 @@ impl PlayerWorkState {
             Some(PlayerWork::ManualCraft { job: _ })
             | Some(PlayerWork::Mining { job: _ })
             | Some(PlayerWork::ManualPower { work: _ })
+            | Some(PlayerWork::Prospecting { work: _ })
             | None => None,
         }
     }

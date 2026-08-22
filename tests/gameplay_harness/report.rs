@@ -258,10 +258,11 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
     let manual_process_count = registries.crafting().definitions().count();
     let machine_process_count = process_count.saturating_sub(manual_process_count);
     let mining_method_count = registries.mining().definitions().count();
+    let prospecting_method_count = registries.labor().prospecting_definitions().count();
     let food_count = registries.survival().foods().count();
     let drink_count = registries.survival().drinks().count();
     std::println!(
-        "CONTENT registry_schema={} equipment=[authored:{} runtime_assemblable:{} upgrade_routes:{} structural_installation_required:{}] energy=[authored:{} runtime_assemblable:{}] processes=[authored:{} manual:{} machine:{}] mining_methods={} survival=[foods:{} drinks:{}]",
+        "CONTENT registry_schema={} equipment=[authored:{} runtime_assemblable:{} upgrade_routes:{} structural_installation_required:{}] energy=[authored:{} runtime_assemblable:{}] processes=[authored:{} manual:{} machine:{}] mining_methods={} prospecting_methods={} survival=[foods:{} drinks:{}]",
         registries.schema_version().value(),
         equipment_count,
         runtime_assemblable_equipment,
@@ -273,6 +274,7 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
         manual_process_count,
         machine_process_count,
         mining_method_count,
+        prospecting_method_count,
         food_count,
         drink_count,
     );

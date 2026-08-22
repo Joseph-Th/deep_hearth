@@ -5,6 +5,10 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::state::{AppState, apply_clock_advance, validate_invariants};
 use crate::core::time::{SimulationTick, TickSpan};
+use crate::geology::{
+    FieldProspectingOutcome, FieldProspectingTickError, ProspectingCommitError,
+    apply_field_prospecting_tick, decide_field_prospecting_tick,
+};
 use crate::inventory::{StockpileId, StockpileStructuralLoadError};
 use crate::labor::{
     ManualPowerOutcome, ManualPowerTickError, apply_manual_power_tick, apply_player_work_tick,
@@ -30,6 +34,7 @@ pub struct TickOutcome {
     production_completions: Vec<ProcessCompletion>,
     ready_mining_jobs: Vec<MiningJobId>,
     manual_power: Option<ManualPowerOutcome>,
+    field_prospecting: Option<FieldProspectingOutcome>,
     survival: Option<SurvivalAssessment>,
 }
 
@@ -63,6 +68,12 @@ impl TickOutcome {
     #[must_use]
     pub const fn manual_power(&self) -> Option<ManualPowerOutcome> {
         self.manual_power
+    }
+
+    /// Returns the geological observation acquired by field inspection on this tick, if any.
+    #[must_use]
+    pub const fn field_prospecting(&self) -> Option<FieldProspectingOutcome> {
+        self.field_prospecting
     }
 
     /// Returns the post-tick player survival projection when survival has been initialized.
@@ -101,6 +112,10 @@ pub enum TickError {
     ManualPowerEnergyRevisionExhausted,
     /// Direct player-powered generation cannot advance its equipment owner revision this tick.
     ManualPowerEquipmentRevisionExhausted,
+    /// Field prospecting cannot allocate another persistent observation identity.
+    GeologicalObservationIdExhausted,
+    /// Field prospecting cannot advance acquired geological knowledge.
+    GeologicalKnowledgeRevisionExhausted,
     /// A suspended operation cannot schedule its remaining active time within the world clock.
     ProductionResumeTickOverflow {
         job: ProductionJobId,
@@ -121,6 +136,8 @@ pub enum TickError {
     StaleEnergyRevision { expected: u64, actual: u64 },
     /// Structure changed after a stored-matter load completion was planned and before commit.
     StaleStructureRevision { expected: u64, actual: u64 },
+    /// Geological knowledge changed after a due field observation was planned.
+    StaleGeologicalKnowledgeRevision { expected: u64, actual: u64 },
     /// A validated stored-matter structural consequence could not commit.
     Structure(StructuralCommitError),
 }
@@ -154,6 +171,12 @@ impl Display for TickError {
             }
             Self::ManualPowerEquipmentRevisionExhausted => {
                 formatter.write_str("manual power equipment revision space is exhausted")
+            }
+            Self::GeologicalObservationIdExhausted => {
+                formatter.write_str("geological observation identifier space is exhausted")
+            }
+            Self::GeologicalKnowledgeRevisionExhausted => {
+                formatter.write_str("geological knowledge revision space is exhausted")
             }
             Self::ProductionResumeTickOverflow {
                 job,
@@ -212,6 +235,10 @@ impl Display for TickError {
                 formatter,
                 "tick completion plan expected structural revision {expected} but current revision is {actual}"
             ),
+            Self::StaleGeologicalKnowledgeRevision { expected, actual } => write!(
+                formatter,
+                "field prospecting expected geological knowledge revision {expected} but current revision is {actual}"
+            ),
             Self::Structure(error) => {
                 write!(
                     formatter,
@@ -255,6 +282,10 @@ impl Error for TickError {
             | Self::StaleStructureRevision {
                 expected: _expected,
                 actual: _actual,
+            }
+            | Self::StaleGeologicalKnowledgeRevision {
+                expected: _expected,
+                actual: _actual,
             } => None,
             Self::MaterialLotIdExhausted
             | Self::InventoryRevisionExhausted
@@ -267,7 +298,9 @@ impl Error for TickError {
             | Self::PlayerWorkRevisionExhausted
             | Self::MiningRevisionExhausted
             | Self::ManualPowerEnergyRevisionExhausted
-            | Self::ManualPowerEquipmentRevisionExhausted => None,
+            | Self::ManualPowerEquipmentRevisionExhausted
+            | Self::GeologicalObservationIdExhausted
+            | Self::GeologicalKnowledgeRevisionExhausted => None,
         }
     }
 }
@@ -315,6 +348,15 @@ pub fn advance_tick(
         })?;
     let player_work_plan = decide_player_work_tick(state, next_tick)
         .map_err(|_error| TickError::PlayerWorkRevisionExhausted)?;
+    let field_prospecting_plan = decide_field_prospecting_tick(registries, state, next_tick)
+        .map_err(|error| match error {
+            FieldProspectingTickError::ObservationIdExhausted => {
+                TickError::GeologicalObservationIdExhausted
+            }
+            FieldProspectingTickError::KnowledgeRevisionExhausted => {
+                TickError::GeologicalKnowledgeRevisionExhausted
+            }
+        })?;
     let manual_power_plan =
         decide_manual_power_tick(state, next_tick).map_err(|error| match error {
             ManualPowerTickError::EnergyRevisionExhausted => {
@@ -387,6 +429,13 @@ pub fn advance_tick(
     })?;
     let ready_mining_jobs = apply_mining_tick(state, mining_plan);
     let manual_power = apply_manual_power_tick(state, manual_power_plan);
+    let field_prospecting = apply_field_prospecting_tick(state, field_prospecting_plan).map_err(
+        |error| match error {
+            ProspectingCommitError::StaleKnowledgeRevision { expected, actual } => {
+                TickError::StaleGeologicalKnowledgeRevision { expected, actual }
+            }
+        },
+    )?;
     apply_player_work_tick(state, player_work_plan);
     let survival =
         apply_survival_tick(state, survival_plan).or_else(|| assess_survival(registries, state));
@@ -399,6 +448,7 @@ pub fn advance_tick(
         production_completions,
         ready_mining_jobs,
         manual_power,
+        field_prospecting,
         survival,
     })
 }

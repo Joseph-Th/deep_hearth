@@ -1,11 +1,13 @@
-//! Immutable player-labor definitions; lifecycle and power execution own runtime admission and mutation.
+//! Immutable player-labor definitions; subsystem execution owns runtime admission and mutation.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
 use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
+use crate::core::time::TickSpan;
 use crate::energy::EnergyCarrier;
+use crate::geology::GeologicalEvidenceKind;
 use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::survival::SurvivalExertion;
 
@@ -26,6 +28,23 @@ impl ManualPowerMethodId {
     }
 }
 
+/// Stable authored identity for one direct geological observation method.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct ProspectingMethodId(u32);
+
+impl ProspectingMethodId {
+    #[must_use]
+    pub const fn new(value: u32) -> Self {
+        assert!(value != 0, "prospecting method id must be nonzero");
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn value(self) -> u32 {
+        self.0
+    }
+}
+
 /// Authored rule converting direct player labor through equipment into finite stored energy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ManualPowerDefinition {
@@ -35,6 +54,84 @@ pub struct ManualPowerDefinition {
     metabolic_efficiency_ppm: u32,
     condition_wear_ppm_per_active_tick: u32,
     maximum_exertion: SurvivalExertion,
+}
+
+/// Authored rule for one bounded player-performed geological observation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProspectingDefinition {
+    id: ProspectingMethodId,
+    evidence: GeologicalEvidenceKind,
+    duration: TickSpan,
+    maximum_region_voxels: u128,
+    abundance_uncertainty_ppm: u32,
+    exertion: SurvivalExertion,
+}
+
+impl ProspectingDefinition {
+    #[must_use]
+    pub fn new(
+        id: ProspectingMethodId,
+        evidence: GeologicalEvidenceKind,
+        duration: TickSpan,
+        maximum_region_voxels: u128,
+        abundance_uncertainty_ppm: u32,
+        exertion: SurvivalExertion,
+    ) -> Self {
+        assert!(
+            duration.value() != 0,
+            "prospecting duration must be nonzero"
+        );
+        assert!(
+            maximum_region_voxels != 0,
+            "prospecting maximum region must contain at least one voxel"
+        );
+        assert!(
+            abundance_uncertainty_ppm <= 1_000_000,
+            "prospecting abundance uncertainty must not exceed one million ppm"
+        );
+        assert!(
+            !exertion.energy_cost_per_tick().is_zero(),
+            "prospecting exertion must consume metabolic energy"
+        );
+        Self {
+            id,
+            evidence,
+            duration,
+            maximum_region_voxels,
+            abundance_uncertainty_ppm,
+            exertion,
+        }
+    }
+
+    #[must_use]
+    pub const fn id(self) -> ProspectingMethodId {
+        self.id
+    }
+
+    #[must_use]
+    pub const fn evidence(self) -> GeologicalEvidenceKind {
+        self.evidence
+    }
+
+    #[must_use]
+    pub const fn duration(self) -> TickSpan {
+        self.duration
+    }
+
+    #[must_use]
+    pub const fn maximum_region_voxels(self) -> u128 {
+        self.maximum_region_voxels
+    }
+
+    #[must_use]
+    pub const fn abundance_uncertainty_ppm(self) -> u32 {
+        self.abundance_uncertainty_ppm
+    }
+
+    #[must_use]
+    pub const fn exertion(self) -> SurvivalExertion {
+        self.exertion
+    }
 }
 
 impl ManualPowerDefinition {
@@ -101,16 +198,20 @@ impl ManualPowerDefinition {
     }
 }
 
-/// Immutable deterministic lookup for direct player-power semantics.
+/// Immutable deterministic lookup for authored player-labor method semantics.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LaborRegistry {
     manual_power: BTreeMap<ManualPowerMethodId, ManualPowerDefinition>,
+    prospecting: BTreeMap<ProspectingMethodId, ProspectingDefinition>,
 }
 
 impl LaborRegistry {
-    pub(crate) fn new(definitions: impl IntoIterator<Item = ManualPowerDefinition>) -> Self {
+    pub(crate) fn new(
+        manual_power_definitions: impl IntoIterator<Item = ManualPowerDefinition>,
+        prospecting_definitions: impl IntoIterator<Item = ProspectingDefinition>,
+    ) -> Self {
         let mut manual_power = BTreeMap::new();
-        for definition in definitions {
+        for definition in manual_power_definitions {
             let id = definition.id();
             assert!(
                 manual_power.insert(id, definition).is_none(),
@@ -118,12 +219,33 @@ impl LaborRegistry {
                 id.value()
             );
         }
-        Self { manual_power }
+        let mut prospecting = BTreeMap::new();
+        for definition in prospecting_definitions {
+            let id = definition.id();
+            assert!(
+                prospecting.insert(id, definition).is_none(),
+                "duplicate prospecting method {}",
+                id.value()
+            );
+        }
+        Self {
+            manual_power,
+            prospecting,
+        }
     }
 
     #[must_use]
     pub fn get_manual_power(&self, id: ManualPowerMethodId) -> Option<&ManualPowerDefinition> {
         self.manual_power.get(&id)
+    }
+
+    #[must_use]
+    pub fn get_prospecting(&self, id: ProspectingMethodId) -> Option<&ProspectingDefinition> {
+        self.prospecting.get(&id)
+    }
+
+    pub fn prospecting_definitions(&self) -> impl Iterator<Item = &ProspectingDefinition> {
+        self.prospecting.values()
     }
 
     pub(crate) fn validate_references(&self, capabilities: &CapabilityRegistry) {

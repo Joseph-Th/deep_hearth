@@ -976,7 +976,7 @@ pub fn validate_invariants(registries: &Registries, state: &AppState) {
             .systems
             .player_work
             .has_valid_inline_schedule(state.tick()),
-        "Runtime Invariant 6 (Lifecycle Validity): active direct player-power work must have a current unfinished schedule"
+        "Runtime Invariant 6 (Lifecycle Validity): active inline player work must have a current unfinished schedule"
     );
     debug_assert!(
         state
