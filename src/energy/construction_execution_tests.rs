@@ -8,7 +8,10 @@ use crate::content::{
 use crate::core::quantity::Temperature;
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
-use crate::energy::{AddEnergyStoreError, EnergyValidationError, add_energy_store};
+use crate::energy::{
+    AddEnergyStoreError, EnergyValidationError, add_energy_store,
+    calculate_explicit_energy_accounting,
+};
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
@@ -39,6 +42,13 @@ fn assembled_store_fixture() -> (Registries, AppState, EnergyStoreId) {
     )
     .unwrap_or_else(|error| panic!("energy assembly shaft fixture failed: {error}"));
 
+    let energy_before = calculate_explicit_energy_accounting(&registries, &state)
+        .unwrap_or_else(|error| {
+            panic!("energy assembly pre-construction accounting failed: {error}")
+        })
+        .total()
+        .unwrap_or_else(|| panic!("energy assembly pre-construction total overflowed"));
+
     let store =
         validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, source)
             .unwrap_or_else(|error| {
@@ -46,6 +56,19 @@ fn assembled_store_fixture() -> (Registries, AppState, EnergyStoreId) {
             })
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("energy-store assembly fixture commit failed: {error}"));
+    let accounting_after = calculate_explicit_energy_accounting(&registries, &state)
+        .unwrap_or_else(|error| {
+            panic!("energy assembly post-construction accounting failed: {error}")
+        });
+    assert_eq!(
+        accounting_after.total(),
+        Some(energy_before),
+        "assembling a material-backed energy store must conserve material thermal energy"
+    );
+    assert!(
+        !accounting_after.energy_storage_material_thermal().is_zero(),
+        "assembled store material must remain represented in explicit energy ownership"
+    );
     (registries, state, store)
 }
 

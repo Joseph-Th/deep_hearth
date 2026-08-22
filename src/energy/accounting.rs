@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Energy;
 use crate::core::state::AppState;
+use crate::inventory::ConsumedMaterialTrace;
 use crate::registry::Registries;
 use crate::thermal::{MaterialThermalEnergyError, calculate_material_thermal_energy};
 
@@ -19,6 +20,7 @@ pub struct ExplicitEnergyAccounting {
     geological_material_thermal: Energy,
     structural_material_thermal: Energy,
     equipment_material_thermal: Energy,
+    energy_storage_material_thermal: Energy,
     inventory_material_thermal: Energy,
     mining_material_thermal: Energy,
     in_process_material_thermal: Energy,
@@ -47,6 +49,11 @@ impl ExplicitEnergyAccounting {
     }
 
     #[must_use]
+    pub const fn energy_storage_material_thermal(self) -> Energy {
+        self.energy_storage_material_thermal
+    }
+
+    #[must_use]
     pub const fn inventory_material_thermal(self) -> Energy {
         self.inventory_material_thermal
     }
@@ -72,6 +79,7 @@ impl ExplicitEnergyAccounting {
             .checked_add(self.geological_material_thermal)?
             .checked_add(self.structural_material_thermal)?
             .checked_add(self.equipment_material_thermal)?
+            .checked_add(self.energy_storage_material_thermal)?
             .checked_add(self.inventory_material_thermal)?
             .checked_add(self.mining_material_thermal)?
             .checked_add(self.in_process_material_thermal)?
@@ -112,6 +120,23 @@ fn add_energy(total: &mut Energy, value: Energy) -> Result<(), ExplicitEnergyAcc
         .checked_add(value)
         .ok_or(ExplicitEnergyAccountingError::Overflow)?;
     Ok(())
+}
+
+fn add_trace_thermal_energy(
+    registries: &Registries,
+    total: &mut Energy,
+    trace: &ConsumedMaterialTrace,
+) -> Result<(), ExplicitEnergyAccountingError> {
+    let profile = trace.profile();
+    let thermal = calculate_material_thermal_energy(
+        registries.materials(),
+        trace.mass(),
+        profile.commodity(),
+        profile.composition(),
+        profile.temperature(),
+    )
+    .map_err(ExplicitEnergyAccountingError::MaterialThermal)?;
+    add_energy(total, thermal)
 }
 
 /// Projects explicit energy ownership without mutating state.
@@ -158,31 +183,31 @@ pub fn calculate_explicit_energy_accounting(
 
     for element in state.structures().elements() {
         for trace in element.embodied_material() {
-            let profile = trace.profile();
-            let thermal = calculate_material_thermal_energy(
-                registries.materials(),
-                trace.mass(),
-                profile.commodity(),
-                profile.composition(),
-                profile.temperature(),
-            )
-            .map_err(ExplicitEnergyAccountingError::MaterialThermal)?;
-            add_energy(&mut accounting.structural_material_thermal, thermal)?;
+            add_trace_thermal_energy(
+                registries,
+                &mut accounting.structural_material_thermal,
+                trace,
+            )?;
         }
     }
 
     for equipment in state.equipment().equipment() {
         for trace in equipment.embodied_material() {
-            let profile = trace.profile();
-            let thermal = calculate_material_thermal_energy(
-                registries.materials(),
-                trace.mass(),
-                profile.commodity(),
-                profile.composition(),
-                profile.temperature(),
-            )
-            .map_err(ExplicitEnergyAccountingError::MaterialThermal)?;
-            add_energy(&mut accounting.equipment_material_thermal, thermal)?;
+            add_trace_thermal_energy(
+                registries,
+                &mut accounting.equipment_material_thermal,
+                trace,
+            )?;
+        }
+    }
+
+    for store in state.energy().stores() {
+        for trace in store.embodied_material() {
+            add_trace_thermal_energy(
+                registries,
+                &mut accounting.energy_storage_material_thermal,
+                trace,
+            )?;
         }
     }
 
@@ -201,16 +226,11 @@ pub fn calculate_explicit_energy_accounting(
 
     for job in state.production().jobs() {
         for trace in job.consumed_inputs() {
-            let profile = trace.profile();
-            let thermal = calculate_material_thermal_energy(
-                registries.materials(),
-                trace.mass(),
-                profile.commodity(),
-                profile.composition(),
-                profile.temperature(),
-            )
-            .map_err(ExplicitEnergyAccountingError::MaterialThermal)?;
-            add_energy(&mut accounting.in_process_material_thermal, thermal)?;
+            add_trace_thermal_energy(
+                registries,
+                &mut accounting.in_process_material_thermal,
+                trace,
+            )?;
         }
         if let Some(energy) = job.consumed_energy() {
             add_energy(&mut accounting.in_process_supplied, energy.energy())?;

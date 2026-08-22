@@ -8,7 +8,7 @@ use crate::content::{
 use crate::core::quantity::Temperature;
 use crate::core::state::validate_loaded_state;
 use crate::core::time::WorldSeed;
-use crate::energy::validate_assemble_energy_store;
+use crate::energy::{calculate_explicit_energy_accounting, validate_assemble_energy_store};
 use crate::equipment::validate_assemble_equipment;
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{ManualPowerRequest, validate_start_manual_power};
@@ -84,6 +84,10 @@ fn empty_store_disassembly_recovers_exact_matter_without_reusing_identity() {
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("store disassembly matter before failed: {error}"))
         .total();
+    let energy_before = calculate_explicit_energy_accounting(&registries, &state)
+        .unwrap_or_else(|error| panic!("store disassembly energy before failed: {error}"))
+        .total()
+        .unwrap_or_else(|| panic!("store disassembly energy before overflowed"));
 
     let outcome = validate_disassemble_energy_store(&registries, &state, store, destination)
         .unwrap_or_else(|error| panic!("store disassembly validation failed: {error}"))
@@ -103,6 +107,13 @@ fn empty_store_disassembly_recovers_exact_matter_without_reusing_identity() {
             .unwrap_or_else(|error| panic!("store disassembly matter after failed: {error}"))
             .total(),
         matter_before
+    );
+    assert_eq!(
+        calculate_explicit_energy_accounting(&registries, &state)
+            .unwrap_or_else(|error| panic!("store disassembly energy after failed: {error}"))
+            .total(),
+        Some(energy_before),
+        "disassembling an energy store must transfer material thermal energy back to inventory"
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("store disassembly state audit failed: {error}"));

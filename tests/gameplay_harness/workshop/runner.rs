@@ -7,6 +7,8 @@ pub(super) fn run_scenario(
     mut variation: ScenarioVariation,
 ) -> ScenarioReport {
     let (mut state, ids, mut delivery_authorization) = setup_workshop(registries, variation);
+    let initial_survival = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("workshop player survival state disappeared after setup"));
     let initial_matter = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| {
             panic!("gameplay harness initial matter accounting failed: {error}")
@@ -661,15 +663,14 @@ pub(super) fn run_scenario(
         .unwrap_or_else(|| panic!("maintenance replacement stockpile disappeared"));
     let survival = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("workshop player survival state disappeared"));
-    let physiology = registries.survival().physiology();
-    let metabolic_energy_spent = physiology
-        .maximum_metabolic_energy()
+    let metabolic_energy_spent = initial_survival
+        .metabolic_energy()
         .checked_sub(survival.metabolic_energy())
-        .unwrap_or_else(|| panic!("workshop metabolic reserve exceeded authored maximum"));
-    let hydration_spent = physiology
-        .maximum_hydration()
+        .unwrap_or_else(|| panic!("workshop metabolic reserve exceeded its scenario start"));
+    let hydration_spent = initial_survival
+        .hydration()
         .checked_sub(survival.hydration())
-        .unwrap_or_else(|| panic!("workshop hydration reserve exceeded authored maximum"));
+        .unwrap_or_else(|| panic!("workshop hydration reserve exceeded its scenario start"));
     report.resources.final_condition_ppm = final_condition.parts_per_million();
     report.resources.small_drive_remaining = small_remaining;
     report.resources.large_drive_remaining = large_remaining;
