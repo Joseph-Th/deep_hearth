@@ -16,7 +16,7 @@ use deep_hearth::content::{
     MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE, MINING_METHOD_HAND_PICK,
     PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_CRUSH_ORE, PROCESS_KNAP_STONE_TOOL,
     PROCESS_SEPARATE_NATIVE_COPPER, PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE,
-    PROSPECTING_FIELD_INSPECTION,
+    PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
 };
 use deep_hearth::core::quantity::{Energy, Mass, Power, Pressure};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -28,14 +28,14 @@ use deep_hearth::energy::{calculate_mass_specific_energy, validate_assemble_ener
 use deep_hearth::equipment::{validate_assemble_equipment, validate_upgrade_equipment};
 use deep_hearth::geology::{FieldProspectingRequest, validate_start_field_prospecting};
 use deep_hearth::inventory::MaterialLotSelection;
-use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
+use deep_hearth::labor::{ManualPowerRequest, ProspectingMethodId, validate_start_manual_power};
 use deep_hearth::material::{
     CommodityKey, CompositionComponent, MaterialAssemblyProfile, MaterialComposition,
 };
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::mining::{
-    MiningStartError, MiningTargetRequest, MiningTargetResolution, resolve_mining_target,
-    validate_claim_mining_output, validate_start_mining,
+    MiningStartError, MiningTargetRequest, MiningTargetResolution, MiningTargetResolutionError,
+    resolve_mining_target, validate_claim_mining_output, validate_start_mining,
 };
 use deep_hearth::ore_processing::{
     ComminutionRequest, ConstituentSeparationProcessDefinition, ConstituentSeparationRequest,
@@ -114,7 +114,10 @@ fn assert_playable_catalog_coverage(registries: &Registries) {
         .collect::<BTreeSet<_>>();
     assert_eq!(
         actual_prospecting_methods,
-        BTreeSet::from([PROSPECTING_FIELD_INSPECTION.value()]),
+        BTreeSet::from([
+            PROSPECTING_FIELD_INSPECTION.value(),
+            PROSPECTING_DETAILED_FIELD_SURVEY.value(),
+        ]),
         "cold-agent progression coverage is stale: update the probe so every authored prospecting method is exercised"
     );
 
@@ -579,29 +582,28 @@ fn resolve_progression_mining_target(
 fn inspect_local_copper_evidence(
     registries: &Registries,
     state: &mut AppState,
+    method: ProspectingMethodId,
     region: VoxelBounds,
 ) -> u64 {
     let before = state.geological_knowledge().observations().count();
     let definition = registries
         .labor()
-        .get_prospecting(PROSPECTING_FIELD_INSPECTION)
+        .get_prospecting(method)
         .copied()
-        .unwrap_or_else(|| panic!("primitive progression field-inspection definition disappeared"));
+        .unwrap_or_else(|| panic!("primitive progression prospecting definition disappeared"));
     validate_start_field_prospecting(
         registries,
         state,
-        FieldProspectingRequest::new(PROSPECTING_FIELD_INSPECTION, region, MATERIAL_COPPER),
+        FieldProspectingRequest::new(method, region, MATERIAL_COPPER),
     )
-    .unwrap_or_else(|error| panic!("primitive progression field inspection failed: {error}"))
+    .unwrap_or_else(|error| panic!("primitive progression prospecting failed: {error}"))
     .commit(state)
-    .unwrap_or_else(|error| {
-        panic!("primitive progression field inspection commit failed: {error}")
-    });
+    .unwrap_or_else(|error| panic!("primitive progression prospecting commit failed: {error}"));
     advance_exact(registries, state, definition.duration().value());
     assert_eq!(
         state.geological_knowledge().observations().count(),
         before + 1,
-        "completed field inspection must persist exactly one acquired observation"
+        "completed prospecting work must persist exactly one acquired observation"
     );
     definition.duration().value()
 }
@@ -640,6 +642,11 @@ fn primitive_priority(seed: u64) -> PrimitivePriority {
 struct PrimitiveProgressionExperience {
     priority: PrimitivePriority,
     prospecting_ticks: u64,
+    surface_prospecting_ticks: u64,
+    detailed_survey_ticks: u64,
+    information_refinement_required: bool,
+    refined_clue_sample_mass: Mass,
+    refined_clue_mining_ticks: u64,
     primary_batch_mass: Mass,
     first_upgrade_at: u64,
     second_upgrade_at: u64,
@@ -1496,6 +1503,8 @@ fn run_primitive_progression_case(
     .checked_add(hard_ore_surplus)
     .unwrap_or_else(|| panic!("primitive progression hard-ore reserve mass overflowed"));
     let ore_copper_ppm = 450_000 + (mix64(seed ^ 0x5052_4F47_4752_4144) % 300_001) as u32;
+    let trace_copper_ppm = 50_000 + (mix64(seed ^ 0x5452_4143_455F_4752) % 40_001) as u32;
+    let refined_clue_sample_mass = Mass::from_milligrams(10_000);
     let PrimitiveMaterialPlan {
         raw_inputs,
         raw_capacity,
@@ -1568,6 +1577,7 @@ fn run_primitive_progression_case(
     let raw = add_solid_stockpile(&mut state, raw_seed_capacity);
     let shaped = add_solid_stockpile(&mut state, shaped_capacity);
     let ore_storage = add_solid_stockpile(&mut state, ore_storage_capacity);
+    let refined_clue_storage = add_solid_stockpile(&mut state, refined_clue_sample_mass);
     let native_storage = add_solid_stockpile(&mut state, total_native_copper);
     let crushed_storage = add_solid_stockpile(&mut state, crushed_storage_capacity);
     let separation_residue_storage = add_solid_stockpile(&mut state, separation_feed_mass);
@@ -1631,6 +1641,26 @@ fn run_primitive_progression_case(
         ),
     );
     let native_target = MiningTargetRequest::new(native_bounds, MATERIAL_COPPER);
+    let trace_bounds = VoxelBounds::new(VoxelCoord::new(6, -4, 0), VoxelCoord::new(7, -3, 1))
+        .unwrap_or_else(|error| panic!("primitive trace-copper bounds failed: {error}"));
+    let trace_composition = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_COPPER, trace_copper_ppm),
+        CompositionComponent::new(MATERIAL_STONE, 1_000_000 - trace_copper_ppm),
+    ])
+    .unwrap_or_else(|error| panic!("primitive trace-copper composition failed: {error}"));
+    let _ = seed_geological_deposit(
+        registries,
+        &mut state,
+        geological_deposit_spec(
+            trace_bounds,
+            CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+            Mass::from_milligrams(100_000),
+            ROOM_TEMPERATURE,
+            stone_hardness_limit,
+            trace_composition,
+        ),
+    );
+    let trace_target = MiningTargetRequest::new(trace_bounds, MATERIAL_COPPER);
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| {
             panic!("primitive progression initial matter audit failed: {error}")
@@ -1638,35 +1668,82 @@ fn run_primitive_progression_case(
         .total();
     let survival_before = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("primitive progression survival state disappeared"));
-    for request in [soft_ore_target, hard_ore_target, native_target] {
+    for request in [
+        soft_ore_target,
+        hard_ore_target,
+        native_target,
+        trace_target,
+    ] {
         assert!(
             resolve_mining_target(&state, request).is_err(),
-            "hidden geological truth must not authorize mining before the player performs field inspection"
+            "hidden geological truth must not authorize mining before the player performs prospecting"
         );
     }
-    let prospecting_ticks = [soft_ore_bounds, hard_ore_bounds, native_bounds]
-        .into_iter()
-        .try_fold(0_u64, |total, region| {
-            total.checked_add(inspect_local_copper_evidence(
-                registries, &mut state, region,
-            ))
-        })
-        .unwrap_or_else(|| panic!("primitive progression prospecting duration overflowed"));
+    let surface_prospecting_ticks = [
+        soft_ore_bounds,
+        hard_ore_bounds,
+        native_bounds,
+        trace_bounds,
+    ]
+    .into_iter()
+    .try_fold(0_u64, |total, region| {
+        total.checked_add(inspect_local_copper_evidence(
+            registries,
+            &mut state,
+            PROSPECTING_FIELD_INSPECTION,
+            region,
+        ))
+    })
+    .unwrap_or_else(|| panic!("primitive progression surface-prospecting duration overflowed"));
     for request in [soft_ore_target, hard_ore_target, native_target] {
         let resolved = resolve_progression_mining_target(&state, request);
         assert_eq!(resolved.region(), request.region());
         assert_eq!(resolved.material(), MATERIAL_COPPER);
     }
+    let information_refinement_required = matches!(
+        resolve_mining_target(&state, trace_target),
+        Err(MiningTargetResolutionError::EvidenceInsufficientToResolveTarget {
+            material: MATERIAL_COPPER,
+            region,
+        }) if region == trace_bounds
+    );
+    assert!(
+        information_refinement_required,
+        "the low-grade trace clue must remain honestly ambiguous after the cheap surface inspection"
+    );
+    let detailed_survey_ticks = inspect_local_copper_evidence(
+        registries,
+        &mut state,
+        PROSPECTING_DETAILED_FIELD_SURVEY,
+        trace_bounds,
+    );
+    let refined_trace = resolve_progression_mining_target(&state, trace_target);
+    assert_eq!(refined_trace.region(), trace_bounds);
+    assert_eq!(refined_trace.material(), MATERIAL_COPPER);
+    let prospecting_ticks = surface_prospecting_ticks
+        .checked_add(detailed_survey_ticks)
+        .unwrap_or_else(|| panic!("primitive progression prospecting duration overflowed"));
     assert_eq!(
-        prospecting_ticks,
+        surface_prospecting_ticks,
         registries
             .labor()
             .get_prospecting(PROSPECTING_FIELD_INSPECTION)
-            .map(|definition| definition.duration().value() * 3)
+            .map(|definition| definition.duration().value() * 4)
             .unwrap_or_else(|| panic!(
                 "primitive progression field-inspection definition disappeared"
             )),
-        "primitive progression must pay authored field-inspection time for every initial clue region"
+        "primitive progression must pay authored surface-inspection time for every visible clue region"
+    );
+    assert_eq!(
+        detailed_survey_ticks,
+        registries
+            .labor()
+            .get_prospecting(PROSPECTING_DETAILED_FIELD_SURVEY)
+            .map(|definition| definition.duration().value())
+            .unwrap_or_else(|| panic!(
+                "primitive progression detailed-survey definition disappeared"
+            )),
+        "ambiguous evidence must pay the authored refinement cost before extraction becomes legal"
     );
 
     craft_for_profile(
@@ -1683,6 +1760,22 @@ fn run_primitive_progression_case(
         .unwrap_or_else(|error| {
             panic!("primitive progression pick assembly commit failed: {error}")
         });
+    let refined_clue_mining_ticks = mine_and_claim(
+        registries,
+        &mut state,
+        trace_target,
+        refined_clue_storage,
+        pick,
+        refined_clue_sample_mass,
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(refined_clue_storage)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(refined_clue_sample_mass),
+        "paying for better geological information must unlock a real extractable sample"
+    );
 
     let stone_mining_ticks = mine_and_claim(
         registries,
@@ -2111,6 +2204,11 @@ fn run_primitive_progression_case(
     let experience = PrimitiveProgressionExperience {
         priority,
         prospecting_ticks,
+        surface_prospecting_ticks,
+        detailed_survey_ticks,
+        information_refinement_required,
+        refined_clue_sample_mass,
+        refined_clue_mining_ticks,
         primary_batch_mass: mined_mass,
         first_upgrade_at,
         second_upgrade_at,
@@ -2163,10 +2261,13 @@ fn run_primitive_progression_case(
 
     if emit_detail && std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
-            "PLAYABLE PROGRESSION seed=0x{seed:016X} priority={} world-bootstrap=[raw-gathered-matter-surplus:{}mg,visible-local-geological-clue-regions,single-upgrade-native-copper-seam,empty-storage] discovery=[field-inspection:{}t evidence-persisted:true evidence-gated-target-resolution:true hidden-deposit-id:unavailable-to-actor] episode-scope=[all-authored-manual-actions-useful] canonical=inspect-local-clues->shape+assemble-pick->resolve+mine-soft->encounter-hardness-gate->build-stone-processing-line->resolve+mine-scarce-native-copper->choose-first-copper-upgrade:[pick|crank]->exercise-exclusive-affordance->charge+autonomous-crush+mine-while-waiting->separate-crushed-ore->forge-second-upgrade->converge->repeat fantasy=read-world->survive->craft-tools->sequence-competing-investments->turn-investment-into-affordance->store-work->delegate-repetition->convert-processed-matter-into-next-capability",
+            "PLAYABLE PROGRESSION seed=0x{seed:016X} priority={} world-bootstrap=[raw-gathered-matter-surplus:{}mg,visible-local-geological-clue-regions,single-upgrade-native-copper-seam,empty-storage] discovery=[surface-inspection:{}t ambiguous-low-grade:true detailed-survey:{}t refined-sample:{}mg/{}t evidence-persisted:true evidence-gated-target-resolution:true hidden-deposit-id:unavailable-to-actor] episode-scope=[all-authored-manual-actions-useful] canonical=inspect-local-clues->observe-ambiguous-trace->pay-for-better-information->extract-refined-sample->shape+assemble-pick->resolve+mine-soft->encounter-hardness-gate->build-stone-processing-line->resolve+mine-scarce-native-copper->choose-first-copper-upgrade:[pick|crank]->exercise-exclusive-affordance->charge+autonomous-crush+mine-while-waiting->separate-crushed-ore->forge-second-upgrade->converge->repeat fantasy=read-world->survive->narrow-uncertainty->craft-tools->sequence-competing-investments->turn-investment-into-affordance->store-work->delegate-repetition->convert-processed-matter-into-next-capability",
             priority.label(),
             raw_surplus.milligrams(),
-            prospecting_ticks,
+            surface_prospecting_ticks,
+            detailed_survey_ticks,
+            refined_clue_sample_mass.milligrams(),
+            refined_clue_mining_ticks,
         );
         std::println!(
             "PROGRESSION DECISION sequence=[first:{}:{}mg@{}t second:{}:{}mg@{}t direct-native-after-first:{}mg insufficient-for-second:true separated-copper:{}mg@{}t final-native-reserve:{}mg] milestones=[pick-upgrade:{} hard-seam-access:{} machine-start:{}t first-crushed-output:{}t] hardness=[hard-seam:{}Pa stone-limit:{}Pa reinforced-limit:{}Pa blocked-before-choice:true]",
@@ -2189,8 +2290,13 @@ fn run_primitive_progression_case(
             reinforced_hardness_limit.pascals(),
         );
         std::println!(
-            "PROGRESSION SYSTEMS ore=[grade:{}ppm batch:{}mg stone-mining:{}t reinforced-mining:{:?} concurrent-soft:{}mg total-mined:{}mg hard-before-convergence:{}mg hard-mined:{}mg remaining:{}mg] copper=[direct-mining:{}t direct-invested:{}mg direct-reserve:{}mg separation-feed:{}mg recovered:{}mg residue:{}mg separation:{}t] infrastructure=[drive:{}mg crusher:{}mg separator:{}mg automation-preparation:{}t separator-preparation:{}t full-line-preparation:{}t] stored-work=[fill:{}ppm initial-charge:{}nJ primary-crush:{}nJ separation:{}nJ banked:{}nJ follow-up:{}mg:{}t steady-cycles:{} automation-payback:{:?} steady-charge:{}t final:{}nJ] charge=[crank-reinforced-initial:{} final:{} full-accumulator:{}t initial:{}t total:{}t] mechanization=[primary:{}t concurrent-task:{}:{}t initial-overlap:{}t primary-productive-overlap:{}t primary-player-free:{}t reserve:{}t reserve-mining:{}t reserve-productive-overlap:{}t reserve-player-free:{}t steady-machine:{}t steady-productive-overlap:{}t steady-player-free:{}t total-productive-overlap:{}t total-player-free:{}t crushed-total:{}mg crushed-remaining:{}mg] durability=[pick:{}ppm] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
+            "PROGRESSION SYSTEMS knowledge=[main-grade:{}ppm trace-grade:{}ppm surface:{}t refinement:{}t refined-extraction:{}mg/{}t] ore=[batch:{}mg stone-mining:{}t reinforced-mining:{:?} concurrent-soft:{}mg total-mined:{}mg hard-before-convergence:{}mg hard-mined:{}mg remaining:{}mg] copper=[direct-mining:{}t direct-invested:{}mg direct-reserve:{}mg separation-feed:{}mg recovered:{}mg residue:{}mg separation:{}t] infrastructure=[drive:{}mg crusher:{}mg separator:{}mg automation-preparation:{}t separator-preparation:{}t full-line-preparation:{}t] stored-work=[fill:{}ppm initial-charge:{}nJ primary-crush:{}nJ separation:{}nJ banked:{}nJ follow-up:{}mg:{}t steady-cycles:{} automation-attention-break-even:{:?} steady-charge:{}t final:{}nJ] charge=[crank-reinforced-initial:{} final:{} full-accumulator:{}t initial:{}t total:{}t] mechanization=[primary:{}t concurrent-task:{}:{}t initial-overlap:{}t primary-productive-overlap:{}t primary-player-free:{}t reserve:{}t reserve-mining:{}t reserve-productive-overlap:{}t reserve-player-free:{}t steady-machine:{}t steady-productive-overlap:{}t steady-player-free:{}t total-productive-overlap:{}t total-player-free:{}t crushed-total:{}mg crushed-remaining:{}mg] durability=[pick:{}ppm] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
             ore_copper_ppm,
+            trace_copper_ppm,
+            surface_prospecting_ticks,
+            detailed_survey_ticks,
+            refined_clue_sample_mass.milligrams(),
+            refined_clue_mining_ticks,
             mined_mass.milligrams(),
             stone_mining_ticks,
             reinforced_mining_ticks,
@@ -2263,6 +2369,11 @@ fn run_primitive_progression_case(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct PrimitiveProgressionReview {
     pub(super) prospecting_ticks: u64,
+    pub(super) surface_prospecting_ticks: u64,
+    pub(super) detailed_survey_ticks: u64,
+    pub(super) information_refinement_required: bool,
+    pub(super) refined_clue_sample_mg: u64,
+    pub(super) refined_clue_mining_ticks: u64,
     pub(super) tool_attention_reduction_ppm: u32,
     pub(super) processed_output_has_playable_acquisition_use: bool,
     pub(super) separation_feed_mg: u64,
@@ -2426,6 +2537,26 @@ pub(super) fn evaluate_primitive_progression_probe(
         "matched-world priorities must pay the same geological-information acquisition cost"
     );
     assert_eq!(
+        extraction.surface_prospecting_ticks, mechanization.surface_prospecting_ticks,
+        "matched-world priorities must observe the same cheap geological evidence"
+    );
+    assert_eq!(
+        extraction.detailed_survey_ticks, mechanization.detailed_survey_ticks,
+        "matched-world priorities must pay the same geological refinement cost"
+    );
+    assert_eq!(
+        extraction.information_refinement_required, mechanization.information_refinement_required,
+        "matched-world priorities must face the same geological ambiguity"
+    );
+    assert_eq!(
+        extraction.refined_clue_sample_mass, mechanization.refined_clue_sample_mass,
+        "matched-world priorities must extract the same information-unlocked sample"
+    );
+    assert_eq!(
+        extraction.refined_clue_mining_ticks, mechanization.refined_clue_mining_ticks,
+        "matched-world priorities must pay the same information-unlocked extraction time"
+    );
+    assert_eq!(
         extraction.separation_feed_mass, mechanization.separation_feed_mass,
         "matched-world priorities must separate the same crushed-ore parcel"
     );
@@ -2575,6 +2706,11 @@ pub(super) fn evaluate_primitive_progression_probe(
 
     let review = PrimitiveProgressionReview {
         prospecting_ticks: extraction.prospecting_ticks,
+        surface_prospecting_ticks: extraction.surface_prospecting_ticks,
+        detailed_survey_ticks: extraction.detailed_survey_ticks,
+        information_refinement_required: extraction.information_refinement_required,
+        refined_clue_sample_mg: extraction.refined_clue_sample_mass.milligrams(),
+        refined_clue_mining_ticks: extraction.refined_clue_mining_ticks,
         tool_attention_reduction_ppm,
         processed_output_has_playable_acquisition_use,
         separation_feed_mg: extraction.separation_feed_mass.milligrams(),
@@ -2613,7 +2749,10 @@ pub(super) fn evaluate_primitive_progression_probe(
             mechanization.elapsed_ticks,
         ),
     };
-    let fantasy_captured = review.sequencing_tradeoff
+    let fantasy_captured = review.information_refinement_required
+        && review.detailed_survey_ticks > 0
+        && review.refined_clue_sample_mg > 0
+        && review.sequencing_tradeoff
         && review.converged_both_upgrades
         && review.processed_output_has_playable_acquisition_use
         && review.tool_attention_reduction_ppm > 0
@@ -2630,15 +2769,19 @@ pub(super) fn evaluate_primitive_progression_probe(
         && review.returned_player_free_ticks > 0;
     assert!(
         fantasy_captured,
-        "primitive progression must make upgrade order change immediate affordances while autonomous work accelerates convergence"
+        "primitive progression must turn uncertainty into a paid information choice, make upgrade order change immediate affordances, and let autonomous work accelerate convergence"
     );
     let payback = review
         .attention_payback_cycles
         .map(|cycles| format!("{cycles}cycles"))
         .unwrap_or_else(|| format!("unreached-within-{MAX_STEADY_STATE_CRUSH_CYCLES}-cycles"));
     std::println!(
-        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=inspect-clues->bootstrap-by-hand->sequence-investment->delegate-work->convert-output-into-next-capability captured:{fantasy_captured} discovery=[field-inspection:{}t evidence-gated-targets:true hidden-id-oracle:false] agency=sequencing+convergence observations=[tool-attention-reduction:{}ppm crank-power-gain:{}ppm charge-attention-reduction:{}ppm hard-before-convergence:{}mg hard-access-lead:{}t choice-windows:[hard-material:{}t processed-output:{}t] automation-lead:{}t output-lead:{:+}t convergence-lead:{:+}t processed-before-pick:{} both-upgrades:{} automation-setup:{}t separator-setup:{}t line-setup:{}t automation-payback:{payback} autonomous-work:{}t productive-overlap:{}t reserve-overlap:{}t returned-free:{}t branch-free-delta:{:+}t elapsed-delta:{:+}t] final-parity=[hard-ore:{}vs{}mg native-residue:{}mg] output-utility=[attention:direct material-progression:playable-separation feed:{}mg recovered-copper:{}mg separation:{}t second-upgrade-source:processed-ore] interpretation=[pick-first=exclusive-hard-material-window crank-first=exclusive-processed-output+faster-stored-work-window shared-convergence=crusher->separator->second-upgrade returned-attention=additional-ore-extraction]",
-        review.prospecting_ticks,
+        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=inspect-clues->refine-uncertainty->bootstrap-by-hand->sequence-investment->delegate-work->convert-output-into-next-capability captured:{fantasy_captured} discovery=[surface:{}t refinement:{}t ambiguous-before-refinement:{} refined-target-extraction:{}mg/{}t evidence-gated-targets:true hidden-id-oracle:false] agency=sequencing+convergence observations=[tool-attention-reduction:{}ppm crank-power-gain:{}ppm charge-attention-reduction:{}ppm hard-before-convergence:{}mg hard-access-lead:{}t choice-windows:[hard-material:{}t processed-output:{}t] automation-lead:{}t output-lead:{:+}t convergence-lead:{:+}t processed-before-pick:{} both-upgrades:{} automation-setup:{}t separator-setup:{}t line-setup:{}t automation-attention-break-even:{payback} autonomous-work:{}t productive-overlap:{}t reserve-overlap:{}t returned-free:{}t branch-free-delta:{:+}t elapsed-delta:{:+}t] final-parity=[hard-ore:{}vs{}mg native-residue:{}mg] output-utility=[information:paid-refinement attention:direct material-progression:playable-separation feed:{}mg recovered-copper:{}mg separation:{}t second-upgrade-source:processed-ore] interpretation=[uncertain-clue=extra-observation-before-extraction automation-break-even=attention-only-lens-crusher-also-unlocks-material-progression pick-first=exclusive-hard-material-window crank-first=exclusive-processed-output+faster-stored-work-window shared-convergence=crusher->separator->second-upgrade returned-attention=additional-ore-extraction]",
+        review.surface_prospecting_ticks,
+        review.detailed_survey_ticks,
+        review.information_refinement_required,
+        review.refined_clue_sample_mg,
+        review.refined_clue_mining_ticks,
         review.tool_attention_reduction_ppm,
         review.crank_power_gain_ppm,
         review.crank_attention_reduction_ppm,

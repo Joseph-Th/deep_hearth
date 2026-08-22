@@ -14,6 +14,7 @@ use super::capabilities::CAPABILITY_MANUAL_POWER_OUTPUT;
 
 pub const MANUAL_POWER_HAND_CRANK: ManualPowerMethodId = ManualPowerMethodId::new(1);
 pub const PROSPECTING_FIELD_INSPECTION: ProspectingMethodId = ProspectingMethodId::new(1);
+pub const PROSPECTING_DETAILED_FIELD_SURVEY: ProspectingMethodId = ProspectingMethodId::new(2);
 
 pub(crate) fn build_labor_registry() -> LaborRegistry {
     LaborRegistry::new(
@@ -28,17 +29,30 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 Volume::from_microliters(350),
             ),
         )],
-        [ProspectingDefinition::new(
-            PROSPECTING_FIELD_INSPECTION,
-            GeologicalEvidenceKind::SurfaceExposure,
-            TickSpan::new(24),
-            1,
-            100_000,
-            SurvivalExertion::new(
-                Energy::from_nanojoules(500_000_000_000),
-                Volume::from_microliters(125),
+        [
+            ProspectingDefinition::new(
+                PROSPECTING_FIELD_INSPECTION,
+                GeologicalEvidenceKind::SurfaceExposure,
+                TickSpan::new(24),
+                1,
+                100_000,
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(500_000_000_000),
+                    Volume::from_microliters(125),
+                ),
             ),
-        )],
+            ProspectingDefinition::new(
+                PROSPECTING_DETAILED_FIELD_SURVEY,
+                GeologicalEvidenceKind::SurfaceExposure,
+                TickSpan::new(48),
+                1,
+                25_000,
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(650_000_000_000),
+                    Volume::from_microliters(160),
+                ),
+            ),
+        ],
     )
 }
 

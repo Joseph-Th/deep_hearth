@@ -1,9 +1,25 @@
 # Technical Design
 
 This document owns implemented, project-specific technical contracts. [`ARCHITECTURE.md`](ARCHITECTURE.md)
-owns general engineering law, [`STATUS.md`](STATUS.md) owns capability presence, and
+owns general engineering rules, [`STATUS.md`](STATUS.md) owns capability presence, and
 [`GAME_DESIGN.md`](GAME_DESIGN.md) owns player-facing intent. Source and adjacent tests own concrete edge
-cases and error details.
+cases and typed error details.
+
+Use this document after locating the relevant runtime capability in `STATUS.md` and source owner in
+`README.md`.
+
+## Contract map
+
+| Change concerns | Read |
+| --- | --- |
+| State ownership, determinism, time, save/load | Runtime model; Determinism and time; Runtime owners; Mutation and persistence |
+| Units, checked arithmetic, conservation | Physical quantities |
+| Materials, inventory, geology, knowledge, mining | Materials, inventory, and geology |
+| Jobs, crafting, ore processing, thermal work | Production and processing |
+| Equipment, labor, survival, energy, fluids | Equipment, labor, survival, energy, and fluids |
+| Structural support, loads, failure | Structures |
+| Coordinates, textures, shaders, renderer boundary | Spatial and presentation boundaries |
+| Trusted-load graph validation | Cross-owner invariants |
 
 ## Runtime model
 
@@ -146,25 +162,23 @@ Geological knowledge is a separate persisted owner. Observations contain authori
 bounded abundance estimates, not deposit identity. Recording requires an opaque `ProspectingResolution`;
 assessment combines only acquired evidence and preserves contradiction or spatial incomparability.
 
-The implemented field-inspection method is a bounded `PlayerWorkState` operation. Start validation checks
-the authored prospecting method, requested known material, one-voxel spatial limit, full duration, and
-survival budget. Completion consults hidden geology internally, derives an uncertainty-bounded local material
-fraction without exposing hidden deposit identity or count, commits one observation at the completion tick,
-and releases player attention. Empty ground produces an uncertainty interval rather than a hidden-presence
-oracle. In-progress inspection is persisted and exhaustively validated like other exclusive player work.
+Local prospecting is exclusive `PlayerWorkState` labor over one voxel. Field inspection produces coarse
+surface-abundance evidence. Detailed field survey costs more time and survival reserve for narrower evidence.
+Start validation checks method, known material, spatial limit, duration, and survival budget. Completion
+uses hidden geology internally to derive authored uncertainty bounds, records one observation, and exposes no
+deposit identity or count. Overlapping observations combine through `GeologicalKnowledgeState`; empty ground
+also produces bounded evidence. In-progress prospecting persists and validates as player work.
 
-Mining target resolution converts compatible acquired geological evidence into an opaque deposit-bound
-authorization without exposing hidden deposit identity. No evidence, contradictory or spatially
-incomparable evidence, evidence that rules the material out, and evidence that still covers multiple live
-deposits all refuse extraction instead of using hidden truth as a tie-break. Candidate deposits must also
-fit the compatible evidence's bounded local material fraction. A resolved target binds both the geology
-and geological-knowledge revisions and mining rechecks them before work admission. Public
-mining records and start failures do not expose exact deposit identity, exact hidden remaining mass,
-pre-claim output composition, or exact target hardness.
+Mining target resolution converts compatible acquired evidence into an opaque deposit-bound authorization.
+Resolution fails when evidence is absent, contradictory, spatially incomparable, excludes the material,
+remains too uncertain, or still matches multiple live deposits. Hidden geology is never used as a public
+tie-break. A resolution binds geology and knowledge revisions, and mining rechecks them before admission.
+Public mining state does not expose deposit identity, exact hidden remaining mass, pre-claim composition, or
+exact target hardness.
 
-Mining then moves exact geological matter into `MiningState` after target, tool, labor, capability, wear,
-destination, and reservation validation. Completion releases work occupancy; claim transfers the
-already-owned output to inventory.
+Mining transfers exact geological matter into `MiningState` after target, tool, labor, capability, wear,
+destination, and reservation validation. Completion releases work occupancy; claim transfers the owned output
+to inventory.
 
 ## Production and processing
 

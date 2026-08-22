@@ -4,14 +4,17 @@ This document defines the intended player experience and progression. It is a fo
 not an implementation inventory. Use [`STATUS.md`](STATUS.md) for current runtime capability and
 [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) for implemented technical contracts.
 
-## Vision
+## Core fantasy
 
 Deep Hearth is a first-person survival, settlement, and industrialization game in a persistent voxel
-world. The player begins as a vulnerable individual constrained by local climate, ecology, geology,
-food, water, and primitive tools. Progress comes from learning those constraints and building systems
-that handle them at increasing scale.
+world. The player begins constrained by local climate, ecology, geology, food, water, and primitive tools,
+then learns those constraints and builds systems that handle them at increasing scale.
 
-The player's role should move through:
+The recurring fantasy is:
+
+`observe -> infer -> prepare -> extract -> invest -> delegate -> use returned attention -> reinvest`
+
+The player's role expands through:
 
 `direct labor -> reliable household/settlement systems -> organized labor -> mechanization -> industrial networks -> optimization`
 

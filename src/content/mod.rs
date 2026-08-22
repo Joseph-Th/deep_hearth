@@ -27,7 +27,9 @@ use crate::registry::{
     CoreDefinitions, Registries, RegistryDomains, RegistryPresentation, RegistrySchemaVersion,
 };
 pub use fluid::FLUID_WATER;
-pub use labor::{MANUAL_POWER_HAND_CRANK, PROSPECTING_FIELD_INSPECTION};
+pub use labor::{
+    MANUAL_POWER_HAND_CRANK, PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
+};
 pub use mining::MINING_METHOD_HAND_PICK;
 #[cfg(test)]
 use test_support::{
@@ -92,7 +94,7 @@ const DEFAULT_TICKS_PER_DAY: u64 = 24_000;
 const DEFAULT_PHYSICAL_SECONDS_PER_DAY: u32 = 86_400;
 const DEFAULT_DAYS_PER_MONTH: u16 = 8;
 const DEFAULT_MONTHS_PER_YEAR: u16 = 12;
-const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(38);
+const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(39);
 
 fn build_core_definitions() -> CoreDefinitions {
     CoreDefinitions::new(

@@ -1,48 +1,50 @@
 # Deep Hearth
 
 Deep Hearth is a deterministic Rust simulation of survival, settlement, and industrialization. The
-repository contains a headless gameplay core; rendering, input, networking, platform integration, and
-save-file storage are adapter concerns.
+repository contains the headless gameplay core. Rendering, input, networking, platform integration, and
+save-file storage belong to adapters.
 
-## Cold start
+## Start here
+
+For a new task:
 
 1. Read [`../AGENTS.md`](../AGENTS.md) and [`AGENTS.md`](AGENTS.md).
-2. Run `python ../tools/tasks.py list deep_hearth`.
-3. Read [`STATUS.md`](STATUS.md) to confirm the requested capability exists.
-4. Find the owning subsystem below and read its production source plus adjacent `*_tests.rs` files.
-5. Read only the authority document that owns the contract being changed.
-6. Use [`TESTING.md`](TESTING.md) to run the smallest proof for that change.
+2. Run `python ../tools/tasks.py list deep_hearth` and avoid overlapping active work.
+3. Read [`STATUS.md`](STATUS.md) to determine the current runtime boundary.
+4. Use the code map below to find the owning subsystem. Read its production source and adjacent tests.
+5. Read the authority document for the contract being changed.
+6. Use [`TESTING.md`](TESTING.md) to select the smallest complete verification lane.
 
-## Authority
+Do not infer implemented capability from design intent. `STATUS.md` is the capability inventory;
+`GAME_DESIGN.md` is the forward design target.
 
-| Need | Document |
+## Documentation map
+
+| Question | Authority |
 | --- | --- |
-| Repository workflow and non-negotiable agent rules | [`AGENTS.md`](AGENTS.md) |
-| Engineering architecture, ownership, determinism, API conventions | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
-| Implemented technical contracts | [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) |
-| Intended player experience and progression | [`GAME_DESIGN.md`](GAME_DESIGN.md) |
-| Current implemented and absent capability | [`STATUS.md`](STATUS.md) |
-| Tests, gameplay harnesses, and local verification | [`TESTING.md`](TESTING.md) |
-
-`STATUS.md` answers what exists now. `GAME_DESIGN.md` describes the target game. Do not infer runtime
-capability from design intent.
+| How should an agent work in this repository? | [`AGENTS.md`](AGENTS.md) |
+| How is state owned, mutated, persisted, and kept deterministic? | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
+| What project-specific technical contracts are implemented? | [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) |
+| What player experience and progression should the game create? | [`GAME_DESIGN.md`](GAME_DESIGN.md) |
+| What capability exists or is absent? | [`STATUS.md`](STATUS.md) |
+| Which tests and gameplay harnesses prove a change? | [`TESTING.md`](TESTING.md) |
 
 ## Code map
 
 | Domain | Source |
 | --- | --- |
 | Root state, time, identity, RNG, tick orchestration | `src/core/`, `src/simulation/` |
-| Registries and authored definitions | `src/registry/`, `src/content/`, `src/capability/` |
-| Matter and storage | `src/matter/`, `src/material/`, `src/inventory/` |
-| Geology and extraction | `src/geology/`, `src/mining/` |
-| Production and processing | `src/production/`, `src/crafting/`, `src/ore_processing/`, `src/thermal/` |
+| Registries, authored definitions, typed capabilities | `src/registry/`, `src/content/`, `src/capability/` |
+| Matter, materials, inventory | `src/matter/`, `src/material/`, `src/inventory/` |
+| Geology, acquired knowledge, mining | `src/geology/`, `src/mining/` |
+| Production, crafting, ore processing, thermal work | `src/production/`, `src/crafting/`, `src/ore_processing/`, `src/thermal/` |
 | Equipment, labor, maintenance, survival | `src/equipment/`, `src/labor/`, `src/maintenance/`, `src/survival/` |
 | Energy, electrical, mechanical, fluids | `src/energy/`, `src/electrical/`, `src/mechanical/`, `src/fluid/` |
 | Structures and spatial primitives | `src/structural/`, `src/spatial/` |
-| Persistence admission | `src/persistence/` and each state owner |
-| Renderer-neutral assets | `src/texture/`, `src/shader/`, `src/content/textures.rs`, `src/content/shaders.rs`, `assets/shaders/` |
+| Persistence admission | `src/persistence/` plus each state owner |
+| Renderer-neutral textures and shaders | `src/texture/`, `src/shader/`, `src/content/textures.rs`, `src/content/shaders.rs`, `assets/shaders/` |
 | Gameplay evaluation | `tests/gameplay_harness/` |
 | Local verification tooling | `ci.py`, `.cargo/config.toml`, `tools/`, `src/bin/validate_shaders.rs` |
 
-Start with the owner of the authoritative state. Cross-owner behavior coordinates owner operations; it
-does not create a second mutation path.
+Start with the owner of the authoritative state. Cross-owner behavior coordinates owner APIs; it does not
+create a second mutation path.

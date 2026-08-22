@@ -16,13 +16,13 @@ checkpoints, not edit hooks.
 | List unit tests without building | `python tools/run_test.py --list [substring]` |
 | One gameplay concern | `python ci.py gate --gameplay {workshop,survival,progression,ore,foundry}` |
 | All core tests | `python ci.py audit --core` |
-| All maintained gameplay concerns | `python ci.py audit --gameplay` |
+| All gameplay harness concerns | `python ci.py audit --gameplay` |
 | Core + gameplay audit | `python ci.py audit --all` |
 | Long-horizon soak tests | `python ci.py gate --soak` |
 | Shader validation | `python ci.py gate --shaders` |
 | Rust API documentation | `python ci.py gate --rustdoc` |
 | Clippy with warnings denied | `python ci.py gate --lint` |
-| Maintained Markdown links/routes + source-module docs | `python tools/check_authority_docs.py` |
+| Authority links/routes + source-module docs | `python tools/check_authority_docs.py` |
 | Human-readable gameplay report | `python ci.py report` |
 
 `python ci.py quick` is build-free. It checks formatting, repository/documentation contracts, and the
@@ -62,105 +62,100 @@ evidence a narrow test cannot.
 
 ## Gameplay harness
 
-`tests/gameplay_harness/` is the headless player-facing evaluation surface. After controlled setup, it
-uses canonical runtime validators, resolutions, commits, and simulation ticks.
+`tests/gameplay_harness/` is the headless player-facing evaluation surface. Controlled setup may provide
+state that ordinary play cannot yet create; actor behavior after setup must use canonical runtime APIs and
+observable information only.
 
-`src/content/gameplay_fixture.rs` may bootstrap state that normal play cannot yet create. Setup happens
-before actor policy begins and setup-only authorizations are single-use. Actor-facing code may read only
-observable state, policy, and canonical resolver projections. It must not inspect hidden geological
-truth, hidden future events, setup-only state, or cloned `AppState` previews.
+### Actor boundary
 
-### Evidence by target
+`src/content/gameplay_fixture.rs` owns setup-only helpers. Harness actor code must:
 
-| Target | Contract |
+- use production validators, resolvers, commits, and simulation ticks;
+- read only observable runtime state, actor policy, and canonical projections;
+- never inspect hidden geology, hidden future events, setup-only authorizations, or cloned-state previews;
+- preserve ordinary ownership, persistence, conservation, capability, and survival rules;
+- treat balance-sensitive measurements as observations unless a test explicitly owns the threshold.
+
+`STATUS.md` is authoritative for runtime reachability. A bootstrapped harness proves behavior of an
+installed system, not an ordinary-play acquisition path.
+
+### Targets
+
+| Target | Required evidence |
 | --- | --- |
-| `survival` | Runtime preservation, dominant reserve pressure, matched-world compact-calorie versus balanced-diet provisioning, eating, drinking, and reserve recovery after controlled bootstrap |
-| `progression` | Runtime primitive crafting, assembly, mining, scarce-upgrade sequencing, manual power, mechanization, productive overlap, composition-derived native-copper separation, convergence, and autonomous player-free time |
-| `workshop` | Pressure-rich industrial workshop capability, multi-system adaptation, recoverable disruption, and matched-world player-policy consequences |
-| `ore` | Bootstrapped installed crushing, grinding, screening, and regrinding capability; pipeline-depth evidence only |
-| `foundry` | Bootstrapped installed pure-copper heating, melting, casting, and finite heat recovery capability; pipeline-depth evidence only |
+| `survival` | Preservation, dominant reserve pressure, matched compact-calorie versus balanced-diet provisioning, physical eating/drinking, and reserve recovery. |
+| `progression` | Local prospecting, primitive crafting/assembly, mining, scarce copper sequencing, manual power, autonomous crushing, productive overlap, native-copper separation, convergence, and returned player attention. |
+| `workshop` | Installed industrial workshop operation under stored-work, survival, wear, maintenance, structure, power, and hidden world-change pressure; includes matched policy counterfactuals. |
+| `ore` | Installed crushing, grinding, screening, and regrinding pipeline behavior. Capability depth only. |
+| `foundry` | Installed pure-copper heating, melting, casting, and finite heat-recovery behavior. Capability depth only. |
 
-`ore` and `foundry` are capability tests, not end-to-end acquisition claims. `STATUS.md` is authoritative
-for runtime reachability. Workshop exploration intentionally samples constrained stored work, wear, and a
-scheduled hidden controlled delivery to expose adaptation paths; the event is not forced after an order
-has already completed or reached a terminal stop. Its event density is stress evidence, not a claim about
-baseline world-event frequency. Workshop agency comparisons hold world variation and behavior RNG
-fixed except for the policy being compared. Agency path signatures contain physical outcomes only;
-decision counters and other activity bookkeeping cannot create a distinct path. The agency surface also
-includes three bounded generated worlds so the same policy family is observed outside the maintained
-edge-case fixtures without requiring those worlds to be actionable. Non-actionable worlds are classified
-by observed cause: completed objective, shared terminal world constraint, or genuinely dormant policy
-pressure. This prevents successful completion or an unavoidable physical stop from being mislabeled as
-missing agency. The survival probe makes every authored dietary category in its controlled world available
-to both matched policies, reconstructs each branch independently rather than cloning actor state, and reports
-the material/water cost of a compact-calorie meal against the recovery resilience of a balanced meal.
-Primitive progression provides only one direct native-copper reinforcement parcel. The matched-world
-counterfactual therefore measures sequencing without making the first choice permanent. Setup supplies only
-bounded visible clue regions and hidden geological truth. Acting code must perform the canonical timed field-
-inspection action for each initial clue, pay its survival cost, persist the resulting uncertain geological
-evidence, and only then resolve opaque region/material mining targets without retaining hidden deposit IDs.
-World-scale discovery of clue locations remains a bootstrap boundary because terrain/world representation is
-not implemented; evidence acquisition itself is no longer bootstrapped.
-Both branches then naturally construct the same baseline stone pick and stone processing line and mine the
-same copper parcel so the pick and crank are both real existing upgrade targets at the matched
-decision point. Reinforce the pick first for an exclusive hard-material access window and faster extraction,
-or reinforce the crank first for an exclusive processed-output/stored-work window and faster charging. The
-probe requires both choices to occur at the same simulation tick and reports the duration of both exclusive
-affordance windows rather than treating construction-order delay as agency. While the first autonomous
-crusher batch runs, the actor uses returned attention to mine additional ore. After crushing completes, both
-branches must route an exact
-composition-derived portion through the authored primitive separator, recover the missing native-copper
-parcel, and only then forge the second reinforcement. The probe requires the direct native seam to remain
-insufficient for that second upgrade, proves the recovered copper came from processed ore, preserves crushed
-particle state in the stone residue, and requires both branches to converge on the same final capabilities
-and extracted hard-ore total.
+### Progression contract
 
-The progression probe then runs the same bounded 64-cycle post-convergence workload in both branches.
-Attention payback measures the crank/flywheel/crusher automation investment only; separator preparation is
-reported separately because it has an immediate material-progression return rather than only a delegated-
-attention return. Full processing-line setup is reported as a third figure so neither cost is hidden. Payback
-remains balance evidence rather than a hard legality gate. Final material/workload parity remains matched
-between the counterfactuals. The probe also projects a full accumulator charge through the canonical manual-
-power validator on each branch's actual pre-charge state, so equipment, store, physiology, condition, and
-whole-tick limits all remain authoritative while random partial-fill quantization cannot hide a real work-
-rate improvement. Reports distinguish useful player work overlapping autonomous machine time from genuinely
-returned player-free time and prove whether processed output actually enabled the next acquisition rather
-than inferring utility from registry declarations. `python ci.py report` emits explicit
-survival, progression, workshop-experience, agency, and capability-role review lines so the
-experiential conclusions do not have to be reconstructed from raw per-scenario counters. Its default
-output stays concise: aggregate workshop evidence, representative disruption/recovery/constraint
-highlights, focused experience reviews, and compact industrial capability summaries. Set
-`DEEP_HEARTH_GAMEPLAY_VERBOSE` when every workshop scenario and detailed focused physical trace is
-needed for exact diagnosis.
+The progression probe starts from visible local clue regions, raw gathered matter, storage, and hidden
+geology. World-scale clue discovery is outside the runtime boundary.
 
-Broad gameplay audit links `gameplay_workshop` and `gameplay_audit`; the latter contains the four focused
-probe modules. Focused gates keep their own binaries so repairing one concern does not require relinking
-the others. Broad-audit failures map back to the corresponding focused target and exact test.
+The actor must:
 
-### Variation and replay
+- acquire geological evidence through timed, survival-costed prospecting;
+- respond to insufficient coarse evidence by using the detailed field survey before extraction;
+- resolve opaque region/material mining targets without retaining hidden deposit identity;
+- build the same baseline stone tools and processing line in both matched branches;
+- allocate one direct native-copper reinforcement either to the pick or the hand crank at the same
+  decision state;
+- demonstrate the pick-first hard-material window and crank-first stored-work/processed-output window;
+- run autonomous crushing concurrently with useful player work;
+- recover the second reinforcement from composition-derived processed ore because direct native copper is
+  insufficient;
+- converge both branches on the same final capabilities and matched material workload.
 
-Maintained gameplay tests combine fixed semantic anchors with a small deterministic variation sample.
-The workshop gate retains seven semantic anchors and adds two generated physical worlds. Each focused
-probe retains one semantic anchor and adds two independently salted generated worlds, so a shared replay
-root does not collapse different gameplay concerns onto the same scenario seed. Hard assertions cover
-legality, ownership, conservation, persistence, authored capability agreement, information boundaries,
-and other balance-independent contracts. Balance-sensitive results are report observations unless an
-anchor explicitly owns them.
+Post-convergence evaluation uses the same bounded workload in both branches. Reported automation
+attention break-even covers only crank/flywheel/crusher preparation versus returned free attention. It is
+not a total-value estimate because the crusher also provides immediate material-progression utility.
+Separator setup and full processing-line setup are reported separately.
 
-`python ci.py report` is deliberately experiential rather than a deterministic gate. Unless replay roots
-are already present in the environment, it creates fresh physical and behavior roots once for the whole
-report, then passes them through workshop exploration, agency evaluation, and the independently salted
-focused probes. The roots and realized seeds are printed, so any surprising run remains exactly
-replayable. Ordinary gates and audits keep stable defaults for repeatable verification.
+### Workshop contract
+
+Workshop scenarios begin with installed industrial equipment and finite resources. The actor observes
+current condition, stored work, survival reserve, structural margin, and process projections, then chooses
+power, batch size, maintenance timing, manual recovery, and support policy.
+
+Exploration varies stored work, wear, maintenance supply, survival pressure, structural state, and one
+hidden preauthorized material delivery. The delivery is a stress input, not a baseline event-frequency
+claim. It does not occur after the scenario has already completed or reached a terminal constraint.
+
+Agency evaluation holds physical world variation and behavior RNG fixed while changing one policy.
+Distinct agency paths require different physical outcomes; counters alone cannot create a new path.
+Generated worlds supplement fixed semantic anchors. A world with no policy effect is classified by its
+observed cause: objective already resolved, shared terminal constraint, or dormant policy pressure.
+
+### Report and replay
+
+`python ci.py report` is the experiential report. It emits:
+
+- project capability and reachability summaries;
+- representative workshop pressure -> policy -> decision -> consequence highlights;
+- workshop experience and matched-policy agency summaries;
+- focused survival, progression, ore-preparation, and foundry reviews.
+
+The default report is compact. Set `DEEP_HEARTH_GAMEPLAY_VERBOSE` for every workshop scenario and detailed
+focused physical traces.
+
+Gates and audits use stable deterministic defaults. The report generates fresh physical and behavior roots
+unless explicit roots are supplied, and prints all realized seeds for replay.
 
 Replay controls:
 
 - `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED`: physical variation root;
 - `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED`: workshop policy root;
 - `DEEP_HEARTH_GAMEPLAY_SEEDS`: exact comma-separated world-seed list;
-- `DEEP_HEARTH_GAMEPLAY_VERBOSE`: every workshop scenario plus detailed exploratory and focused-probe traces.
+- `DEEP_HEARTH_GAMEPLAY_VERBOSE`: expanded scenario and focused-probe traces.
 
-Malformed explicit seeds fail configuration.
+Malformed explicit seeds fail configuration. Gameplay tests combine fixed semantic anchors with small,
+independently salted deterministic variation samples. Hard assertions cover balance-independent contracts;
+report output carries balance observations.
+
+Broad gameplay audit links `gameplay_workshop` and `gameplay_audit`. The consolidated target contains the
+four focused probes; focused gates retain separate binaries so one concern can be repaired independently.
 
 ## Completion
 
