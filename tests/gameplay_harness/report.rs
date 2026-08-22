@@ -985,8 +985,29 @@ pub(super) fn print_harness_summary(
             dimensions >= 2
         })
         .count();
+    let maintenance_terminal = reports
+        .iter()
+        .filter(|report| report.limits.maintenance_stop)
+        .count();
+    let energy_terminal = reports
+        .iter()
+        .filter(|report| report.limits.energy_stop)
+        .count();
+    let structural_terminal = reports
+        .iter()
+        .filter(|report| report.structure.structural_stop)
+        .count();
+    let prework_terminal = reports
+        .iter()
+        .filter(|report| {
+            report.progress.operations_completed == 0
+                && (report.limits.maintenance_stop
+                    || report.limits.energy_stop
+                    || report.structure.structural_stop)
+        })
+        .count();
     std::println!(
-        "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt-physical-infrastructure sample=pressure-rich+hidden-controlled-delivery reached-events:{controlled_deliveries}/{} loop=observe-pressure->choose-power/batch/service/site->run->recover dynamic-scenarios:{multi_system_adaptation}/{} interlocks=[stored-work+throughput:{stored_work_pressure} body+power:{body_power_pressure} wear+maintenance:{wear_maintenance_pressure} structure+production:{structure_production_pressure}] recovery=[suspensions:{suspensions} resumed:{recovered_work_in_process} stranded:{stranded_work_in_process}] agency=matched-policy-counterfactuals-in-AGENCY-SUMMARY dormant=[ore-grade:composition-only-until-concentration/smelting]",
+        "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt-physical-infrastructure sample=pressure-rich+hidden-controlled-delivery reached-events:{controlled_deliveries}/{} loop=observe-pressure->choose-power/batch/service/site->run->recover dynamic-scenarios:{multi_system_adaptation}/{} interlocks=[stored-work+throughput:{stored_work_pressure} body+power:{body_power_pressure} wear+maintenance:{wear_maintenance_pressure} structure+production:{structure_production_pressure}] terminal=[maintenance:{maintenance_terminal} energy:{energy_terminal} structural:{structural_terminal} before-first-operation:{prework_terminal}] recovery=[suspensions:{suspensions} resumed:{recovered_work_in_process} stranded:{stranded_work_in_process}] agency=matched-policy-counterfactuals-in-AGENCY-SUMMARY dormant=[ore-grade:composition-only-until-concentration/smelting]",
         reports.len(),
         reports.len(),
     );

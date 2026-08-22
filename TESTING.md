@@ -88,14 +88,21 @@ baseline world-event frequency. Workshop agency comparisons hold world variation
 fixed except for the policy being compared. Agency path signatures contain physical outcomes only;
 decision counters and other activity bookkeeping cannot create a distinct path. The agency surface also
 includes three bounded generated worlds so the same policy family is observed outside the maintained
-edge-case fixtures without requiring those worlds to be actionable. Generated worlds are explicitly
-reported as actionable or dormant policy pressure rather than being forced to demonstrate agency.
-The survival probe makes every authored dietary category in its controlled world available to both
-matched policies, reconstructs each branch independently rather than cloning actor state, and reports
+edge-case fixtures without requiring those worlds to be actionable. Non-actionable worlds are classified
+by observed cause: completed objective, shared terminal world constraint, or genuinely dormant policy
+pressure. This prevents successful completion or an unavoidable physical stop from being mislabeled as
+missing agency. The survival probe makes every authored dietary category in its controlled world available
+to both matched policies, reconstructs each branch independently rather than cloning actor state, and reports
 the material/water cost of a compact-calorie meal against the recovery resilience of a balanced meal.
-Primitive-progression reporting distinguishes useful player work overlapping autonomous machine time
-from machine time that is genuinely returned to the player with no forced input. `python ci.py report`
-emits explicit survival, progression, workshop-experience, agency, and capability-role review lines so the
+Primitive progression provisions only one usable native-copper reinforcement, so the matched-world
+counterfactual is a real competing investment: reinforce the pick for hard-material access and faster
+extraction, or reinforce the crank for higher stored-work rate and earlier mechanization. The probe keeps
+the unchosen upgrade unavailable for the whole episode, exercises repeated charge/crush cycles including a
+full accumulator recharge, reports relative capability and attention effects rather than relying on one-tick
+differences, distinguishes useful
+player work overlapping autonomous machine time from genuinely returned player-free time, and reports
+whether the processed output has a current playable acquisition use. `python ci.py report` emits explicit
+survival, progression, workshop-experience, agency, and capability-role review lines so the
 experiential conclusions do not have to be reconstructed from raw per-scenario counters. Its default
 output stays concise: aggregate workshop evidence, representative disruption/recovery/constraint
 highlights, focused experience reviews, and compact industrial capability summaries. Set

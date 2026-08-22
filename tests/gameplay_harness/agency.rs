@@ -208,6 +208,81 @@ fn structure_counterfactual_changed(baseline: &ScenarioReport, variant: &Scenari
         || baseline.resources.elapsed_ticks != variant.resources.elapsed_ticks
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AgencyEvidence {
+    Actionable,
+    ObjectiveResolved,
+    StructuralCapacity,
+    MaintenanceSupply,
+    MaintenanceSafety,
+    ManualRecoveryDeclined,
+    ManualRecoverySurvivalLimited,
+    StoredWorkInsufficient,
+    DormantPolicyPressure,
+}
+
+impl AgencyEvidence {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Actionable => "actionable",
+            Self::ObjectiveResolved => "non-actionable:objective-resolved",
+            Self::StructuralCapacity => "terminal-world-constraint:structural-capacity",
+            Self::MaintenanceSupply => "terminal-world-constraint:maintenance-supply",
+            Self::MaintenanceSafety => "terminal-world-constraint:maintenance-safety",
+            Self::ManualRecoveryDeclined => "terminal-world-constraint:survival-policy-floor",
+            Self::ManualRecoverySurvivalLimited => {
+                "terminal-world-constraint:survival-reserve-exhausted"
+            }
+            Self::StoredWorkInsufficient => "terminal-world-constraint:stored-work-insufficient",
+            Self::DormantPolicyPressure => "dormant-policy-pressure",
+        }
+    }
+}
+
+fn terminal_evidence(report: &ScenarioReport) -> Option<AgencyEvidence> {
+    if report.structure.structural_stop {
+        Some(AgencyEvidence::StructuralCapacity)
+    } else if report.limits.maintenance_stop
+        && report.resources.maintenance_stock_remaining.is_zero()
+    {
+        Some(AgencyEvidence::MaintenanceSupply)
+    } else if report.limits.maintenance_stop {
+        Some(AgencyEvidence::MaintenanceSafety)
+    } else if report.limits.energy_stop && report.limits.manual_recovery_declined {
+        Some(AgencyEvidence::ManualRecoveryDeclined)
+    } else if report.limits.energy_stop && report.limits.manual_recovery_survival_limited {
+        Some(AgencyEvidence::ManualRecoverySurvivalLimited)
+    } else if report.limits.energy_stop {
+        Some(AgencyEvidence::StoredWorkInsufficient)
+    } else {
+        None
+    }
+}
+
+fn classify_agency_evidence(
+    reports: &[(AgencyPolicyVariant, ScenarioReport)],
+    actionable: bool,
+) -> AgencyEvidence {
+    if actionable {
+        return AgencyEvidence::Actionable;
+    }
+    if reports
+        .iter()
+        .all(|(_, report)| report.progress.processed_mass == report.progress.target_mass)
+    {
+        return AgencyEvidence::ObjectiveResolved;
+    }
+    let baseline = agency_report(reports, AgencyPolicyVariant::Baseline);
+    if let Some(evidence) = terminal_evidence(baseline)
+        && reports
+            .iter()
+            .all(|(_, report)| terminal_evidence(report) == Some(evidence))
+    {
+        return evidence;
+    }
+    AgencyEvidence::DormantPolicyPressure
+}
+
 fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
     let policies = agency_probe_policies();
     let mut worlds_with_distinct_paths = 0_usize;
@@ -218,6 +293,9 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
     let mut observed_structure_effect = false;
     let mut organic_worlds = 0_usize;
     let mut organic_actionable_worlds = 0_usize;
+    let mut organic_objective_resolved_worlds = 0_usize;
+    let mut organic_terminal_worlds = 0_usize;
+    let mut organic_dormant_worlds = 0_usize;
     for world in worlds {
         let focus = world.focus.label();
         let world_seed = world.world_seed;
@@ -376,14 +454,23 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
             }
             AgencyFocus::OrganicVariation => {
                 organic_worlds += 1;
-                organic_actionable_worlds += usize::from(actionable);
             }
         }
-        let evidence = if actionable {
-            "actionable"
-        } else {
-            "dormant-policy-pressure"
-        };
+        let evidence = classify_agency_evidence(&reports, actionable);
+        if world.focus == AgencyFocus::OrganicVariation {
+            match evidence {
+                AgencyEvidence::Actionable => organic_actionable_worlds += 1,
+                AgencyEvidence::ObjectiveResolved => organic_objective_resolved_worlds += 1,
+                AgencyEvidence::StructuralCapacity
+                | AgencyEvidence::MaintenanceSupply
+                | AgencyEvidence::MaintenanceSafety
+                | AgencyEvidence::ManualRecoveryDeclined
+                | AgencyEvidence::ManualRecoverySurvivalLimited
+                | AgencyEvidence::StoredWorkInsufficient => organic_terminal_worlds += 1,
+                AgencyEvidence::DormantPolicyPressure => organic_dormant_worlds += 1,
+            }
+        }
+        let evidence = evidence.label();
         std::println!(
             "AGENCY focus={focus} world=0x{world_seed:016X} variants={} physical-paths={} evidence={evidence} actionable=[power:{} survival:{} maintenance:{} structure:{}] policy-effects=[processed:{}..{}mg adaptive:{}..{} high-power:{}..{} manual-recharges:{}..{} services:{}..{} final-condition:{}..{}ppm relocations:{}/{} suspensions:{}/{} elapsed:{}..{}t survival-energy:{}..{}nJ]",
             reports.len(),
@@ -446,9 +533,16 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
             );
         }
     }
-    let organic_dormant_worlds = organic_worlds.saturating_sub(organic_actionable_worlds);
+    assert_eq!(
+        organic_actionable_worlds
+            + organic_objective_resolved_worlds
+            + organic_terminal_worlds
+            + organic_dormant_worlds,
+        organic_worlds,
+        "organic agency evidence classes must partition sampled worlds"
+    );
     std::println!(
-        "AGENCY SUMMARY worlds={} distinct-physical-paths={} processed-work-differences={} demonstrated-choice-effects=[power:{} survival:{} maintenance:{} structure:{}] organic=[actionable:{}/{} dormant:{}] basis=matched-world-one-factor-counterfactual+maintained-choice-pressure",
+        "AGENCY SUMMARY worlds={} distinct-physical-paths={} processed-work-differences={} demonstrated-choice-effects=[power:{} survival:{} maintenance:{} structure:{}] organic=[actionable:{}/{} objective-resolved:{} terminal-constraint:{} dormant-policy-pressure:{}] basis=matched-world-one-factor-counterfactual+reason-specific-absence-classification",
         worlds.len(),
         worlds_with_distinct_paths,
         worlds_with_work_difference,
@@ -458,6 +552,8 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
         observed_structure_effect,
         organic_actionable_worlds,
         organic_worlds,
+        organic_objective_resolved_worlds,
+        organic_terminal_worlds,
         organic_dormant_worlds,
     );
 }

@@ -762,13 +762,13 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     );
     print_content_summary(&registries, has_verbose_output());
     std::println!(
-        "PLAYABILITY runtime-actions-after-controlled-bootstrap=[survival-provisioning,manual-shaping,equipment-assembly+upgrade,hand-mining,material-backed-flywheel-construction,survival-costed-manual-power,primitive-autonomous-crushing] bootstrap-assumptions=[starting-authored-food+drink+storage-profile,raw-gathered-matter,preauthorized-mining-site-identities] discovery=not-implemented capability-only=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] missing-bridge=[industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting]"
+        "PLAYABILITY runtime-actions-after-controlled-bootstrap=[survival-provisioning,manual-shaping,equipment-assembly+upgrade,hand-mining,material-backed-flywheel-construction,survival-costed-manual-power,primitive-autonomous-crushing] primitive-crusher-utility=[attention:playable material-progression:capability-only-downstream] bootstrap-assumptions=[starting-authored-food+drink+storage-profile,raw-gathered-matter,preauthorized-mining-site-identities] discovery=not-implemented capability-only=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] missing-bridge=[industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting]"
     );
     std::println!(
-        "PLAYER LOOP runtime-after-bootstrap=[survive->shape-tools->mine->reinforce->store-work->mechanize] capability-workshop=[site-machine->process-total-mass->adapt-batch-to-condition+stored-work->choose-power->hand-charge-or-protect-survival->react-to-world-load->maintain-or-relocate->iterate] utility=[survival-reserve,machine-condition,structural-margin,stored-work,time]"
+        "PLAYER LOOP runtime-after-bootstrap=[survive->shape-tools->mine->choose-scarce-copper-investment:[hard-material-access|stored-work-rate]->mechanize] capability-workshop=[site-machine->process-total-mass->adapt-batch-to-condition+stored-work->choose-power->hand-charge-or-protect-survival->react-to-world-load->maintain-or-relocate->iterate] utility=[material-access,player-attention,survival-reserve,machine-condition,structural-margin,stored-work,time]"
     );
     std::println!(
-        "CORE FANTASY REVIEW reachable=[survive->craft-tools->extract->upgrade-capability->store-work->delegate-repetition] captured-by=[survival-provisioning,primitive-progression,manual-power,autonomous-crushing] industrial-depth=[workshop-operation,ore-preparation,pure-copper-foundry] industrial-reachability=capability-only boundary=[industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting]"
+        "CORE FANTASY REVIEW reachable=[survive->craft-tools->extract->make-competing-material-investment->store-work->delegate-repetition] captured-by=[survival-provisioning,persistent-primitive-upgrade-choice,manual-power,autonomous-crushing] industrial-depth=[workshop-operation,ore-preparation,pure-copper-foundry] industrial-reachability=capability-only boundary=[crushed-ore-downstream-material-progression,industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting]"
     );
     println!(
         "\n=== DEEP HEARTH INDUSTRIAL WORKSHOP CAPABILITY MATRIX: {} scenario(s), registry schema {} ===",
