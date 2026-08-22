@@ -20,7 +20,6 @@ use super::report::{
 use super::scenario::{ScenarioDeliveryVariation, ScenarioVariation};
 use super::seed::mix64;
 use super::support::{ROOM_TEMPERATURE, add_solid_stockpile};
-use deep_hearth::capability::CapabilityValue;
 use deep_hearth::content::gameplay_fixture::{
     authorize_controlled_material_delivery, materialize_structure, seed_composed_lot,
     seed_energy_store as bootstrap_seed_energy_store, seed_equipment, seed_lot,
@@ -42,8 +41,8 @@ use deep_hearth::energy::{
 use deep_hearth::equipment::{
     EquipmentId, EquipmentMaintenanceRequest, EquipmentMaintenanceResolutionError,
     EquipmentProviderError, EquipmentSupportError, resolve_equipment_maintenance,
-    resolve_equipment_provider, validate_assemble_equipment, validate_equipment_repair,
-    validate_mount_equipment, validate_relocate_equipment,
+    validate_assemble_equipment, validate_equipment_repair, validate_mount_equipment,
+    validate_relocate_equipment,
 };
 use deep_hearth::inventory::{
     MaterialLotId, MaterialLotSelection, MaterialTransferResolution, StockpileId,
@@ -77,28 +76,37 @@ use deep_hearth::thermal::{
     MeltingBatchError, MeltingRequest, MeltingResolutionError, resolve_melting_process,
 };
 
-const WORKSHOP_SUPPORT_LENGTH: Length = Length::from_micrometers(2_000_000);
+mod crush_planning;
+use crush_planning::*;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CrushStopReason {
-    EnergyUnavailable,
-}
+const WORKSHOP_SUPPORT_LENGTH: Length = Length::from_micrometers(2_000_000);
 
 struct ManualRecoveryProbe {
     option: Option<ManualRecoveryOption>,
     survival_limited: bool,
     policy_declined: bool,
-    equipment_unavailable: bool,
+    equipment_limited: bool,
+    storage_limited: bool,
 }
 
 enum ManualRecoverySearch {
     Available {
         mass: Mass,
         option: Box<ManualRecoveryOption>,
+        adaptive_constraint: Option<ManualRecoveryConstraint>,
     },
     DeclinedForSurvival,
     SurvivalLimited,
-    EquipmentUnavailable,
+    EquipmentLimited,
+    StorageLimited,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ManualRecoveryConstraint {
+    SurvivalPolicy,
+    SurvivalReserve,
+    EquipmentCondition,
+    StorageCapacity,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -497,27 +505,6 @@ fn setup_workshop(
     )
 }
 
-fn current_crusher_batch_limit(
-    registries: &Registries,
-    state: &AppState,
-    ids: WorkshopIds,
-) -> Mass {
-    let definition = registries
-        .ore_processing()
-        .get_comminution(PROCESS_CRUSH_ORE)
-        .unwrap_or_else(|| panic!("canonical crusher process definition disappeared"));
-    let provider = resolve_equipment_provider(registries, state, ids.crusher)
-        .unwrap_or_else(|error| panic!("gameplay crusher provider resolution failed: {error}"));
-    match provider.get_capability(definition.max_batch_mass_capability()) {
-        Some(CapabilityValue::Mass(mass)) => mass,
-        Some(value) => panic!(
-            "crusher maximum-batch capability changed to {:?}",
-            value.kind()
-        ),
-        None => panic!("crusher lost its maximum-batch capability"),
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MaintenanceAttempt {
     Serviced,
@@ -612,180 +599,6 @@ fn stage_rank(stage: StructuralStage) -> u8 {
         StructuralStage::Strained => 1,
         StructuralStage::Cracking => 2,
         StructuralStage::Failed => 3,
-    }
-}
-
-struct CrushOption {
-    name: &'static str,
-    store: EnergyStoreId,
-    stored_before: Energy,
-    resolved: ResolvedComminution,
-}
-
-struct CrushBatchPlan {
-    mass: Mass,
-    small: Option<CrushOption>,
-    large: Option<CrushOption>,
-    energy_limited: bool,
-    maintenance_limited: bool,
-}
-
-enum CrushBatchSearch {
-    Available(Box<CrushBatchPlan>),
-    EnergyUnavailable,
-    MaintenanceBlocked,
-}
-
-#[derive(Clone, Copy)]
-struct CrushChoiceContext {
-    thresholds: deep_hearth::maintenance::MaintenanceThresholds,
-    preference: PowerPreference,
-}
-
-fn resolve_crush_option(
-    registries: &Registries,
-    state: &AppState,
-    ids: WorkshopIds,
-    mass: Mass,
-    name: &'static str,
-    store: EnergyStoreId,
-) -> Option<CrushOption> {
-    let stored_before = state
-        .energy()
-        .get_store(store)
-        .map(|record| record.stored())
-        .unwrap_or_else(|| panic!("gameplay harness {name} drive disappeared"));
-    let selection = [MaterialLotSelection::new(ids.ore_lot, mass)];
-    match resolve_comminution_process(
-        registries,
-        state,
-        ComminutionRequest::new(
-            PROCESS_CRUSH_ORE,
-            ids.ore_source,
-            &selection,
-            ids.crusher,
-            store,
-        ),
-    ) {
-        Ok(resolved) => Some(CrushOption {
-            name,
-            store,
-            stored_before,
-            resolved,
-        }),
-        Err(ComminutionResolutionError::Energy(EnergySupplyError::InsufficientEnergy {
-            ..
-        }))
-        | Err(ComminutionResolutionError::BatchMassExceeded { .. }) => None,
-        Err(error) => panic!("gameplay harness {name} drive resolution failed: {error}"),
-    }
-}
-
-fn resolve_crush_options(
-    registries: &Registries,
-    state: &AppState,
-    ids: WorkshopIds,
-    mass: Mass,
-) -> (Option<CrushOption>, Option<CrushOption>) {
-    (
-        resolve_crush_option(registries, state, ids, mass, "small", ids.small_drive),
-        resolve_crush_option(registries, state, ids, mass, "large", ids.large_drive),
-    )
-}
-
-fn largest_resolvable_crush_batch(
-    registries: &Registries,
-    state: &AppState,
-    ids: WorkshopIds,
-    desired: Mass,
-) -> Option<(Mass, Option<CrushOption>, Option<CrushOption>)> {
-    if desired.is_zero() {
-        return None;
-    }
-    let options = resolve_crush_options(registries, state, ids, desired);
-    if options.0.is_some() || options.1.is_some() {
-        return Some((desired, options.0, options.1));
-    }
-
-    let mut low = 1_u64;
-    let mut high = desired.milligrams().saturating_sub(1);
-    let mut best = None;
-    while low <= high {
-        let midpoint = low + (high - low) / 2;
-        let mass = Mass::from_milligrams(midpoint);
-        let options = resolve_crush_options(registries, state, ids, mass);
-        if options.0.is_some() || options.1.is_some() {
-            best = Some((mass, options.0, options.1));
-            low = midpoint + 1;
-        } else {
-            high = midpoint.saturating_sub(1);
-        }
-    }
-    best
-}
-
-fn maintenance_safe_crush_options(
-    options: (Option<CrushOption>, Option<CrushOption>),
-    thresholds: deep_hearth::maintenance::MaintenanceThresholds,
-) -> (Option<CrushOption>, Option<CrushOption>) {
-    let keep_safe = |option: CrushOption| {
-        (thresholds.classify(option.resolved.condition_after()) != MaintenanceBand::Critical)
-            .then_some(option)
-    };
-    (options.0.and_then(keep_safe), options.1.and_then(keep_safe))
-}
-
-fn largest_safe_powered_crush_batch(
-    registries: &Registries,
-    state: &AppState,
-    ids: WorkshopIds,
-    desired: Mass,
-    thresholds: deep_hearth::maintenance::MaintenanceThresholds,
-) -> CrushBatchSearch {
-    let Some((powered_mass, powered_small, powered_large)) =
-        largest_resolvable_crush_batch(registries, state, ids, desired)
-    else {
-        return CrushBatchSearch::EnergyUnavailable;
-    };
-    let energy_limited = powered_mass < desired;
-    let safe_at_powered =
-        maintenance_safe_crush_options((powered_small, powered_large), thresholds);
-    if safe_at_powered.0.is_some() || safe_at_powered.1.is_some() {
-        return CrushBatchSearch::Available(Box::new(CrushBatchPlan {
-            mass: powered_mass,
-            small: safe_at_powered.0,
-            large: safe_at_powered.1,
-            energy_limited,
-            maintenance_limited: false,
-        }));
-    }
-
-    let mut low = 1_u64;
-    let mut high = powered_mass.milligrams().saturating_sub(1);
-    let mut best = None;
-    while low <= high {
-        let midpoint = low + (high - low) / 2;
-        let mass = Mass::from_milligrams(midpoint);
-        let options = maintenance_safe_crush_options(
-            resolve_crush_options(registries, state, ids, mass),
-            thresholds,
-        );
-        if options.0.is_some() || options.1.is_some() {
-            best = Some((mass, options.0, options.1));
-            low = midpoint + 1;
-        } else {
-            high = midpoint.saturating_sub(1);
-        }
-    }
-    match best {
-        Some((mass, small, large)) => CrushBatchSearch::Available(Box::new(CrushBatchPlan {
-            mass,
-            small,
-            large,
-            energy_limited,
-            maintenance_limited: true,
-        })),
-        None => CrushBatchSearch::MaintenanceBlocked,
     }
 }
 
@@ -954,7 +767,8 @@ fn probe_manual_recovery_option(
 ) -> ManualRecoveryProbe {
     let mut options = Vec::new();
     let mut survival_limited = false;
-    let mut equipment_unavailable = false;
+    let mut equipment_limited = false;
+    let mut storage_limited = false;
     for (name, store) in [("small", ids.small_drive), ("large", ids.large_drive)] {
         match manual_recovery_option(registries, state, ids, mass, name, store) {
             Ok(Some(option)) => options.push(option),
@@ -963,8 +777,13 @@ fn probe_manual_recovery_option(
                 PlayerWorkStartError::InsufficientMetabolicEnergy { .. }
                 | PlayerWorkStartError::InsufficientHydration { .. },
             )) => survival_limited = true,
-            Err(ManualPowerError::EnergySink(EnergySinkError::InsufficientCapacity { .. })) => {}
-            Err(ManualPowerError::ZeroEquipmentPower { .. }) => equipment_unavailable = true,
+            Err(ManualPowerError::EnergySink(EnergySinkError::InsufficientCapacity { .. })) => {
+                storage_limited = true;
+            }
+            Err(
+                ManualPowerError::ZeroEquipmentPower { .. }
+                | ManualPowerError::ConditionDuration(_),
+            ) => equipment_limited = true,
             Err(error) => panic!("workshop manual-power recovery projection failed: {error}"),
         }
     }
@@ -1000,7 +819,8 @@ fn probe_manual_recovery_option(
         option,
         survival_limited,
         policy_declined,
-        equipment_unavailable,
+        equipment_limited,
+        storage_limited,
     }
 }
 
@@ -1016,8 +836,21 @@ fn largest_manual_recovery(
         return ManualRecoverySearch::Available {
             mass: desired,
             option: Box::new(option),
+            adaptive_constraint: None,
         };
     }
+
+    let adaptive_constraint = if desired_probe.policy_declined {
+        Some(ManualRecoveryConstraint::SurvivalPolicy)
+    } else if desired_probe.survival_limited {
+        Some(ManualRecoveryConstraint::SurvivalReserve)
+    } else if desired_probe.equipment_limited {
+        Some(ManualRecoveryConstraint::EquipmentCondition)
+    } else if desired_probe.storage_limited {
+        Some(ManualRecoveryConstraint::StorageCapacity)
+    } else {
+        None
+    };
 
     let mut low = 1_u64;
     let mut high = desired.milligrams().saturating_sub(1);
@@ -1037,6 +870,7 @@ fn largest_manual_recovery(
         return ManualRecoverySearch::Available {
             mass,
             option: Box::new(option),
+            adaptive_constraint,
         };
     }
 
@@ -1046,114 +880,14 @@ fn largest_manual_recovery(
         ManualRecoverySearch::DeclinedForSurvival
     } else if minimum_probe.survival_limited || desired_probe.survival_limited {
         ManualRecoverySearch::SurvivalLimited
-    } else if minimum_probe.equipment_unavailable || desired_probe.equipment_unavailable {
-        ManualRecoverySearch::EquipmentUnavailable
+    } else if minimum_probe.equipment_limited || desired_probe.equipment_limited {
+        ManualRecoverySearch::EquipmentLimited
+    } else if minimum_probe.storage_limited || desired_probe.storage_limited {
+        ManualRecoverySearch::StorageLimited
     } else {
-        ManualRecoverySearch::SurvivalLimited
-    }
-}
-
-fn schedule_controlled_delivery_event(
-    registries: &Registries,
-    state: &AppState,
-    ids: WorkshopIds,
-    variation: &mut ScenarioVariation,
-) {
-    let reference_duration =
-        largest_resolvable_crush_batch(registries, state, ids, variation.ore.nominal_batch_mass)
-            .and_then(|(_mass, small, large)| small.or(large))
-            .map(|option| option.resolved.process_resolution().duration().value())
-            .unwrap_or_else(|| {
-                panic!("gameplay harness has no powered reference operation for delivery timing")
-            });
-    assert!(
-        reference_duration > 0,
-        "nonzero gameplay batch must take at least one tick"
-    );
-    let nominal_batch_count = variation
-        .ore
-        .order_mass
-        .milligrams()
-        .div_ceil(variation.ore.nominal_batch_mass.milligrams());
-    let work_horizon = reference_duration
-        .checked_mul(nominal_batch_count)
-        .unwrap_or_else(|| panic!("gameplay harness work horizon overflowed"));
-    variation.delivery.delivery_at_tick =
-        1 + mix64(variation.world_seed ^ 0x57A1_1EED_71A1_1EED) % work_horizon;
-}
-
-fn print_crush_option(
-    option: &CrushOption,
-    thresholds: deep_hearth::maintenance::MaintenanceThresholds,
-) {
-    let stored_after = option
-        .stored_before
-        .checked_sub(option.resolved.required_energy())
-        .unwrap_or_else(|| panic!("validated crush option overdraws its energy store"));
-    println!(
-        "  power option {}: duration={}t bottleneck={:?} energy={}nJ reserve={}nJ->{}nJ wear={}ppm->{}ppm ({:?})",
-        option.name,
-        option.resolved.process_resolution().duration().value(),
-        option.resolved.bottleneck(),
-        option.resolved.required_energy().nanojoules(),
-        option.stored_before.nanojoules(),
-        stored_after.nanojoules(),
-        option.resolved.condition_before().parts_per_million(),
-        option.resolved.condition_after().parts_per_million(),
-        thresholds.classify(option.resolved.condition_after()),
-    );
-}
-
-fn choose_crush_option(
-    small: Option<CrushOption>,
-    large: Option<CrushOption>,
-    context: CrushChoiceContext,
-) -> Result<(CrushOption, &'static str, PowerChoiceBasis), CrushStopReason> {
-    let CrushChoiceContext {
-        thresholds,
-        preference,
-    } = context;
-    match (small, large) {
-        (None, None) => Err(CrushStopReason::EnergyUnavailable),
-        (Some(option), None) | (None, Some(option)) => Ok((
-            option,
-            "only viable energy source that preserves non-critical condition",
-            PowerChoiceBasis::SingleSource,
-        )),
-        (Some(small), Some(large)) => {
-            debug_assert_ne!(
-                thresholds.classify(small.resolved.condition_after()),
-                MaintenanceBand::Critical
-            );
-            debug_assert_ne!(
-                thresholds.classify(large.resolved.condition_after()),
-                MaintenanceBand::Critical
-            );
-            match preference {
-                PowerPreference::PreserveReserve => Ok((
-                    small,
-                    "player priority preserves scarce high-power reserve",
-                    PowerChoiceBasis::Policy,
-                )),
-                PowerPreference::FinishSooner => {
-                    if large.resolved.process_resolution().duration()
-                        < small.resolved.process_resolution().duration()
-                    {
-                        Ok((
-                            large,
-                            "player priority minimizes projected batch completion time",
-                            PowerChoiceBasis::Policy,
-                        ))
-                    } else {
-                        Ok((
-                            small,
-                            "both power choices finish equally soon, so preserve reserve",
-                            PowerChoiceBasis::Policy,
-                        ))
-                    }
-                }
-            }
-        }
+        panic!(
+            "manual recovery search found no viable option without a classified physical or policy constraint"
+        )
     }
 }
 

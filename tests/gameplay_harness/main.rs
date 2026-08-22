@@ -57,9 +57,9 @@ mod workshop;
 use workshop::run_gameplay_harness;
 
 use deep_hearth::content::{
-    EQUIPMENT_JAW_CRUSHER, PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE,
-    PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER,
-    PROCESS_SCREEN_CRUSHED_ORE, build_registries,
+    PROCESS_CAST_PURE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+    PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER, PROCESS_SCREEN_CRUSHED_ORE,
+    build_registries,
 };
 use deep_hearth::maintenance::Condition;
 
@@ -74,16 +74,10 @@ fn gameplay_harness_gate() {
 }
 
 #[test]
-fn gameplay_terminal_prework_stop_does_not_wait_for_hidden_event() {
+fn gameplay_terminal_prework_stop_does_not_plan_unreachable_work_or_wait_for_hidden_event() {
     let registries = build_registries();
-    let crusher = registries
-        .equipment()
-        .get_equipment(EQUIPMENT_JAW_CRUSHER)
-        .unwrap_or_else(|| panic!("canonical crusher definition disappeared"));
-    let critical = crusher.maintenance_thresholds().critical_below();
     let mut variation = scenario::ScenarioVariation::from_seeds(&registries, 4, 1, None);
-    variation.crusher.initial_crusher_condition =
-        condition(critical.parts_per_million().div_ceil(2).max(1));
+    variation.crusher.initial_crusher_condition = condition(1);
     variation.crusher.maintenance_replacement_units = 0;
     variation.delivery.delivery_at_tick = 64;
 
@@ -93,6 +87,7 @@ fn gameplay_terminal_prework_stop_does_not_wait_for_hidden_event() {
     assert!(!report.progress.delivery_applied);
     assert_eq!(report.progress.operations_completed, 0);
     assert_eq!(report.resources.elapsed_ticks, 0);
+    assert_eq!(report.inputs.delivery_at_tick, 1);
     assert_eq!(report.resources.metabolic_energy_spent.nanojoules(), 0);
     assert_eq!(report.resources.hydration_spent.microliters(), 0);
 }
