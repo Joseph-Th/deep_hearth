@@ -228,12 +228,5 @@ pub(crate) fn apply_clock_advance(state: &mut AppState, next_tick: SimulationTic
 }
 
 #[cfg(test)]
-pub(crate) fn make_test_state_at_tick(world_seed: WorldSeed, tick: SimulationTick) -> AppState {
-    let mut state = AppState::new(world_seed);
-    state.clock.tick = tick;
-    state
-}
-
-#[cfg(test)]
 #[path = "state_tests.rs"]
 mod tests;

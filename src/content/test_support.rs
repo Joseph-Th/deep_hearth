@@ -124,7 +124,7 @@ fn build_capability_registry(
 
 fn build_production_registry(process: ProcessDefinition) -> ProductionRegistry {
     let mut registry = ProductionRegistry::new();
-    registry.register_process_for_test(process);
+    registry.register_process(process);
     registry
 }
 

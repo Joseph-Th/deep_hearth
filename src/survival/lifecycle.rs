@@ -101,7 +101,8 @@ impl SurvivalAssessment {
         self.diet_quality_ppm
     }
 
-    /// Returns the current per-tick vitality recovery supported by recent dietary balance.
+    /// Returns the current whole-ppm per-tick vitality recovery supported by recent dietary balance,
+    /// rounded to the nearest ppm for presentation.
     ///
     /// Recovery still requires the player to remain above the authored hunger and thirst warning
     /// thresholds. Exposing the rate here makes the practical consequence of diet quality available
@@ -168,6 +169,7 @@ pub fn initialize_player_survival(
             physiology.maximum_hydration(),
             Vitality::MAXIMUM,
             NutritionReserves::FULL,
+            0,
         ),
     );
     Ok(())
@@ -198,6 +200,7 @@ pub(crate) fn initialize_player_survival_at_warning_for_fixture(
             physiology.thirsty_below(),
             Vitality::MAXIMUM,
             NutritionReserves::FULL,
+            0,
         ),
     );
     Ok(())
@@ -246,11 +249,29 @@ fn diet_supported_vitality_recovery_ppm_per_tick(
     physiology: super::PhysiologyDefinition,
     nutrition: NutritionReserves,
 ) -> u32 {
-    let recovery = u64::from(physiology.nutrition().vitality_recovery_ppm_per_tick())
-        * u64::from(nutrition.quality_ppm())
-        / u64::from(NUTRITION_PARTS_PER_MILLION);
+    let scale = u64::from(NUTRITION_PARTS_PER_MILLION);
+    let numerator = u64::from(physiology.nutrition().vitality_recovery_ppm_per_tick())
+        * u64::from(nutrition.quality_ppm());
+    let recovery = (numerator + scale / 2) / scale;
     u32::try_from(recovery)
         .unwrap_or_else(|_| unreachable!("normalized vitality recovery always fits u32"))
+}
+
+fn accumulate_diet_supported_vitality_recovery(
+    physiology: super::PhysiologyDefinition,
+    nutrition: NutritionReserves,
+    remainder: u32,
+) -> (u32, u32) {
+    debug_assert!(remainder < NUTRITION_PARTS_PER_MILLION);
+    let scale = u64::from(NUTRITION_PARTS_PER_MILLION);
+    let numerator = u64::from(physiology.nutrition().vitality_recovery_ppm_per_tick())
+        * u64::from(nutrition.quality_ppm())
+        + u64::from(remainder);
+    let recovery = u32::try_from(numerator / scale)
+        .unwrap_or_else(|_| unreachable!("normalized vitality recovery always fits u32"));
+    let next_remainder = u32::try_from(numerator % scale)
+        .unwrap_or_else(|_| unreachable!("normalized vitality recovery remainder always fits u32"));
+    (recovery, next_remainder)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -310,6 +331,7 @@ pub(crate) fn decide_survival_tick(
         vitality_loss =
             vitality_loss.saturating_add(physiology.dehydration_vitality_loss_ppm_per_tick());
     }
+    let mut vitality_recovery_remainder = before.vitality_recovery_remainder();
     let vitality_after_ppm = if vitality_loss > 0 {
         before
             .vitality()
@@ -317,17 +339,29 @@ pub(crate) fn decide_survival_tick(
             .saturating_sub(vitality_loss)
     } else if energy_after >= physiology.hungry_below()
         && hydration_after >= physiology.thirsty_below()
+        && before.vitality() < Vitality::MAXIMUM
     {
         // Current reserves support the current tick. Nutrition decays into the next persisted state
         // after supplying this tick's recovery, matching the assessment visible before the tick.
-        let recovery =
-            diet_supported_vitality_recovery_ppm_per_tick(physiology, before.nutrition());
-        before
+        let (recovery, next_remainder) = accumulate_diet_supported_vitality_recovery(
+            physiology,
+            before.nutrition(),
+            vitality_recovery_remainder,
+        );
+        vitality_recovery_remainder = next_remainder;
+        let recovered = before
             .vitality()
             .parts_per_million()
             .saturating_add(recovery)
-            .min(Vitality::MAXIMUM.parts_per_million())
+            .min(Vitality::MAXIMUM.parts_per_million());
+        if recovered == Vitality::MAXIMUM.parts_per_million() {
+            vitality_recovery_remainder = 0;
+        }
+        recovered
     } else {
+        if before.vitality() == Vitality::MAXIMUM {
+            vitality_recovery_remainder = 0;
+        }
         before.vitality().parts_per_million()
     };
     let vitality_after = Vitality::from_parts_per_million_unchecked(vitality_after_ppm);
@@ -340,6 +374,7 @@ pub(crate) fn decide_survival_tick(
         hydration_after,
         vitality_after,
         nutrition_after,
+        vitality_recovery_remainder,
     );
     Ok(Some(SurvivalTickPlan {
         expected_revision,

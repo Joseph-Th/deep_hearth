@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::content::build_registries;
-use crate::core::state::make_test_state_at_tick;
+use crate::core::state::apply_clock_advance;
 use crate::core::time::WorldSeed;
 use crate::survival::{Vitality, initialize_player_survival, player_record};
 
@@ -24,7 +24,8 @@ fn canonical_tick_advances_exactly_once() {
 #[test]
 fn clock_exhaustion_leaves_state_unchanged() {
     let registries = build_registries();
-    let mut state = make_test_state_at_tick(WorldSeed::new(9), SimulationTick::new(u64::MAX));
+    let mut state = AppState::new(WorldSeed::new(9));
+    apply_clock_advance(&mut state, SimulationTick::new(u64::MAX));
     let before = state.clone();
 
     let result = advance_tick(&registries, &mut state);
@@ -65,6 +66,7 @@ fn dead_player_remains_visible_in_tick_survival_outcome_without_mutation() {
             player.hydration(),
             Vitality::ZERO,
             player.nutrition(),
+            player.vitality_recovery_remainder(),
         ),
     );
     let frozen_revision = state.survival().revision();

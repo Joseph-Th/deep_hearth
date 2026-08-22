@@ -17,11 +17,6 @@ use crate::inventory::{
     ValidatedMaterialReform, validate_consumption_selection,
     validate_material_reform_from_selection,
 };
-#[cfg(test)]
-use crate::inventory::{
-    ExplicitConsumptionSelectionError, MaterialLotSelection,
-    validate_explicit_consumption_selection,
-};
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::mining::MiningJobId;
@@ -276,41 +271,6 @@ impl EquipmentRepairResolution {
     pub const fn material_mass(&self) -> Mass {
         self.material.total_consumed()
     }
-}
-
-#[cfg(test)]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum EquipmentRepairBindingError {
-    UnknownEquipment { equipment: EquipmentId },
-    Inventory(ExplicitConsumptionSelectionError),
-}
-
-/// Test-side stand-in for custom repair resolutions not represented by an authored maintenance profile.
-#[cfg(test)]
-pub(crate) fn bind_equipment_repair_for_test(
-    state: &AppState,
-    equipment: EquipmentId,
-    source: StockpileId,
-    selections: &[MaterialLotSelection],
-    spent: CommodityKey,
-    spent_destination: StockpileId,
-    condition_after: Condition,
-) -> Result<EquipmentRepairResolution, EquipmentRepairBindingError> {
-    let record = state
-        .equipment()
-        .get_equipment(equipment)
-        .ok_or(EquipmentRepairBindingError::UnknownEquipment { equipment })?;
-    let material = validate_explicit_consumption_selection(state.inventory(), source, selections)
-        .map_err(EquipmentRepairBindingError::Inventory)?;
-    Ok(EquipmentRepairResolution {
-        equipment,
-        expected_equipment_revision: state.equipment().revision(),
-        condition_before: record.condition(),
-        condition_after,
-        material,
-        spent,
-        spent_destination,
-    })
 }
 
 /// Failure while validating an already physically resolved equipment repair.

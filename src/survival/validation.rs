@@ -13,6 +13,8 @@ pub enum SurvivalValidationError {
     EnergyExceedsMaximum,
     HydrationExceedsMaximum,
     VitalityExceedsMaximum,
+    VitalityRecoveryRemainderOutOfRange { value: u32 },
+    VitalityRecoveryRemainderAtMaximum { value: u32 },
     NutritionExceedsMaximum { category: FoodCategory, value: u32 },
     ConsumedMatterWithoutPlayer,
     UnknownConsumedMaterial { material: MaterialId },
@@ -33,6 +35,14 @@ impl Display for SurvivalValidationError {
             Self::VitalityExceedsMaximum => {
                 formatter.write_str("player vitality exceeds normalized maximum")
             }
+            Self::VitalityRecoveryRemainderOutOfRange { value } => write!(
+                formatter,
+                "player vitality recovery remainder {value} must be below {NUTRITION_PARTS_PER_MILLION}"
+            ),
+            Self::VitalityRecoveryRemainderAtMaximum { value } => write!(
+                formatter,
+                "player at maximum vitality cannot retain fractional recovery remainder {value}"
+            ),
             Self::NutritionExceedsMaximum { category, value } => write!(
                 formatter,
                 "player {category:?} nutrition reserve {value} ppm exceeds normalized maximum"
@@ -87,6 +97,20 @@ pub(crate) fn validate_loaded_survival(
     }
     if player.vitality().parts_per_million() > Vitality::MAXIMUM.parts_per_million() {
         return Err(SurvivalValidationError::VitalityExceedsMaximum);
+    }
+    if player.vitality_recovery_remainder() >= NUTRITION_PARTS_PER_MILLION {
+        return Err(
+            SurvivalValidationError::VitalityRecoveryRemainderOutOfRange {
+                value: player.vitality_recovery_remainder(),
+            },
+        );
+    }
+    if player.vitality() == Vitality::MAXIMUM && player.vitality_recovery_remainder() != 0 {
+        return Err(
+            SurvivalValidationError::VitalityRecoveryRemainderAtMaximum {
+                value: player.vitality_recovery_remainder(),
+            },
+        );
     }
     for category in [
         FoodCategory::Grain,

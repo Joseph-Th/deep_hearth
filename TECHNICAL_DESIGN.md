@@ -57,7 +57,7 @@ synchronized indexes.
 | `ProductionState` | Active jobs, schedules, routing, exclusive resource occupancy |
 | `MiningState` | Mining work-in-process and schedules |
 | `PlayerWorkState` | At most one active player labor operation |
-| `SurvivalState` | Metabolic energy, hydration, vitality, nutrition, terminal consumed matter/fluid totals |
+| `SurvivalState` | Metabolic energy, hydration, vitality, nutrition, fractional vitality-recovery carry, terminal consumed matter/fluid totals |
 
 Cross-owner operations coordinate these owners; no owner reaches into another owner's private storage.
 
@@ -203,7 +203,9 @@ Survival tracks metabolic energy, hydration, vitality, and category-specific rec
 drinking consume exact physical portions into terminal conservation owners; physiological gains clamp
 independently to authored reserve capacities. Vitality recovery scales with the weakest Grain/Fruit/Protein
 reserve, so calories concentrated in one category cannot mathematically stand in for a balanced recent
-diet. No-benefit consumption is rejected rather than silently wasting finite resources.
+diet. Fractional recovery is accumulated in persisted fixed-point state so whole-ppm vitality storage does
+not create artificial healing-rate cliffs; the read-only assessment rounds that exact rate for presentation.
+No-benefit consumption is rejected rather than silently wasting finite resources.
 
 Energy stores own carrier, capacity, directional power envelopes, stored energy, identity, revision, and
 optional embodied traces. Transfer requires an opaque same-carrier authorization; storage does not choose

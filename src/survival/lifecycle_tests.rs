@@ -3,6 +3,7 @@
 use super::*;
 use crate::content::build_registries;
 use crate::core::time::WorldSeed;
+use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 
 #[test]
 fn work_exertion_adds_exactly_to_basal_survival_cost() {
@@ -56,6 +57,7 @@ fn exhausting_exact_reserves_does_not_apply_deficit_damage_until_the_next_tick()
             physiology.hydration_loss_per_tick(),
             vitality,
             NutritionReserves::FULL,
+            0,
         ),
     );
 
@@ -99,7 +101,7 @@ fn survival_initialization_and_tick_are_deterministic_and_visible() {
     assert!(after.hydration() < before.hydration());
     assert_eq!(after.vitality(), Vitality::MAXIMUM);
     assert!(after.diet_quality_ppm() < before.diet_quality_ppm());
-    assert_eq!(after.diet_supported_vitality_recovery_ppm_per_tick(), 9);
+    assert_eq!(after.diet_supported_vitality_recovery_ppm_per_tick(), 10);
 }
 
 #[test]
@@ -119,6 +121,7 @@ fn balanced_recent_diet_recovers_vitality_faster_than_one_category() {
             physiology.maximum_hydration(),
             Vitality::from_parts_per_million_unchecked(500_000),
             NutritionReserves::from_parts_per_million(300_000, 300_000, 300_000),
+            0,
         ),
     );
     let mut one_category = balanced.clone();
@@ -131,6 +134,7 @@ fn balanced_recent_diet_recovers_vitality_faster_than_one_category() {
             physiology.maximum_hydration(),
             Vitality::from_parts_per_million_unchecked(500_000),
             NutritionReserves::from_parts_per_million(900_000, 0, 0),
+            0,
         ),
     );
 
@@ -162,10 +166,61 @@ fn balanced_recent_diet_recovers_vitality_faster_than_one_category() {
     assert_eq!(one_category_after.diet_quality_ppm(), 0);
     assert_eq!(
         balanced_after.diet_supported_vitality_recovery_ppm_per_tick(),
-        2
+        3
     );
     assert_eq!(
         one_category_after.diet_supported_vitality_recovery_ppm_per_tick(),
         0
     );
+}
+
+#[test]
+fn fractional_diet_recovery_accumulates_instead_of_creating_rate_cliffs() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5100_0005));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("fractional recovery initialization failed: {error}"));
+    let physiology = registries.survival().physiology();
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            physiology.maximum_metabolic_energy(),
+            physiology.maximum_hydration(),
+            Vitality::from_parts_per_million_unchecked(500_000),
+            NutritionReserves::from_parts_per_million(999_995, 999_995, 999_995),
+            0,
+        ),
+    );
+
+    let first_plan = decide_survival_tick(&registries, &state, SurvivalExertion::REST)
+        .unwrap_or_else(|error| panic!("first fractional recovery tick failed: {error:?}"));
+    let first = apply_survival_tick(&mut state, first_plan)
+        .unwrap_or_else(|| panic!("first fractional recovery assessment disappeared"));
+    assert_eq!(first.vitality().parts_per_million(), 500_009);
+    assert_eq!(first.diet_supported_vitality_recovery_ppm_per_tick(), 10);
+    assert_eq!(
+        state
+            .survival()
+            .player()
+            .map(|player| player.vitality_recovery_remainder()),
+        Some(999_950)
+    );
+
+    let second_plan = decide_survival_tick(&registries, &state, SurvivalExertion::REST)
+        .unwrap_or_else(|error| panic!("second fractional recovery tick failed: {error:?}"));
+    let second = apply_survival_tick(&mut state, second_plan)
+        .unwrap_or_else(|| panic!("second fractional recovery assessment disappeared"));
+    assert_eq!(second.vitality().parts_per_million(), 500_019);
+    assert_eq!(second.diet_supported_vitality_recovery_ppm_per_tick(), 10);
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("fractional recovery serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("fractional recovery deserialization failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("fractional recovery load validation failed: {error}"));
+    assert_eq!(loaded, state);
 }

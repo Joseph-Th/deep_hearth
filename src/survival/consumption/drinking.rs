@@ -294,6 +294,7 @@ pub fn validate_drink(
             hydration_after,
             player.vitality(),
             player.nutrition(),
+            player.vitality_recovery_remainder(),
         ),
         fluid: contents.fluid(),
         next_consumed_volume,

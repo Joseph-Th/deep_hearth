@@ -266,7 +266,7 @@ fn process_capability_references_are_validated_during_registry_assembly() {
         )],
     );
     let mut production = ProductionRegistry::new();
-    production.register_process_for_test(process);
+    production.register_process(process);
 
     let registries = Registries::new(
         REGISTRY_SCHEMA_VERSION,
@@ -334,7 +334,7 @@ fn process_cannot_own_multiple_physical_resolver_semantics() {
         Vec::new(),
     );
     let mut production = ProductionRegistry::new();
-    production.register_process_for_test(process);
+    production.register_process(process);
     let ore_processing = OreProcessingRegistry::new([ComminutionProcessDefinition::new(
         TEST_PROCESS,
         FORM_ORE,

@@ -26,6 +26,19 @@ fn estimate(material: MaterialId, lower: u32, upper: u32) -> MaterialAbundanceEs
     }
 }
 
+fn make_test_prospecting_resolution(
+    region: VoxelBounds,
+    evidence: GeologicalEvidenceKind,
+    mut findings: Vec<MaterialAbundanceEstimate>,
+) -> ProspectingResolution {
+    findings.sort_by_key(|finding| finding.material());
+    ProspectingResolution {
+        region,
+        evidence,
+        findings,
+    }
+}
+
 fn record(
     registries: &Registries,
     state: &mut AppState,

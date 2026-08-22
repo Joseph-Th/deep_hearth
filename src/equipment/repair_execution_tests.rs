@@ -22,7 +22,7 @@ use crate::equipment::{
 
 use crate::inventory::{
     MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test,
-    validate_mount_stockpile,
+    validate_explicit_consumption_selection, validate_mount_stockpile,
 };
 use crate::maintenance::MaintenanceThresholds;
 use crate::material::CommodityKey;
@@ -195,17 +195,38 @@ fn bind(
     spent: StockpileId,
     after: Condition,
 ) -> EquipmentRepairResolution {
-    match bind_equipment_repair_for_test(
+    bind_selections(
         state,
         equipment,
         source,
         &[MaterialLotSelection::new(lot, mass)],
-        CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
         spent,
         after,
-    ) {
-        Ok(resolution) => resolution,
-        Err(error) => panic!("repair binding fixture failed: {error:?}"),
+    )
+}
+
+fn bind_selections(
+    state: &AppState,
+    equipment: EquipmentId,
+    source: StockpileId,
+    selections: &[MaterialLotSelection],
+    spent_destination: StockpileId,
+    condition_after: Condition,
+) -> EquipmentRepairResolution {
+    let record = state
+        .equipment()
+        .get_equipment(equipment)
+        .unwrap_or_else(|| panic!("repair binding fixture references unknown equipment"));
+    let material = validate_explicit_consumption_selection(state.inventory(), source, selections)
+        .unwrap_or_else(|error| panic!("repair binding fixture selection failed: {error:?}"));
+    EquipmentRepairResolution {
+        equipment,
+        expected_equipment_revision: state.equipment().revision(),
+        condition_before: record.condition(),
+        condition_after,
+        material,
+        spent: CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+        spent_destination,
     }
 }
 
@@ -808,7 +829,7 @@ fn repair_preserves_multiple_partial_lot_profiles_without_id_collision() {
         Ok(lot) => lot,
         Err(error) => panic!("multi-lot second fixture failed: {error}"),
     };
-    let resolution = match bind_equipment_repair_for_test(
+    let resolution = bind_selections(
         &state,
         equipment,
         source,
@@ -816,13 +837,9 @@ fn repair_preserves_multiple_partial_lot_profiles_without_id_collision() {
             MaterialLotSelection::new(first, Mass::from_milligrams(2)),
             MaterialLotSelection::new(second, Mass::from_milligrams(2)),
         ],
-        CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
         spent,
         condition(700_000),
-    ) {
-        Ok(resolution) => resolution,
-        Err(error) => panic!("multi-lot repair binding failed: {error:?}"),
-    };
+    );
     let token = match validate_equipment_repair(&registries, &state, resolution) {
         Ok(token) => token,
         Err(error) => panic!("multi-lot repair validation failed: {error}"),

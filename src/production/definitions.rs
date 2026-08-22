@@ -202,11 +202,6 @@ impl ProductionRegistry {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn register_process_for_test(&mut self, definition: ProcessDefinition) {
-        self.register_process(definition);
-    }
-
     pub(crate) fn register_process(&mut self, definition: ProcessDefinition) {
         let id = definition.id();
         assert!(

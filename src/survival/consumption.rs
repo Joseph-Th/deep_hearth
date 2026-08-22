@@ -432,6 +432,18 @@ fn allocate_nutrition(total_ppm: u32, offered: NutritionEnergy) -> NutritionGain
     }
 }
 
+fn normalized_nutrition_gain_ppm(offered: Energy, maximum: Energy) -> Result<u32, EatError> {
+    debug_assert!(!maximum.is_zero());
+    let (gain, _) = checked_mul_div_with_remainder(
+        offered.nanojoules(),
+        u128::from(super::NUTRITION_PARTS_PER_MILLION),
+        maximum.nanojoules(),
+        0,
+    )
+    .ok_or(EatError::NutritionOverflow)?;
+    u32::try_from(gain).map_err(|_| EatError::NutritionOverflow)
+}
+
 pub fn validate_eat(
     registries: &Registries,
     state: &AppState,
@@ -610,13 +622,8 @@ pub fn validate_eat(
         .hydration()
         .checked_add(hydration_gained)
         .ok_or(EatError::HydrationOverflow)?;
-    let nutrition_gain_ppm = offered_energy
-        .nanojoules()
-        .checked_mul(u128::from(super::NUTRITION_PARTS_PER_MILLION))
-        .ok_or(EatError::NutritionOverflow)?
-        / physiology.maximum_metabolic_energy().nanojoules();
     let nutrition_gain_ppm =
-        u32::try_from(nutrition_gain_ppm).map_err(|_| EatError::NutritionOverflow)?;
+        normalized_nutrition_gain_ppm(offered_energy, physiology.maximum_metabolic_energy())?;
     let allocated_nutrition = allocate_nutrition(nutrition_gain_ppm, category_energy);
     let (nutrition_after_grain, grain_ppm) = player.nutrition().add(
         FoodCategory::Grain,
@@ -665,6 +672,7 @@ pub fn validate_eat(
             hydration_after,
             player.vitality(),
             nutrition_after,
+            player.vitality_recovery_remainder(),
         ),
         next_consumed_masses,
         outcome: EatOutcome {

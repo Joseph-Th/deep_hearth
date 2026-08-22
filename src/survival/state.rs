@@ -117,6 +117,7 @@ pub struct PlayerSurvivalRecord {
     hydration: Volume,
     vitality: Vitality,
     nutrition: NutritionReserves,
+    vitality_recovery_remainder: u32,
 }
 
 impl PlayerSurvivalRecord {
@@ -138,6 +139,11 @@ impl PlayerSurvivalRecord {
     #[must_use]
     pub const fn nutrition(self) -> NutritionReserves {
         self.nutrition
+    }
+
+    #[must_use]
+    pub(crate) const fn vitality_recovery_remainder(self) -> u32 {
+        self.vitality_recovery_remainder
     }
 }
 
@@ -180,6 +186,9 @@ impl SurvivalState {
                 && player.hydration() <= physiology.maximum_hydration()
                 && player.vitality().parts_per_million() <= Vitality::MAXIMUM.parts_per_million()
                 && player.nutrition().has_valid_bounds()
+                && player.vitality_recovery_remainder() < NUTRITION_PARTS_PER_MILLION
+                && (player.vitality() != Vitality::MAXIMUM
+                    || player.vitality_recovery_remainder() == 0)
         })
     }
 
@@ -269,11 +278,13 @@ pub(crate) const fn player_record(
     hydration: Volume,
     vitality: Vitality,
     nutrition: NutritionReserves,
+    vitality_recovery_remainder: u32,
 ) -> PlayerSurvivalRecord {
     PlayerSurvivalRecord {
         metabolic_energy,
         hydration,
         vitality,
         nutrition,
+        vitality_recovery_remainder,
     }
 }

@@ -229,19 +229,5 @@ pub fn validate_record_prospecting(
 }
 
 #[cfg(test)]
-pub(crate) fn make_test_prospecting_resolution(
-    region: VoxelBounds,
-    evidence: GeologicalEvidenceKind,
-    mut findings: Vec<MaterialAbundanceEstimate>,
-) -> ProspectingResolution {
-    findings.sort_by_key(|finding| finding.material());
-    ProspectingResolution {
-        region,
-        evidence,
-        findings,
-    }
-}
-
-#[cfg(test)]
 #[path = "prospecting_execution_tests.rs"]
 mod tests;

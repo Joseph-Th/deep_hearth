@@ -130,6 +130,7 @@ fn eating_with_any_reserve_room_consumes_the_exact_selected_portion() {
                 NUTRITION_PARTS_PER_MILLION,
                 NUTRITION_PARTS_PER_MILLION,
             ),
+            0,
         ),
     );
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
@@ -188,6 +189,7 @@ fn eating_rejects_over_capacity_hydration_without_normalizing_or_consuming_food(
             invalid_hydration,
             Vitality::MAXIMUM,
             NutritionReserves::from_parts_per_million(0, 0, 0),
+            0,
         ),
     );
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
@@ -270,6 +272,7 @@ fn drinking_with_any_hydration_room_consumes_the_exact_requested_volume() {
                 NUTRITION_PARTS_PER_MILLION,
                 NUTRITION_PARTS_PER_MILLION,
             ),
+            0,
         ),
     );
     let store = add_fluid_store_with_contents_for_fixture(
@@ -354,6 +357,7 @@ fn nutrition_credit_uses_consumed_food_even_when_metabolic_reserve_is_full() {
             physiology.maximum_hydration(),
             Vitality::MAXIMUM,
             NutritionReserves::from_parts_per_million(0, 0, 0),
+            0,
         ),
     );
     let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
@@ -386,6 +390,22 @@ fn nutrition_credit_uses_consumed_food_even_when_metabolic_reserve_is_full() {
             .nutrition()
             .get(FoodCategory::Grain),
         70
+    );
+}
+
+#[test]
+fn nutrition_normalization_handles_full_width_energy_without_scaled_overflow() {
+    let maximum = Energy::from_nanojoules(u128::MAX);
+    assert_eq!(
+        normalized_nutrition_gain_ppm(Energy::from_nanojoules(u128::MAX), maximum),
+        Ok(NUTRITION_PARTS_PER_MILLION)
+    );
+    assert_eq!(
+        normalized_nutrition_gain_ppm(
+            Energy::from_nanojoules(10_000_000_000_000_000),
+            Energy::from_nanojoules(20_000_000_000_000_000),
+        ),
+        Ok(500_000)
     );
 }
 
