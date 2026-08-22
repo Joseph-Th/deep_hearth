@@ -165,6 +165,50 @@ fn empty_ground_produces_uncertain_negative_evidence_without_hidden_presence_ora
 }
 
 #[test]
+fn regional_abundance_includes_uncovered_ground_in_lower_bound() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_2007));
+    let west = one_voxel(0);
+    let region = VoxelBounds::new(VoxelCoord::new(0, -1, 0), VoxelCoord::new(2, 0, 1))
+        .unwrap_or_else(|error| panic!("regional prospecting bounds failed: {error}"));
+    insert_copper(&registries, &mut state, west);
+
+    assert_eq!(
+        resolve_local_abundance_bounds(&state, region, MATERIAL_COPPER, 25_000),
+        (0, 1_000_000)
+    );
+}
+
+#[test]
+fn adjacent_deposits_jointly_cover_regional_abundance() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_2008));
+    let region = VoxelBounds::new(VoxelCoord::new(0, -1, 0), VoxelCoord::new(2, 0, 1))
+        .unwrap_or_else(|error| panic!("joint prospecting bounds failed: {error}"));
+    insert_low_grade_copper(&registries, &mut state, one_voxel(0));
+    insert_copper(&registries, &mut state, one_voxel(1));
+
+    assert_eq!(
+        resolve_local_abundance_bounds(&state, region, MATERIAL_COPPER, 25_000),
+        (50_000, 1_000_000)
+    );
+}
+
+#[test]
+fn overlapping_deposits_all_contribute_to_regional_abundance_range() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_2009));
+    let region = one_voxel(0);
+    insert_low_grade_copper(&registries, &mut state, region);
+    insert_copper(&registries, &mut state, region);
+
+    assert_eq!(
+        resolve_local_abundance_bounds(&state, region, MATERIAL_COPPER, 25_000),
+        (50_000, 1_000_000)
+    );
+}
+
+#[test]
 fn field_inspection_rejects_region_larger_than_authored_local_footprint() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x6B00_2003));
