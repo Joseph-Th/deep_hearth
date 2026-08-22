@@ -88,7 +88,11 @@ baseline world-event frequency. Workshop agency comparisons hold world variation
 fixed except for the policy being compared. The agency surface also includes one bounded generated world
 so the same policy family is observed outside the maintained edge-case fixtures. `python ci.py report`
 emits explicit survival, progression, workshop-experience, agency, and capability-role review lines so the
-experiential conclusions do not have to be reconstructed from raw per-scenario counters.
+experiential conclusions do not have to be reconstructed from raw per-scenario counters. Its default
+output stays concise: aggregate workshop evidence, representative disruption/recovery/constraint
+highlights, focused experience reviews, and compact industrial capability summaries. Set
+`DEEP_HEARTH_GAMEPLAY_VERBOSE` when every workshop scenario and detailed focused physical trace is
+needed for exact diagnosis.
 
 Broad gameplay audit links `gameplay_workshop` and `gameplay_audit`; the latter contains the four focused
 probe modules. Focused gates keep their own binaries so repairing one concern does not require relinking
@@ -115,7 +119,7 @@ Replay controls:
 - `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED`: physical variation root;
 - `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED`: workshop policy root;
 - `DEEP_HEARTH_GAMEPLAY_SEEDS`: exact comma-separated world-seed list;
-- `DEEP_HEARTH_GAMEPLAY_VERBOSE`: detailed exploratory output.
+- `DEEP_HEARTH_GAMEPLAY_VERBOSE`: every workshop scenario plus detailed exploratory and focused-probe traces.
 
 Malformed explicit seeds fail configuration.
 

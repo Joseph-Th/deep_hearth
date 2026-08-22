@@ -587,6 +587,7 @@ fn primitive_priority(seed: u64) -> PrimitivePriority {
 #[derive(Clone, Copy)]
 struct PrimitiveProgressionExperience {
     priority: PrimitivePriority,
+    primary_batch_mass: Mass,
     pick_upgraded_at: u64,
     hard_seam_accessed_at: u64,
     machine_started_at: u64,
@@ -1534,6 +1535,7 @@ fn run_primitive_progression_case(
         .unwrap_or_else(|| panic!("primitive unassigned autonomous duration overflowed"));
     let experience = PrimitiveProgressionExperience {
         priority,
+        primary_batch_mass: mined_mass,
         pick_upgraded_at,
         hard_seam_accessed_at,
         machine_started_at: concurrent_work.machine_started_at,
@@ -1564,7 +1566,7 @@ fn run_primitive_progression_case(
         PrimitivePriority::MechanizationFirst => ("hand-crank", "pick"),
     };
 
-    if emit_detail {
+    if emit_detail && std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
             "PLAYABLE PROGRESSION seed=0x{seed:016X} priority={} world-bootstrap=[raw-gathered-matter-surplus:{}mg,preauthorized-soft+hard-ore-site-identities,preauthorized-native-copper-site-identity,empty-storage] discovery=not-modeled episode-scope=[natural-actions-only catalog-outside-episode:clay-vessel] canonical=shape->assemble->mine-soft->encounter-hardness-gate->choose-upgrade->unlock-hard-seam/store-work->assemble-machine->autonomous-crush fantasy=survive->craft-tools->turn-material-upgrade-into-new-affordance->store-work->delegate-repetition->work-in-parallel",
             priority.label(),
@@ -1641,7 +1643,10 @@ pub(super) struct PrimitiveProgressionReview {
     pub(super) tool_attention_delta_ticks: i128,
     pub(super) crank_attention_delta_ticks: i128,
     pub(super) hard_seam_access_lead_ticks: u64,
+    pub(super) mechanization_autonomy_lead_ticks: u64,
     pub(super) mechanization_output_delta_ticks: i128,
+    pub(super) pre_machine_hard_ore_mass_mg: u64,
+    pub(super) mechanization_processed_before_pick: bool,
     pub(super) machine_work_ticks: u64,
     pub(super) reserve_machine_work_ticks: u64,
     pub(super) mechanization_useful_overlap_ticks: u64,
@@ -1687,8 +1692,42 @@ pub(super) fn evaluate_primitive_progression_probe(
         extraction.reserve_machine_work_ticks, mechanization.reserve_machine_work_ticks,
         "matched-world priorities must compare the same banked follow-up crusher workload"
     );
+    assert_eq!(
+        extraction.primary_batch_mass, mechanization.primary_batch_mass,
+        "matched-world priorities must compare the same physical mining and crushing batch"
+    );
+    let strategic_window_tick = mechanization.machine_started_at;
+    assert!(
+        extraction.hard_seam_accessed_at <= strategic_window_tick
+            && extraction.machine_started_at > strategic_window_tick,
+        "at the first mechanization milestone, extraction-first must own the hard-seam affordance without yet owning autonomous crushing"
+    );
+    assert!(
+        mechanization.pick_upgraded_at > strategic_window_tick
+            && mechanization.hard_seam_accessed_at > strategic_window_tick,
+        "at the first mechanization milestone, mechanization-first must still be blocked from the hard seam"
+    );
+    let mechanization_processed_before_pick =
+        mechanization.first_processed_output_at < mechanization.pick_upgraded_at;
+    assert!(
+        mechanization_processed_before_pick,
+        "mechanization-first must produce useful autonomous output before later buying hard-seam access"
+    );
+    let mechanization_autonomy_lead_ticks = extraction
+        .machine_started_at
+        .checked_sub(mechanization.machine_started_at)
+        .unwrap_or_else(|| unreachable!("mechanization-first already wins autonomous-work access"));
+    let convergence_tick = extraction
+        .machine_started_at
+        .max(mechanization.hard_seam_accessed_at);
     std::println!(
-        "PROGRESSION AGENCY seed=0x{seed:016X} matched-world choices=[extraction-first,mechanization-first] milestones=[pick-upgrade:{}vs{}t hard-seam-access:{}vs{}t machine-start:{}vs{}t first-processed-output:{}vs{}t] tool=[soft-stone:{}t hard-reinforced:{}vs{}t] charge=[stone:{}vs{}t reinforced:{}vs{}t] native=[first:{}vs{}t second:{}vs{}t] hard-ore-after-upgrade=[{}+{}vs{}+{}t] attention=[machine-total:{}t reserve-cycle:{}t initial-overlap:{}vs{}t useful-overlap:{}vs{}t reserve-useful:{}vs{}t unassigned:{}vs{}t] final-pick=[{}vs{}ppm] survival=[energy:{}vs{}nJ hydration:{}vs{}uL] elapsed=[{}vs{}t] tradeoff=earlier-hard-seam-access-vs-earlier-autonomy+attention-recovery",
+        "PROGRESSION STRATEGIC WINDOW seed=0x{seed:016X} at-mechanization-start:{strategic_window_tick}t affordances=[extraction-first:hard-seam=true machine=false pre-machine-hard-ore:{}mg; mechanization-first:hard-seam=false machine=true processed-before-pick:{mechanization_processed_before_pick}] exclusive-access=[hard-seam:{}t autonomy:{}t] both-capabilities-by:{convergence_tick}t convergence=bounded-episode-eventual-not-immediate",
+        extraction.primary_batch_mass.milligrams(),
+        mechanization.hard_seam_accessed_at - extraction.hard_seam_accessed_at,
+        mechanization_autonomy_lead_ticks,
+    );
+    std::println!(
+        "PROGRESSION AGENCY seed=0x{seed:016X} matched-world choices=[extraction-first,mechanization-first] milestones=[pick-upgrade:{}vs{}t hard-seam-access:{}vs{}t machine-start:{}vs{}t first-processed-output:{}vs{}t] tool=[soft-stone:{}t hard-reinforced:{}vs{}t] charge=[stone:{}vs{}t reinforced:{}vs{}t] native=[first:{}vs{}t second:{}vs{}t] hard-ore-after-upgrade=[{}+{}vs{}+{}t] attention=[machine-total:{}t reserve-cycle:{}t initial-overlap:{}vs{}t useful-overlap:{}vs{}t reserve-useful:{}vs{}t bounded-episode-unassigned:{}vs{}t] final-pick=[{}vs{}ppm] survival=[energy:{}vs{}nJ hydration:{}vs{}uL] elapsed=[{}vs{}t] tradeoff=earlier-hard-seam-access-vs-earlier-autonomy+attention-recovery",
         extraction.pick_upgraded_at,
         mechanization.pick_upgraded_at,
         extraction.hard_seam_accessed_at,
@@ -1744,10 +1783,13 @@ pub(super) fn evaluate_primitive_progression_probe(
             .hard_seam_accessed_at
             .checked_sub(extraction.hard_seam_accessed_at)
             .unwrap_or_else(|| unreachable!("extraction-first already wins hard-seam access")),
+        mechanization_autonomy_lead_ticks,
         mechanization_output_delta_ticks: tick_delta(
             extraction.first_processed_output_at,
             mechanization.first_processed_output_at,
         ),
+        pre_machine_hard_ore_mass_mg: extraction.primary_batch_mass.milligrams(),
+        mechanization_processed_before_pick,
         machine_work_ticks: mechanization.machine_work_ticks,
         reserve_machine_work_ticks: mechanization.reserve_machine_work_ticks,
         mechanization_useful_overlap_ticks: mechanization.machine_useful_overlap_ticks,
@@ -1764,7 +1806,10 @@ pub(super) fn evaluate_primitive_progression_probe(
     let fantasy_captured = review.tool_attention_delta_ticks > 0
         && review.crank_attention_delta_ticks > 0
         && review.hard_seam_access_lead_ticks > 0
+        && review.mechanization_autonomy_lead_ticks > 0
         && review.mechanization_output_delta_ticks > 0
+        && review.pre_machine_hard_ore_mass_mg > 0
+        && review.mechanization_processed_before_pick
         && review.mechanization_useful_overlap_ticks > 0
         && review.reserve_useful_overlap_ticks > 0;
     assert!(
@@ -1772,10 +1817,13 @@ pub(super) fn evaluate_primitive_progression_probe(
         "primitive progression must turn scarce material and stored work into measurable attention recovery"
     );
     std::println!(
-        "PROGRESSION REVIEW fantasy=bootstrap-by-hand->invest-scarce-copper->unlock-hard-material->store-work->delegate-repetition captured:{fantasy_captured} agency=earlier-hard-seam-access-vs-earlier-autonomy observations=[tool-attention-delta:{:+}t crank-attention-delta:{:+}t hard-seam-access-lead:{}t mechanization-output-delta:{:+}t autonomous-work:{}t reserve-cycle:{}t mechanization-useful-overlap:{}t reserve-useful-overlap:{}t mechanization-unassigned-delta:{:+}t mechanization-elapsed-delta:{:+}t] sign=[tool/crank:+ means reinforcement saved attention; output/unassigned/elapsed:+ means mechanization-first was earlier/lower]",
+        "PROGRESSION REVIEW fantasy=bootstrap-by-hand->invest-scarce-copper->unlock-hard-material->store-work->delegate-repetition captured:{fantasy_captured} agency=front-loaded-affordance-choice-then-eventual-convergence observations=[tool-attention-delta:{:+}t crank-attention-delta:{:+}t hard-seam-exclusive:{}t autonomy-exclusive:{}t pre-machine-hard-ore:{}mg processed-before-pick:{} mechanization-output-delta:{:+}t autonomous-work:{}t reserve-cycle:{}t mechanization-useful-overlap:{}t reserve-useful-overlap:{}t bounded-episode-unassigned-delta:{:+}t mechanization-elapsed-delta:{:+}t] sign=[tool/crank:+ means reinforcement saved attention; output/unassigned/elapsed:+ means mechanization-first was earlier/lower]",
         review.tool_attention_delta_ticks,
         review.crank_attention_delta_ticks,
         review.hard_seam_access_lead_ticks,
+        review.mechanization_autonomy_lead_ticks,
+        review.pre_machine_hard_ore_mass_mg,
+        review.mechanization_processed_before_pick,
         review.mechanization_output_delta_ticks,
         review.machine_work_ticks,
         review.reserve_machine_work_ticks,

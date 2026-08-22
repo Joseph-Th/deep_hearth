@@ -601,19 +601,33 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         );
     }
 
-    std::println!(
-        "CAPABILITY ORE_PREP seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[particle-state,routing,finite-work,wear] batch={}mg copper={}ppm composition-effect=preserved-not-concentrated initial-condition=[crusher:{} grinder:{} screen:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t] matter=conserved energy=resolved",
-        batch_mass.milligrams(),
-        input_copper_ppm,
-        initial_crusher_condition.parts_per_million(),
-        initial_grinder_condition.parts_per_million(),
-        initial_screen_condition.parts_per_million(),
-        initial_energy.nanojoules(),
-        consumed_energy.nanojoules(),
-        final_energy.nanojoules(),
-        crush_duration.value(),
-        grind_duration.value(),
-        screen_duration.value(),
-        fine_duration_ticks,
-    );
+    if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
+        std::println!(
+            "CAPABILITY ORE_PREP seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[particle-state,routing,finite-work,wear] batch={}mg copper={}ppm composition-effect=preserved-not-concentrated initial-condition=[crusher:{} grinder:{} screen:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t] matter=conserved energy=resolved",
+            batch_mass.milligrams(),
+            input_copper_ppm,
+            initial_crusher_condition.parts_per_million(),
+            initial_grinder_condition.parts_per_million(),
+            initial_screen_condition.parts_per_million(),
+            initial_energy.nanojoules(),
+            consumed_energy.nanojoules(),
+            final_energy.nanojoules(),
+            crush_duration.value(),
+            grind_duration.value(),
+            screen_duration.value(),
+            fine_duration_ticks,
+        );
+    } else {
+        std::println!(
+            "ORE REVIEW seed=0x{seed:016X} role=capability-only pipeline=crush->grind->screen->regrind batch={}mg copper={}ppm composition=preserved-not-concentrated stored-work=[used:{}nJ remaining:{}nJ] durations=[{}+{}+{}+{}t] matter=conserved",
+            batch_mass.milligrams(),
+            input_copper_ppm,
+            consumed_energy.nanojoules(),
+            final_energy.nanojoules(),
+            crush_duration.value(),
+            grind_duration.value(),
+            screen_duration.value(),
+            fine_duration_ticks,
+        );
+    }
 }

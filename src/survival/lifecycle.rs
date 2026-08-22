@@ -70,6 +70,7 @@ pub struct SurvivalAssessment {
     vitality: Vitality,
     nutrition: NutritionReserves,
     diet_quality_ppm: u32,
+    diet_supported_vitality_recovery_ppm_per_tick: u32,
     hunger: HungerState,
     hydration_state: HydrationState,
 }
@@ -98,6 +99,16 @@ impl SurvivalAssessment {
     #[must_use]
     pub const fn diet_quality_ppm(self) -> u32 {
         self.diet_quality_ppm
+    }
+
+    /// Returns the current per-tick vitality recovery supported by recent dietary balance.
+    ///
+    /// Recovery still requires the player to remain above the authored hunger and thirst warning
+    /// thresholds. Exposing the rate here makes the practical consequence of diet quality available
+    /// to UI and gameplay policy without duplicating survival-owner arithmetic.
+    #[must_use]
+    pub const fn diet_supported_vitality_recovery_ppm_per_tick(self) -> u32 {
+        self.diet_supported_vitality_recovery_ppm_per_tick
     }
 
     #[must_use]
@@ -224,9 +235,22 @@ fn assess_record(registries: &Registries, player: PlayerSurvivalRecord) -> Survi
         vitality: player.vitality(),
         nutrition: player.nutrition(),
         diet_quality_ppm: player.nutrition().quality_ppm(),
+        diet_supported_vitality_recovery_ppm_per_tick:
+            diet_supported_vitality_recovery_ppm_per_tick(physiology, player.nutrition()),
         hunger,
         hydration_state,
     }
+}
+
+fn diet_supported_vitality_recovery_ppm_per_tick(
+    physiology: super::PhysiologyDefinition,
+    nutrition: NutritionReserves,
+) -> u32 {
+    let recovery = u64::from(physiology.nutrition().vitality_recovery_ppm_per_tick())
+        * u64::from(nutrition.quality_ppm())
+        / u64::from(NUTRITION_PARTS_PER_MILLION);
+    u32::try_from(recovery)
+        .unwrap_or_else(|_| unreachable!("normalized vitality recovery always fits u32"))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -294,13 +318,11 @@ pub(crate) fn decide_survival_tick(
     } else if energy_after >= physiology.hungry_below()
         && hydration_after >= physiology.thirsty_below()
     {
-        let recovery = u64::from(physiology.nutrition().vitality_recovery_ppm_per_tick())
-            * u64::from(nutrition_after.quality_ppm())
-            / u64::from(NUTRITION_PARTS_PER_MILLION);
+        let recovery = diet_supported_vitality_recovery_ppm_per_tick(physiology, nutrition_after);
         before
             .vitality()
             .parts_per_million()
-            .saturating_add(recovery as u32)
+            .saturating_add(recovery)
             .min(Vitality::MAXIMUM.parts_per_million())
     } else {
         before.vitality().parts_per_million()

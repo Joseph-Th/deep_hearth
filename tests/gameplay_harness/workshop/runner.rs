@@ -767,6 +767,9 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     std::println!(
         "PLAYER LOOP runtime-after-bootstrap=[survive->shape-tools->mine->reinforce->store-work->mechanize] capability-workshop=[site-machine->process-total-mass->adapt-batch-to-condition+stored-work->choose-power->hand-charge-or-protect-survival->react-to-world-load->maintain-or-relocate->iterate] utility=[survival-reserve,machine-condition,structural-margin,stored-work,time]"
     );
+    std::println!(
+        "CORE FANTASY REVIEW reachable=[survive->craft-tools->extract->upgrade-capability->store-work->delegate-repetition] captured-by=[survival-provisioning,primitive-progression,manual-power,autonomous-crushing] industrial-depth=[workshop-operation,ore-preparation,pure-copper-foundry] industrial-reachability=capability-only boundary=[industrial-acquisition,industrial-power-generation,mixed-ore-concentration/smelting]"
+    );
     println!(
         "\n=== DEEP HEARTH INDUSTRIAL WORKSHOP CAPABILITY MATRIX: {} scenario(s), registry schema {} ===",
         plan.cases().len(),
@@ -810,5 +813,5 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
         ScenarioPlanMode::Gate => "controlled",
         ScenarioPlanMode::Explore => "exploratory",
     };
-    print_harness_summary(evidence_mode, &reports);
+    print_harness_summary(evidence_mode, &reports, has_verbose_output());
 }

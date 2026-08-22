@@ -1,5 +1,7 @@
 //! Gameplay-harness report records and concise human-readable aggregate output.
 
+use std::collections::BTreeSet;
+
 use deep_hearth::core::quantity::{Energy, Mass, Volume};
 use deep_hearth::maintenance::MaintenanceBand;
 use deep_hearth::registry::Registries;
@@ -371,7 +373,44 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
     );
 }
 
-pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
+fn scenario_outcome(report: &ScenarioReport) -> &'static str {
+    if report.structure.structural_stop {
+        "structural-stop"
+    } else if report.limits.maintenance_stop {
+        "maintenance-stop"
+    } else if report.limits.energy_stop {
+        "energy-stop"
+    } else if report.progress.processed_mass == report.progress.target_mass {
+        "complete"
+    } else {
+        "partial"
+    }
+}
+
+fn print_capability_highlight(kind: &str, report: &ScenarioReport) {
+    std::println!(
+        "CAPABILITY HIGHLIGHT kind={kind} world=0x{:016X} behavior=0x{:016X} processed={}/{}mg operations={} adaptive={} manual-recharges={} maintenance={} relocation={} suspension={} stranded={} elapsed={}t outcome={}",
+        report.world_seed,
+        report.behavior_seed,
+        report.progress.processed_mass.milligrams(),
+        report.progress.target_mass.milligrams(),
+        report.progress.operations_completed,
+        report.progress.adaptive_batch_operations,
+        report.choices.manual_recharges,
+        report.maintenance.services,
+        report.structure.support_relocation,
+        report.structure.production_suspension,
+        report.structure.stranded_work_in_process,
+        report.resources.elapsed_ticks,
+        scenario_outcome(report),
+    );
+}
+
+pub(super) fn print_harness_summary(
+    mode: &str,
+    reports: &[ScenarioReport],
+    include_scenarios: bool,
+) {
     assert!(
         !reports.is_empty(),
         "gameplay harness produced no scenario reports"
@@ -577,18 +616,35 @@ pub(super) fn print_harness_summary(mode: &str, reports: &[ScenarioReport]) {
         .max()
         .unwrap_or_else(|| unreachable!("nonempty reports have an elapsed-tick maximum"));
 
-    for report in reports {
-        let outcome = if report.structure.structural_stop {
-            "structural-stop"
-        } else if report.limits.maintenance_stop {
-            "maintenance-stop"
-        } else if report.limits.energy_stop {
-            "energy-stop"
-        } else if report.progress.processed_mass == report.progress.target_mass {
-            "complete"
-        } else {
-            "partial"
-        };
+    if !include_scenarios {
+        let mut highlighted = BTreeSet::new();
+        if let Some(report) = reports.iter().find(|report| {
+            report.structure.support_relocation || report.structure.production_suspension
+        }) {
+            highlighted.insert((report.world_seed, report.behavior_seed));
+            print_capability_highlight("world-disruption-recovery", report);
+        }
+        if let Some(report) = reports
+            .iter()
+            .filter(|report| {
+                report.choices.manual_recharges > 0
+                    && !highlighted.contains(&(report.world_seed, report.behavior_seed))
+            })
+            .max_by_key(|report| report.choices.manual_recharges)
+        {
+            highlighted.insert((report.world_seed, report.behavior_seed));
+            print_capability_highlight("manual-energy-recovery", report);
+        }
+        if let Some(report) = reports.iter().find(|report| {
+            report.progress.processed_mass < report.progress.target_mass
+                && !highlighted.contains(&(report.world_seed, report.behavior_seed))
+        }) {
+            print_capability_highlight("terminal-constraint", report);
+        }
+    }
+
+    for report in reports.iter().filter(|_| include_scenarios) {
+        let outcome = scenario_outcome(report);
         let survival_start = if report.inputs.start_at_hydration_warning {
             "hydration-warning"
         } else {

@@ -235,18 +235,31 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
         Some(mass),
         "foundry capability probe must conserve cast output mass"
     );
-    std::println!(
-        "CAPABILITY FOUNDRY seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[phase-change,finite-electrical-input,finite-thermal-recovery,wear] batch={}mg input={}mK initial-condition=[furnace:{} mold:{}ppm] electrical=[initial:{}nJ melt:{}nJ remaining:{}nJ] thermal=[released:{}nJ sink:{}nJ] melt={}t cast={}t matter=conserved",
-        mass.milligrams(),
-        input_temperature.millikelvin(),
-        initial_furnace_condition.parts_per_million(),
-        initial_mold_condition.parts_per_million(),
-        initial_electrical.nanojoules(),
-        melt.required_energy().nanojoules(),
-        final_electrical.nanojoules(),
-        released_heat.nanojoules(),
-        final_thermal.nanojoules(),
-        melt_duration.value(),
-        cast_duration.value(),
-    );
+    if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
+        std::println!(
+            "CAPABILITY FOUNDRY seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[phase-change,finite-electrical-input,finite-thermal-recovery,wear] batch={}mg input={}mK initial-condition=[furnace:{} mold:{}ppm] electrical=[initial:{}nJ melt:{}nJ remaining:{}nJ] thermal=[released:{}nJ sink:{}nJ] melt={}t cast={}t matter=conserved",
+            mass.milligrams(),
+            input_temperature.millikelvin(),
+            initial_furnace_condition.parts_per_million(),
+            initial_mold_condition.parts_per_million(),
+            initial_electrical.nanojoules(),
+            melt.required_energy().nanojoules(),
+            final_electrical.nanojoules(),
+            released_heat.nanojoules(),
+            final_thermal.nanojoules(),
+            melt_duration.value(),
+            cast_duration.value(),
+        );
+    } else {
+        std::println!(
+            "FOUNDRY REVIEW seed=0x{seed:016X} role=capability-only pipeline=heat->melt->cast batch={}mg input={}mK electrical=[used:{}nJ remaining:{}nJ] thermal-recovered={}nJ durations=[melt:{}t cast:{}t] matter=conserved",
+            mass.milligrams(),
+            input_temperature.millikelvin(),
+            melt.required_energy().nanojoules(),
+            final_electrical.nanojoules(),
+            final_thermal.nanojoules(),
+            melt_duration.value(),
+            cast_duration.value(),
+        );
+    }
 }

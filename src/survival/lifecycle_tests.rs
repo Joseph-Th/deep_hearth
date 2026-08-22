@@ -99,6 +99,7 @@ fn survival_initialization_and_tick_are_deterministic_and_visible() {
     assert!(after.hydration() < before.hydration());
     assert_eq!(after.vitality(), Vitality::MAXIMUM);
     assert!(after.diet_quality_ppm() < before.diet_quality_ppm());
+    assert_eq!(after.diet_supported_vitality_recovery_ppm_per_tick(), 9);
 }
 
 #[test]
@@ -147,4 +148,12 @@ fn balanced_recent_diet_recovers_vitality_faster_than_one_category() {
     assert!(balanced_after.diet_quality_ppm() > one_category_after.diet_quality_ppm());
     assert_eq!(balanced_after.diet_quality_ppm(), 299_995);
     assert_eq!(one_category_after.diet_quality_ppm(), 0);
+    assert_eq!(
+        balanced_after.diet_supported_vitality_recovery_ppm_per_tick(),
+        2
+    );
+    assert_eq!(
+        one_category_after.diet_supported_vitality_recovery_ppm_per_tick(),
+        0
+    );
 }

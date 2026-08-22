@@ -16,8 +16,10 @@
 // already completed or reached a terminal stop.
 // The controlled delivery event is hidden from the acting policy until its effects are observable.
 // `DEEP_HEARTH_GAMEPLAY_SEEDS` replaces the whole matrix with an exact comma-separated decimal or
-// `0x` hexadecimal seed list; malformed entries are rejected instead of ignored. Detailed trace
-// output is opt-in via `DEEP_HEARTH_GAMEPLAY_VERBOSE`.
+// `0x` hexadecimal seed list; malformed entries are rejected instead of ignored. Concise report mode
+// keeps aggregate experience evidence, representative workshop highlights, and compact focused-probe
+// reviews visible; every workshop scenario plus detailed physical/decision traces are opt-in via
+// `DEEP_HEARTH_GAMEPLAY_VERBOSE`.
 
 use std::collections::BTreeSet;
 use std::env;
