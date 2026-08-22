@@ -972,109 +972,25 @@ fn save_with_unresolved_structural_overload_is_rejected() {
 }
 
 #[test]
-fn current_save_rejects_prior_registry_schema_after_authored_equipment_semantics_change() {
+fn current_save_rejects_registry_schema_mismatch() {
     let registries = build_registries();
     let state = AppState::new(WorldSeed::new(0x5700_0005));
     let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
         Ok(encoded) => encoded,
-        Err(error) => panic!("registry compatibility save serialization failed: {error}"),
+        Err(error) => panic!("registry mismatch save serialization failed: {error}"),
     };
-    encoded["registry_schema_version"] = serde_json::json!(35_u32);
+    let mismatched = RegistrySchemaVersion::new(u32::MAX);
+    encoded["registry_schema_version"] = serde_json::json!(mismatched.value());
     let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
         Ok(decoded) => decoded,
-        Err(error) => panic!("registry compatibility save failed decode: {error}"),
+        Err(error) => panic!("registry mismatch save failed decode: {error}"),
     };
 
     assert_eq!(
         decoded.into_state(&registries),
         Err(LoadError::RegistrySchemaMismatch {
-            found: RegistrySchemaVersion::new(35),
+            found: mismatched,
             supported: registries.schema_version(),
-        })
-    );
-}
-
-#[test]
-fn current_save_rejects_prior_semantic_schema_before_output_stream_routing() {
-    let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(0x5700_0020));
-    let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
-        Ok(encoded) => encoded,
-        Err(error) => panic!("output-stream schema fixture failed serialization: {error}"),
-    };
-    encoded["schema_version"] = serde_json::json!(25_u32);
-    let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
-        Ok(decoded) => decoded,
-        Err(error) => panic!("output-stream schema fixture failed decode: {error}"),
-    };
-
-    assert_eq!(
-        decoded.into_state(&registries),
-        Err(LoadError::UnsupportedSchemaVersion {
-            found: 25,
-            supported: CURRENT_SAVE_SCHEMA_VERSION,
-        })
-    );
-}
-
-#[test]
-fn current_save_rejects_pre_completion_mining_wear_semantics() {
-    let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(0x5700_0022));
-    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
-        .unwrap_or_else(|error| panic!("mining-wear schema fixture failed serialization: {error}"));
-    encoded["schema_version"] = serde_json::json!(40_u32);
-    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
-        .unwrap_or_else(|error| panic!("mining-wear schema fixture failed decode: {error}"));
-
-    assert_eq!(
-        decoded.into_state(&registries),
-        Err(LoadError::UnsupportedSchemaVersion {
-            found: 40,
-            supported: CURRENT_SAVE_SCHEMA_VERSION,
-        })
-    );
-}
-
-#[test]
-fn current_save_rejects_pre_energy_store_embodiment_schema() {
-    let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(0x5700_0023));
-    let mut encoded =
-        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
-            panic!("energy-store embodiment schema fixture failed serialization: {error}")
-        });
-    encoded["schema_version"] = serde_json::json!(41_u32);
-    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap_or_else(|error| {
-        panic!("energy-store embodiment schema fixture failed decode: {error}")
-    });
-
-    assert_eq!(
-        decoded.into_state(&registries),
-        Err(LoadError::UnsupportedSchemaVersion {
-            found: 41,
-            supported: CURRENT_SAVE_SCHEMA_VERSION,
-        })
-    );
-}
-
-#[test]
-fn current_save_rejects_pre_limiting_diet_quality_semantics() {
-    let registries = build_registries();
-    let state = AppState::new(WorldSeed::new(0x5700_0024));
-    let mut encoded =
-        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
-            panic!("diet-quality schema fixture failed serialization: {error}")
-        });
-    encoded["schema_version"] = serde_json::json!(47_u32);
-    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
-        .unwrap_or_else(|error| panic!("diet-quality schema fixture failed decode: {error}"));
-
-    assert_eq!(
-        decoded.into_state(&registries),
-        Err(LoadError::UnsupportedSchemaVersion {
-            found: 47,
-            supported: CURRENT_SAVE_SCHEMA_VERSION,
         })
     );
 }

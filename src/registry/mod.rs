@@ -20,7 +20,7 @@ use crate::survival::SurvivalRegistry;
 use crate::texture::TextureRegistry;
 use crate::thermal::ThermalRegistry;
 
-/// Compatibility version for stable authored registry identities and cross-reference semantics.
+/// Schema version for stable authored registry identities and cross-reference semantics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct RegistrySchemaVersion(u32);
 
@@ -160,7 +160,7 @@ impl Registries {
         }
     }
 
-    /// Returns the authored-ID compatibility version required by persisted runtime references.
+    /// Returns the authored-ID schema version required by persisted runtime references.
     #[must_use]
     pub const fn schema_version(&self) -> RegistrySchemaVersion {
         self.schema_version

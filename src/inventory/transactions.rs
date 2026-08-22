@@ -497,6 +497,7 @@ impl ValidatedMaterialRelocation {
                     self.source,
                     self.destination,
                     storage_transition,
+                    merge_policy,
                 );
             } else {
                 let split_lot_id = match split_lot_id {

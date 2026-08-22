@@ -134,35 +134,53 @@ pub(in crate::inventory) fn apply_move_full_lot(
     source: StockpileId,
     destination: StockpileId,
     storage: LotStorageTransition,
+    merge_policy: LotMergePolicy,
 ) {
-    let commodity = state
-        .lots
-        .get(&lot)
-        .unwrap_or_else(|| {
-            panic!(
-                "validated transfer references missing material lot {}",
-                lot.value()
-            )
-        })
-        .commodity();
+    let record = state.lots.get(&lot).unwrap_or_else(|| {
+        panic!(
+            "validated transfer references missing material lot {}",
+            lot.value()
+        )
+    });
+    assert_eq!(
+        record.stockpile, source,
+        "validated lot owner changed before commit"
+    );
+    let commodity = record.commodity();
+    let rebased_storage_history = record
+        .storage_history
+        .rebase(storage.at, storage.source_preservation_multiplier_ppm)
+        .unwrap_or_else(|| panic!("validated full-lot transfer has invalid storage history"));
     state.remove_lot_index(source, commodity, lot);
-    state.insert_lot_index(destination, commodity, lot);
-    let record = match state.lots.get_mut(&lot) {
+    let mut record = match state.lots.remove(&lot) {
         Some(record) => record,
         None => panic!(
             "validated transfer references missing material lot {}",
             lot.value()
         ),
     };
-    assert_eq!(
-        record.stockpile, source,
-        "validated lot owner changed before commit"
-    );
-    record.storage_history = record
-        .storage_history
-        .rebase(storage.at, storage.source_preservation_multiplier_ppm)
-        .unwrap_or_else(|| panic!("validated full-lot transfer has invalid storage history"));
+    record.storage_history = rebased_storage_history;
     record.stockpile = destination;
+    if let Some(existing_id) = find_mergeable_lot(
+        state,
+        destination,
+        &record.profile,
+        record.storage_history,
+        storage.at,
+        storage.destination_preservation_multiplier_ppm,
+        merge_policy,
+    ) {
+        apply_merge_lot_record(
+            state,
+            existing_id,
+            record,
+            storage.at,
+            storage.destination_preservation_multiplier_ppm,
+            merge_policy,
+        );
+    } else {
+        apply_insert_lot_record(state, record);
+    }
 }
 
 pub(in crate::inventory) fn apply_split_lot(

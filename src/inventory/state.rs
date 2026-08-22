@@ -267,7 +267,7 @@ impl MaterialLotId {
     }
 }
 
-/// Runtime properties that determine whether two newly created lots are fungible.
+/// Runtime properties that determine whether two collocated lots are physically fungible.
 ///
 /// Physical properties that determine process interchangeability belong here. Historical state stays
 /// outside this profile. Age-sensitive commodities only coalesce when projected storage exposure is
@@ -313,7 +313,7 @@ impl MaterialLotProfile {
     }
 }
 
-/// Provenance range retained when compatible newly created matter coalesces into an existing lot.
+/// Provenance range retained when compatible matter coalesces into an existing lot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MaterialLotProvenance {
@@ -396,7 +396,7 @@ impl MaterialLotRecord {
         self.provenance.earliest_created_at
     }
 
-    /// Returns the latest creation tick represented after compatible new matter was coalesced.
+    /// Returns the latest creation tick represented after compatible matter was coalesced.
     #[must_use]
     pub const fn latest_created_at(&self) -> SimulationTick {
         self.provenance.latest_created_at

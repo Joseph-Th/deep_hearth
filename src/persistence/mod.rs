@@ -41,7 +41,7 @@ pub struct LoadedSaveEnvelope {
 }
 
 impl LoadedSaveEnvelope {
-    /// Validates schema compatibility and persistent invariants before returning runtime state.
+    /// Requires exact current schemas and validates persistent invariants before returning runtime state.
     pub fn into_state(self, registries: &Registries) -> Result<AppState, LoadError> {
         let Self {
             schema_version,
@@ -82,7 +82,7 @@ fn validate_versions(
 pub enum LoadError {
     /// The save was produced for a semantic schema this build does not support.
     UnsupportedSchemaVersion { found: u32, supported: u32 },
-    /// Stable authored registry identities are not compatible with this build.
+    /// Stable authored registry identities do not match this build.
     RegistrySchemaMismatch {
         found: RegistrySchemaVersion,
         supported: RegistrySchemaVersion,
@@ -100,7 +100,7 @@ impl Display for LoadError {
             ),
             Self::RegistrySchemaMismatch { found, supported } => write!(
                 formatter,
-                "save registry schema {} is incompatible with this build's schema {}",
+                "save registry schema {} does not match this build's schema {}",
                 found.value(),
                 supported.value()
             ),

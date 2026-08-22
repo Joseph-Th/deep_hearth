@@ -490,6 +490,115 @@ fn repeated_partial_transfers_coalesce_new_fragments_in_destination() {
 }
 
 #[test]
+fn full_lot_transfer_coalesces_compatible_destination_lot() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(42));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("fixture source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("fixture destination failed: {error}"));
+    deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(6),
+    )
+    .unwrap_or_else(|error| panic!("fixture source deposit failed: {error}"));
+    deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        destination,
+        wood_log(),
+        Mass::from_milligrams(4),
+    )
+    .unwrap_or_else(|error| panic!("fixture destination deposit failed: {error}"));
+
+    validate_material_transfer_for_test(
+        &registries,
+        &state,
+        source,
+        destination,
+        wood_log(),
+        Mass::from_milligrams(6),
+    )
+    .unwrap_or_else(|error| panic!("full-lot transfer validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("full-lot transfer commit failed: {error}"));
+
+    assert_eq!(state.inventory().lot_ids(source).count(), 0);
+    let destination_lots = state.inventory().lot_ids(destination).collect::<Vec<_>>();
+    assert_eq!(destination_lots.len(), 1);
+    assert_eq!(state.inventory().lots().count(), 1);
+    assert_eq!(
+        state
+            .inventory()
+            .get_lot(destination_lots[0])
+            .map(MaterialLotRecord::mass),
+        Some(Mass::from_milligrams(10))
+    );
+    assert_eq!(
+        validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
+        Ok(())
+    );
+}
+
+#[test]
+fn full_lot_transfer_keeps_food_with_distinct_storage_exposure_separate() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(43));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("fixture source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("fixture destination failed: {error}"));
+    let food = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        destination,
+        food,
+        Mass::from_milligrams(5),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("older food fixture failed: {error}"));
+    apply_clock_advance(&mut state, SimulationTick::new(100));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        food,
+        Mass::from_milligrams(5),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("newer food fixture failed: {error}"));
+
+    validate_material_transfer_for_test(
+        &registries,
+        &state,
+        source,
+        destination,
+        food,
+        Mass::from_milligrams(5),
+    )
+    .unwrap_or_else(|error| panic!("food full-lot transfer validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("food full-lot transfer commit failed: {error}"));
+
+    let destination_lots = state.inventory().lot_ids(destination).collect::<Vec<_>>();
+    assert_eq!(destination_lots.len(), 2);
+    assert!(destination_lots.iter().all(|lot| {
+        state
+            .inventory()
+            .get_lot(*lot)
+            .is_some_and(|record| record.mass() == Mass::from_milligrams(5))
+    }));
+    assert_eq!(
+        validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
+        Ok(())
+    );
+}
+
+#[test]
 fn composed_lot_split_preserves_normalized_constituent_profile() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(5));
