@@ -1,9 +1,8 @@
 # Testing
 
-This document owns test organization, gameplay-harness rules, and local verification. Use
-[`README.md`](README.md) for repository routing and [`STATUS.md`](STATUS.md) for the current capability
-boundary. Choose the smallest command that proves the changed contract; build-producing checks are
-checkpoints, not edit hooks.
+This document owns test organization, gameplay-harness contracts, and local verification. Use
+[`README.md`](README.md) for repository routing. Choose the smallest command that completely proves the
+changed contract.
 
 ## Commands
 
@@ -26,15 +25,13 @@ checkpoints, not edit hooks.
 | Human-readable gameplay report | `python ci.py report` |
 
 `python ci.py quick` is build-free. It checks formatting, repository/documentation contracts, and the
-local CI plan. Use it freely while editing.
+local CI plan.
 
 `python ci.py gate` adds one production-library compile. Specialized gate flags replace that compile
-with one focused build-producing lane. Complete core and all-gameplay suites are audit-only so an
-ordinary repair loop cannot accidentally become a broad rebuild.
+with one focused build-producing lane. Complete core and all-gameplay suites are audit lanes.
 
 Do not run a compile-only command immediately before or after a test that compiles the same changed
-surface. After a broad audit exposes one failure, repair with `quick`, `cargo check-fast`, or the exact
-failed test; rerun the broad audit only after the repair batch is complete.
+surface.
 
 ## Unit tests
 
@@ -46,7 +43,7 @@ so test-only edits do not invalidate production-only Cargo artifacts.
 Cargo. Ambiguous or missing selectors fail without building. Integration-test targets infer their
 Cargo-declared required features.
 
-Assertions should prove durable contracts:
+Assertions prove durable contracts:
 
 - rejection tests assert the typed error and unchanged authoritative state when atomicity matters;
 - success tests assert the resulting identity, quantity, lifecycle, relationship, ownership, or other
@@ -63,7 +60,7 @@ evidence a narrow test cannot.
 ## Gameplay harness
 
 `tests/gameplay_harness/` is the headless player-facing evaluation surface. Controlled setup may provide
-state that ordinary play cannot yet create; actor behavior after setup must use canonical runtime APIs and
+state that ordinary play cannot yet create. Actor behavior after setup uses canonical runtime APIs and
 observable information only.
 
 ### Actor boundary
@@ -76,8 +73,8 @@ observable information only.
 - preserve ordinary ownership, persistence, conservation, capability, and survival rules;
 - treat balance-sensitive measurements as observations unless a test explicitly owns the threshold.
 
-`STATUS.md` is authoritative for runtime reachability. A bootstrapped harness proves behavior of an
-installed system, not an ordinary-play acquisition path.
+[`STATUS.md`](STATUS.md) is authoritative for runtime reachability. A bootstrapped harness proves behavior
+of an installed system, not an ordinary-play acquisition path.
 
 ### Targets
 
@@ -92,13 +89,20 @@ installed system, not an ordinary-play acquisition path.
 ### Progression contract
 
 The progression probe starts from visible local clue regions, raw gathered matter, storage, and hidden
-geology. World-scale clue discovery is outside the runtime boundary.
+geology. World-scale clue discovery is outside the current runtime boundary.
 
 The actor must:
 
 - acquire geological evidence through timed, survival-costed prospecting;
-- respond to insufficient coarse evidence by using the detailed field survey before extraction;
+- choose among resolved clues from acquired evidence and canonical action blockers rather than fixture
+  roles or hidden deposit properties;
+- defer an unresolved clue while current resolved options remain useful, then pay for the detailed field
+  survey when a newly observed material constraint makes that uncertainty relevant;
 - resolve opaque region/material mining targets without retaining hidden deposit identity;
+- learn extracted commodity form and composition from owned inventory, and size later processing from
+  that observed matter rather than hidden scenario grade;
+- learn direct-source insufficiency through a canonical rejected extraction request rather than hidden
+  remaining-mass knowledge;
 - build the same baseline stone tools and processing line in both matched branches;
 - allocate one direct native-copper reinforcement either to the pick or the hand crank at the same
   decision state;
@@ -108,10 +112,9 @@ The actor must:
   insufficient;
 - converge both branches on the same final capabilities and matched material workload.
 
-Post-convergence evaluation uses the same bounded workload in both branches. Reported automation
-attention break-even covers only crank/flywheel/crusher preparation versus returned free attention. It is
-not a total-value estimate because the crusher also provides immediate material-progression utility.
-Separator setup and full processing-line setup are reported separately.
+Post-convergence evaluation uses the same bounded workload in both branches. Automation attention
+break-even measures crank/flywheel/crusher preparation against returned free attention only. Separator
+setup and full processing-line setup are reported separately.
 
 ### Workshop contract
 
@@ -120,8 +123,8 @@ current condition, stored work, survival reserve, structural margin, and process
 power, batch size, maintenance timing, manual recovery, and support policy.
 
 Exploration varies stored work, wear, maintenance supply, survival pressure, structural state, and one
-hidden preauthorized material delivery. The delivery is a stress input, not a baseline event-frequency
-claim. It does not occur after the scenario has already completed or reached a terminal constraint.
+hidden preauthorized material delivery. The delivery is a stress input and does not occur after the
+scenario has completed or reached a terminal constraint.
 
 Agency evaluation holds physical world variation and behavior RNG fixed while changing one policy.
 Distinct agency paths require different physical outcomes; counters alone cannot create a new path.
@@ -137,8 +140,8 @@ observed cause: objective already resolved, shared terminal constraint, or dorma
 - workshop experience and matched-policy agency summaries;
 - focused survival, progression, ore-preparation, and foundry reviews.
 
-The default report is compact. Set `DEEP_HEARTH_GAMEPLAY_VERBOSE` for every workshop scenario and detailed
-focused physical traces.
+The default report is compact. Set `DEEP_HEARTH_GAMEPLAY_VERBOSE` for detailed scenario and focused-probe
+traces.
 
 Gates and audits use stable deterministic defaults. The report generates fresh physical and behavior roots
 unless explicit roots are supplied, and prints all realized seeds for replay.

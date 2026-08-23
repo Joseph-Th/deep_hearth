@@ -6,8 +6,8 @@ mod disassembly_execution;
 mod equipment_execution;
 mod equipment_integration;
 mod equipment_structural_integration;
+mod maintenance_execution;
 mod maintenance_resolution;
-mod repair_execution;
 mod state;
 mod upgrade_execution;
 
@@ -37,13 +37,13 @@ pub use equipment_structural_integration::{
     ValidatedEquipmentSupportChange, validate_mount_equipment, validate_relocate_equipment,
     validate_unmount_equipment,
 };
-pub use maintenance_resolution::{
-    EquipmentMaintenanceRequest, EquipmentMaintenanceResolutionError, EquipmentRepairResolution,
-    resolve_equipment_maintenance,
+pub use maintenance_execution::{
+    EquipmentMaintenanceCommitError, EquipmentMaintenanceError, EquipmentMaintenanceMaterialError,
+    EquipmentMaintenanceOutcome, ValidatedEquipmentMaintenance, validate_equipment_maintenance,
 };
-pub use repair_execution::{
-    EquipmentRepairCommitError, EquipmentRepairError, EquipmentRepairMaterialError,
-    EquipmentRepairOutcome, ValidatedEquipmentRepair, validate_equipment_repair,
+pub use maintenance_resolution::{
+    EquipmentMaintenanceRequest, EquipmentMaintenanceResolution,
+    EquipmentMaintenanceResolutionError, resolve_equipment_maintenance,
 };
 pub use state::{
     EquipmentId, EquipmentOperationTrace, EquipmentRecord, EquipmentState, EquipmentValidationError,

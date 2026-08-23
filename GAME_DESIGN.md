@@ -1,8 +1,7 @@
 # Game Design
 
-This document defines the intended player experience and progression. It is a forward design target,
-not an implementation inventory. Use [`STATUS.md`](STATUS.md) for current runtime capability and
-[`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) for implemented technical contracts.
+This document defines the intended player experience and progression. It is a forward design target, not
+an implementation inventory. Use [`STATUS.md`](STATUS.md) for current capability.
 
 ## Core fantasy
 
@@ -14,16 +13,16 @@ The recurring fantasy is:
 
 `observe -> infer -> prepare -> extract -> invest -> delegate -> use returned attention -> reinvest`
 
-The player's role expands through:
+Player responsibility expands through:
 
 `direct labor -> reliable household/settlement systems -> organized labor -> mechanization -> industrial networks -> optimization`
 
-Depth comes from interacting causes and constraints, not recipe depth or repetitive input.
+Depth comes from interacting causes and constraints, not recipe nesting or repetitive input.
 
 ## Design laws
 
 - **Model legible consequences.** Simulate detail when the player can observe, predict, exploit, avoid,
-  or recover from its effects. Approximate detail that creates no decision.
+  or recover from it. Approximate detail that creates no decision.
 - **Progress transforms constraints.** Improvements remove one pressure by introducing different costs,
   obligations, or risks rather than deleting the system.
 - **Solved repetition becomes delegable.** Repeated work should progress from direct labor to better
@@ -33,10 +32,10 @@ Depth comes from interacting causes and constraints, not recipe depth or repetit
   pressure, power, precision, infrastructure, labor, control, and knowledge. Abstract unlocks do not
   substitute for missing capability.
 - **Infrastructure is embodied investment.** Buildings, machines, stores, networks, and transport occupy
-  space, contain matter, take construction effort, and create operating obligations.
+  space, contain matter, require construction effort, and create operating obligations.
 - **Materials feed back into existing problems.** Better materials improve tools, structures, storage,
-  transport, machines, and controls. Upgrades should preserve existing object history unless repair or
-  replacement explicitly changes it.
+  transport, machines, and controls. Upgrades preserve object history unless maintenance or replacement
+  explicitly changes it.
 - **Information is progression.** Exploration, prospecting, instruments, experiments, and specialists
   should improve future decisions by narrowing uncertainty or exposing tradeoffs.
 - **Systems interlock.** Major systems should exchange matter, energy, labor, information, risk, or
@@ -51,17 +50,14 @@ Depth comes from interacting causes and constraints, not recipe depth or repetit
 
 The long-form loop is:
 
-1. Explore terrain, climate, geology, ecology, and nearby societies.
+1. Read terrain, climate, geology, ecology, and nearby societies.
 2. Secure water, food, shelter, warmth, tools, and storage.
-3. Extract timber, stone, clay, ores, fibers, fuel, and food.
+3. Extract and manage finite local resources.
 4. Establish preservation, agriculture, permanent structures, and workshops.
-5. Specialize through metallurgy, skilled work, domestication, trade, and dedicated production.
-6. Organize workers, animals, schedules, stock targets, and logistics.
-7. Mechanize repetitive work with stored work, water, wind, animals, steam, and machinery.
-8. Industrialize with larger processing chains, electrical systems, chemistry, and automation.
-9. Expand mines, farms, transport links, trade routes, and settlements.
-10. Adapt to seasons, depletion, environmental change, and failure.
-11. Optimize throughput, resilience, efficiency, specialization, and player attention.
+5. Specialize through better materials, skilled work, domestication, trade, and dedicated production.
+6. Organize and delegate repeated work through workers, animals, schedules, logistics, and machinery.
+7. Industrialize with larger processing chains, power systems, chemistry, transport, and automation.
+8. Expand, adapt, and optimize as seasons, depletion, failures, and regional constraints change.
 
 Exploration remains useful throughout progression: early for survival resources, later for deposits,
 trade partners, breeding stock, transport corridors, and infrastructure sites.
@@ -77,7 +73,7 @@ Player decisions operate across six interacting economies:
 | Knowledge | observation, surveying, teaching, instruments, documentation |
 | Risk | structural, environmental, biological, operational, economic failure |
 
-Resources should usually have competing uses. Sinks should have physical or social explanations.
+Resources should usually have competing uses. Sinks require physical or social explanations.
 
 ## System direction
 
@@ -107,8 +103,8 @@ Resources should usually have competing uses. Sinks should have physical or soci
 
 ## Progression
 
-Progression is a continuous expansion of physical, economic, informational, and organizational
-capability. These eras are descriptive milestones, not mandatory tier gates.
+Progression expands physical, economic, informational, and organizational capability. Eras are descriptive
+milestones, not mandatory tier gates.
 
 | Era | Characteristic capability |
 | --- | --- |
@@ -131,33 +127,29 @@ Industrialization shifts the dominant cost of work:
 Each transition should increase scale while preserving meaningful sources, sinks, bottlenecks, and
 failure modes.
 
-The early industrial loop should establish that pattern before full settlement-scale industry exists.
-Scarce material should force a real choice between improving extraction and improving stored-work
-generation; primitive machinery should then turn repeated processing into returned player attention,
-while the processed material itself opens the next capability. A useful early chain is therefore not
-"build machine, receive abstract progress," but "invest matter and labor -> delegate a physical process
--> use the freed attention elsewhere -> recover a materially useful stream -> reinvest it." Later
-industrial systems should deepen the same relationship with richer separation, power, maintenance,
-logistics, and control rather than replacing it with recipe-tier unlocks.
+The early industrial loop establishes this pattern before settlement-scale industry. Scarce material
+creates a real choice between extraction capability and stored-work generation. Primitive machinery turns
+repeated processing into returned player attention, and processed matter opens the next capability:
+
+`invest matter + labor -> delegate a physical process -> use returned attention -> recover useful matter -> reinvest`
+
+Later industry deepens the same relationship through richer separation, power, maintenance, logistics,
+and control.
 
 Progression pacing follows several additional constraints:
 
-- Early critical resources should have legible world clues and a reliable first use. Richer, deeper, or
-  more specialized resources may demand better surveys, access, and infrastructure rather than simply
-  increasing search randomness.
-- Manual work may teach a physical operation, but repeated manual input must become delegable before it
-  dominates play. Automation earns value by returning attention, increasing scale, improving control,
-  or reducing waste, not by merely replacing one crafting interface with another.
-- Survival and industry should overlap. Early mechanisms should help solve provisioning, storage,
-  shelter, transport, or other survival obligations while those obligations continue to constrain
-  industrial choices. They should not feel like two unrelated games played sequentially.
-- Long processes are meaningful when the player has useful parallel work, preparation, observation, or
-  logistics to perform. Forced inactivity is not a progression cost.
-- Earlier infrastructure should remain useful as a component, backup, branch, or lower-scale solution
-  whenever the physics permits it. New capability should extend the production graph rather than
-  routinely invalidate prior investment.
-- Complexity should come primarily from interacting physical constraints, routing, quality, energy,
-  maintenance, and information. Extra recipe nesting is not a substitute for system depth.
+- Critical resources have legible clues and a reliable first use. Richer or deeper resources demand
+  better information, access, or infrastructure rather than more search randomness.
+- Repeated manual input becomes delegable before it dominates play. Automation returns attention,
+  increases scale, improves control, or reduces waste.
+- Survival and industry overlap. Early mechanisms help solve survival obligations while those obligations
+  continue to constrain industrial choices.
+- Long processes require useful parallel work, preparation, observation, or logistics. Forced inactivity
+  is not a progression cost.
+- Earlier infrastructure remains useful as a component, backup, branch, or lower-scale solution when the
+  physics permits it.
+- Complexity comes from interacting physical constraints, routing, quality, energy, maintenance, and
+  information rather than recipe nesting.
 
 ## Player information
 

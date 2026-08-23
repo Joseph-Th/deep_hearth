@@ -41,7 +41,7 @@ use deep_hearth::energy::{
 use deep_hearth::equipment::{
     EquipmentId, EquipmentMaintenanceRequest, EquipmentMaintenanceResolutionError,
     EquipmentProviderError, EquipmentSupportError, resolve_equipment_maintenance,
-    validate_assemble_equipment, validate_equipment_repair, validate_mount_equipment,
+    validate_assemble_equipment, validate_equipment_maintenance, validate_mount_equipment,
     validate_relocate_equipment,
 };
 use deep_hearth::inventory::{
@@ -552,7 +552,7 @@ fn service_crusher(
         .get_form(spent_commodity.form())
         .map(|form| form.name())
         .unwrap_or_else(|| panic!("gameplay harness maintenance spent form disappeared"));
-    let outcome = validate_equipment_repair(registries, state, resolution)
+    let outcome = validate_equipment_maintenance(registries, state, resolution)
         .unwrap_or_else(|error| panic!("gameplay harness maintenance validation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("gameplay harness maintenance commit failed: {error}"));

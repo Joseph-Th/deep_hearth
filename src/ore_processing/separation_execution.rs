@@ -260,6 +260,7 @@ fn resolve_separation_outputs(
         return Err(ConstituentSeparationBatchError::EmptyInput);
     }
 
+    let mut selected_mass = Mass::ZERO;
     let mut grouped =
         BTreeMap::<(Temperature, MaterialComposition, ParticleSizeDistribution), Mass>::new();
     for trace in traces {
@@ -323,6 +324,9 @@ fn resolve_separation_outputs(
             profile.composition().clone(),
             particle_size,
         );
+        selected_mass = selected_mass
+            .checked_add(trace.mass())
+            .ok_or(ConstituentSeparationBatchError::MassOverflow)?;
         let current = grouped.get(&key).copied().unwrap_or(Mass::ZERO);
         grouped.insert(
             key,
@@ -365,17 +369,13 @@ fn resolve_separation_outputs(
             remainders.push((component.material(), remainder));
         }
         let group_target = Mass::from_milligrams(target_milligrams);
-        if group_target.is_zero() {
-            return Err(ConstituentSeparationBatchError::TargetBelowMassResolution {
-                material: definition.target_material(),
-                selected: mass,
-            });
-        }
         let group_residue = mass
             .checked_sub(group_target)
             .unwrap_or_else(|| unreachable!("constituent projection cannot exceed selected mass"));
         debug_assert!(!group_residue.is_zero());
-        add_grouped_mass(&mut target_by_temperature, temperature, group_target)?;
+        if !group_target.is_zero() {
+            add_grouped_mass(&mut target_by_temperature, temperature, group_target)?;
+        }
 
         let boundary_milligrams = mass
             .milligrams()
@@ -431,6 +431,13 @@ fn resolve_separation_outputs(
         residue_mass = residue_mass
             .checked_add(group_residue)
             .ok_or(ConstituentSeparationBatchError::MassOverflow)?;
+    }
+
+    if target_mass.is_zero() {
+        return Err(ConstituentSeparationBatchError::TargetBelowMassResolution {
+            material: definition.target_material(),
+            selected: selected_mass,
+        });
     }
 
     Ok(SeparationOutputs {

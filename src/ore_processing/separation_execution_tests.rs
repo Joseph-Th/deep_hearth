@@ -54,7 +54,10 @@ struct Fixture {
 fn fixture(mass: Mass, composition: MaterialComposition) -> Fixture {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x9720_0001));
-    let source = add_solid_stockpile_for_test(&mut state, mass)
+    let source_capacity = mass
+        .checked_add(Mass::from_milligrams(1))
+        .unwrap_or_else(|| panic!("separation source fixture capacity overflowed"));
+    let source = add_solid_stockpile_for_test(&mut state, source_capacity)
         .unwrap_or_else(|error| panic!("separation source fixture failed: {error}"));
     let target = add_solid_stockpile_for_test(&mut state, mass)
         .unwrap_or_else(|error| panic!("separation target fixture failed: {error}"));
@@ -280,6 +283,74 @@ fn constituent_separation_preserves_fractional_target_in_mixed_residue_boundary(
     let represented_copper_ppm_mg = target_outputs
         .iter()
         .chain(residue_outputs)
+        .map(|output| {
+            u128::from(output.mass().milligrams())
+                * u128::from(output.composition().parts_per_million(MATERIAL_COPPER))
+        })
+        .sum::<u128>();
+    assert_eq!(represented_copper_ppm_mg, 3_u128 * 500_000_u128);
+}
+
+#[test]
+fn constituent_separation_keeps_sub_resolution_group_target_in_residue_without_blocking_batch() {
+    let primary_mass = Mass::from_milligrams(2);
+    let composition = copper_stone_composition(500_000);
+    let mut fixture = fixture(primary_mass, composition.clone());
+    let trace_mass = Mass::from_milligrams(1);
+    let trace_temperature = Temperature::from_millikelvin(310_000);
+    let trace = MaterialLotSpec::with_composition_and_particle_size(
+        CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+        trace_mass,
+        trace_temperature,
+        composition.clone(),
+        liberated_particle_size(),
+    )
+    .unwrap_or_else(|error| panic!("separation trace input specification failed: {error}"));
+    let trace_lot = deposit_lot_spec_for_test(
+        &fixture.registries,
+        &mut fixture.state,
+        fixture.source,
+        trace,
+    )
+    .unwrap_or_else(|error| panic!("separation trace lot fixture failed: {error}"));
+
+    let resolved = resolve_constituent_separation_process(
+        &fixture.registries,
+        &fixture.state,
+        ConstituentSeparationRequest::new(
+            PROCESS_SEPARATE_NATIVE_COPPER,
+            fixture.source,
+            &[
+                MaterialLotSelection::new(fixture.lot, primary_mass),
+                MaterialLotSelection::new(trace_lot, trace_mass),
+            ],
+            fixture.separator,
+            fixture.energy,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("mixed-resolution separation should resolve: {error}"));
+
+    assert_eq!(resolved.target_mass(), Mass::from_milligrams(1));
+    assert_eq!(resolved.residue_mass(), Mass::from_milligrams(2));
+    let streams = resolved.process_resolution().output_streams();
+    let target = streams
+        .iter()
+        .find(|stream| stream.id() == ConstituentSeparationProcessDefinition::TARGET_STREAM)
+        .unwrap_or_else(|| panic!("mixed-resolution separation target stream disappeared"));
+    let residue = streams
+        .iter()
+        .find(|stream| stream.id() == ConstituentSeparationProcessDefinition::RESIDUE_STREAM)
+        .unwrap_or_else(|| panic!("mixed-resolution separation residue stream disappeared"));
+    assert_eq!(target.outputs().len(), 1);
+    assert!(residue.outputs().iter().any(|output| {
+        output.temperature() == trace_temperature
+            && output.mass() == trace_mass
+            && output.composition() == &composition
+    }));
+    let represented_copper_ppm_mg = target
+        .outputs()
+        .iter()
+        .chain(residue.outputs())
         .map(|output| {
             u128::from(output.mass().milligrams())
                 * u128::from(output.composition().parts_per_million(MATERIAL_COPPER))

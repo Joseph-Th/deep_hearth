@@ -1,4 +1,4 @@
-//! Tests for the sibling repair execution module; isolated so test-only edits do not invalidate production builds.
+//! Tests for the sibling maintenance execution module; isolated so test-only edits do not invalidate production builds.
 
 use super::*;
 use crate::capability::{
@@ -48,7 +48,7 @@ const HEATING_PROCESS: ProcessId = ProcessId::new(812_001);
 fn condition(parts_per_million: u32) -> Condition {
     match Condition::new(parts_per_million) {
         Ok(condition) => condition,
-        Err(error) => panic!("repair condition fixture failed: {error}"),
+        Err(error) => panic!("maintenance condition fixture failed: {error}"),
     }
 }
 
@@ -58,21 +58,21 @@ fn registries() -> Registries {
         CapabilityValue::Mass(Mass::from_milligrams(50_000)),
     )]) {
         Ok(profile) => profile,
-        Err(error) => panic!("repair capability fixture failed: {error}"),
+        Err(error) => panic!("maintenance capability fixture failed: {error}"),
     };
     let thresholds = match MaintenanceThresholds::new(condition(600_000), condition(250_000)) {
         Ok(thresholds) => thresholds,
-        Err(error) => panic!("repair maintenance fixture failed: {error}"),
+        Err(error) => panic!("equipment maintenance fixture failed: {error}"),
     };
     make_test_registries_with_equipment(
         CapabilityDefinition::new(
             TEST_CAPABILITY,
-            "repair fixture supported mass",
+            "maintenance fixture supported mass",
             CapabilityValueKind::Mass,
         ),
         EquipmentDefinition::new(
             TEST_DEFINITION,
-            "repair fixture press",
+            "maintenance fixture press",
             Mass::from_milligrams(40_000),
             profile,
             thresholds,
@@ -102,47 +102,47 @@ fn occupied_registries() -> Registries {
         ),
     ]) {
         Ok(profile) => profile,
-        Err(error) => panic!("repair occupancy capability fixture failed: {error}"),
+        Err(error) => panic!("maintenance occupancy capability fixture failed: {error}"),
     };
     let thresholds = match MaintenanceThresholds::new(condition(600_000), condition(250_000)) {
         Ok(thresholds) => thresholds,
-        Err(error) => panic!("repair occupancy maintenance fixture failed: {error}"),
+        Err(error) => panic!("maintenance occupancy maintenance fixture failed: {error}"),
     };
     make_test_registries_with_sensible_heating(
         vec![
             CapabilityDefinition::new(
                 HEATING_POWER,
-                "repair occupancy heating power",
+                "maintenance occupancy heating power",
                 CapabilityValueKind::Power,
             ),
             CapabilityDefinition::new(
                 MAX_TEMPERATURE,
-                "repair occupancy maximum temperature",
+                "maintenance occupancy maximum temperature",
                 CapabilityValueKind::Temperature,
             ),
             CapabilityDefinition::new(
                 MAX_BATCH_MASS,
-                "repair occupancy maximum batch mass",
+                "maintenance occupancy maximum batch mass",
                 CapabilityValueKind::Mass,
             ),
         ],
         EquipmentDefinition::new(
             TEST_DEFINITION,
-            "repair occupancy heater",
+            "maintenance occupancy heater",
             Mass::from_milligrams(40_000),
             profile,
             thresholds,
         ),
         EnergyStoreDefinition::new(
             ENERGY_DEFINITION,
-            "repair occupancy battery",
+            "maintenance occupancy battery",
             EnergyCarrier::Electrical,
             Energy::from_nanojoules(1_000_000_000),
             Power::from_microwatts(500_000),
         ),
         ProcessDefinition::new_selected_batch(
             HEATING_PROCESS,
-            "repair occupancy sensible heating",
+            "maintenance occupancy sensible heating",
             Vec::new(),
         ),
         SensibleHeatingProcessDefinition::new(
@@ -163,7 +163,7 @@ fn explicit_energy(registries: &Registries, state: &AppState) -> Energy {
             .ok_or(ExplicitEnergyAccountingError::Overflow)
     }) {
         Ok(total) => total,
-        Err(error) => panic!("repair energy accounting failed: {error}"),
+        Err(error) => panic!("maintenance energy accounting failed: {error}"),
     }
 }
 
@@ -182,7 +182,7 @@ fn add_material(
         Temperature::from_millikelvin(300_000),
     ) {
         Ok(lot) => lot,
-        Err(error) => panic!("repair material fixture failed: {error}"),
+        Err(error) => panic!("maintenance material fixture failed: {error}"),
     }
 }
 
@@ -194,7 +194,7 @@ fn bind(
     mass: Mass,
     spent: StockpileId,
     after: Condition,
-) -> EquipmentRepairResolution {
+) -> EquipmentMaintenanceResolution {
     bind_selections(
         state,
         equipment,
@@ -212,14 +212,14 @@ fn bind_selections(
     selections: &[MaterialLotSelection],
     spent_destination: StockpileId,
     condition_after: Condition,
-) -> EquipmentRepairResolution {
+) -> EquipmentMaintenanceResolution {
     let record = state
         .equipment()
         .get_equipment(equipment)
-        .unwrap_or_else(|| panic!("repair binding fixture references unknown equipment"));
+        .unwrap_or_else(|| panic!("maintenance binding fixture references unknown equipment"));
     let material = validate_explicit_consumption_selection(state.inventory(), source, selections)
-        .unwrap_or_else(|error| panic!("repair binding fixture selection failed: {error:?}"));
-    EquipmentRepairResolution {
+        .unwrap_or_else(|error| panic!("maintenance binding fixture selection failed: {error:?}"));
+    EquipmentMaintenanceResolution {
         equipment,
         expected_equipment_revision: state.equipment().revision(),
         condition_before: record.condition(),
@@ -263,7 +263,7 @@ fn authored_maintenance_resolution_binds_exact_replacement_stock_and_service_tar
     assert_eq!(resolution.condition_before(), condition(500_000));
     assert_eq!(resolution.condition_after(), condition(700_000));
 
-    let outcome = validate_equipment_repair(&registries, &state, resolution)
+    let outcome = validate_equipment_maintenance(&registries, &state, resolution)
         .unwrap_or_else(|error| panic!("maintenance transaction validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("maintenance transaction commit failed: {error}"));
@@ -415,8 +415,8 @@ fn maintenance_rejects_contaminated_replacement_material_at_both_boundaries() {
         condition(700_000),
     );
     assert_eq!(
-        validate_equipment_repair(&registries, &state, resolution),
-        Err(EquipmentRepairError::ImpureReplacementMaterial {
+        validate_equipment_maintenance(&registries, &state, resolution),
+        Err(EquipmentMaintenanceError::ImpureReplacementMaterial {
             commodity: replacement,
         })
     );
@@ -424,26 +424,26 @@ fn maintenance_rejects_contaminated_replacement_material_at_both_boundaries() {
 }
 
 #[test]
-fn repair_moves_exact_material_to_spent_storage_and_preserves_conservation() {
+fn maintenance_moves_exact_material_to_spent_storage_and_preserves_conservation() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0001));
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
-            Err(error) => panic!("repair equipment fixture failed: {error}"),
+            Err(error) => panic!("maintenance equipment fixture failed: {error}"),
         };
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("repair source fixture failed: {error}"),
+        Err(error) => panic!("maintenance source fixture failed: {error}"),
     };
     let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("repair spent fixture failed: {error}"),
+        Err(error) => panic!("maintenance spent fixture failed: {error}"),
     };
     let lot = add_material(&registries, &mut state, source, Mass::from_milligrams(20));
     let source_lot = match state.inventory().get_lot(lot) {
         Some(record) => record,
-        None => panic!("repair source lot disappeared"),
+        None => panic!("maintenance source lot disappeared"),
     };
     let temperature_before = source_lot.temperature();
     let composition_before = source_lot.composition().clone();
@@ -452,7 +452,7 @@ fn repair_moves_exact_material_to_spent_storage_and_preserves_conservation() {
     let latest_before = source_lot.latest_created_at();
     let matter_before = match calculate_matter_accounting(&state) {
         Ok(accounting) => accounting.total(),
-        Err(error) => panic!("repair initial matter accounting failed: {error}"),
+        Err(error) => panic!("maintenance initial matter accounting failed: {error}"),
     };
     let energy_before = explicit_energy(&registries, &state);
     let resolution = bind(
@@ -464,15 +464,15 @@ fn repair_moves_exact_material_to_spent_storage_and_preserves_conservation() {
         spent,
         condition(700_000),
     );
-    let token = match validate_equipment_repair(&registries, &state, resolution) {
+    let token = match validate_equipment_maintenance(&registries, &state, resolution) {
         Ok(token) => token,
-        Err(error) => panic!("repair validation failed: {error}"),
+        Err(error) => panic!("maintenance validation failed: {error}"),
     };
     assert_eq!(token.material_mass(), Mass::from_milligrams(7));
 
     let outcome = match token.commit(&mut state) {
         Ok(outcome) => outcome,
-        Err(error) => panic!("repair commit failed: {error}"),
+        Err(error) => panic!("maintenance commit failed: {error}"),
     };
 
     assert_eq!(outcome.condition_before(), condition(500_000));
@@ -495,7 +495,7 @@ fn repair_moves_exact_material_to_spent_storage_and_preserves_conservation() {
         .find(|record| record.stockpile() == spent)
     {
         Some(record) => record,
-        None => panic!("repair spent material missing"),
+        None => panic!("maintenance spent material missing"),
     };
     assert_eq!(spent_lot.mass(), Mass::from_milligrams(7));
     assert_eq!(
@@ -516,21 +516,21 @@ fn repair_moves_exact_material_to_spent_storage_and_preserves_conservation() {
 }
 
 #[test]
-fn repair_rejects_non_improvement_and_allows_spent_material_to_return_to_source() {
+fn maintenance_rejects_non_improvement_and_allows_spent_material_to_return_to_source() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0002));
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
-            Err(error) => panic!("repair rejection equipment fixture failed: {error}"),
+            Err(error) => panic!("maintenance rejection equipment fixture failed: {error}"),
         };
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("repair rejection source fixture failed: {error}"),
+        Err(error) => panic!("maintenance rejection source fixture failed: {error}"),
     };
     let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("repair rejection spent fixture failed: {error}"),
+        Err(error) => panic!("maintenance rejection spent fixture failed: {error}"),
     };
     let lot = add_material(&registries, &mut state, source, Mass::from_milligrams(10));
     let before = state.clone();
@@ -545,8 +545,8 @@ fn repair_rejects_non_improvement_and_allows_spent_material_to_return_to_source(
         condition(500_000),
     );
     assert_eq!(
-        validate_equipment_repair(&registries, &state, no_improvement),
-        Err(EquipmentRepairError::ConditionNotImproved {
+        validate_equipment_maintenance(&registries, &state, no_improvement),
+        Err(EquipmentMaintenanceError::ConditionNotImproved {
             equipment,
             before: condition(500_000),
             after: condition(500_000),
@@ -560,10 +560,10 @@ fn repair_rejects_non_improvement_and_allows_spent_material_to_return_to_source(
         EquipmentMaintenanceRequest::new(equipment, source, source),
     )
     .unwrap_or_else(|error| panic!("same-stockpile maintenance resolution failed: {error}"));
-    let outcome = validate_equipment_repair(&registries, &state, same_destination)
-        .unwrap_or_else(|error| panic!("same-stockpile repair validation failed: {error}"))
+    let outcome = validate_equipment_maintenance(&registries, &state, same_destination)
+        .unwrap_or_else(|error| panic!("same-stockpile maintenance validation failed: {error}"))
         .commit(&mut state)
-        .unwrap_or_else(|error| panic!("same-stockpile repair commit failed: {error}"));
+        .unwrap_or_else(|error| panic!("same-stockpile maintenance commit failed: {error}"));
     assert_eq!(outcome.material_mass(), Mass::from_milligrams(7));
     assert_eq!(
         state
@@ -575,7 +575,7 @@ fn repair_rejects_non_improvement_and_allows_spent_material_to_return_to_source(
     let source_record = state
         .inventory()
         .get_stockpile(source)
-        .unwrap_or_else(|| panic!("same-stockpile repair source disappeared"));
+        .unwrap_or_else(|| panic!("same-stockpile maintenance source disappeared"));
     assert_eq!(source_record.stored_mass(), Mass::from_milligrams(10));
     assert_eq!(
         source_record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_LOG)),
@@ -588,25 +588,25 @@ fn repair_rejects_non_improvement_and_allows_spent_material_to_return_to_source(
 }
 
 #[test]
-fn repair_rechecks_inventory_and_equipment_before_any_partial_commit() {
+fn maintenance_rechecks_inventory_and_equipment_before_any_partial_commit() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0003));
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
-            Err(error) => panic!("repair stale equipment fixture failed: {error}"),
+            Err(error) => panic!("maintenance stale equipment fixture failed: {error}"),
         };
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("repair stale source fixture failed: {error}"),
+        Err(error) => panic!("maintenance stale source fixture failed: {error}"),
     };
     let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("repair stale spent fixture failed: {error}"),
+        Err(error) => panic!("maintenance stale spent fixture failed: {error}"),
     };
     let lot = add_material(&registries, &mut state, source, Mass::from_milligrams(10));
 
-    let inventory_stale = match validate_equipment_repair(
+    let inventory_stale = match validate_equipment_maintenance(
         &registries,
         &state,
         bind(
@@ -620,10 +620,10 @@ fn repair_rechecks_inventory_and_equipment_before_any_partial_commit() {
         ),
     ) {
         Ok(token) => token,
-        Err(error) => panic!("repair stale inventory validation failed: {error}"),
+        Err(error) => panic!("maintenance stale inventory validation failed: {error}"),
     };
     if let Err(error) = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1)) {
-        panic!("repair stale inventory mutation failed: {error}");
+        panic!("maintenance stale inventory mutation failed: {error}");
     }
     let condition_before = state
         .equipment()
@@ -631,7 +631,7 @@ fn repair_rechecks_inventory_and_equipment_before_any_partial_commit() {
         .map(|record| record.condition());
     assert!(matches!(
         inventory_stale.commit(&mut state),
-        Err(EquipmentRepairCommitError::StaleInventoryRevision {
+        Err(EquipmentMaintenanceCommitError::StaleInventoryRevision {
             expected: _expected,
             actual: _actual,
         })
@@ -648,7 +648,7 @@ fn repair_rechecks_inventory_and_equipment_before_any_partial_commit() {
         Some(Mass::from_milligrams(10))
     );
 
-    let equipment_stale = match validate_equipment_repair(
+    let equipment_stale = match validate_equipment_maintenance(
         &registries,
         &state,
         bind(
@@ -662,19 +662,19 @@ fn repair_rechecks_inventory_and_equipment_before_any_partial_commit() {
         ),
     ) {
         Ok(token) => token,
-        Err(error) => panic!("repair stale equipment validation failed: {error}"),
+        Err(error) => panic!("maintenance stale equipment validation failed: {error}"),
     };
     let wear = match decide_equipment_wear(&state, equipment, 1_000) {
         Ok(plan) => plan,
-        Err(error) => panic!("repair stale equipment wear failed: {error}"),
+        Err(error) => panic!("maintenance stale equipment wear failed: {error}"),
     };
     if let Err(error) = apply_equipment_condition_plan(&mut state, wear) {
-        panic!("repair stale equipment wear commit failed: {error}");
+        panic!("maintenance stale equipment wear commit failed: {error}");
     }
     let lot_mass_before = state.inventory().get_lot(lot).map(|record| record.mass());
     assert!(matches!(
         equipment_stale.commit(&mut state),
-        Err(EquipmentRepairCommitError::StaleEquipmentRevision {
+        Err(EquipmentMaintenanceCommitError::StaleEquipmentRevision {
             expected: _expected,
             actual: _actual,
         })
@@ -686,21 +686,21 @@ fn repair_rechecks_inventory_and_equipment_before_any_partial_commit() {
 }
 
 #[test]
-fn repair_resolution_is_invalidated_by_equipment_change_before_validation() {
+fn maintenance_resolution_is_invalidated_by_equipment_change_before_validation() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0009));
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
-            Err(error) => panic!("repair stale-resolution equipment fixture failed: {error}"),
+            Err(error) => panic!("maintenance stale-resolution equipment fixture failed: {error}"),
         };
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("repair stale-resolution source fixture failed: {error}"),
+        Err(error) => panic!("maintenance stale-resolution source fixture failed: {error}"),
     };
     let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("repair stale-resolution spent fixture failed: {error}"),
+        Err(error) => panic!("maintenance stale-resolution spent fixture failed: {error}"),
     };
     let lot = add_material(&registries, &mut state, source, Mass::from_milligrams(1));
     let expected_revision = state.equipment().revision();
@@ -716,17 +716,17 @@ fn repair_resolution_is_invalidated_by_equipment_change_before_validation() {
     assert_eq!(resolution.condition_before(), condition(500_000));
     let wear = match decide_equipment_wear(&state, equipment, 1_000) {
         Ok(plan) => plan,
-        Err(error) => panic!("repair stale-resolution wear planning failed: {error}"),
+        Err(error) => panic!("maintenance stale-resolution wear planning failed: {error}"),
     };
     if let Err(error) = apply_equipment_condition_plan(&mut state, wear) {
-        panic!("repair stale-resolution wear commit failed: {error}");
+        panic!("maintenance stale-resolution wear commit failed: {error}");
     }
     let actual_revision = state.equipment().revision();
     let inventory_before = state.inventory().clone();
 
     assert_eq!(
-        validate_equipment_repair(&registries, &state, resolution),
-        Err(EquipmentRepairError::StaleEquipmentResolution {
+        validate_equipment_maintenance(&registries, &state, resolution),
+        Err(EquipmentMaintenanceError::StaleEquipmentResolution {
             equipment,
             expected_revision,
             actual_revision,
@@ -742,7 +742,7 @@ fn active_support(
 ) -> crate::structural::StructuralElementId {
     let bounds = match VoxelBounds::new(VoxelCoord::new(x, 0, 0), VoxelCoord::new(x + 1, 1, 1)) {
         Ok(bounds) => bounds,
-        Err(error) => panic!("repair support bounds fixture failed: {error}"),
+        Err(error) => panic!("maintenance support bounds fixture failed: {error}"),
     };
     let element = match add_structural_element(
         registries,
@@ -757,35 +757,35 @@ fn active_support(
         true,
     ) {
         Ok(element) => element,
-        Err(error) => panic!("repair support fixture failed: {error}"),
+        Err(error) => panic!("maintenance support fixture failed: {error}"),
     };
     materialize_structural_element_for_test(registries, state, element, FORM_LOG);
     let activation = match validate_activate_structural_element(registries, state, element) {
         Ok(token) => token,
-        Err(error) => panic!("repair support activation failed: {error}"),
+        Err(error) => panic!("maintenance support activation failed: {error}"),
     };
     if let Err(error) = activation.commit(state) {
-        panic!("repair support activation commit failed: {error}");
+        panic!("maintenance support activation commit failed: {error}");
     }
     element
 }
 
 #[test]
-fn repair_material_relocation_updates_supported_stockpile_loads_atomically() {
+fn maintenance_material_relocation_updates_supported_stockpile_loads_atomically() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0004));
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
-            Err(error) => panic!("repair support equipment fixture failed: {error}"),
+            Err(error) => panic!("maintenance support equipment fixture failed: {error}"),
         };
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("repair supported source fixture failed: {error}"),
+        Err(error) => panic!("maintenance supported source fixture failed: {error}"),
     };
     let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("repair supported spent fixture failed: {error}"),
+        Err(error) => panic!("maintenance supported spent fixture failed: {error}"),
     };
     let lot = add_material(&registries, &mut state, source, Mass::from_milligrams(10));
     let source_support = active_support(&registries, &mut state, 0);
@@ -793,10 +793,10 @@ fn repair_material_relocation_updates_supported_stockpile_loads_atomically() {
     for (stockpile, support) in [(source, source_support), (spent, spent_support)] {
         let token = match validate_mount_stockpile(&registries, &state, stockpile, support) {
             Ok(token) => token,
-            Err(error) => panic!("repair stockpile mount failed: {error}"),
+            Err(error) => panic!("maintenance stockpile mount failed: {error}"),
         };
         if let Err(error) = token.commit(&mut state) {
-            panic!("repair stockpile mount commit failed: {error}");
+            panic!("maintenance stockpile mount commit failed: {error}");
         }
     }
     let source_load_before = state
@@ -813,7 +813,7 @@ fn repair_material_relocation_updates_supported_stockpile_loads_atomically() {
         Some(Force::ZERO)
     );
 
-    let token = match validate_equipment_repair(
+    let token = match validate_equipment_maintenance(
         &registries,
         &state,
         bind(
@@ -827,10 +827,10 @@ fn repair_material_relocation_updates_supported_stockpile_loads_atomically() {
         ),
     ) {
         Ok(token) => token,
-        Err(error) => panic!("repair supported validation failed: {error}"),
+        Err(error) => panic!("maintenance supported validation failed: {error}"),
     };
     if let Err(error) = token.commit(&mut state) {
-        panic!("repair supported commit failed: {error}");
+        panic!("maintenance supported commit failed: {error}");
     }
 
     assert_eq!(
@@ -851,21 +851,21 @@ fn repair_material_relocation_updates_supported_stockpile_loads_atomically() {
 }
 
 #[test]
-fn repair_preserves_multiple_partial_lot_profiles_without_id_collision() {
+fn maintenance_preserves_multiple_partial_lot_profiles_without_id_collision() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0005));
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
-            Err(error) => panic!("multi-lot repair equipment fixture failed: {error}"),
+            Err(error) => panic!("multi-lot maintenance equipment fixture failed: {error}"),
         };
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("multi-lot repair source fixture failed: {error}"),
+        Err(error) => panic!("multi-lot maintenance source fixture failed: {error}"),
     };
     let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("multi-lot repair spent fixture failed: {error}"),
+        Err(error) => panic!("multi-lot maintenance spent fixture failed: {error}"),
     };
     let first = match deposit_lot_for_test(
         &registries,
@@ -900,12 +900,12 @@ fn repair_preserves_multiple_partial_lot_profiles_without_id_collision() {
         spent,
         condition(700_000),
     );
-    let token = match validate_equipment_repair(&registries, &state, resolution) {
+    let token = match validate_equipment_maintenance(&registries, &state, resolution) {
         Ok(token) => token,
-        Err(error) => panic!("multi-lot repair validation failed: {error}"),
+        Err(error) => panic!("multi-lot maintenance validation failed: {error}"),
     };
     if let Err(error) = token.commit(&mut state) {
-        panic!("multi-lot repair commit failed: {error}");
+        panic!("multi-lot maintenance commit failed: {error}");
     }
 
     assert_eq!(
@@ -941,21 +941,21 @@ fn repair_preserves_multiple_partial_lot_profiles_without_id_collision() {
 }
 
 #[test]
-fn repair_spent_capacity_failure_is_atomic() {
+fn maintenance_spent_capacity_failure_is_atomic() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0006));
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
-            Err(error) => panic!("repair capacity equipment fixture failed: {error}"),
+            Err(error) => panic!("maintenance capacity equipment fixture failed: {error}"),
         };
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("repair capacity source fixture failed: {error}"),
+        Err(error) => panic!("maintenance capacity source fixture failed: {error}"),
     };
     let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("repair capacity spent fixture failed: {error}"),
+        Err(error) => panic!("maintenance capacity spent fixture failed: {error}"),
     };
     let lot = add_material(&registries, &mut state, source, Mass::from_milligrams(10));
     let resolution = bind(
@@ -970,9 +970,9 @@ fn repair_spent_capacity_failure_is_atomic() {
     let before = state.clone();
 
     assert_eq!(
-        validate_equipment_repair(&registries, &state, resolution),
-        Err(EquipmentRepairError::Material(
-            EquipmentRepairMaterialError::SpentCapacityExceeded {
+        validate_equipment_maintenance(&registries, &state, resolution),
+        Err(EquipmentMaintenanceError::Material(
+            EquipmentMaintenanceMaterialError::SpentCapacityExceeded {
                 stockpile: spent,
                 capacity: Mass::from_milligrams(1),
                 committed: Mass::ZERO,
@@ -986,7 +986,7 @@ fn repair_spent_capacity_failure_is_atomic() {
 #[cfg(feature = "test-soak")]
 #[test]
 #[ignore = "long-horizon soak"]
-fn equipment_repair_soak_preserves_resource_conservation_and_replay() {
+fn equipment_maintenance_soak_preserves_resource_conservation_and_replay() {
     let registries = registries();
     let mut first = AppState::new(WorldSeed::new(0x8120_0007));
     let equipment = match add_equipment(
@@ -996,20 +996,20 @@ fn equipment_repair_soak_preserves_resource_conservation_and_replay() {
         Condition::PRISTINE,
     ) {
         Ok(equipment) => equipment,
-        Err(error) => panic!("repair soak equipment fixture failed: {error}"),
+        Err(error) => panic!("maintenance soak equipment fixture failed: {error}"),
     };
     let source = match add_solid_stockpile_for_test(&mut first, Mass::from_milligrams(500)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("repair soak source fixture failed: {error}"),
+        Err(error) => panic!("maintenance soak source fixture failed: {error}"),
     };
     let spent = match add_solid_stockpile_for_test(&mut first, Mass::from_milligrams(500)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("repair soak spent fixture failed: {error}"),
+        Err(error) => panic!("maintenance soak spent fixture failed: {error}"),
     };
     add_material(&registries, &mut first, source, Mass::from_milligrams(500));
     let initial_matter = match calculate_matter_accounting(&first) {
         Ok(accounting) => accounting.total(),
-        Err(error) => panic!("repair soak initial matter accounting failed: {error}"),
+        Err(error) => panic!("maintenance soak initial matter accounting failed: {error}"),
     };
     let initial_energy = explicit_energy(&registries, &first);
     let mut second = first.clone();
@@ -1018,10 +1018,10 @@ fn equipment_repair_soak_preserves_resource_conservation_and_replay() {
         for state in [&mut first, &mut second] {
             let wear = match decide_equipment_wear(state, equipment, 1_000) {
                 Ok(plan) => plan,
-                Err(error) => panic!("repair soak wear planning failed at {cycle}: {error}"),
+                Err(error) => panic!("maintenance soak wear planning failed at {cycle}: {error}"),
             };
             if let Err(error) = apply_equipment_condition_plan(state, wear) {
-                panic!("repair soak wear commit failed at {cycle}: {error}");
+                panic!("maintenance soak wear commit failed at {cycle}: {error}");
             }
             let lot = match state
                 .inventory()
@@ -1029,7 +1029,7 @@ fn equipment_repair_soak_preserves_resource_conservation_and_replay() {
                 .find(|lot| lot.stockpile() == source && lot.mass() >= Mass::from_milligrams(1))
             {
                 Some(lot) => lot.id(),
-                None => panic!("repair soak source material missing at cycle {cycle}"),
+                None => panic!("maintenance soak source material missing at cycle {cycle}"),
             };
             let resolution = bind(
                 state,
@@ -1040,12 +1040,12 @@ fn equipment_repair_soak_preserves_resource_conservation_and_replay() {
                 spent,
                 Condition::PRISTINE,
             );
-            let repair = match validate_equipment_repair(&registries, state, resolution) {
+            let maintenance = match validate_equipment_maintenance(&registries, state, resolution) {
                 Ok(token) => token,
-                Err(error) => panic!("repair soak validation failed at {cycle}: {error}"),
+                Err(error) => panic!("maintenance soak validation failed at {cycle}: {error}"),
             };
-            if let Err(error) = repair.commit(state) {
-                panic!("repair soak commit failed at {cycle}: {error}");
+            if let Err(error) = maintenance.commit(state) {
+                panic!("maintenance soak commit failed at {cycle}: {error}");
             }
         }
         if cycle % 53 == 0 {
@@ -1089,31 +1089,31 @@ fn equipment_repair_soak_preserves_resource_conservation_and_replay() {
 }
 
 #[test]
-fn repair_commit_rechecks_late_production_occupancy_before_moving_material() {
+fn maintenance_commit_rechecks_late_production_occupancy_before_moving_material() {
     let registries = occupied_registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0008));
     let equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
-            Err(error) => panic!("repair occupancy equipment fixture failed: {error}"),
+            Err(error) => panic!("maintenance occupancy equipment fixture failed: {error}"),
         };
     let process_source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("repair occupancy process source failed: {error}"),
+        Err(error) => panic!("maintenance occupancy process source failed: {error}"),
     };
     let process_destination =
         match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)) {
             Ok(stockpile) => stockpile,
-            Err(error) => panic!("repair occupancy process destination failed: {error}"),
+            Err(error) => panic!("maintenance occupancy process destination failed: {error}"),
         };
     let maintenance_source =
         match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1)) {
             Ok(stockpile) => stockpile,
-            Err(error) => panic!("repair occupancy maintenance source failed: {error}"),
+            Err(error) => panic!("maintenance occupancy maintenance source failed: {error}"),
         };
     let spent = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1)) {
         Ok(stockpile) => stockpile,
-        Err(error) => panic!("repair occupancy spent destination failed: {error}"),
+        Err(error) => panic!("maintenance occupancy spent destination failed: {error}"),
     };
     let process_lot = add_material(
         &registries,
@@ -1134,9 +1134,9 @@ fn repair_commit_rechecks_late_production_occupancy_before_moving_material() {
         Energy::from_nanojoules(1_000_000_000),
     ) {
         Ok(store) => store,
-        Err(error) => panic!("repair occupancy energy fixture failed: {error}"),
+        Err(error) => panic!("maintenance occupancy energy fixture failed: {error}"),
     };
-    let repair = match validate_equipment_repair(
+    let maintenance = match validate_equipment_maintenance(
         &registries,
         &state,
         bind(
@@ -1150,7 +1150,7 @@ fn repair_commit_rechecks_late_production_occupancy_before_moving_material() {
         ),
     ) {
         Ok(token) => token,
-        Err(error) => panic!("repair occupancy validation failed: {error}"),
+        Err(error) => panic!("maintenance occupancy validation failed: {error}"),
     };
 
     let selection = [MaterialLotSelection::new(
@@ -1170,7 +1170,7 @@ fn repair_commit_rechecks_late_production_occupancy_before_moving_material() {
         ),
     ) {
         Ok(resolved) => resolved,
-        Err(error) => panic!("repair occupancy heating resolution failed: {error}"),
+        Err(error) => panic!("maintenance occupancy heating resolution failed: {error}"),
     };
     let start = match validate_start_process(
         &registries,
@@ -1180,17 +1180,17 @@ fn repair_commit_rechecks_late_production_occupancy_before_moving_material() {
         process_destination,
     ) {
         Ok(token) => token,
-        Err(error) => panic!("repair occupancy process validation failed: {error}"),
+        Err(error) => panic!("maintenance occupancy process validation failed: {error}"),
     };
     let job = match start.commit(&mut state) {
         Ok(job) => job,
-        Err(error) => panic!("repair occupancy process commit failed: {error}"),
+        Err(error) => panic!("maintenance occupancy process commit failed: {error}"),
     };
     let job_record = match state.production().get_job(job) {
         Some(record) => record,
-        None => panic!("repair occupancy process job missing after start"),
+        None => panic!("maintenance occupancy process job missing after start"),
     };
-    let expected_error = EquipmentRepairCommitError::EquipmentBusy {
+    let expected_error = EquipmentMaintenanceCommitError::EquipmentBusy {
         equipment,
         job,
         release: job_record.occupancy_release(),
@@ -1204,7 +1204,7 @@ fn repair_commit_rechecks_late_production_occupancy_before_moving_material() {
         .get_equipment(equipment)
         .map(|record| record.condition());
 
-    assert_eq!(repair.commit(&mut state), Err(expected_error));
+    assert_eq!(maintenance.commit(&mut state), Err(expected_error));
     assert_eq!(
         state
             .inventory()
@@ -1222,7 +1222,7 @@ fn repair_commit_rechecks_late_production_occupancy_before_moving_material() {
 }
 
 #[test]
-fn repair_counts_reserved_inbound_as_capacity_but_not_structural_weight() {
+fn maintenance_counts_reserved_inbound_as_capacity_but_not_structural_weight() {
     let registries = occupied_registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_0009));
     let process_equipment = match add_equipment(
@@ -1234,10 +1234,10 @@ fn repair_counts_reserved_inbound_as_capacity_but_not_structural_weight() {
         Ok(equipment) => equipment,
         Err(error) => panic!("reserved-weight process equipment fixture failed: {error}"),
     };
-    let repair_equipment =
+    let maintenance_equipment =
         match add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)) {
             Ok(equipment) => equipment,
-            Err(error) => panic!("reserved-weight repair equipment fixture failed: {error}"),
+            Err(error) => panic!("reserved-weight maintenance equipment fixture failed: {error}"),
         };
     let process_source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(5)) {
         Ok(stockpile) => stockpile,
@@ -1328,12 +1328,12 @@ fn repair_counts_reserved_inbound_as_capacity_but_not_structural_weight() {
         Some(Force::ZERO)
     );
 
-    let repair = match validate_equipment_repair(
+    let maintenance = match validate_equipment_maintenance(
         &registries,
         &state,
         bind(
             &state,
-            repair_equipment,
+            maintenance_equipment,
             maintenance_source,
             maintenance_lot,
             Mass::from_milligrams(2),
@@ -1342,15 +1342,15 @@ fn repair_counts_reserved_inbound_as_capacity_but_not_structural_weight() {
         ),
     ) {
         Ok(token) => token,
-        Err(error) => panic!("reserved-weight repair validation failed: {error}"),
+        Err(error) => panic!("reserved-weight maintenance validation failed: {error}"),
     };
-    if let Err(error) = repair.commit(&mut state) {
-        panic!("reserved-weight repair commit failed: {error}");
+    if let Err(error) = maintenance.commit(&mut state) {
+        panic!("reserved-weight maintenance commit failed: {error}");
     }
 
     let spent_after = match state.inventory().get_stockpile(spent) {
         Some(record) => record,
-        None => panic!("reserved-weight spent stockpile disappeared after repair"),
+        None => panic!("reserved-weight spent stockpile disappeared after maintenance"),
     };
     assert_eq!(spent_after.reserved_inbound(), Mass::from_milligrams(5));
     assert_eq!(spent_after.stored_mass(), Mass::from_milligrams(2));

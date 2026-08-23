@@ -1,9 +1,12 @@
 # Status
 
-This is the runtime capability inventory. Use [`README.md`](README.md) for repository routing,
-[`ARCHITECTURE.md`](ARCHITECTURE.md) for engineering rules,
-[`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) for technical contracts, and
-[`GAME_DESIGN.md`](GAME_DESIGN.md) for the forward design target.
+This document is the runtime capability boundary. A capability is ordinary-play reachable only when it
+appears under **Implemented runtime** without a capability-only qualification. Bootstrapped gameplay
+harnesses may exercise deeper systems without making them ordinarily acquirable.
+
+Use [`README.md`](README.md) for repository routing, [`ARCHITECTURE.md`](ARCHITECTURE.md) for engineering
+rules, [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) for implemented subsystem contracts, and
+[`GAME_DESIGN.md`](GAME_DESIGN.md) for forward design intent.
 
 ## Implemented runtime
 
@@ -23,7 +26,7 @@ This is the runtime capability inventory. Use [`README.md`](README.md) for repos
 | Physical capability scalars | Typed throughput, mass, temperature, pressure, power, torque, speed, electrical, flow, volume, efficiency, transmission, and operating-limit calculations. |
 | Ore processing | Crushing, grinding, dry screening, oversize regrinding, strict binary native-copper separation, and generalized copper concentration from liberated multi-gangue feed with finite work, equipment limits, wear, physical tailings, and exact constituent accounting. |
 | Thermal production | Sensible heating, pure-material melting, and pure-material casting with finite energy, equipment limits, phase boundaries, and latent heat. |
-| Primitive progression | Visible local clues -> coarse/refined prospecting -> opaque mining targets -> stone tools -> hand mining -> scarce copper choice between extraction and stored-work rate -> flywheel/crusher -> native-copper separation -> second reinforcement. Delegated processing returns player attention and produces progression material. |
+| Primitive progression | Visible local clues -> prospecting and evidence -> stone tools -> evidence-gated hand mining -> deferred refinement when current options prove insufficient -> scarce copper choice between extraction and stored-work rate -> flywheel/crusher -> native-copper separation -> second reinforcement. Extracted form/composition informs later processing; delegated work returns player attention. |
 | Industrial capability evaluation | Workshop, ore-preparation, and pure-copper foundry harnesses exercise already-installed industrial systems. They do not establish runtime acquisition of those systems. |
 | Spatial and assets | Checked chunk-independent voxel coordinates; deterministic renderer-neutral texture baking and WGSL assembly. No graphics backend. |
 | Verification | Unit, persistence, conservation, soak, and gameplay coverage through local tooling. [`TESTING.md`](TESTING.md) owns commands and harness rules. |
@@ -36,12 +39,12 @@ This is the runtime capability inventory. Use [`README.md`](README.md) for repos
 | World representation | Voxel/chunk storage, terrain generation, streaming, world-scale spatial indexing, and runtime discovery of clue locations. |
 | Advanced geology/mining | Regional geological generation, voxel ore topology, panning, physical sampling, drilling, assays, geophysics, mechanized excavation, access, haulage, drainage, ground control, recovery fractions, waste rock, and tailings transport/impoundment beyond the particulate tailings lots produced by current concentration. |
 | Thermal/chemical industry | Environmental heat transport, vaporization, combustion, fuels/emissions, mixed/alloy phase behavior, concentration methods beyond the current liberated-copper separator model, smelting/reduction, alloying, forging, and machining. |
-| Rich maintenance and structures | Repair labor/tools/access, bespoke salvage, maintenance scrap recovery, bending, shear, torsion, buckling, joints, terrain support, construction labor/waste, and fractional demolition streams. |
+| Rich maintenance and structures | Maintenance labor/tools/access, bespoke salvage, maintenance scrap recovery, bending, shear, torsion, buckling, joints, terrain support, construction labor/waste, and fractional demolition streams. |
 | Power networks | Shaft/belt networks, inertia/slip/clutches, steam systems, electrical topology, generation, distribution, protection, and spatial network integration. |
 | Hydrology | Ground/surface water, channels, pumps, irrigation, wastewater, sanitation, fluid mixing, and pressure/temperature-dependent fluid properties. |
 | Ecology and society | Agriculture, soil simulation, ecology, genetics, creatures, hunting/combat, workers, settlements, logistics, trade, economy, and migration. |
 | Industrial acquisition | Ordinary-play acquisition for industrial machines and industrial energy systems, plus the processing infrastructure required to reach the bootstrapped industrial harnesses. |
 | Save storage adapters | Save-file encoding/storage, filesystem atomicity, compression, cloud storage. |
 
-List a capability here only when it has an authoritative owner, a canonical runtime path, persistence
-semantics where required, invariant coverage, and executable verification.
+List a capability as implemented only when it has an authoritative owner, a canonical runtime path,
+persistence semantics where required, invariant coverage, and executable verification.

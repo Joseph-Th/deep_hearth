@@ -1,4 +1,4 @@
-//! Continuous equipment condition and pure wear/repair planning without imposing one degradation curve.
+//! Continuous equipment condition and pure wear/maintenance planning without imposing one degradation curve.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};

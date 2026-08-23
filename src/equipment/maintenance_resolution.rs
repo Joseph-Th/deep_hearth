@@ -2,7 +2,7 @@
 //!
 //! This module owns the read-only policy step that binds one equipment definition's replacement
 //! material, service target, and spent-material form to an exact inventory selection. The separate
-//! repair execution module owns the later cross-owner transaction and commit checks.
+//! maintenance execution module owns the later cross-owner transaction and commit checks.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -22,11 +22,11 @@ use super::state::EquipmentId;
 /// Opaque result of physical maintenance resolution.
 ///
 /// Production callers cannot construct this directly. The maintenance resolver binds exact authored
-/// replacement material and resulting equipment condition before the repair transaction can be
+/// replacement material and resulting equipment condition before the maintenance transaction can be
 /// validated.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
-pub struct EquipmentRepairResolution {
+pub struct EquipmentMaintenanceResolution {
     pub(super) equipment: EquipmentId,
     pub(super) expected_equipment_revision: u64,
     pub(super) condition_before: Condition,
@@ -169,7 +169,7 @@ pub fn resolve_equipment_maintenance(
     registries: &Registries,
     state: &AppState,
     request: EquipmentMaintenanceRequest,
-) -> Result<EquipmentRepairResolution, EquipmentMaintenanceResolutionError> {
+) -> Result<EquipmentMaintenanceResolution, EquipmentMaintenanceResolutionError> {
     let record = state.equipment().get_equipment(request.equipment).ok_or(
         EquipmentMaintenanceResolutionError::UnknownEquipment {
             equipment: request.equipment,
@@ -229,7 +229,7 @@ pub fn resolve_equipment_maintenance(
         return Err(EquipmentMaintenanceResolutionError::ImpureReplacementMaterial { commodity });
     }
 
-    Ok(EquipmentRepairResolution {
+    Ok(EquipmentMaintenanceResolution {
         equipment: request.equipment,
         expected_equipment_revision: state.equipment().revision(),
         condition_before,
@@ -250,7 +250,7 @@ pub(super) fn impure_replacement_commodity(
     })
 }
 
-impl EquipmentRepairResolution {
+impl EquipmentMaintenanceResolution {
     #[must_use]
     pub const fn equipment(&self) -> EquipmentId {
         self.equipment

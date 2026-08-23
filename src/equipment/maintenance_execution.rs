@@ -1,4 +1,4 @@
-//! Conserved equipment-repair transaction boundary.
+//! Conserved equipment-maintenance transaction boundary.
 //!
 //! Maintenance resolution is read-only and lives in `maintenance_resolution`. This module consumes
 //! that opaque result, validates every mutable owner, reforms exact replacement matter into the
@@ -21,7 +21,7 @@ use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
 use super::definitions::EquipmentDefinitionId;
-use super::maintenance_resolution::{EquipmentRepairResolution, impure_replacement_commodity};
+use super::maintenance_resolution::{EquipmentMaintenanceResolution, impure_replacement_commodity};
 use super::state::EquipmentId;
 
 #[cfg(test)]
@@ -29,9 +29,9 @@ use super::maintenance_resolution::{
     EquipmentMaintenanceRequest, EquipmentMaintenanceResolutionError, resolve_equipment_maintenance,
 };
 
-/// Failure while validating an already physically resolved equipment repair.
+/// Failure while validating an already physically resolved equipment maintenance.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum EquipmentRepairError {
+pub enum EquipmentMaintenanceError {
     UnknownEquipment {
         equipment: EquipmentId,
     },
@@ -70,12 +70,12 @@ pub enum EquipmentRepairError {
         commodity: CommodityKey,
     },
     EquipmentRevisionExhausted,
-    Material(EquipmentRepairMaterialError),
+    Material(EquipmentMaintenanceMaterialError),
 }
 
-/// Public repair-facing translation of the crate-private exact relocation boundary.
+/// Public maintenance-facing translation of the crate-private exact material-reform boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum EquipmentRepairMaterialError {
+pub enum EquipmentMaintenanceMaterialError {
     StaleSelection {
         expected: u64,
         actual: u64,
@@ -114,7 +114,7 @@ pub enum EquipmentRepairMaterialError {
     StructuralLoad(StockpileStructuralLoadError),
 }
 
-impl Display for EquipmentRepairMaterialError {
+impl Display for EquipmentMaintenanceMaterialError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::StaleSelection { expected, actual } => write!(
@@ -176,11 +176,11 @@ impl Display for EquipmentRepairMaterialError {
                 committed.milligrams(),
                 requested.milligrams()
             ),
-            Self::LotIdExhausted => formatter
-                .write_str("material lot identifier space is exhausted during equipment repair"),
-            Self::InventoryRevisionExhausted => {
-                formatter.write_str("inventory revision space is exhausted during equipment repair")
-            }
+            Self::LotIdExhausted => formatter.write_str(
+                "material lot identifier space is exhausted during equipment maintenance",
+            ),
+            Self::InventoryRevisionExhausted => formatter
+                .write_str("inventory revision space is exhausted during equipment maintenance"),
             Self::StructuralLoad(error) => write!(
                 formatter,
                 "maintenance material movement cannot update stored-matter load: {error}"
@@ -189,7 +189,7 @@ impl Display for EquipmentRepairMaterialError {
     }
 }
 
-impl Error for EquipmentRepairMaterialError {
+impl Error for EquipmentMaintenanceMaterialError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::SpentStorage(error) => Some(error),
@@ -229,7 +229,7 @@ impl Error for EquipmentRepairMaterialError {
     }
 }
 
-impl Display for EquipmentRepairError {
+impl Display for EquipmentMaintenanceError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownEquipment { equipment } => {
@@ -240,7 +240,7 @@ impl Display for EquipmentRepairError {
                 definition,
             } => write!(
                 formatter,
-                "equipment {} references unknown definition {} during repair validation",
+                "equipment {} references unknown definition {} during maintenance validation",
                 equipment.value(),
                 definition.value()
             ),
@@ -250,7 +250,7 @@ impl Display for EquipmentRepairError {
                 actual_revision,
             } => write!(
                 formatter,
-                "equipment {} changed from repair-resolution revision {expected_revision} to {actual_revision} before transaction validation",
+                "equipment {} changed from maintenance-resolution revision {expected_revision} to {actual_revision} before transaction validation",
                 equipment.value()
             ),
             Self::ConditionChangedSinceResolution {
@@ -259,7 +259,7 @@ impl Display for EquipmentRepairError {
                 actual,
             } => write!(
                 formatter,
-                "equipment {} condition changed from repair-resolution {} ppm to {} ppm before transaction validation",
+                "equipment {} condition changed from maintenance-resolution {} ppm to {} ppm before transaction validation",
                 equipment.value(),
                 expected.parts_per_million(),
                 actual.parts_per_million()
@@ -270,19 +270,19 @@ impl Display for EquipmentRepairError {
                 release,
             } => write!(
                 formatter,
-                "equipment {} is occupied by production job {} {release} and cannot be repaired",
+                "equipment {} is occupied by production job {} {release} and cannot be serviced",
                 equipment.value(),
                 job.value()
             ),
             Self::EquipmentBusyMining { equipment, job } => write!(
                 formatter,
-                "equipment {} is occupied by mining job {} and cannot be repaired",
+                "equipment {} is occupied by mining job {} and cannot be serviced",
                 equipment.value(),
                 job.value()
             ),
             Self::EquipmentBusyManualPower { equipment } => write!(
                 formatter,
-                "equipment {} is occupied by direct player-powered generation and cannot be repaired",
+                "equipment {} is occupied by direct player-powered generation and cannot be serviced",
                 equipment.value()
             ),
             Self::ConditionNotImproved {
@@ -291,28 +291,28 @@ impl Display for EquipmentRepairError {
                 after,
             } => write!(
                 formatter,
-                "equipment {} repair must improve condition above {} ppm; resolved outcome is {} ppm",
+                "equipment {} maintenance must improve condition above {} ppm; resolved outcome is {} ppm",
                 equipment.value(),
                 before.parts_per_million(),
                 after.parts_per_million()
             ),
             Self::ImpureReplacementMaterial { commodity } => write!(
                 formatter,
-                "equipment repair replacement commodity {} must be pure authored material",
+                "equipment maintenance replacement commodity {} must be pure authored material",
                 commodity.value()
             ),
             Self::EquipmentRevisionExhausted => {
-                formatter.write_str("equipment revision space is exhausted during repair")
+                formatter.write_str("equipment revision space is exhausted during maintenance")
             }
             Self::Material(error) => write!(
                 formatter,
-                "equipment repair material transaction is invalid: {error}"
+                "equipment maintenance material transaction is invalid: {error}"
             ),
         }
     }
 }
 
-impl Error for EquipmentRepairError {
+impl Error for EquipmentMaintenanceError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Material(error) => Some(error),
@@ -358,9 +358,9 @@ impl Error for EquipmentRepairError {
     }
 }
 
-/// Commit failure after one or more repair owners changed since validation.
+/// Commit failure after one or more maintenance owners changed since validation.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum EquipmentRepairCommitError {
+pub enum EquipmentMaintenanceCommitError {
     StaleEquipmentRevision {
         expected: u64,
         actual: u64,
@@ -392,16 +392,16 @@ pub enum EquipmentRepairCommitError {
     Structure(StructuralCommitError),
 }
 
-impl Display for EquipmentRepairCommitError {
+impl Display for EquipmentMaintenanceCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::StaleEquipmentRevision { expected, actual } => write!(
                 formatter,
-                "validated equipment repair expected equipment revision {expected} but current revision is {actual}"
+                "validated equipment maintenance expected equipment revision {expected} but current revision is {actual}"
             ),
             Self::UnknownEquipment { equipment } => write!(
                 formatter,
-                "equipment {} disappeared before repair commit",
+                "equipment {} disappeared before maintenance commit",
                 equipment.value()
             ),
             Self::ConditionChanged {
@@ -410,7 +410,7 @@ impl Display for EquipmentRepairCommitError {
                 actual,
             } => write!(
                 formatter,
-                "equipment {} condition changed from expected {} ppm to {} ppm before repair commit",
+                "equipment {} condition changed from expected {} ppm to {} ppm before maintenance commit",
                 equipment.value(),
                 expected.parts_per_million(),
                 actual.parts_per_million()
@@ -421,34 +421,34 @@ impl Display for EquipmentRepairCommitError {
                 release,
             } => write!(
                 formatter,
-                "equipment {} became occupied by production job {} {release} before repair commit",
+                "equipment {} became occupied by production job {} {release} before maintenance commit",
                 equipment.value(),
                 job.value()
             ),
             Self::EquipmentBusyMining { equipment, job } => write!(
                 formatter,
-                "equipment {} became occupied by mining job {} before repair commit",
+                "equipment {} became occupied by mining job {} before maintenance commit",
                 equipment.value(),
                 job.value()
             ),
             Self::EquipmentBusyManualPower { equipment } => write!(
                 formatter,
-                "equipment {} became occupied by direct player-powered generation before repair commit",
+                "equipment {} became occupied by direct player-powered generation before maintenance commit",
                 equipment.value()
             ),
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
-                "validated equipment repair expected inventory revision {expected} but current revision is {actual}"
+                "validated equipment maintenance expected inventory revision {expected} but current revision is {actual}"
             ),
             Self::Structure(error) => write!(
                 formatter,
-                "equipment repair material structural commit failed: {error}"
+                "equipment maintenance material structural commit failed: {error}"
             ),
         }
     }
 }
 
-impl Error for EquipmentRepairCommitError {
+impl Error for EquipmentMaintenanceCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
@@ -484,17 +484,17 @@ impl Error for EquipmentRepairCommitError {
     }
 }
 
-/// Successful repair outcome after exact maintenance matter is reformed into its spent output.
+/// Successful maintenance outcome after exact maintenance matter is reformed into its spent output.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct EquipmentRepairOutcome {
+pub struct EquipmentMaintenanceOutcome {
     equipment: EquipmentId,
     condition_before: Condition,
     condition_after: Condition,
     material_mass: Mass,
 }
 
-impl EquipmentRepairOutcome {
+impl EquipmentMaintenanceOutcome {
     #[must_use]
     pub const fn equipment(self) -> EquipmentId {
         self.equipment
@@ -519,7 +519,7 @@ impl EquipmentRepairOutcome {
 /// Consumed proof that equipment and exact maintenance material can change atomically.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
-pub struct ValidatedEquipmentRepair {
+pub struct ValidatedEquipmentMaintenance {
     equipment: EquipmentId,
     condition_before: Condition,
     condition_after: Condition,
@@ -528,7 +528,7 @@ pub struct ValidatedEquipmentRepair {
     material: ValidatedMaterialReform,
 }
 
-impl ValidatedEquipmentRepair {
+impl ValidatedEquipmentMaintenance {
     #[must_use]
     pub const fn material_mass(&self) -> Mass {
         self.material.total_mass()
@@ -537,16 +537,16 @@ impl ValidatedEquipmentRepair {
     pub fn commit(
         self,
         state: &mut AppState,
-    ) -> Result<EquipmentRepairOutcome, EquipmentRepairCommitError> {
+    ) -> Result<EquipmentMaintenanceOutcome, EquipmentMaintenanceCommitError> {
         let actual_revision = state.equipment().revision();
         if actual_revision != self.expected_equipment_revision {
-            return Err(EquipmentRepairCommitError::StaleEquipmentRevision {
+            return Err(EquipmentMaintenanceCommitError::StaleEquipmentRevision {
                 expected: self.expected_equipment_revision,
                 actual: actual_revision,
             });
         }
         if let Some(job) = state.mining().get_equipment_occupant(self.equipment) {
-            return Err(EquipmentRepairCommitError::EquipmentBusyMining {
+            return Err(EquipmentMaintenanceCommitError::EquipmentBusyMining {
                 equipment: self.equipment,
                 job,
             });
@@ -556,24 +556,24 @@ impl ValidatedEquipmentRepair {
             .get_manual_power_equipment_occupant(self.equipment)
             .is_some()
         {
-            return Err(EquipmentRepairCommitError::EquipmentBusyManualPower {
+            return Err(EquipmentMaintenanceCommitError::EquipmentBusyManualPower {
                 equipment: self.equipment,
             });
         }
         let Some(record) = state.equipment().get_equipment(self.equipment) else {
-            return Err(EquipmentRepairCommitError::UnknownEquipment {
+            return Err(EquipmentMaintenanceCommitError::UnknownEquipment {
                 equipment: self.equipment,
             });
         };
         if record.condition() != self.condition_before {
-            return Err(EquipmentRepairCommitError::ConditionChanged {
+            return Err(EquipmentMaintenanceCommitError::ConditionChanged {
                 equipment: self.equipment,
                 expected: self.condition_before,
                 actual: record.condition(),
             });
         }
         if let Some(job) = state.production().get_equipment_occupant(self.equipment) {
-            return Err(EquipmentRepairCommitError::EquipmentBusy {
+            return Err(EquipmentMaintenanceCommitError::EquipmentBusy {
                 equipment: self.equipment,
                 job: job.id(),
                 release: job.occupancy_release(),
@@ -592,7 +592,7 @@ impl ValidatedEquipmentRepair {
             self.next_equipment_revision,
         );
 
-        Ok(EquipmentRepairOutcome {
+        Ok(EquipmentMaintenanceOutcome {
             equipment: self.equipment,
             condition_before: self.condition_before,
             condition_after: self.condition_after,
@@ -601,96 +601,98 @@ impl ValidatedEquipmentRepair {
     }
 }
 
-fn map_material_error(error: MaterialReformError) -> EquipmentRepairMaterialError {
+fn map_material_error(error: MaterialReformError) -> EquipmentMaintenanceMaterialError {
     match error {
         MaterialReformError::StaleSelection { expected, actual } => {
-            EquipmentRepairMaterialError::StaleSelection { expected, actual }
+            EquipmentMaintenanceMaterialError::StaleSelection { expected, actual }
         }
         MaterialReformError::UnknownSource { stockpile } => {
-            EquipmentRepairMaterialError::UnknownSource { stockpile }
+            EquipmentMaintenanceMaterialError::UnknownSource { stockpile }
         }
         MaterialReformError::UnknownDestination { stockpile } => {
-            EquipmentRepairMaterialError::UnknownSpentDestination { stockpile }
+            EquipmentMaintenanceMaterialError::UnknownSpentDestination { stockpile }
         }
         MaterialReformError::UnknownTargetMaterial { material } => {
-            EquipmentRepairMaterialError::UnknownSpentMaterial { material }
+            EquipmentMaintenanceMaterialError::UnknownSpentMaterial { material }
         }
         MaterialReformError::UnknownTargetForm { form } => {
-            EquipmentRepairMaterialError::UnknownSpentForm { form }
+            EquipmentMaintenanceMaterialError::UnknownSpentForm { form }
         }
         MaterialReformError::MaterialChanged { source, target } => {
-            EquipmentRepairMaterialError::SpentMaterialChanged { source, target }
+            EquipmentMaintenanceMaterialError::SpentMaterialChanged { source, target }
         }
         MaterialReformError::TargetUnchanged { commodity } => {
-            EquipmentRepairMaterialError::SpentFormUnchanged { commodity }
+            EquipmentMaintenanceMaterialError::SpentFormUnchanged { commodity }
         }
         MaterialReformError::DestinationStorage(error) => {
-            EquipmentRepairMaterialError::SpentStorage(error)
+            EquipmentMaintenanceMaterialError::SpentStorage(error)
         }
         MaterialReformError::DestinationMassOverflow { stockpile } => {
-            EquipmentRepairMaterialError::SpentMassOverflow { stockpile }
+            EquipmentMaintenanceMaterialError::SpentMassOverflow { stockpile }
         }
         MaterialReformError::DestinationCapacityExceeded {
             stockpile,
             capacity,
             committed,
             requested,
-        } => EquipmentRepairMaterialError::SpentCapacityExceeded {
+        } => EquipmentMaintenanceMaterialError::SpentCapacityExceeded {
             stockpile,
             capacity,
             committed,
             requested,
         },
-        MaterialReformError::LotIdExhausted => EquipmentRepairMaterialError::LotIdExhausted,
+        MaterialReformError::LotIdExhausted => EquipmentMaintenanceMaterialError::LotIdExhausted,
         MaterialReformError::RevisionExhausted => {
-            EquipmentRepairMaterialError::InventoryRevisionExhausted
+            EquipmentMaintenanceMaterialError::InventoryRevisionExhausted
         }
         MaterialReformError::StructuralLoad(error) => {
-            EquipmentRepairMaterialError::StructuralLoad(error)
+            EquipmentMaintenanceMaterialError::StructuralLoad(error)
         }
     }
 }
 
-fn map_material_commit_error(error: MaterialReformCommitError) -> EquipmentRepairCommitError {
+fn map_material_commit_error(error: MaterialReformCommitError) -> EquipmentMaintenanceCommitError {
     match error {
         MaterialReformCommitError::StaleInventoryRevision { expected, actual } => {
-            EquipmentRepairCommitError::StaleInventoryRevision { expected, actual }
+            EquipmentMaintenanceCommitError::StaleInventoryRevision { expected, actual }
         }
-        MaterialReformCommitError::Structure(error) => EquipmentRepairCommitError::Structure(error),
+        MaterialReformCommitError::Structure(error) => {
+            EquipmentMaintenanceCommitError::Structure(error)
+        }
     }
 }
 
-/// Validates one already-resolved, resource-backed equipment repair without mutating any owner.
-pub fn validate_equipment_repair(
+/// Validates one already-resolved, resource-backed equipment maintenance without mutating any owner.
+pub fn validate_equipment_maintenance(
     registries: &Registries,
     state: &AppState,
-    resolution: EquipmentRepairResolution,
-) -> Result<ValidatedEquipmentRepair, EquipmentRepairError> {
+    resolution: EquipmentMaintenanceResolution,
+) -> Result<ValidatedEquipmentMaintenance, EquipmentMaintenanceError> {
     let equipment = resolution.equipment;
     let record = state
         .equipment()
         .get_equipment(equipment)
-        .ok_or(EquipmentRepairError::UnknownEquipment { equipment })?;
+        .ok_or(EquipmentMaintenanceError::UnknownEquipment { equipment })?;
     let actual_equipment_revision = state.equipment().revision();
     if actual_equipment_revision != resolution.expected_equipment_revision {
-        return Err(EquipmentRepairError::StaleEquipmentResolution {
+        return Err(EquipmentMaintenanceError::StaleEquipmentResolution {
             equipment,
             expected_revision: resolution.expected_equipment_revision,
             actual_revision: actual_equipment_revision,
         });
     }
     if let Some(job) = state.mining().get_equipment_occupant(equipment) {
-        return Err(EquipmentRepairError::EquipmentBusyMining { equipment, job });
+        return Err(EquipmentMaintenanceError::EquipmentBusyMining { equipment, job });
     }
     if state
         .player_work()
         .get_manual_power_equipment_occupant(equipment)
         .is_some()
     {
-        return Err(EquipmentRepairError::EquipmentBusyManualPower { equipment });
+        return Err(EquipmentMaintenanceError::EquipmentBusyManualPower { equipment });
     }
     if record.condition() != resolution.condition_before {
-        return Err(EquipmentRepairError::ConditionChangedSinceResolution {
+        return Err(EquipmentMaintenanceError::ConditionChangedSinceResolution {
             equipment,
             expected: resolution.condition_before,
             actual: record.condition(),
@@ -701,13 +703,13 @@ pub fn validate_equipment_repair(
         .get_equipment(record.definition())
         .is_none()
     {
-        return Err(EquipmentRepairError::UnknownDefinition {
+        return Err(EquipmentMaintenanceError::UnknownDefinition {
             equipment,
             definition: record.definition(),
         });
     }
     if let Some(job) = state.production().get_equipment_occupant(equipment) {
-        return Err(EquipmentRepairError::EquipmentBusy {
+        return Err(EquipmentMaintenanceError::EquipmentBusy {
             equipment,
             job: job.id(),
             release: job.occupancy_release(),
@@ -715,20 +717,20 @@ pub fn validate_equipment_repair(
     }
     let condition_before = resolution.condition_before;
     if resolution.condition_after <= condition_before {
-        return Err(EquipmentRepairError::ConditionNotImproved {
+        return Err(EquipmentMaintenanceError::ConditionNotImproved {
             equipment,
             before: condition_before,
             after: resolution.condition_after,
         });
     }
     if let Some(commodity) = impure_replacement_commodity(&resolution.material) {
-        return Err(EquipmentRepairError::ImpureReplacementMaterial { commodity });
+        return Err(EquipmentMaintenanceError::ImpureReplacementMaterial { commodity });
     }
     let next_equipment_revision = state
         .equipment()
         .revision()
         .checked_add(1)
-        .ok_or(EquipmentRepairError::EquipmentRevisionExhausted)?;
+        .ok_or(EquipmentMaintenanceError::EquipmentRevisionExhausted)?;
     let material = validate_material_reform_from_selection(
         registries,
         state,
@@ -737,9 +739,9 @@ pub fn validate_equipment_repair(
         resolution.material,
     )
     .map_err(map_material_error)
-    .map_err(EquipmentRepairError::Material)?;
+    .map_err(EquipmentMaintenanceError::Material)?;
 
-    Ok(ValidatedEquipmentRepair {
+    Ok(ValidatedEquipmentMaintenance {
         equipment,
         condition_before,
         condition_after: resolution.condition_after,
@@ -750,5 +752,5 @@ pub fn validate_equipment_repair(
 }
 
 #[cfg(test)]
-#[path = "repair_execution_tests.rs"]
+#[path = "maintenance_execution_tests.rs"]
 mod tests;

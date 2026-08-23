@@ -1,60 +1,36 @@
 # Technical Design
 
-This document owns implemented, project-specific technical contracts. [`ARCHITECTURE.md`](ARCHITECTURE.md)
-owns general engineering rules, [`STATUS.md`](STATUS.md) owns capability presence, and
-[`GAME_DESIGN.md`](GAME_DESIGN.md) owns player-facing intent. Source and adjacent tests own concrete edge
-cases and typed error details.
+This document owns implemented, project-specific runtime contracts. [`ARCHITECTURE.md`](ARCHITECTURE.md)
+owns general engineering rules. [`STATUS.md`](STATUS.md) owns capability presence. Source and adjacent
+tests own concrete edge cases and typed errors.
 
-Use this document after locating the relevant runtime capability in `STATUS.md` and source owner in
-`README.md`.
+Read only the section for the subsystem being changed.
 
 ## Contract map
 
 | Change concerns | Read |
 | --- | --- |
-| State ownership, determinism, time, save/load | Runtime model; Determinism and time; Runtime owners; Mutation and persistence |
+| Time, save versions, runtime state owners | Global runtime facts; Runtime owners |
 | Units, checked arithmetic, conservation | Physical quantities |
 | Materials, inventory, geology, knowledge, mining | Materials, inventory, and geology |
 | Jobs, crafting, ore processing, thermal work | Production and processing |
 | Equipment, labor, survival, energy, fluids | Equipment, labor, survival, energy, and fluids |
 | Structural support, loads, failure | Structures |
 | Coordinates, textures, shaders, renderer boundary | Spatial and presentation boundaries |
-| Trusted-load graph validation | Cross-owner invariants |
+| Trusted-load graph validation | Trusted load |
 
-## Runtime model
+## Global runtime facts
 
-Deep Hearth is a deterministic headless simulation. Gameplay state does not depend on rendering, input,
-networking, platform services, or a storage backend.
-
-| Layer | Responsibility |
-| --- | --- |
-| `core` | Domain-neutral quantities, identity, time, RNG, and root `AppState` primitives |
-| `registry` | Immutable validated definition aggregates and lookup contracts |
-| `content` | Built-in authored definitions |
-| gameplay subsystems | Authoritative records, indexes, validation/planning, and canonical mutations |
-| `simulation` | Explicit top-level tick order |
-| `persistence` | Semantic save envelope and trusted-load admission |
-| adapters | Filesystem, encoding, rendering, input, networking, platform integration |
-
-Registries describe what may exist. `AppState` records what does exist. Runtime-only derived indexes may
-be omitted from persistence only when they rebuild deterministically from authoritative records.
-
-## Determinism and time
-
-Authoritative results are a function of immutable registries, persisted state, ordered explicit inputs,
-state-owned randomness, and explicitly modeled external snapshots.
-
-- `RandomState` is persisted. Typed RNG streams derive independently from the world seed.
-- Result-affecting ordering uses deterministic collections or explicit sorting with complete tie-breakers.
-- Authoritative physical quantities use checked integer arithmetic; implemented physical calculations do
-  not use floating point.
-- Parallelism may change throughput, never authoritative reduction or commit order.
 - `SimulationTick` is absolute world time; `TickSpan` is relative duration.
-- The built-in calendar maps 24,000 ticks to 86,400 physical seconds, so one tick is 3.6 seconds.
-- Rate-authored physics integrate against physical tick duration. Per-tick gameplay costs are authored in
-  world ticks.
-- Dynamic scheduled work is persisted as explicit records. `PeriodicSchedule` is reserved for static,
-  clock-derived phase scheduling.
+- The built-in calendar maps 24,000 ticks to 86,400 seconds; one tick is 3.6 seconds.
+- Rate-authored physics integrate against physical tick duration. Per-tick gameplay costs use world ticks.
+- `RandomState` is persisted and owns typed RNG streams derived from the world seed.
+- Implemented authoritative physical calculations use checked integer arithmetic, not floating point.
+- Dynamic scheduled work persists as explicit records. `PeriodicSchedule` is for static clock-derived
+  phase scheduling.
+- `CURRENT_SAVE_SCHEMA_VERSION` is the only accepted runtime payload shape.
+- `RegistrySchemaVersion` identifies authored identity and physical-definition compatibility.
+- Save encoding and storage are adapter concerns.
 
 ## Runtime owners
 
@@ -76,32 +52,6 @@ synchronized indexes.
 | `SurvivalState` | Metabolic energy, hydration, vitality, nutrition, fractional vitality-recovery carry, terminal consumed matter/fluid totals |
 
 Cross-owner operations coordinate these owners; no owner reaches into another owner's private storage.
-
-## Mutation and persistence
-
-Consequential mutations use the canonical patterns defined in `ARCHITECTURE.md`:
-
-- `validate_* -> Validated* -> commit` for fallible revision-bound state changes;
-- `decide_* -> Plan/Outcome/Delta -> apply_*` for read-heavy decisions with narrow writes;
-- direct owner mutation only when one owner can preserve every invariant on every return path.
-
-Resolvers calculate physical outcomes. Validators authorize state transitions. Consumed tokens bind the
-revisions, selections, and snapshots they checked; stale commits fail before partial mutation.
-
-Persistence distinguishes two versions:
-
-- `CURRENT_SAVE_SCHEMA_VERSION`: supported runtime payload shape;
-- `RegistrySchemaVersion`: authored identity and physical-definition compatibility.
-
-Only the current save schema is accepted. Trusted load admission:
-
-1. validates save and registry versions;
-2. rebuilds derived indexes;
-3. validates every local owner;
-4. resolves authored and runtime references;
-5. validates cross-owner occupancy, reservations, support, provenance, and ownership;
-6. replays operation-specific physical outcomes where persisted work depends on them;
-7. returns `AppState` only after the complete graph is valid.
 
 ## Physical quantities
 
@@ -228,9 +178,9 @@ reset wear through reassembly.
 Maintenance consumes an exact replacement commodity, produces a distinct conserved spent form, and
 restores the authored condition target. It is a physical material reform, not condition-only mutation.
 
-`PlayerWorkState` is exclusive across manual crafting, field prospecting, hand mining, and direct manual power. Work
-admission binds projected metabolic-energy and hydration cost. Successful completion consumes that same
-budget.
+`PlayerWorkState` is exclusive across manual crafting, field prospecting, hand mining, and direct manual
+power. Work admission binds projected metabolic-energy and hydration cost. Successful completion consumes
+that same budget.
 
 Direct player power uses a real portable unmounted power provider and finite compatible destination
 store. Duration respects provider/store transfer limits and sustainable metabolic output; physiological
@@ -278,10 +228,19 @@ dependencies, explicit entry points/pipeline requirements, and bounded work. Gra
 and frame scheduling belong to adapters. [`assets/shaders/README.md`](assets/shaders/README.md) owns the
 concrete shader binding contract.
 
-## Cross-owner invariants
+## Trusted load
 
 `validate_loaded_state(registries, state)` is the exhaustive trusted-load boundary. It recomputes rather
-than trusting cached claims. Cross-owner validation covers, as applicable:
+than trusting cached claims. Admission:
+
+1. validates save and registry versions;
+2. rebuilds derived indexes;
+3. validates each local owner and all authored/runtime references;
+4. validates cross-owner occupancy, reservations, support, provenance, and ownership;
+5. replays operation-specific physical outcomes where persisted work depends on them;
+6. returns `AppState` only after the complete graph is valid.
+
+Cross-owner validation covers, as applicable:
 
 - authored/runtime references and monotonic identity cursors;
 - forward/reverse indexes and derived caches;
