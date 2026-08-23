@@ -86,7 +86,7 @@ installed system, not an ordinary-play acquisition path.
 | `survival` | Preservation, dominant reserve pressure, matched compact-calorie versus balanced-diet provisioning, physical eating/drinking, and reserve recovery. |
 | `progression` | Local prospecting, primitive crafting/assembly, mining, scarce copper sequencing, manual power, autonomous crushing, productive overlap, native-copper separation, convergence, and returned player attention. |
 | `workshop` | Installed industrial workshop operation under stored-work, survival, wear, maintenance, structure, power, and hidden world-change pressure; includes matched policy counterfactuals. |
-| `ore` | Installed crushing, grinding, screening, and regrinding pipeline behavior. Capability depth only. |
+| `ore` | Installed crushing, grinding, screening, regrinding, and generalized copper-concentration behavior over variable multi-constituent gangue, including bounded primitive separator batches, exact constituent accounting, and physical tailings. Capability depth only. |
 | `foundry` | Installed pure-copper heating, melting, casting, and finite heat-recovery behavior. Capability depth only. |
 
 ### Progression contract

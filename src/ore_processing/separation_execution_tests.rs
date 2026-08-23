@@ -2,9 +2,9 @@
 
 use super::*;
 use crate::content::{
-    ENERGY_MECHANICAL_SMALL_DRIVE, EQUIPMENT_STONE_SEPARATOR, FORM_CRUSHED, FORM_NATIVE_METAL,
-    MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, PROCESS_SEPARATE_NATIVE_COPPER,
-    build_registries,
+    ENERGY_MECHANICAL_SMALL_DRIVE, EQUIPMENT_STONE_SEPARATOR, FORM_CONCENTRATE, FORM_CRUSHED,
+    FORM_NATIVE_METAL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, PROCESS_CONCENTRATE_COPPER,
+    PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
 };
 use crate::core::quantity::{Energy, Length, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
@@ -117,12 +117,16 @@ fn fixture(mass: Mass, composition: MaterialComposition) -> Fixture {
     }
 }
 
-fn resolve(fixture: &Fixture, mass: Mass) -> ResolvedConstituentSeparation {
+fn resolve_process(
+    fixture: &Fixture,
+    process: ProcessId,
+    mass: Mass,
+) -> ResolvedConstituentSeparation {
     resolve_constituent_separation_process(
         &fixture.registries,
         &fixture.state,
         ConstituentSeparationRequest::new(
-            PROCESS_SEPARATE_NATIVE_COPPER,
+            process,
             fixture.source,
             &[MaterialLotSelection::new(fixture.lot, mass)],
             fixture.separator,
@@ -130,6 +134,10 @@ fn resolve(fixture: &Fixture, mass: Mass) -> ResolvedConstituentSeparation {
         ),
     )
     .unwrap_or_else(|error| panic!("separation resolution failed: {error}"))
+}
+
+fn resolve(fixture: &Fixture, mass: Mass) -> ResolvedConstituentSeparation {
+    resolve_process(fixture, PROCESS_SEPARATE_NATIVE_COPPER, mass)
 }
 
 #[test]
@@ -345,6 +353,130 @@ fn constituent_separation_rejects_unmodeled_third_constituent_without_mutation()
         )
     );
     assert_eq!(fixture.state, before);
+}
+
+#[test]
+fn concentration_accepts_multiple_gangue_constituents_without_losing_composition() {
+    let mass = Mass::from_milligrams(7);
+    let composition = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_COPPER, 400_000),
+        CompositionComponent::new(MATERIAL_STONE, 350_000),
+        CompositionComponent::new(MATERIAL_SLAG, 250_000),
+    ])
+    .unwrap_or_else(|error| panic!("concentration composition fixture failed: {error}"));
+    let fixture = fixture(mass, composition.clone());
+    let resolved = resolve_process(&fixture, PROCESS_CONCENTRATE_COPPER, mass);
+
+    assert_eq!(resolved.target_mass(), Mass::from_milligrams(2));
+    assert_eq!(resolved.residue_mass(), Mass::from_milligrams(5));
+    let target = resolved
+        .process_resolution()
+        .output_streams()
+        .iter()
+        .find(|stream| stream.id() == ConstituentSeparationProcessDefinition::TARGET_STREAM)
+        .unwrap_or_else(|| panic!("concentration target stream disappeared"));
+    let residue = resolved
+        .process_resolution()
+        .output_streams()
+        .iter()
+        .find(|stream| stream.id() == ConstituentSeparationProcessDefinition::RESIDUE_STREAM)
+        .unwrap_or_else(|| panic!("concentration residue stream disappeared"));
+    assert_eq!(target.outputs().len(), 1);
+    assert_eq!(
+        target.outputs()[0].commodity(),
+        CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE)
+    );
+    assert_eq!(
+        target.outputs()[0].composition(),
+        &MaterialComposition::pure(MATERIAL_COPPER)
+    );
+    assert!(residue.outputs().iter().all(|output| {
+        output.commodity().form() == FORM_CRUSHED
+            && output.commodity().material() != MATERIAL_COPPER
+            && output.particle_size() == Some(liberated_particle_size())
+    }));
+    let all_outputs = target.outputs().iter().chain(residue.outputs());
+    for material in [MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_SLAG] {
+        let represented = all_outputs
+            .clone()
+            .map(|output| {
+                u128::from(output.mass().milligrams())
+                    * u128::from(output.composition().parts_per_million(material))
+            })
+            .sum::<u128>();
+        assert_eq!(
+            represented,
+            u128::from(mass.milligrams()) * u128::from(composition.parts_per_million(material)),
+            "concentration must conserve exact represented constituent content"
+        );
+    }
+}
+
+#[test]
+fn concentration_requires_actual_gangue_instead_of_relabeling_pure_target() {
+    let mass = Mass::from_milligrams(10);
+    let fixture = fixture(mass, MaterialComposition::pure(MATERIAL_COPPER));
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        resolve_constituent_separation_process(
+            &fixture.registries,
+            &fixture.state,
+            ConstituentSeparationRequest::new(
+                PROCESS_CONCENTRATE_COPPER,
+                fixture.source,
+                &[MaterialLotSelection::new(fixture.lot, mass)],
+                fixture.separator,
+                fixture.energy,
+            ),
+        )
+        .err(),
+        Some(ConstituentSeparationResolutionError::Batch(
+            ConstituentSeparationBatchError::MissingNonTargetConstituent
+        ))
+    );
+    assert_eq!(fixture.state, before);
+}
+
+#[test]
+fn persisted_concentration_replays_multi_gangue_outputs() {
+    let mass = Mass::from_milligrams(100_000);
+    let composition = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_COPPER, 410_000),
+        CompositionComponent::new(MATERIAL_STONE, 370_000),
+        CompositionComponent::new(MATERIAL_SLAG, 220_000),
+    ])
+    .unwrap_or_else(|error| panic!("persisted concentration composition failed: {error}"));
+    let mut fixture = fixture(mass, composition);
+    let resolved = resolve_process(&fixture, PROCESS_CONCENTRATE_COPPER, mass);
+    validate_start_process_routed(
+        &fixture.registries,
+        &fixture.state,
+        resolved.process_resolution(),
+        fixture.source,
+        &[
+            ProcessOutputRoute::new(
+                ConstituentSeparationProcessDefinition::TARGET_STREAM,
+                fixture.target,
+            ),
+            ProcessOutputRoute::new(
+                ConstituentSeparationProcessDefinition::RESIDUE_STREAM,
+                fixture.residue,
+            ),
+        ],
+    )
+    .unwrap_or_else(|error| panic!("persisted concentration start validation failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("persisted concentration start commit failed: {error}"));
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&fixture.registries, &fixture.state))
+        .unwrap_or_else(|error| panic!("concentration serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("concentration deserialization failed: {error}"));
+    let loaded = decoded
+        .into_state(&fixture.registries)
+        .unwrap_or_else(|error| panic!("concentration load validation failed: {error}"));
+    assert_eq!(loaded, fixture.state);
 }
 
 #[test]

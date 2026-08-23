@@ -199,12 +199,14 @@ Implemented physical resolvers include:
   finite work energy, power-limited duration, and active-tick wear;
 - dry screening that partitions fully resolved particle classes around an authored aperture without
   inventing fractional or unresolved splits;
-- constituent separation for explicitly authored liberated two-constituent feed. Output mass is derived
-  from the exact selected composition rather than a fixed recipe yield; physically identical selected
-  fragments are aggregated before partitioning, whole-milligram target recovery becomes a pure stream,
-  any fractional target remainder stays represented in a one-milligram mixed residue boundary, residue
-  retains input particulate state, and persisted jobs replay composition, streams, energy, duration, and
-  wear;
+- constituent separation for physically liberated particulate feed. Binary definitions may restrict feed
+  to one authored target plus one authored residue material; concentration definitions accept arbitrary
+  non-target gangue without composition-specific recipes. Output mass is derived from exact selected
+  composition rather than a fixed yield. Whole-milligram target recovery becomes a pure target stream,
+  whole non-target constituents remain physical particulate tailings, and fractional component remainders
+  are deterministically packed into one-milligram mixed boundary lots so represented constituent content
+  is exact. Residue retains input particulate state, and persisted jobs replay composition, streams,
+  energy, duration, and wear;
 - sensible heating, pure-material melting, and pure-material casting with real selected matter, finite
   energy sources/sinks, equipment limits, phase boundaries, and latent heat.
 

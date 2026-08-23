@@ -76,6 +76,7 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
         PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
         PROCESS_SEPARATE_NATIVE_COPPER,
+        PROCESS_CONCENTRATE_COPPER,
     ] {
         assert!(registries.production().get_process(process).is_some());
     }
@@ -107,6 +108,12 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         registries
             .ore_processing()
             .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
+            .is_some()
+    );
+    assert!(
+        registries
+            .ore_processing()
+            .get_constituent_separation(PROCESS_CONCENTRATE_COPPER)
             .is_some()
     );
     assert!(
@@ -147,6 +154,11 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
         ),
         (
             CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+            None,
+            OBJECT_CRUSHED_ORE,
+        ),
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE),
             None,
             OBJECT_CRUSHED_ORE,
         ),

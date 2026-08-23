@@ -108,21 +108,21 @@ pub struct ScreeningProcessDefinition {
 }
 
 /// Immutable declaration that one selected-batch process separates an authored target constituent
-/// from one authored residue constituent after the feed has been physically liberated.
+/// from physically liberated particulate feed.
 ///
-/// The resolver derives both output masses from the exact selected lot composition. It does not
-/// invent a fixed recipe yield, average unlike temperatures, or claim arbitrary mixed ores are
-/// separable. Physically identical selected fragments are aggregated before partitioning. Whole
-/// milligrams of recovered target become a pure consolidated stream; any sub-milligram target
-/// remainder is retained exactly in one milligram of mixed particulate residue rather than being
-/// relabeled as gangue. The residue stream retains the selected feed's particle-size state.
+/// A binary definition names the only admissible residue material. A concentration definition
+/// accepts any non-target constituents, allowing one authored physical separation method to handle
+/// variable gangue without proliferating composition-specific recipes. The resolver derives output
+/// masses from exact selected composition. Whole milligrams of recovered target become the target
+/// stream; all unrecovered fractional target and every non-target constituent remain represented in
+/// particulate residue. Residue retains the selected feed's particle-size state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConstituentSeparationProcessDefinition {
     process: ProcessId,
     input_form: FormId,
     target_material: MaterialId,
     target_output_form: FormId,
-    residue_material: MaterialId,
+    residue_material: Option<MaterialId>,
     residue_output_form: FormId,
     operating: PoweredOreProcessProfile,
 }
@@ -134,7 +134,7 @@ impl ConstituentSeparationProcessDefinition {
         crate::production::ProcessOutputStreamId::new(2);
 
     #[must_use]
-    pub const fn new(
+    pub const fn new_binary(
         process: ProcessId,
         input_form: FormId,
         target_material: MaterialId,
@@ -152,7 +152,28 @@ impl ConstituentSeparationProcessDefinition {
             input_form,
             target_material,
             target_output_form,
-            residue_material,
+            residue_material: Some(residue_material),
+            residue_output_form,
+            operating,
+        }
+    }
+
+    /// Authors concentration of one liberated target constituent from arbitrary non-target gangue.
+    #[must_use]
+    pub const fn new_concentration(
+        process: ProcessId,
+        input_form: FormId,
+        target_material: MaterialId,
+        target_output_form: FormId,
+        residue_output_form: FormId,
+        operating: PoweredOreProcessProfile,
+    ) -> Self {
+        Self {
+            process,
+            input_form,
+            target_material,
+            target_output_form,
+            residue_material: None,
             residue_output_form,
             operating,
         }
@@ -179,7 +200,7 @@ impl ConstituentSeparationProcessDefinition {
     }
 
     #[must_use]
-    pub const fn residue_material(self) -> MaterialId {
+    pub const fn residue_material(self) -> Option<MaterialId> {
         self.residue_material
     }
 
@@ -723,47 +744,57 @@ impl OreProcessingRegistry {
                 "constituent-separation process {} requires liberated particulate feed",
                 definition.process().value()
             );
-            for (material, form, role, particle_policy) in [
-                (
-                    definition.target_material(),
-                    definition.target_output_form(),
-                    "target",
-                    ParticleSizeStatePolicy::Untracked,
-                ),
-                (
-                    definition.residue_material(),
-                    definition.residue_output_form(),
-                    "residue",
-                    ParticleSizeStatePolicy::Required,
-                ),
-            ] {
-                assert!(
-                    materials.get_material(material).is_some(),
-                    "constituent-separation process {} references missing {role} material {}",
+            let target_material = definition.target_material();
+            let target_form = definition.target_output_form();
+            assert!(
+                materials.get_material(target_material).is_some(),
+                "constituent-separation process {} references missing target material {}",
+                definition.process().value(),
+                target_material.value()
+            );
+            assert!(
+                materials.has_commodity(CommodityKey::new(target_material, target_form)),
+                "constituent-separation process {} references invalid target material/form {}:{}",
+                definition.process().value(),
+                target_material.value(),
+                target_form.value()
+            );
+            let target_output = materials
+                .get_form(target_form)
+                .unwrap_or_else(|| unreachable!("validated target commodity requires its form"));
+            assert_eq!(target_output.phase(), MaterialPhase::Solid);
+            assert_eq!(
+                target_output.particle_size_policy(),
+                ParticleSizeStatePolicy::Untracked,
+                "constituent-separation process {} target output has incompatible particle-state policy",
+                definition.process().value()
+            );
+
+            let residue_form = definition.residue_output_form();
+            let residue_output = materials.get_form(residue_form).unwrap_or_else(|| {
+                panic!(
+                    "constituent-separation process {} references missing residue form {}",
                     definition.process().value(),
-                    material.value()
-                );
+                    residue_form.value()
+                )
+            });
+            assert_eq!(residue_output.phase(), MaterialPhase::Solid);
+            assert_eq!(
+                residue_output.particle_size_policy(),
+                ParticleSizeStatePolicy::Required,
+                "constituent-separation process {} residue output must retain particle-size state",
+                definition.process().value()
+            );
+            if let Some(residue_material) = definition.residue_material() {
                 assert!(
-                    materials.has_commodity(CommodityKey::new(material, form)),
-                    "constituent-separation process {} references invalid {role} material/form {}:{}",
+                    materials.get_material(residue_material).is_some(),
+                    "constituent-separation process {} references missing residue material {}",
                     definition.process().value(),
-                    material.value(),
-                    form.value()
+                    residue_material.value()
                 );
-                let output_form = materials.get_form(form).unwrap_or_else(|| {
-                    unreachable!("validated output commodity requires its form")
-                });
-                assert_eq!(
-                    output_form.phase(),
-                    MaterialPhase::Solid,
-                    "constituent-separation process {} {role} output must be solid",
-                    definition.process().value()
-                );
-                assert_eq!(
-                    output_form.particle_size_policy(),
-                    particle_policy,
-                    "constituent-separation process {} {role} output has incompatible particle-state policy",
-                    definition.process().value()
+                assert_ne!(
+                    residue_material, target_material,
+                    "binary constituent separation must use a residue material distinct from its target"
                 );
             }
         }

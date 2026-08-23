@@ -8,18 +8,20 @@ use super::seed::mix64;
 use super::support::nominal_equipment_mass_capability;
 use deep_hearth::content::{
     ENERGY_MECHANICAL_LARGE_DRIVE, EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRINDING_MILL,
-    EQUIPMENT_JAW_CRUSHER, MATERIAL_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+    EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_SEPARATOR, FORM_CONCENTRATE, MATERIAL_COPPER,
+    PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
     PROCESS_GRIND_CRUSHED_ORE, PROCESS_SCREEN_CRUSHED_ORE,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
-use deep_hearth::core::state::validate_loaded_state;
+use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::energy::calculate_mass_specific_energy;
-use deep_hearth::inventory::MaterialLotSelection;
+use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::ore_processing::{
-    ComminutionBatchError, ComminutionRequest, ComminutionResolutionError, ScreeningBatchError,
+    ComminutionBatchError, ComminutionRequest, ComminutionResolutionError,
+    ConstituentSeparationProcessDefinition, ConstituentSeparationRequest, ScreeningBatchError,
     ScreeningProcessDefinition, ScreeningRequest, ScreeningResolutionError,
-    resolve_comminution_process, resolve_screening_process,
+    resolve_comminution_process, resolve_constituent_separation_process, resolve_screening_process,
 };
 use deep_hearth::production::{
     ProcessOutputRoute, validate_start_process, validate_start_process_routed,
@@ -33,6 +35,21 @@ fn greatest_common_divisor(mut left: u64, mut right: u64) -> u64 {
         right = remainder;
     }
     left
+}
+
+fn represented_copper_ppm_mg(state: &AppState, stockpiles: &[StockpileId]) -> u128 {
+    stockpiles
+        .iter()
+        .flat_map(|stockpile| state.inventory().lot_ids(*stockpile))
+        .map(|lot| {
+            let record = state
+                .inventory()
+                .get_lot(lot)
+                .unwrap_or_else(|| panic!("ore preparation accounting lot disappeared"));
+            u128::from(record.mass().milligrams())
+                * u128::from(record.composition().parts_per_million(MATERIAL_COPPER))
+        })
+        .sum()
 }
 
 fn probe_parameters(registries: &Registries, seed: u64) -> OrePreparationSetup {
@@ -52,6 +69,10 @@ fn probe_parameters(registries: &Registries, seed: u64) -> OrePreparationSetup {
         .ore_processing()
         .get_comminution(PROCESS_FINE_GRIND_SCREEN_OVERSIZE)
         .unwrap_or_else(|| panic!("canonical fine-grind definition disappeared"));
+    let concentration = registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_CONCENTRATE_COPPER)
+        .unwrap_or_else(|| panic!("canonical copper concentration definition disappeared"));
 
     let distribution = grinder.output_particle_size_distribution();
     let aperture = screening.aperture();
@@ -116,6 +137,7 @@ fn probe_parameters(registries: &Registries, seed: u64) -> OrePreparationSetup {
         grinder.specific_energy(),
         screening.specific_energy(),
         fine_grind.specific_energy(),
+        concentration.specific_energy(),
     ]
     .into_iter()
     .map(|specific| calculate_mass_specific_energy(batch_mass, specific))
@@ -173,6 +195,11 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
     let initial_grinder_condition = setup.grinder_condition;
     let initial_screen_condition = setup.screen_condition;
     let (mut state, ids) = setup_ore_preparation_probe(registries, seed, setup);
+    let initial_separator_condition = state
+        .equipment()
+        .get_equipment(ids.separator)
+        .map(|equipment| equipment.condition())
+        .unwrap_or_else(|| panic!("ore preparation assembled separator disappeared"));
     let crusher_definition = registries
         .ore_processing()
         .get_comminution(PROCESS_CRUSH_ORE)
@@ -189,6 +216,10 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         .ore_processing()
         .get_comminution(PROCESS_FINE_GRIND_SCREEN_OVERSIZE)
         .unwrap_or_else(|| panic!("canonical fine-grind definition disappeared"));
+    let concentration_definition = registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_CONCENTRATE_COPPER)
+        .unwrap_or_else(|| panic!("canonical copper concentration definition disappeared"));
     let initial_matter = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("ore preparation initial matter accounting failed: {error}"))
         .total();
@@ -476,6 +507,83 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             )
         };
 
+    let separator_batch_limit = nominal_equipment_mass_capability(
+        registries,
+        EQUIPMENT_STONE_SEPARATOR,
+        concentration_definition.max_batch_mass_capability(),
+    );
+    let mut concentration_remaining = batch_mass;
+    let mut concentration_energy = Energy::ZERO;
+    let mut concentration_duration_ticks = 0_u64;
+    let mut concentration_batches = 0_u64;
+    let mut final_separator_projection = initial_separator_condition;
+    while !concentration_remaining.is_zero() {
+        let concentration_batch = Mass::from_milligrams(
+            concentration_remaining
+                .milligrams()
+                .min(separator_batch_limit.milligrams()),
+        );
+        let selection = select_stockpile_mass(
+            &state,
+            ids.undersize_storage,
+            concentration_batch,
+            "fine liberated feed for copper concentration",
+        );
+        let concentrated = resolve_constituent_separation_process(
+            registries,
+            &state,
+            ConstituentSeparationRequest::new(
+                PROCESS_CONCENTRATE_COPPER,
+                ids.undersize_storage,
+                selection.as_slice(),
+                ids.separator,
+                ids.drive,
+            ),
+        )
+        .unwrap_or_else(|error| panic!("copper concentration resolution failed: {error}"));
+        let duration = concentrated.process_resolution().duration();
+        concentration_duration_ticks = concentration_duration_ticks
+            .checked_add(duration.value())
+            .unwrap_or_else(|| panic!("copper concentration duration overflowed"));
+        concentration_energy = concentration_energy
+            .checked_add(concentrated.required_energy())
+            .unwrap_or_else(|| panic!("copper concentration energy overflowed"));
+        final_separator_projection = concentrated.condition_after();
+        let job = validate_start_process_routed(
+            registries,
+            &state,
+            concentrated.process_resolution(),
+            ids.undersize_storage,
+            &[
+                ProcessOutputRoute::new(
+                    ConstituentSeparationProcessDefinition::TARGET_STREAM,
+                    ids.concentrate_storage,
+                ),
+                ProcessOutputRoute::new(
+                    ConstituentSeparationProcessDefinition::RESIDUE_STREAM,
+                    ids.tailings_storage,
+                ),
+            ],
+        )
+        .unwrap_or_else(|error| panic!("copper concentration start failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("copper concentration commit failed: {error}"));
+        finish_production_job(
+            registries,
+            &mut state,
+            job,
+            duration,
+            "copper concentration",
+        );
+        validate_loaded_state(registries, &state).unwrap_or_else(|error| {
+            panic!("ore preparation post-concentration audit failed: {error}")
+        });
+        concentration_remaining = concentration_remaining
+            .checked_sub(concentration_batch)
+            .unwrap_or_else(|| panic!("copper concentration remaining mass underflowed"));
+        concentration_batches += 1;
+    }
+
     let final_matter = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("ore preparation final matter accounting failed: {error}"))
         .total();
@@ -499,6 +607,11 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         .get_equipment(ids.screen)
         .map(|equipment| equipment.condition())
         .unwrap_or_else(|| panic!("ore preparation screen disappeared after completion"));
+    let final_separator_condition = state
+        .equipment()
+        .get_equipment(ids.separator)
+        .map(|equipment| equipment.condition())
+        .unwrap_or_else(|| panic!("ore preparation separator disappeared after completion"));
     let undersize_mass = state
         .inventory()
         .get_stockpile(ids.undersize_storage)
@@ -509,28 +622,46 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         .get_stockpile(ids.oversize_storage)
         .map(|stockpile| stockpile.stored_mass())
         .unwrap_or_else(|| panic!("ore preparation oversize storage disappeared"));
-    let composition_preserved = state.inventory().lot_ids(ids.undersize_storage).all(|lot| {
-        state
-            .inventory()
-            .get_lot(lot)
-            .is_some_and(|lot| lot.composition() == &input_composition)
-    });
-    let final_distribution_is_fine = state.inventory().lot_ids(ids.undersize_storage).all(|lot| {
-        state
-            .inventory()
-            .get_lot(lot)
-            .and_then(|lot| lot.particle_size_distribution())
-            .is_some_and(|distribution| {
-                distribution
-                    .classes()
-                    .iter()
-                    .all(|class| class.range().maximum_diameter() <= screen_definition.aperture())
+    let concentrate_mass = state
+        .inventory()
+        .get_stockpile(ids.concentrate_storage)
+        .map(|stockpile| stockpile.stored_mass())
+        .unwrap_or_else(|| panic!("ore preparation concentrate storage disappeared"));
+    let tailings_mass = state
+        .inventory()
+        .get_stockpile(ids.tailings_storage)
+        .map(|stockpile| stockpile.stored_mass())
+        .unwrap_or_else(|| panic!("ore preparation tailings storage disappeared"));
+    let concentrate_is_pure = state
+        .inventory()
+        .lot_ids(ids.concentrate_storage)
+        .all(|lot| {
+            state.inventory().get_lot(lot).is_some_and(|lot| {
+                lot.commodity().material() == MATERIAL_COPPER
+                    && lot.commodity().form() == FORM_CONCENTRATE
+                    && lot.composition().parts_per_million(MATERIAL_COPPER) == 1_000_000
             })
-    });
+        });
+    let tailings_distribution_is_fine =
+        state.inventory().lot_ids(ids.tailings_storage).all(|lot| {
+            state
+                .inventory()
+                .get_lot(lot)
+                .and_then(|lot| lot.particle_size_distribution())
+                .is_some_and(|distribution| {
+                    distribution.classes().iter().all(|class| {
+                        class.range().maximum_diameter() <= screen_definition.aperture()
+                    })
+                })
+        });
+    let represented_copper =
+        represented_copper_ppm_mg(&state, &[ids.concentrate_storage, ids.tailings_storage]);
+    let expected_copper = u128::from(batch_mass.milligrams()) * u128::from(input_copper_ppm);
     let consumed_energy = crush_energy
         .checked_add(grind_energy)
         .and_then(|energy| energy.checked_add(screen_energy))
         .and_then(|energy| energy.checked_add(fine_energy))
+        .and_then(|energy| energy.checked_add(concentration_energy))
         .unwrap_or_else(|| panic!("ore preparation consumed energy overflowed"));
 
     assert_eq!(
@@ -555,13 +686,35 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         "screen condition must match resolved wear"
     );
     assert_eq!(
-        undersize_mass, batch_mass,
-        "all prepared mass must finish in undersize storage"
+        final_separator_condition, final_separator_projection,
+        "separator condition must match resolved wear"
+    );
+    assert_eq!(
+        undersize_mass,
+        Mass::ZERO,
+        "prepared feed must be consumed into concentrate and tailings"
     );
     assert_eq!(
         oversize_mass,
         Mass::ZERO,
         "oversize storage must be empty after regrind"
+    );
+    assert_eq!(
+        concentrate_mass.checked_add(tailings_mass),
+        Some(batch_mass),
+        "concentration outputs must conserve the prepared feed mass"
+    );
+    assert_eq!(
+        represented_copper, expected_copper,
+        "concentration must conserve exact represented copper content"
+    );
+    assert!(
+        !concentrate_mass.is_zero(),
+        "concentration must recover copper"
+    );
+    assert!(
+        !tailings_mass.is_zero(),
+        "concentration must produce physical tailings"
     );
 
     let qualitative_requirements = [
@@ -586,12 +739,16 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             oversize_profile_is_preserved,
         ),
         (
-            "ore preparation preserves composition",
-            composition_preserved,
+            "probe feed exercises variable multi-constituent gangue",
+            input_composition.components().len() >= 3,
         ),
         (
-            "final product satisfies the fine size range",
-            final_distribution_is_fine,
+            "copper concentrate is a pure recovered target stream",
+            concentrate_is_pure,
+        ),
+        (
+            "tailings retain the physically prepared fine particle state",
+            tailings_distribution_is_fine,
         ),
     ];
     for (name, observed) in qualitative_requirements {
@@ -603,12 +760,15 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
 
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
-            "CAPABILITY ORE_PREP seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[particle-state,routing,finite-work,wear] batch={}mg copper={}ppm composition-effect=preserved-not-concentrated initial-condition=[crusher:{} grinder:{} screen:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t] matter=conserved energy=resolved",
+            "CAPABILITY ORE_PREP seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[particle-state,routing,finite-work,wear,constituent-concentration] batch={}mg copper={}ppm concentrate={}mg tailings={}mg concentrate-grade=1000000ppm initial-condition=[crusher:{} grinder:{} screen:{} separator:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t concentrate:{}b/{}t] matter=conserved composition=exact energy=resolved",
             batch_mass.milligrams(),
             input_copper_ppm,
+            concentrate_mass.milligrams(),
+            tailings_mass.milligrams(),
             initial_crusher_condition.parts_per_million(),
             initial_grinder_condition.parts_per_million(),
             initial_screen_condition.parts_per_million(),
+            initial_separator_condition.parts_per_million(),
             initial_energy.nanojoules(),
             consumed_energy.nanojoules(),
             final_energy.nanojoules(),
@@ -616,18 +776,24 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             grind_duration.value(),
             screen_duration.value(),
             fine_duration_ticks,
+            concentration_batches,
+            concentration_duration_ticks,
         );
     } else {
         std::println!(
-            "ORE REVIEW seed=0x{seed:016X} role=capability-only pipeline=crush->grind->screen->regrind batch={}mg copper={}ppm composition=preserved-not-concentrated stored-work=[used:{}nJ remaining:{}nJ] durations=[{}+{}+{}+{}t] matter=conserved",
+            "ORE REVIEW seed=0x{seed:016X} role=capability-only pipeline=crush->grind->screen->regrind->concentrate batch={}mg copper={}ppm concentrate={}mg tailings={}mg concentrate-grade=1000000ppm stored-work=[used:{}nJ remaining:{}nJ] durations=[{}+{}+{}+{}t concentration:{}b/{}t] matter=conserved composition=exact",
             batch_mass.milligrams(),
             input_copper_ppm,
+            concentrate_mass.milligrams(),
+            tailings_mass.milligrams(),
             consumed_energy.nanojoules(),
             final_energy.nanojoules(),
             crush_duration.value(),
             grind_duration.value(),
             screen_duration.value(),
             fine_duration_ticks,
+            concentration_batches,
+            concentration_duration_ticks,
         );
     }
 }

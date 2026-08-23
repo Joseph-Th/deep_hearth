@@ -6,26 +6,30 @@ use super::capability_boundary::{
 use super::industrial_support::install_equipment_on_grounded_support;
 use super::support::{ROOM_TEMPERATURE, add_solid_stockpile};
 use deep_hearth::content::gameplay_fixture::{
-    seed_composed_lot, seed_energy_store as seed_energy_store_exact, seed_equipment,
+    seed_composed_lot, seed_energy_store as seed_energy_store_exact, seed_equipment, seed_lot,
 };
 use deep_hearth::content::{
     ENERGY_MECHANICAL_LARGE_DRIVE, EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRINDING_MILL,
-    EQUIPMENT_JAW_CRUSHER, FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE,
+    EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_SEPARATOR, FORM_ORE, MATERIAL_CLAY, MATERIAL_COPPER,
+    MATERIAL_STONE,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::energy::EnergyStoreId;
-use deep_hearth::equipment::EquipmentId;
+use deep_hearth::equipment::{EquipmentId, validate_assemble_equipment};
 use deep_hearth::inventory::{MaterialLotId, StockpileId};
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use deep_hearth::registry::Registries;
 
 pub(super) fn mixed_ore_composition(copper_ppm: u32) -> MaterialComposition {
+    let gangue_ppm = 1_000_000 - copper_ppm;
+    let clay_ppm = gangue_ppm / 4;
     MaterialComposition::new(vec![
         CompositionComponent::new(MATERIAL_COPPER, copper_ppm),
-        CompositionComponent::new(MATERIAL_STONE, 1_000_000 - copper_ppm),
+        CompositionComponent::new(MATERIAL_STONE, gangue_ppm - clay_ppm),
+        CompositionComponent::new(MATERIAL_CLAY, clay_ppm),
     ])
     .unwrap_or_else(|error| panic!("gameplay harness ore composition failed: {error}"))
 }
@@ -37,10 +41,13 @@ pub(super) struct OrePreparationProbeIds {
     pub(super) ground_storage: StockpileId,
     pub(super) undersize_storage: StockpileId,
     pub(super) oversize_storage: StockpileId,
+    pub(super) concentrate_storage: StockpileId,
+    pub(super) tailings_storage: StockpileId,
     pub(super) ore_lot: MaterialLotId,
     pub(super) crusher: EquipmentId,
     pub(super) grinder: EquipmentId,
     pub(super) screen: EquipmentId,
+    pub(super) separator: EquipmentId,
     pub(super) drive: EnergyStoreId,
 }
 
@@ -81,6 +88,8 @@ pub(super) fn setup_ore_preparation_probe(
     let ground_storage = add_solid_stockpile(&mut state, batch_mass);
     let undersize_storage = add_solid_stockpile(&mut state, batch_mass);
     let oversize_storage = add_solid_stockpile(&mut state, batch_mass);
+    let concentrate_storage = add_solid_stockpile(&mut state, batch_mass);
+    let tailings_storage = add_solid_stockpile(&mut state, batch_mass);
     let ore_lot = seed_composed_lot(
         registries,
         &mut state,
@@ -108,6 +117,36 @@ pub(super) fn setup_ore_preparation_probe(
         EQUIPMENT_DRY_SCREEN,
         screen_condition,
     );
+    let separator_profile = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_STONE_SEPARATOR)
+        .and_then(|definition| definition.assembly_profile())
+        .unwrap_or_else(|| panic!("ore preparation separator lost its conserved assembly profile"));
+    let separator_material_mass = separator_profile
+        .inputs()
+        .iter()
+        .try_fold(Mass::ZERO, |total, input| total.checked_add(input.mass()))
+        .unwrap_or_else(|| panic!("ore preparation separator assembly mass overflowed"));
+    let separator_assembly = add_solid_stockpile(&mut state, separator_material_mass);
+    for input in separator_profile.inputs() {
+        seed_lot(
+            registries,
+            &mut state,
+            separator_assembly,
+            input.commodity(),
+            input.mass(),
+            ROOM_TEMPERATURE,
+        );
+    }
+    let separator = validate_assemble_equipment(
+        registries,
+        &state,
+        EQUIPMENT_STONE_SEPARATOR,
+        separator_assembly,
+    )
+    .unwrap_or_else(|error| panic!("ore preparation separator assembly failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("ore preparation separator assembly commit failed: {error}"));
     install_equipment_on_grounded_support(registries, &mut state, crusher, 0);
     install_equipment_on_grounded_support(registries, &mut state, grinder, 2);
     install_equipment_on_grounded_support(registries, &mut state, screen, 4);
@@ -125,10 +164,13 @@ pub(super) fn setup_ore_preparation_probe(
             ground_storage,
             undersize_storage,
             oversize_storage,
+            concentrate_storage,
+            tailings_storage,
             ore_lot,
             crusher,
             grinder,
             screen,
+            separator,
             drive,
         },
     )

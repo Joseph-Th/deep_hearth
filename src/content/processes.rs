@@ -26,6 +26,7 @@ pub const PROCESS_SHAPE_WOOD_HANDLE: ProcessId = ProcessId::new(9);
 pub const PROCESS_SHAPE_STONE_FLYWHEEL: ProcessId = ProcessId::new(10);
 pub const PROCESS_COLD_WORK_COPPER_REINFORCEMENT: ProcessId = ProcessId::new(11);
 pub const PROCESS_SEPARATE_NATIVE_COPPER: ProcessId = ProcessId::new(12);
+pub const PROCESS_CONCENTRATE_COPPER: ProcessId = ProcessId::new(13);
 
 pub(crate) fn build_production_registry() -> ProductionRegistry {
     let mut registry = ProductionRegistry::new();
@@ -139,6 +140,22 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
         ProcessDefinition::new_selected_batch(
             PROCESS_SEPARATE_NATIVE_COPPER,
             "separate native copper from crushed ore",
+            vec![
+                CapabilityRequirement::new(
+                    CAPABILITY_SEPARATOR_FLOW,
+                    CapabilityComparison::AtLeast,
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1)),
+                ),
+                CapabilityRequirement::new(
+                    CAPABILITY_SEPARATOR_BATCH,
+                    CapabilityComparison::AtLeast,
+                    CapabilityValue::Mass(Mass::from_milligrams(1)),
+                ),
+            ],
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_CONCENTRATE_COPPER,
+            "concentrate copper from liberated ore",
             vec![
                 CapabilityRequirement::new(
                     CAPABILITY_SEPARATOR_FLOW,

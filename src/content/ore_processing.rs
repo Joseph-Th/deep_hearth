@@ -14,11 +14,11 @@ use super::capabilities::{
     CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW,
 };
 use super::materials::{
-    FORM_CRUSHED, FORM_NATIVE_METAL, FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE,
+    FORM_CONCENTRATE, FORM_CRUSHED, FORM_NATIVE_METAL, FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE,
 };
 use super::processes::{
-    PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE,
-    PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
+    PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+    PROCESS_GRIND_CRUSHED_ORE, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
 };
 
 fn particle_size_class(minimum_micrometers: u64, maximum_micrometers: u64) -> ParticleSizeClass {
@@ -107,20 +107,36 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                 100,
             ),
         )],
-        [ConstituentSeparationProcessDefinition::new(
-            PROCESS_SEPARATE_NATIVE_COPPER,
-            FORM_CRUSHED,
-            MATERIAL_COPPER,
-            FORM_NATIVE_METAL,
-            MATERIAL_STONE,
-            FORM_CRUSHED,
-            PoweredOreProcessProfile::new(
-                CAPABILITY_SEPARATOR_FLOW,
-                CAPABILITY_SEPARATOR_BATCH,
-                EnergyCarrier::Mechanical,
-                MassSpecificEnergy::from_nanojoules_per_milligram(250_000),
-                150,
+        [
+            ConstituentSeparationProcessDefinition::new_binary(
+                PROCESS_SEPARATE_NATIVE_COPPER,
+                FORM_CRUSHED,
+                MATERIAL_COPPER,
+                FORM_NATIVE_METAL,
+                MATERIAL_STONE,
+                FORM_CRUSHED,
+                PoweredOreProcessProfile::new(
+                    CAPABILITY_SEPARATOR_FLOW,
+                    CAPABILITY_SEPARATOR_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(250_000),
+                    150,
+                ),
             ),
-        )],
+            ConstituentSeparationProcessDefinition::new_concentration(
+                PROCESS_CONCENTRATE_COPPER,
+                FORM_CRUSHED,
+                MATERIAL_COPPER,
+                FORM_CONCENTRATE,
+                FORM_CRUSHED,
+                PoweredOreProcessProfile::new(
+                    CAPABILITY_SEPARATOR_FLOW,
+                    CAPABILITY_SEPARATOR_BATCH,
+                    EnergyCarrier::Mechanical,
+                    MassSpecificEnergy::from_nanojoules_per_milligram(250_000),
+                    150,
+                ),
+            ),
+        ],
     )
 }

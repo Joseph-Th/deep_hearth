@@ -21,7 +21,7 @@ This is the runtime capability inventory. Use [`README.md`](README.md) for repos
 | Energy and manual power | Finite typed-carrier energy stores with directional power limits and opaque transfer; material-backed store construction; survival-costed player power through real portable equipment. |
 | Structures and fluids | Material-backed structural members with axial analysis, loads, damage, failure cascades, construction/deconstruction, plus finite homogeneous fluid stores with support-aware load. |
 | Physical capability scalars | Typed throughput, mass, temperature, pressure, power, torque, speed, electrical, flow, volume, efficiency, transmission, and operating-limit calculations. |
-| Ore processing | Crushing, grinding, dry screening, oversize regrinding, and primitive two-constituent native-copper separation with finite work, equipment limits, wear, and exact mass/composition accounting. |
+| Ore processing | Crushing, grinding, dry screening, oversize regrinding, strict binary native-copper separation, and generalized copper concentration from liberated multi-gangue feed with finite work, equipment limits, wear, physical tailings, and exact constituent accounting. |
 | Thermal production | Sensible heating, pure-material melting, and pure-material casting with finite energy, equipment limits, phase boundaries, and latent heat. |
 | Primitive progression | Visible local clues -> coarse/refined prospecting -> opaque mining targets -> stone tools -> hand mining -> scarce copper choice between extraction and stored-work rate -> flywheel/crusher -> native-copper separation -> second reinforcement. Delegated processing returns player attention and produces progression material. |
 | Industrial capability evaluation | Workshop, ore-preparation, and pure-copper foundry harnesses exercise already-installed industrial systems. They do not establish runtime acquisition of those systems. |
@@ -34,8 +34,8 @@ This is the runtime capability inventory. Use [`README.md`](README.md) for repos
 | --- | --- |
 | Engine/platform | Graphics backend, window/input/audio integration, ECS choice, networking, platform integration, general engine shell. |
 | World representation | Voxel/chunk storage, terrain generation, streaming, world-scale spatial indexing, and runtime discovery of clue locations. |
-| Advanced geology/mining | Regional geological generation, voxel ore topology, panning, physical sampling, drilling, assays, geophysics, mechanized excavation, access, haulage, drainage, ground control, recovery fractions, waste rock, and tailings. |
-| Thermal/chemical industry | Environmental heat transport, vaporization, combustion, fuels/emissions, mixed/alloy phase behavior, generalized mineral concentration, smelting/reduction, alloying, forging, and machining. |
+| Advanced geology/mining | Regional geological generation, voxel ore topology, panning, physical sampling, drilling, assays, geophysics, mechanized excavation, access, haulage, drainage, ground control, recovery fractions, waste rock, and tailings transport/impoundment beyond the particulate tailings lots produced by current concentration. |
+| Thermal/chemical industry | Environmental heat transport, vaporization, combustion, fuels/emissions, mixed/alloy phase behavior, concentration methods beyond the current liberated-copper separator model, smelting/reduction, alloying, forging, and machining. |
 | Rich maintenance and structures | Repair labor/tools/access, bespoke salvage, maintenance scrap recovery, bending, shear, torsion, buckling, joints, terrain support, construction labor/waste, and fractional demolition streams. |
 | Power networks | Shaft/belt networks, inertia/slip/clutches, steam systems, electrical topology, generation, distribution, protection, and spatial network integration. |
 | Hydrology | Ground/surface water, channels, pumps, irrigation, wastewater, sanitation, fluid mixing, and pressure/temperature-dependent fluid properties. |
