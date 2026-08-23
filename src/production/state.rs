@@ -9,7 +9,7 @@ use crate::core::quantity::Mass;
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::energy::{ConsumedEnergyTrace, EnergyStoreId, ReleasedEnergyTrace};
 use crate::equipment::{EquipmentId, EquipmentOperationTrace};
-use crate::inventory::{ConsumedMaterialTrace, StockpileId};
+use crate::inventory::{ConsumedMaterialTrace, MaterialStorageHistory, StockpileId};
 use crate::maintenance::Condition;
 use crate::material::MaterialLotSpec;
 
@@ -164,6 +164,7 @@ pub(super) struct ProductionJobSchedule {
 pub(super) struct ProductionJobResources {
     pub(super) consumed_mass: Mass,
     pub(super) consumed_inputs: Vec<ConsumedMaterialTrace>,
+    pub(super) material_storage_history: MaterialStorageHistory,
     pub(super) consumed_energy: Option<ConsumedEnergyTrace>,
     pub(super) released_energy: Option<ReleasedEnergyTrace>,
 }
@@ -239,6 +240,12 @@ impl ProductionJobRecord {
     #[must_use]
     pub fn consumed_inputs(&self) -> &[ConsumedMaterialTrace] {
         &self.resources.consumed_inputs
+    }
+
+    /// Returns inherited perishability exposure for the in-flight matter, rebased to job start.
+    #[must_use]
+    pub(crate) const fn material_storage_history(&self) -> MaterialStorageHistory {
+        self.resources.material_storage_history
     }
 
     /// Returns the finite energy moved into this in-flight operation at start, if any.

@@ -1033,6 +1033,7 @@ fn consumption_reservation_and_reserved_deposit_preserve_final_quantity() {
             destination,
             vec![output],
             Mass::from_milligrams(10),
+            0,
         )],
     )
     .unwrap_or_else(|error| panic!("reserved deposit planning failed: {error:?}"));

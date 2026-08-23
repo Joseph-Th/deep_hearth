@@ -1,4 +1,4 @@
-//! Inventory-owned allocation and commit of previously reserved production output matter.
+//! Inventory-owned allocation and commit of previously reserved output matter.
 
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
@@ -18,12 +18,13 @@ pub(crate) enum ReservedDepositPlanError {
     RevisionExhausted,
 }
 
-/// One already-reserved production output stream awaiting authoritative inventory ingress.
+/// One already-reserved output stream awaiting authoritative inventory ingress.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ReservedDepositRequest {
     destination: StockpileId,
     outputs: Vec<MaterialLotSpec>,
     reserved_mass: Mass,
+    storage_age_parts: u128,
 }
 
 impl ReservedDepositRequest {
@@ -31,11 +32,13 @@ impl ReservedDepositRequest {
         destination: StockpileId,
         outputs: Vec<MaterialLotSpec>,
         reserved_mass: Mass,
+        storage_age_parts: u128,
     ) -> Self {
         Self {
             destination,
             outputs,
             reserved_mass,
+            storage_age_parts,
         }
     }
 }
@@ -47,6 +50,7 @@ struct ReservedDepositPlanEntry {
     lot_ids: Vec<MaterialLotId>,
     merge_policies: Vec<LotMergePolicy>,
     reserved_mass: Mass,
+    storage_age_parts: u128,
 }
 
 /// Inventory-owned allocation and revision plan for one tick's reserved production outputs.
@@ -93,6 +97,7 @@ pub(crate) fn decide_reserved_deposits(
             destination,
             outputs,
             reserved_mass,
+            storage_age_parts,
         } = request;
         let mut lot_ids = Vec::with_capacity(outputs.len());
         let merge_policies = outputs
@@ -104,6 +109,8 @@ pub(crate) fn decide_reserved_deposits(
             .unwrap_or_else(|| panic!("reserved output destination disappeared during planning"))
             .storage_profile()
             .preservation_multiplier_ppm();
+        let storage_history =
+            MaterialStorageHistory::with_ambient_age_parts(storage_age_parts, created_at);
         for (output, merge_policy) in outputs.iter().zip(&merge_policies) {
             let profile = MaterialLotProfile {
                 commodity: output.commodity(),
@@ -116,7 +123,7 @@ pub(crate) fn decide_reserved_deposits(
                     .plan(
                         destination,
                         &profile,
-                        MaterialStorageHistory::new(created_at),
+                        storage_history,
                         created_at,
                         preservation_multiplier_ppm,
                         *merge_policy,
@@ -130,6 +137,7 @@ pub(crate) fn decide_reserved_deposits(
             lot_ids,
             merge_policies,
             reserved_mass,
+            storage_age_parts,
         });
     }
 
@@ -169,6 +177,7 @@ pub(crate) fn apply_reserved_deposits(state: &mut InventoryState, plan: Reserved
             lot_ids,
             merge_policies,
             reserved_mass,
+            storage_age_parts,
         } = entry;
         debug_assert_eq!(outputs.len(), lot_ids.len());
         debug_assert_eq!(outputs.len(), merge_policies.len());
@@ -188,6 +197,8 @@ pub(crate) fn apply_reserved_deposits(state: &mut InventoryState, plan: Reserved
             .unwrap_or_else(|| panic!("reserved output destination disappeared"))
             .storage_profile()
             .preservation_multiplier_ppm();
+        let storage_history =
+            MaterialStorageHistory::with_ambient_age_parts(storage_age_parts, created_at);
 
         for ((output, lot_id), merge_policy) in outputs.into_iter().zip(lot_ids).zip(merge_policies)
         {
@@ -207,7 +218,7 @@ pub(crate) fn apply_reserved_deposits(state: &mut InventoryState, plan: Reserved
                         earliest_created_at: created_at,
                         latest_created_at: created_at,
                     },
-                    storage_history: MaterialStorageHistory::new(created_at),
+                    storage_history,
                 },
                 merge_policy,
                 created_at,

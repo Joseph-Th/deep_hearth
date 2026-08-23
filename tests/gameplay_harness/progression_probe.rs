@@ -31,7 +31,9 @@ use deep_hearth::geology::{
     validate_start_field_prospecting,
 };
 use deep_hearth::inventory::MaterialLotSelection;
-use deep_hearth::labor::{ManualPowerRequest, ProspectingMethodId, validate_start_manual_power};
+use deep_hearth::labor::{
+    ManualPowerError, ManualPowerRequest, ProspectingMethodId, validate_start_manual_power,
+};
 use deep_hearth::material::{
     CommodityKey, CompositionComponent, MaterialAssemblyProfile, MaterialComposition,
 };
@@ -41,8 +43,9 @@ use deep_hearth::mining::{
     resolve_mining_target, validate_claim_mining_output, validate_start_mining,
 };
 use deep_hearth::ore_processing::{
-    ComminutionRequest, ConstituentSeparationProcessDefinition, ConstituentSeparationRequest,
-    resolve_comminution_process, resolve_constituent_separation_process,
+    ComminutionRequest, ComminutionResolutionError, ConstituentSeparationProcessDefinition,
+    ConstituentSeparationRequest, resolve_comminution_process,
+    resolve_constituent_separation_process,
 };
 use deep_hearth::production::{
     ProcessOutputRoute, ProductionJobId, validate_start_process, validate_start_process_routed,
@@ -53,6 +56,11 @@ use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 const MAX_STEADY_STATE_CRUSH_CYCLES: u64 = 64;
+const MAX_ACCEPTABLE_AUTOMATION_PAYBACK_CYCLES: u64 = 24;
+const MIN_EXCLUSIVE_CHOICE_WINDOW_TICKS: u64 = 24;
+const MIN_TOOL_ATTENTION_REDUCTION_PPM: u32 = 250_000;
+const MIN_CRANK_ATTENTION_REDUCTION_PPM: u32 = 250_000;
+const MIN_POST_PAYBACK_CRUSH_CYCLES: u64 = 8;
 
 /// Fail closed when the authored player-facing acquisition/action catalog grows beyond what this
 /// cold-agent progression episode either exercises naturally or explicitly classifies outside the
@@ -747,6 +755,9 @@ struct PrimitiveProgressionExperience {
     separator_preparation_ticks: u64,
     processing_line_preparation_ticks: u64,
     attention_payback_cycles: Option<u64>,
+    steady_state_cycles: u64,
+    steady_state_stop: PrimitiveSteadyStop,
+    final_crusher_condition_ppm: u32,
     initial_full_charge_ticks: u64,
     first_processed_output_at: u64,
     elapsed_ticks: u64,
@@ -1185,14 +1196,14 @@ fn fill_primitive_accumulator(
     registries: &Registries,
     state: &mut AppState,
     machine: PrimitiveMachine,
-) -> u64 {
+) -> Result<u64, ManualPowerError> {
     let stored_before = state
         .energy()
         .get_store(machine.drive)
         .map(|store| store.stored())
         .unwrap_or_else(|| panic!("primitive progression flywheel disappeared before charging"));
     if stored_before >= machine.required_energy {
-        return 0;
+        return Ok(0);
     }
     let energy = machine
         .drive_capacity
@@ -1208,8 +1219,7 @@ fn fill_primitive_accumulator(
             machine.drive,
             energy,
         ),
-    )
-    .unwrap_or_else(|error| panic!("primitive progression recharge failed: {error}"));
+    )?;
     let work = power.work();
     let ticks = duration(work.started_at().value(), work.completes_at().value());
     power
@@ -1224,7 +1234,25 @@ fn fill_primitive_accumulator(
         Some(machine.drive_capacity),
         "primitive accumulator fill must reach its authored capacity exactly"
     );
-    ticks
+    Ok(ticks)
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum PrimitiveSteadyStop {
+    #[default]
+    CycleLimit,
+    CrusherCondition,
+    CrankCondition,
+}
+
+impl PrimitiveSteadyStop {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::CycleLimit => "probe-cycle-limit",
+            Self::CrusherCondition => "crusher-condition-lifetime",
+            Self::CrankCondition => "crank-condition-lifetime",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1235,6 +1263,8 @@ struct SteadyStateWork {
     machine_ticks: u64,
     useful_overlap_ticks: u64,
     player_free_ticks: u64,
+    stop: PrimitiveSteadyStop,
+    terminal_crusher_condition_ppm: u32,
 }
 
 fn run_steady_state_crushing(
@@ -1251,12 +1281,22 @@ fn run_steady_state_crushing(
     let mut totals = SteadyStateWork::default();
     let mut payback_cycle = None;
     for cycle in 1..=MAX_STEADY_STATE_CRUSH_CYCLES {
-        totals.cycles = cycle;
+        let charge_ticks = match fill_primitive_accumulator(registries, state, machine) {
+            Ok(ticks) => ticks,
+            Err(
+                ManualPowerError::ConditionDuration(_)
+                | ManualPowerError::ZeroEquipmentPower { .. },
+            ) => {
+                totals.stop = PrimitiveSteadyStop::CrankCondition;
+                break;
+            }
+            Err(error) => panic!("primitive progression steady recharge failed: {error}"),
+        };
         totals.charge_ticks = totals
             .charge_ticks
-            .checked_add(fill_primitive_accumulator(registries, state, machine))
+            .checked_add(charge_ticks)
             .unwrap_or_else(|| panic!("primitive steady-state charge duration overflowed"));
-        let work = crush_while_mining(
+        let work = match crush_while_mining(
             registries,
             state,
             ore_storage,
@@ -1270,7 +1310,17 @@ fn run_steady_state_crushing(
                 pick,
                 mass,
             },
-        );
+        ) {
+            Ok(work) => work,
+            Err(ComminutionResolutionError::ConditionDuration(_)) => {
+                totals.stop = PrimitiveSteadyStop::CrusherCondition;
+                break;
+            }
+            Err(error) => {
+                panic!("primitive progression steady crushing resolution failed: {error}")
+            }
+        };
+        totals.cycles = cycle;
         let player_free = finish_autonomous_crush(registries, state, work);
         let useful_overlap = work
             .crush_ticks
@@ -1293,6 +1343,16 @@ fn run_steady_state_crushing(
         }
     }
     totals.payback_cycle = payback_cycle;
+    totals.terminal_crusher_condition_ppm = state
+        .equipment()
+        .get_equipment(machine.crusher)
+        .unwrap_or_else(|| panic!("primitive crusher disappeared at steady-state endpoint"))
+        .condition()
+        .parts_per_million();
+    assert!(
+        totals.cycles > 0,
+        "primitive automation must complete useful work before its lifecycle endpoint"
+    );
     totals
 }
 
@@ -1471,7 +1531,7 @@ fn crush_while_mining(
     crush_mass: Mass,
     expected_energy: Energy,
     concurrent: ConcurrentMiningPlan,
-) -> ConcurrentMachineWork {
+) -> Result<ConcurrentMachineWork, ComminutionResolutionError> {
     let machine_started_at = state.tick().value();
     let selection = select_stockpile_mass(state, ore_storage, crush_mass);
     let resolved = resolve_comminution_process(
@@ -1484,8 +1544,7 @@ fn crush_while_mining(
             machine.crusher,
             machine.drive,
         ),
-    )
-    .unwrap_or_else(|error| panic!("primitive progression crushing resolution failed: {error}"));
+    )?;
     assert_eq!(resolved.required_energy(), expected_energy);
     let crush_ticks = resolved.process_resolution().duration().value();
     let crush_job = validate_start_process(
@@ -1551,13 +1610,13 @@ fn crush_while_mining(
             panic!("primitive progression concurrent mining claim commit failed: {error}")
         });
 
-    ConcurrentMachineWork {
+    Ok(ConcurrentMachineWork {
         job: crush_job,
         machine_started_at,
         crush_ticks,
         player_work_ticks,
         overlap_ticks,
-    }
+    })
 }
 
 fn finish_autonomous_crush(
@@ -2096,7 +2155,10 @@ fn run_primitive_progression_case(
                     pick,
                     mass: concurrent_soft_mass,
                 },
-            );
+            )
+            .unwrap_or_else(|error| {
+                panic!("primitive progression primary crushing failed: {error}")
+            });
             (
                 machine,
                 Some(reinforced_mining_ticks),
@@ -2139,7 +2201,10 @@ fn run_primitive_progression_case(
                     pick,
                     mass: concurrent_soft_mass,
                 },
-            );
+            )
+            .unwrap_or_else(|error| {
+                panic!("primitive progression primary crushing failed: {error}")
+            });
             (
                 machine,
                 None,
@@ -2294,7 +2359,8 @@ fn run_primitive_progression_case(
             pick,
             mass: mined_mass,
         },
-    );
+    )
+    .unwrap_or_else(|error| panic!("primitive progression reserve crushing failed: {error}"));
     let reserve_player_free_ticks = finish_autonomous_crush(registries, &mut state, reserve_work);
     let reserve_useful_overlap_ticks = reserve_work
         .crush_ticks
@@ -2470,6 +2536,9 @@ fn run_primitive_progression_case(
         separator_preparation_ticks: machine.separator_preparation_ticks,
         processing_line_preparation_ticks: machine.processing_line_preparation_ticks,
         attention_payback_cycles: steady_state.payback_cycle,
+        steady_state_cycles: steady_state.cycles,
+        steady_state_stop: steady_state.stop,
+        final_crusher_condition_ppm: steady_state.terminal_crusher_condition_ppm,
         initial_full_charge_ticks: machine.full_charge_ticks,
         first_processed_output_at,
         elapsed_ticks: state.tick().value(),
@@ -2555,7 +2624,7 @@ fn run_primitive_progression_case(
             reinforced_hardness_limit.pascals(),
         );
         std::println!(
-            "PROGRESSION SYSTEMS knowledge=[surface:{}t refinement:{}t refined-extraction:{}mg/{}t] ore=[batch:{}mg stone-mining:{}t reinforced-mining:{:?} concurrent-bulk:{}mg total-mined:{}mg hard-before-convergence:{}mg hard-mined:{}mg remaining:{}mg] copper=[strongest-clue-mining:{}t direct-invested:{}mg direct-follow-up-blocked:{} separation-feed:{}mg recovered:{}mg residue:{}mg separation:{}t] infrastructure=[drive:{}mg crusher:{}mg separator:{}mg automation-preparation:{}t separator-preparation:{}t full-line-preparation:{}t] stored-work=[fill:{}ppm initial-charge:{}nJ primary-crush:{}nJ separation:{}nJ banked:{}nJ follow-up:{}mg:{}t steady-cycles:{} automation-attention-break-even:{:?} steady-charge:{}t final:{}nJ] charge=[crank-reinforced-initial:{} final:{} full-accumulator:{}t initial:{}t total:{}t] mechanization=[primary:{}t concurrent-task:{}:{}t initial-overlap:{}t primary-productive-overlap:{}t primary-player-free:{}t reserve:{}t reserve-mining:{}t reserve-productive-overlap:{}t reserve-player-free:{}t steady-machine:{}t steady-productive-overlap:{}t steady-player-free:{}t total-productive-overlap:{}t total-player-free:{}t crushed-total:{}mg crushed-remaining:{}mg] durability=[pick:{}ppm] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
+            "PROGRESSION SYSTEMS knowledge=[surface:{}t refinement:{}t refined-extraction:{}mg/{}t] ore=[batch:{}mg stone-mining:{}t reinforced-mining:{:?} concurrent-bulk:{}mg total-mined:{}mg hard-before-convergence:{}mg hard-mined:{}mg remaining:{}mg] copper=[strongest-clue-mining:{}t direct-invested:{}mg direct-follow-up-blocked:{} separation-feed:{}mg recovered:{}mg residue:{}mg separation:{}t] infrastructure=[drive:{}mg crusher:{}mg separator:{}mg automation-preparation:{}t separator-preparation:{}t full-line-preparation:{}t] stored-work=[fill:{}ppm initial-charge:{}nJ primary-crush:{}nJ separation:{}nJ banked:{}nJ follow-up:{}mg:{}t steady-cycles:{} steady-stop:{} crusher-condition:{}ppm automation-attention-break-even:{:?} steady-charge:{}t final:{}nJ] charge=[crank-reinforced-initial:{} final:{} full-accumulator:{}t initial:{}t total:{}t] mechanization=[primary:{}t concurrent-task:{}:{}t initial-overlap:{}t primary-productive-overlap:{}t primary-player-free:{}t reserve:{}t reserve-mining:{}t reserve-productive-overlap:{}t reserve-player-free:{}t steady-machine:{}t steady-productive-overlap:{}t steady-player-free:{}t total-productive-overlap:{}t total-player-free:{}t crushed-total:{}mg crushed-remaining:{}mg] durability=[pick:{}ppm] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
             surface_prospecting_ticks,
             detailed_survey_ticks,
             refined_clue_sample_mass.milligrams(),
@@ -2589,6 +2658,8 @@ fn run_primitive_progression_case(
             machine.reserve_mass.milligrams(),
             reserve_work.crush_ticks,
             steady_state.cycles,
+            steady_state.stop.label(),
+            steady_state.terminal_crusher_condition_ppm,
             steady_state.payback_cycle,
             steady_state.charge_ticks,
             drive_remaining.nanojoules(),
@@ -2683,6 +2754,9 @@ pub(super) struct PrimitiveProgressionReview {
     pub(super) separator_preparation_ticks: u64,
     pub(super) processing_line_preparation_ticks: u64,
     pub(super) attention_payback_cycles: Option<u64>,
+    pub(super) steady_state_cycles: u64,
+    pub(super) steady_state_stop: PrimitiveSteadyStop,
+    pub(super) final_crusher_condition_ppm: u32,
     pub(super) machine_work_ticks: u64,
     pub(super) reserve_machine_work_ticks: u64,
     pub(super) mechanization_useful_overlap_ticks: u64,
@@ -2818,6 +2892,18 @@ pub(super) fn evaluate_primitive_progression_probe(
     assert_eq!(
         extraction.primary_batch_mass, mechanization.primary_batch_mass,
         "matched-world priorities must compare the same primary crusher batch"
+    );
+    assert_eq!(
+        extraction.steady_state_cycles, mechanization.steady_state_cycles,
+        "matched-world priorities must reach the same primitive crusher lifecycle endpoint"
+    );
+    assert_eq!(
+        extraction.steady_state_stop, mechanization.steady_state_stop,
+        "matched-world priorities must observe the same primitive lifecycle stop reason"
+    );
+    assert_eq!(
+        extraction.final_crusher_condition_ppm, mechanization.final_crusher_condition_ppm,
+        "matched-world priorities must finish repeated crusher work at the same condition"
     );
     assert_eq!(
         extraction.prospecting_ticks, mechanization.prospecting_ticks,
@@ -3087,6 +3173,9 @@ pub(super) fn evaluate_primitive_progression_probe(
         separator_preparation_ticks,
         processing_line_preparation_ticks,
         attention_payback_cycles,
+        steady_state_cycles: extraction.steady_state_cycles,
+        steady_state_stop: extraction.steady_state_stop,
+        final_crusher_condition_ppm: extraction.final_crusher_condition_ppm,
         machine_work_ticks: mechanization.machine_work_ticks,
         reserve_machine_work_ticks: mechanization.reserve_machine_work_ticks,
         mechanization_useful_overlap_ticks: mechanization.machine_useful_overlap_ticks,
@@ -3101,6 +3190,18 @@ pub(super) fn evaluate_primitive_progression_probe(
             mechanization.elapsed_ticks,
         ),
     };
+    let choice_windows_are_material = review.extraction_hard_material_window_ticks
+        >= MIN_EXCLUSIVE_CHOICE_WINDOW_TICKS
+        && review.mechanization_processed_output_window_ticks >= MIN_EXCLUSIVE_CHOICE_WINDOW_TICKS;
+    let post_payback_cycles = review
+        .attention_payback_cycles
+        .and_then(|payback| review.steady_state_cycles.checked_sub(payback))
+        .unwrap_or(0);
+    let automation_attention_payback_is_material = review
+        .attention_payback_cycles
+        .is_some_and(|cycles| cycles <= MAX_ACCEPTABLE_AUTOMATION_PAYBACK_CYCLES)
+        && review.returned_player_free_ticks >= review.automation_preparation_ticks
+        && post_payback_cycles >= MIN_POST_PAYBACK_CRUSH_CYCLES;
     let fantasy_captured = review.surface_resolved_clue_count < review.surface_clue_count
         && review.surface_resolved_clue_count > 0
         && review.information_refinement_required
@@ -3118,21 +3219,20 @@ pub(super) fn evaluate_primitive_progression_probe(
         && review.sequencing_tradeoff
         && review.converged_both_upgrades
         && review.processed_output_has_playable_acquisition_use
-        && review.tool_attention_reduction_ppm > 0
+        && review.tool_attention_reduction_ppm >= MIN_TOOL_ATTENTION_REDUCTION_PPM
         && review.crank_power_gain_ppm > 0
-        && review.crank_attention_reduction_ppm > 0
+        && review.crank_attention_reduction_ppm >= MIN_CRANK_ATTENTION_REDUCTION_PPM
         && review.extraction_hard_access_lead_ticks > 0
         && review.mechanization_autonomy_lead_ticks > 0
-        && review.mechanization_output_delta_ticks > 0
-        && review.mechanization_convergence_delta_ticks > 0
+        && choice_windows_are_material
         && review.extraction_hard_ore_before_convergence_mg > 0
         && review.mechanization_processed_before_pick_upgrade
         && review.mechanization_useful_overlap_ticks > 0
         && review.reserve_useful_overlap_ticks > 0
-        && review.returned_player_free_ticks > 0;
+        && automation_attention_payback_is_material;
     assert!(
         fantasy_captured,
-        "primitive progression must turn uncertainty into a paid information choice, make upgrade order change immediate affordances, and let autonomous work accelerate convergence"
+        "primitive progression must turn uncertainty into a paid information choice, give each scarce-copper investment a material exclusive affordance window, and repay automation setup attention within bounded repetition"
     );
     let payback = review
         .attention_payback_cycles
@@ -3143,7 +3243,7 @@ pub(super) fn evaluate_primitive_progression_probe(
         .checked_sub(review.surface_resolved_clue_count)
         .unwrap_or_else(|| unreachable!("resolved clue count cannot exceed observed clue count"));
     std::println!(
-        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=inspect-clues->infer-affordances->respond-to-shortage-with-information->bootstrap-by-hand->sequence-investment->delegate-work->convert-output-into-next-capability captured:{fantasy_captured} discovery=[surface:{}t clues:{} coarse-resolved:{} unresolved:{} refinement-deferred:{} trigger:direct-supply-shortage refinement:{}t refined-bounds:{}..{}->{}..{}ppm sample:{}mg/{}t sample-form:ore sample-grade:{}ppm] affordances=[surface-mineable:{} hardness-blocked:{} strongest-copper:{}..{}ppm bulk-clue:{}..{}ppm strongest-output:native-metal direct-follow-up:insufficient-target-mass processing-choice:[bulk:{}ppm deferred-sample:{}ppm selected:bulk] evidence-gated-targets:true hidden-id-oracle:false] agency=sequencing+convergence observations=[tool-attention-reduction:{}ppm crank-power-gain:{}ppm charge-attention-reduction:{}ppm hard-before-convergence:{}mg hard-access-lead:{}t choice-windows:[hard-material:{}t processed-output:{}t] automation-lead:{}t output-lead:{:+}t convergence-lead:{:+}t processed-before-pick:{} both-upgrades:{} automation-setup:{}t separator-setup:{}t line-setup:{}t automation-attention-break-even:{payback} autonomous-work:{}t productive-overlap:{}t reserve-overlap:{}t returned-free:{}t branch-free-delta:{:+}t elapsed-delta:{:+}t] final-parity=[hard-ore:{}vs{}mg] output-utility=[information:constraint-triggered-refinement+sampled-alternative attention:direct material-progression:inventory-derived-separation feed:{}mg recovered-copper:{}mg separation:{}t second-upgrade-source:processed-ore] interpretation=[unresolved-clue=deferred-until-current-options-insufficient candidate-choice=evidence-bounds+canonical-blockers direct-supply-limit=learned-by-rejected-mining-action sample-result=ore-not-second-direct-native-source feed-sizing=observed-inventory-composition automation-break-even=attention-only-lens-crusher-also-unlocks-material-progression pick-first=exclusive-hard-material-window crank-first=exclusive-processed-output+faster-stored-work-window shared-convergence=crusher->separator->second-upgrade returned-attention=additional-ore-extraction]",
+        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=inspect-clues->infer-affordances->respond-to-shortage-with-information->bootstrap-by-hand->sequence-investment->delegate-work->convert-output-into-next-capability captured:{fantasy_captured} discovery=[surface:{}t clues:{} coarse-resolved:{} unresolved:{} refinement-deferred:{} trigger:direct-supply-shortage refinement:{}t refined-bounds:{}..{}->{}..{}ppm sample:{}mg/{}t sample-form:ore sample-grade:{}ppm] affordances=[surface-mineable:{} hardness-blocked:{} strongest-copper:{}..{}ppm bulk-clue:{}..{}ppm strongest-output:native-metal direct-follow-up:insufficient-target-mass processing-choice:[bulk:{}ppm deferred-sample:{}ppm selected:bulk] evidence-gated-targets:true hidden-id-oracle:false] agency=sequencing+tradeoff observations=[tool-attention-reduction:{}ppm crank-power-gain:{}ppm charge-attention-reduction:{}ppm hard-before-convergence:{}mg hard-access-lead:{}t choice-windows:[hard-material:{}t processed-output:{}t material:{choice_windows_are_material}] automation-lead:{}t output-delta:{:+}t convergence-delta:{:+}t processed-before-pick:{} both-upgrades:{} automation-setup:{}t separator-setup:{}t line-setup:{}t automation-attention-break-even:{payback} payback-material:{automation_attention_payback_is_material} lifecycle:[cycles:{} stop:{} crusher-condition:{}ppm post-payback:{}] autonomous-work:{}t productive-overlap:{}t reserve-overlap:{}t returned-free:{}t branch-free-delta:{:+}t elapsed-delta:{:+}t] final-parity=[hard-ore:{}vs{}mg] output-utility=[information:constraint-triggered-refinement+rules-out-low-grade-alternative attention:direct material-progression:inventory-derived-separation feed:{}mg recovered-copper:{}mg separation:{}t second-upgrade-source:processed-ore] interpretation=[unresolved-clue=deferred-until-current-options-insufficient candidate-choice=evidence-bounds+canonical-blockers direct-supply-limit=learned-by-rejected-mining-action sample-result=negative-information:ore-not-second-direct-native-source+inferior-feed feed-sizing=observed-inventory-composition automation-break-even=attention-only-lens-crusher-also-unlocks-material-progression pick-first=exclusive-hard-material-window crank-first=exclusive-processed-output+faster-stored-work-window shared-convergence=crusher->separator->second-upgrade returned-attention=additional-ore-extraction lifecycle=primitive-machinery-is-finite-and-must-repay-before-rebuild]",
         review.surface_prospecting_ticks,
         review.surface_clue_count,
         review.surface_resolved_clue_count,
@@ -3180,6 +3280,10 @@ pub(super) fn evaluate_primitive_progression_probe(
         review.automation_preparation_ticks,
         review.separator_preparation_ticks,
         review.processing_line_preparation_ticks,
+        review.steady_state_cycles,
+        review.steady_state_stop.label(),
+        review.final_crusher_condition_ppm,
+        post_payback_cycles,
         review.machine_work_ticks,
         review.mechanization_useful_overlap_ticks,
         review.reserve_useful_overlap_ticks,

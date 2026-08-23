@@ -34,6 +34,7 @@ pub const EQUIPMENT_COPPER_REINFORCED_HAND_CRANK: EquipmentDefinitionId =
     EquipmentDefinitionId::new(9);
 pub const EQUIPMENT_STONE_CRUSHER: EquipmentDefinitionId = EquipmentDefinitionId::new(10);
 pub const EQUIPMENT_STONE_SEPARATOR: EquipmentDefinitionId = EquipmentDefinitionId::new(11);
+pub const EQUIPMENT_GRAVITY_SEPARATOR: EquipmentDefinitionId = EquipmentDefinitionId::new(12);
 
 fn condition(parts_per_million: u32) -> Condition {
     match Condition::new(parts_per_million) {
@@ -113,12 +114,17 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     let stone_crusher_curve = mass_flow_condition_curve(
         CAPABILITY_CRUSHER_FLOW,
         600_000,
-        MassFlow::from_milligrams_per_second(2_500),
+        MassFlow::from_milligrams_per_second(1_000),
     );
     let stone_separator_curve = mass_flow_condition_curve(
         CAPABILITY_SEPARATOR_FLOW,
         600_000,
         MassFlow::from_milligrams_per_second(1_500),
+    );
+    let gravity_separator_curve = mass_flow_condition_curve(
+        CAPABILITY_SEPARATOR_FLOW,
+        600_000,
+        MassFlow::from_milligrams_per_second(250_000),
     );
     let reinforced_hand_crank_curve = power_condition_curve(
         CAPABILITY_MANUAL_POWER_OUTPUT,
@@ -397,11 +403,11 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_STONE_CRUSHER,
             "stone toggle crusher",
-            Mass::from_milligrams(3_000_000),
+            Mass::from_milligrams(2_000_000),
             profile([
                 (
                     CAPABILITY_CRUSHER_FLOW,
-                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(5_000)),
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(2_000)),
                 ),
                 (
                     CAPABILITY_CRUSHER_BATCH,
@@ -414,11 +420,11 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
-                Mass::from_milligrams(2_400_000),
+                Mass::from_milligrams(1_600_000),
             ),
             MaterialInputSpec::new(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
-                Mass::from_milligrams(600_000),
+                Mass::from_milligrams(400_000),
             ),
         ]))
         .with_worn_recovery_form(FORM_SCRAP),
@@ -450,6 +456,25 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             ),
         ]))
         .with_worn_recovery_form(FORM_SCRAP),
+        EquipmentDefinition::new_with_capability_condition_curves(
+            EQUIPMENT_GRAVITY_SEPARATOR,
+            "workshop gravity separator",
+            Mass::from_milligrams(1_600_000_000),
+            profile([
+                (
+                    CAPABILITY_SEPARATOR_FLOW,
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(500_000)),
+                ),
+                (
+                    CAPABILITY_SEPARATOR_BATCH,
+                    CapabilityValue::Mass(Mass::from_milligrams(20_000_000)),
+                ),
+            ]),
+            thresholds(),
+            vec![gravity_separator_curve],
+        )
+        .with_required_structural_support()
+        .with_maintenance_profile(workshop_maintenance()),
     ])
 }
 

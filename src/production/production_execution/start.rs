@@ -1,6 +1,7 @@
 //! Process-start admission and routing; child commit owns atomic mutation after validation.
 
 mod commit;
+pub use commit::StartProcessCommitError;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
@@ -16,15 +17,16 @@ use crate::energy::{
 };
 use crate::equipment::{EquipmentId, ValidatedEquipmentUse};
 use crate::inventory::{
-    ConsumptionReservation, ReservationError, StockpileId, StockpileStorageError,
-    StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedStockpileStructuralLoad,
-    validate_consumption_reservation_from_selection, validate_stockpile_storage,
-    validate_stockpile_stored_mass_changes, validate_stockpile_support_for_new_inbound,
+    AMBIENT_PRESERVATION_MULTIPLIER_PPM, ConsumptionReservation, ReservationError, StockpileId,
+    StockpileStorageError, StockpileStoredMassChange, StockpileStructuralLoadError,
+    ValidatedStockpileStructuralLoad, validate_consumption_reservation_from_selection,
+    validate_stockpile_storage, validate_stockpile_stored_mass_changes,
+    validate_stockpile_support_for_new_inbound,
 };
 use crate::material::{FormId, MaterialId};
 use crate::mining::MiningJobId;
 use crate::registry::Registries;
-use crate::structural::{StructuralCommitError, StructuralElementId, StructuralLifecycle};
+use crate::structural::{StructuralElementId, StructuralLifecycle};
 
 use super::super::definitions::ProcessId;
 use super::super::resolution::{
@@ -110,6 +112,9 @@ pub enum StartProcessError {
     MatterBalanceMismatch {
         input_mass: Mass,
         output_mass: Mass,
+    },
+    InputStorageAgeOverflow {
+        stockpile: StockpileId,
     },
     CompletionTickOverflow {
         current: SimulationTick,
@@ -273,6 +278,11 @@ impl Display for StartProcessError {
                 "resolved process accounts for {} mg of output from {} mg of input",
                 output_mass.milligrams(),
                 input_mass.milligrams()
+            ),
+            Self::InputStorageAgeOverflow { stockpile } => write!(
+                formatter,
+                "process input storage exposure from stockpile {} exceeds authoritative range",
+                stockpile.value()
             ),
             Self::CompletionTickOverflow {
                 current,
@@ -463,6 +473,9 @@ impl Error for StartProcessError {
                 input_mass: _input_mass,
                 output_mass: _output_mass,
             } => None,
+            Self::InputStorageAgeOverflow {
+                stockpile: _stockpile,
+            } => None,
             Self::CompletionTickOverflow {
                 current: _current,
                 duration_ticks: _duration_ticks,
@@ -536,125 +549,6 @@ impl Error for StartProcessError {
             | Self::ResolvedEnergyInsufficient
             | Self::ResolvedEnergySinkMissing
             | Self::ResolvedEnergySinkCapacity => None,
-        }
-    }
-}
-
-/// Failure when a validated process start is committed after either owning state has changed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum StartProcessCommitError {
-    StaleProductionRevision {
-        expected: u64,
-        actual: u64,
-    },
-    StaleInventoryRevision {
-        expected: u64,
-        actual: u64,
-    },
-    StaleEnergyRevision {
-        expected: u64,
-        actual: u64,
-    },
-    StaleEquipmentRevision {
-        expected: u64,
-        actual: u64,
-    },
-    StaleStructureRevision {
-        expected: u64,
-        actual: u64,
-    },
-    EnergyStoreBusyManualPower {
-        store: crate::energy::EnergyStoreId,
-    },
-    EquipmentBusyMining {
-        equipment: EquipmentId,
-        job: MiningJobId,
-    },
-    EquipmentBusyManualPower {
-        equipment: EquipmentId,
-    },
-    Structure(StructuralCommitError),
-}
-
-impl Display for StartProcessCommitError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::StaleProductionRevision { expected, actual } => write!(
-                formatter,
-                "validated process start expected production revision {expected} but current revision is {actual}"
-            ),
-            Self::StaleInventoryRevision { expected, actual } => write!(
-                formatter,
-                "validated process start expected inventory revision {expected} but current revision is {actual}"
-            ),
-            Self::StaleEnergyRevision { expected, actual } => write!(
-                formatter,
-                "validated process start expected energy revision {expected} but current revision is {actual}"
-            ),
-            Self::StaleEquipmentRevision { expected, actual } => write!(
-                formatter,
-                "validated process start expected equipment revision {expected} but current revision is {actual}"
-            ),
-            Self::StaleStructureRevision { expected, actual } => write!(
-                formatter,
-                "validated process start expected structural revision {expected} but current revision is {actual}"
-            ),
-            Self::EnergyStoreBusyManualPower { store } => write!(
-                formatter,
-                "validated process start energy store {} is occupied by direct player-powered generation",
-                store.value()
-            ),
-            Self::EquipmentBusyMining { equipment, job } => write!(
-                formatter,
-                "validated process start equipment {} is occupied by mining job {}",
-                equipment.value(),
-                job.value()
-            ),
-            Self::EquipmentBusyManualPower { equipment } => write!(
-                formatter,
-                "validated process start equipment {} is occupied by direct player-powered generation",
-                equipment.value()
-            ),
-            Self::Structure(error) => write!(
-                formatter,
-                "validated process start could not commit stored-matter structural load: {error}"
-            ),
-        }
-    }
-}
-
-impl Error for StartProcessCommitError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Structure(error) => Some(error),
-            Self::StaleProductionRevision {
-                expected: _expected,
-                actual: _actual,
-            }
-            | Self::StaleInventoryRevision {
-                expected: _expected,
-                actual: _actual,
-            }
-            | Self::StaleEnergyRevision {
-                expected: _expected,
-                actual: _actual,
-            }
-            | Self::StaleEquipmentRevision {
-                expected: _expected,
-                actual: _actual,
-            }
-            | Self::StaleStructureRevision {
-                expected: _expected,
-                actual: _actual,
-            } => None,
-            Self::EnergyStoreBusyManualPower { store: _store } => None,
-            Self::EquipmentBusyMining {
-                equipment: _equipment,
-                job: _job,
-            } => None,
-            Self::EquipmentBusyManualPower {
-                equipment: _equipment,
-            } => None,
         }
     }
 }
@@ -912,6 +806,15 @@ fn validate_start_process_routed_internal(
         inbound_by_destination,
     )
     .map_err(map_reservation_error)?;
+    let material_storage_history = reservation
+        .oldest_storage_history_at(state.inventory(), current)
+        .ok_or(StartProcessError::InputStorageAgeOverflow { stockpile: source })?;
+    if material_storage_history
+        .project(completes_at, AMBIENT_PRESERVATION_MULTIPLIER_PPM)
+        .is_none()
+    {
+        return Err(StartProcessError::InputStorageAgeOverflow { stockpile: source });
+    }
     let consumed_inputs = reservation.consumed_inputs().to_vec();
     let energy_reservation = match resolution.energy_supply() {
         Some(selection) => Some(
@@ -1077,6 +980,7 @@ fn validate_start_process_routed_internal(
             resources: ProductionJobResources {
                 consumed_mass: input_mass,
                 consumed_inputs,
+                material_storage_history,
                 consumed_energy,
                 released_energy,
             },

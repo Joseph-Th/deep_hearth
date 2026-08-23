@@ -3,11 +3,13 @@
 use std::collections::BTreeMap;
 
 use crate::core::quantity::Mass;
+use crate::core::time::SimulationTick;
 use crate::material::{CommodityKey, MaterialInputSpec};
 
 use super::state::{
-    ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, StockpileId, StockpileRecord,
-    apply_aggregate_withdraw, apply_consume_lot_slice, get_stockpile_mut_or_panic,
+    ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, MaterialStorageHistory,
+    StockpileId, StockpileRecord, apply_aggregate_withdraw, apply_consume_lot_slice,
+    get_stockpile_mut_or_panic,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -156,6 +158,46 @@ impl ConsumptionReservation {
 
     pub(crate) fn consumed_inputs(&self) -> &[ConsumedMaterialTrace] {
         &self.consumed_inputs
+    }
+
+    /// Captures the oldest ambient-equivalent storage exposure represented by this exact
+    /// reservation at `at`. Production uses the conservative oldest cohort because generic
+    /// process streams do not retain a one-to-one lineage from every selected input lot to every
+    /// output lot.
+    pub(crate) fn oldest_storage_history_at(
+        &self,
+        state: &InventoryState,
+        at: SimulationTick,
+    ) -> Option<MaterialStorageHistory> {
+        assert_eq!(
+            state.revision(),
+            self.expected_revision,
+            "storage exposure must be captured from the reservation's validated inventory revision"
+        );
+        let source = state.get_stockpile(self.source).unwrap_or_else(|| {
+            panic!(
+                "validated reservation source stockpile {} disappeared",
+                self.source.value()
+            )
+        });
+        let preservation_multiplier_ppm = source.storage_profile().preservation_multiplier_ppm();
+        let mut oldest_ambient_age_parts = 0_u128;
+        for slice in &self.lot_slices {
+            let lot = state.get_lot(slice.lot).unwrap_or_else(|| {
+                panic!(
+                    "validated reservation references missing material lot {}",
+                    slice.lot.value()
+                )
+            });
+            let age = lot
+                .storage_history()
+                .project(at, preservation_multiplier_ppm)?;
+            oldest_ambient_age_parts = oldest_ambient_age_parts.max(age);
+        }
+        Some(MaterialStorageHistory::with_ambient_age_parts(
+            oldest_ambient_age_parts,
+            at,
+        ))
     }
 }
 

@@ -33,6 +33,7 @@ fn reserved_deposit_plan_owns_lot_ids_and_revision_advance() {
             destination,
             vec![output],
             Mass::from_milligrams(10),
+            0,
         )],
     )
     .unwrap_or_else(|error| panic!("reserved ingress planning failed: {error:?}"));
@@ -105,6 +106,7 @@ fn reserved_output_merges_without_consuming_an_unused_lot_identity() {
             destination,
             vec![output],
             Mass::from_milligrams(6),
+            0,
         )],
     )
     .unwrap_or_else(|error| panic!("reserved ingress merge planning failed: {error:?}"));

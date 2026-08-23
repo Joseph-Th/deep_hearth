@@ -80,11 +80,13 @@ of an installed system, not an ordinary-play acquisition path.
 
 | Target | Required evidence |
 | --- | --- |
-| `survival` | Preservation, dominant reserve pressure, matched compact-calorie versus balanced-diet provisioning, physical eating/drinking, and reserve recovery. |
-| `progression` | Local prospecting, primitive crafting/assembly, mining, scarce copper sequencing, manual power, autonomous crushing, productive overlap, native-copper separation, convergence, and returned player attention. |
+| `survival` | Matched hunger-versus-thirst pressure response through canonical eating/drinking, matched full-reserve prospecting versus manual-power work showing activity-dependent dominant reserve pressure, preservation, dominant long-horizon reserve pressure, matched compact-calorie versus balanced-diet provisioning, and reserve recovery. |
+| `progression` | Local prospecting, primitive crafting/assembly, mining, materially distinct scarce-copper sequencing windows, manual power, autonomous crushing, productive overlap, native-copper separation, convergence, returned player attention, and finite primitive-machine lifecycle/payback. |
 | `workshop` | Installed industrial workshop operation under stored-work, survival, wear, maintenance, structure, power, and hidden world-change pressure; includes matched policy counterfactuals. |
-| `ore` | Installed crushing, grinding, screening, regrinding, and generalized copper-concentration behavior over variable multi-constituent gangue, including bounded primitive separator batches, exact constituent accounting, and physical tailings. Capability depth only. |
+| `ore` | Installed crushing, grinding, screening, regrinding, and generalized copper-concentration behavior over variable multi-constituent gangue, including one full prepared batch through a structurally installed industrial separator, exact constituent accounting, and physical tailings. Capability depth only. |
 | `foundry` | Installed pure-copper heating, melting, casting, and finite heat-recovery behavior. Capability depth only. |
+
+The survival pressure checks use matched starting reserves for two distinct questions. Warning-boundary cases verify that the useful canonical response changes with the immediate need; full-reserve work cases verify that different canonical activities can make different reserves dominant without requiring artificial meter rotation.
 
 ### Progression contract
 
@@ -113,8 +115,11 @@ The actor must:
 - converge both branches on the same final capabilities and matched material workload.
 
 Post-convergence evaluation uses the same bounded workload in both branches. Automation attention
-break-even measures crank/flywheel/crusher preparation against returned free attention only. Separator
-setup and full processing-line setup are reported separately.
+break-even measures crank/flywheel/crusher preparation against returned free attention only, must occur
+within a bounded number of repeated cycles, and must leave a meaningful number of useful cycles before
+the primitive crusher or crank reaches its physical condition-limited endpoint. Separator setup and full
+processing-line setup are reported separately. The scarce-copper choice must create material exclusive
+affordance windows rather than merely nonzero timing deltas.
 
 ### Workshop contract
 

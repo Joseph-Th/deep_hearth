@@ -892,7 +892,7 @@ pub fn validate_loaded_state(
         state.tick(),
     )
     .map_err(StateValidationError::GeologicalKnowledge)?;
-    validate_loaded_production(&state.systems.production)
+    validate_loaded_production(&state.systems.production, state.tick())
         .map_err(StateValidationError::Production)?;
     validate_loaded_mining(&state.systems.mining, state.tick())
         .map_err(StateValidationError::Mining)?;

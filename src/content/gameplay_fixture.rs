@@ -30,15 +30,28 @@ use crate::structural::{
     StructuralElementId, bind_structural_construction_selection,
     resolve_structural_material_requirement, validate_structural_construction,
 };
-use crate::survival::initialize_player_survival_at_warning_for_fixture;
+use crate::survival::{
+    initialize_player_survival_at_hunger_warning_for_fixture,
+    initialize_player_survival_at_hydration_warning_for_fixture,
+};
 
 /// Seeds a controlled scenario player at the authored hydration warning boundary.
 ///
 /// This represents a pre-existing starting condition for the maintained survival-pressure world. It
 /// does not advance the simulation or provide an acting-policy shortcut once setup has completed.
-pub fn seed_player_survival_at_warning(registries: &Registries, state: &mut AppState) {
-    initialize_player_survival_at_warning_for_fixture(registries, state)
-        .unwrap_or_else(|error| panic!("gameplay bootstrap survival seed failed: {error}"));
+pub fn seed_player_survival_at_hydration_warning(registries: &Registries, state: &mut AppState) {
+    initialize_player_survival_at_hydration_warning_for_fixture(registries, state).unwrap_or_else(
+        |error| panic!("gameplay bootstrap hydration-warning seed failed: {error}"),
+    );
+}
+
+/// Seeds a controlled scenario player at the authored hunger warning boundary.
+///
+/// This represents a pre-existing starting condition for a maintained survival-pressure world. It
+/// does not advance the simulation or provide an acting-policy shortcut once setup has completed.
+pub fn seed_player_survival_at_hunger_warning(registries: &Registries, state: &mut AppState) {
+    initialize_player_survival_at_hunger_warning_for_fixture(registries, state)
+        .unwrap_or_else(|error| panic!("gameplay bootstrap hunger-warning seed failed: {error}"));
 }
 
 pub fn seed_stockpile(

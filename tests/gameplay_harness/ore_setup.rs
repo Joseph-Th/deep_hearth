@@ -6,18 +6,18 @@ use super::capability_boundary::{
 use super::industrial_support::install_equipment_on_grounded_support;
 use super::support::{ROOM_TEMPERATURE, add_solid_stockpile};
 use deep_hearth::content::gameplay_fixture::{
-    seed_composed_lot, seed_energy_store as seed_energy_store_exact, seed_equipment, seed_lot,
+    seed_composed_lot, seed_energy_store as seed_energy_store_exact, seed_equipment,
 };
 use deep_hearth::content::{
-    ENERGY_MECHANICAL_LARGE_DRIVE, EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRINDING_MILL,
-    EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_SEPARATOR, FORM_ORE, MATERIAL_CLAY, MATERIAL_COPPER,
+    ENERGY_MECHANICAL_LARGE_DRIVE, EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRAVITY_SEPARATOR,
+    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, FORM_ORE, MATERIAL_CLAY, MATERIAL_COPPER,
     MATERIAL_STONE,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::AppState;
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::energy::EnergyStoreId;
-use deep_hearth::equipment::{EquipmentId, validate_assemble_equipment};
+use deep_hearth::equipment::EquipmentId;
 use deep_hearth::inventory::{MaterialLotId, StockpileId};
 use deep_hearth::maintenance::Condition;
 use deep_hearth::material::{CommodityKey, CompositionComponent, MaterialComposition};
@@ -58,6 +58,7 @@ pub(super) struct OrePreparationSetup {
     pub(super) crusher_condition: Condition,
     pub(super) grinder_condition: Condition,
     pub(super) screen_condition: Condition,
+    pub(super) separator_condition: Condition,
     pub(super) drive_energy: Energy,
 }
 
@@ -72,12 +73,14 @@ pub(super) fn setup_ore_preparation_probe(
         crusher_condition,
         grinder_condition,
         screen_condition,
+        separator_condition,
         drive_energy,
     } = setup;
     for equipment in [
         EQUIPMENT_JAW_CRUSHER,
         EQUIPMENT_GRINDING_MILL,
         EQUIPMENT_DRY_SCREEN,
+        EQUIPMENT_GRAVITY_SEPARATOR,
     ] {
         assert_capability_only_equipment(registries, equipment);
     }
@@ -117,39 +120,16 @@ pub(super) fn setup_ore_preparation_probe(
         EQUIPMENT_DRY_SCREEN,
         screen_condition,
     );
-    let separator_profile = registries
-        .equipment()
-        .get_equipment(EQUIPMENT_STONE_SEPARATOR)
-        .and_then(|definition| definition.assembly_profile())
-        .unwrap_or_else(|| panic!("ore preparation separator lost its conserved assembly profile"));
-    let separator_material_mass = separator_profile
-        .inputs()
-        .iter()
-        .try_fold(Mass::ZERO, |total, input| total.checked_add(input.mass()))
-        .unwrap_or_else(|| panic!("ore preparation separator assembly mass overflowed"));
-    let separator_assembly = add_solid_stockpile(&mut state, separator_material_mass);
-    for input in separator_profile.inputs() {
-        seed_lot(
-            registries,
-            &mut state,
-            separator_assembly,
-            input.commodity(),
-            input.mass(),
-            ROOM_TEMPERATURE,
-        );
-    }
-    let separator = validate_assemble_equipment(
+    let separator = seed_equipment(
         registries,
-        &state,
-        EQUIPMENT_STONE_SEPARATOR,
-        separator_assembly,
-    )
-    .unwrap_or_else(|error| panic!("ore preparation separator assembly failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("ore preparation separator assembly commit failed: {error}"));
+        &mut state,
+        EQUIPMENT_GRAVITY_SEPARATOR,
+        separator_condition,
+    );
     install_equipment_on_grounded_support(registries, &mut state, crusher, 0);
     install_equipment_on_grounded_support(registries, &mut state, grinder, 2);
     install_equipment_on_grounded_support(registries, &mut state, screen, 4);
+    install_equipment_on_grounded_support(registries, &mut state, separator, 6);
     let drive = seed_energy_store_exact(
         registries,
         &mut state,

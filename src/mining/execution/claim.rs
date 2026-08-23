@@ -169,6 +169,7 @@ pub fn validate_claim_mining_output(
             record.destination(),
             vec![record.output().clone()],
             mass,
+            0,
         )],
     )
     .map_err(|error| match error {

@@ -8,9 +8,10 @@ use crate::core::time::{SimulationTick, TickSpan};
 use crate::energy::{ReleasedEnergyTrace, apply_released_energy_outcomes};
 use crate::equipment::EquipmentOperationConditionOutcome;
 use crate::inventory::{
-    ReservedDepositPlan, ReservedDepositPlanError, ReservedDepositRequest, StockpileId,
-    StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedStockpileStructuralLoad,
-    apply_reserved_deposits, decide_reserved_deposits, validate_stockpile_stored_mass_changes,
+    AMBIENT_PRESERVATION_MULTIPLIER_PPM, ReservedDepositPlan, ReservedDepositPlanError,
+    ReservedDepositRequest, StockpileId, StockpileStoredMassChange, StockpileStructuralLoadError,
+    ValidatedStockpileStructuralLoad, apply_reserved_deposits, decide_reserved_deposits,
+    validate_stockpile_stored_mass_changes,
 };
 use crate::registry::Registries;
 use crate::structural::{StructuralCommitError, StructuralLifecycle};
@@ -142,6 +143,9 @@ pub(crate) enum CompletionPlanError {
     },
     DestinationMassOverflow {
         stockpile: StockpileId,
+    },
+    StorageAgeOverflow {
+        job: ProductionJobId,
     },
     StructuralLoad(StockpileStructuralLoadError),
 }
@@ -322,6 +326,10 @@ pub(crate) fn decide_due_completions(
                 job_id.value()
             ),
         };
+        let storage_age_parts = job
+            .material_storage_history()
+            .project(tick, AMBIENT_PRESERVATION_MULTIPLIER_PPM)
+            .ok_or(CompletionPlanError::StorageAgeOverflow { job: *job_id })?;
         let mut output_streams = Vec::with_capacity(job.output_streams().len());
         for stream in job.output_streams() {
             let reserved_mass = match sum_lot_spec_mass(stream.outputs()) {
@@ -339,6 +347,7 @@ pub(crate) fn decide_due_completions(
                 stream.destination(),
                 stream.outputs().to_vec(),
                 reserved_mass,
+                storage_age_parts,
             ));
             let current = deposited_mass_by_destination
                 .get(&stream.destination())

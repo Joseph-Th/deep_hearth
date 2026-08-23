@@ -12,8 +12,9 @@ use crate::texture::{
 use super::equipment::{
     EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
     EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE,
-    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_CRUSHER,
-    EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_SEPARATOR,
+    EQUIPMENT_GRAVITY_SEPARATOR, EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER,
+    EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
+    EQUIPMENT_STONE_SEPARATOR,
 };
 use super::materials::{
     FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED, FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_LOG,
@@ -84,6 +85,7 @@ pub const OBJECT_COPPER_REINFORCEMENT: ObjectAppearanceId = ObjectAppearanceId::
 pub const OBJECT_NATIVE_COPPER: ObjectAppearanceId = ObjectAppearanceId::new(25);
 pub const OBJECT_COPPER_SCRAP: ObjectAppearanceId = ObjectAppearanceId::new(26);
 pub const OBJECT_STONE_SEPARATOR: ObjectAppearanceId = ObjectAppearanceId::new(27);
+pub const OBJECT_GRAVITY_SEPARATOR: ObjectAppearanceId = ObjectAppearanceId::new(28);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(
@@ -416,6 +418,15 @@ fn build_object_appearances() -> Vec<ObjectAppearanceDefinition> {
             &[TEXTURE_STONE, TEXTURE_WOOD_SIDE, TEXTURE_SCREEN_MESH],
         ),
         object(
+            OBJECT_GRAVITY_SEPARATOR,
+            "workshop gravity separator",
+            &[
+                TEXTURE_MACHINE_PANEL,
+                TEXTURE_WORKING_METAL,
+                TEXTURE_SCREEN_MESH,
+            ],
+        ),
+        object(
             OBJECT_COPPER_REINFORCEMENT,
             "cold-worked copper reinforcement",
             &[TEXTURE_COPPER_HAMMERED],
@@ -547,6 +558,7 @@ fn build_equipment_bindings() -> Vec<EquipmentAppearanceBinding> {
         EquipmentAppearanceBinding::new(EQUIPMENT_STONE_HAND_CRANK, OBJECT_STONE_HAND_CRANK),
         EquipmentAppearanceBinding::new(EQUIPMENT_STONE_CRUSHER, OBJECT_STONE_CRUSHER),
         EquipmentAppearanceBinding::new(EQUIPMENT_STONE_SEPARATOR, OBJECT_STONE_SEPARATOR),
+        EquipmentAppearanceBinding::new(EQUIPMENT_GRAVITY_SEPARATOR, OBJECT_GRAVITY_SEPARATOR),
         EquipmentAppearanceBinding::new(
             EQUIPMENT_COPPER_REINFORCED_PICK,
             OBJECT_COPPER_REINFORCED_PICK,

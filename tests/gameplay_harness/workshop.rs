@@ -23,7 +23,7 @@ use super::support::{ROOM_TEMPERATURE, add_solid_stockpile};
 use deep_hearth::content::gameplay_fixture::{
     authorize_controlled_material_delivery, materialize_structure, seed_composed_lot,
     seed_energy_store as bootstrap_seed_energy_store, seed_equipment, seed_lot,
-    seed_player_survival_at_warning,
+    seed_player_survival_at_hydration_warning,
 };
 use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
@@ -336,7 +336,7 @@ fn setup_workshop(
     }
     let mut state = AppState::new(WorldSeed::new(variation.world_seed));
     if variation.survival.start_at_hydration_warning {
-        seed_player_survival_at_warning(registries, &mut state);
+        seed_player_survival_at_hydration_warning(registries, &mut state);
     } else {
         initialize_player_survival(registries, &mut state)
             .unwrap_or_else(|error| panic!("workshop survival initialization failed: {error}"));

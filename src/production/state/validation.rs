@@ -8,7 +8,7 @@ use crate::core::quantity::Mass;
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
-use crate::inventory::StockpileId;
+use crate::inventory::{AMBIENT_PRESERVATION_MULTIPLIER_PPM, StockpileId};
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, CompositionError, MaterialId, MaterialLotSpec};
 
@@ -33,11 +33,25 @@ pub enum ProductionValidationError {
         key: ProductionJobId,
         record: ProductionJobId,
     },
+    JobStartedInFuture {
+        job: ProductionJobId,
+        started_at: SimulationTick,
+        current: SimulationTick,
+    },
     CompletionNotAfterStart {
         job: ProductionJobId,
     },
     ZeroActiveDuration {
         job: ProductionJobId,
+    },
+    StorageHistoryTransitionMismatch {
+        job: ProductionJobId,
+        transition: SimulationTick,
+        started_at: SimulationTick,
+    },
+    StorageHistoryOverflow {
+        job: ProductionJobId,
+        at: SimulationTick,
     },
     RequiredSupportWithoutEquipment {
         job: ProductionJobId,
@@ -221,6 +235,17 @@ impl Display for ProductionValidationError {
                 key.value(),
                 record.value()
             ),
+            Self::JobStartedInFuture {
+                job,
+                started_at,
+                current,
+            } => write!(
+                formatter,
+                "production job {} starts at tick {} after current tick {}",
+                job.value(),
+                started_at.value(),
+                current.value()
+            ),
             Self::CompletionNotAfterStart { job } => write!(
                 formatter,
                 "production job {} does not complete after its start tick",
@@ -230,6 +255,23 @@ impl Display for ProductionValidationError {
                 formatter,
                 "production job {} has zero required active duration",
                 job.value()
+            ),
+            Self::StorageHistoryTransitionMismatch {
+                job,
+                transition,
+                started_at,
+            } => write!(
+                formatter,
+                "production job {} material storage history is rebased at tick {} instead of start tick {}",
+                job.value(),
+                transition.value(),
+                started_at.value()
+            ),
+            Self::StorageHistoryOverflow { job, at } => write!(
+                formatter,
+                "production job {} material storage exposure cannot be represented at tick {}",
+                job.value(),
+                at.value()
             ),
             Self::RequiredSupportWithoutEquipment { job } => write!(
                 formatter,
@@ -540,6 +582,7 @@ impl Error for ProductionValidationError {}
 
 pub(crate) fn validate_loaded_production(
     state: &ProductionState,
+    current: SimulationTick,
 ) -> Result<(), ProductionValidationError> {
     if state.next_job_id == 0 {
         return Err(ProductionValidationError::ZeroNextJobId);
@@ -563,12 +606,46 @@ pub(crate) fn validate_loaded_production(
                 record: job.identity.id,
             });
         }
+        if job.schedule.started_at > current {
+            return Err(ProductionValidationError::JobStartedInFuture {
+                job: *id,
+                started_at: job.schedule.started_at,
+                current,
+            });
+        }
         if job.schedule.completes_at <= job.schedule.started_at {
             return Err(ProductionValidationError::CompletionNotAfterStart { job: *id });
         }
         if job.schedule.active_duration.value() == 0 {
             return Err(ProductionValidationError::ZeroActiveDuration { job: *id });
         }
+        let storage_transition = job.resources.material_storage_history.last_transition_at();
+        if storage_transition != job.schedule.started_at {
+            return Err(
+                ProductionValidationError::StorageHistoryTransitionMismatch {
+                    job: *id,
+                    transition: storage_transition,
+                    started_at: job.schedule.started_at,
+                },
+            );
+        }
+        job.resources
+            .material_storage_history
+            .project(current, AMBIENT_PRESERVATION_MULTIPLIER_PPM)
+            .ok_or(ProductionValidationError::StorageHistoryOverflow {
+                job: *id,
+                at: current,
+            })?;
+        job.resources
+            .material_storage_history
+            .project(
+                job.schedule.completes_at,
+                AMBIENT_PRESERVATION_MULTIPLIER_PPM,
+            )
+            .ok_or(ProductionValidationError::StorageHistoryOverflow {
+                job: *id,
+                at: job.schedule.completes_at,
+            })?;
         if job.equipment.requires_active_support && job.equipment.provider.is_none() {
             return Err(ProductionValidationError::RequiredSupportWithoutEquipment { job: *id });
         }

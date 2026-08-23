@@ -19,7 +19,7 @@ pub(crate) fn build_mining_registry() -> MiningRegistry {
         CAPABILITY_MINING_MAX_HARDNESS,
         250,
         SurvivalExertion::new(
-            Energy::from_nanojoules(3_000_000_000_000),
+            Energy::from_nanojoules(4_500_000_000_000),
             Volume::from_microliters(750),
         ),
     )])

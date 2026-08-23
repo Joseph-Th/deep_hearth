@@ -63,7 +63,7 @@ impl StockpileStorageProfile {
             can_store_solid,
             can_store_liquid,
             maximum_temperature,
-            preservation_multiplier_ppm: 1_000_000,
+            preservation_multiplier_ppm: AMBIENT_PRESERVATION_MULTIPLIER_PPM,
         };
         profile.validate()?;
         Ok(profile)
@@ -94,7 +94,7 @@ impl StockpileStorageProfile {
             can_store_solid: true,
             can_store_liquid: false,
             maximum_temperature: Temperature::from_millikelvin(u32::MAX),
-            preservation_multiplier_ppm: 1_000_000,
+            preservation_multiplier_ppm: AMBIENT_PRESERVATION_MULTIPLIER_PPM,
         }
     }
 
@@ -131,6 +131,7 @@ impl StockpileStorageProfile {
     }
 }
 
+pub(crate) const AMBIENT_PRESERVATION_MULTIPLIER_PPM: u32 = 1_000_000;
 /// Invalid stockpile containment envelope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StockpileStorageProfileError {

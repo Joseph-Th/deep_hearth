@@ -7,8 +7,8 @@ use super::production_support::{
 use super::seed::mix64;
 use super::support::nominal_equipment_mass_capability;
 use deep_hearth::content::{
-    ENERGY_MECHANICAL_LARGE_DRIVE, EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRINDING_MILL,
-    EQUIPMENT_JAW_CRUSHER, EQUIPMENT_STONE_SEPARATOR, FORM_CONCENTRATE, MATERIAL_COPPER,
+    ENERGY_MECHANICAL_LARGE_DRIVE, EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRAVITY_SEPARATOR,
+    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, FORM_CONCENTRATE, MATERIAL_COPPER,
     PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
     PROCESS_GRIND_CRUSHED_ORE, PROCESS_SCREEN_CRUSHED_ORE,
 };
@@ -183,6 +183,11 @@ fn probe_parameters(registries: &Registries, seed: u64) -> OrePreparationSetup {
             registries,
             EQUIPMENT_DRY_SCREEN,
             mix64(seed ^ 0x5343_5245_454E_434F),
+        ),
+        separator_condition: varied_healthy_condition(
+            registries,
+            EQUIPMENT_GRAVITY_SEPARATOR,
+            mix64(seed ^ 0x5345_5041_5241_544F),
         ),
         drive_energy,
     }
@@ -509,80 +514,64 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
 
     let separator_batch_limit = nominal_equipment_mass_capability(
         registries,
-        EQUIPMENT_STONE_SEPARATOR,
+        EQUIPMENT_GRAVITY_SEPARATOR,
         concentration_definition.max_batch_mass_capability(),
     );
-    let mut concentration_remaining = batch_mass;
-    let mut concentration_energy = Energy::ZERO;
-    let mut concentration_duration_ticks = 0_u64;
-    let mut concentration_batches = 0_u64;
-    let mut final_separator_projection = initial_separator_condition;
-    while !concentration_remaining.is_zero() {
-        let concentration_batch = Mass::from_milligrams(
-            concentration_remaining
-                .milligrams()
-                .min(separator_batch_limit.milligrams()),
-        );
-        let selection = select_stockpile_mass(
-            &state,
+    assert!(
+        batch_mass <= separator_batch_limit,
+        "industrial ore-preparation separator must accept the full prepared batch so capability depth is not hidden behind repetitive micro-batching"
+    );
+    let selection = select_stockpile_mass(
+        &state,
+        ids.undersize_storage,
+        batch_mass,
+        "full fine liberated feed for industrial copper concentration",
+    );
+    let concentrated = resolve_constituent_separation_process(
+        registries,
+        &state,
+        ConstituentSeparationRequest::new(
+            PROCESS_CONCENTRATE_COPPER,
             ids.undersize_storage,
-            concentration_batch,
-            "fine liberated feed for copper concentration",
-        );
-        let concentrated = resolve_constituent_separation_process(
-            registries,
-            &state,
-            ConstituentSeparationRequest::new(
-                PROCESS_CONCENTRATE_COPPER,
-                ids.undersize_storage,
-                selection.as_slice(),
-                ids.separator,
-                ids.drive,
+            selection.as_slice(),
+            ids.separator,
+            ids.drive,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("copper concentration resolution failed: {error}"));
+    let concentration_duration = concentrated.process_resolution().duration();
+    let concentration_duration_ticks = concentration_duration.value();
+    let concentration_energy = concentrated.required_energy();
+    let final_separator_projection = concentrated.condition_after();
+    let concentration_batches = 1_u64;
+    let job = validate_start_process_routed(
+        registries,
+        &state,
+        concentrated.process_resolution(),
+        ids.undersize_storage,
+        &[
+            ProcessOutputRoute::new(
+                ConstituentSeparationProcessDefinition::TARGET_STREAM,
+                ids.concentrate_storage,
             ),
-        )
-        .unwrap_or_else(|error| panic!("copper concentration resolution failed: {error}"));
-        let duration = concentrated.process_resolution().duration();
-        concentration_duration_ticks = concentration_duration_ticks
-            .checked_add(duration.value())
-            .unwrap_or_else(|| panic!("copper concentration duration overflowed"));
-        concentration_energy = concentration_energy
-            .checked_add(concentrated.required_energy())
-            .unwrap_or_else(|| panic!("copper concentration energy overflowed"));
-        final_separator_projection = concentrated.condition_after();
-        let job = validate_start_process_routed(
-            registries,
-            &state,
-            concentrated.process_resolution(),
-            ids.undersize_storage,
-            &[
-                ProcessOutputRoute::new(
-                    ConstituentSeparationProcessDefinition::TARGET_STREAM,
-                    ids.concentrate_storage,
-                ),
-                ProcessOutputRoute::new(
-                    ConstituentSeparationProcessDefinition::RESIDUE_STREAM,
-                    ids.tailings_storage,
-                ),
-            ],
-        )
-        .unwrap_or_else(|error| panic!("copper concentration start failed: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("copper concentration commit failed: {error}"));
-        finish_production_job(
-            registries,
-            &mut state,
-            job,
-            duration,
-            "copper concentration",
-        );
-        validate_loaded_state(registries, &state).unwrap_or_else(|error| {
-            panic!("ore preparation post-concentration audit failed: {error}")
-        });
-        concentration_remaining = concentration_remaining
-            .checked_sub(concentration_batch)
-            .unwrap_or_else(|| panic!("copper concentration remaining mass underflowed"));
-        concentration_batches += 1;
-    }
+            ProcessOutputRoute::new(
+                ConstituentSeparationProcessDefinition::RESIDUE_STREAM,
+                ids.tailings_storage,
+            ),
+        ],
+    )
+    .unwrap_or_else(|error| panic!("copper concentration start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("copper concentration commit failed: {error}"));
+    finish_production_job(
+        registries,
+        &mut state,
+        job,
+        concentration_duration,
+        "copper concentration",
+    );
+    validate_loaded_state(registries, &state)
+        .unwrap_or_else(|error| panic!("ore preparation post-concentration audit failed: {error}"));
 
     let final_matter = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("ore preparation final matter accounting failed: {error}"))
@@ -749,6 +738,10 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         (
             "tailings retain the physically prepared fine particle state",
             tailings_distribution_is_fine,
+        ),
+        (
+            "industrial concentration accepts the prepared batch as one operation",
+            concentration_batches == 1,
         ),
     ];
     for (name, observed) in qualitative_requirements {

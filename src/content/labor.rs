@@ -25,7 +25,7 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
             200_000,
             25,
             SurvivalExertion::new(
-                Energy::from_nanojoules(1_500_000_000_000),
+                Energy::from_nanojoules(3_000_000_000_000),
                 Volume::from_microliters(350),
             ),
         )],

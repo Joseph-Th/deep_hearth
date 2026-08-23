@@ -2,15 +2,27 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use deep_hearth::content::gameplay_fixture::{seed_fluid_store, seed_lot, seed_stockpile};
-use deep_hearth::core::quantity::{Mass, Temperature, Volume};
+use deep_hearth::content::gameplay_fixture::{
+    seed_fluid_store, seed_lot, seed_player_survival_at_hunger_warning,
+    seed_player_survival_at_hydration_warning, seed_stockpile,
+};
+use deep_hearth::content::{
+    ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, MANUAL_POWER_HAND_CRANK,
+    MATERIAL_COPPER, PROSPECTING_FIELD_INSPECTION,
+};
+use deep_hearth::core::quantity::{Energy, Mass, Temperature, Volume};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::WorldSeed;
+use deep_hearth::energy::validate_assemble_energy_store;
+use deep_hearth::equipment::validate_assemble_equipment;
 use deep_hearth::fluid::calculate_fluid_volume_accounting;
+use deep_hearth::geology::{FieldProspectingRequest, validate_start_field_prospecting};
 use deep_hearth::inventory::{MaterialLotId, MaterialLotSelection, StockpileStorageProfile};
+use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
+use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{
     DrinkDefinition, FoodCategory, FoodDefinition, FoodFreshness, assess_food_freshness,
     assess_survival, initialize_player_survival, validate_drink, validate_eat,
@@ -153,6 +165,32 @@ fn normalized_hydration_deficit_ppm(maximum: Volume, current: Volume) -> u32 {
             .unwrap_or_else(|| panic!("survival probe hydration deficit normalization overflowed")),
     )
     .unwrap_or_else(|_| panic!("survival probe hydration deficit normalization exceeded u32"))
+}
+
+fn provisioning_priority_from_reserves(
+    maximum_energy: Energy,
+    current_energy: Energy,
+    maximum_hydration: Volume,
+    current_hydration: Volume,
+) -> ProvisioningPriority {
+    let energy_deficit = maximum_energy
+        .checked_sub(current_energy)
+        .unwrap_or_else(|| panic!("survival probe metabolic reserve exceeded authored maximum"));
+    let hydration_deficit = maximum_hydration
+        .checked_sub(current_hydration)
+        .unwrap_or_else(|| panic!("survival probe hydration reserve exceeded authored maximum"));
+    let energy_pressure = energy_deficit
+        .nanojoules()
+        .checked_mul(u128::from(maximum_hydration.microliters()))
+        .unwrap_or_else(|| panic!("survival probe normalized energy pressure overflowed"));
+    let hydration_pressure = u128::from(hydration_deficit.microliters())
+        .checked_mul(maximum_energy.nanojoules())
+        .unwrap_or_else(|| panic!("survival probe normalized hydration pressure overflowed"));
+    match hydration_pressure.cmp(&energy_pressure) {
+        std::cmp::Ordering::Greater => ProvisioningPriority::Hydration,
+        std::cmp::Ordering::Less => ProvisioningPriority::MetabolicEnergy,
+        std::cmp::Ordering::Equal => ProvisioningPriority::Balanced,
+    }
 }
 
 struct ProvisioningWorld<'a> {
@@ -299,26 +337,12 @@ fn run_provisioning_case(
     );
     let hydration_deficit_ppm =
         normalized_hydration_deficit_ppm(physiology.maximum_hydration(), before.hydration());
-    let energy_deficit = physiology
-        .maximum_metabolic_energy()
-        .checked_sub(before.metabolic_energy())
-        .unwrap_or_else(|| unreachable!("normalized deficit already validated the reserve"));
-    let hydration_deficit = physiology
-        .maximum_hydration()
-        .checked_sub(before.hydration())
-        .unwrap_or_else(|| unreachable!("normalized deficit already validated the reserve"));
-    let energy_pressure = energy_deficit
-        .nanojoules()
-        .checked_mul(u128::from(physiology.maximum_hydration().microliters()))
-        .unwrap_or_else(|| panic!("survival probe normalized energy pressure overflowed"));
-    let hydration_pressure = u128::from(hydration_deficit.microliters())
-        .checked_mul(physiology.maximum_metabolic_energy().nanojoules())
-        .unwrap_or_else(|| panic!("survival probe normalized hydration pressure overflowed"));
-    let provisioning_priority = match hydration_pressure.cmp(&energy_pressure) {
-        std::cmp::Ordering::Greater => ProvisioningPriority::Hydration,
-        std::cmp::Ordering::Less => ProvisioningPriority::MetabolicEnergy,
-        std::cmp::Ordering::Equal => ProvisioningPriority::Balanced,
-    };
+    let provisioning_priority = provisioning_priority_from_reserves(
+        physiology.maximum_metabolic_energy(),
+        before.metabolic_energy(),
+        physiology.maximum_hydration(),
+        before.hydration(),
+    );
     let drink_first = match provisioning_priority {
         ProvisioningPriority::Hydration => true,
         ProvisioningPriority::MetabolicEnergy => false,
@@ -466,7 +490,311 @@ fn run_provisioning_case(
     }
 }
 
+fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64) {
+    let dry_foods = registries
+        .survival()
+        .foods()
+        .copied()
+        .filter(|food| food.hydration_microliters_per_milligram() == 0)
+        .collect::<Vec<_>>();
+    assert!(
+        !dry_foods.is_empty(),
+        "survival pressure probe requires one authored dry food so hunger and thirst actions remain physically distinct"
+    );
+    let dry_food =
+        dry_foods[usize::try_from(mix64(seed ^ 0x5052_4553_5355_5245) % dry_foods.len() as u64)
+            .unwrap_or_else(|_| unreachable!("dry-food index fits usize"))];
+    let drinks = registries.survival().drinks().copied().collect::<Vec<_>>();
+    assert!(
+        !drinks.is_empty(),
+        "survival pressure probe requires one authored drink"
+    );
+    let drink = drinks[usize::try_from(mix64(seed ^ 0x5052_4553_4452_494E) % drinks.len() as u64)
+        .unwrap_or_else(|_| unreachable!("pressure-probe drink index fits usize"))];
+    let food_mass = Mass::from_milligrams(1);
+    let drink_volume = Volume::from_microliters(1);
+    let physiology = registries.survival().physiology();
+
+    let mut hunger = AppState::new(WorldSeed::new(seed ^ 0x4855_4E47_4552_0001));
+    seed_player_survival_at_hunger_warning(registries, &mut hunger);
+    let hunger_food_store = seed_stockpile(
+        &mut hunger,
+        food_mass,
+        StockpileStorageProfile::solid_only(),
+    );
+    let hunger_food = seed_lot(
+        registries,
+        &mut hunger,
+        hunger_food_store,
+        dry_food.commodity(),
+        food_mass,
+        ROOM_TEMPERATURE,
+    );
+    let hunger_drink_store = seed_fluid_store(
+        registries,
+        &mut hunger,
+        drink_volume,
+        drink.fluid(),
+        drink_volume,
+        ROOM_TEMPERATURE,
+    );
+    let hunger_before = assess_survival(registries, &hunger)
+        .unwrap_or_else(|| panic!("hunger-pressure player disappeared"));
+    let hunger_priority = provisioning_priority_from_reserves(
+        physiology.maximum_metabolic_energy(),
+        hunger_before.metabolic_energy(),
+        physiology.maximum_hydration(),
+        hunger_before.hydration(),
+    );
+    assert_eq!(hunger_priority, ProvisioningPriority::MetabolicEnergy);
+    assert!(validate_drink(registries, &hunger, hunger_drink_store, drink_volume).is_err());
+    let hunger_meal = validate_eat(
+        registries,
+        &hunger,
+        hunger_food_store,
+        &[MaterialLotSelection::new(hunger_food, food_mass)],
+    )
+    .unwrap_or_else(|error| panic!("hunger-pressure dry food should be useful: {error}"))
+    .commit(&mut hunger)
+    .unwrap_or_else(|error| panic!("hunger-pressure meal commit failed: {error}"));
+    assert!(!hunger_meal.energy_gained().is_zero());
+    let hunger_after = assess_survival(registries, &hunger)
+        .unwrap_or_else(|| panic!("hunger-pressure player disappeared after eating"));
+    assert!(hunger_after.metabolic_energy() > hunger_before.metabolic_energy());
+
+    let mut thirst = AppState::new(WorldSeed::new(seed ^ 0x5448_4952_5354_0002));
+    seed_player_survival_at_hydration_warning(registries, &mut thirst);
+    let thirst_food_store = seed_stockpile(
+        &mut thirst,
+        food_mass,
+        StockpileStorageProfile::solid_only(),
+    );
+    let thirst_food = seed_lot(
+        registries,
+        &mut thirst,
+        thirst_food_store,
+        dry_food.commodity(),
+        food_mass,
+        ROOM_TEMPERATURE,
+    );
+    let thirst_drink_store = seed_fluid_store(
+        registries,
+        &mut thirst,
+        drink_volume,
+        drink.fluid(),
+        drink_volume,
+        ROOM_TEMPERATURE,
+    );
+    let thirst_before = assess_survival(registries, &thirst)
+        .unwrap_or_else(|| panic!("thirst-pressure player disappeared"));
+    let thirst_priority = provisioning_priority_from_reserves(
+        physiology.maximum_metabolic_energy(),
+        thirst_before.metabolic_energy(),
+        physiology.maximum_hydration(),
+        thirst_before.hydration(),
+    );
+    assert_eq!(thirst_priority, ProvisioningPriority::Hydration);
+    assert!(
+        validate_eat(
+            registries,
+            &thirst,
+            thirst_food_store,
+            &[MaterialLotSelection::new(thirst_food, food_mass)],
+        )
+        .is_err(),
+        "dry food at full metabolic and nutrition reserves must not masquerade as a thirst response"
+    );
+    let thirst_drink = validate_drink(registries, &thirst, thirst_drink_store, drink_volume)
+        .unwrap_or_else(|error| panic!("thirst-pressure drink should be useful: {error}"))
+        .commit(&mut thirst)
+        .unwrap_or_else(|error| panic!("thirst-pressure drink commit failed: {error}"));
+    assert!(!thirst_drink.hydration_gained().is_zero());
+    let thirst_after = assess_survival(registries, &thirst)
+        .unwrap_or_else(|| panic!("thirst-pressure player disappeared after drinking"));
+    assert!(thirst_after.hydration() > thirst_before.hydration());
+    validate_loaded_state(registries, &hunger)
+        .unwrap_or_else(|error| panic!("hunger-pressure state audit failed: {error}"));
+    validate_loaded_state(registries, &thirst)
+        .unwrap_or_else(|error| panic!("thirst-pressure state audit failed: {error}"));
+    std::println!(
+        "SURVIVAL PRESSURE seed=0x{seed:016X} matched-warning-worlds=[hunger:[priority:{} eat:useful drink:blocked-full-hydration] thirst:[priority:{} drink:useful dry-food:blocked-no-benefit]] response=pressure-sensitive canonical-actions=true",
+        hunger_priority.label(),
+        thirst_priority.label(),
+    );
+}
+
+fn evaluate_survival_work_pressure_probe(registries: &Registries, seed: u64) {
+    let physiology = registries.survival().physiology();
+
+    let mut prospecting = AppState::new(WorldSeed::new(seed ^ 0x5052_4F53_5045_4354));
+    initialize_player_survival(registries, &mut prospecting)
+        .unwrap_or_else(|error| panic!("work-pressure prospecting survival setup failed: {error}"));
+    let region = VoxelBounds::new(VoxelCoord::new(24, -1, 0), VoxelCoord::new(25, 0, 1))
+        .unwrap_or_else(|error| panic!("work-pressure prospecting bounds failed: {error}"));
+    let prospecting_before = assess_survival(registries, &prospecting)
+        .unwrap_or_else(|| panic!("work-pressure prospecting player disappeared"));
+    let prospecting_start = validate_start_field_prospecting(
+        registries,
+        &prospecting,
+        FieldProspectingRequest::new(PROSPECTING_FIELD_INSPECTION, region, MATERIAL_COPPER),
+    )
+    .unwrap_or_else(|error| panic!("work-pressure prospecting start failed: {error}"));
+    let prospecting_work = prospecting_start.work();
+    let prospecting_ticks = prospecting_work
+        .completes_at()
+        .value()
+        .checked_sub(prospecting_work.started_at().value())
+        .unwrap_or_else(|| unreachable!("validated prospecting completes after it starts"));
+    prospecting_start
+        .commit(&mut prospecting)
+        .unwrap_or_else(|error| panic!("work-pressure prospecting commit failed: {error}"));
+    advance_exact(registries, &mut prospecting, prospecting_ticks);
+    assert_eq!(
+        prospecting.geological_knowledge().observations().count(),
+        1,
+        "matched work-pressure prospecting must persist its actual field observation"
+    );
+    let prospecting_after = assess_survival(registries, &prospecting)
+        .unwrap_or_else(|| panic!("work-pressure prospecting player disappeared after work"));
+    let prospecting_energy_deficit_ppm = normalized_energy_deficit_ppm(
+        physiology.maximum_metabolic_energy(),
+        prospecting_after.metabolic_energy(),
+    );
+    let prospecting_hydration_deficit_ppm = normalized_hydration_deficit_ppm(
+        physiology.maximum_hydration(),
+        prospecting_after.hydration(),
+    );
+    assert_eq!(
+        prospecting_before.metabolic_energy(),
+        physiology.maximum_metabolic_energy()
+    );
+    assert_eq!(
+        prospecting_before.hydration(),
+        physiology.maximum_hydration()
+    );
+    assert!(
+        prospecting_hydration_deficit_ppm > prospecting_energy_deficit_ppm,
+        "field prospecting should remain hydration-biased so observation work and strenuous power work create different survival pressures"
+    );
+
+    let mut power = AppState::new(WorldSeed::new(seed ^ 0x504F_5745_5257_4F52));
+    let crank_profile = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_STONE_HAND_CRANK)
+        .and_then(|definition| definition.assembly_profile())
+        .unwrap_or_else(|| panic!("work-pressure stone crank lost its assembly route"));
+    let drive_profile = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .and_then(|definition| definition.assembly_profile())
+        .unwrap_or_else(|| panic!("work-pressure stone flywheel lost its assembly route"));
+    let component_capacity = crank_profile
+        .inputs()
+        .iter()
+        .chain(drive_profile.inputs())
+        .try_fold(Mass::ZERO, |total, input| total.checked_add(input.mass()))
+        .unwrap_or_else(|| panic!("work-pressure primitive power component mass overflowed"));
+    let component_source = seed_stockpile(
+        &mut power,
+        component_capacity,
+        StockpileStorageProfile::solid_only(),
+    );
+    for input in crank_profile.inputs().iter().chain(drive_profile.inputs()) {
+        seed_lot(
+            registries,
+            &mut power,
+            component_source,
+            input.commodity(),
+            input.mass(),
+            ROOM_TEMPERATURE,
+        );
+    }
+    let crank = validate_assemble_equipment(
+        registries,
+        &power,
+        EQUIPMENT_STONE_HAND_CRANK,
+        component_source,
+    )
+    .unwrap_or_else(|error| panic!("work-pressure stone crank assembly failed: {error}"))
+    .commit(&mut power)
+    .unwrap_or_else(|error| panic!("work-pressure stone crank assembly commit failed: {error}"));
+    let drive = validate_assemble_energy_store(
+        registries,
+        &power,
+        ENERGY_STONE_FLYWHEEL_DRIVE,
+        component_source,
+    )
+    .unwrap_or_else(|error| panic!("work-pressure stone flywheel assembly failed: {error}"))
+    .commit(&mut power)
+    .unwrap_or_else(|error| panic!("work-pressure stone flywheel assembly commit failed: {error}"));
+    initialize_player_survival(registries, &mut power).unwrap_or_else(|error| {
+        panic!("work-pressure manual-power survival setup failed: {error}")
+    });
+    let requested_energy = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .map(|definition| definition.capacity())
+        .unwrap_or_else(|| panic!("work-pressure stone flywheel definition disappeared"));
+    let power_before = assess_survival(registries, &power)
+        .unwrap_or_else(|| panic!("work-pressure manual-power player disappeared"));
+    let power_start = validate_start_manual_power(
+        registries,
+        &power,
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested_energy),
+    )
+    .unwrap_or_else(|error| panic!("work-pressure manual-power start failed: {error}"));
+    let power_work = power_start.work();
+    let power_ticks = power_work
+        .completes_at()
+        .value()
+        .checked_sub(power_work.started_at().value())
+        .unwrap_or_else(|| unreachable!("validated manual power completes after it starts"));
+    power_start
+        .commit(&mut power)
+        .unwrap_or_else(|error| panic!("work-pressure manual-power commit failed: {error}"));
+    advance_exact(registries, &mut power, power_ticks);
+    assert_eq!(
+        power.energy().get_store(drive).map(|store| store.stored()),
+        Some(requested_energy),
+        "matched work-pressure manual labor must create the requested finite stored work"
+    );
+    let power_after = assess_survival(registries, &power)
+        .unwrap_or_else(|| panic!("work-pressure manual-power player disappeared after work"));
+    let power_energy_deficit_ppm = normalized_energy_deficit_ppm(
+        physiology.maximum_metabolic_energy(),
+        power_after.metabolic_energy(),
+    );
+    let power_hydration_deficit_ppm =
+        normalized_hydration_deficit_ppm(physiology.maximum_hydration(), power_after.hydration());
+    assert_eq!(
+        power_before.metabolic_energy(),
+        physiology.maximum_metabolic_energy()
+    );
+    assert_eq!(power_before.hydration(), physiology.maximum_hydration());
+    assert!(
+        power_energy_deficit_ppm > power_hydration_deficit_ppm,
+        "sustained manual power should be calorie-biased so the player's chosen labor changes the dominant survival pressure"
+    );
+
+    validate_loaded_state(registries, &prospecting)
+        .unwrap_or_else(|error| panic!("work-pressure prospecting state audit failed: {error}"));
+    validate_loaded_state(registries, &power)
+        .unwrap_or_else(|error| panic!("work-pressure manual-power state audit failed: {error}"));
+    std::println!(
+        "SURVIVAL WORK PRESSURE seed=0x{seed:016X} matched-full-reserve-work=[prospecting:[{}t energy:{}ppm hydration:{}ppm dominant:hydration] manual-power:[{}t energy:{}ppm hydration:{}ppm dominant:energy stored-work:{}nJ]] activity-changes-dominant-pressure=true canonical-actions=true",
+        prospecting_ticks,
+        prospecting_energy_deficit_ppm,
+        prospecting_hydration_deficit_ppm,
+        power_ticks,
+        power_energy_deficit_ppm,
+        power_hydration_deficit_ppm,
+        requested_energy.nanojoules(),
+    );
+}
+
 fn evaluate_survival_provisioning_probe(registries: &Registries, seed: u64) {
+    evaluate_survival_pressure_response_probe(registries, seed);
+    evaluate_survival_work_pressure_probe(registries, seed);
     let physiology = registries.survival().physiology();
     let mut foods_by_category = BTreeMap::<FoodCategory, Vec<FoodDefinition>>::new();
     for food in registries.survival().foods().copied() {

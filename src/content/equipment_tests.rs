@@ -98,6 +98,7 @@ fn industrial_machines_are_fixed_while_primitive_equipment_remains_portable() {
         EQUIPMENT_ELECTRIC_FURNACE,
         EQUIPMENT_CASTING_MOLD,
         EQUIPMENT_DRY_SCREEN,
+        EQUIPMENT_GRAVITY_SEPARATOR,
         EQUIPMENT_GRINDING_MILL,
     ] {
         assert!(
