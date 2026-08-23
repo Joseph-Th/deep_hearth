@@ -77,6 +77,10 @@ pub enum InventoryValidationError {
         lot: MaterialLotId,
         host: crate::material::MaterialId,
     },
+    UnsupportedLotCommodity {
+        lot: MaterialLotId,
+        commodity: CommodityKey,
+    },
     InvalidLotPhaseState {
         lot: MaterialLotId,
         error: MaterialPhaseStateError,
@@ -247,6 +251,13 @@ impl Display for InventoryValidationError {
                 "material lot {} composition omits host material {}",
                 lot.value(),
                 host.value()
+            ),
+            Self::UnsupportedLotCommodity { lot, commodity } => write!(
+                formatter,
+                "material lot {} uses unauthored material {} form {}",
+                lot.value(),
+                commodity.material().value(),
+                commodity.form().value()
             ),
             Self::InvalidLotPhaseState { lot, error } => write!(
                 formatter,
@@ -459,6 +470,15 @@ pub(crate) fn validate_loaded_inventory(
             return Err(InventoryValidationError::LotCompositionMissingHost {
                 lot: *key,
                 host: lot.commodity().material(),
+            });
+        }
+        if materials.get_material(lot.commodity().material()).is_some()
+            && materials.get_form(lot.commodity().form()).is_some()
+            && !materials.has_commodity(lot.commodity())
+        {
+            return Err(InventoryValidationError::UnsupportedLotCommodity {
+                lot: *key,
+                commodity: lot.commodity(),
             });
         }
         validate_material_phase_state(

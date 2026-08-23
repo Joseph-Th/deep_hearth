@@ -2,9 +2,9 @@
 
 use crate::core::quantity::Temperature;
 use crate::material::{
-    ElectricalProperties, FormDefinition, FormId, FusionProperties, MaterialDefinition, MaterialId,
-    MaterialPhase, MaterialProperties, MaterialRegistry, MechanicalProperties,
-    ParticleSizeStatePolicy, ThermalProperties,
+    CommodityKey, ElectricalProperties, FormDefinition, FormId, FusionProperties,
+    MaterialDefinition, MaterialId, MaterialPhase, MaterialProperties, MaterialRegistry,
+    MechanicalProperties, ParticleSizeStatePolicy, ThermalProperties,
 };
 
 pub const MATERIAL_WOOD: MaterialId = MaterialId::new(1);
@@ -235,6 +235,36 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
             ElectricalProperties::new(None),
         ),
     ));
+
+    for commodity in [
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+        CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
+        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+        CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+        CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE),
+        CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+        CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+        CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+        CommodityKey::new(MATERIAL_SLAG, FORM_LUMP),
+        CommodityKey::new(MATERIAL_SLAG, FORM_CRUSHED),
+        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        CommodityKey::new(MATERIAL_MEAT, FORM_FOOD),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+        CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+        CommodityKey::new(MATERIAL_STONE, FORM_CRUSHED),
+        CommodityKey::new(MATERIAL_CLAY, FORM_CRUSHED),
+    ] {
+        registry.register_commodity(commodity);
+    }
 
     registry
 }

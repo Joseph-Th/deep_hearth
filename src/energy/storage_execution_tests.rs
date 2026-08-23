@@ -1,8 +1,10 @@
 //! Tests for the sibling storage execution module; isolated so test-only edits do not invalidate production builds.
 
 use super::*;
-use crate::content::make_test_registries_with_energy_store;
+use crate::content::{FORM_FLYWHEEL, MATERIAL_STONE, make_test_registries_with_energy_store};
+use crate::core::quantity::Mass;
 use crate::core::time::WorldSeed;
+use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 
 const STORE_DEFINITION: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(930_001);
 
@@ -16,6 +18,22 @@ fn registries() -> Registries {
     ))
 }
 
+fn assembly_registries() -> Registries {
+    make_test_registries_with_energy_store(
+        super::super::EnergyStoreDefinition::new(
+            STORE_DEFINITION,
+            "assembled energy execution fixture",
+            EnergyCarrier::Mechanical,
+            Energy::from_nanojoules(1_000),
+            Power::from_microwatts(25),
+        )
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![MaterialInputSpec::new(
+            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+            Mass::from_milligrams(1),
+        )])),
+    )
+}
+
 fn sink_registries() -> Registries {
     make_test_registries_with_energy_store(
         super::super::EnergyStoreDefinition::new_with_transfer_limits(
@@ -27,6 +45,26 @@ fn sink_registries() -> Registries {
             Power::ZERO,
         ),
     )
+}
+
+#[test]
+fn fixture_allocation_rejects_store_that_requires_material_assembly() {
+    let registries = assembly_registries();
+    let mut state = AppState::new(WorldSeed::new(0x9300_000A));
+    let before = state.clone();
+
+    assert_eq!(
+        add_energy_store_with_initial_for_fixture(
+            &registries,
+            &mut state,
+            STORE_DEFINITION,
+            Energy::from_nanojoules(500),
+        ),
+        Err(AddEnergyStoreError::RequiresAssembly {
+            definition: STORE_DEFINITION,
+        })
+    );
+    assert_eq!(state, before);
 }
 
 #[test]

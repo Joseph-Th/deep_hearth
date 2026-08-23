@@ -6,8 +6,8 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::{Acceleration, AggregateMass, Force, Mass};
 use crate::core::time::SimulationTick;
 use crate::material::{
-    MaterialId, MaterialPhase, MaterialPhaseStateError, MaterialRegistry, ParticleSizeStatePolicy,
-    validate_material_phase_state,
+    CommodityKey, MaterialId, MaterialPhase, MaterialPhaseStateError, MaterialRegistry,
+    ParticleSizeStatePolicy, validate_material_phase_state,
 };
 
 use super::super::definitions::{StructuralProfileId, StructuralRegistry};
@@ -34,6 +34,11 @@ pub enum StructureValidationError {
     UnknownMaterial {
         element: StructuralElementId,
         material: MaterialId,
+    },
+    NoDamageRecoveryCommodity {
+        element: StructuralElementId,
+        material: MaterialId,
+        form: crate::material::FormId,
     },
     ZeroCrossSection {
         element: StructuralElementId,
@@ -220,6 +225,17 @@ impl Display for StructureValidationError {
                 "structural element {} references unknown material {}",
                 element.value(),
                 material.value()
+            ),
+            Self::NoDamageRecoveryCommodity {
+                element,
+                material,
+                form,
+            } => write!(
+                formatter,
+                "structural element {} uses material {} without authored damaged-recovery form {}",
+                element.value(),
+                material.value(),
+                form.value()
             ),
             Self::ZeroCrossSection { element } => write!(
                 formatter,
@@ -425,6 +441,7 @@ impl Error for StructureValidationError {
                 profile: _profile,
             } => None,
             Self::UnknownMaterial { .. }
+            | Self::NoDamageRecoveryCommodity { .. }
             | Self::DamagedRecoveryFormEmbodied { .. }
             | Self::UnsupportedEmbodiedComposition { .. }
             | Self::UnknownEmbodiedCompositionMaterial { .. } => None,
@@ -545,6 +562,14 @@ pub(crate) fn validate_loaded_structure(
             return Err(StructureValidationError::UnknownMaterial {
                 element: record.id,
                 material: record.material(),
+            });
+        }
+        let recovery_form = profile.damaged_recovery_form();
+        if !materials.has_commodity(CommodityKey::new(record.material(), recovery_form)) {
+            return Err(StructureValidationError::NoDamageRecoveryCommodity {
+                element: record.id,
+                material: record.material(),
+                form: recovery_form,
             });
         }
         if record.cross_section().is_zero() {

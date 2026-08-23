@@ -521,15 +521,10 @@ impl EquipmentRegistry {
             if let Some(maintenance) = definition.maintenance_profile() {
                 for commodity in [maintenance.replacement(), maintenance.spent()] {
                     assert!(
-                        materials.get_material(commodity.material()).is_some(),
-                        "equipment definition {} maintenance profile references missing material {}",
+                        materials.has_commodity(commodity),
+                        "equipment definition {} maintenance profile references unauthored material {} form {}",
                         definition.id().value(),
-                        commodity.material().value()
-                    );
-                    assert!(
-                        materials.get_form(commodity.form()).is_some(),
-                        "equipment definition {} maintenance profile references missing form {}",
-                        definition.id().value(),
+                        commodity.material().value(),
                         commodity.form().value()
                     );
                 }
@@ -583,6 +578,17 @@ impl EquipmentRegistry {
                         .iter()
                         .all(|input| input.commodity().form() != recovery_form),
                     "equipment definition {} worn-recovery form {} cannot also be a direct assembly input",
+                    definition.id().value(),
+                    recovery_form.value()
+                );
+                assert!(
+                    assembly.inputs().iter().all(|input| {
+                        materials.has_commodity(CommodityKey::new(
+                            input.commodity().material(),
+                            recovery_form,
+                        ))
+                    }),
+                    "equipment definition {} worn-recovery form {} must be authored for every embodied assembly material",
                     definition.id().value(),
                     recovery_form.value()
                 );

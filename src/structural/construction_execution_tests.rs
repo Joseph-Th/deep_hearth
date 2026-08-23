@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::content::{
-    FORM_CRUSHED, FORM_LOG, FORM_MOLTEN, MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_WOOD,
-    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    FORM_CRUSHED, FORM_INGOT, FORM_LOG, FORM_MOLTEN, MATERIAL_CHARCOAL, MATERIAL_COPPER,
+    MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Energy, Force, Length};
 use crate::core::state::validate_loaded_state;
@@ -435,7 +435,7 @@ fn wrong_material_cannot_become_structural_strength_material() {
         &registries,
         &mut state,
         source,
-        CommodityKey::new(MATERIAL_COPPER, FORM_LOG),
+        CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
         Mass::from_milligrams(100),
         crate::core::quantity::Temperature::from_millikelvin(300_000),
     ) {

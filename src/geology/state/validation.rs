@@ -6,8 +6,8 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
 use crate::material::{
-    CompositionError, MaterialId, MaterialPhase, MaterialPhaseStateError, MaterialRegistry,
-    ParticleSizeStatePolicy, validate_material_phase_state,
+    CommodityKey, CompositionError, MaterialId, MaterialPhase, MaterialPhaseStateError,
+    MaterialRegistry, ParticleSizeStatePolicy, validate_material_phase_state,
 };
 
 use super::{GeologicalDepositId, GeologicalDepositLifecycle, GeologyState};
@@ -58,6 +58,10 @@ pub enum GeologyValidationError {
     UnknownCommodityForm {
         deposit: GeologicalDepositId,
         form: crate::material::FormId,
+    },
+    UnsupportedCommodity {
+        deposit: GeologicalDepositId,
+        commodity: CommodityKey,
     },
     UnsupportedCommodityPhase {
         deposit: GeologicalDepositId,
@@ -156,6 +160,13 @@ impl Display for GeologyValidationError {
                 deposit.value(),
                 form.value()
             ),
+            Self::UnsupportedCommodity { deposit, commodity } => write!(
+                formatter,
+                "geological deposit {} uses unauthored material {} form {}",
+                deposit.value(),
+                commodity.material().value(),
+                commodity.form().value()
+            ),
             Self::UnsupportedCommodityParticulateForm { deposit, form } => write!(
                 formatter,
                 "geological deposit {} uses particulate form {}; natural geological ownership does not carry processed particle-size state",
@@ -241,14 +252,9 @@ impl Error for GeologyValidationError {
                 deposit: _deposit,
                 material: _host,
             } => None,
-            Self::UnknownCommodityForm {
-                deposit: _deposit,
-                form: _form,
-            }
-            | Self::UnsupportedCommodityParticulateForm {
-                deposit: _deposit,
-                form: _form,
-            } => None,
+            Self::UnknownCommodityForm { .. }
+            | Self::UnsupportedCommodity { .. }
+            | Self::UnsupportedCommodityParticulateForm { .. } => None,
             Self::UnsupportedCommodityPhase {
                 deposit: _deposit,
                 form: _form,
@@ -347,6 +353,12 @@ pub(crate) fn validate_loaded_geology(
                 form: record.commodity.form(),
             });
         };
+        if !materials.has_commodity(record.commodity) {
+            return Err(GeologyValidationError::UnsupportedCommodity {
+                deposit: *key,
+                commodity: record.commodity,
+            });
+        }
         if form.phase() != MaterialPhase::Solid {
             return Err(GeologyValidationError::UnsupportedCommodityPhase {
                 deposit: *key,

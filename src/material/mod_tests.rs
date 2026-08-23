@@ -13,7 +13,7 @@ fn make_test_properties() -> MaterialProperties {
 }
 
 #[test]
-fn commodity_requires_both_material_and_form_to_resolve() {
+fn commodity_requires_explicit_material_form_authoring() {
     let mut registry = MaterialRegistry::new();
     let material = MaterialId::new(3);
     let form = FormId::new(7);
@@ -31,6 +31,9 @@ fn commodity_requires_both_material_and_form_to_resolve() {
         MaterialPhase::Solid,
         ParticleSizeStatePolicy::Untracked,
     ));
+    assert!(!registry.has_commodity(CommodityKey::new(material, form)));
+
+    registry.register_commodity(CommodityKey::new(material, form));
     assert!(registry.has_commodity(CommodityKey::new(material, form)));
 }
 

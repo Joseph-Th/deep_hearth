@@ -9,7 +9,7 @@ use crate::core::state::AppState;
 use crate::equipment::EquipmentId;
 use crate::fluid::FluidStoreId;
 use crate::inventory::StockpileId;
-use crate::material::MaterialId;
+use crate::material::{CommodityKey, FormId, MaterialId};
 use crate::registry::Registries;
 
 use super::analysis::{
@@ -28,6 +28,7 @@ use super::state::{
 pub enum AddStructuralElementError {
     UnknownProfile { profile: StructuralProfileId },
     UnknownMaterial { material: MaterialId },
+    NoDamageRecoveryCommodity { material: MaterialId, form: FormId },
     Geometry(StructuralGeometryError),
     IdExhausted,
     RevisionExhausted,
@@ -46,6 +47,12 @@ impl Display for AddStructuralElementError {
                     material.value()
                 )
             }
+            Self::NoDamageRecoveryCommodity { material, form } => write!(
+                formatter,
+                "structural material {} cannot use profile recovery form {} because that material/form commodity is not authored",
+                material.value(),
+                form.value()
+            ),
             Self::Geometry(error) => write!(formatter, "invalid structural geometry: {error}"),
             Self::IdExhausted => {
                 formatter.write_str("structural element identifier space is exhausted")
@@ -62,9 +69,7 @@ impl Error for AddStructuralElementError {
         match self {
             Self::Geometry(error) => Some(error),
             Self::UnknownProfile { profile: _profile } => None,
-            Self::UnknownMaterial {
-                material: _material,
-            } => None,
+            Self::UnknownMaterial { .. } | Self::NoDamageRecoveryCommodity { .. } => None,
             Self::IdExhausted | Self::RevisionExhausted => None,
         }
     }
@@ -79,11 +84,22 @@ pub fn add_structural_element(
     geometry: StructuralElementGeometry,
     is_grounded: bool,
 ) -> Result<StructuralElementId, AddStructuralElementError> {
-    if registries.structural().get_profile(profile).is_none() {
-        return Err(AddStructuralElementError::UnknownProfile { profile });
-    }
+    let profile_definition = registries
+        .structural()
+        .get_profile(profile)
+        .ok_or(AddStructuralElementError::UnknownProfile { profile })?;
     if registries.materials().get_material(material).is_none() {
         return Err(AddStructuralElementError::UnknownMaterial { material });
+    }
+    let recovery_form = profile_definition.damaged_recovery_form();
+    if !registries
+        .materials()
+        .has_commodity(CommodityKey::new(material, recovery_form))
+    {
+        return Err(AddStructuralElementError::NoDamageRecoveryCommodity {
+            material,
+            form: recovery_form,
+        });
     }
     geometry
         .validate()

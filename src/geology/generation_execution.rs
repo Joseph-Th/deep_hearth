@@ -5,8 +5,8 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
 use crate::material::{
-    FormId, MaterialId, MaterialPhase, MaterialPhaseStateError, ParticleSizeStatePolicy,
-    validate_material_phase_state,
+    CommodityKey, FormId, MaterialId, MaterialPhase, MaterialPhaseStateError,
+    ParticleSizeStatePolicy, validate_material_phase_state,
 };
 use crate::registry::Registries;
 
@@ -19,6 +19,7 @@ use super::state::{
 pub enum InsertGeneratedDepositError {
     UnknownMaterial { material: MaterialId },
     UnknownForm { form: FormId },
+    UnsupportedCommodity { commodity: CommodityKey },
     UnsupportedPhase { form: FormId, phase: MaterialPhase },
     UnsupportedParticulateForm { form: FormId },
     InvalidPhaseState(MaterialPhaseStateError),
@@ -39,6 +40,12 @@ impl Display for InsertGeneratedDepositError {
                 formatter,
                 "generated geological deposit references unknown form {}",
                 form.value()
+            ),
+            Self::UnsupportedCommodity { commodity } => write!(
+                formatter,
+                "generated geological deposit uses unauthored material {} form {}",
+                commodity.material().value(),
+                commodity.form().value()
             ),
             Self::UnsupportedPhase { form, phase } => write!(
                 formatter,
@@ -73,6 +80,7 @@ impl Error for InsertGeneratedDepositError {
             Self::InvalidPhaseState(error) => Some(error),
             Self::UnknownMaterial { material: _ }
             | Self::UnknownForm { form: _ }
+            | Self::UnsupportedCommodity { commodity: _ }
             | Self::UnsupportedPhase { form: _, phase: _ }
             | Self::UnsupportedParticulateForm { form: _ }
             | Self::UnknownCompositionMaterial { material: _ }
@@ -105,6 +113,11 @@ pub fn insert_generated_deposit(
             form: spec.commodity().form(),
         });
     };
+    if !registries.materials().has_commodity(spec.commodity()) {
+        return Err(InsertGeneratedDepositError::UnsupportedCommodity {
+            commodity: spec.commodity(),
+        });
+    }
     if form.phase() != MaterialPhase::Solid {
         return Err(InsertGeneratedDepositError::UnsupportedPhase {
             form: spec.commodity().form(),

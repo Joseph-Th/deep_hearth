@@ -129,7 +129,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     let reinforced_hand_crank_curve = power_condition_curve(
         CAPABILITY_MANUAL_POWER_OUTPUT,
         500_000,
-        Power::from_microwatts(50_000_000),
+        Power::from_microwatts(75_000_000),
     );
     let reinforced_mining_curve = mass_flow_condition_curve(
         CAPABILITY_MINING_FLOW,
@@ -373,7 +373,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             Mass::from_milligrams(1_120_000),
             profile([(
                 CAPABILITY_MANUAL_POWER_OUTPUT,
-                CapabilityValue::Power(Power::from_microwatts(100_000_000)),
+                CapabilityValue::Power(Power::from_microwatts(150_000_000)),
             )]),
             thresholds(),
             vec![reinforced_hand_crank_curve],

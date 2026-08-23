@@ -295,6 +295,11 @@ pub(crate) fn validate_material_ingress(
                 CommodityReferenceError::UnknownForm { form } => {
                     MaterialIngressError::UnknownForm { form }
                 }
+                CommodityReferenceError::UnsupportedCommodity { commodity } => {
+                    MaterialIngressError::Storage(StockpileStorageError::UnsupportedCommodity {
+                        commodity,
+                    })
+                }
             },
         )?;
         for component in profile.composition().components() {

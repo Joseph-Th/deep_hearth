@@ -18,7 +18,7 @@ pub use particle::{
 };
 pub use volume::{MaterialVolumeError, calculate_volume_ceiling};
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -611,6 +611,7 @@ impl FormDefinition {
 pub struct MaterialRegistry {
     materials: BTreeMap<MaterialId, MaterialDefinition>,
     forms: BTreeMap<FormId, FormDefinition>,
+    commodities: BTreeSet<CommodityKey>,
 }
 
 impl MaterialRegistry {
@@ -620,6 +621,7 @@ impl MaterialRegistry {
         Self {
             materials: BTreeMap::new(),
             forms: BTreeMap::new(),
+            commodities: BTreeSet::new(),
         }
     }
 
@@ -630,6 +632,26 @@ impl MaterialRegistry {
             self.materials.insert(id, definition).is_none(),
             "duplicate material id {}",
             id.value()
+        );
+    }
+
+    /// Registers one exact authored material/form combination.
+    pub(crate) fn register_commodity(&mut self, commodity: CommodityKey) {
+        assert!(
+            self.materials.contains_key(&commodity.material()),
+            "commodity references missing material {}",
+            commodity.material().value()
+        );
+        assert!(
+            self.forms.contains_key(&commodity.form()),
+            "commodity references missing form {}",
+            commodity.form().value()
+        );
+        assert!(
+            self.commodities.insert(commodity),
+            "duplicate commodity material {} form {}",
+            commodity.material().value(),
+            commodity.form().value()
         );
     }
 
@@ -655,11 +677,10 @@ impl MaterialRegistry {
         self.forms.get(&id)
     }
 
-    /// Reports whether both references in a commodity key resolve.
+    /// Reports whether the exact material/form combination is authored for runtime ownership.
     #[must_use]
     pub fn has_commodity(&self, commodity: CommodityKey) -> bool {
-        self.materials.contains_key(&commodity.material())
-            && self.forms.contains_key(&commodity.form())
+        self.commodities.contains(&commodity)
     }
 }
 

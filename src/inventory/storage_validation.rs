@@ -17,6 +17,7 @@ use super::state::{StockpileId, StockpileRecord};
 pub(super) enum CommodityReferenceError {
     UnknownMaterial { material: MaterialId },
     UnknownForm { form: FormId },
+    UnsupportedCommodity { commodity: CommodityKey },
 }
 
 pub(super) fn validate_commodity_reference(
@@ -37,6 +38,9 @@ pub(super) fn validate_commodity_reference(
             form: commodity.form(),
         });
     }
+    if !registries.materials().has_commodity(commodity) {
+        return Err(CommodityReferenceError::UnsupportedCommodity { commodity });
+    }
     Ok(())
 }
 
@@ -45,6 +49,9 @@ pub(super) fn validate_commodity_reference(
 pub enum StockpileStorageError {
     UnknownForm {
         form: FormId,
+    },
+    UnsupportedCommodity {
+        commodity: CommodityKey,
     },
     InvalidMaterialPhaseState(MaterialPhaseStateError),
     InvalidParticleSizeState(ParticleSizeStateError),
@@ -66,6 +73,12 @@ impl Display for StockpileStorageError {
                 formatter,
                 "storage compatibility references unknown form {}",
                 form.value()
+            ),
+            Self::UnsupportedCommodity { commodity } => write!(
+                formatter,
+                "material {} form {} is not an authored runtime commodity",
+                commodity.material().value(),
+                commodity.form().value()
             ),
             Self::InvalidParticleSizeState(error) => write!(
                 formatter,
@@ -101,6 +114,9 @@ impl Error for StockpileStorageError {
             Self::InvalidMaterialPhaseState(error) => Some(error),
             Self::InvalidParticleSizeState(error) => Some(error),
             Self::UnknownForm { form: _form } => None,
+            Self::UnsupportedCommodity {
+                commodity: _commodity,
+            } => None,
             Self::PhaseNotAccepted {
                 stockpile: _stockpile,
                 phase: _phase,
@@ -123,14 +139,22 @@ pub(crate) fn validate_stockpile_storage(
     temperature: Temperature,
     particle_size: Option<&ParticleSizeDistribution>,
 ) -> Result<(), StockpileStorageError> {
-    validate_material_phase_state(registries.materials(), commodity, composition, temperature)
-        .map_err(StockpileStorageError::InvalidMaterialPhaseState)?;
-    validate_material_particle_size_state(registries.materials(), commodity, particle_size)
-        .map_err(StockpileStorageError::InvalidParticleSizeState)?;
     let form_id = commodity.form();
     let Some(form) = registries.materials().get_form(form_id) else {
         return Err(StockpileStorageError::UnknownForm { form: form_id });
     };
+    if registries
+        .materials()
+        .get_material(commodity.material())
+        .is_some()
+        && !registries.materials().has_commodity(commodity)
+    {
+        return Err(StockpileStorageError::UnsupportedCommodity { commodity });
+    }
+    validate_material_phase_state(registries.materials(), commodity, composition, temperature)
+        .map_err(StockpileStorageError::InvalidMaterialPhaseState)?;
+    validate_material_particle_size_state(registries.materials(), commodity, particle_size)
+        .map_err(StockpileStorageError::InvalidParticleSizeState)?;
     let profile = record.storage_profile();
     if !profile.can_store_phase(form.phase()) {
         return Err(StockpileStorageError::PhaseNotAccepted {

@@ -36,17 +36,9 @@ fn get_energy_store_occupant(
 #[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AddEnergyStoreError {
-    UnknownDefinition {
-        definition: EnergyStoreDefinitionId,
-    },
-    #[cfg(test)]
-    RequiresAssembly {
-        definition: EnergyStoreDefinitionId,
-    },
-    InitialEnergyExceedsCapacity {
-        initial: Energy,
-        capacity: Energy,
-    },
+    UnknownDefinition { definition: EnergyStoreDefinitionId },
+    RequiresAssembly { definition: EnergyStoreDefinitionId },
+    InitialEnergyExceedsCapacity { initial: Energy, capacity: Energy },
     IdExhausted,
     RevisionExhausted,
 }
@@ -60,7 +52,6 @@ impl Display for AddEnergyStoreError {
                 "unknown energy store definition {}",
                 definition.value()
             ),
-            #[cfg(test)]
             Self::RequiresAssembly { definition } => write!(
                 formatter,
                 "energy store definition {} requires conserved material construction",
@@ -90,12 +81,6 @@ pub(crate) fn add_energy_store(
     state: &mut AppState,
     definition: EnergyStoreDefinitionId,
 ) -> Result<EnergyStoreId, AddEnergyStoreError> {
-    let Some(authored) = registries.energy().get_store(definition) else {
-        return Err(AddEnergyStoreError::UnknownDefinition { definition });
-    };
-    if authored.assembly_profile().is_some() {
-        return Err(AddEnergyStoreError::RequiresAssembly { definition });
-    }
     allocate_energy_store(registries, state, definition, Energy::ZERO)
 }
 
@@ -109,6 +94,9 @@ fn allocate_energy_store(
     let Some(authored) = registries.energy().get_store(definition) else {
         return Err(AddEnergyStoreError::UnknownDefinition { definition });
     };
+    if authored.assembly_profile().is_some() {
+        return Err(AddEnergyStoreError::RequiresAssembly { definition });
+    }
     if initial > authored.capacity() {
         return Err(AddEnergyStoreError::InitialEnergyExceedsCapacity {
             initial,

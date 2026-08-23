@@ -52,7 +52,7 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             "stone flywheel accumulator",
             EnergyCarrier::Mechanical,
             Energy::from_nanojoules(500_000_000_000),
-            Power::from_microwatts(100_000_000),
+            Power::from_microwatts(150_000_000),
             Power::from_microwatts(500_000_000),
         )
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![

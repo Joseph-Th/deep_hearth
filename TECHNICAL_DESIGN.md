@@ -82,7 +82,9 @@ owners rather than cached totals.
 ## Materials, inventory, and geology
 
 Materials are immutable definitions. Forms define phase and particle-state policy. `CommodityKey`
-combines one material and one form; composition remains a separate exact property.
+combines one material and one form, but runtime ownership is limited to exact pairs explicitly authored in
+the material registry; independently valid material and form IDs do not imply a valid commodity. Composition
+remains a separate exact property.
 
 `MaterialComposition` is sorted normalized mass fraction totaling exactly 1,000,000 ppm. Mixed matter
 preserves composition without inventing synthetic material identities. Particulate state uses validated,

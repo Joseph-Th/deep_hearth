@@ -108,7 +108,8 @@ The actor must:
 - build the same baseline stone tools and processing line in both matched branches;
 - allocate one direct native-copper reinforcement either to the pick or the hand crank at the same
   decision state;
-- demonstrate the pick-first hard-material window and crank-first stored-work/processed-output window;
+- demonstrate reciprocal scarce-copper leverage: pick-first must turn harder geology into a materially better
+  processable feed, while crank-first must improve useful stored-work generation before convergence;
 - run autonomous crushing concurrently with useful player work;
 - recover the second reinforcement from composition-derived processed ore because direct native copper is
   insufficient;
@@ -118,8 +119,10 @@ Post-convergence evaluation uses the same bounded workload in both branches. Aut
 break-even measures crank/flywheel/crusher preparation against returned free attention only, must occur
 within a bounded number of repeated cycles, and must leave a meaningful number of useful cycles before
 the primitive crusher or crank reaches its physical condition-limited endpoint. Separator setup and full
-processing-line setup are reported separately. The scarce-copper choice must create material exclusive
-affordance windows rather than merely nonzero timing deltas.
+processing-line setup are reported separately. The scarce-copper choice must create distinct physical
+consequences with reciprocal leverage, not merely nonzero milestone timing deltas. Matched counterfactuals
+must report the actual downstream material, energy, labor, or capability differences that make each branch
+useful before convergence.
 
 ### Workshop contract
 

@@ -787,10 +787,11 @@ impl OreProcessingRegistry {
             );
             if let Some(residue_material) = definition.residue_material() {
                 assert!(
-                    materials.get_material(residue_material).is_some(),
-                    "constituent-separation process {} references missing residue material {}",
+                    materials.has_commodity(CommodityKey::new(residue_material, residue_form)),
+                    "constituent-separation process {} references invalid residue material/form {}:{}",
                     definition.process().value(),
-                    residue_material.value()
+                    residue_material.value(),
+                    residue_form.value()
                 );
                 assert_ne!(
                     residue_material, target_material,

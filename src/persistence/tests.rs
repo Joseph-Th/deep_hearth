@@ -159,7 +159,7 @@ fn impossible_material_history_times_are_rejected_on_load() {
 }
 
 #[test]
-fn tampered_structural_liquid_embodiment_is_rejected_on_load() {
+fn tampered_structural_unauthored_embodiment_is_rejected_on_load() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5700_0018));
     let member = make_test_structural_element(&registries, &mut state, 0, 0, true);
@@ -180,11 +180,7 @@ fn tampered_structural_liquid_embodiment_is_rejected_on_load() {
     assert_eq!(
         decoded.into_state(&registries),
         Err(LoadError::InvalidState(StateValidationError::Structure(
-            StructureValidationError::UnsupportedEmbodiedPhase {
-                element: member,
-                form: FORM_MOLTEN,
-                phase: crate::material::MaterialPhase::Liquid,
-            }
+            StructureValidationError::UnknownEmbodiedCommodity { element: member }
         )))
     );
 }

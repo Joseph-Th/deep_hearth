@@ -1,7 +1,10 @@
 //! Tests for the sibling generation execution module; isolated so test-only edits do not invalidate production builds.
 
 use super::*;
-use crate::content::{FORM_CRUSHED, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, build_registries};
+use crate::content::{
+    FORM_CRUSHED, FORM_LOG, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE,
+    build_registries,
+};
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::time::WorldSeed;
 use crate::material::{
@@ -12,6 +15,29 @@ use crate::spatial::{VoxelBounds, VoxelCoord};
 fn bounds(x: i64) -> VoxelBounds {
     VoxelBounds::new(VoxelCoord::new(x, -12, 0), VoxelCoord::new(x + 4, -8, 4))
         .unwrap_or_else(|error| panic!("geological generation bounds failed: {error}"))
+}
+
+#[test]
+fn generated_geological_owner_rejects_unauthored_material_form_pair_without_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6E00_0013));
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_LOG);
+    let spec = GeneratedDepositSpec::new(
+        bounds(0),
+        commodity,
+        Mass::from_milligrams(100),
+        Temperature::from_millikelvin(300_000),
+        Pressure::from_pascals(350_000_000),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap_or_else(|error| panic!("unauthored geology specification fixture failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        insert_generated_deposit(&registries, &mut state, spec),
+        Err(InsertGeneratedDepositError::UnsupportedCommodity { commodity })
+    );
+    assert_eq!(state, before);
 }
 
 #[test]

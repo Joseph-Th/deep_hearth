@@ -207,6 +207,11 @@ pub(crate) fn validate_material_reform_from_selection(
         CommodityReferenceError::UnknownForm { form } => {
             MaterialReformError::UnknownTargetForm { form }
         }
+        CommodityReferenceError::UnsupportedCommodity { commodity } => {
+            MaterialReformError::DestinationStorage(StockpileStorageError::UnsupportedCommodity {
+                commodity,
+            })
+        }
     })?;
     if consumed_inputs
         .iter()
@@ -1000,6 +1005,11 @@ pub fn validate_material_transfer(
         }
         CommodityReferenceError::UnknownForm { form } => {
             MaterialTransferError::UnknownForm { form }
+        }
+        CommodityReferenceError::UnsupportedCommodity { commodity } => {
+            MaterialTransferError::Storage(StockpileStorageError::UnsupportedCommodity {
+                commodity,
+            })
         }
     })?;
     if mass.is_zero() {
