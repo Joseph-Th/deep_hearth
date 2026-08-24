@@ -105,6 +105,10 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
                             "python tools/run_test.py "
                             f"--target {focused_target} {focused_test}"
                         )
+                    return (
+                        "python tools/run_test.py "
+                        f"--target {GAMEPLAY_TARGETS['workshop']} {failed[-1]}"
+                    )
                 return f"python tools/run_test.py --target {target} {failed[-1]}"
             scope = GAMEPLAY_SCOPE_BY_TARGET.get(target)
             if scope is not None:
@@ -144,7 +148,7 @@ def gameplay_targets_command(
 
 def gameplay_command(scope: str, *, nocapture: bool = False) -> list[str]:
     targets = (
-        (GAMEPLAY_TARGETS["workshop"], GAMEPLAY_AUDIT_TARGET)
+        (GAMEPLAY_AUDIT_TARGET,)
         if scope == "all"
         else (GAMEPLAY_TARGETS[scope],)
     )
@@ -156,12 +160,12 @@ def gameplay_plan(scope: str) -> list[tuple[str, list[str]]]:
     return [(label, gameplay_command(scope))]
 
 
-def exact_gameplay_command(name: str, *, ignored: bool = False) -> list[str]:
+def exact_gameplay_command(target: str, name: str, *, ignored: bool = False) -> list[str]:
     command = [
         sys.executable,
         "tools/run_test.py",
         "--target",
-        "gameplay_workshop",
+        target,
         "--nocapture",
     ]
     if ignored:
@@ -171,22 +175,11 @@ def exact_gameplay_command(name: str, *, ignored: bool = False) -> list[str]:
 
 
 def report_plan() -> list[tuple[str, list[str]]]:
-    focused = gameplay_targets_command(
-        (GAMEPLAY_AUDIT_TARGET,),
-        test_filter="focused::",
-        nocapture=True,
-    )
-    focused.append("--test-threads=1")
     return [
         (
-            "workshop exploration",
-            exact_gameplay_command("gameplay_harness_exploratory_report", ignored=True),
-        ),
-        (
-            "workshop agency",
-            exact_gameplay_command("agency::gameplay_maintained_agency_counterfactuals"),
-        ),
-        ("focused probes", focused),
+            "gameplay report",
+            exact_gameplay_command(GAMEPLAY_AUDIT_TARGET, "gameplay_report", ignored=True),
+        )
     ]
 
 

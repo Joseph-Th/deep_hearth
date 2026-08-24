@@ -18,7 +18,8 @@ use crate::inventory::{
     apply_consumption_reservation, apply_material_ingress, apply_reserved_deposits,
     decide_reserved_deposits, deposit_bulk_for_test, deposit_composed_lot_for_test,
     deposit_lot_for_test, validate_consumption_reservation_from_selection,
-    validate_loaded_inventory, validate_material_ingress, validate_material_transfer_for_test,
+    validate_consumption_selection, validate_loaded_inventory, validate_material_ingress,
+    validate_material_transfer_for_test,
 };
 use crate::material::{CompositionComponent, MaterialComposition, MaterialLotSpec, MaterialPhase};
 use crate::matter::calculate_matter_accounting;

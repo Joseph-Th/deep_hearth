@@ -105,11 +105,11 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("test-gameplay", gameplay_builds[0])
         self.assertNotIn(["cargo", "test-fast"], gameplay_builds)
 
-    def test_broad_gameplay_audit_links_only_workshop_and_consolidated_focused_target(self) -> None:
+    def test_broad_gameplay_audit_links_one_consolidated_target(self) -> None:
         command = ci.gameplay_command("all")
         self.assertEqual(
             cargo_test_targets(command),
-            [ci.GAMEPLAY_TARGETS["workshop"], ci.GAMEPLAY_AUDIT_TARGET],
+            [ci.GAMEPLAY_AUDIT_TARGET],
         )
 
     def test_broad_core_failure_points_to_one_exact_repair(self) -> None:
@@ -121,7 +121,7 @@ class LocalCiPlanTests(unittest.TestCase):
 
     def test_gameplay_failure_points_to_one_exact_repair(self) -> None:
         output = "failures:\n    configuration::tests::broken_contract\n"
-        error = "error: test failed, to rerun pass `--test gameplay_workshop`"
+        error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
             "python tools/run_test.py --target gameplay_workshop configuration::tests::broken_contract",
@@ -160,15 +160,19 @@ class LocalCiPlanTests(unittest.TestCase):
         plan = ci.report_plan()
         commands = [command for _label, command in plan]
         flattened = "\n".join(" ".join(command) for command in commands)
-        self.assertEqual(len(plan), 3)
-        self.assertIn("test-gameplay", flattened)
+        self.assertEqual(len(plan), 1)
         self.assertNotIn("test-gameplay-full", flattened)
-        focused = plan[-1][1]
-        self.assertEqual(focused.count("--test"), 1)
-        self.assertIn(ci.GAMEPLAY_AUDIT_TARGET, focused)
-        self.assertIn("focused::", focused)
-        self.assertIn("--test-threads=1", focused)
-        self.assertNotIn("gameplay_workshop", focused)
+        self.assertEqual(
+            run_test.requested_target_features(ci.GAMEPLAY_AUDIT_TARGET, None),
+            {"test-gameplay"},
+        )
+        report = plan[0][1]
+        self.assertIn("tools/run_test.py", report)
+        self.assertIn(ci.GAMEPLAY_AUDIT_TARGET, report)
+        self.assertIn("gameplay_report", report)
+        self.assertIn("--ignored", report)
+        self.assertIn("--nocapture", report)
+        self.assertNotIn("gameplay_workshop", report)
 
     def test_report_replay_environment_is_fresh_by_default_and_preserves_explicit_roots(self) -> None:
         generated: dict[str, str] = {}
@@ -373,21 +377,35 @@ class ExactTestCommandTests(unittest.TestCase):
         workshop = run_test.source_test_catalog("gameplay_workshop", None)
         ore = run_test.source_test_catalog("gameplay_ore", None)
         audit = run_test.source_test_catalog("gameplay_audit", None)
-        self.assertIn("gameplay_harness_gate", workshop)
+        self.assertIn("workshop_contract_tests::gameplay_harness_gate", workshop)
         self.assertIn("agency::gameplay_maintained_agency_counterfactuals", workshop)
         self.assertIn(
             "configuration::tests::default_gate_keeps_maintained_anchors_and_adds_a_bounded_variation_sample",
             workshop,
         )
         self.assertEqual(ore, ["gameplay_ore_preparation_probe"])
-        self.assertEqual(
-            set(audit),
+        self.assertTrue(
             {
                 "focused::gameplay_survival_provisioning_probe",
                 "focused::gameplay_primitive_progression_probe",
                 "focused::gameplay_ore_preparation_probe",
                 "focused::gameplay_foundry_probe",
+                "workshop_contract_tests::gameplay_harness_gate",
+                "agency::gameplay_maintained_agency_counterfactuals",
+                "gameplay_report",
+            }.issubset(set(audit))
+        )
+        self.assertTrue(set(workshop).issubset(set(audit)))
+        self.assertEqual(
+            set(audit) - set(workshop),
+            {
+                "focused::gameplay_survival_provisioning_probe",
+                "focused::gameplay_primitive_progression_probe",
+                "focused::gameplay_ore_preparation_probe",
+                "focused::gameplay_foundry_probe",
+                "gameplay_report",
             },
+            "every broad-audit-only maintained test must route to a focused repair target or the ignored report",
         )
 
     def test_source_catalog_listing_never_builds_through_cargo_command(self) -> None:

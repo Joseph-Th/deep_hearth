@@ -148,8 +148,9 @@ observed cause: objective already resolved, shared terminal constraint, or dorma
 - workshop experience and matched-policy agency summaries;
 - focused survival, progression, ore-preparation, and foundry reviews.
 
-The default report is compact. Set `DEEP_HEARTH_GAMEPLAY_VERBOSE` for detailed scenario and focused-probe
-traces.
+The default report keeps replay roots, aggregate workshop/agency evidence, and one review line per focused
+probe seed. Set `DEEP_HEARTH_GAMEPLAY_VERBOSE` for per-world agency rows, survival sub-probes, expanded
+progression tradeoff/autonomy decomposition, and detailed scenario traces.
 
 Gates and audits use stable deterministic defaults. The report generates fresh physical and behavior roots
 unless explicit roots are supplied, and prints all realized seeds for replay.
@@ -165,8 +166,10 @@ Malformed explicit seeds fail configuration. Gameplay tests combine fixed semant
 independently salted deterministic variation samples. Hard assertions cover balance-independent contracts;
 report output carries balance observations.
 
-Broad gameplay audit links `gameplay_workshop` and `gameplay_audit`. The consolidated target contains the
-four focused probes; focused gates retain separate binaries so one concern can be repaired independently.
+Broad gameplay audit links one `gameplay_audit` executable containing the workshop contracts and all four
+focused probes. Focused gates retain separate binaries so one concern can be repaired independently without
+relinking unrelated harness code. The human-readable report is also one ignored test in that consolidated
+target, so a broad audit followed by a report reuses the same executable.
 
 ## Completion
 

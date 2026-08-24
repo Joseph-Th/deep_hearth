@@ -739,6 +739,25 @@ fn support_cycle_is_rejected_before_mutation() {
 }
 
 #[test]
+fn support_link_cannot_bridge_empty_space() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5100_0013));
+    let support = make_test_element(&registries, &mut state, 0, 0, true);
+    let member = make_test_element(&registries, &mut state, 3, 0, false);
+    activate_test_element(&registries, &mut state, support);
+    let before = state.clone();
+
+    assert_eq!(
+        validate_link_support(&registries, &state, member, support),
+        Err(StructuralMutationError::SupportOutOfContact {
+            element: member,
+            support,
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn unsupported_planned_member_cannot_activate() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5100_0005));

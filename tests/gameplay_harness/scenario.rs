@@ -10,7 +10,6 @@ use deep_hearth::structural::{
     STRUCTURAL_PARTS_PER_MILLION, StructuralLoadMode, calculate_weight_force_ceiling,
 };
 
-use super::condition;
 use super::configuration::MaintainedAnchor;
 use super::report::{
     EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioPolicyVariation,
@@ -18,6 +17,11 @@ use super::report::{
 };
 use super::seed::mix64;
 use super::support::nominal_equipment_mass_capability;
+
+fn condition(parts_per_million: u32) -> Condition {
+    Condition::new(parts_per_million)
+        .unwrap_or_else(|error| panic!("gameplay scenario condition is invalid: {error}"))
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ScenarioVariation {

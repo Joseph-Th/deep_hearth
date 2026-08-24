@@ -1,0 +1,379 @@
+//! Immutable ore/material-preparation process definitions shared by the runtime resolvers.
+
+use crate::capability::CapabilityId;
+use crate::core::quantity::{Length, MassSpecificEnergy};
+use crate::energy::EnergyCarrier;
+use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
+use crate::material::{FormId, MaterialId, ParticleSizeDistribution, ParticleSizeRange};
+use crate::production::ProcessId;
+
+/// Shared powered-throughput envelope for ore-preparation operations.
+///
+/// Comminution, screening, and constituent separation all consume finite work energy while an
+/// equipment provider moves a bounded mass through the operation. Keeping that physical envelope in
+/// one type prevents the three resolvers from drifting into subtly different rate, energy, or wear
+/// contracts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PoweredOreProcessProfile {
+    mass_flow_capability: CapabilityId,
+    max_batch_mass_capability: CapabilityId,
+    energy_carrier: EnergyCarrier,
+    specific_energy: MassSpecificEnergy,
+    condition_wear_ppm_per_active_tick: u32,
+}
+
+impl PoweredOreProcessProfile {
+    #[must_use]
+    pub const fn new(
+        mass_flow_capability: CapabilityId,
+        max_batch_mass_capability: CapabilityId,
+        energy_carrier: EnergyCarrier,
+        specific_energy: MassSpecificEnergy,
+        condition_wear_ppm_per_active_tick: u32,
+    ) -> Self {
+        assert!(
+            !specific_energy.is_zero(),
+            "powered ore-processing mass-specific energy must be nonzero"
+        );
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
+        Self {
+            mass_flow_capability,
+            max_batch_mass_capability,
+            energy_carrier,
+            specific_energy,
+            condition_wear_ppm_per_active_tick,
+        }
+    }
+}
+
+/// Immutable declaration that one selected-batch process reduces solid material to a finer form.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComminutionProcessDefinition {
+    process: ProcessId,
+    input_form: FormId,
+    output_form: FormId,
+    input_particle_size_range: Option<ParticleSizeRange>,
+    output_particle_size: ParticleSizeDistribution,
+    operating: PoweredOreProcessProfile,
+}
+
+/// Immutable declaration that one selected-batch process classifies particulate material by size.
+///
+/// The aperture is an exact classification boundary. Runtime resolution succeeds only when every
+/// selected particle-size class lies wholly on one side of that boundary, so screening never
+/// invents a mass fraction for an unresolved class.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScreeningProcessDefinition {
+    process: ProcessId,
+    input_form: FormId,
+    output_form: FormId,
+    aperture: Length,
+    operating: PoweredOreProcessProfile,
+}
+
+/// Immutable declaration that one selected-batch process separates an authored target constituent
+/// from physically liberated particulate feed.
+///
+/// A binary definition names the only admissible residue material. A concentration definition
+/// accepts any non-target constituents, allowing one authored physical separation method to handle
+/// variable gangue without proliferating composition-specific recipes. The resolver derives output
+/// masses from exact selected composition. Whole milligrams of recovered target become the target
+/// stream; all unrecovered fractional target and every non-target constituent remain represented in
+/// particulate residue. Residue retains the selected feed's particle-size state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConstituentSeparationProcessDefinition {
+    process: ProcessId,
+    input_form: FormId,
+    target_material: MaterialId,
+    target_output_form: FormId,
+    residue_material: Option<MaterialId>,
+    residue_output_form: FormId,
+    operating: PoweredOreProcessProfile,
+}
+
+impl ConstituentSeparationProcessDefinition {
+    pub const TARGET_STREAM: crate::production::ProcessOutputStreamId =
+        crate::production::ProcessOutputStreamId::new(1);
+    pub const RESIDUE_STREAM: crate::production::ProcessOutputStreamId =
+        crate::production::ProcessOutputStreamId::new(2);
+
+    #[must_use]
+    pub const fn new_binary(
+        process: ProcessId,
+        input_form: FormId,
+        target_material: MaterialId,
+        target_output_form: FormId,
+        residue_material: MaterialId,
+        residue_output_form: FormId,
+        operating: PoweredOreProcessProfile,
+    ) -> Self {
+        assert!(
+            target_material.value() != residue_material.value(),
+            "constituent separation target and residue materials must differ"
+        );
+        Self {
+            process,
+            input_form,
+            target_material,
+            target_output_form,
+            residue_material: Some(residue_material),
+            residue_output_form,
+            operating,
+        }
+    }
+
+    /// Authors concentration of one liberated target constituent from arbitrary non-target gangue.
+    #[must_use]
+    pub const fn new_concentration(
+        process: ProcessId,
+        input_form: FormId,
+        target_material: MaterialId,
+        target_output_form: FormId,
+        residue_output_form: FormId,
+        operating: PoweredOreProcessProfile,
+    ) -> Self {
+        Self {
+            process,
+            input_form,
+            target_material,
+            target_output_form,
+            residue_material: None,
+            residue_output_form,
+            operating,
+        }
+    }
+
+    #[must_use]
+    pub const fn process(self) -> ProcessId {
+        self.process
+    }
+
+    #[must_use]
+    pub const fn input_form(self) -> FormId {
+        self.input_form
+    }
+
+    #[must_use]
+    pub const fn target_material(self) -> MaterialId {
+        self.target_material
+    }
+
+    #[must_use]
+    pub const fn target_output_form(self) -> FormId {
+        self.target_output_form
+    }
+
+    #[must_use]
+    pub const fn residue_material(self) -> Option<MaterialId> {
+        self.residue_material
+    }
+
+    #[must_use]
+    pub const fn residue_output_form(self) -> FormId {
+        self.residue_output_form
+    }
+
+    #[must_use]
+    pub const fn mass_flow_capability(self) -> CapabilityId {
+        self.operating.mass_flow_capability
+    }
+
+    #[must_use]
+    pub const fn max_batch_mass_capability(self) -> CapabilityId {
+        self.operating.max_batch_mass_capability
+    }
+
+    #[must_use]
+    pub const fn energy_carrier(self) -> EnergyCarrier {
+        self.operating.energy_carrier
+    }
+
+    #[must_use]
+    pub const fn specific_energy(self) -> MassSpecificEnergy {
+        self.operating.specific_energy
+    }
+
+    #[must_use]
+    pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
+        self.operating.condition_wear_ppm_per_active_tick
+    }
+}
+
+impl ScreeningProcessDefinition {
+    /// Stable output stream identity for material at or below the authored aperture.
+    pub const UNDERSIZE_STREAM: crate::production::ProcessOutputStreamId =
+        crate::production::ProcessOutputStreamId::new(1);
+    /// Stable output stream identity for material strictly above the authored aperture.
+    pub const OVERSIZE_STREAM: crate::production::ProcessOutputStreamId =
+        crate::production::ProcessOutputStreamId::new(2);
+
+    #[must_use]
+    pub const fn new(
+        process: ProcessId,
+        input_form: FormId,
+        output_form: FormId,
+        aperture: Length,
+        operating: PoweredOreProcessProfile,
+    ) -> Self {
+        assert!(!aperture.is_zero(), "screening aperture must be nonzero");
+        Self {
+            process,
+            input_form,
+            output_form,
+            aperture,
+            operating,
+        }
+    }
+
+    #[must_use]
+    pub const fn process(self) -> ProcessId {
+        self.process
+    }
+
+    #[must_use]
+    pub const fn input_form(self) -> FormId {
+        self.input_form
+    }
+
+    #[must_use]
+    pub const fn output_form(self) -> FormId {
+        self.output_form
+    }
+
+    #[must_use]
+    pub const fn aperture(self) -> Length {
+        self.aperture
+    }
+
+    #[must_use]
+    pub const fn mass_flow_capability(self) -> CapabilityId {
+        self.operating.mass_flow_capability
+    }
+
+    #[must_use]
+    pub const fn max_batch_mass_capability(self) -> CapabilityId {
+        self.operating.max_batch_mass_capability
+    }
+
+    #[must_use]
+    pub const fn energy_carrier(self) -> EnergyCarrier {
+        self.operating.energy_carrier
+    }
+
+    #[must_use]
+    pub const fn specific_energy(self) -> MassSpecificEnergy {
+        self.operating.specific_energy
+    }
+
+    #[must_use]
+    pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
+        self.operating.condition_wear_ppm_per_active_tick
+    }
+}
+
+impl ComminutionProcessDefinition {
+    #[must_use]
+    pub fn new<P>(
+        process: ProcessId,
+        input_form: FormId,
+        output_form: FormId,
+        output_particle_size: P,
+        operating: PoweredOreProcessProfile,
+    ) -> Self
+    where
+        P: Into<ParticleSizeDistribution>,
+    {
+        Self {
+            process,
+            input_form,
+            output_form,
+            input_particle_size_range: None,
+            output_particle_size: output_particle_size.into(),
+            operating,
+        }
+    }
+
+    /// Authors a comminution operation that accepts only particulate feed whose complete envelope
+    /// lies inside `input_particle_size_range`.
+    ///
+    /// This is an equipment/process operating constraint, not a recipe unlock. It lets physically
+    /// distinct mill passes reject feed that is too coarse or too fine for the authored operation.
+    #[must_use]
+    pub fn new_with_input_particle_size_range<P>(
+        process: ProcessId,
+        input_form: FormId,
+        output_form: FormId,
+        input_particle_size_range: ParticleSizeRange,
+        output_particle_size: P,
+        operating: PoweredOreProcessProfile,
+    ) -> Self
+    where
+        P: Into<ParticleSizeDistribution>,
+    {
+        Self {
+            process,
+            input_form,
+            output_form,
+            input_particle_size_range: Some(input_particle_size_range),
+            output_particle_size: output_particle_size.into(),
+            operating,
+        }
+    }
+
+    #[must_use]
+    pub const fn process(&self) -> ProcessId {
+        self.process
+    }
+
+    #[must_use]
+    pub const fn input_form(&self) -> FormId {
+        self.input_form
+    }
+
+    #[must_use]
+    pub const fn output_form(&self) -> FormId {
+        self.output_form
+    }
+
+    /// Returns the authored admissible particulate feed envelope, when the operation has one.
+    #[must_use]
+    pub const fn input_particle_size_range(&self) -> Option<ParticleSizeRange> {
+        self.input_particle_size_range
+    }
+
+    #[must_use]
+    pub fn output_particle_size(&self) -> ParticleSizeRange {
+        self.output_particle_size.envelope()
+    }
+
+    /// Returns the authored weighted size classes produced by this comminution operation.
+    #[must_use]
+    pub const fn output_particle_size_distribution(&self) -> &ParticleSizeDistribution {
+        &self.output_particle_size
+    }
+
+    #[must_use]
+    pub const fn mass_flow_capability(&self) -> CapabilityId {
+        self.operating.mass_flow_capability
+    }
+
+    #[must_use]
+    pub const fn max_batch_mass_capability(&self) -> CapabilityId {
+        self.operating.max_batch_mass_capability
+    }
+
+    #[must_use]
+    pub const fn energy_carrier(&self) -> EnergyCarrier {
+        self.operating.energy_carrier
+    }
+
+    #[must_use]
+    pub const fn specific_energy(&self) -> MassSpecificEnergy {
+        self.operating.specific_energy
+    }
+
+    #[must_use]
+    pub const fn condition_wear_ppm_per_active_tick(&self) -> u32 {
+        self.operating.condition_wear_ppm_per_active_tick
+    }
+}

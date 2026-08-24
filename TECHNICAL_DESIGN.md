@@ -213,6 +213,8 @@ Supported fluid load derives from authored material density.
 Structural members own geometry, topology, embodied material, self-weight, external source-separated
 loads, lifecycle, and damage. Current analysis models axial tension/compression and deterministic
 stable/strained/cracked/failed transitions with support-loss cascades.
+Support edges are admitted only when the members' voxel bounds touch or overlap, so structural topology
+cannot transmit load across empty space while sub-voxel joint geometry remains outside the current model.
 
 Construction transfers exact inventory traces into structural ownership. Deconstruction returns exact
 traces for undamaged members and reforms damaged members into the profile's authored non-load-bearing

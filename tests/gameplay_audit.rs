@@ -1,11 +1,20 @@
-//! Consolidated broad-audit target for the four focused gameplay probes.
+//! Consolidated broad gameplay audit and report target.
 //!
-//! Focused developer gates keep their independent binaries so a survival edit does not relink ore,
-//! foundry, or progression code. The explicit broad audit compiles those shared probe modules once
-//! here instead of linking four separate executables that provide the same aggregate checkpoint.
+//! Focused developer gates retain independent binaries so one concern can be repaired without
+//! relinking unrelated probe code. Broad verification compiles the shared workshop and focused-probe
+//! support once here and links one executable instead of paying for a workshop binary plus a second
+//! aggregate binary.
 
+use std::env;
+
+#[path = "gameplay_harness/agency.rs"]
+mod agency;
 #[path = "gameplay_harness/capability_boundary.rs"]
 mod capability_boundary;
+#[path = "gameplay_harness/configuration.rs"]
+mod configuration;
+#[path = "gameplay_harness/contracts.rs"]
+mod contracts;
 #[path = "gameplay_harness/focused_runner.rs"]
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
@@ -14,6 +23,8 @@ mod focused_seeds;
 mod foundry_probe;
 #[path = "gameplay_harness/foundry_setup.rs"]
 mod foundry_setup;
+#[path = "gameplay_harness/fresh_seed.rs"]
+mod fresh_seed;
 #[path = "gameplay_harness/industrial_support.rs"]
 mod industrial_support;
 #[path = "gameplay_harness/ore_probe.rs"]
@@ -24,14 +35,40 @@ mod ore_setup;
 mod production_support;
 #[path = "gameplay_harness/progression_probe.rs"]
 mod progression_probe;
+#[path = "gameplay_harness/report.rs"]
+mod report;
+#[path = "gameplay_harness/scenario.rs"]
+mod scenario;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
+#[cfg(test)]
+#[path = "gameplay_harness/seed_contract_tests.rs"]
+mod seed_contract_tests;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
 #[path = "gameplay_harness/support.rs"]
 mod support;
 #[path = "gameplay_harness/survival_probe.rs"]
 mod survival_probe;
+
+fn has_verbose_output() -> bool {
+    env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some()
+}
+
+macro_rules! println {
+    ($($argument:tt)*) => {{
+        if has_verbose_output() {
+            std::println!($($argument)*);
+        }
+    }};
+}
+
+#[path = "gameplay_harness/workshop.rs"]
+mod workshop;
+
+#[cfg(test)]
+#[path = "gameplay_harness/workshop_contract_tests.rs"]
+mod workshop_contract_tests;
 
 #[cfg(test)]
 mod focused {
@@ -60,4 +97,38 @@ mod focused {
     fn gameplay_foundry_probe() {
         run_focused_probe("foundry", run_foundry_capability_probe);
     }
+}
+
+#[test]
+#[ignore = "human-readable gameplay report"]
+fn gameplay_report() {
+    use deep_hearth::content::build_registries;
+
+    use configuration::ScenarioPlanMode;
+    use focused_runner::run_focused_probe_with_registries;
+
+    workshop::run_gameplay_harness(ScenarioPlanMode::Explore);
+    agency::run_maintained_agency_counterfactuals();
+
+    let registries = build_registries();
+    run_focused_probe_with_registries(
+        &registries,
+        "survival-provisioning",
+        survival_probe::run_survival_provisioning_probe,
+    );
+    run_focused_probe_with_registries(
+        &registries,
+        "primitive-progression",
+        progression_probe::run_primitive_progression_probe,
+    );
+    run_focused_probe_with_registries(
+        &registries,
+        "ore-preparation",
+        ore_probe::run_ore_preparation_capability_probe,
+    );
+    run_focused_probe_with_registries(
+        &registries,
+        "foundry",
+        foundry_probe::run_foundry_capability_probe,
+    );
 }

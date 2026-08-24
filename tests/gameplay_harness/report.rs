@@ -279,6 +279,27 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
         drink_count,
     );
 
+    let runtime_path_equipment = registries
+        .equipment()
+        .definitions()
+        .filter(|definition| {
+            definition.assembly_profile().is_some() || definition.upgrade_profile().is_some()
+        })
+        .count();
+    let runtime_path_energy = registries
+        .energy()
+        .definitions()
+        .filter(|definition| definition.assembly_profile().is_some())
+        .count();
+    std::println!(
+        "CONTENT REACHABILITY equipment=[runtime-path:{runtime_path_equipment} capability-only:{}] energy=[runtime-path:{runtime_path_energy} capability-only:{}]",
+        equipment_count - runtime_path_equipment,
+        energy_count - runtime_path_energy,
+    );
+    if !include_catalog {
+        return;
+    }
+
     let acquisition_declared_equipment = registries
         .equipment()
         .definitions()
@@ -314,9 +335,6 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
     std::println!(
         "CONTENT ACQUISITION declared-equipment=[{acquisition_declared_equipment}] declared-energy=[{assembly_declared_energy}] no-runtime-path-equipment=[{no_acquisition_equipment}] no-runtime-path-energy=[{no_assembly_energy}] evidence-note=declaration-is-not-end-to-end-reachability missing-bridge=[runtime-industrial-acquisition,industrial-power-generation,concentrate-reduction/smelting]"
     );
-    if !include_catalog {
-        return;
-    }
 
     let equipment = registries
         .equipment()
@@ -951,9 +969,11 @@ pub(super) fn print_harness_summary(
     }
     let observed = observed.join(",");
     let unobserved = unobserved.join(",");
-    std::println!(
-        "CAPABILITY SCOPE evidence=bootstrapped-industrial surface=[canonical-industrial-comminution,adaptive-batching,manual-energy-recovery,power-choice,wear,maintenance,structural-siting,controlled-supported-stockpile-delivery] observed=[{observed}] unobserved=[{unobserved}] outside-this-workshop-test=[playable-survival,playable-primitive-progression,industrial-ore-preparation,pure-copper-foundry] bootstrap=[industrial-workshop-equipment,industrial-energy-stores,constructed-bays,starting-workshop-matter,preauthorized-controlled-delivery] missing-bridge=[industrial-acquisition,industrial-power-generation,concentrate-reduction/smelting] actor-oracle=none fixture-guard=fail-if-injected-machine-becomes-runtime-acquirable capability-boundary=STATUS.md"
-    );
+    if include_scenarios {
+        std::println!(
+            "CAPABILITY SCOPE evidence=bootstrapped-industrial surface=[canonical-industrial-comminution,adaptive-batching,manual-energy-recovery,power-choice,wear,maintenance,structural-siting,controlled-supported-stockpile-delivery] observed=[{observed}] unobserved=[{unobserved}] outside-this-workshop-test=[playable-survival,playable-primitive-progression,industrial-ore-preparation,pure-copper-foundry] bootstrap=[industrial-workshop-equipment,industrial-energy-stores,constructed-bays,starting-workshop-matter,preauthorized-controlled-delivery] missing-bridge=[industrial-acquisition,industrial-power-generation,concentrate-reduction/smelting] actor-oracle=none fixture-guard=fail-if-injected-machine-becomes-runtime-acquirable capability-boundary=STATUS.md"
+        );
+    }
 
     let stored_work_pressure = reports
         .iter()

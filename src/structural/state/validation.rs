@@ -147,6 +147,10 @@ pub enum StructureValidationError {
     SelfSupport {
         element: StructuralElementId,
     },
+    SupportOutOfContact {
+        element: StructuralElementId,
+        support: StructuralElementId,
+    },
     GroundedElementHasSupport {
         element: StructuralElementId,
         support: StructuralElementId,
@@ -390,6 +394,12 @@ impl Display for StructureValidationError {
                 "structural element {} cannot support itself",
                 element.value()
             ),
+            Self::SupportOutOfContact { element, support } => write!(
+                formatter,
+                "structural support edge {} -> {} crosses empty space; member bounds do not touch or overlap",
+                element.value(),
+                support.value()
+            ),
             Self::GroundedElementHasSupport { element, support } => write!(
                 formatter,
                 "ground-anchored structural element {} cannot also route load through support {}",
@@ -506,6 +516,10 @@ impl Error for StructureValidationError {
                 current: _current,
             } => None,
             Self::UnknownSupportReference {
+                element: _element,
+                support: _support,
+            }
+            | Self::SupportOutOfContact {
                 element: _element,
                 support: _support,
             }
@@ -762,8 +776,17 @@ pub(crate) fn validate_loaded_structure(
                     support: *support,
                 });
             }
-            if !state.elements.contains_key(support) {
+            let Some(support_record) = state.elements.get(support) else {
                 return Err(StructureValidationError::UnknownSupportReference {
+                    element: *element,
+                    support: *support,
+                });
+            };
+            if !state.elements[element]
+                .bounds()
+                .has_contact(support_record.bounds())
+            {
+                return Err(StructureValidationError::SupportOutOfContact {
                     element: *element,
                     support: *support,
                 });

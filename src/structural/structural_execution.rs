@@ -207,6 +207,10 @@ pub enum StructuralMutationError {
     SelfSupport {
         element: StructuralElementId,
     },
+    SupportOutOfContact {
+        element: StructuralElementId,
+        support: StructuralElementId,
+    },
     DuplicateSupport {
         element: StructuralElementId,
         support: StructuralElementId,
@@ -304,6 +308,12 @@ impl Display for StructuralMutationError {
                 "structural element {} cannot support itself",
                 element.value()
             ),
+            Self::SupportOutOfContact { element, support } => write!(
+                formatter,
+                "structural support edge {} -> {} cannot cross empty space; the member bounds do not touch or overlap",
+                element.value(),
+                support.value()
+            ),
             Self::DuplicateSupport { element, support } => write!(
                 formatter,
                 "structural support edge {} -> {} already exists",
@@ -385,6 +395,10 @@ impl Error for StructuralMutationError {
                 kind: _kind,
             } => None,
             Self::DuplicateSupport {
+                element: _element,
+                support: _support,
+            }
+            | Self::SupportOutOfContact {
                 element: _element,
                 support: _support,
             }
@@ -864,6 +878,9 @@ pub fn validate_link_support(
     };
     if support_record.lifecycle() == StructuralLifecycle::Failed {
         return Err(StructuralMutationError::SupportFailed { support });
+    }
+    if !element_record.bounds().has_contact(support_record.bounds()) {
+        return Err(StructuralMutationError::SupportOutOfContact { element, support });
     }
     if state
         .structures()

@@ -1863,8 +1863,12 @@ fn run_primitive_progression_case(
         trace_target,
     ];
     for request in clue_requests {
-        assert!(
-            resolve_mining_target(&state, request).is_err(),
+        assert_eq!(
+            resolve_mining_target(&state, request),
+            Err(MiningTargetResolutionError::NoEvidence {
+                material: MATERIAL_COPPER,
+                region: request.region(),
+            }),
             "hidden geological truth must not authorize mining before the player performs prospecting"
         );
     }
@@ -3345,58 +3349,63 @@ pub(super) fn evaluate_primitive_progression_probe(
         .checked_sub(review.surface_resolved_clue_count)
         .unwrap_or_else(|| unreachable!("resolved clue count cannot exceed observed clue count"));
     std::println!(
-        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=observe->infer->prepare->extract->invest->delegate->reinvest captured:{fantasy_captured} knowledge=[surface:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t sampled-alternative:{}ppm bulk-feed:{}ppm] world-affordances=[mineable:{} hardness-blocked:{} evidence-gated:true hidden-id-oracle:false] output-use=[processed-copper:{}mg second-upgrade:true]",
+        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=observe->infer->prepare->extract->invest->delegate->reinvest captured:{fantasy_captured} knowledge=[surface:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t] tradeoff=[extraction-grade:{}ppm mechanization-grade:{}ppm first-output-delta:{:+}t reciprocal:{} converged:{}] autonomy=[break-even:{payback} post-payback:{}cycles returned-free:{}t stop:{}]",
         review.surface_prospecting_ticks,
         review.surface_clue_count,
         review.surface_resolved_clue_count,
         unresolved_surface_clues,
         review.refinement_triggered_by_direct_shortage,
         review.detailed_survey_ticks,
-        review.refined_sample_copper_ppm,
-        review.bulk_sample_copper_ppm,
-        review.stone_mineable_clue_count,
-        review.hardness_blocked_clue_count,
-        review.recovered_copper_mg,
-    );
-    std::println!(
-        "PROGRESSION TRADEOFF seed=0x{seed:016X} evidence=matched-counterfactual same-decision-state:true authorship=distinct-physical-consequences extraction-first=[unlock:hard-seam grade:{}ppm feed:{}mg separation-energy:{}nJ separation:{}t hard-window:{}t] mechanization-first=[feed-grade:{}ppm feed:{}mg separation-energy:{}nJ separation:{}t autonomy-lead:{}t first-output-delta:{:+}t crank:{}uW flywheel-input:{}uW unclipped:true full-charge-attention-reduction:{}ppm pre-pick-output-window:{}t] reciprocal-leverage:{} convergence=[both-upgrades:{} delta:{:+}t final-hard-ore:{}vs{}mg]",
         review.extraction_feed_copper_ppm,
-        review.extraction_separation_feed_mg,
-        review.extraction_separation_energy_nj,
-        review.extraction_separation_ticks,
-        review.extraction_hard_material_window_ticks,
         review.mechanization_feed_copper_ppm,
-        review.mechanization_separation_feed_mg,
-        review.mechanization_separation_energy_nj,
-        review.mechanization_separation_ticks,
-        review.mechanization_autonomy_lead_ticks,
         review.mechanization_output_delta_ticks,
-        reinforced_crank_power.whole_microwatts(),
-        primitive_flywheel_input_power.whole_microwatts(),
-        review.crank_attention_reduction_ppm,
-        review.mechanization_processed_output_window_ticks,
         review.material_efficiency_tradeoff,
         review.converged_both_upgrades,
-        review.mechanization_convergence_delta_ticks,
-        extraction.hard_ore_mined.milligrams(),
-        mechanization.hard_ore_mined.milligrams(),
-    );
-    std::println!(
-        "PROGRESSION AUTONOMY seed=0x{seed:016X} setup=[automation:{}t separator:{}t line:{}t] payback=[break-even:{payback} material:{automation_attention_payback_is_material} post-payback:{}cycles] delegated-work=[machine:{}t productive-overlap:{}t reserve-overlap:{}t returned-free:{}t] lifecycle=[cycles:{} stop:{} crusher-condition:{}ppm] branch-deltas=[free:{:+}t elapsed:{:+}t]",
-        review.automation_preparation_ticks,
-        review.separator_preparation_ticks,
-        review.processing_line_preparation_ticks,
         post_payback_cycles,
-        review.machine_work_ticks,
-        review.mechanization_useful_overlap_ticks,
-        review.reserve_useful_overlap_ticks,
         review.returned_player_free_ticks,
-        review.steady_state_cycles,
         review.steady_state_stop.label(),
-        review.final_crusher_condition_ppm,
-        review.mechanization_player_free_delta_ticks,
-        review.mechanization_elapsed_delta_ticks,
     );
+    if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
+        std::println!(
+            "PROGRESSION TRADEOFF seed=0x{seed:016X} evidence=matched-counterfactual same-decision-state:true authorship=distinct-physical-consequences extraction-first=[unlock:hard-seam grade:{}ppm feed:{}mg separation-energy:{}nJ separation:{}t hard-window:{}t] mechanization-first=[feed-grade:{}ppm feed:{}mg separation-energy:{}nJ separation:{}t autonomy-lead:{}t first-output-delta:{:+}t crank:{}uW flywheel-input:{}uW unclipped:true full-charge-attention-reduction:{}ppm pre-pick-output-window:{}t] reciprocal-leverage:{} convergence=[both-upgrades:{} delta:{:+}t final-hard-ore:{}vs{}mg]",
+            review.extraction_feed_copper_ppm,
+            review.extraction_separation_feed_mg,
+            review.extraction_separation_energy_nj,
+            review.extraction_separation_ticks,
+            review.extraction_hard_material_window_ticks,
+            review.mechanization_feed_copper_ppm,
+            review.mechanization_separation_feed_mg,
+            review.mechanization_separation_energy_nj,
+            review.mechanization_separation_ticks,
+            review.mechanization_autonomy_lead_ticks,
+            review.mechanization_output_delta_ticks,
+            reinforced_crank_power.whole_microwatts(),
+            primitive_flywheel_input_power.whole_microwatts(),
+            review.crank_attention_reduction_ppm,
+            review.mechanization_processed_output_window_ticks,
+            review.material_efficiency_tradeoff,
+            review.converged_both_upgrades,
+            review.mechanization_convergence_delta_ticks,
+            extraction.hard_ore_mined.milligrams(),
+            mechanization.hard_ore_mined.milligrams(),
+        );
+        std::println!(
+            "PROGRESSION AUTONOMY seed=0x{seed:016X} setup=[automation:{}t separator:{}t line:{}t] payback=[break-even:{payback} material:{automation_attention_payback_is_material} post-payback:{}cycles] delegated-work=[machine:{}t productive-overlap:{}t reserve-overlap:{}t returned-free:{}t] lifecycle=[cycles:{} stop:{} crusher-condition:{}ppm] branch-deltas=[free:{:+}t elapsed:{:+}t]",
+            review.automation_preparation_ticks,
+            review.separator_preparation_ticks,
+            review.processing_line_preparation_ticks,
+            post_payback_cycles,
+            review.machine_work_ticks,
+            review.mechanization_useful_overlap_ticks,
+            review.reserve_useful_overlap_ticks,
+            review.returned_player_free_ticks,
+            review.steady_state_cycles,
+            review.steady_state_stop.label(),
+            review.final_crusher_condition_ppm,
+            review.mechanization_player_free_delta_ticks,
+            review.mechanization_elapsed_delta_ticks,
+        );
+    }
     review
 }
 

@@ -18,6 +18,15 @@ fn probe_seed_spec(name: &str) -> (u64, u64) {
 }
 
 pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, u64)) {
+    let registries = build_registries();
+    run_focused_probe_with_registries(&registries, name, probe);
+}
+
+pub(super) fn run_focused_probe_with_registries(
+    registries: &Registries,
+    name: &str,
+    probe: fn(&Registries, u64),
+) {
     let (maintained_seed, salt) = probe_seed_spec(name);
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
@@ -40,8 +49,7 @@ pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, u64)) {
         seeds.len()
     );
 
-    let registries = build_registries();
     for seed in seeds {
-        probe(&registries, seed);
+        probe(registries, seed);
     }
 }

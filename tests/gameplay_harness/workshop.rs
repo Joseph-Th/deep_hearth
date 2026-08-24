@@ -76,6 +76,7 @@ use deep_hearth::thermal::{
     MeltingBatchError, MeltingRequest, MeltingResolutionError, resolve_melting_process,
 };
 
+#[path = "workshop/crush_planning.rs"]
 mod crush_planning;
 use crush_planning::*;
 
@@ -1432,6 +1433,7 @@ fn apply_delivery_and_adapt(
     adapt_after_delivery(registries, state, ids, actor, after);
 }
 
+#[path = "workshop/runner.rs"]
 mod runner;
 
 pub(super) fn run_scenario(

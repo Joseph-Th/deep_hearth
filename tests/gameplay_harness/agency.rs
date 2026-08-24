@@ -471,36 +471,36 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
             }
         }
         let evidence = evidence.label();
-        std::println!(
-            "AGENCY focus={focus} world=0x{world_seed:016X} variants={} physical-paths={} evidence={evidence} actionable=[power:{} survival:{} maintenance:{} structure:{}] policy-effects=[processed:{}..{}mg adaptive:{}..{} high-power:{}..{} manual-recharges:{}..{} services:{}..{} final-condition:{}..{}ppm relocations:{}/{} suspensions:{}/{} elapsed:{}..{}t survival-energy:{}..{}nJ]",
-            reports.len(),
-            signatures.len(),
-            power_effect,
-            survival_effect,
-            maintenance_effect,
-            structure_effect,
-            processed_min,
-            processed_max,
-            adaptive_min,
-            adaptive_max,
-            high_power_min,
-            high_power_max,
-            manual_min,
-            manual_max,
-            service_min,
-            service_max,
-            condition_min,
-            condition_max,
-            relocations,
-            reports.len(),
-            suspensions,
-            reports.len(),
-            elapsed_min,
-            elapsed_max,
-            survival_energy_min,
-            survival_energy_max,
-        );
         if has_verbose_output() {
+            std::println!(
+                "AGENCY focus={focus} world=0x{world_seed:016X} variants={} physical-paths={} evidence={evidence} actionable=[power:{} survival:{} maintenance:{} structure:{}] policy-effects=[processed:{}..{}mg adaptive:{}..{} high-power:{}..{} manual-recharges:{}..{} services:{}..{} final-condition:{}..{}ppm relocations:{}/{} suspensions:{}/{} elapsed:{}..{}t survival-energy:{}..{}nJ]",
+                reports.len(),
+                signatures.len(),
+                power_effect,
+                survival_effect,
+                maintenance_effect,
+                structure_effect,
+                processed_min,
+                processed_max,
+                adaptive_min,
+                adaptive_max,
+                high_power_min,
+                high_power_max,
+                manual_min,
+                manual_max,
+                service_min,
+                service_max,
+                condition_min,
+                condition_max,
+                relocations,
+                reports.len(),
+                suspensions,
+                reports.len(),
+                elapsed_min,
+                elapsed_max,
+                survival_energy_min,
+                survival_energy_max,
+            );
             let policy_paths = reports
                 .iter()
                 .map(|(variant, report)| {
@@ -569,8 +569,7 @@ fn organic_agency_worlds(variation_root: u64) -> [AgencyWorld; 3] {
     })
 }
 
-#[test]
-fn gameplay_maintained_agency_counterfactuals() {
+pub(super) fn run_maintained_agency_counterfactuals() {
     let registries = build_registries();
     let variation_root = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED")
         .ok()
@@ -599,4 +598,9 @@ fn gameplay_maintained_agency_counterfactuals() {
     ];
     worlds.extend(organic);
     run_agency_probe(&registries, &worlds);
+}
+
+#[test]
+fn gameplay_maintained_agency_counterfactuals() {
+    run_maintained_agency_counterfactuals();
 }

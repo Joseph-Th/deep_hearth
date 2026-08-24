@@ -24,8 +24,9 @@ use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{
-    DrinkDefinition, FoodCategory, FoodDefinition, FoodFreshness, assess_food_freshness,
-    assess_survival, initialize_player_survival, validate_drink, validate_eat,
+    DrinkDefinition, DrinkError, EatError, FoodCategory, FoodDefinition, FoodFreshness,
+    assess_food_freshness, assess_survival, initialize_player_survival, validate_drink,
+    validate_eat,
 };
 
 use super::seed::mix64;
@@ -547,7 +548,12 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
         hunger_before.hydration(),
     );
     assert_eq!(hunger_priority, ProvisioningPriority::MetabolicEnergy);
-    assert!(validate_drink(registries, &hunger, hunger_drink_store, drink_volume).is_err());
+    assert_eq!(
+        validate_drink(registries, &hunger, hunger_drink_store, drink_volume).err(),
+        Some(DrinkError::NoHydrationGain {
+            volume: drink_volume,
+        })
+    );
     let hunger_meal = validate_eat(
         registries,
         &hunger,
@@ -594,15 +600,16 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
         thirst_before.hydration(),
     );
     assert_eq!(thirst_priority, ProvisioningPriority::Hydration);
-    assert!(
+    assert_eq!(
         validate_eat(
             registries,
             &thirst,
             thirst_food_store,
             &[MaterialLotSelection::new(thirst_food, food_mass)],
         )
-        .is_err(),
-        "dry food at full metabolic and nutrition reserves must not masquerade as a thirst response"
+        .err(),
+        Some(EatError::NoReserveGain { mass: food_mass }),
+        "dry food at full metabolic and nutrition reserves must be rejected specifically because it cannot improve any reserve"
     );
     let thirst_drink = validate_drink(registries, &thirst, thirst_drink_store, drink_volume)
         .unwrap_or_else(|error| panic!("thirst-pressure drink should be useful: {error}"))
@@ -616,11 +623,13 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
         .unwrap_or_else(|error| panic!("hunger-pressure state audit failed: {error}"));
     validate_loaded_state(registries, &thirst)
         .unwrap_or_else(|error| panic!("thirst-pressure state audit failed: {error}"));
-    std::println!(
-        "SURVIVAL PRESSURE seed=0x{seed:016X} matched-warning-worlds=[hunger:[priority:{} eat:useful drink:blocked-full-hydration] thirst:[priority:{} drink:useful dry-food:blocked-no-benefit]] response=pressure-sensitive canonical-actions=true",
-        hunger_priority.label(),
-        thirst_priority.label(),
-    );
+    if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
+        std::println!(
+            "SURVIVAL PRESSURE seed=0x{seed:016X} matched-warning-worlds=[hunger:[priority:{} eat:useful drink:blocked-full-hydration] thirst:[priority:{} drink:useful dry-food:blocked-no-benefit]] response=pressure-sensitive canonical-actions=true",
+            hunger_priority.label(),
+            thirst_priority.label(),
+        );
+    }
 }
 
 fn evaluate_survival_work_pressure_probe(registries: &Registries, seed: u64) {
@@ -780,16 +789,18 @@ fn evaluate_survival_work_pressure_probe(registries: &Registries, seed: u64) {
         .unwrap_or_else(|error| panic!("work-pressure prospecting state audit failed: {error}"));
     validate_loaded_state(registries, &power)
         .unwrap_or_else(|error| panic!("work-pressure manual-power state audit failed: {error}"));
-    std::println!(
-        "SURVIVAL WORK PRESSURE seed=0x{seed:016X} matched-full-reserve-work=[prospecting:[{}t energy:{}ppm hydration:{}ppm dominant:hydration] manual-power:[{}t energy:{}ppm hydration:{}ppm dominant:energy stored-work:{}nJ]] activity-changes-dominant-pressure=true canonical-actions=true",
-        prospecting_ticks,
-        prospecting_energy_deficit_ppm,
-        prospecting_hydration_deficit_ppm,
-        power_ticks,
-        power_energy_deficit_ppm,
-        power_hydration_deficit_ppm,
-        requested_energy.nanojoules(),
-    );
+    if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
+        std::println!(
+            "SURVIVAL WORK PRESSURE seed=0x{seed:016X} matched-full-reserve-work=[prospecting:[{}t energy:{}ppm hydration:{}ppm dominant:hydration] manual-power:[{}t energy:{}ppm hydration:{}ppm dominant:energy stored-work:{}nJ]] activity-changes-dominant-pressure=true canonical-actions=true",
+            prospecting_ticks,
+            prospecting_energy_deficit_ppm,
+            prospecting_hydration_deficit_ppm,
+            power_ticks,
+            power_energy_deficit_ppm,
+            power_hydration_deficit_ppm,
+            requested_energy.nanojoules(),
+        );
+    }
 }
 
 fn evaluate_survival_provisioning_probe(registries: &Registries, seed: u64) {

@@ -747,6 +747,7 @@ pub(super) fn run_scenario(
 /// Runs the bootstrapped industrial workshop capability matrix.
 pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     let registries = build_registries();
+    let verbose = has_verbose_output();
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
     let behavior_raw = env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok();
@@ -781,16 +782,21 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
         plan.behavior_label(),
         plan.replay_label(),
     );
-    print_content_summary(&registries, has_verbose_output());
+    print_content_summary(&registries, verbose);
     std::println!(
-        "PLAYABILITY runtime-actions-after-controlled-bootstrap=[pressure-sensitive-survival-response+activity-dependent-work-pressure+provisioning,surface-prospecting->evidence-gated-mining,deferred-evidence-refinement-when-current-options-fail,manual-shaping,equipment-assembly+upgrade,hand-mining,material-backed-flywheel-construction,survival-costed-manual-power,primitive-autonomous-crushing,primitive-constituent-separation] primitive-processing-utility=[attention:playable bounded-payback:true lifecycle:condition-limited progression-leverage:second-upgrade-work material-progression:playable-separated-copper] bootstrap-assumptions=[starting-authored-food+drink+storage-profile,raw-gathered-matter,visible-local-geological-clue-regions] discovery=[quick-local-inspection:playable detailed-local-refinement:playable constraint-triggered-ambiguity-recovery:playable evidence-to-extraction:playable extracted-form+composition-observation:playable hidden-deposit-id:unavailable-to-actor] capability-only=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] missing-bridge=[world-scale-clue-discovery+spatially-coarse-to-local-refinement,industrial-acquisition,industrial-power-generation,concentrate-reduction/smelting]"
+        "REACHABILITY playable=[survival,local-prospecting,hand-mining,manual-crafting,primitive-power,primitive-processing] capability-only=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] missing=[world-scale-clue-discovery,industrial-acquisition,industrial-power-generation,smelting]"
     );
-    std::println!(
-        "PLAYER LOOP runtime-after-bootstrap=[inspect-local-clues->act-on-resolved-evidence+defer-uncertain-clues->respond-to-hunger/thirst+choose-work-that-shifts-body-pressure+shape-tools->mine->learn-form+composition-from-extraction->revisit-uncertainty-when-direct-supply-fails->choose-processing-feed-from-observed-matter->choose-first-copper-affordance:[hard-material-access|stored-work-rate]->mechanize->mine-more-while-crushing->repay-automation-attention-before-wear-endpoint->separate-crushed-ore->forge-second-upgrade->converge] capability-workshop=[site-machine->process-total-mass->adapt-batch-to-condition+stored-work->choose-power->hand-charge-or-protect-survival->react-to-world-load->maintain-or-relocate->iterate] utility=[information,material-access,player-attention,processed-material,survival-reserve,machine-condition,structural-margin,stored-work,time]"
-    );
-    std::println!(
-        "CORE FANTASY TARGET loop=[observe-world->infer-affordances->respond-to-constraints-with-information->survive+prepare->extract->make-scarce-investment->delegate-repetition->reinvest-returned-attention->convert-processed-matter-into-next-capability] evidence-map=[experience:progression:knowledge+extraction+scarce-investment+primitive-delegation experience:survival:pressure+provisioning+work-cost experience:workshop:stored-work+wear+maintenance+structure+recovery capability-only:ore:full-batch-preparation capability-only:foundry:pure-copper-thermal-chain] interpretation=derived-in-focused-probe-reviews-not-from-this-catalog-line industrial-reachability=capability-only boundary=[world-scale-clue-discovery+spatially-coarse-to-local-refinement,material-sampling/drilling/assays/geophysics,industrial-acquisition,industrial-power-generation,concentrate-reduction/smelting]"
-    );
+    if verbose {
+        std::println!(
+            "PLAYABILITY runtime-actions-after-controlled-bootstrap=[pressure-sensitive-survival-response+activity-dependent-work-pressure+provisioning,surface-prospecting->evidence-gated-mining,deferred-evidence-refinement-when-current-options-fail,manual-shaping,equipment-assembly+upgrade,hand-mining,material-backed-flywheel-construction,survival-costed-manual-power,primitive-autonomous-crushing,primitive-constituent-separation] primitive-processing-utility=[attention:playable bounded-payback:true lifecycle:condition-limited progression-leverage:second-upgrade-work material-progression:playable-separated-copper] bootstrap-assumptions=[starting-authored-food+drink+storage-profile,raw-gathered-matter,visible-local-geological-clue-regions] discovery=[quick-local-inspection:playable detailed-local-refinement:playable constraint-triggered-ambiguity-recovery:playable evidence-to-extraction:playable extracted-form+composition-observation:playable hidden-deposit-id:unavailable-to-actor] capability-only=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] missing-bridge=[world-scale-clue-discovery+spatially-coarse-to-local-refinement,industrial-acquisition,industrial-power-generation,concentrate-reduction/smelting]"
+        );
+        std::println!(
+            "PLAYER LOOP runtime-after-bootstrap=[inspect-local-clues->act-on-resolved-evidence+defer-uncertain-clues->respond-to-hunger/thirst+choose-work-that-shifts-body-pressure+shape-tools->mine->learn-form+composition-from-extraction->revisit-uncertainty-when-direct-supply-fails->choose-processing-feed-from-observed-matter->choose-first-copper-affordance:[hard-material-access|stored-work-rate]->mechanize->mine-more-while-crushing->repay-automation-attention-before-wear-endpoint->separate-crushed-ore->forge-second-upgrade->converge] capability-workshop=[site-machine->process-total-mass->adapt-batch-to-condition+stored-work->choose-power->hand-charge-or-protect-survival->react-to-world-load->maintain-or-relocate->iterate] utility=[information,material-access,player-attention,processed-material,survival-reserve,machine-condition,structural-margin,stored-work,time]"
+        );
+        std::println!(
+            "CORE FANTASY TARGET loop=[observe-world->infer-affordances->respond-to-constraints-with-information->survive+prepare->extract->make-scarce-investment->delegate-repetition->reinvest-returned-attention->convert-processed-matter-into-next-capability] evidence-map=[experience:progression:knowledge+extraction+scarce-investment+primitive-delegation experience:survival:pressure+provisioning+work-cost experience:workshop:stored-work+wear+maintenance+structure+recovery capability-only:ore:full-batch-preparation capability-only:foundry:pure-copper-thermal-chain] interpretation=derived-in-focused-probe-reviews-not-from-this-catalog-line industrial-reachability=capability-only boundary=[world-scale-clue-discovery+spatially-coarse-to-local-refinement,material-sampling/drilling/assays/geophysics,industrial-acquisition,industrial-power-generation,concentrate-reduction/smelting]"
+        );
+    }
     println!(
         "\n=== DEEP HEARTH INDUSTRIAL WORKSHOP CAPABILITY MATRIX: {} scenario(s), registry schema {} ===",
         plan.cases().len(),
@@ -834,5 +840,5 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
         ScenarioPlanMode::Gate => "controlled",
         ScenarioPlanMode::Explore => "exploratory",
     };
-    print_harness_summary(evidence_mode, &reports, has_verbose_output());
+    print_harness_summary(evidence_mode, &reports, verbose);
 }

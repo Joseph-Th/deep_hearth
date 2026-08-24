@@ -1,6 +1,9 @@
 //! Tests for the sibling mod module; isolated so test-only edits do not invalidate production builds.
 
-use super::*;
+use crate::core::quantity::{Mass, MassFlow};
+use crate::core::time::{PhysicalTickDuration, TickSpan};
+
+use super::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 
 #[test]
 fn mass_flow_duration_returns_first_tick_that_can_finish_batch() {

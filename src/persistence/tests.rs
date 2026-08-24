@@ -935,6 +935,36 @@ fn tampered_structural_cycle_is_rejected_on_load() {
 }
 
 #[test]
+fn tampered_structural_support_across_empty_space_is_rejected_on_load() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5700_0013));
+    let member = make_test_structural_element(&registries, &mut state, 0, 0, false);
+    let nearby_support = make_test_structural_element(&registries, &mut state, 1, 0, false);
+    let distant_support = make_test_structural_element(&registries, &mut state, 4, 0, false);
+    link_test_structural_support(&registries, &mut state, member, nearby_support);
+    let mut encoded = match serde_json::to_value(SaveEnvelope::new(&registries, &state)) {
+        Ok(encoded) => encoded,
+        Err(error) => panic!("structural contact save serialization failed: {error}"),
+    };
+    encoded["state"]["systems"]["structures"]["supports_by_element"][member.value().to_string()] =
+        serde_json::json!([distant_support.value()]);
+    let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
+        Ok(decoded) => decoded,
+        Err(error) => panic!("tampered structural contact save failed decode: {error}"),
+    };
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Structure(
+            StructureValidationError::SupportOutOfContact {
+                element: member,
+                support: distant_support,
+            }
+        )))
+    );
+}
+
+#[test]
 fn save_with_unresolved_structural_overload_is_rejected() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5700_0004));

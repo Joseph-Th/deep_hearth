@@ -206,6 +206,21 @@ impl VoxelBounds {
             && other.min.z < self.max_exclusive.z
     }
 
+    /// Reports whether the closed extents of two voxel regions touch or overlap.
+    ///
+    /// Unlike [`Self::has_intersection`], this treats half-open bounds that meet at a face, edge, or
+    /// corner as spatially connected. Structural topology uses this coarse voxel contact boundary to
+    /// prevent load paths from crossing empty space without inventing sub-voxel joint geometry.
+    #[must_use]
+    pub const fn has_contact(self, other: Self) -> bool {
+        self.min.x <= other.max_exclusive.x
+            && other.min.x <= self.max_exclusive.x
+            && self.min.y <= other.max_exclusive.y
+            && other.min.y <= self.max_exclusive.y
+            && self.min.z <= other.max_exclusive.z
+            && other.min.z <= self.max_exclusive.z
+    }
+
     /// Returns the nonempty half-open overlap of two bounds, if one exists.
     #[must_use]
     pub fn intersection(self, other: Self) -> Option<Self> {

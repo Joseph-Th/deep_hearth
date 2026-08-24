@@ -40,6 +40,15 @@ fn bounds_intersection_respects_half_open_faces() {
         Ok(bounds) => bounds,
         Err(error) => panic!("touching intersection fixture failed: {error}"),
     };
+    let corner_touching = match VoxelBounds::new(VoxelCoord::new(4, 4, 4), VoxelCoord::new(5, 5, 5))
+    {
+        Ok(bounds) => bounds,
+        Err(error) => panic!("corner-touching fixture failed: {error}"),
+    };
+    let separated = match VoxelBounds::new(VoxelCoord::new(5, 0, 0), VoxelCoord::new(8, 4, 4)) {
+        Ok(bounds) => bounds,
+        Err(error) => panic!("separated fixture failed: {error}"),
+    };
 
     assert!(left.has_intersection(overlapping));
     assert!(overlapping.has_intersection(left));
@@ -50,6 +59,10 @@ fn bounds_intersection_respects_half_open_faces() {
     assert!(!left.has_intersection(touching));
     assert!(!touching.has_intersection(left));
     assert_eq!(left.intersection(touching), None);
+    assert!(left.has_contact(overlapping));
+    assert!(left.has_contact(touching));
+    assert!(left.has_contact(corner_touching));
+    assert!(!left.has_contact(separated));
 }
 
 #[test]
