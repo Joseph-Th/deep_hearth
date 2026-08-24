@@ -6,7 +6,8 @@ use crate::capability::{
     CapabilityValueKind,
 };
 use crate::content::{
-    FORM_INGOT, FORM_MOLTEN, MATERIAL_COPPER, MATERIAL_SLAG, make_test_registries_with_melting,
+    FORM_CONCENTRATE, FORM_INGOT, FORM_MOLTEN, MATERIAL_COPPER, MATERIAL_SLAG,
+    make_test_registries_with_melting,
 };
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
@@ -142,10 +143,53 @@ fn make_registries(maximum_temperature: Temperature, carrier: EnergyCarrier) -> 
             MAX_TEMPERATURE,
             MAX_BATCH_MASS,
             EnergyCarrier::Electrical,
-            FORM_MOLTEN,
+            PhaseChangeForms::new(FORM_INGOT, FORM_MOLTEN),
             10,
         ),
     )
+}
+
+#[test]
+fn melting_rejects_pure_concentrate_without_a_reduction_step() {
+    let mut fixture = make_fixture(
+        Temperature::from_millikelvin(1_500_000),
+        EnergyCarrier::Electrical,
+        Mass::from_milligrams(10),
+    );
+    let concentrate = deposit_lot_for_test(
+        &fixture.registries,
+        &mut fixture.state,
+        fixture.ids.source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE),
+        Mass::from_milligrams(5),
+        INPUT_TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("pure concentrate melting fixture failed: {error}"));
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        resolve_melting_process(
+            &fixture.registries,
+            &fixture.state,
+            MeltingRequest::new(
+                PROCESS,
+                fixture.ids.source,
+                &[MaterialLotSelection::new(
+                    concentrate,
+                    Mass::from_milligrams(5),
+                )],
+                fixture.ids.equipment,
+                fixture.ids.energy_store,
+            ),
+        ),
+        Err(MeltingResolutionError::Batch(
+            MeltingBatchError::InputFormMismatch {
+                expected: FORM_INGOT,
+                found: FORM_CONCENTRATE,
+            }
+        ))
+    );
+    assert_eq!(fixture.state, before);
 }
 
 fn make_fixture(
@@ -591,6 +635,31 @@ fn melting_job_tampering_is_rejected_by_physics_and_destination_audits() {
                 job,
                 traced: Energy::from_nanojoules(1),
                 required: required_energy,
+            })
+        )))
+    );
+
+    let mut tampered_input =
+        match serde_json::to_value(SaveEnvelope::new(&fixture.registries, &fixture.state)) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("melting input-form tamper serialization failed: {error}"),
+        };
+    tampered_input["state"]["systems"]["production"]["jobs"][job.value().to_string()]["resources"]
+        ["consumed_inputs"][0]["profile"]["commodity"] =
+        serde_json::json!(CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE).value());
+    let tampered_input: LoadedSaveEnvelope = match serde_json::from_value(tampered_input) {
+        Ok(decoded) => decoded,
+        Err(error) => panic!("melting input-form tamper decode failed: {error}"),
+    };
+    assert_eq!(
+        tampered_input.into_state(&fixture.registries),
+        Err(LoadError::InvalidState(StateValidationError::ThermalJob(
+            ThermalJobValidationError::Melting(MeltingJobValidationError::Batch {
+                job,
+                error: MeltingBatchError::InputFormMismatch {
+                    expected: FORM_INGOT,
+                    found: FORM_CONCENTRATE,
+                },
             })
         )))
     );

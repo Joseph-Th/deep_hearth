@@ -31,7 +31,10 @@ use crate::production::{
 };
 use crate::registry::Registries;
 
-use super::{FusionHeatError, SensibleHeatError, calculate_fusion_heat, calculate_sensible_heat};
+use super::{
+    FusionHeatError, PhaseChangeForms, SensibleHeatError, calculate_fusion_heat,
+    calculate_sensible_heat,
+};
 
 /// Immutable declaration that one selected-batch process solidifies pure liquid matter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,7 +44,7 @@ pub struct CastingProcessDefinition {
     max_temperature_capability: CapabilityId,
     max_batch_mass_capability: CapabilityId,
     energy_carrier: EnergyCarrier,
-    solid_form: FormId,
+    forms: PhaseChangeForms,
     condition_wear_ppm_per_active_tick: u32,
 }
 
@@ -53,7 +56,7 @@ impl CastingProcessDefinition {
         max_temperature_capability: CapabilityId,
         max_batch_mass_capability: CapabilityId,
         energy_carrier: EnergyCarrier,
-        solid_form: FormId,
+        forms: PhaseChangeForms,
         condition_wear_ppm_per_active_tick: u32,
     ) -> Self {
         assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
@@ -63,7 +66,7 @@ impl CastingProcessDefinition {
             max_temperature_capability,
             max_batch_mass_capability,
             energy_carrier,
-            solid_form,
+            forms,
             condition_wear_ppm_per_active_tick,
         }
     }
@@ -94,8 +97,13 @@ impl CastingProcessDefinition {
     }
 
     #[must_use]
+    pub const fn liquid_form(self) -> FormId {
+        self.forms.input()
+    }
+
+    #[must_use]
     pub const fn solid_form(self) -> FormId {
-        self.solid_form
+        self.forms.output()
     }
 
     #[must_use]
@@ -114,6 +122,10 @@ pub enum CastingBatchError {
     InputNotLiquid {
         form: FormId,
         phase: MaterialPhase,
+    },
+    InputFormMismatch {
+        expected: FormId,
+        found: FormId,
     },
     ImpureInput {
         commodity: CommodityKey,
@@ -159,6 +171,12 @@ impl Display for CastingBatchError {
                 formatter,
                 "casting input form {} is {phase:?} rather than liquid",
                 form.value()
+            ),
+            Self::InputFormMismatch { expected, found } => write!(
+                formatter,
+                "casting process requires liquid input form {} but selected form {} was provided",
+                expected.value(),
+                found.value()
             ),
             Self::ImpureInput { commodity } => write!(
                 formatter,
@@ -228,6 +246,10 @@ impl Error for CastingBatchError {
                 form: _form,
                 phase: _phase,
             } => None,
+            Self::InputFormMismatch {
+                expected: _expected,
+                found: _found,
+            } => None,
             Self::ImpureInput {
                 commodity: _commodity,
             } => None,
@@ -260,6 +282,7 @@ struct CastingBatchPhysics {
 
 fn resolve_casting_batch(
     materials: &MaterialRegistry,
+    liquid_form: FormId,
     solid_form: FormId,
     traces: &[ConsumedMaterialTrace],
 ) -> Result<CastingBatchPhysics, CastingBatchError> {
@@ -279,6 +302,12 @@ fn resolve_casting_batch(
             return Err(CastingBatchError::InputNotLiquid {
                 form: form_id,
                 phase: form.phase(),
+            });
+        }
+        if form_id != liquid_form {
+            return Err(CastingBatchError::InputFormMismatch {
+                expected: liquid_form,
+                found: form_id,
             });
         }
         let Some(material) = profile.composition().pure_material() else {
@@ -630,6 +659,7 @@ pub fn resolve_casting_process(
 
     let batch = resolve_casting_batch(
         registries.materials(),
+        definition.liquid_form(),
         definition.solid_form(),
         inputs.consumed_inputs(),
     )
@@ -1016,6 +1046,7 @@ pub(super) fn validate_loaded_casting_job(
     }
     let batch = resolve_casting_batch(
         registries.materials(),
+        definition.liquid_form(),
         definition.solid_form(),
         job.consumed_inputs(),
     )

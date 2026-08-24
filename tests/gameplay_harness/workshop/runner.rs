@@ -624,8 +624,9 @@ pub(super) fn run_scenario(
                     ),
                 ),
                 Err(MeltingResolutionError::Batch(
-                    MeltingBatchError::ImpureInput {
-                        commodity: _commodity,
+                    MeltingBatchError::InputFormMismatch {
+                        expected: FORM_INGOT,
+                        found: FORM_CRUSHED,
                     }
                 ))
             )

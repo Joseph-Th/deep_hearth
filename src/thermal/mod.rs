@@ -30,6 +30,30 @@ use crate::material::{
     MaterialPhaseStateError, MaterialRegistry, validate_material_phase_state,
 };
 
+/// Authored material-form transition owned by one phase-change process definition.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PhaseChangeForms {
+    input: FormId,
+    output: FormId,
+}
+
+impl PhaseChangeForms {
+    #[must_use]
+    pub const fn new(input: FormId, output: FormId) -> Self {
+        Self { input, output }
+    }
+
+    #[must_use]
+    pub const fn input(self) -> FormId {
+        self.input
+    }
+
+    #[must_use]
+    pub const fn output(self) -> FormId {
+        self.output
+    }
+}
+
 /// Direction of sensible heat transfer relative to the material lot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HeatDirection {

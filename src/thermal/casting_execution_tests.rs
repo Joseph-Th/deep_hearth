@@ -147,7 +147,7 @@ fn make_registries(
             MAX_TEMPERATURE,
             MAX_BATCH_MASS,
             EnergyCarrier::Thermal,
-            FORM_INGOT,
+            PhaseChangeForms::new(FORM_MOLTEN, FORM_INGOT),
             10,
         ),
     )

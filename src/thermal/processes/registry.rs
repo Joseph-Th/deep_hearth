@@ -182,7 +182,21 @@ impl ThermalRegistry {
                 production,
                 capabilities,
             );
-            let Some(form) = materials.get_form(definition.solid_form()) else {
+            let Some(liquid_form) = materials.get_form(definition.liquid_form()) else {
+                panic!(
+                    "casting process {} references missing input form {}",
+                    definition.process().value(),
+                    definition.liquid_form().value()
+                );
+            };
+            assert_eq!(
+                liquid_form.phase(),
+                MaterialPhase::Liquid,
+                "casting process {} input form {} must be liquid",
+                definition.process().value(),
+                definition.liquid_form().value()
+            );
+            let Some(solid_form) = materials.get_form(definition.solid_form()) else {
                 panic!(
                     "casting process {} references missing output form {}",
                     definition.process().value(),
@@ -190,7 +204,7 @@ impl ThermalRegistry {
                 );
             };
             assert_eq!(
-                form.phase(),
+                solid_form.phase(),
                 MaterialPhase::Solid,
                 "casting process {} output form {} must be solid",
                 definition.process().value(),
@@ -206,7 +220,21 @@ impl ThermalRegistry {
                 production,
                 capabilities,
             );
-            let Some(form) = materials.get_form(definition.liquid_form()) else {
+            let Some(solid_form) = materials.get_form(definition.solid_form()) else {
+                panic!(
+                    "melting process {} references missing input form {}",
+                    definition.process().value(),
+                    definition.solid_form().value()
+                );
+            };
+            assert_eq!(
+                solid_form.phase(),
+                MaterialPhase::Solid,
+                "melting process {} input form {} must be solid",
+                definition.process().value(),
+                definition.solid_form().value()
+            );
+            let Some(liquid_form) = materials.get_form(definition.liquid_form()) else {
                 panic!(
                     "melting process {} references missing output form {}",
                     definition.process().value(),
@@ -214,7 +242,7 @@ impl ThermalRegistry {
                 );
             };
             assert_eq!(
-                form.phase(),
+                liquid_form.phase(),
                 MaterialPhase::Liquid,
                 "melting process {} output form {} must be liquid",
                 definition.process().value(),

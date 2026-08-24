@@ -12,7 +12,10 @@ use crate::ore_processing::{
     ComminutionProcessDefinition, OreProcessingRegistry, PoweredOreProcessProfile,
 };
 use crate::production::{ProcessDefinition, ProcessId, ProductionRegistry};
-use crate::thermal::{SensibleHeatingProcessDefinition, ThermalRegistry};
+use crate::thermal::{
+    CastingProcessDefinition, MeltingProcessDefinition, PhaseChangeForms,
+    SensibleHeatingProcessDefinition, ThermalRegistry,
+};
 
 const TEST_CAPABILITY: CapabilityId = CapabilityId::new(700_001);
 const TEST_PROCESS: ProcessId = ProcessId::new(700_001);
@@ -20,6 +23,42 @@ const TEST_MASS_FLOW: CapabilityId = CapabilityId::new(700_002);
 const TEST_MAX_BATCH_MASS: CapabilityId = CapabilityId::new(700_003);
 const TEST_HEATING_POWER: CapabilityId = CapabilityId::new(700_004);
 const TEST_MAX_TEMPERATURE: CapabilityId = CapabilityId::new(700_005);
+
+fn assert_thermal_reference_validation_rejects(thermal: ThermalRegistry) {
+    let mut capabilities = CapabilityRegistry::new();
+    for (id, name, kind) in [
+        (
+            TEST_HEATING_POWER,
+            "test thermal power",
+            CapabilityValueKind::Power,
+        ),
+        (
+            TEST_MAX_TEMPERATURE,
+            "test maximum temperature",
+            CapabilityValueKind::Temperature,
+        ),
+        (
+            TEST_MAX_BATCH_MASS,
+            "test maximum batch mass",
+            CapabilityValueKind::Mass,
+        ),
+    ] {
+        capabilities.register_capability(CapabilityDefinition::new(id, name, kind));
+    }
+    let mut production = ProductionRegistry::new();
+    production.register_process(ProcessDefinition::new_selected_batch(
+        TEST_PROCESS,
+        "invalid phase-change fixture",
+        Vec::new(),
+    ));
+    let material_registry = materials::build_material_registry();
+
+    let result = std::panic::catch_unwind(|| {
+        thermal.validate_references(&production, &capabilities, &material_registry)
+    });
+
+    assert!(result.is_err());
+}
 
 #[test]
 fn built_in_world_time_scale_and_gravity_are_stable() {
@@ -41,6 +80,66 @@ fn built_in_world_time_scale_and_gravity_are_stable() {
         registries.core().calendar().physical_seconds_per_day(),
         DEFAULT_PHYSICAL_SECONDS_PER_DAY
     );
+}
+
+#[test]
+fn phase_change_definitions_require_authored_phase_directions() {
+    for thermal in [
+        ThermalRegistry::new(
+            std::iter::empty(),
+            [MeltingProcessDefinition::new(
+                TEST_PROCESS,
+                TEST_HEATING_POWER,
+                TEST_MAX_TEMPERATURE,
+                TEST_MAX_BATCH_MASS,
+                EnergyCarrier::Electrical,
+                PhaseChangeForms::new(FORM_MOLTEN, FORM_MOLTEN),
+                1,
+            )],
+            std::iter::empty(),
+        ),
+        ThermalRegistry::new(
+            std::iter::empty(),
+            [MeltingProcessDefinition::new(
+                TEST_PROCESS,
+                TEST_HEATING_POWER,
+                TEST_MAX_TEMPERATURE,
+                TEST_MAX_BATCH_MASS,
+                EnergyCarrier::Electrical,
+                PhaseChangeForms::new(FORM_INGOT, FORM_INGOT),
+                1,
+            )],
+            std::iter::empty(),
+        ),
+        ThermalRegistry::new(
+            std::iter::empty(),
+            std::iter::empty(),
+            [CastingProcessDefinition::new(
+                TEST_PROCESS,
+                TEST_HEATING_POWER,
+                TEST_MAX_TEMPERATURE,
+                TEST_MAX_BATCH_MASS,
+                EnergyCarrier::Thermal,
+                PhaseChangeForms::new(FORM_INGOT, FORM_INGOT),
+                1,
+            )],
+        ),
+        ThermalRegistry::new(
+            std::iter::empty(),
+            std::iter::empty(),
+            [CastingProcessDefinition::new(
+                TEST_PROCESS,
+                TEST_HEATING_POWER,
+                TEST_MAX_TEMPERATURE,
+                TEST_MAX_BATCH_MASS,
+                EnergyCarrier::Thermal,
+                PhaseChangeForms::new(FORM_MOLTEN, FORM_MOLTEN),
+                1,
+            )],
+        ),
+    ] {
+        assert_thermal_reference_validation_rejects(thermal);
+    }
 }
 
 #[test]
@@ -129,6 +228,26 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
             .get_casting(PROCESS_CAST_PURE_COPPER)
             .is_some()
     );
+}
+
+#[test]
+fn copper_melting_capability_requires_the_authored_fusion_temperature() {
+    let registries = build_registries();
+    let melting_point = registries
+        .materials()
+        .get_material(MATERIAL_COPPER)
+        .and_then(|material| material.properties().thermal().melting_point())
+        .unwrap_or_else(|| panic!("built-in copper lost its fusion temperature"));
+    let process = registries
+        .production()
+        .get_process(PROCESS_MELT_PURE_COPPER)
+        .unwrap_or_else(|| panic!("built-in copper melting process disappeared"));
+
+    assert!(process.capability_requirements().iter().any(|requirement| {
+        requirement.capability() == super::capabilities::CAPABILITY_THERMAL_MAX_TEMPERATURE
+            && requirement.comparison() == CapabilityComparison::AtLeast
+            && requirement.threshold() == CapabilityValue::Temperature(melting_point)
+    }));
 }
 
 #[test]

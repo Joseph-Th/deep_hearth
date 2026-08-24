@@ -1,6 +1,5 @@
 //! Selected-batch sensible-heating resolution against exact matter, equipment, and finite energy.
 
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -18,14 +17,15 @@ use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::maintenance::{
     ActiveConditionDurationError, calculate_usable_condition_after_active_ticks,
 };
-use crate::material::{MaterialLotSpec, MaterialLotSpecError};
+use crate::material::MaterialLotSpecError;
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
     ProcessResolutionError, validate_selected_process_inputs,
 };
 use crate::registry::Registries;
 
-use super::super::{HeatDirection, PhaseSensibleHeatError, calculate_phase_sensible_heat};
+use super::super::PhaseSensibleHeatError;
+use super::sensible_batch::{SensibleHeatingBatchError, resolve_sensible_heating_batch};
 
 /// Observable physically resolved sensible-heating operation before production start.
 #[must_use]
@@ -61,6 +61,21 @@ impl ResolvedSensibleHeating {
     #[must_use]
     pub const fn transfer_power(&self) -> Power {
         self.transfer_power
+    }
+}
+
+fn map_sensible_heating_batch_error(
+    error: SensibleHeatingBatchError,
+) -> SensibleHeatingResolutionError {
+    match error {
+        SensibleHeatingBatchError::TargetBelowInputTemperature { current, target } => {
+            SensibleHeatingResolutionError::TargetBelowInputTemperature { current, target }
+        }
+        SensibleHeatingBatchError::Heat(error) => SensibleHeatingResolutionError::Heat(error),
+        SensibleHeatingBatchError::ArithmeticOverflow => {
+            SensibleHeatingResolutionError::RequiredEnergyOverflow
+        }
+        SensibleHeatingBatchError::Output(error) => SensibleHeatingResolutionError::Output(error),
     }
 }
 
@@ -334,45 +349,10 @@ pub fn resolve_sensible_heating_process(
         );
     }
 
-    let mut required_energy = Energy::ZERO;
-    let mut output_masses = BTreeMap::new();
-    for trace in inputs.consumed_inputs() {
-        let profile = trace.profile();
-        if target < profile.temperature() {
-            return Err(
-                SensibleHeatingResolutionError::TargetBelowInputTemperature {
-                    current: profile.temperature(),
-                    target,
-                },
-            );
-        }
-        let heat = calculate_phase_sensible_heat(
-            registries.materials(),
-            trace.mass(),
-            profile.commodity(),
-            profile.composition(),
-            profile.temperature(),
-            target,
-        )
-        .map_err(SensibleHeatingResolutionError::Heat)?;
-        debug_assert!(matches!(
-            heat.direction(),
-            HeatDirection::None | HeatDirection::IntoMaterial
-        ));
-        required_energy = required_energy
-            .checked_add(heat.energy())
-            .ok_or(SensibleHeatingResolutionError::RequiredEnergyOverflow)?;
-        let key = (
-            profile.commodity(),
-            profile.composition().clone(),
-            profile.particle_size_distribution().cloned(),
-        );
-        let current = output_masses.get(&key).copied().unwrap_or(Mass::ZERO);
-        let combined = current
-            .checked_add(trace.mass())
-            .ok_or(SensibleHeatingResolutionError::RequiredEnergyOverflow)?;
-        output_masses.insert(key, combined);
-    }
+    let batch =
+        resolve_sensible_heating_batch(registries.materials(), inputs.consumed_inputs(), target)
+            .map_err(map_sensible_heating_batch_error)?;
+    let required_energy = batch.required_energy();
     if required_energy.is_zero() {
         return Err(SensibleHeatingResolutionError::NoHeatingRequired);
     }
@@ -400,27 +380,12 @@ pub fn resolve_sensible_heating_process(
     )
     .map_err(SensibleHeatingResolutionError::ConditionDuration)?;
 
-    let mut outputs = Vec::with_capacity(output_masses.len());
-    for ((commodity, composition, particle_size), mass) in output_masses {
-        let output = match particle_size {
-            Some(particle_size) => MaterialLotSpec::with_composition_and_particle_size(
-                commodity,
-                mass,
-                target,
-                composition,
-                particle_size,
-            ),
-            None => MaterialLotSpec::with_composition(commodity, mass, target, composition),
-        }
-        .map_err(SensibleHeatingResolutionError::Output)?;
-        outputs.push(output);
-    }
     let resolution = inputs
         .resolve_with_energy_and_equipment(
             duration,
             vec![ProcessOutputStream::new(
                 ProcessOutputStreamId::PRIMARY,
-                outputs,
+                batch.into_outputs(),
             )],
             energy_supply,
             equipment_use,

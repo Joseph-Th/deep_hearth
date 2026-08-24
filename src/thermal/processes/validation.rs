@@ -1,6 +1,5 @@
 //! Persistence replay validation for thermal production jobs using the same physical derivations as runtime.
 
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -12,13 +11,14 @@ use crate::equipment::resolve_equipment_capability;
 use crate::maintenance::{
     ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
 };
-use crate::material::{MaterialLotSpec, MaterialLotSpecError};
+use crate::material::MaterialLotSpecError;
 use crate::production::{ProductionJobId, ProductionJobRecord};
 use crate::registry::Registries;
 
+use super::super::PhaseSensibleHeatError;
 use super::super::casting_execution::{CastingJobValidationError, validate_loaded_casting_job};
 use super::super::melting_execution::{MeltingJobValidationError, validate_loaded_melting_job};
-use super::super::{PhaseSensibleHeatError, calculate_phase_sensible_heat};
+use super::sensible_batch::{SensibleHeatingBatchError, resolve_sensible_heating_batch};
 
 /// Invalid persisted operation-specific thermal semantics discovered during exhaustive load audit.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -262,6 +262,28 @@ impl Display for ThermalJobValidationError {
     }
 }
 
+fn map_sensible_heating_batch_error(
+    job: ProductionJobId,
+    error: SensibleHeatingBatchError,
+) -> ThermalJobValidationError {
+    match error {
+        SensibleHeatingBatchError::TargetBelowInputTemperature { current, target } => {
+            ThermalJobValidationError::TargetBelowInputTemperature {
+                job,
+                current,
+                target,
+            }
+        }
+        SensibleHeatingBatchError::Heat(error) => ThermalJobValidationError::Heat { job, error },
+        SensibleHeatingBatchError::ArithmeticOverflow => {
+            ThermalJobValidationError::RequiredEnergyOverflow { job }
+        }
+        SensibleHeatingBatchError::Output(error) => {
+            ThermalJobValidationError::OutputConstruction { job, error }
+        }
+    }
+}
+
 impl Error for ThermalJobValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
@@ -433,45 +455,10 @@ pub(crate) fn validate_loaded_thermal_job(
         );
     }
 
-    let mut required_energy = Energy::ZERO;
-    let mut output_masses = BTreeMap::new();
-    for trace in job.consumed_inputs() {
-        let profile = trace.profile();
-        if target < profile.temperature() {
-            return Err(ThermalJobValidationError::TargetBelowInputTemperature {
-                job: job.id(),
-                current: profile.temperature(),
-                target,
-            });
-        }
-        let heat = calculate_phase_sensible_heat(
-            registries.materials(),
-            trace.mass(),
-            profile.commodity(),
-            profile.composition(),
-            profile.temperature(),
-            target,
-        )
-        .map_err(|error| ThermalJobValidationError::Heat {
-            job: job.id(),
-            error,
-        })?;
-        required_energy = required_energy
-            .checked_add(heat.energy())
-            .ok_or(ThermalJobValidationError::RequiredEnergyOverflow { job: job.id() })?;
-        let key = (
-            profile.commodity(),
-            profile.composition().clone(),
-            profile.particle_size_distribution().cloned(),
-        );
-        let current = output_masses.get(&key).copied().unwrap_or(Mass::ZERO);
-        output_masses.insert(
-            key,
-            current
-                .checked_add(trace.mass())
-                .ok_or(ThermalJobValidationError::RequiredEnergyOverflow { job: job.id() })?,
-        );
-    }
+    let batch =
+        resolve_sensible_heating_batch(registries.materials(), job.consumed_inputs(), target)
+            .map_err(|error| map_sensible_heating_batch_error(job.id(), error))?;
+    let required_energy = batch.required_energy();
     if consumed_energy.energy() != required_energy {
         return Err(ThermalJobValidationError::EnergyMismatch {
             job: job.id(),
@@ -519,24 +506,7 @@ pub(crate) fn validate_loaded_thermal_job(
         );
     }
 
-    let mut expected_outputs = Vec::with_capacity(output_masses.len());
-    for ((commodity, composition, particle_size), mass) in output_masses {
-        let output = match particle_size {
-            Some(particle_size) => MaterialLotSpec::with_composition_and_particle_size(
-                commodity,
-                mass,
-                target,
-                composition,
-                particle_size,
-            ),
-            None => MaterialLotSpec::with_composition(commodity, mass, target, composition),
-        }
-        .map_err(|error| ThermalJobValidationError::OutputConstruction {
-            job: job.id(),
-            error,
-        })?;
-        expected_outputs.push(output);
-    }
+    let mut expected_outputs = batch.into_outputs();
     expected_outputs.sort();
     let mut actual_outputs = output_stream.outputs().to_vec();
     actual_outputs.sort();

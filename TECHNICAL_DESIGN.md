@@ -160,7 +160,10 @@ Implemented physical resolvers include:
   is exact. Residue retains input particulate state, and persisted jobs replay composition, streams,
   energy, duration, and wear;
 - sensible heating, pure-material melting, and pure-material casting with real selected matter, finite
-  energy sources/sinks, equipment limits, phase boundaries, and latent heat.
+  energy sources/sinks, equipment limits, phase boundaries, and latent heat. Melting and casting
+  definitions bind both authored input and output forms, so phase-change admission and persisted-job
+  replay cannot bypass an unimplemented material-processing step merely because another form has
+  compatible material and phase properties.
 
 ## Equipment, labor, survival, energy, and fluids
 

@@ -1,7 +1,8 @@
-//! Thermal process facade; child modules separate registry ownership, runtime heating resolution, and persistence replay.
+//! Thermal process facade; child modules separate registry ownership, shared batch physics, runtime resolution, and persistence replay.
 
 mod heating;
 mod registry;
+mod sensible_batch;
 mod validation;
 
 pub use heating::{

@@ -31,7 +31,10 @@ use crate::production::{
 };
 use crate::registry::Registries;
 
-use super::{FusionHeatError, SensibleHeatError, calculate_fusion_heat, calculate_sensible_heat};
+use super::{
+    FusionHeatError, PhaseChangeForms, SensibleHeatError, calculate_fusion_heat,
+    calculate_sensible_heat,
+};
 
 /// Immutable declaration that one selected-batch process performs pure-material melting.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,7 +44,7 @@ pub struct MeltingProcessDefinition {
     max_temperature_capability: CapabilityId,
     max_batch_mass_capability: CapabilityId,
     energy_carrier: EnergyCarrier,
-    liquid_form: FormId,
+    forms: PhaseChangeForms,
     condition_wear_ppm_per_active_tick: u32,
 }
 
@@ -53,7 +56,7 @@ impl MeltingProcessDefinition {
         max_temperature_capability: CapabilityId,
         max_batch_mass_capability: CapabilityId,
         energy_carrier: EnergyCarrier,
-        liquid_form: FormId,
+        forms: PhaseChangeForms,
         condition_wear_ppm_per_active_tick: u32,
     ) -> Self {
         assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
@@ -63,7 +66,7 @@ impl MeltingProcessDefinition {
             max_temperature_capability,
             max_batch_mass_capability,
             energy_carrier,
-            liquid_form,
+            forms,
             condition_wear_ppm_per_active_tick,
         }
     }
@@ -94,8 +97,13 @@ impl MeltingProcessDefinition {
     }
 
     #[must_use]
+    pub const fn solid_form(self) -> FormId {
+        self.forms.input()
+    }
+
+    #[must_use]
     pub const fn liquid_form(self) -> FormId {
-        self.liquid_form
+        self.forms.output()
     }
 
     #[must_use]
@@ -114,6 +122,10 @@ pub enum MeltingBatchError {
     InputNotSolid {
         form: FormId,
         phase: MaterialPhase,
+    },
+    InputFormMismatch {
+        expected: FormId,
+        found: FormId,
     },
     ImpureInput {
         commodity: CommodityKey,
@@ -159,6 +171,12 @@ impl Display for MeltingBatchError {
                 formatter,
                 "melting input form {} is {phase:?} rather than solid",
                 form.value()
+            ),
+            Self::InputFormMismatch { expected, found } => write!(
+                formatter,
+                "melting process requires solid input form {} but selected form {} was provided",
+                expected.value(),
+                found.value()
             ),
             Self::ImpureInput { commodity } => write!(
                 formatter,
@@ -226,6 +244,10 @@ impl Error for MeltingBatchError {
                 form: _form,
                 phase: _phase,
             } => None,
+            Self::InputFormMismatch {
+                expected: _expected,
+                found: _found,
+            } => None,
             Self::ImpureInput {
                 commodity: _commodity,
             } => None,
@@ -257,6 +279,7 @@ struct MeltingBatchPhysics {
 
 fn resolve_melting_batch(
     materials: &MaterialRegistry,
+    solid_form: FormId,
     liquid_form: FormId,
     traces: &[ConsumedMaterialTrace],
 ) -> Result<MeltingBatchPhysics, MeltingBatchError> {
@@ -275,6 +298,12 @@ fn resolve_melting_batch(
             return Err(MeltingBatchError::InputNotSolid {
                 form: form_id,
                 phase: form.phase(),
+            });
+        }
+        if form_id != solid_form {
+            return Err(MeltingBatchError::InputFormMismatch {
+                expected: solid_form,
+                found: form_id,
             });
         }
         let Some(material) = profile.composition().pure_material() else {
@@ -627,6 +656,7 @@ pub fn resolve_melting_process(
 
     let batch = resolve_melting_batch(
         registries.materials(),
+        definition.solid_form(),
         definition.liquid_form(),
         inputs.consumed_inputs(),
     )
@@ -1002,6 +1032,7 @@ pub(super) fn validate_loaded_melting_job(
     }
     let batch = resolve_melting_batch(
         registries.materials(),
+        definition.solid_form(),
         definition.liquid_form(),
         job.consumed_inputs(),
     )

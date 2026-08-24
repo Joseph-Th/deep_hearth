@@ -11,6 +11,7 @@ use super::capabilities::{
     CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW, CAPABILITY_SEPARATOR_BATCH,
     CAPABILITY_SEPARATOR_FLOW, CAPABILITY_THERMAL_BATCH, CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
+use super::materials::COPPER_MELTING_POINT;
 use super::{
     FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
@@ -22,11 +23,11 @@ pub const PROCESS_SCREEN_CRUSHED_ORE: ProcessId = ProcessId::new(4);
 pub const PROCESS_GRIND_CRUSHED_ORE: ProcessId = ProcessId::new(5);
 pub const PROCESS_FINE_GRIND_SCREEN_OVERSIZE: ProcessId = ProcessId::new(6);
 pub const PROCESS_KNAP_STONE_TOOL: ProcessId = ProcessId::new(7);
-pub const PROCESS_SHAPE_WOOD_HANDLE: ProcessId = ProcessId::new(9);
-pub const PROCESS_SHAPE_STONE_FLYWHEEL: ProcessId = ProcessId::new(10);
-pub const PROCESS_COLD_WORK_COPPER_REINFORCEMENT: ProcessId = ProcessId::new(11);
-pub const PROCESS_SEPARATE_NATIVE_COPPER: ProcessId = ProcessId::new(12);
-pub const PROCESS_CONCENTRATE_COPPER: ProcessId = ProcessId::new(13);
+pub const PROCESS_SHAPE_WOOD_HANDLE: ProcessId = ProcessId::new(8);
+pub const PROCESS_SHAPE_STONE_FLYWHEEL: ProcessId = ProcessId::new(9);
+pub const PROCESS_COLD_WORK_COPPER_REINFORCEMENT: ProcessId = ProcessId::new(10);
+pub const PROCESS_SEPARATE_NATIVE_COPPER: ProcessId = ProcessId::new(11);
+pub const PROCESS_CONCENTRATE_COPPER: ProcessId = ProcessId::new(12);
 
 pub(crate) fn build_production_registry() -> ProductionRegistry {
     let mut registry = ProductionRegistry::new();
@@ -59,7 +60,7 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
                 CapabilityRequirement::new(
                     CAPABILITY_THERMAL_MAX_TEMPERATURE,
                     CapabilityComparison::AtLeast,
-                    CapabilityValue::Temperature(Temperature::from_millikelvin(1_200_000)),
+                    CapabilityValue::Temperature(COPPER_MELTING_POINT),
                 ),
                 CapabilityRequirement::new(
                     CAPABILITY_THERMAL_BATCH,

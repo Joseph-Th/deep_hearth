@@ -17,6 +17,7 @@ pub const MATERIAL_BERRIES: MaterialId = MaterialId::new(7);
 pub const MATERIAL_MEAT: MaterialId = MaterialId::new(8);
 pub const MATERIAL_STONE: MaterialId = MaterialId::new(9);
 pub const MATERIAL_CLAY: MaterialId = MaterialId::new(10);
+pub(crate) const COPPER_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_357_770);
 
 pub const FORM_LOG: FormId = FormId::new(1);
 pub const FORM_LUMP: FormId = FormId::new(2);
@@ -28,11 +29,11 @@ pub const FORM_CRUSHED: FormId = FormId::new(7);
 pub const FORM_FOOD: FormId = FormId::new(8);
 pub const FORM_TOOL: FormId = FormId::new(9);
 pub const FORM_CHIP: FormId = FormId::new(10);
-pub const FORM_HANDLE: FormId = FormId::new(12);
-pub const FORM_FLYWHEEL: FormId = FormId::new(13);
-pub const FORM_REINFORCEMENT: FormId = FormId::new(14);
-pub const FORM_NATIVE_METAL: FormId = FormId::new(15);
-pub const FORM_SCRAP: FormId = FormId::new(16);
+pub const FORM_HANDLE: FormId = FormId::new(11);
+pub const FORM_FLYWHEEL: FormId = FormId::new(12);
+pub const FORM_REINFORCEMENT: FormId = FormId::new(13);
+pub const FORM_NATIVE_METAL: FormId = FormId::new(14);
+pub const FORM_SCRAP: FormId = FormId::new(15);
 
 pub(crate) fn build_material_registry() -> MaterialRegistry {
     let mut registry = MaterialRegistry::new();
@@ -155,10 +156,7 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
             8_960,
             ThermalProperties::new(
                 385,
-                Some(FusionProperties::new(
-                    Temperature::from_millikelvin(1_357_770),
-                    205_000,
-                )),
+                Some(FusionProperties::new(COPPER_MELTING_POINT, 205_000)),
                 401_000,
             ),
             MechanicalProperties::new(70_000, 210_000, 369),

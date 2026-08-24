@@ -2,8 +2,8 @@
 
 use crate::energy::EnergyCarrier;
 use crate::thermal::{
-    CastingProcessDefinition, MeltingProcessDefinition, SensibleHeatingProcessDefinition,
-    ThermalRegistry,
+    CastingProcessDefinition, MeltingProcessDefinition, PhaseChangeForms,
+    SensibleHeatingProcessDefinition, ThermalRegistry,
 };
 
 use super::capabilities::{
@@ -22,7 +22,7 @@ pub(crate) fn build_thermal_registry() -> ThermalRegistry {
             CAPABILITY_THERMAL_MAX_TEMPERATURE,
             CAPABILITY_THERMAL_BATCH,
             EnergyCarrier::Electrical,
-            FORM_MOLTEN,
+            PhaseChangeForms::new(FORM_INGOT, FORM_MOLTEN),
             10,
         )],
         [CastingProcessDefinition::new(
@@ -31,7 +31,7 @@ pub(crate) fn build_thermal_registry() -> ThermalRegistry {
             CAPABILITY_THERMAL_MAX_TEMPERATURE,
             CAPABILITY_THERMAL_BATCH,
             EnergyCarrier::Thermal,
-            FORM_INGOT,
+            PhaseChangeForms::new(FORM_MOLTEN, FORM_INGOT),
             10,
         )],
     )
