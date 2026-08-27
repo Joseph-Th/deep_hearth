@@ -32,6 +32,55 @@ fn liberated_particle_size() -> ParticleSizeRange {
     .unwrap_or_else(|error| panic!("separation particle-size fixture failed: {error}"))
 }
 
+#[test]
+fn concentration_recovery_is_invariant_to_feed_assay_lot_fragmentation() {
+    let mut fixture = fixture(Mass::from_milligrams(1), copper_stone_composition(700_000));
+    let second_input = MaterialLotSpec::with_composition_and_particle_size(
+        CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+        Mass::from_milligrams(1),
+        TEMPERATURE,
+        copper_stone_composition(500_000),
+        liberated_particle_size(),
+    )
+    .unwrap_or_else(|error| panic!("second concentration input specification failed: {error}"));
+    let second_lot = deposit_lot_spec_for_test(
+        &fixture.registries,
+        &mut fixture.state,
+        fixture.source,
+        second_input,
+    )
+    .unwrap_or_else(|error| panic!("second concentration input lot failed: {error}"));
+
+    let resolved = resolve_constituent_separation_process(
+        &fixture.registries,
+        &fixture.state,
+        ConstituentSeparationRequest::new(
+            PROCESS_CONCENTRATE_COPPER,
+            fixture.source,
+            &[
+                MaterialLotSelection::new(fixture.lot, Mass::from_milligrams(1)),
+                MaterialLotSelection::new(second_lot, Mass::from_milligrams(1)),
+            ],
+            fixture.separator,
+            fixture.energy,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("fragmented concentration resolution failed: {error}"));
+
+    assert_eq!(resolved.target_mass(), Mass::from_milligrams(1));
+    assert_eq!(resolved.residue_mass(), Mass::from_milligrams(1));
+    let streams = resolved.process_resolution().output_streams();
+    let represented_copper = streams
+        .iter()
+        .flat_map(|stream| stream.outputs())
+        .map(|output| {
+            u128::from(output.mass().milligrams())
+                * u128::from(output.composition().parts_per_million(MATERIAL_COPPER))
+        })
+        .sum::<u128>();
+    assert_eq!(represented_copper, 1_200_000);
+}
+
 fn copper_stone_composition(copper_ppm: u32) -> MaterialComposition {
     MaterialComposition::new(vec![
         CompositionComponent::new(MATERIAL_COPPER, copper_ppm),
@@ -427,7 +476,7 @@ fn constituent_separation_rejects_unmodeled_third_constituent_without_mutation()
 }
 
 #[test]
-fn concentration_accepts_multiple_gangue_constituents_without_losing_composition() {
+fn concentration_applies_authored_recovery_without_losing_constituent_composition() {
     let mass = Mass::from_milligrams(7);
     let composition = MaterialComposition::new(vec![
         CompositionComponent::new(MATERIAL_COPPER, 400_000),
@@ -438,6 +487,14 @@ fn concentration_accepts_multiple_gangue_constituents_without_losing_composition
     let fixture = fixture(mass, composition.clone());
     let resolved = resolve_process(&fixture, PROCESS_CONCENTRATE_COPPER, mass);
 
+    assert_eq!(
+        fixture
+            .registries
+            .ore_processing()
+            .get_constituent_separation(PROCESS_CONCENTRATE_COPPER)
+            .map(ConstituentSeparationProcessDefinition::target_recovery_ppm),
+        Some(900_000)
+    );
     assert_eq!(resolved.target_mass(), Mass::from_milligrams(2));
     assert_eq!(resolved.residue_mass(), Mass::from_milligrams(5));
     let target = resolved
@@ -461,11 +518,29 @@ fn concentration_accepts_multiple_gangue_constituents_without_losing_composition
         target.outputs()[0].composition(),
         &MaterialComposition::pure(MATERIAL_COPPER)
     );
+    assert_eq!(
+        target.outputs()[0].particle_size(),
+        Some(liberated_particle_size()),
+        "concentration must retain the liberated feed particle-size state on recovered concentrate"
+    );
     assert!(residue.outputs().iter().all(|output| {
         output.commodity().form() == FORM_CRUSHED
-            && output.commodity().material() != MATERIAL_COPPER
             && output.particle_size() == Some(liberated_particle_size())
     }));
+    assert!(
+        residue
+            .outputs()
+            .iter()
+            .all(|output| output.composition().pure_material().is_none()),
+        "concentration tailings must remain blended instead of fabricating freely selectable pure gangue lots"
+    );
+    assert!(
+        residue
+            .outputs()
+            .iter()
+            .all(|output| output.composition().parts_per_million(MATERIAL_COPPER) != 0),
+        "finite recovery must leave copper distributed through every represented tailings assay profile"
+    );
     let all_outputs = target.outputs().iter().chain(residue.outputs());
     for material in [MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_SLAG] {
         let represented = all_outputs

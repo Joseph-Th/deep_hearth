@@ -187,6 +187,259 @@ pub(super) fn run_scenario(
             }
         }
 
+        let pre_batch_transition_budget = report
+            .progress
+            .target_mass
+            .milligrams()
+            .checked_add(u64::from(variation.crusher.maintenance_replacement_units))
+            .and_then(|value| value.checked_add(1))
+            .unwrap_or_else(|| panic!("workshop pre-batch transition budget overflowed"));
+        let mut selected_batch = None;
+        for _ in 0..pre_batch_transition_budget {
+            let (
+                batch_mass,
+                selected,
+                reason,
+                choice_basis,
+                adaptive_batch,
+                condition_adaptive,
+                energy_adaptive,
+            ) = {
+                let current_condition = state
+                    .equipment()
+                    .get_equipment(ids.crusher)
+                    .map(|record| record.condition())
+                    .unwrap_or_else(|| panic!("crusher disappeared during gameplay harness"));
+                let band = thresholds.classify(current_condition);
+                if band != MaintenanceBand::Normal && !report.limits.maintenance_warning {
+                    report.limits.maintenance_warning = true;
+                    println!(
+                        "  maintenance transition: condition={}ppm band={band:?}",
+                        current_condition.parts_per_million()
+                    );
+                }
+                if band == MaintenanceBand::Warning
+                    && variation.policy.maintenance_preference
+                        == MaintenancePreference::ServiceAtWarning
+                    && !report.maintenance.supply_exhausted
+                {
+                    println!(
+                        "  decision: service crusher in warning condition because player policy favors preventive maintenance"
+                    );
+                    match service_crusher(registries, &mut state, ids, &mut report) {
+                        MaintenanceAttempt::Serviced => continue,
+                        MaintenanceAttempt::SupplyExhausted => {
+                            println!(
+                                "  maintenance policy: preventive service is unavailable; continue legal work until condition or another constraint forces a stop"
+                            );
+                        }
+                    }
+                }
+                if band == MaintenanceBand::Critical {
+                    println!(
+                        "  decision: service crusher before more work because current condition is critical"
+                    );
+                    match service_crusher(registries, &mut state, ids, &mut report) {
+                        MaintenanceAttempt::Serviced => continue,
+                        MaintenanceAttempt::SupplyExhausted => {
+                            report.limits.maintenance_stop = true;
+                            println!(
+                                "  decision: stop crushing; replacement stock is exhausted and the crusher remains critical"
+                            );
+                            break 'work_order;
+                        }
+                    }
+                }
+
+                let remaining = report
+                    .progress
+                    .target_mass
+                    .checked_sub(report.progress.processed_mass)
+                    .unwrap_or_else(|| panic!("workshop processed mass exceeded its work order"));
+                let planned_mass = Mass::from_milligrams(
+                    remaining
+                        .milligrams()
+                        .min(variation.ore.nominal_batch_mass.milligrams()),
+                );
+                let plan = match largest_safe_powered_crush_batch(
+                    registries,
+                    &state,
+                    ids,
+                    planned_mass,
+                    thresholds,
+                ) {
+                    CrushBatchSearch::Available(plan) => plan,
+                    CrushBatchSearch::MaintenanceBlocked => {
+                        println!(
+                            "  decision: service crusher because no positive powered batch is legal within the remaining condition lifetime and maintenance safety margin"
+                        );
+                        match service_crusher(registries, &mut state, ids, &mut report) {
+                            MaintenanceAttempt::Serviced => continue,
+                            MaintenanceAttempt::SupplyExhausted => {
+                                report.limits.maintenance_stop = true;
+                                println!(
+                                    "  decision: stop crushing; replacement stock is exhausted and even the smallest powered batch is outside the crusher's remaining safe working envelope"
+                                );
+                                break 'work_order;
+                            }
+                        }
+                    }
+                    CrushBatchSearch::EnergyUnavailable => {
+                        match largest_manual_recovery(
+                            registries,
+                            &state,
+                            ids,
+                            planned_mass,
+                            variation.policy.energy_recovery_preference,
+                        ) {
+                            ManualRecoverySearch::Available {
+                                mass,
+                                option,
+                                adaptive_constraint,
+                            } => {
+                                if mass < planned_mass {
+                                    let reason = match adaptive_constraint {
+                                        Some(ManualRecoveryConstraint::SurvivalPolicy) => {
+                                            "a larger charging commitment would cross the protected hunger or thirst reserve"
+                                        }
+                                        Some(ManualRecoveryConstraint::SurvivalReserve) => {
+                                            "a larger charging commitment exceeds current physiological reserves"
+                                        }
+                                        Some(ManualRecoveryConstraint::EquipmentCondition) => {
+                                            "the hand crank cannot sustain a larger charging commitment within its remaining condition lifetime"
+                                        }
+                                        Some(ManualRecoveryConstraint::StorageCapacity) => {
+                                            "the selected drive cannot accept enough additional work for a larger batch"
+                                        }
+                                        None => {
+                                            "a larger charging commitment is not currently executable"
+                                        }
+                                    };
+                                    println!(
+                                        "  manual recovery adapts the next operation from {}mg to {}mg because {reason}",
+                                        planned_mass.milligrams(),
+                                        mass.milligrams(),
+                                    );
+                                }
+                                let mut controller = ControlledDeliveryRuntime {
+                                    delivery: variation.delivery,
+                                    authorization: &mut delivery_authorization,
+                                };
+                                let mut actor = ScenarioActorRuntime::new(
+                                    variation.policy,
+                                    variation.ore.nominal_batch_mass,
+                                    &mut current_support,
+                                    &mut alternate_support,
+                                    &mut report,
+                                );
+                                execute_manual_recovery(
+                                    registries,
+                                    &mut state,
+                                    ids,
+                                    *option,
+                                    &mut controller,
+                                    &mut actor,
+                                );
+                                if report.structure.structural_stop {
+                                    break 'work_order;
+                                }
+                                continue;
+                            }
+                            ManualRecoverySearch::DeclinedForSurvival => {
+                                report.limits.manual_recovery_declined = true;
+                                println!(
+                                    "  manual recovery declined: even the smallest useful charging commitment would cross the player's hunger or thirst warning reserve"
+                                );
+                            }
+                            ManualRecoverySearch::SurvivalLimited => {
+                                report.limits.manual_recovery_survival_limited = true;
+                                println!(
+                                    "  manual recovery unavailable: the player lacks enough physiological reserve for another useful charging commitment"
+                                );
+                            }
+                            ManualRecoverySearch::EquipmentLimited => {
+                                println!(
+                                    "  manual recovery unavailable: the hand crank cannot complete even the smallest useful charging commitment within its remaining condition lifetime"
+                                );
+                            }
+                            ManualRecoverySearch::StorageLimited => {
+                                println!(
+                                    "  manual recovery unavailable: neither mechanical drive can accept the work needed for even the smallest useful recovered batch"
+                                );
+                            }
+                        }
+                        if report.structure.structural_stop {
+                            break 'work_order;
+                        }
+                        report.limits.energy_stop = true;
+                        let reason = if report.limits.manual_recovery_declined {
+                            "player preserves survival reserve"
+                        } else if report.limits.manual_recovery_survival_limited {
+                            "player lacks the physiological reserve to generate the missing work"
+                        } else {
+                            "stored work is insufficient and the manual fallback cannot supply the deficit"
+                        };
+                        println!("  decision: stop crushing; {reason}");
+                        break 'work_order;
+                    }
+                };
+                let resolved_mass = plan.mass;
+                let small = plan.small;
+                let large = plan.large;
+                let adaptive_batch = resolved_mass < planned_mass;
+                if adaptive_batch {
+                    println!(
+                        "  adaptive batching: planned={}mg -> executable={}mg constraints=[condition-capacity:{} condition-lifetime:{} maintenance-safety:{} stored-work:{}]",
+                        planned_mass.milligrams(),
+                        resolved_mass.milligrams(),
+                        plan.condition_capacity_limited,
+                        plan.condition_lifetime_limited,
+                        plan.maintenance_limited,
+                        plan.energy_limited,
+                    );
+                }
+                if let Some(option) = &small {
+                    print_crush_option(option, thresholds);
+                }
+                if let Some(option) = &large {
+                    print_crush_option(option, thresholds);
+                } else if !report.choices.large_drive_exhausted {
+                    report.choices.large_drive_exhausted = true;
+                    println!(
+                        "  power reserve: high-power drive cannot supply the current planned mass"
+                    );
+                }
+                let (selected, reason, choice_basis) = choose_crush_option(
+                    small,
+                    large,
+                    CrushChoiceContext {
+                        thresholds,
+                        preference: variation.policy.power_preference,
+                    },
+                );
+                (
+                    resolved_mass,
+                    selected,
+                    reason,
+                    choice_basis,
+                    adaptive_batch,
+                    plan.condition_capacity_limited
+                        || plan.condition_lifetime_limited
+                        || plan.maintenance_limited,
+                    plan.energy_limited,
+                )
+            };
+            selected_batch = Some((
+                batch_mass,
+                selected,
+                reason,
+                choice_basis,
+                adaptive_batch,
+                condition_adaptive,
+                energy_adaptive,
+            ));
+            break;
+        }
         let (
             batch_mass,
             selected,
@@ -195,231 +448,11 @@ pub(super) fn run_scenario(
             adaptive_batch,
             condition_adaptive,
             energy_adaptive,
-        ) = loop {
-            let current_condition = state
-                .equipment()
-                .get_equipment(ids.crusher)
-                .map(|record| record.condition())
-                .unwrap_or_else(|| panic!("crusher disappeared during gameplay harness"));
-            let band = thresholds.classify(current_condition);
-            if band != MaintenanceBand::Normal && !report.limits.maintenance_warning {
-                report.limits.maintenance_warning = true;
-                println!(
-                    "  maintenance transition: condition={}ppm band={band:?}",
-                    current_condition.parts_per_million()
-                );
-            }
-            if band == MaintenanceBand::Warning
-                && variation.policy.maintenance_preference
-                    == MaintenancePreference::ServiceAtWarning
-                && !report.maintenance.supply_exhausted
-            {
-                println!(
-                    "  decision: service crusher in warning condition because player policy favors preventive maintenance"
-                );
-                match service_crusher(registries, &mut state, ids, &mut report) {
-                    MaintenanceAttempt::Serviced => continue,
-                    MaintenanceAttempt::SupplyExhausted => {
-                        println!(
-                            "  maintenance policy: preventive service is unavailable; continue legal work until condition or another constraint forces a stop"
-                        );
-                    }
-                }
-            }
-            if band == MaintenanceBand::Critical {
-                println!(
-                    "  decision: service crusher before more work because current condition is critical"
-                );
-                match service_crusher(registries, &mut state, ids, &mut report) {
-                    MaintenanceAttempt::Serviced => continue,
-                    MaintenanceAttempt::SupplyExhausted => {
-                        report.limits.maintenance_stop = true;
-                        println!(
-                            "  decision: stop crushing; replacement stock is exhausted and the crusher remains critical"
-                        );
-                        break 'work_order;
-                    }
-                }
-            }
-
-            let remaining = report
-                .progress
-                .target_mass
-                .checked_sub(report.progress.processed_mass)
-                .unwrap_or_else(|| panic!("workshop processed mass exceeded its work order"));
-            let planned_mass = Mass::from_milligrams(
-                remaining
-                    .milligrams()
-                    .min(variation.ore.nominal_batch_mass.milligrams()),
-            );
-            let plan = match largest_safe_powered_crush_batch(
-                registries,
-                &state,
-                ids,
-                planned_mass,
-                thresholds,
-            ) {
-                CrushBatchSearch::Available(plan) => plan,
-                CrushBatchSearch::MaintenanceBlocked => {
-                    println!(
-                        "  decision: service crusher because no positive powered batch is legal within the remaining condition lifetime and maintenance safety margin"
-                    );
-                    match service_crusher(registries, &mut state, ids, &mut report) {
-                        MaintenanceAttempt::Serviced => continue,
-                        MaintenanceAttempt::SupplyExhausted => {
-                            report.limits.maintenance_stop = true;
-                            println!(
-                                "  decision: stop crushing; replacement stock is exhausted and even the smallest powered batch is outside the crusher's remaining safe working envelope"
-                            );
-                            break 'work_order;
-                        }
-                    }
-                }
-                CrushBatchSearch::EnergyUnavailable => {
-                    match largest_manual_recovery(
-                        registries,
-                        &state,
-                        ids,
-                        planned_mass,
-                        variation.policy.energy_recovery_preference,
-                    ) {
-                        ManualRecoverySearch::Available {
-                            mass,
-                            option,
-                            adaptive_constraint,
-                        } => {
-                            if mass < planned_mass {
-                                let reason = match adaptive_constraint {
-                                    Some(ManualRecoveryConstraint::SurvivalPolicy) => {
-                                        "a larger charging commitment would cross the protected hunger or thirst reserve"
-                                    }
-                                    Some(ManualRecoveryConstraint::SurvivalReserve) => {
-                                        "a larger charging commitment exceeds current physiological reserves"
-                                    }
-                                    Some(ManualRecoveryConstraint::EquipmentCondition) => {
-                                        "the hand crank cannot sustain a larger charging commitment within its remaining condition lifetime"
-                                    }
-                                    Some(ManualRecoveryConstraint::StorageCapacity) => {
-                                        "the selected drive cannot accept enough additional work for a larger batch"
-                                    }
-                                    None => {
-                                        "a larger charging commitment is not currently executable"
-                                    }
-                                };
-                                println!(
-                                    "  manual recovery adapts the next operation from {}mg to {}mg because {reason}",
-                                    planned_mass.milligrams(),
-                                    mass.milligrams(),
-                                );
-                            }
-                            let mut controller = ControlledDeliveryRuntime {
-                                delivery: variation.delivery,
-                                authorization: &mut delivery_authorization,
-                            };
-                            let mut actor = ScenarioActorRuntime::new(
-                                variation.policy,
-                                variation.ore.nominal_batch_mass,
-                                &mut current_support,
-                                &mut alternate_support,
-                                &mut report,
-                            );
-                            execute_manual_recovery(
-                                registries,
-                                &mut state,
-                                ids,
-                                *option,
-                                &mut controller,
-                                &mut actor,
-                            );
-                            if report.structure.structural_stop {
-                                break 'work_order;
-                            }
-                            continue;
-                        }
-                        ManualRecoverySearch::DeclinedForSurvival => {
-                            report.limits.manual_recovery_declined = true;
-                            println!(
-                                "  manual recovery declined: even the smallest useful charging commitment would cross the player's hunger or thirst warning reserve"
-                            );
-                        }
-                        ManualRecoverySearch::SurvivalLimited => {
-                            report.limits.manual_recovery_survival_limited = true;
-                            println!(
-                                "  manual recovery unavailable: the player lacks enough physiological reserve for another useful charging commitment"
-                            );
-                        }
-                        ManualRecoverySearch::EquipmentLimited => {
-                            println!(
-                                "  manual recovery unavailable: the hand crank cannot complete even the smallest useful charging commitment within its remaining condition lifetime"
-                            );
-                        }
-                        ManualRecoverySearch::StorageLimited => {
-                            println!(
-                                "  manual recovery unavailable: neither mechanical drive can accept the work needed for even the smallest useful recovered batch"
-                            );
-                        }
-                    }
-                    if report.structure.structural_stop {
-                        break 'work_order;
-                    }
-                    report.limits.energy_stop = true;
-                    let reason = if report.limits.manual_recovery_declined {
-                        "player preserves survival reserve"
-                    } else if report.limits.manual_recovery_survival_limited {
-                        "player lacks the physiological reserve to generate the missing work"
-                    } else {
-                        "stored work is insufficient and the manual fallback cannot supply the deficit"
-                    };
-                    println!("  decision: stop crushing; {reason}");
-                    break 'work_order;
-                }
-            };
-            let resolved_mass = plan.mass;
-            let small = plan.small;
-            let large = plan.large;
-            let adaptive_batch = resolved_mass < planned_mass;
-            if adaptive_batch {
-                println!(
-                    "  adaptive batching: planned={}mg -> executable={}mg constraints=[condition-capacity:{} condition-lifetime:{} maintenance-safety:{} stored-work:{}]",
-                    planned_mass.milligrams(),
-                    resolved_mass.milligrams(),
-                    plan.condition_capacity_limited,
-                    plan.condition_lifetime_limited,
-                    plan.maintenance_limited,
-                    plan.energy_limited,
-                );
-            }
-            if let Some(option) = &small {
-                print_crush_option(option, thresholds);
-            }
-            if let Some(option) = &large {
-                print_crush_option(option, thresholds);
-            } else if !report.choices.large_drive_exhausted {
-                report.choices.large_drive_exhausted = true;
-                println!(
-                    "  power reserve: high-power drive cannot supply the current planned mass"
-                );
-            }
-            let (selected, reason, choice_basis) = choose_crush_option(
-                small,
-                large,
-                CrushChoiceContext {
-                    thresholds,
-                    preference: variation.policy.power_preference,
-                },
-            );
-            break (
-                resolved_mass,
-                selected,
-                reason,
-                choice_basis,
-                adaptive_batch,
-                plan.condition_capacity_limited
-                    || plan.condition_lifetime_limited
-                    || plan.maintenance_limited,
-                plan.energy_limited,
-            );
-        };
+        ) = selected_batch.unwrap_or_else(|| {
+            panic!(
+                "workshop actor exhausted its bounded pre-batch transition budget without selecting work or reaching a terminal state"
+            )
+        });
         match choice_basis {
             PowerChoiceBasis::Policy => report.choices.policy_power_choices += 1,
             PowerChoiceBasis::SingleSource => report.choices.single_source_power_choices += 1,

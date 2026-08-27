@@ -8,17 +8,18 @@ use crate::content::{
     MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, build_registries,
 };
 use crate::core::quantity::{Energy, Temperature};
-use crate::core::state::validate_loaded_state;
+use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::energy::validate_assemble_energy_store;
 use crate::equipment::{
-    apply_equipment_condition_plan, decide_equipment_wear, validate_assemble_equipment,
+    EquipmentValidationError, apply_equipment_condition_plan, decide_equipment_wear,
+    validate_assemble_equipment,
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{ManualPowerRequest, validate_start_manual_power};
-use crate::material::CommodityKey;
+use crate::material::{CommodityKey, MaterialPhaseStateError};
 use crate::matter::calculate_matter_accounting;
-use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::survival::initialize_player_survival;
 
 fn assemble_stone_pick(registries: &Registries, state: &mut AppState) -> EquipmentId {
@@ -181,6 +182,56 @@ fn additive_upgrade_preserves_identity_wear_and_world_matter() {
         .into_state(&registries)
         .unwrap_or_else(|error| panic!("upgraded state load validation failed: {error}"));
     assert_eq!(loaded, state);
+}
+
+#[test]
+fn persisted_upgraded_equipment_rejects_impossible_embodied_phase_state() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA66D_0004));
+    let pick = assemble_stone_pick(&registries, &mut state);
+    let reinforcement = reinforcement_source(&registries, &mut state);
+    validate_upgrade_equipment(
+        &registries,
+        &state,
+        pick,
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        reinforcement,
+    )
+    .unwrap_or_else(|error| panic!("phase-tamper upgrade validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("phase-tamper upgrade commit failed: {error}"));
+
+    let melting_point = registries
+        .materials()
+        .get_material(MATERIAL_COPPER)
+        .and_then(|definition| definition.properties().thermal().melting_point())
+        .unwrap_or_else(|| panic!("copper fixture lost its melting point"));
+    let invalid_temperature = Temperature::from_millikelvin(
+        melting_point
+            .millikelvin()
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("copper melting point exhausted temperature range")),
+    );
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("phase-tamper equipment serialization failed: {error}"));
+    encoded["state"]["systems"]["equipment"]["records"][pick.value().to_string()]["embodied_material"]
+        [2]["profile"]["temperature"] = serde_json::json!(invalid_temperature.millikelvin());
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("phase-tamper equipment decode failed: {error}"));
+
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Equipment(
+            EquipmentValidationError::InvalidEmbodiedPhaseState {
+                equipment: pick,
+                error: MaterialPhaseStateError::SolidAboveMeltingPoint {
+                    material: MATERIAL_COPPER,
+                    temperature: invalid_temperature,
+                    melting_point,
+                },
+            }
+        )))
+    );
 }
 
 #[test]

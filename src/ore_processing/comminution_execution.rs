@@ -1,11 +1,10 @@
 //! Exact comminution resolution and persisted-job audit for the sibling ore-processing definitions.
 
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::capability::{CapabilityEvaluationError, evaluate_capabilities};
-use crate::core::quantity::{Energy, Mass, MassFlow, Power, Temperature};
+use crate::core::quantity::{Energy, Mass, MassFlow, Power};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::energy::{
@@ -13,23 +12,29 @@ use crate::energy::{
     calculate_mass_specific_energy, validate_energy_supply,
 };
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
-use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
+use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::maintenance::{ActiveConditionDurationError, Condition};
-use crate::material::{
-    CommodityKey, FormId, MaterialComposition, MaterialLotSpec, MaterialLotSpecError,
-    ParticleSizeRange,
-};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
     ProcessResolutionError, ProductionJobId, ProductionJobRecord, validate_selected_process_inputs,
 };
 use crate::registry::Registries;
 
+use super::MassFlowDurationError;
 use super::powered_physics::{
     PoweredOreEquipmentError, PoweredOreTimingError, resolve_powered_ore_equipment,
     resolve_powered_ore_timing,
 };
-use super::{ComminutionProcessDefinition, MassFlowDurationError};
+
+mod outputs;
+
+pub use outputs::ComminutionBatchError;
+use outputs::resolve_comminution_outputs;
+
+#[cfg(test)]
+use crate::core::quantity::Temperature;
+#[cfg(test)]
+use crate::material::{CommodityKey, MaterialComposition, MaterialLotSpec, ParticleSizeRange};
 
 /// Runtime request to reduce one explicitly selected solid batch to an authored finer form.
 #[derive(Clone, Copy, Debug)]
@@ -58,166 +63,6 @@ impl<'selection> ComminutionRequest<'selection> {
             energy_store,
         }
     }
-}
-
-/// Failure while mapping exact selected material traces to comminuted output specifications.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ComminutionBatchError {
-    EmptyInput,
-    InputFormMismatch {
-        expected: FormId,
-        found: FormId,
-    },
-    MissingInputParticleSize {
-        required: ParticleSizeRange,
-    },
-    InputParticleSizeOutsideOperatingRange {
-        required: ParticleSizeRange,
-        found: ParticleSizeRange,
-    },
-    ParticleSizeNotReduced {
-        input: ParticleSizeRange,
-        output: ParticleSizeRange,
-    },
-    MassOverflow,
-    Output(MaterialLotSpecError),
-}
-
-impl Display for ComminutionBatchError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::EmptyInput => formatter.write_str("comminution batch contains no material"),
-            Self::InputFormMismatch { expected, found } => write!(
-                formatter,
-                "comminution batch requires input form {} but selected form {}",
-                expected.value(),
-                found.value()
-            ),
-            Self::MissingInputParticleSize { required } => write!(
-                formatter,
-                "comminution feed must resolve particle sizes inside {}..={} um",
-                required.minimum_diameter().micrometers(),
-                required.maximum_diameter().micrometers()
-            ),
-            Self::InputParticleSizeOutsideOperatingRange { required, found } => write!(
-                formatter,
-                "comminution feed {}..={} um lies outside authored operating range {}..={} um",
-                found.minimum_diameter().micrometers(),
-                found.maximum_diameter().micrometers(),
-                required.minimum_diameter().micrometers(),
-                required.maximum_diameter().micrometers()
-            ),
-            Self::ParticleSizeNotReduced { input, output } => write!(
-                formatter,
-                "comminution output {}..={} um does not strictly reduce input {}..={} um without coarsening fines",
-                output.minimum_diameter().micrometers(),
-                output.maximum_diameter().micrometers(),
-                input.minimum_diameter().micrometers(),
-                input.maximum_diameter().micrometers()
-            ),
-            Self::MassOverflow => formatter.write_str("comminution output mass overflowed"),
-            Self::Output(error) => write!(
-                formatter,
-                "comminution output specification could not preserve its material profile: {error}"
-            ),
-        }
-    }
-}
-
-impl Error for ComminutionBatchError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Output(error) => Some(error),
-            Self::InputFormMismatch {
-                expected: _expected,
-                found: _found,
-            } => None,
-            Self::MissingInputParticleSize {
-                required: _required,
-            } => None,
-            Self::InputParticleSizeOutsideOperatingRange {
-                required: _required,
-                found: _found,
-            } => None,
-            Self::ParticleSizeNotReduced {
-                input: _input,
-                output: _output,
-            } => None,
-            Self::EmptyInput | Self::MassOverflow => None,
-        }
-    }
-}
-
-fn resolve_comminution_outputs(
-    definition: &ComminutionProcessDefinition,
-    traces: &[ConsumedMaterialTrace],
-) -> Result<Vec<MaterialLotSpec>, ComminutionBatchError> {
-    if traces.is_empty() {
-        return Err(ComminutionBatchError::EmptyInput);
-    }
-
-    let mut grouped = BTreeMap::<(CommodityKey, Temperature, MaterialComposition), Mass>::new();
-    for trace in traces {
-        let profile = trace.profile();
-        let input_form = profile.commodity().form();
-        if input_form != definition.input_form() {
-            return Err(ComminutionBatchError::InputFormMismatch {
-                expected: definition.input_form(),
-                found: input_form,
-            });
-        }
-        if let Some(required) = definition.input_particle_size_range() {
-            let found = profile
-                .particle_size()
-                .ok_or(ComminutionBatchError::MissingInputParticleSize { required })?;
-            if found.minimum_diameter() < required.minimum_diameter()
-                || found.maximum_diameter() > required.maximum_diameter()
-            {
-                return Err(
-                    ComminutionBatchError::InputParticleSizeOutsideOperatingRange {
-                        required,
-                        found,
-                    },
-                );
-            }
-        }
-        if let Some(input_particle_size) = profile.particle_size() {
-            let output_particle_size = definition.output_particle_size();
-            if output_particle_size.minimum_diameter() > input_particle_size.minimum_diameter()
-                || output_particle_size.maximum_diameter() >= input_particle_size.maximum_diameter()
-            {
-                return Err(ComminutionBatchError::ParticleSizeNotReduced {
-                    input: input_particle_size,
-                    output: output_particle_size,
-                });
-            }
-        }
-        let commodity = CommodityKey::new(profile.commodity().material(), definition.output_form());
-        let key = (
-            commodity,
-            profile.temperature(),
-            profile.composition().clone(),
-        );
-        let current = grouped.get(&key).copied().unwrap_or(Mass::ZERO);
-        let next = current
-            .checked_add(trace.mass())
-            .ok_or(ComminutionBatchError::MassOverflow)?;
-        grouped.insert(key, next);
-    }
-
-    grouped
-        .into_iter()
-        .map(|((commodity, temperature, composition), mass)| {
-            MaterialLotSpec::with_composition_and_particle_size(
-                commodity,
-                mass,
-                temperature,
-                composition,
-                definition.output_particle_size_distribution().clone(),
-            )
-            .map_err(ComminutionBatchError::Output)
-        })
-        .collect()
 }
 
 /// Failure while resolving one exact comminution operation before any authoritative mutation.

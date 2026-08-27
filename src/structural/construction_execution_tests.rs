@@ -6,7 +6,7 @@ use crate::content::{
     MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Energy, Force, Length};
-use crate::core::state::validate_loaded_state;
+use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::energy::{ExplicitEnergyAccountingError, calculate_explicit_energy_accounting};
 use crate::inventory::{
@@ -15,12 +15,16 @@ use crate::inventory::{
     validate_mount_stockpile,
 };
 use crate::material::{
-    CommodityKey, CompositionComponent, MaterialComposition, MaterialLotSpec, ParticleSizeRange,
+    CommodityKey, CompositionComponent, MaterialComposition, MaterialLotSpec,
+    ParticleSizeDistribution, ParticleSizeRange, ParticleSizeStateError,
 };
 use crate::matter::calculate_matter_accounting;
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 
 use crate::spatial::{VoxelBounds, VoxelCoord};
-use crate::structural::{add_structural_element, validate_activate_structural_element};
+use crate::structural::{
+    StructureValidationError, add_structural_element, validate_activate_structural_element,
+};
 
 fn wood_length_for_mass(mass: Mass) -> Length {
     assert!(!mass.is_zero(), "test member mass must be nonzero");
@@ -414,6 +418,36 @@ fn construction_moves_exact_matter_and_derives_self_weight() {
     assert_eq!(final_total, initial);
     assert_eq!(explicit_energy(&registries, &state), initial_energy);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn persisted_structure_rejects_forged_embodied_particle_state() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5C00_0013));
+    let element = member(&registries, &mut state, Mass::from_milligrams(100));
+    materialize_structural_element_for_test(&registries, &mut state, element, FORM_LOG);
+    let particle_size = ParticleSizeDistribution::from(
+        ParticleSizeRange::new(Length::from_micrometers(1), Length::from_micrometers(10))
+            .unwrap_or_else(|error| panic!("structural particle tamper range failed: {error}")),
+    );
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("structural particle tamper serialization failed: {error}"));
+    encoded["state"]["systems"]["structures"]["elements"][element.value().to_string()]["embodied_material"]
+        [0]["profile"]["particle_size"] = serde_json::to_value(particle_size)
+        .unwrap_or_else(|error| panic!("structural particle tamper encoding failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("structural particle tamper decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Structure(
+            StructureValidationError::InvalidEmbodiedParticleSizeState {
+                element,
+                error: ParticleSizeStateError::UnexpectedForUntrackedForm { form: FORM_LOG },
+            }
+        )))
+    );
 }
 
 #[test]

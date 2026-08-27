@@ -129,6 +129,7 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                 MATERIAL_COPPER,
                 FORM_CONCENTRATE,
                 FORM_CRUSHED,
+                900_000,
                 PoweredOreProcessProfile::new(
                     CAPABILITY_SEPARATOR_FLOW,
                     CAPABILITY_SEPARATOR_BATCH,

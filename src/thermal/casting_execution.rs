@@ -11,29 +11,31 @@ use crate::energy::{
     EnergyCarrier, EnergySinkError, EnergyStoreId, PowerDurationError, validate_energy_sink,
 };
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
-use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
+use crate::inventory::MaterialLotSelection;
+use crate::inventory::StockpileId;
 use crate::maintenance::{
     ActiveConditionDurationError, Condition, assert_valid_condition_wear_ppm_per_tick,
 };
-use crate::material::{
-    CommodityKey, FormId, MaterialComposition, MaterialId, MaterialLotSpec, MaterialLotSpecError,
-    MaterialPhase, MaterialRegistry,
-};
+use crate::material::{FormId, MaterialId};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
     ProcessResolutionError, ProductionJobId, ProductionJobRecord, validate_selected_process_inputs,
 };
 use crate::registry::Registries;
 
+use super::PhaseChangeForms;
 use super::equipment_physics::{
     ThermalBatchLimitError, ThermalPowerTemperatureError, ThermalTransferTimingError,
     resolve_thermal_power_temperature_limits, resolve_thermal_transfer_timing,
     validate_thermal_batch_mass,
 };
-use super::{
-    FusionHeatError, PhaseChangeForms, SensibleHeatError, calculate_fusion_heat,
-    calculate_sensible_heat,
+use super::phase_change_batch::{
+    PurePhaseChangeBatchError, PurePhaseChangeDirection, resolve_pure_phase_change_batch,
 };
+#[cfg(test)]
+use super::{calculate_fusion_heat, calculate_sensible_heat};
+#[cfg(test)]
+use crate::material::{CommodityKey, MaterialComposition};
 
 /// Immutable declaration that one selected-batch process solidifies pure liquid matter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,277 +114,21 @@ impl CastingProcessDefinition {
 }
 
 /// Failure while deriving solidification physics from exact consumed liquid traces.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CastingBatchError {
-    EmptyInput,
-    UnknownInputForm {
-        form: FormId,
-    },
-    InputNotLiquid {
-        form: FormId,
-        phase: MaterialPhase,
-    },
-    InputFormMismatch {
-        expected: FormId,
-        found: FormId,
-    },
-    ImpureInput {
-        commodity: CommodityKey,
-    },
-    PureMaterialDoesNotMatchCommodity {
-        commodity: CommodityKey,
-        pure: MaterialId,
-    },
-    MixedMaterials {
-        expected: MaterialId,
-        found: MaterialId,
-    },
-    InputBelowMeltingPoint {
-        material: MaterialId,
-        current: Temperature,
-        melting_point: Temperature,
-    },
-    SensibleHeat {
-        material: MaterialId,
-        error: SensibleHeatError,
-    },
-    FusionHeat {
-        material: MaterialId,
-        error: FusionHeatError,
-    },
-    EnergyOverflow,
-    MassOverflow,
-    Output(MaterialLotSpecError),
-}
-
-impl Display for CastingBatchError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::EmptyInput => formatter.write_str("casting batch contains no material"),
-            Self::UnknownInputForm { form } => {
-                write!(
-                    formatter,
-                    "casting batch references unknown form {}",
-                    form.value()
-                )
-            }
-            Self::InputNotLiquid { form, phase } => write!(
-                formatter,
-                "casting input form {} is {phase:?} rather than liquid",
-                form.value()
-            ),
-            Self::InputFormMismatch { expected, found } => write!(
-                formatter,
-                "casting process requires liquid input form {} but selected form {} was provided",
-                expected.value(),
-                found.value()
-            ),
-            Self::ImpureInput { commodity } => write!(
-                formatter,
-                "casting input commodity {} is compositionally mixed; alloy solidification diagrams are not modeled",
-                commodity.value()
-            ),
-            Self::PureMaterialDoesNotMatchCommodity { commodity, pure } => write!(
-                formatter,
-                "casting input commodity {} hosts material {} but its pure composition is material {}",
-                commodity.value(),
-                commodity.material().value(),
-                pure.value()
-            ),
-            Self::MixedMaterials { expected, found } => write!(
-                formatter,
-                "casting batch mixes material {} with material {}; alloy solidification requires a dedicated resolver",
-                expected.value(),
-                found.value()
-            ),
-            Self::InputBelowMeltingPoint {
-                material,
-                current,
-                melting_point,
-            } => write!(
-                formatter,
-                "liquid material {} is at {} mK below its {} mK melting point",
-                material.value(),
-                current.millikelvin(),
-                melting_point.millikelvin()
-            ),
-            Self::SensibleHeat { material, error } => write!(
-                formatter,
-                "casting material {} cannot be cooled to its fusion boundary: {error}",
-                material.value()
-            ),
-            Self::FusionHeat { material, error } => write!(
-                formatter,
-                "casting material {} cannot resolve latent heat: {error}",
-                material.value()
-            ),
-            Self::EnergyOverflow => {
-                formatter.write_str("casting heat-release requirement overflowed")
-            }
-            Self::MassOverflow => formatter.write_str("casting batch mass overflowed"),
-            Self::Output(error) => write!(
-                formatter,
-                "solid casting output construction failed: {error}"
-            ),
-        }
-    }
-}
-
-impl Error for CastingBatchError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::SensibleHeat {
-                material: _material,
-                error,
-            } => Some(error),
-            Self::FusionHeat {
-                material: _material,
-                error,
-            } => Some(error),
-            Self::Output(error) => Some(error),
-            Self::UnknownInputForm { form: _form } => None,
-            Self::InputNotLiquid {
-                form: _form,
-                phase: _phase,
-            } => None,
-            Self::InputFormMismatch {
-                expected: _expected,
-                found: _found,
-            } => None,
-            Self::ImpureInput {
-                commodity: _commodity,
-            } => None,
-            Self::PureMaterialDoesNotMatchCommodity {
-                commodity: _commodity,
-                pure: _pure,
-            } => None,
-            Self::MixedMaterials {
-                expected: _expected,
-                found: _found,
-            } => None,
-            Self::InputBelowMeltingPoint {
-                material: _material,
-                current: _current,
-                melting_point: _melting_point,
-            } => None,
-            Self::EmptyInput | Self::EnergyOverflow | Self::MassOverflow => None,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct CastingBatchPhysics {
-    material: MaterialId,
-    melting_point: Temperature,
-    hottest_input: Temperature,
-    released_energy: Energy,
-    output: MaterialLotSpec,
-}
+pub type CastingBatchError = PurePhaseChangeBatchError;
 
 fn resolve_casting_batch(
-    materials: &MaterialRegistry,
+    materials: &crate::material::MaterialRegistry,
     liquid_form: FormId,
     solid_form: FormId,
-    traces: &[ConsumedMaterialTrace],
-) -> Result<CastingBatchPhysics, CastingBatchError> {
-    let mut batch_material = None;
-    let mut melting_point = None;
-    let mut hottest_input = Temperature::ZERO;
-    let mut total_mass = Mass::ZERO;
-    let mut released_energy = Energy::ZERO;
-
-    for trace in traces {
-        let profile = trace.profile();
-        let form_id = profile.commodity().form();
-        let Some(form) = materials.get_form(form_id) else {
-            return Err(CastingBatchError::UnknownInputForm { form: form_id });
-        };
-        if form.phase() != MaterialPhase::Liquid {
-            return Err(CastingBatchError::InputNotLiquid {
-                form: form_id,
-                phase: form.phase(),
-            });
-        }
-        if form_id != liquid_form {
-            return Err(CastingBatchError::InputFormMismatch {
-                expected: liquid_form,
-                found: form_id,
-            });
-        }
-        let Some(material) = profile.composition().pure_material() else {
-            return Err(CastingBatchError::ImpureInput {
-                commodity: profile.commodity(),
-            });
-        };
-        if profile.commodity().material() != material {
-            return Err(CastingBatchError::PureMaterialDoesNotMatchCommodity {
-                commodity: profile.commodity(),
-                pure: material,
-            });
-        }
-        if let Some(expected) = batch_material {
-            if expected != material {
-                return Err(CastingBatchError::MixedMaterials {
-                    expected,
-                    found: material,
-                });
-            }
-        } else {
-            batch_material = Some(material);
-        }
-
-        let fusion = calculate_fusion_heat(materials, trace.mass(), material)
-            .map_err(|error| CastingBatchError::FusionHeat { material, error })?;
-        if profile.temperature() < fusion.melting_point() {
-            return Err(CastingBatchError::InputBelowMeltingPoint {
-                material,
-                current: profile.temperature(),
-                melting_point: fusion.melting_point(),
-            });
-        }
-        if let Some(expected) = melting_point {
-            debug_assert_eq!(expected, fusion.melting_point());
-        } else {
-            melting_point = Some(fusion.melting_point());
-        }
-        hottest_input = hottest_input.max(profile.temperature());
-        let sensible = calculate_sensible_heat(
-            materials,
-            trace.mass(),
-            profile.composition(),
-            profile.temperature(),
-            fusion.melting_point(),
-        )
-        .map_err(|error| CastingBatchError::SensibleHeat { material, error })?;
-        released_energy = released_energy
-            .checked_add(sensible.energy())
-            .and_then(|energy| energy.checked_add(fusion.energy()))
-            .ok_or(CastingBatchError::EnergyOverflow)?;
-        total_mass = total_mass
-            .checked_add(trace.mass())
-            .ok_or(CastingBatchError::MassOverflow)?;
-    }
-
-    let Some(material) = batch_material else {
-        return Err(CastingBatchError::EmptyInput);
-    };
-    let Some(melting_point) = melting_point else {
-        return Err(CastingBatchError::EmptyInput);
-    };
-    let output = MaterialLotSpec::with_composition(
-        CommodityKey::new(material, solid_form),
-        total_mass,
-        melting_point,
-        MaterialComposition::pure(material),
+    traces: &[crate::inventory::ConsumedMaterialTrace],
+) -> Result<super::phase_change_batch::PurePhaseChangeBatch, CastingBatchError> {
+    resolve_pure_phase_change_batch(
+        materials,
+        liquid_form,
+        solid_form,
+        PurePhaseChangeDirection::Solidify,
+        traces,
     )
-    .map_err(CastingBatchError::Output)?;
-    Ok(CastingBatchPhysics {
-        material,
-        melting_point,
-        hottest_input,
-        released_energy,
-        output,
-    })
 }
 
 /// Exact runtime selection, cooling equipment, and finite heat sink for one casting operation.
@@ -674,7 +420,7 @@ pub fn resolve_casting_process(
             },
         );
     }
-    let energy_sink = validate_energy_sink(registries, state, energy_sink, batch.released_energy)
+    let energy_sink = validate_energy_sink(registries, state, energy_sink, batch.phase_energy)
         .map_err(CastingResolutionError::EnergySink)?;
     let provided_carrier = energy_sink.trace().carrier();
     if provided_carrier != definition.energy_carrier() {
@@ -687,7 +433,7 @@ pub fn resolve_casting_process(
         registries,
         limits.transfer_power(),
         energy_sink.max_input_power(),
-        batch.released_energy,
+        batch.phase_energy,
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
     )
@@ -717,7 +463,7 @@ pub fn resolve_casting_process(
         equipment,
         material: batch.material,
         melting_point: batch.melting_point,
-        released_energy: batch.released_energy,
+        released_energy: batch.phase_energy,
         transfer_power,
     })
 }
@@ -1065,18 +811,18 @@ pub(super) fn validate_loaded_casting_job(
             provided: released_energy.carrier(),
         });
     }
-    if released_energy.energy() != batch.released_energy {
+    if released_energy.energy() != batch.phase_energy {
         return Err(CastingJobValidationError::ReleasedEnergyMismatch {
             job: job.id(),
             traced: released_energy.energy(),
-            required: batch.released_energy,
+            required: batch.phase_energy,
         });
     }
     let timing = resolve_thermal_transfer_timing(
         registries,
         limits.transfer_power(),
         energy_definition.max_input_power(),
-        batch.released_energy,
+        batch.phase_energy,
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
     )

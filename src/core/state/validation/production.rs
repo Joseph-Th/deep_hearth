@@ -8,7 +8,7 @@ use crate::core::state::AppState;
 use crate::crafting::validate_loaded_manual_craft_job;
 use crate::energy::EnergyValidationError;
 use crate::inventory::{StockpileId, validate_stockpile_storage};
-use crate::material::validate_material_particle_size_state;
+use crate::material::{validate_material_particle_size_state, validate_material_phase_state};
 use crate::ore_processing::{
     validate_loaded_comminution_job, validate_loaded_constituent_separation_job,
     validate_loaded_screening_job,
@@ -202,6 +202,16 @@ pub(super) fn validate_production_references(
                     job: job.id(),
                     error,
                 }
+            })?;
+            validate_material_phase_state(
+                registries.materials(),
+                commodity,
+                trace.profile().composition(),
+                trace.profile().temperature(),
+            )
+            .map_err(|error| StateValidationError::InvalidJobConsumedPhaseState {
+                job: job.id(),
+                error,
             })?;
         }
 

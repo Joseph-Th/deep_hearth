@@ -94,7 +94,7 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
             FORM_CONCENTRATE,
             "concentrate",
             MaterialPhase::Solid,
-            ParticleSizeStatePolicy::Untracked,
+            ParticleSizeStatePolicy::Required,
         ),
         consolidated_form(FORM_INGOT, "ingot"),
         loose_form(

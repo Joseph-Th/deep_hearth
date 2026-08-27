@@ -295,13 +295,22 @@ pub(crate) fn validate_loaded_constituent_separation_job(
         }
     })?;
     let processing_rate = powered_equipment.processing_rate();
-    let expected =
-        resolve_separation_outputs(definition, job.consumed_inputs()).map_err(|error| {
-            ConstituentSeparationJobValidationError::Batch {
-                job: job.id(),
-                error,
-            }
-        })?;
+    let target_particle_size_policy = registries
+        .materials()
+        .get_form(definition.target_output_form())
+        .unwrap_or_else(|| {
+            unreachable!("validated separation target output form must remain available")
+        })
+        .particle_size_policy();
+    let expected = resolve_separation_outputs(
+        definition,
+        target_particle_size_policy,
+        job.consumed_inputs(),
+    )
+    .map_err(|error| ConstituentSeparationJobValidationError::Batch {
+        job: job.id(),
+        error,
+    })?;
     if job.output_streams().len() != 2 {
         return Err(ConstituentSeparationJobValidationError::OutputMismatch { job: job.id() });
     }

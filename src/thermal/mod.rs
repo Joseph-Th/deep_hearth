@@ -3,6 +3,7 @@
 mod casting_execution;
 mod equipment_physics;
 mod melting_execution;
+mod phase_change_batch;
 mod processes;
 
 pub use casting_execution::{

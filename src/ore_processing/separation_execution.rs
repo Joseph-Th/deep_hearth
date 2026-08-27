@@ -1,11 +1,10 @@
 //! Exact constituent-separation resolution and persisted-job audit for authored liberated feed.
 
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::capability::{CapabilityEvaluationError, evaluate_capabilities};
-use crate::core::quantity::{Energy, Mass, MassFlow, Power, Temperature};
+use crate::core::quantity::{Energy, Mass, MassFlow, Power};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::energy::{
@@ -13,12 +12,9 @@ use crate::energy::{
     calculate_mass_specific_energy, validate_energy_supply,
 };
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
-use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
+use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::maintenance::{ActiveConditionDurationError, Condition};
-use crate::material::{
-    COMPOSITION_PARTS_PER_MILLION, CommodityKey, FormId, MaterialComposition, MaterialId,
-    MaterialLotSpec, MaterialLotSpecError, ParticleSizeDistribution,
-};
+use crate::material::{FormId, MaterialId, MaterialLotSpecError};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputStream, ProcessResolution, ProcessResolutionError,
     validate_selected_process_inputs,
@@ -31,8 +27,10 @@ use super::powered_physics::{
 };
 use super::{ConstituentSeparationProcessDefinition, MassFlowDurationError};
 
+mod outputs;
 mod validation;
 
+use outputs::resolve_separation_outputs;
 pub use validation::ConstituentSeparationJobValidationError;
 pub(crate) use validation::validate_loaded_constituent_separation_job;
 
@@ -163,295 +161,6 @@ impl Error for ConstituentSeparationBatchError {
             | Self::MassOverflow => None,
         }
     }
-}
-
-#[derive(Debug)]
-struct SeparationOutputs {
-    target: Vec<MaterialLotSpec>,
-    residue: Vec<MaterialLotSpec>,
-    target_mass: Mass,
-    residue_mass: Mass,
-}
-
-fn add_grouped_mass(
-    grouped: &mut BTreeMap<Temperature, Mass>,
-    temperature: Temperature,
-    mass: Mass,
-) -> Result<(), ConstituentSeparationBatchError> {
-    let current = grouped.get(&temperature).copied().unwrap_or(Mass::ZERO);
-    grouped.insert(
-        temperature,
-        current
-            .checked_add(mass)
-            .ok_or(ConstituentSeparationBatchError::MassOverflow)?,
-    );
-    Ok(())
-}
-
-fn build_pure_outputs(
-    grouped: BTreeMap<Temperature, Mass>,
-    commodity: CommodityKey,
-) -> Result<Vec<MaterialLotSpec>, ConstituentSeparationBatchError> {
-    grouped
-        .into_iter()
-        .map(|(temperature, mass)| {
-            MaterialLotSpec::with_composition(
-                commodity,
-                mass,
-                temperature,
-                MaterialComposition::pure(commodity.material()),
-            )
-            .map_err(ConstituentSeparationBatchError::Output)
-        })
-        .collect()
-}
-
-type ParticulateOutputKey = (
-    CommodityKey,
-    Temperature,
-    MaterialComposition,
-    ParticleSizeDistribution,
-);
-
-fn add_particulate_mass(
-    grouped: &mut BTreeMap<ParticulateOutputKey, Mass>,
-    commodity: CommodityKey,
-    temperature: Temperature,
-    composition: MaterialComposition,
-    particle_size: ParticleSizeDistribution,
-    mass: Mass,
-) -> Result<(), ConstituentSeparationBatchError> {
-    let key = (commodity, temperature, composition, particle_size);
-    let current = grouped.get(&key).copied().unwrap_or(Mass::ZERO);
-    grouped.insert(
-        key,
-        current
-            .checked_add(mass)
-            .ok_or(ConstituentSeparationBatchError::MassOverflow)?,
-    );
-    Ok(())
-}
-
-fn build_particulate_outputs(
-    grouped: BTreeMap<ParticulateOutputKey, Mass>,
-) -> Result<Vec<MaterialLotSpec>, ConstituentSeparationBatchError> {
-    grouped
-        .into_iter()
-        .map(
-            |((commodity, temperature, composition, particle_size), mass)| {
-                MaterialLotSpec::with_composition_and_particle_size(
-                    commodity,
-                    mass,
-                    temperature,
-                    composition,
-                    particle_size,
-                )
-                .map_err(ConstituentSeparationBatchError::Output)
-            },
-        )
-        .collect()
-}
-
-fn resolve_separation_outputs(
-    definition: ConstituentSeparationProcessDefinition,
-    traces: &[ConsumedMaterialTrace],
-) -> Result<SeparationOutputs, ConstituentSeparationBatchError> {
-    if traces.is_empty() {
-        return Err(ConstituentSeparationBatchError::EmptyInput);
-    }
-
-    let mut selected_mass = Mass::ZERO;
-    let mut grouped =
-        BTreeMap::<(Temperature, MaterialComposition, ParticleSizeDistribution), Mass>::new();
-    for trace in traces {
-        let profile = trace.profile();
-        if profile.commodity().form() != definition.input_form() {
-            return Err(ConstituentSeparationBatchError::InputFormMismatch {
-                expected: definition.input_form(),
-                found: profile.commodity().form(),
-            });
-        }
-        if profile.commodity().material() != definition.target_material() {
-            return Err(ConstituentSeparationBatchError::InputHostMaterialMismatch {
-                expected: definition.target_material(),
-                found: profile.commodity().material(),
-            });
-        }
-        let mut has_non_target = false;
-        for component in profile.composition().components() {
-            if component.material() != definition.target_material() {
-                has_non_target = true;
-                if definition
-                    .residue_material()
-                    .is_some_and(|residue| component.material() != residue)
-                {
-                    return Err(ConstituentSeparationBatchError::UnsupportedConstituent {
-                        material: component.material(),
-                    });
-                }
-            }
-        }
-        if profile
-            .composition()
-            .parts_per_million(definition.target_material())
-            == 0
-        {
-            return Err(ConstituentSeparationBatchError::MissingTargetConstituent {
-                material: definition.target_material(),
-            });
-        }
-        match definition.residue_material() {
-            Some(residue) if profile.composition().parts_per_million(residue) == 0 => {
-                return Err(ConstituentSeparationBatchError::MissingResidueConstituent {
-                    material: residue,
-                });
-            }
-            None if !has_non_target => {
-                return Err(ConstituentSeparationBatchError::MissingNonTargetConstituent);
-            }
-            Some(_) | None => {}
-        }
-        let particle_size = profile
-            .particle_size_distribution()
-            .cloned()
-            .unwrap_or_else(|| {
-                unreachable!(
-                    "authored constituent-separation input form requires particulate state"
-                )
-            });
-        let key = (
-            profile.temperature(),
-            profile.composition().clone(),
-            particle_size,
-        );
-        selected_mass = selected_mass
-            .checked_add(trace.mass())
-            .ok_or(ConstituentSeparationBatchError::MassOverflow)?;
-        let current = grouped.get(&key).copied().unwrap_or(Mass::ZERO);
-        grouped.insert(
-            key,
-            current
-                .checked_add(trace.mass())
-                .ok_or(ConstituentSeparationBatchError::MassOverflow)?,
-        );
-    }
-
-    let mut target_by_temperature = BTreeMap::new();
-    let mut residue_by_profile = BTreeMap::<ParticulateOutputKey, Mass>::new();
-    let mut target_mass = Mass::ZERO;
-    let mut residue_mass = Mass::ZERO;
-    for ((temperature, composition, particle_size), mass) in grouped {
-        let denominator = u128::from(COMPOSITION_PARTS_PER_MILLION);
-        let mut target_milligrams = 0_u64;
-        let mut whole_component_milligrams = 0_u64;
-        let mut remainders = Vec::with_capacity(composition.components().len());
-        for component in composition.components() {
-            let numerator =
-                u128::from(mass.milligrams()) * u128::from(component.parts_per_million());
-            let whole = u64::try_from(numerator / denominator)
-                .map_err(|_| ConstituentSeparationBatchError::MassOverflow)?;
-            let remainder = numerator % denominator;
-            whole_component_milligrams = whole_component_milligrams
-                .checked_add(whole)
-                .ok_or(ConstituentSeparationBatchError::MassOverflow)?;
-            if component.material() == definition.target_material() {
-                target_milligrams = whole;
-            } else if whole != 0 {
-                add_particulate_mass(
-                    &mut residue_by_profile,
-                    CommodityKey::new(component.material(), definition.residue_output_form()),
-                    temperature,
-                    MaterialComposition::pure(component.material()),
-                    particle_size.clone(),
-                    Mass::from_milligrams(whole),
-                )?;
-            }
-            remainders.push((component.material(), remainder));
-        }
-        let group_target = Mass::from_milligrams(target_milligrams);
-        let group_residue = mass
-            .checked_sub(group_target)
-            .unwrap_or_else(|| unreachable!("constituent projection cannot exceed selected mass"));
-        debug_assert!(!group_residue.is_zero());
-        if !group_target.is_zero() {
-            add_grouped_mass(&mut target_by_temperature, temperature, group_target)?;
-        }
-
-        let boundary_milligrams = mass
-            .milligrams()
-            .checked_sub(whole_component_milligrams)
-            .unwrap_or_else(|| unreachable!("component floors cannot exceed selected mass"));
-        for _ in 0..boundary_milligrams {
-            let mut remaining_ppm = denominator;
-            let mut boundary_components = Vec::new();
-            for (material, remainder) in &mut remainders {
-                if *remainder == 0 || remaining_ppm == 0 {
-                    continue;
-                }
-                let taken = (*remainder).min(remaining_ppm);
-                let ppm = u32::try_from(taken)
-                    .unwrap_or_else(|_| unreachable!("boundary component is normalized ppm"));
-                boundary_components
-                    .push(crate::material::CompositionComponent::new(*material, ppm));
-                *remainder -= taken;
-                remaining_ppm -= taken;
-            }
-            assert_eq!(
-                remaining_ppm, 0,
-                "composition remainders must exactly fill each boundary milligram"
-            );
-            let boundary_composition = MaterialComposition::new(boundary_components)
-                .unwrap_or_else(|error| {
-                    unreachable!("bounded separation boundary composition must be valid: {error}")
-                });
-            let host = match definition.residue_material() {
-                Some(residue) => residue,
-                None => boundary_composition
-                    .components()
-                    .iter()
-                    .find(|component| component.material() != definition.target_material())
-                    .map(|component| component.material())
-                    .unwrap_or_else(|| {
-                        unreachable!("concentration boundary must contain non-target residue")
-                    }),
-            };
-            add_particulate_mass(
-                &mut residue_by_profile,
-                CommodityKey::new(host, definition.residue_output_form()),
-                temperature,
-                boundary_composition,
-                particle_size.clone(),
-                Mass::from_milligrams(1),
-            )?;
-        }
-        debug_assert!(remainders.iter().all(|(_, remainder)| *remainder == 0));
-        target_mass = target_mass
-            .checked_add(group_target)
-            .ok_or(ConstituentSeparationBatchError::MassOverflow)?;
-        residue_mass = residue_mass
-            .checked_add(group_residue)
-            .ok_or(ConstituentSeparationBatchError::MassOverflow)?;
-    }
-
-    if target_mass.is_zero() {
-        return Err(ConstituentSeparationBatchError::TargetBelowMassResolution {
-            material: definition.target_material(),
-            selected: selected_mass,
-        });
-    }
-
-    Ok(SeparationOutputs {
-        target: build_pure_outputs(
-            target_by_temperature,
-            CommodityKey::new(
-                definition.target_material(),
-                definition.target_output_form(),
-            ),
-        )?,
-        residue: build_particulate_outputs(residue_by_profile)?,
-        target_mass,
-        residue_mass,
-    })
 }
 
 /// Failure while resolving one exact constituent-separation operation before mutation.
@@ -700,8 +409,19 @@ pub fn resolve_constituent_separation_process(
         }
     })?;
     let processing_rate = powered_equipment.processing_rate();
-    let outputs = resolve_separation_outputs(definition, inputs.consumed_inputs())
-        .map_err(ConstituentSeparationResolutionError::Batch)?;
+    let target_particle_size_policy = registries
+        .materials()
+        .get_form(definition.target_output_form())
+        .unwrap_or_else(|| {
+            unreachable!("registered separation target output form must remain available")
+        })
+        .particle_size_policy();
+    let outputs = resolve_separation_outputs(
+        definition,
+        target_particle_size_policy,
+        inputs.consumed_inputs(),
+    )
+    .map_err(ConstituentSeparationResolutionError::Batch)?;
     let required_energy =
         calculate_mass_specific_energy(selected_mass, definition.specific_energy());
     let energy_supply = validate_energy_supply(registries, state, energy_store, required_energy)

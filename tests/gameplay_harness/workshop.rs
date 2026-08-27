@@ -903,13 +903,23 @@ fn advance_job_until_completion_or_suspension(
     state: &mut AppState,
     job: ProductionJobId,
 ) -> JobAdvanceOutcome {
-    loop {
-        let Some(record) = state.production().get_job(job) else {
-            return JobAdvanceOutcome::Completed;
-        };
-        if record.is_suspended() {
-            return JobAdvanceOutcome::Suspended;
-        }
+    let Some(record) = state.production().get_job(job) else {
+        return JobAdvanceOutcome::Completed;
+    };
+    if record.is_suspended() {
+        return JobAdvanceOutcome::Suspended;
+    }
+    let scheduled_completion = record.completes_at();
+    let remaining_ticks = scheduled_completion
+        .value()
+        .checked_sub(state.tick().value())
+        .unwrap_or_else(|| {
+            panic!(
+                "active gameplay harness production job {} is scheduled in the past",
+                job.value()
+            )
+        });
+    for _ in 0..remaining_ticks {
         let outcome = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("gameplay harness job tick failed: {error}"));
         if outcome
@@ -936,6 +946,16 @@ fn advance_job_until_completion_or_suspension(
         {
             return JobAdvanceOutcome::Suspended;
         }
+    }
+    match state.production().get_job(job) {
+        None => JobAdvanceOutcome::Completed,
+        Some(record) if record.is_suspended() => JobAdvanceOutcome::Suspended,
+        Some(record) => panic!(
+            "active gameplay harness production job {} remained scheduled at {} after reaching bounded due tick {}",
+            job.value(),
+            record.completes_at().value(),
+            scheduled_completion.value()
+        ),
     }
 }
 

@@ -25,7 +25,7 @@ use crate::inventory::{
 };
 use crate::labor::{PlayerWorkValidationError, validate_loaded_player_work};
 use crate::maintenance::Condition;
-use crate::material::{CommodityKey, MaterialId, ParticleSizeStateError};
+use crate::material::{CommodityKey, MaterialId, MaterialPhaseStateError, ParticleSizeStateError};
 use crate::mining::{
     MiningJobValidationError, MiningValidationError, validate_loaded_mining,
     validate_loaded_mining_jobs,
@@ -255,6 +255,10 @@ pub enum StateValidationError {
         job: ProductionJobId,
         error: ParticleSizeStateError,
     },
+    InvalidJobConsumedPhaseState {
+        job: ProductionJobId,
+        error: MaterialPhaseStateError,
+    },
     JobOutputMassOverflow {
         job: ProductionJobId,
     },
@@ -354,6 +358,11 @@ impl Display for StateValidationError {
             Self::InvalidJobConsumedParticleSizeState { job, error } => write!(
                 formatter,
                 "production job {} consumed invalid particle-size state: {error}",
+                job.value()
+            ),
+            Self::InvalidJobConsumedPhaseState { job, error } => write!(
+                formatter,
+                "production job {} consumed invalid material phase state: {error}",
                 job.value()
             ),
             Self::UnknownJobProcess { job, process } => write!(
@@ -666,6 +675,7 @@ impl Error for StateValidationError {
             Self::ManualCraftJob(error) => Some(error),
             Self::JobOutputStorage { job: _job, error } => Some(error),
             Self::InvalidJobConsumedParticleSizeState { job: _job, error } => Some(error),
+            Self::InvalidJobConsumedPhaseState { job: _job, error } => Some(error),
             Self::FluidStructuralLoad(error) => Some(error),
             Self::RandomWorldSeedMismatch {
                 world_seed: _world_seed,

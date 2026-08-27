@@ -5,6 +5,10 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
+use crate::material::{
+    MaterialPhaseStateError, ParticleSizeStateError, validate_material_particle_size_state,
+    validate_material_phase_state,
+};
 use crate::structural::StructuralElementId;
 
 use super::super::definitions::{EquipmentDefinitionId, EquipmentRegistry};
@@ -82,6 +86,14 @@ pub enum EquipmentValidationError {
     ImpureEmbodiedMaterial {
         equipment: EquipmentId,
         commodity: crate::material::CommodityKey,
+    },
+    InvalidEmbodiedPhaseState {
+        equipment: EquipmentId,
+        error: MaterialPhaseStateError,
+    },
+    InvalidEmbodiedParticleSizeState {
+        equipment: EquipmentId,
+        error: ParticleSizeStateError,
     },
     InvalidEmbodiedProvenanceRange {
         equipment: EquipmentId,
@@ -236,6 +248,16 @@ impl Display for EquipmentValidationError {
                 equipment.value(),
                 commodity.value()
             ),
+            Self::InvalidEmbodiedPhaseState { equipment, error } => write!(
+                formatter,
+                "equipment {} contains embodied matter with invalid phase state: {error}",
+                equipment.value()
+            ),
+            Self::InvalidEmbodiedParticleSizeState { equipment, error } => write!(
+                formatter,
+                "equipment {} contains embodied matter with invalid particle-size state: {error}",
+                equipment.value()
+            ),
             Self::InvalidEmbodiedProvenanceRange { equipment } => write!(
                 formatter,
                 "equipment {} embodied material has an invalid provenance range",
@@ -381,6 +403,29 @@ pub(crate) fn validate_loaded_equipment(
                             commodity,
                         });
                     }
+                    validate_material_phase_state(
+                        materials,
+                        commodity,
+                        trace.profile().composition(),
+                        trace.profile().temperature(),
+                    )
+                    .map_err(|error| {
+                        EquipmentValidationError::InvalidEmbodiedPhaseState {
+                            equipment: record.id,
+                            error,
+                        }
+                    })?;
+                    validate_material_particle_size_state(
+                        materials,
+                        commodity,
+                        trace.profile().particle_size_distribution(),
+                    )
+                    .map_err(|error| {
+                        EquipmentValidationError::InvalidEmbodiedParticleSizeState {
+                            equipment: record.id,
+                            error,
+                        }
+                    })?;
                     let provenance = trace.provenance();
                     if provenance.latest_created_at() < provenance.earliest_created_at() {
                         return Err(EquipmentValidationError::InvalidEmbodiedProvenanceRange {

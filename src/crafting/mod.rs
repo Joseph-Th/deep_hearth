@@ -256,12 +256,38 @@ impl CraftingRegistry {
                 definition.process().value(),
                 definition.input().value()
             );
+            let input_form = materials
+                .get_form(definition.input().form())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "manual craft {} references unknown input form {}",
+                        definition.process().value(),
+                        definition.input().form().value()
+                    )
+                });
             for output in definition.outputs() {
                 assert!(
                     materials.has_commodity(output.commodity()),
                     "manual craft {} references unknown output commodity {}",
                     definition.process().value(),
                     output.commodity().value()
+                );
+                let output_form = materials
+                    .get_form(output.commodity().form())
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "manual craft {} references unknown output form {}",
+                            definition.process().value(),
+                            output.commodity().form().value()
+                        )
+                    });
+                assert_eq!(
+                    output_form.phase(),
+                    input_form.phase(),
+                    "manual craft {} cannot change material phase from {:?} to {:?} without thermal physics",
+                    definition.process().value(),
+                    input_form.phase(),
+                    output_form.phase()
                 );
             }
             let process = production

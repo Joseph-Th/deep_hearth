@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::content::{
-    FORM_CONCENTRATE, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_ORE, MATERIAL_BERRIES,
+    FORM_FOOD, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, MATERIAL_BERRIES,
     MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_WOOD,
     make_test_registries_with_process,
 };
@@ -17,7 +17,7 @@ use crate::inventory::{
 };
 use crate::material::{
     CommodityKey, CompositionComponent, CompositionConstraint, MaterialComposition,
-    MaterialInputSpec, MaterialLotSpec,
+    MaterialInputSpec, MaterialLotSpec, MaterialPhaseStateError,
 };
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{
@@ -65,8 +65,8 @@ fn copper_ore() -> CommodityKey {
     CommodityKey::new(MATERIAL_COPPER, FORM_ORE)
 }
 
-fn copper_concentrate() -> CommodityKey {
-    CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE)
+fn native_copper() -> CommodityKey {
+    CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)
 }
 
 fn make_copper_slag_composition(copper_parts_per_million: u32) -> MaterialComposition {
@@ -480,6 +480,78 @@ fn persisted_production_job_cannot_start_in_the_future() {
                 current: SimulationTick::ZERO,
             }
         )))
+    );
+}
+
+#[test]
+fn persisted_production_job_rejects_impossible_consumed_material_phase_state() {
+    let input = CommodityKey::new(MATERIAL_COPPER, FORM_INGOT);
+    let process = ProcessDefinition::new(
+        TEST_COMPOSITION_PROCESS,
+        "test persisted phase validation",
+        vec![MaterialInputSpec::new(input, Mass::from_milligrams(10))],
+        Vec::new(),
+    );
+    let registries = make_test_registries_with_process(process);
+    let mut state = AppState::new(WorldSeed::new(0x9000_0007));
+    let source = add_test_stockpile(&mut state, 20);
+    let destination = add_test_stockpile(&mut state, 20);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        input,
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap_or_else(|error| panic!("phase-validation input fixture failed: {error}"));
+    let resolution = make_resolution_for_process(
+        &registries,
+        &state,
+        source,
+        TEST_COMPOSITION_PROCESS,
+        3,
+        vec![MaterialLotSpec::new(
+            input,
+            Mass::from_milligrams(10),
+            Temperature::from_millikelvin(300_000),
+        )],
+    );
+    let token = validate_start_process(&registries, &state, &resolution, source, destination)
+        .unwrap_or_else(|error| panic!("phase-validation process start failed: {error}"));
+    let job = commit_process_for_test(token, &mut state);
+    let melting_point = registries
+        .materials()
+        .get_material(MATERIAL_COPPER)
+        .and_then(|definition| definition.properties().thermal().melting_point())
+        .unwrap_or_else(|| panic!("copper fixture lost its authored melting point"));
+    let invalid_temperature = Temperature::from_millikelvin(
+        melting_point
+            .millikelvin()
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("copper melting point cannot exhaust temperature range")),
+    );
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("phase-validation fixture serialization failed: {error}"));
+    encoded["state"]["systems"]["production"]["jobs"][job.value().to_string()]["resources"]["consumed_inputs"]
+        [0]["profile"]["temperature"] = serde_json::json!(invalid_temperature.millikelvin());
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap_or_else(|error| {
+        panic!("phase-validation tamper failed structural decode: {error}")
+    });
+
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::InvalidJobConsumedPhaseState {
+                job,
+                error: MaterialPhaseStateError::SolidAboveMeltingPoint {
+                    material: MATERIAL_COPPER,
+                    temperature: invalid_temperature,
+                    melting_point,
+                },
+            }
+        ))
     );
 }
 
@@ -1107,7 +1179,7 @@ fn composition_constrained_process_consumes_only_eligible_lots() {
         5,
         vec![
             MaterialLotSpec::new(
-                copper_concentrate(),
+                native_copper(),
                 Mass::from_milligrams(8),
                 Temperature::from_millikelvin(350_000),
             ),

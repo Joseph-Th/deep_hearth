@@ -1,6 +1,6 @@
 //! Replayable seed selection for anchored plus bounded-variation gameplay probes.
 
-use super::seed::mix64;
+use super::seed::{mix64, unique_mixed_seed};
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 
 pub(super) const MAINTAINED_VARIATION_ROOT: u64 = 0xE7A1_0A7E_5EED_2026;
@@ -42,9 +42,7 @@ pub(super) fn focused_probe_seeds_from(
                     .unwrap_or_else(|_| unreachable!("focused variation index fits u64"))
                     .wrapping_mul(0xD1B5_4A32_D192_ED03),
         );
-        while seeds.contains(&variation) {
-            variation = mix64(variation);
-        }
+        variation = unique_mixed_seed(variation, &seeds);
         seeds.push(variation);
     }
     Ok(seeds)

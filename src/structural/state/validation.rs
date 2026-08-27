@@ -6,7 +6,8 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::{Acceleration, AggregateMass, Force, Mass};
 use crate::core::time::SimulationTick;
 use crate::material::{
-    MaterialId, MaterialPhaseStateError, MaterialRegistry, validate_material_phase_state,
+    MaterialId, MaterialPhaseStateError, MaterialRegistry, ParticleSizeStateError,
+    validate_material_particle_size_state, validate_material_phase_state,
 };
 
 use super::super::definitions::{StructuralProfileId, StructuralRegistry};
@@ -83,6 +84,10 @@ pub enum StructureValidationError {
     InvalidEmbodiedPhaseState {
         element: StructuralElementId,
         error: MaterialPhaseStateError,
+    },
+    InvalidEmbodiedParticleSizeState {
+        element: StructuralElementId,
+        error: ParticleSizeStateError,
     },
     UnknownEmbodiedCompositionMaterial {
         element: StructuralElementId,
@@ -267,6 +272,11 @@ impl Display for StructureValidationError {
                 "structural element {} has invalid embodied material phase state: {error}",
                 element.value()
             ),
+            Self::InvalidEmbodiedParticleSizeState { element, error } => write!(
+                formatter,
+                "structural element {} has invalid embodied particle-size state: {error}",
+                element.value()
+            ),
             Self::UnknownEmbodiedCompositionMaterial { element, material } => write!(
                 formatter,
                 "structural element {} embodied composition references unknown material {}",
@@ -393,6 +403,10 @@ impl Error for StructureValidationError {
                 error,
             } => Some(error),
             Self::InvalidEmbodiedPhaseState {
+                element: _element,
+                error,
+            } => Some(error),
+            Self::InvalidEmbodiedParticleSizeState {
                 element: _element,
                 error,
             } => Some(error),
@@ -581,6 +595,17 @@ pub(crate) fn validate_loaded_structure(
                     error,
                 },
             )?;
+            validate_material_particle_size_state(
+                materials,
+                commodity,
+                trace.profile().particle_size_distribution(),
+            )
+            .map_err(|error| {
+                StructureValidationError::InvalidEmbodiedParticleSizeState {
+                    element: record.id,
+                    error,
+                }
+            })?;
             if commodity.material() != record.material() {
                 return Err(StructureValidationError::EmbodiedMaterialMismatch {
                     element: record.id,

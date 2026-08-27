@@ -5,7 +5,7 @@ use crate::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, FORM_FLYWHEEL, FORM_HANDLE, MATERIAL_STONE, MATERIAL_WOOD,
     build_registries,
 };
-use crate::core::quantity::Temperature;
+use crate::core::quantity::{Length, Temperature};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::energy::{
@@ -13,7 +13,9 @@ use crate::energy::{
     calculate_explicit_energy_accounting,
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
-use crate::material::CommodityKey;
+use crate::material::{
+    CommodityKey, ParticleSizeDistribution, ParticleSizeRange, ParticleSizeStateError,
+};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::simulation::advance_tick;
@@ -118,6 +120,31 @@ fn load_rejects_forged_energy_store_embodied_mass() {
                 store,
                 stored: Mass::from_milligrams(1_000_000),
                 traced: Mass::from_milligrams(1_100_000),
+            }
+        )))
+    );
+}
+
+#[test]
+fn load_rejects_forged_energy_store_embodied_particle_state() {
+    let (registries, state, store) = assembled_store_fixture();
+    let range = ParticleSizeRange::new(Length::from_micrometers(1), Length::from_micrometers(10))
+        .unwrap_or_else(|error| panic!("energy particle tamper range failed: {error}"));
+    let distribution = ParticleSizeDistribution::from(range);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("energy particle tamper serialization failed: {error}"));
+    encoded["state"]["systems"]["energy"]["records"][store.value().to_string()]["embodied_material"]
+        [0]["profile"]["particle_size"] = serde_json::to_value(distribution)
+        .unwrap_or_else(|error| panic!("energy particle tamper distribution failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("energy particle tamper decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Energy(
+            EnergyValidationError::InvalidEmbodiedParticleSizeState {
+                store,
+                error: ParticleSizeStateError::UnexpectedForUntrackedForm { form: FORM_HANDLE },
             }
         )))
     );

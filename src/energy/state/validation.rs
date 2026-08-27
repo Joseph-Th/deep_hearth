@@ -5,7 +5,10 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Energy, Mass};
 use crate::core::time::SimulationTick;
-use crate::material::{CommodityKey, MaterialRegistry};
+use crate::material::{
+    CommodityKey, MaterialPhaseStateError, MaterialRegistry, ParticleSizeStateError,
+    validate_material_particle_size_state, validate_material_phase_state,
+};
 
 use super::super::definitions::{EnergyRegistry, EnergyStoreDefinitionId};
 use super::{EnergyState, EnergyStoreId};
@@ -55,6 +58,14 @@ pub enum EnergyValidationError {
     ImpureEmbodiedMaterial {
         store: EnergyStoreId,
         commodity: CommodityKey,
+    },
+    InvalidEmbodiedPhaseState {
+        store: EnergyStoreId,
+        error: MaterialPhaseStateError,
+    },
+    InvalidEmbodiedParticleSizeState {
+        store: EnergyStoreId,
+        error: ParticleSizeStateError,
     },
     InvalidEmbodiedProvenanceRange {
         store: EnergyStoreId,
@@ -157,6 +168,16 @@ impl Display for EnergyValidationError {
                 "energy store {} embodied commodity {} is not pure authored material",
                 store.value(),
                 commodity.value()
+            ),
+            Self::InvalidEmbodiedPhaseState { store, error } => write!(
+                formatter,
+                "energy store {} contains embodied matter with invalid phase state: {error}",
+                store.value()
+            ),
+            Self::InvalidEmbodiedParticleSizeState { store, error } => write!(
+                formatter,
+                "energy store {} contains embodied matter with invalid particle-size state: {error}",
+                store.value()
             ),
             Self::InvalidEmbodiedProvenanceRange { store } => write!(
                 formatter,
@@ -273,6 +294,29 @@ pub(crate) fn validate_loaded_energy(
                             commodity,
                         });
                     }
+                    validate_material_phase_state(
+                        materials,
+                        commodity,
+                        trace.profile().composition(),
+                        trace.profile().temperature(),
+                    )
+                    .map_err(|error| {
+                        EnergyValidationError::InvalidEmbodiedPhaseState {
+                            store: record.id,
+                            error,
+                        }
+                    })?;
+                    validate_material_particle_size_state(
+                        materials,
+                        commodity,
+                        trace.profile().particle_size_distribution(),
+                    )
+                    .map_err(|error| {
+                        EnergyValidationError::InvalidEmbodiedParticleSizeState {
+                            store: record.id,
+                            error,
+                        }
+                    })?;
                     let provenance = trace.provenance();
                     if provenance.latest_created_at() < provenance.earliest_created_at() {
                         return Err(EnergyValidationError::InvalidEmbodiedProvenanceRange {

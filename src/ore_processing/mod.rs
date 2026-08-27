@@ -341,12 +341,6 @@ impl OreProcessingRegistry {
                 .get_form(target_form)
                 .unwrap_or_else(|| unreachable!("validated target commodity requires its form"));
             assert_eq!(target_output.phase(), MaterialPhase::Solid);
-            assert_eq!(
-                target_output.particle_size_policy(),
-                ParticleSizeStatePolicy::Untracked,
-                "constituent-separation process {} target output has incompatible particle-state policy",
-                definition.process().value()
-            );
 
             let residue_form = definition.residue_output_form();
             let residue_output = materials.get_form(residue_form).unwrap_or_else(|| {

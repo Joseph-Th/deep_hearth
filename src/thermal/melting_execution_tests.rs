@@ -9,6 +9,7 @@ use crate::content::{
     FORM_CONCENTRATE, FORM_INGOT, FORM_MOLTEN, MATERIAL_COPPER, MATERIAL_SLAG,
     make_test_registries_with_melting,
 };
+use crate::core::quantity::Length;
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::energy::{
@@ -18,10 +19,12 @@ use crate::energy::{
 use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment};
 use crate::inventory::{
     StockpileStorageError, StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
-    deposit_composed_lot_for_test, deposit_lot_for_test,
+    deposit_composed_lot_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
 };
 use crate::maintenance::MaintenanceThresholds;
-use crate::material::{CompositionComponent, MaterialComposition};
+use crate::material::{
+    CompositionComponent, MaterialComposition, MaterialLotSpec, ParticleSizeRange,
+};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{ProcessDefinition, StartProcessError, validate_start_process};
@@ -156,13 +159,23 @@ fn melting_rejects_pure_concentrate_without_a_reduction_step() {
         EnergyCarrier::Electrical,
         Mass::from_milligrams(10),
     );
-    let concentrate = deposit_lot_for_test(
+    let concentrate_particle_size = ParticleSizeRange::new(
+        Length::from_micrometers(500),
+        Length::from_micrometers(2_000),
+    )
+    .unwrap_or_else(|error| panic!("concentrate particle-size fixture failed: {error}"));
+    let concentrate = deposit_lot_spec_for_test(
         &fixture.registries,
         &mut fixture.state,
         fixture.ids.source,
-        CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE),
-        Mass::from_milligrams(5),
-        INPUT_TEMPERATURE,
+        MaterialLotSpec::with_composition_and_particle_size(
+            CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE),
+            Mass::from_milligrams(5),
+            INPUT_TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_COPPER),
+            concentrate_particle_size,
+        )
+        .unwrap_or_else(|error| panic!("pure concentrate lot specification failed: {error}")),
     )
     .unwrap_or_else(|error| panic!("pure concentrate melting fixture failed: {error}"));
     let before = fixture.state.clone();

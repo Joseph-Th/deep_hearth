@@ -1,6 +1,6 @@
 //! Replayable gameplay-harness world/scenario and behavior seed configuration.
 
-use super::seed::mix64;
+use super::seed::{mix64, unique_mixed_seed};
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 
 const GATE_VARIATION_SCENARIO_COUNT: usize = 2;
@@ -196,9 +196,7 @@ fn append_variation_seeds(seeds: &mut Vec<u64>, root: u64, count: usize) {
     let mut candidate = root;
     for index in 0..count {
         candidate = mix64(candidate ^ (index as u64 + 1).wrapping_mul(SEED_STRIDE));
-        while seeds.contains(&candidate) {
-            candidate = mix64(candidate);
-        }
+        candidate = unique_mixed_seed(candidate, seeds);
         seeds.push(candidate);
     }
 }

@@ -11,29 +11,31 @@ use crate::energy::{
     EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerDurationError, validate_energy_supply,
 };
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
-use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
+use crate::inventory::MaterialLotSelection;
+use crate::inventory::StockpileId;
 use crate::maintenance::{
     ActiveConditionDurationError, Condition, assert_valid_condition_wear_ppm_per_tick,
 };
-use crate::material::{
-    CommodityKey, FormId, MaterialComposition, MaterialId, MaterialLotSpec, MaterialLotSpecError,
-    MaterialPhase, MaterialRegistry,
-};
+use crate::material::{FormId, MaterialId};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
     ProcessResolutionError, ProductionJobId, ProductionJobRecord, validate_selected_process_inputs,
 };
 use crate::registry::Registries;
 
+use super::PhaseChangeForms;
 use super::equipment_physics::{
     ThermalBatchLimitError, ThermalPowerTemperatureError, ThermalTransferTimingError,
     resolve_thermal_power_temperature_limits, resolve_thermal_transfer_timing,
     validate_thermal_batch_mass,
 };
-use super::{
-    FusionHeatError, PhaseChangeForms, SensibleHeatError, calculate_fusion_heat,
-    calculate_sensible_heat,
+use super::phase_change_batch::{
+    PurePhaseChangeBatchError, PurePhaseChangeDirection, resolve_pure_phase_change_batch,
 };
+#[cfg(test)]
+use super::{calculate_fusion_heat, calculate_sensible_heat};
+#[cfg(test)]
+use crate::material::{CommodityKey, MaterialPhase};
 
 /// Immutable declaration that one selected-batch process performs pure-material melting.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,271 +114,21 @@ impl MeltingProcessDefinition {
 }
 
 /// Failure while deriving pure melting physics from exact consumed material traces.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum MeltingBatchError {
-    EmptyInput,
-    UnknownInputForm {
-        form: FormId,
-    },
-    InputNotSolid {
-        form: FormId,
-        phase: MaterialPhase,
-    },
-    InputFormMismatch {
-        expected: FormId,
-        found: FormId,
-    },
-    ImpureInput {
-        commodity: CommodityKey,
-    },
-    PureMaterialDoesNotMatchCommodity {
-        commodity: CommodityKey,
-        pure: MaterialId,
-    },
-    MixedMaterials {
-        expected: MaterialId,
-        found: MaterialId,
-    },
-    InputAboveMeltingPoint {
-        material: MaterialId,
-        current: Temperature,
-        melting_point: Temperature,
-    },
-    SensibleHeat {
-        material: MaterialId,
-        error: SensibleHeatError,
-    },
-    FusionHeat {
-        material: MaterialId,
-        error: FusionHeatError,
-    },
-    EnergyOverflow,
-    MassOverflow,
-    Output(MaterialLotSpecError),
-}
-
-impl Display for MeltingBatchError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::EmptyInput => formatter.write_str("melting batch contains no material"),
-            Self::UnknownInputForm { form } => {
-                write!(
-                    formatter,
-                    "melting batch references unknown form {}",
-                    form.value()
-                )
-            }
-            Self::InputNotSolid { form, phase } => write!(
-                formatter,
-                "melting input form {} is {phase:?} rather than solid",
-                form.value()
-            ),
-            Self::InputFormMismatch { expected, found } => write!(
-                formatter,
-                "melting process requires solid input form {} but selected form {} was provided",
-                expected.value(),
-                found.value()
-            ),
-            Self::ImpureInput { commodity } => write!(
-                formatter,
-                "melting input material {} in form {} is compositionally mixed; alloy phase diagrams are not modeled",
-                commodity.material().value(),
-                commodity.form().value()
-            ),
-            Self::PureMaterialDoesNotMatchCommodity { commodity, pure } => write!(
-                formatter,
-                "melting input material {} in form {} claims pure material {} instead",
-                commodity.material().value(),
-                commodity.form().value(),
-                pure.value()
-            ),
-            Self::MixedMaterials { expected, found } => write!(
-                formatter,
-                "melting batch mixes material {} with material {}; alloying requires a dedicated resolver",
-                expected.value(),
-                found.value()
-            ),
-            Self::InputAboveMeltingPoint {
-                material,
-                current,
-                melting_point,
-            } => write!(
-                formatter,
-                "solid material {} is at {} mK above its {} mK melting point",
-                material.value(),
-                current.millikelvin(),
-                melting_point.millikelvin()
-            ),
-            Self::SensibleHeat { material, error } => write!(
-                formatter,
-                "melting material {} cannot be heated to its fusion boundary: {error}",
-                material.value()
-            ),
-            Self::FusionHeat { material, error } => write!(
-                formatter,
-                "melting material {} cannot resolve latent heat: {error}",
-                material.value()
-            ),
-            Self::EnergyOverflow => {
-                formatter.write_str("melting batch energy requirement overflowed")
-            }
-            Self::MassOverflow => formatter.write_str("melting batch mass overflowed"),
-            Self::Output(error) => write!(formatter, "molten output construction failed: {error}"),
-        }
-    }
-}
-
-impl Error for MeltingBatchError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::SensibleHeat {
-                material: _material,
-                error,
-            } => Some(error),
-            Self::FusionHeat {
-                material: _material,
-                error,
-            } => Some(error),
-            Self::Output(error) => Some(error),
-            Self::UnknownInputForm { form: _form } => None,
-            Self::InputNotSolid {
-                form: _form,
-                phase: _phase,
-            } => None,
-            Self::InputFormMismatch {
-                expected: _expected,
-                found: _found,
-            } => None,
-            Self::ImpureInput {
-                commodity: _commodity,
-            } => None,
-            Self::PureMaterialDoesNotMatchCommodity {
-                commodity: _commodity,
-                pure: _pure,
-            } => None,
-            Self::MixedMaterials {
-                expected: _expected,
-                found: _found,
-            } => None,
-            Self::InputAboveMeltingPoint {
-                material: _material,
-                current: _current,
-                melting_point: _melting_point,
-            } => None,
-            Self::EmptyInput | Self::EnergyOverflow | Self::MassOverflow => None,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct MeltingBatchPhysics {
-    material: MaterialId,
-    melting_point: Temperature,
-    required_energy: Energy,
-    output: MaterialLotSpec,
-}
+pub type MeltingBatchError = PurePhaseChangeBatchError;
 
 fn resolve_melting_batch(
-    materials: &MaterialRegistry,
+    materials: &crate::material::MaterialRegistry,
     solid_form: FormId,
     liquid_form: FormId,
-    traces: &[ConsumedMaterialTrace],
-) -> Result<MeltingBatchPhysics, MeltingBatchError> {
-    let mut batch_material = None;
-    let mut melting_point = None;
-    let mut total_mass = Mass::ZERO;
-    let mut required_energy = Energy::ZERO;
-
-    for trace in traces {
-        let profile = trace.profile();
-        let form_id = profile.commodity().form();
-        let Some(form) = materials.get_form(form_id) else {
-            return Err(MeltingBatchError::UnknownInputForm { form: form_id });
-        };
-        if form.phase() != MaterialPhase::Solid {
-            return Err(MeltingBatchError::InputNotSolid {
-                form: form_id,
-                phase: form.phase(),
-            });
-        }
-        if form_id != solid_form {
-            return Err(MeltingBatchError::InputFormMismatch {
-                expected: solid_form,
-                found: form_id,
-            });
-        }
-        let Some(material) = profile.composition().pure_material() else {
-            return Err(MeltingBatchError::ImpureInput {
-                commodity: profile.commodity(),
-            });
-        };
-        if profile.commodity().material() != material {
-            return Err(MeltingBatchError::PureMaterialDoesNotMatchCommodity {
-                commodity: profile.commodity(),
-                pure: material,
-            });
-        }
-        if let Some(expected) = batch_material {
-            if expected != material {
-                return Err(MeltingBatchError::MixedMaterials {
-                    expected,
-                    found: material,
-                });
-            }
-        } else {
-            batch_material = Some(material);
-        }
-
-        let fusion = calculate_fusion_heat(materials, trace.mass(), material)
-            .map_err(|error| MeltingBatchError::FusionHeat { material, error })?;
-        if profile.temperature() > fusion.melting_point() {
-            return Err(MeltingBatchError::InputAboveMeltingPoint {
-                material,
-                current: profile.temperature(),
-                melting_point: fusion.melting_point(),
-            });
-        }
-        if let Some(expected) = melting_point {
-            debug_assert_eq!(expected, fusion.melting_point());
-        } else {
-            melting_point = Some(fusion.melting_point());
-        }
-        let sensible = calculate_sensible_heat(
-            materials,
-            trace.mass(),
-            profile.composition(),
-            profile.temperature(),
-            fusion.melting_point(),
-        )
-        .map_err(|error| MeltingBatchError::SensibleHeat { material, error })?;
-        required_energy = required_energy
-            .checked_add(sensible.energy())
-            .and_then(|energy| energy.checked_add(fusion.energy()))
-            .ok_or(MeltingBatchError::EnergyOverflow)?;
-        total_mass = total_mass
-            .checked_add(trace.mass())
-            .ok_or(MeltingBatchError::MassOverflow)?;
-    }
-
-    let Some(material) = batch_material else {
-        return Err(MeltingBatchError::EmptyInput);
-    };
-    let Some(melting_point) = melting_point else {
-        return Err(MeltingBatchError::EmptyInput);
-    };
-    let output = MaterialLotSpec::with_composition(
-        CommodityKey::new(material, liquid_form),
-        total_mass,
-        melting_point,
-        MaterialComposition::pure(material),
+    traces: &[crate::inventory::ConsumedMaterialTrace],
+) -> Result<super::phase_change_batch::PurePhaseChangeBatch, MeltingBatchError> {
+    resolve_pure_phase_change_batch(
+        materials,
+        solid_form,
+        liquid_form,
+        PurePhaseChangeDirection::Melt,
+        traces,
     )
-    .map_err(MeltingBatchError::Output)?;
-    Ok(MeltingBatchPhysics {
-        material,
-        melting_point,
-        required_energy,
-        output,
-    })
 }
 
 /// Exact runtime selection and providers requested for one melting operation.
@@ -671,9 +423,8 @@ pub fn resolve_melting_process(
             },
         );
     }
-    let energy_supply =
-        validate_energy_supply(registries, state, energy_store, batch.required_energy)
-            .map_err(MeltingResolutionError::Energy)?;
+    let energy_supply = validate_energy_supply(registries, state, energy_store, batch.phase_energy)
+        .map_err(MeltingResolutionError::Energy)?;
     let provided_carrier = energy_supply.trace().carrier();
     if provided_carrier != definition.energy_carrier() {
         return Err(MeltingResolutionError::WrongEnergyCarrier {
@@ -685,7 +436,7 @@ pub fn resolve_melting_process(
         registries,
         limits.transfer_power(),
         energy_supply.max_output_power(),
-        batch.required_energy,
+        batch.phase_energy,
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
     )
@@ -715,7 +466,7 @@ pub fn resolve_melting_process(
         equipment,
         material: batch.material,
         melting_point: batch.melting_point,
-        required_energy: batch.required_energy,
+        required_energy: batch.phase_energy,
         transfer_power,
     })
 }
@@ -1051,18 +802,18 @@ pub(super) fn validate_loaded_melting_job(
             provided: consumed_energy.carrier(),
         });
     }
-    if consumed_energy.energy() != batch.required_energy {
+    if consumed_energy.energy() != batch.phase_energy {
         return Err(MeltingJobValidationError::EnergyMismatch {
             job: job.id(),
             traced: consumed_energy.energy(),
-            required: batch.required_energy,
+            required: batch.phase_energy,
         });
     }
     let timing = resolve_thermal_transfer_timing(
         registries,
         limits.transfer_power(),
         energy_definition.max_output_power(),
-        batch.required_energy,
+        batch.phase_energy,
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
     )
