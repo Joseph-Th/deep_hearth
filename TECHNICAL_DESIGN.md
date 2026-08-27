@@ -162,11 +162,11 @@ Implemented physical resolvers include:
 - constituent separation for physically liberated particulate feed. Binary definitions may restrict feed
   to one authored target plus one authored residue material; concentration definitions accept arbitrary
   non-target gangue without composition-specific recipes. Output mass is derived from exact selected
-  composition rather than a fixed yield. Whole-milligram target recovery becomes a pure target stream,
-  whole non-target constituents remain physical particulate tailings, and fractional component remainders
-  are deterministically packed into one-milligram mixed boundary lots so represented constituent content
-  is exact. Residue retains input particulate state, and persisted jobs replay composition, streams,
-  energy, duration, and wear;
+  composition rather than a fixed yield. Concentration authors distinct target and lower non-target
+  recoveries, so product grade emerges from feed assay and separator selectivity rather than perfect
+  gangue rejection. Fractional component remainders are deterministically distributed across blended
+  particulate lots so represented constituent content remains exact. Concentrate and residue retain input
+  particulate state, and persisted jobs replay composition, streams, energy, duration, and wear;
 - sensible heating, pure-material melting, and pure-material casting with real selected matter, finite
   energy sources/sinks, equipment limits, phase boundaries, and latent heat. Melting and casting
   definitions bind both authored input and output forms, so phase-change admission and persisted-job

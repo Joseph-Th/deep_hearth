@@ -1,9 +1,9 @@
 //! Process-start admission and routing; child commit owns atomic mutation after validation.
 
 mod commit;
+mod routing;
 pub use commit::StartProcessCommitError;
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -20,8 +20,7 @@ use crate::inventory::{
     AMBIENT_PRESERVATION_MULTIPLIER_PPM, ConsumptionReservation, ReservationError, StockpileId,
     StockpileStorageError, StockpileStoredMassChange, StockpileStructuralLoadError,
     ValidatedStockpileStructuralLoad, validate_consumption_reservation_from_selection,
-    validate_stockpile_storage, validate_stockpile_stored_mass_changes,
-    validate_stockpile_support_for_new_inbound,
+    validate_stockpile_stored_mass_changes,
 };
 use crate::material::{FormId, MaterialId};
 use crate::mining::MiningJobId;
@@ -29,14 +28,12 @@ use crate::registry::Registries;
 use crate::structural::{StructuralElementId, StructuralLifecycle};
 
 use super::super::definitions::ProcessId;
-use super::super::resolution::{
-    ProcessOutputStreamId, ProcessResolution, sum_lot_spec_mass, sum_output_stream_mass,
-};
+use super::super::resolution::{ProcessOutputStreamId, ProcessResolution, sum_output_stream_mass};
 use super::super::state::{
     ProductionJobEquipment, ProductionJobId, ProductionJobIdentity, ProductionJobRecord,
     ProductionJobResources, ProductionJobSchedule, ProductionOccupancyRelease,
-    ProductionOutputStream,
 };
+use routing::{ValidatedOutputRouting, validate_output_routing};
 
 /// Explicit route assigning one resolved physical stream to one stockpile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -441,114 +438,45 @@ impl Error for StartProcessError {
         match self {
             Self::DestinationStorage(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
-            Self::UnknownProcess { process: _process } => None,
-            Self::ManualCraftRequiresPlayerWork { process: _process } => None,
-            Self::UnknownOutputMaterial {
-                material: _material,
-            }
-            | Self::UnknownOutputCompositionMaterial {
-                material: _material,
-            } => None,
-            Self::UnknownOutputForm { form: _form } => None,
-            Self::UnknownStockpile {
-                stockpile: _stockpile,
-            }
-            | Self::MassOverflow {
-                stockpile: _stockpile,
-            } => None,
-            Self::OutputRouteCountMismatch {
-                streams: _streams,
-                routes: _routes,
-            } => None,
-            Self::DuplicateOutputRoute { stream: _stream }
-            | Self::UnknownOutputRoute { stream: _stream }
-            | Self::MissingOutputRoute { stream: _stream } => None,
-            Self::CapacityExceeded {
-                stockpile: _stockpile,
-                capacity: _capacity,
-                committed_after_consumption: _committed_after_consumption,
-                requested_inbound: _requested_inbound,
-            } => None,
-            Self::MatterBalanceMismatch {
-                input_mass: _input_mass,
-                output_mass: _output_mass,
-            } => None,
-            Self::InputStorageAgeOverflow {
-                stockpile: _stockpile,
-            } => None,
-            Self::CompletionTickOverflow {
-                current: _current,
-                duration_ticks: _duration_ticks,
-            } => None,
-            Self::ResolutionSourceMismatch {
-                bound: _bound,
-                requested: _requested,
-            } => None,
-            Self::StaleResolvedInputs {
-                expected_inventory_revision: _expected_inventory_revision,
-                actual_inventory_revision: _actual_inventory_revision,
-            } => None,
-            Self::StaleResolvedEnergy {
-                expected_energy_revision: _expected_energy_revision,
-                actual_energy_revision: _actual_energy_revision,
-            } => None,
-            Self::StaleResolvedEquipment {
-                expected_equipment_revision: _expected_equipment_revision,
-                actual_equipment_revision: _actual_equipment_revision,
-            } => None,
-            Self::StaleResolvedStructure {
-                expected_structure_revision: _expected_structure_revision,
-                actual_structure_revision: _actual_structure_revision,
-            } => None,
-            Self::EnergyStoreBusy {
-                store: _store,
-                job: _job,
-                release: _release,
-            } => None,
-            Self::EnergyStoreBusyManualPower { store: _store } => None,
-            Self::ResolvedEquipmentMissing {
-                equipment: _equipment,
-            }
-            | Self::ResolvedEquipmentDefinitionChanged {
-                equipment: _equipment,
-            }
-            | Self::ResolvedEquipmentConditionChanged {
-                equipment: _equipment,
-            } => None,
-            Self::ResolvedEquipmentSupportChanged {
-                equipment: _equipment,
-                expected: _expected,
-                actual: _actual,
-            } => None,
-            Self::ResolvedEquipmentSupportMissing {
-                equipment: _equipment,
-                element: _element,
-            } => None,
-            Self::ResolvedEquipmentSupportNotActive {
-                equipment: _equipment,
-                element: _element,
-                lifecycle: _lifecycle,
-            } => None,
-            Self::EquipmentBusy {
-                equipment: _equipment,
-                job: _job,
-                release: _release,
-            } => None,
-            Self::EquipmentBusyMining {
-                equipment: _equipment,
-                job: _job,
-            } => None,
-            Self::EquipmentBusyManualPower {
-                equipment: _equipment,
-            } => None,
-            Self::JobIdExhausted
+            Self::UnknownProcess { .. }
+            | Self::ManualCraftRequiresPlayerWork { .. }
+            | Self::UnknownOutputMaterial { .. }
+            | Self::UnknownOutputForm { .. }
+            | Self::UnknownOutputCompositionMaterial { .. }
+            | Self::UnknownStockpile { .. }
+            | Self::OutputRouteCountMismatch { .. }
+            | Self::DuplicateOutputRoute { .. }
+            | Self::UnknownOutputRoute { .. }
+            | Self::MissingOutputRoute { .. }
+            | Self::CapacityExceeded { .. }
+            | Self::MassOverflow { .. }
+            | Self::MatterBalanceMismatch { .. }
+            | Self::InputStorageAgeOverflow { .. }
+            | Self::CompletionTickOverflow { .. }
+            | Self::JobIdExhausted
             | Self::InventoryRevisionExhausted
             | Self::ProductionRevisionExhausted
             | Self::EnergyRevisionExhausted
+            | Self::ResolutionSourceMismatch { .. }
+            | Self::StaleResolvedInputs { .. }
+            | Self::StaleResolvedEnergy { .. }
+            | Self::StaleResolvedEquipment { .. }
+            | Self::StaleResolvedStructure { .. }
             | Self::ResolvedEnergyStoreMissing
             | Self::ResolvedEnergyInsufficient
             | Self::ResolvedEnergySinkMissing
-            | Self::ResolvedEnergySinkCapacity => None,
+            | Self::ResolvedEnergySinkCapacity
+            | Self::EnergyStoreBusy { .. }
+            | Self::EnergyStoreBusyManualPower { .. }
+            | Self::ResolvedEquipmentMissing { .. }
+            | Self::ResolvedEquipmentDefinitionChanged { .. }
+            | Self::ResolvedEquipmentConditionChanged { .. }
+            | Self::ResolvedEquipmentSupportChanged { .. }
+            | Self::ResolvedEquipmentSupportMissing { .. }
+            | Self::ResolvedEquipmentSupportNotActive { .. }
+            | Self::EquipmentBusy { .. }
+            | Self::EquipmentBusyMining { .. }
+            | Self::EquipmentBusyManualPower { .. } => None,
         }
     }
 }
@@ -651,125 +579,11 @@ fn validate_start_process_routed_internal(
     if !allow_manual_craft && registries.crafting().get_manual(process).is_some() {
         return Err(StartProcessError::ManualCraftRequiresPlayerWork { process });
     }
-    if routes.len() != resolution.output_streams().len() {
-        return Err(StartProcessError::OutputRouteCountMismatch {
-            streams: resolution.output_streams().len(),
-            routes: routes.len(),
-        });
-    }
-    let stream_ids = resolution
-        .output_streams()
-        .iter()
-        .map(|stream| stream.id())
-        .collect::<BTreeSet<_>>();
-    let mut destinations_by_stream = BTreeMap::new();
-    for route in routes {
-        if !stream_ids.contains(&route.stream()) {
-            return Err(StartProcessError::UnknownOutputRoute {
-                stream: route.stream(),
-            });
-        }
-        if destinations_by_stream
-            .insert(route.stream(), route.destination())
-            .is_some()
-        {
-            return Err(StartProcessError::DuplicateOutputRoute {
-                stream: route.stream(),
-            });
-        }
-    }
-
-    for stream in resolution.output_streams() {
-        for output in stream.outputs() {
-            if registries
-                .materials()
-                .get_material(output.commodity().material())
-                .is_none()
-            {
-                return Err(StartProcessError::UnknownOutputMaterial {
-                    material: output.commodity().material(),
-                });
-            }
-            if registries
-                .materials()
-                .get_form(output.commodity().form())
-                .is_none()
-            {
-                return Err(StartProcessError::UnknownOutputForm {
-                    form: output.commodity().form(),
-                });
-            }
-            for component in output.composition().components() {
-                if registries
-                    .materials()
-                    .get_material(component.material())
-                    .is_none()
-                {
-                    return Err(StartProcessError::UnknownOutputCompositionMaterial {
-                        material: component.material(),
-                    });
-                }
-            }
-        }
-    }
-
-    let mut inbound_by_destination = BTreeMap::<StockpileId, Mass>::new();
-    let mut output_streams = Vec::with_capacity(resolution.output_streams().len());
-    for stream in resolution.output_streams() {
-        let destination = destinations_by_stream.get(&stream.id()).copied().ok_or(
-            StartProcessError::MissingOutputRoute {
-                stream: stream.id(),
-            },
-        )?;
-        let Some(destination_record) = state.inventory().get_stockpile(destination) else {
-            return Err(StartProcessError::UnknownStockpile {
-                stockpile: destination,
-            });
-        };
-        for output in stream.outputs() {
-            validate_stockpile_storage(
-                registries,
-                destination_record,
-                destination,
-                output.commodity(),
-                output.composition(),
-                output.temperature(),
-                output.particle_size_distribution(),
-            )
-            .map_err(StartProcessError::DestinationStorage)?;
-        }
-        let stream_mass = match sum_lot_spec_mass(stream.outputs()) {
-            Some(mass) => mass,
-            None => panic!("resolved process stream mass overflowed after resolution validation"),
-        };
-        let current = inbound_by_destination
-            .get(&destination)
-            .copied()
-            .unwrap_or(Mass::ZERO);
-        let inbound = current
-            .checked_add(stream_mass)
-            .ok_or(StartProcessError::MassOverflow {
-                stockpile: destination,
-            })?;
-        inbound_by_destination.insert(destination, inbound);
-        output_streams.push(ProductionOutputStream {
-            id: stream.id(),
-            destination,
-            outputs: stream.outputs().to_vec(),
-        });
-    }
-    let mut destination_structure_revision = None;
-    for destination in inbound_by_destination.keys().copied() {
-        if let Some(revision) = validate_stockpile_support_for_new_inbound(state, destination)
-            .map_err(StartProcessError::StructuralLoad)?
-        {
-            if let Some(existing) = destination_structure_revision {
-                debug_assert_eq!(existing, revision);
-            } else {
-                destination_structure_revision = Some(revision);
-            }
-        }
-    }
+    let ValidatedOutputRouting {
+        output_streams,
+        inbound_by_destination,
+        destination_structure_revision,
+    } = validate_output_routing(registries, state, resolution, routes)?;
 
     let current = state.tick();
     let Some(completes_at) = current.checked_add_span(resolution.duration()) else {

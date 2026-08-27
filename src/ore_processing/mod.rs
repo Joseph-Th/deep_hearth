@@ -21,8 +21,8 @@ pub use comminution_execution::{
 pub(crate) use comminution_execution::validate_loaded_comminution_job;
 
 pub use definitions::{
-    ComminutionProcessDefinition, ConstituentSeparationProcessDefinition, PoweredOreProcessProfile,
-    ScreeningProcessDefinition,
+    ComminutionProcessDefinition, ConstituentRecoveryProfile,
+    ConstituentSeparationProcessDefinition, PoweredOreProcessProfile, ScreeningProcessDefinition,
 };
 
 pub use separation_execution::{
@@ -341,6 +341,14 @@ impl OreProcessingRegistry {
                 .get_form(target_form)
                 .unwrap_or_else(|| unreachable!("validated target commodity requires its form"));
             assert_eq!(target_output.phase(), MaterialPhase::Solid);
+            if definition.residue_material().is_none() {
+                assert_eq!(
+                    target_output.particle_size_policy(),
+                    ParticleSizeStatePolicy::Required,
+                    "constituent concentration process {} target output must retain particle-size state",
+                    definition.process().value()
+                );
+            }
 
             let residue_form = definition.residue_output_form();
             let residue_output = materials.get_form(residue_form).unwrap_or_else(|| {

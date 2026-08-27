@@ -24,6 +24,49 @@ pub struct PoweredOreProcessProfile {
     condition_wear_ppm_per_active_tick: u32,
 }
 
+/// Authored selectivity of one constituent-separation pass.
+///
+/// Target recovery must be nonzero and strictly exceed non-target recovery so the operation always
+/// enriches target content rather than merely relabeling an arbitrary split of the feed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConstituentRecoveryProfile {
+    target_ppm: u32,
+    non_target_ppm: u32,
+}
+
+impl ConstituentRecoveryProfile {
+    const PERFECT_BINARY: Self = Self {
+        target_ppm: COMPOSITION_PARTS_PER_MILLION,
+        non_target_ppm: 0,
+    };
+
+    #[must_use]
+    pub const fn new(target_ppm: u32, non_target_ppm: u32) -> Self {
+        assert!(
+            target_ppm != 0 && target_ppm <= COMPOSITION_PARTS_PER_MILLION,
+            "constituent separation target recovery must be within 1..=1,000,000 ppm"
+        );
+        assert!(
+            non_target_ppm < target_ppm,
+            "constituent separation non-target recovery must be below target recovery"
+        );
+        Self {
+            target_ppm,
+            non_target_ppm,
+        }
+    }
+
+    #[must_use]
+    pub const fn target_ppm(self) -> u32 {
+        self.target_ppm
+    }
+
+    #[must_use]
+    pub const fn non_target_ppm(self) -> u32 {
+        self.non_target_ppm
+    }
+}
+
 impl PoweredOreProcessProfile {
     #[must_use]
     pub const fn new(
@@ -78,12 +121,13 @@ pub struct ScreeningProcessDefinition {
 ///
 /// A binary definition names the only admissible residue material. A concentration definition
 /// accepts any non-target constituents, allowing one authored physical separation method to handle
-/// variable gangue without proliferating composition-specific recipes. Concentration also authors a
-/// finite target-recovery fraction; binary separation represents deterministic sorting of already
-/// liberated target particles and therefore uses complete whole-milligram recovery. The resolver
-/// derives output masses from exact selected composition. Recovered whole milligrams become the
-/// target stream; unrecovered target and every non-target constituent remain represented in
-/// particulate residue. Residue retains the selected feed's particle-size state.
+/// variable gangue without proliferating composition-specific recipes. Concentration authors both
+/// target recovery and lower non-target recovery, so concentrate grade emerges from feed assay and
+/// separator selectivity instead of assuming perfect gangue rejection. Binary separation represents
+/// deterministic sorting of already liberated target particles and therefore uses complete target
+/// recovery with zero non-target recovery. The resolver derives output masses from exact selected
+/// composition. Unrecovered constituents remain represented in particulate residue, and both
+/// concentration streams retain the selected feed's particle-size state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConstituentSeparationProcessDefinition {
     process: ProcessId,
@@ -92,7 +136,7 @@ pub struct ConstituentSeparationProcessDefinition {
     target_output_form: FormId,
     residue_material: Option<MaterialId>,
     residue_output_form: FormId,
-    target_recovery_ppm: u32,
+    recovery: ConstituentRecoveryProfile,
     operating: PoweredOreProcessProfile,
 }
 
@@ -123,13 +167,13 @@ impl ConstituentSeparationProcessDefinition {
             target_output_form,
             residue_material: Some(residue_material),
             residue_output_form,
-            target_recovery_ppm: COMPOSITION_PARTS_PER_MILLION,
+            recovery: ConstituentRecoveryProfile::PERFECT_BINARY,
             operating,
         }
     }
 
-    /// Authors finite-recovery concentration of one liberated target constituent from arbitrary
-    /// non-target gangue.
+    /// Authors selective finite-recovery concentration of one liberated target constituent from
+    /// arbitrary non-target gangue.
     #[must_use]
     pub const fn new_concentration(
         process: ProcessId,
@@ -137,13 +181,9 @@ impl ConstituentSeparationProcessDefinition {
         target_material: MaterialId,
         target_output_form: FormId,
         residue_output_form: FormId,
-        target_recovery_ppm: u32,
+        recovery: ConstituentRecoveryProfile,
         operating: PoweredOreProcessProfile,
     ) -> Self {
-        assert!(
-            target_recovery_ppm != 0 && target_recovery_ppm <= COMPOSITION_PARTS_PER_MILLION,
-            "constituent concentration target recovery must be within 1..=1,000,000 ppm"
-        );
         Self {
             process,
             input_form,
@@ -151,7 +191,7 @@ impl ConstituentSeparationProcessDefinition {
             target_output_form,
             residue_material: None,
             residue_output_form,
-            target_recovery_ppm,
+            recovery,
             operating,
         }
     }
@@ -192,7 +232,14 @@ impl ConstituentSeparationProcessDefinition {
     /// residue matter.
     #[must_use]
     pub const fn target_recovery_ppm(self) -> u32 {
-        self.target_recovery_ppm
+        self.recovery.target_ppm()
+    }
+
+    /// Returns the fraction of each non-target constituent carried into a concentration target
+    /// stream. Binary sorting always returns zero here.
+    #[must_use]
+    pub const fn non_target_recovery_ppm(self) -> u32 {
+        self.recovery.non_target_ppm()
     }
 
     #[must_use]

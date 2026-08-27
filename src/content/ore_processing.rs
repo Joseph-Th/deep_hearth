@@ -4,8 +4,9 @@ use crate::core::quantity::{Length, MassSpecificEnergy};
 use crate::energy::EnergyCarrier;
 use crate::material::{ParticleSizeClass, ParticleSizeDistribution, ParticleSizeRange};
 use crate::ore_processing::{
-    ComminutionProcessDefinition, ConstituentSeparationProcessDefinition, OreProcessingRegistry,
-    PoweredOreProcessProfile, ScreeningProcessDefinition,
+    ComminutionProcessDefinition, ConstituentRecoveryProfile,
+    ConstituentSeparationProcessDefinition, OreProcessingRegistry, PoweredOreProcessProfile,
+    ScreeningProcessDefinition,
 };
 
 use super::capabilities::{
@@ -129,7 +130,7 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                 MATERIAL_COPPER,
                 FORM_CONCENTRATE,
                 FORM_CRUSHED,
-                900_000,
+                ConstituentRecoveryProfile::new(900_000, 200_000),
                 PoweredOreProcessProfile::new(
                     CAPABILITY_SEPARATOR_FLOW,
                     CAPABILITY_SEPARATOR_BATCH,

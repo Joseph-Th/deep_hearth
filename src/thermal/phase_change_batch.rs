@@ -161,7 +161,16 @@ impl Error for PurePhaseChangeBatchError {
             Self::SensibleHeat { error, .. } => Some(error),
             Self::FusionHeat { error, .. } => Some(error),
             Self::Output(error) => Some(error),
-            _ => None,
+            Self::EmptyInput
+            | Self::UnknownInputForm { .. }
+            | Self::InputPhaseMismatch { .. }
+            | Self::InputFormMismatch { .. }
+            | Self::ImpureInput { .. }
+            | Self::PureMaterialDoesNotMatchCommodity { .. }
+            | Self::MixedMaterials { .. }
+            | Self::InputTemperatureOutsidePhaseRange { .. }
+            | Self::EnergyOverflow
+            | Self::MassOverflow => None,
         }
     }
 }

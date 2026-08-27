@@ -621,16 +621,26 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         .get_stockpile(ids.tailings_storage)
         .map(|stockpile| stockpile.stored_mass())
         .unwrap_or_else(|| panic!("ore preparation tailings storage disappeared"));
-    let concentrate_is_pure = state
-        .inventory()
-        .lot_ids(ids.concentrate_storage)
-        .all(|lot| {
-            state.inventory().get_lot(lot).is_some_and(|lot| {
-                lot.commodity().material() == MATERIAL_COPPER
-                    && lot.commodity().form() == FORM_CONCENTRATE
-                    && lot.composition().parts_per_million(MATERIAL_COPPER) == 1_000_000
-            })
-        });
+    let concentrate_identity_is_valid =
+        state
+            .inventory()
+            .lot_ids(ids.concentrate_storage)
+            .all(|lot| {
+                state.inventory().get_lot(lot).is_some_and(|lot| {
+                    lot.commodity().material() == MATERIAL_COPPER
+                        && lot.commodity().form() == FORM_CONCENTRATE
+                        && lot.composition().parts_per_million(MATERIAL_COPPER) != 0
+                })
+            });
+    let concentrate_contains_gangue =
+        state
+            .inventory()
+            .lot_ids(ids.concentrate_storage)
+            .any(|lot| {
+                state.inventory().get_lot(lot).is_some_and(|lot| {
+                    lot.composition().parts_per_million(MATERIAL_COPPER) < 1_000_000
+                })
+            });
     let concentrate_distribution_is_fine =
         state
             .inventory()
@@ -667,7 +677,18 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         });
     let represented_copper =
         represented_copper_ppm_mg(&state, &[ids.concentrate_storage, ids.tailings_storage]);
+    let concentrate_copper = represented_copper_ppm_mg(&state, &[ids.concentrate_storage]);
     let expected_copper = u128::from(batch_mass.milligrams()) * u128::from(input_copper_ppm);
+    let expected_recovered_copper_milligrams = u64::try_from(
+        expected_copper * u128::from(concentration_definition.target_recovery_ppm())
+            / 1_000_000_000_000_u128,
+    )
+    .unwrap_or_else(|_| panic!("ore preparation recovered copper mass exceeded u64"));
+    let concentrate_grade_ppm =
+        u32::try_from(concentrate_copper / u128::from(concentrate_mass.milligrams()))
+            .unwrap_or_else(|_| {
+                panic!("ore preparation concentrate grade exceeded normalized ppm")
+            });
     let consumed_energy = crush_energy
         .checked_add(grind_energy)
         .and_then(|energy| energy.checked_add(screen_energy))
@@ -727,9 +748,18 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         !tailings_mass.is_zero(),
         "concentration must produce physical tailings"
     );
+    assert_eq!(
+        concentrate_copper,
+        u128::from(expected_recovered_copper_milligrams) * 1_000_000,
+        "industrial concentration must apply the authored finite target recovery to exact copper content"
+    );
     assert!(
-        concentrate_mass < input_composition.constituent_mass_floor(batch_mass, MATERIAL_COPPER),
-        "industrial concentration must apply finite authored recovery instead of recovering every whole milligram of target material"
+        concentrate_mass.milligrams() > expected_recovered_copper_milligrams,
+        "finite non-target recovery must carry physical gangue into the concentrate stream"
+    );
+    assert!(
+        concentrate_grade_ppm > input_copper_ppm && concentrate_grade_ppm < 1_000_000,
+        "industrial concentration must improve feed grade without fabricating pure copper"
     );
 
     let qualitative_requirements = [
@@ -758,8 +788,8 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             input_composition.components().len() >= 3,
         ),
         (
-            "copper concentrate is a pure liberated recovered-target stream",
-            concentrate_is_pure,
+            "copper concentrate retains target identity while carrying selectively recovered gangue",
+            concentrate_identity_is_valid && concentrate_contains_gangue,
         ),
         (
             "copper concentrate retains the liberated fine-particle state",
@@ -787,12 +817,14 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
 
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
-            "CAPABILITY ORE_PREP seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[particle-state,routing,finite-work,wear,constituent-concentration] batch={}mg copper={}ppm concentrate={}mg tailings={}mg concentrate-grade=1000000ppm target-recovery={}ppm initial-condition=[crusher:{} grinder:{} screen:{} separator:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t concentrate:{}b/{}t] matter=conserved composition=exact energy=resolved",
+            "CAPABILITY ORE_PREP seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[particle-state,routing,finite-work,wear,constituent-concentration] batch={}mg copper={}ppm concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm initial-condition=[crusher:{} grinder:{} screen:{} separator:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t concentrate:{}b/{}t] matter=conserved composition=exact energy=resolved",
             batch_mass.milligrams(),
             input_copper_ppm,
             concentrate_mass.milligrams(),
             tailings_mass.milligrams(),
+            concentrate_grade_ppm,
             concentration_definition.target_recovery_ppm(),
+            concentration_definition.non_target_recovery_ppm(),
             initial_crusher_condition.parts_per_million(),
             initial_grinder_condition.parts_per_million(),
             initial_screen_condition.parts_per_million(),
@@ -809,12 +841,14 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         );
     } else {
         std::println!(
-            "ORE REVIEW seed=0x{seed:016X} role=capability-only pipeline=crush->grind->screen->regrind->concentrate batch={}mg copper={}ppm concentrate={}mg tailings={}mg concentrate-grade=1000000ppm target-recovery={}ppm stored-work=[used:{}nJ remaining:{}nJ] durations=[{}+{}+{}+{}t concentration:{}b/{}t] matter=conserved composition=exact",
+            "ORE REVIEW seed=0x{seed:016X} role=capability-only pipeline=crush->grind->screen->regrind->concentrate batch={}mg copper={}ppm concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm stored-work=[used:{}nJ remaining:{}nJ] durations=[{}+{}+{}+{}t concentration:{}b/{}t] matter=conserved composition=exact",
             batch_mass.milligrams(),
             input_copper_ppm,
             concentrate_mass.milligrams(),
             tailings_mass.milligrams(),
+            concentrate_grade_ppm,
             concentration_definition.target_recovery_ppm(),
+            concentration_definition.non_target_recovery_ppm(),
             consumed_energy.nanojoules(),
             final_energy.nanojoules(),
             crush_duration.value(),

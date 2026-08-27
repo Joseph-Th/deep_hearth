@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::core::arithmetic::scale_u128_fraction_floor;
 use crate::core::quantity::{Mass, Temperature};
 use crate::inventory::ConsumedMaterialTrace;
 use crate::material::{
@@ -133,33 +134,35 @@ fn build_target_outputs(
     Ok(outputs)
 }
 
-/// Reconstructs one concentration tailings stream without fabricating purified gangue lots.
+/// Reconstructs one blended particulate stream without fabricating purified constituent lots.
 ///
-/// Constituent numerators use ppm-mg units. Dividing each exact numerator by the residue mass gives
+/// Constituent numerators use ppm-mg units. Dividing each exact numerator by the stream mass gives
 /// a common integer-ppm base composition plus a bounded set of per-ppm remainders. The remainder
 /// schedule below distributes those +1 ppm corrections over deterministic mass intervals. This
 /// preserves every constituent numerator exactly while keeping every output lot at, or within one
-/// ppm of, the aggregate tailings assay instead of turning whole-milligram constituent floors into
-/// freely selectable pure materials.
-fn add_blended_concentration_residue(
+/// ppm of, the aggregate stream assay.
+fn add_blended_particulate_stream<F>(
     grouped: &mut BTreeMap<ParticulateOutputKey, Mass>,
-    definition: ConstituentSeparationProcessDefinition,
     temperature: Temperature,
     particle_size: ParticleSizeDistribution,
     constituent_numerators: BTreeMap<MaterialId, u128>,
-    residue_mass: Mass,
-) -> Result<(), ConstituentSeparationBatchError> {
-    let residue_milligrams = residue_mass.milligrams();
-    let residue_milligrams_u128 = u128::from(residue_milligrams);
+    stream_mass: Mass,
+    commodity_for_composition: F,
+) -> Result<(), ConstituentSeparationBatchError>
+where
+    F: Fn(&MaterialComposition) -> CommodityKey,
+{
+    let stream_milligrams = stream_mass.milligrams();
+    let stream_milligrams_u128 = u128::from(stream_milligrams);
     let mut base_ppm = BTreeMap::<MaterialId, u32>::new();
     let mut remainders = Vec::<(MaterialId, u64)>::new();
     let mut base_total = 0_u64;
     let mut remainder_total = 0_u128;
 
     for (material, numerator) in constituent_numerators {
-        let base = u32::try_from(numerator / residue_milligrams_u128)
+        let base = u32::try_from(numerator / stream_milligrams_u128)
             .map_err(|_| ConstituentSeparationBatchError::MassOverflow)?;
-        let remainder = u64::try_from(numerator % residue_milligrams_u128)
+        let remainder = u64::try_from(numerator % stream_milligrams_u128)
             .map_err(|_| ConstituentSeparationBatchError::MassOverflow)?;
         if base != 0 {
             base_ppm.insert(material, base);
@@ -180,8 +183,8 @@ fn add_blended_concentration_residue(
         .unwrap_or_else(|| unreachable!("exact residue averages cannot exceed normalized ppm"));
     assert_eq!(
         remainder_total,
-        residue_milligrams_u128 * u128::from(missing_ppm),
-        "exact residue remainders must equal the normalized ppm deficit"
+        stream_milligrams_u128 * u128::from(missing_ppm),
+        "exact stream remainders must equal the normalized ppm deficit"
     );
 
     let mut emit_interval = |active: &BTreeSet<MaterialId>, interval_mass: u64| {
@@ -202,17 +205,11 @@ fn add_blended_concentration_residue(
             }
         }
         let composition = MaterialComposition::new(components).unwrap_or_else(|error| {
-            unreachable!("exact blended concentration residue must be normalized: {error}")
+            unreachable!("exact blended particulate stream must be normalized: {error}")
         });
-        let host = composition
-            .components()
-            .iter()
-            .find(|component| component.material() != definition.target_material())
-            .map(|component| component.material())
-            .unwrap_or_else(|| unreachable!("concentration residue must retain non-target gangue"));
         add_particulate_mass(
             grouped,
-            CommodityKey::new(host, definition.residue_output_form()),
+            commodity_for_composition(&composition),
             temperature,
             composition,
             particle_size.clone(),
@@ -221,35 +218,35 @@ fn add_blended_concentration_residue(
     };
 
     if missing_ppm == 0 {
-        return emit_interval(&BTreeSet::new(), residue_milligrams);
+        return emit_interval(&BTreeSet::new(), stream_milligrams);
     }
 
-    // Concatenating each constituent's remainder over `missing_ppm` complete residue-mass laps and
-    // projecting those positions modulo the residue mass yields a 0/1 correction matrix with exact
+    // Concatenating each constituent's remainder over `missing_ppm` complete stream-mass laps and
+    // projecting those positions modulo the stream mass yields a 0/1 correction matrix with exact
     // column sums and exactly `missing_ppm` corrections on every represented milligram. Sweeping
     // interval boundaries compresses that matrix to O(constituent-count) lots rather than one lot
     // per milligram.
     let mut events = BTreeMap::<u64, Vec<(MaterialId, bool)>>::new();
     events.entry(0).or_default();
-    events.entry(residue_milligrams).or_default();
+    events.entry(stream_milligrams).or_default();
     let mut cursor = 0_u128;
     for (material, remainder) in remainders {
-        let start = u64::try_from(cursor % residue_milligrams_u128)
+        let start = u64::try_from(cursor % stream_milligrams_u128)
             .map_err(|_| ConstituentSeparationBatchError::MassOverflow)?;
         let end_absolute = u128::from(start) + u128::from(remainder);
-        if end_absolute <= residue_milligrams_u128 {
+        if end_absolute <= stream_milligrams_u128 {
             let end = u64::try_from(end_absolute)
                 .map_err(|_| ConstituentSeparationBatchError::MassOverflow)?;
             events.entry(start).or_default().push((material, true));
             events.entry(end).or_default().push((material, false));
         } else {
-            let end = u64::try_from(end_absolute - residue_milligrams_u128)
+            let end = u64::try_from(end_absolute - stream_milligrams_u128)
                 .map_err(|_| ConstituentSeparationBatchError::MassOverflow)?;
             events.entry(0).or_default().push((material, true));
             events.entry(end).or_default().push((material, false));
             events.entry(start).or_default().push((material, true));
             events
-                .entry(residue_milligrams)
+                .entry(stream_milligrams)
                 .or_default()
                 .push((material, false));
         }
@@ -259,8 +256,8 @@ fn add_blended_concentration_residue(
     }
     assert_eq!(
         cursor,
-        residue_milligrams_u128 * u128::from(missing_ppm),
-        "residue correction schedule must cover an exact number of mass laps"
+        stream_milligrams_u128 * u128::from(missing_ppm),
+        "stream correction schedule must cover an exact number of mass laps"
     );
 
     let positions = events.keys().copied().collect::<Vec<_>>();
@@ -284,6 +281,49 @@ fn add_blended_concentration_residue(
         emit_interval(&active, window[1] - position)?;
     }
     Ok(())
+}
+
+fn add_blended_concentration_residue(
+    grouped: &mut BTreeMap<ParticulateOutputKey, Mass>,
+    definition: ConstituentSeparationProcessDefinition,
+    temperature: Temperature,
+    particle_size: ParticleSizeDistribution,
+    constituent_numerators: BTreeMap<MaterialId, u128>,
+    residue_mass: Mass,
+) -> Result<(), ConstituentSeparationBatchError> {
+    let target_material = definition.target_material();
+    let residue_form = definition.residue_output_form();
+    add_blended_particulate_stream(
+        grouped,
+        temperature,
+        particle_size,
+        constituent_numerators,
+        residue_mass,
+        |composition| {
+            let host = composition
+                .components()
+                .iter()
+                .find(|component| component.material() != target_material)
+                .map(|component| component.material())
+                .unwrap_or_else(|| {
+                    unreachable!("concentration residue must retain non-target gangue")
+                });
+            CommodityKey::new(host, residue_form)
+        },
+    )
+}
+
+fn recovered_whole_milligrams(
+    exact_constituent_numerator: u128,
+    recovery_ppm: u32,
+) -> Result<u64, ConstituentSeparationBatchError> {
+    let recovered_numerator = scale_u128_fraction_floor(
+        exact_constituent_numerator,
+        recovery_ppm,
+        COMPOSITION_PARTS_PER_MILLION,
+    );
+    u64::try_from(recovered_numerator / u128::from(COMPOSITION_PARTS_PER_MILLION))
+        .map_err(|_| ConstituentSeparationBatchError::MassOverflow)
 }
 
 fn build_particulate_outputs(
@@ -386,8 +426,10 @@ pub(super) fn resolve_separation_outputs(
     }
 
     let mut target_by_profile = BTreeMap::new();
+    let mut target_particulate_by_profile = BTreeMap::<ParticulateOutputKey, Mass>::new();
     let mut residue_by_profile = BTreeMap::<ParticulateOutputKey, Mass>::new();
     let mut target_mass = Mass::ZERO;
+    let mut recovered_target_mass = Mass::ZERO;
     let mut residue_mass = Mass::ZERO;
     for ((temperature, particle_size), mut input) in grouped {
         let denominator = u128::from(COMPOSITION_PARTS_PER_MILLION);
@@ -396,11 +438,8 @@ pub(super) fn resolve_separation_outputs(
             .get(&definition.target_material())
             .copied()
             .unwrap_or_else(|| unreachable!("validated separation input contains target matter"));
-        let recovered_target_milligrams = u64::try_from(
-            exact_target_numerator * u128::from(definition.target_recovery_ppm())
-                / (denominator * denominator),
-        )
-        .map_err(|_| ConstituentSeparationBatchError::MassOverflow)?;
+        let recovered_target_milligrams =
+            recovered_whole_milligrams(exact_target_numerator, definition.target_recovery_ppm())?;
         let recovered_target_numerator = u128::from(recovered_target_milligrams) * denominator;
         let remaining_target_numerator = exact_target_numerator
             .checked_sub(recovered_target_numerator)
@@ -408,23 +447,74 @@ pub(super) fn resolve_separation_outputs(
         input
             .constituent_numerators
             .insert(definition.target_material(), remaining_target_numerator);
-        let group_target = Mass::from_milligrams(recovered_target_milligrams);
+        let mut recovered_constituent_numerators = BTreeMap::new();
+        if recovered_target_numerator != 0 {
+            recovered_constituent_numerators
+                .insert(definition.target_material(), recovered_target_numerator);
+        }
+        let mut group_target_milligrams = recovered_target_milligrams;
+        if definition.residue_material().is_none() && recovered_target_milligrams != 0 {
+            for (material, numerator) in &mut input.constituent_numerators {
+                if *material == definition.target_material() {
+                    continue;
+                }
+                let recovered_milligrams =
+                    recovered_whole_milligrams(*numerator, definition.non_target_recovery_ppm())?;
+                if recovered_milligrams == 0 {
+                    continue;
+                }
+                let recovered_numerator = u128::from(recovered_milligrams) * denominator;
+                *numerator = numerator
+                    .checked_sub(recovered_numerator)
+                    .unwrap_or_else(|| {
+                        unreachable!(
+                            "floored non-target recovery cannot exceed exact constituent matter"
+                        )
+                    });
+                recovered_constituent_numerators.insert(*material, recovered_numerator);
+                group_target_milligrams = group_target_milligrams
+                    .checked_add(recovered_milligrams)
+                    .ok_or(ConstituentSeparationBatchError::MassOverflow)?;
+            }
+        }
+        let group_target = Mass::from_milligrams(group_target_milligrams);
         let group_residue = input
             .mass
             .checked_sub(group_target)
             .unwrap_or_else(|| unreachable!("constituent projection cannot exceed selected mass"));
         debug_assert!(!group_residue.is_zero());
         if !group_target.is_zero() {
-            let target_particle_size = match target_particle_size_policy {
-                ParticleSizeStatePolicy::Required => Some(particle_size.clone()),
-                ParticleSizeStatePolicy::Untracked => None,
-            };
-            add_target_mass(
-                &mut target_by_profile,
-                temperature,
-                target_particle_size,
-                group_target,
-            )?;
+            if definition.residue_material().is_none() {
+                match target_particle_size_policy {
+                    ParticleSizeStatePolicy::Required => add_blended_particulate_stream(
+                        &mut target_particulate_by_profile,
+                        temperature,
+                        particle_size.clone(),
+                        recovered_constituent_numerators,
+                        group_target,
+                        |_| {
+                            CommodityKey::new(
+                                definition.target_material(),
+                                definition.target_output_form(),
+                            )
+                        },
+                    )?,
+                    ParticleSizeStatePolicy::Untracked => unreachable!(
+                        "validated concentration target output must retain particulate state"
+                    ),
+                }
+            } else {
+                let target_particle_size = match target_particle_size_policy {
+                    ParticleSizeStatePolicy::Required => Some(particle_size.clone()),
+                    ParticleSizeStatePolicy::Untracked => None,
+                };
+                add_target_mass(
+                    &mut target_by_profile,
+                    temperature,
+                    target_particle_size,
+                    group_target,
+                )?;
+            }
         }
 
         if let Some(residue_material) = definition.residue_material() {
@@ -501,26 +591,35 @@ pub(super) fn resolve_separation_outputs(
         target_mass = target_mass
             .checked_add(group_target)
             .ok_or(ConstituentSeparationBatchError::MassOverflow)?;
+        recovered_target_mass = recovered_target_mass
+            .checked_add(Mass::from_milligrams(recovered_target_milligrams))
+            .ok_or(ConstituentSeparationBatchError::MassOverflow)?;
         residue_mass = residue_mass
             .checked_add(group_residue)
             .ok_or(ConstituentSeparationBatchError::MassOverflow)?;
     }
 
-    if target_mass.is_zero() {
+    if recovered_target_mass.is_zero() {
         return Err(ConstituentSeparationBatchError::TargetBelowMassResolution {
             material: definition.target_material(),
             selected: selected_mass,
         });
     }
 
-    Ok(SeparationOutputs {
-        target: build_target_outputs(
+    let target = if definition.residue_material().is_some() {
+        build_target_outputs(
             target_by_profile,
             CommodityKey::new(
                 definition.target_material(),
                 definition.target_output_form(),
             ),
-        )?,
+        )?
+    } else {
+        build_particulate_outputs(target_particulate_by_profile)?
+    };
+
+    Ok(SeparationOutputs {
+        target,
         residue: build_particulate_outputs(residue_by_profile)?,
         target_mass,
         residue_mass,
