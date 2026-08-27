@@ -16,9 +16,12 @@ use crate::structural::StructuralElementId;
 mod lot_mutation;
 
 pub(super) use lot_mutation::{
-    LotSlice, LotStorageTransition, apply_aggregate_deposit, apply_aggregate_withdraw,
-    apply_consume_lot_slice, apply_insert_or_merge_new_lot, apply_move_full_lot, apply_split_lot,
+    LotSlice, apply_aggregate_withdraw, apply_consume_lot_slice, apply_insert_or_merge_new_lot,
     get_stockpile_mut_or_panic,
+};
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(super) use lot_mutation::{
+    LotStorageTransition, apply_aggregate_deposit, apply_move_full_lot, apply_split_lot,
 };
 
 /// Persistent identifier for a runtime stockpile record.

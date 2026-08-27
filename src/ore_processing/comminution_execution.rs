@@ -4,17 +4,15 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::capability::{CapabilityEvaluationError, CapabilityValue, evaluate_capabilities};
+use crate::capability::{CapabilityEvaluationError, evaluate_capabilities};
 use crate::core::quantity::{Energy, Mass, MassFlow, Power, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::energy::{
     EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerDurationError,
-    calculate_mass_specific_energy, calculate_power_duration_ceiling, validate_energy_supply,
+    calculate_mass_specific_energy, validate_energy_supply,
 };
-use crate::equipment::{
-    EquipmentId, EquipmentProviderError, resolve_equipment_capability, resolve_equipment_provider,
-};
+use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
 use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::material::{
@@ -27,10 +25,11 @@ use crate::production::{
 };
 use crate::registry::Registries;
 
-use super::timing::OreProcessActiveTiming;
-use super::{
-    ComminutionProcessDefinition, MassFlowDurationError, calculate_mass_flow_duration_ceiling,
+use super::powered_physics::{
+    PoweredOreEquipmentError, PoweredOreTimingError, resolve_powered_ore_equipment,
+    resolve_powered_ore_timing,
 };
+use super::{ComminutionProcessDefinition, MassFlowDurationError};
 
 /// Runtime request to reduce one explicitly selected solid batch to an authored finer form.
 #[derive(Clone, Copy, Debug)]
@@ -454,23 +453,26 @@ pub fn resolve_comminution_process(
     )
     .map_err(ComminutionResolutionError::Capability)?;
 
-    let processing_rate = match provider.get_capability(definition.mass_flow_capability()) {
-        Some(CapabilityValue::MassFlow(rate)) => rate,
-        Some(_) | None => return Err(ComminutionResolutionError::MissingMassFlowCapability),
-    };
-    let maximum_batch_mass = match provider.get_capability(definition.max_batch_mass_capability()) {
-        Some(CapabilityValue::Mass(mass)) => mass,
-        Some(_) | None => {
-            return Err(ComminutionResolutionError::MissingMaximumBatchMassCapability);
-        }
-    };
     let selected_mass = inputs.input_mass();
-    if selected_mass > maximum_batch_mass {
-        return Err(ComminutionResolutionError::BatchMassExceeded {
-            selected: selected_mass,
-            maximum: maximum_batch_mass,
-        });
-    }
+    let powered_equipment = resolve_powered_ore_equipment(
+        provider.definition(),
+        provider.condition(),
+        definition.mass_flow_capability(),
+        definition.max_batch_mass_capability(),
+        selected_mass,
+    )
+    .map_err(|error| match error {
+        PoweredOreEquipmentError::MissingMassFlowCapability => {
+            ComminutionResolutionError::MissingMassFlowCapability
+        }
+        PoweredOreEquipmentError::MissingMaximumBatchMassCapability => {
+            ComminutionResolutionError::MissingMaximumBatchMassCapability
+        }
+        PoweredOreEquipmentError::BatchMassExceeded { selected, maximum } => {
+            ComminutionResolutionError::BatchMassExceeded { selected, maximum }
+        }
+    })?;
+    let processing_rate = powered_equipment.processing_rate();
     let outputs = resolve_comminution_outputs(definition, inputs.consumed_inputs())
         .map_err(ComminutionResolutionError::Batch)?;
     let required_energy =
@@ -484,27 +486,29 @@ pub fn resolve_comminution_process(
             provided: provided_carrier,
         });
     }
-    let throughput_duration = calculate_mass_flow_duration_ceiling(
+    let available_power = energy_supply.max_output_power();
+    let timing = resolve_powered_ore_timing(
+        registries,
         processing_rate,
         selected_mass,
-        registries.core().physical_tick_duration(),
-    )
-    .map_err(ComminutionResolutionError::ThroughputDuration)?;
-    let available_power = energy_supply.max_output_power();
-    let energy_duration = calculate_power_duration_ceiling(
-        available_power,
         required_energy,
-        registries.core().physical_tick_duration(),
+        available_power,
+        definition.condition_wear_ppm_per_active_tick(),
+        provider.condition(),
     )
-    .map_err(ComminutionResolutionError::EnergyDuration)?;
-    let timing = OreProcessActiveTiming::new(throughput_duration, energy_duration);
+    .map_err(|error| match error {
+        PoweredOreTimingError::Throughput(error) => {
+            ComminutionResolutionError::ThroughputDuration(error)
+        }
+        PoweredOreTimingError::Energy(error) => ComminutionResolutionError::EnergyDuration(error),
+        PoweredOreTimingError::Condition(error) => {
+            ComminutionResolutionError::ConditionDuration(error)
+        }
+    })?;
+    let throughput_duration = timing.throughput_duration();
+    let energy_duration = timing.energy_duration();
     let duration = timing.duration();
-    let condition_after = timing
-        .condition_after(
-            definition.condition_wear_ppm_per_active_tick(),
-            provider.condition(),
-        )
-        .map_err(ComminutionResolutionError::ConditionDuration)?;
+    let condition_after = timing.condition_after();
     let equipment_use = provider.validated_use();
     let resolution = inputs
         .resolve_with_energy_and_equipment(
@@ -797,35 +801,29 @@ pub(crate) fn validate_loaded_comminution_job(
         .energy()
         .get_store(consumed_energy.definition())
         .ok_or(ComminutionJobValidationError::UnknownEnergyDefinition { job: job.id() })?;
-    let processing_rate = match resolve_equipment_capability(
+    let powered_equipment = resolve_powered_ore_equipment(
         equipment_definition,
         provider.condition(),
         definition.mass_flow_capability(),
-    ) {
-        Some(CapabilityValue::MassFlow(rate)) => rate,
-        Some(_) | None => {
-            return Err(ComminutionJobValidationError::MissingMassFlowCapability { job: job.id() });
-        }
-    };
-    let maximum_batch_mass = match resolve_equipment_capability(
-        equipment_definition,
-        provider.condition(),
         definition.max_batch_mass_capability(),
-    ) {
-        Some(CapabilityValue::Mass(mass)) => mass,
-        Some(_) | None => {
-            return Err(
-                ComminutionJobValidationError::MissingMaximumBatchMassCapability { job: job.id() },
-            );
+        job.consumed_mass(),
+    )
+    .map_err(|error| match error {
+        PoweredOreEquipmentError::MissingMassFlowCapability => {
+            ComminutionJobValidationError::MissingMassFlowCapability { job: job.id() }
         }
-    };
-    if job.consumed_mass() > maximum_batch_mass {
-        return Err(ComminutionJobValidationError::BatchMassExceeded {
-            job: job.id(),
-            selected: job.consumed_mass(),
-            maximum: maximum_batch_mass,
-        });
-    }
+        PoweredOreEquipmentError::MissingMaximumBatchMassCapability => {
+            ComminutionJobValidationError::MissingMaximumBatchMassCapability { job: job.id() }
+        }
+        PoweredOreEquipmentError::BatchMassExceeded { selected, maximum } => {
+            ComminutionJobValidationError::BatchMassExceeded {
+                job: job.id(),
+                selected,
+                maximum,
+            }
+        }
+    })?;
+    let processing_rate = powered_equipment.processing_rate();
     let required_outputs =
         resolve_comminution_outputs(definition, job.consumed_inputs()).map_err(|error| {
             ComminutionJobValidationError::Batch {
@@ -855,25 +853,33 @@ pub(crate) fn validate_loaded_comminution_job(
             required: required_energy,
         });
     }
-    let throughput_duration = calculate_mass_flow_duration_ceiling(
+    let timing = resolve_powered_ore_timing(
+        registries,
         processing_rate,
         job.consumed_mass(),
-        registries.core().physical_tick_duration(),
-    )
-    .map_err(|error| ComminutionJobValidationError::ThroughputDuration {
-        job: job.id(),
-        error,
-    })?;
-    let energy_duration = calculate_power_duration_ceiling(
-        energy_definition.max_output_power(),
         required_energy,
-        registries.core().physical_tick_duration(),
+        energy_definition.max_output_power(),
+        definition.condition_wear_ppm_per_active_tick(),
+        provider.condition(),
     )
-    .map_err(|error| ComminutionJobValidationError::EnergyDuration {
-        job: job.id(),
-        error,
+    .map_err(|error| match error {
+        PoweredOreTimingError::Throughput(error) => {
+            ComminutionJobValidationError::ThroughputDuration {
+                job: job.id(),
+                error,
+            }
+        }
+        PoweredOreTimingError::Energy(error) => ComminutionJobValidationError::EnergyDuration {
+            job: job.id(),
+            error,
+        },
+        PoweredOreTimingError::Condition(error) => {
+            ComminutionJobValidationError::ConditionDuration {
+                job: job.id(),
+                error,
+            }
+        }
     })?;
-    let timing = OreProcessActiveTiming::new(throughput_duration, energy_duration);
     let required_duration = timing.duration();
     let stored_duration = job.active_duration().value();
     if stored_duration != required_duration.value() {
@@ -883,15 +889,7 @@ pub(crate) fn validate_loaded_comminution_job(
             required_ticks: required_duration.value(),
         });
     }
-    let required_condition_after = timing
-        .condition_after(
-            definition.condition_wear_ppm_per_active_tick(),
-            provider.condition(),
-        )
-        .map_err(|error| ComminutionJobValidationError::ConditionDuration {
-            job: job.id(),
-            error,
-        })?;
+    let required_condition_after = timing.condition_after();
     let stored_condition_after = job
         .equipment_condition_after()
         .ok_or(ComminutionJobValidationError::MissingConditionOutcome { job: job.id() })?;

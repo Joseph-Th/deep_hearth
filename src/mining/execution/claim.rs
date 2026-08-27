@@ -190,7 +190,7 @@ pub fn validate_claim_mining_output(
     let structural_load = validate_stockpile_stored_mass_changes(
         registries,
         state,
-        [StockpileStoredMassChange::new_committed_inbound(
+        [StockpileStoredMassChange::new(
             record.destination(),
             stored_after,
         )],

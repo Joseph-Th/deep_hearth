@@ -138,6 +138,10 @@ pub enum TickError {
     StaleEnergyRevision { expected: u64, actual: u64 },
     /// Structure changed after a stored-matter load completion was planned and before commit.
     StaleStructureRevision { expected: u64, actual: u64 },
+    /// Player-work ownership changed after manual production resumption was planned.
+    StalePlayerWorkRevision { expected: u64, actual: u64 },
+    /// Survival reserves changed after manual production resumption was planned.
+    StaleSurvivalRevision { expected: u64, actual: u64 },
     /// Geological knowledge changed after a due field observation was planned.
     StaleGeologicalKnowledgeRevision { expected: u64, actual: u64 },
     /// A validated stored-matter structural consequence could not commit.
@@ -242,6 +246,14 @@ impl Display for TickError {
                 formatter,
                 "tick completion plan expected structural revision {expected} but current revision is {actual}"
             ),
+            Self::StalePlayerWorkRevision { expected, actual } => write!(
+                formatter,
+                "tick completion plan expected player-work revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleSurvivalRevision { expected, actual } => write!(
+                formatter,
+                "tick completion plan expected survival revision {expected} but current revision is {actual}"
+            ),
             Self::StaleGeologicalKnowledgeRevision { expected, actual } => write!(
                 formatter,
                 "field prospecting expected geological knowledge revision {expected} but current revision is {actual}"
@@ -291,6 +303,14 @@ impl Error for TickError {
                 expected: _expected,
                 actual: _actual,
             }
+            | Self::StalePlayerWorkRevision {
+                expected: _expected,
+                actual: _actual,
+            }
+            | Self::StaleSurvivalRevision {
+                expected: _expected,
+                actual: _actual,
+            }
             | Self::StaleGeologicalKnowledgeRevision {
                 expected: _expected,
                 actual: _actual,
@@ -319,9 +339,8 @@ fn has_revision_capacity(current: u64, steps: u64) -> bool {
 
 /// Advances the full authoritative simulation by exactly one base tick.
 ///
-/// All future subsystem phases belong in this visible sequence. The registry parameter is already
-/// part of the canonical signature even though the initial clock-only foundation does not yet need
-/// a static definition during advancement.
+/// Every authoritative subsystem phase is sequenced here so cross-owner decisions are made against
+/// one pre-tick snapshot and then applied in a deterministic order.
 pub fn advance_tick(
     registries: &Registries,
     state: &mut AppState,
@@ -340,6 +359,7 @@ pub fn advance_tick(
             CompletionPlanError::ProductionRevision => TickError::ProductionRevisionExhausted,
             CompletionPlanError::EquipmentRevision => TickError::EquipmentRevisionExhausted,
             CompletionPlanError::EnergyRevision => TickError::EnergyRevisionExhausted,
+            CompletionPlanError::PlayerWorkRevision => TickError::PlayerWorkRevisionExhausted,
             CompletionPlanError::ResumeTickOverflow {
                 job,
                 current,
@@ -357,8 +377,13 @@ pub fn advance_tick(
             }
             CompletionPlanError::StructuralLoad(error) => TickError::StructuralLoad(error),
         })?;
-    let player_work_plan = decide_player_work_tick(state, next_tick)
-        .map_err(|_error| TickError::PlayerWorkRevisionExhausted)?;
+    let player_work_plan = decide_player_work_tick(
+        registries,
+        state,
+        next_tick,
+        completion_plan.availability_changes(),
+    )
+    .map_err(|_error| TickError::PlayerWorkRevisionExhausted)?;
     let field_prospecting_plan = decide_field_prospecting_tick(registries, state, next_tick)
         .map_err(|error| match error {
             FieldProspectingTickError::ObservationIdExhausted => {
@@ -410,7 +435,7 @@ pub fn advance_tick(
     if !has_revision_capacity(state.energy().revision(), energy_revision_steps) {
         return Err(TickError::EnergyRevisionExhausted);
     }
-    let exertion = player_work_exertion(registries, state);
+    let exertion = player_work_exertion(registries, state, completion_plan.availability_changes());
     let survival_plan =
         decide_survival_tick(registries, state, exertion).map_err(|error| match error {
             SurvivalTickError::RevisionExhausted => TickError::SurvivalRevisionExhausted,
@@ -435,6 +460,12 @@ pub fn advance_tick(
         }
         CompletionCommitError::StructureRevisionConflict { expected, actual } => {
             TickError::StaleStructureRevision { expected, actual }
+        }
+        CompletionCommitError::PlayerWorkRevisionConflict { expected, actual } => {
+            TickError::StalePlayerWorkRevision { expected, actual }
+        }
+        CompletionCommitError::SurvivalRevisionConflict { expected, actual } => {
+            TickError::StaleSurvivalRevision { expected, actual }
         }
         CompletionCommitError::Structure(error) => TickError::Structure(error),
     })?;

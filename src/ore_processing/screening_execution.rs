@@ -4,17 +4,15 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::capability::{CapabilityEvaluationError, CapabilityValue, evaluate_capabilities};
+use crate::capability::{CapabilityEvaluationError, evaluate_capabilities};
 use crate::core::quantity::{Energy, Mass, MassFlow, Power, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::energy::{
     EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerDurationError,
-    calculate_mass_specific_energy, calculate_power_duration_ceiling, validate_energy_supply,
+    calculate_mass_specific_energy, validate_energy_supply,
 };
-use crate::equipment::{
-    EquipmentId, EquipmentProviderError, resolve_equipment_capability, resolve_equipment_provider,
-};
+use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
 use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::material::{
@@ -27,10 +25,11 @@ use crate::production::{
 };
 use crate::registry::Registries;
 
-use super::timing::OreProcessActiveTiming;
-use super::{
-    MassFlowDurationError, ScreeningProcessDefinition, calculate_mass_flow_duration_ceiling,
+use super::powered_physics::{
+    PoweredOreEquipmentError, PoweredOreTimingError, resolve_powered_ore_equipment,
+    resolve_powered_ore_timing,
 };
+use super::{MassFlowDurationError, ScreeningProcessDefinition};
 
 /// Runtime request to classify one explicitly selected particulate batch by an authored aperture.
 #[derive(Clone, Copy, Debug)]
@@ -553,23 +552,26 @@ pub fn resolve_screening_process(
     )
     .map_err(ScreeningResolutionError::Capability)?;
 
-    let processing_rate = match provider.get_capability(definition.mass_flow_capability()) {
-        Some(CapabilityValue::MassFlow(rate)) => rate,
-        Some(_) | None => return Err(ScreeningResolutionError::MissingMassFlowCapability),
-    };
-    let maximum_batch_mass = match provider.get_capability(definition.max_batch_mass_capability()) {
-        Some(CapabilityValue::Mass(mass)) => mass,
-        Some(_) | None => {
-            return Err(ScreeningResolutionError::MissingMaximumBatchMassCapability);
-        }
-    };
     let selected_mass = inputs.input_mass();
-    if selected_mass > maximum_batch_mass {
-        return Err(ScreeningResolutionError::BatchMassExceeded {
-            selected: selected_mass,
-            maximum: maximum_batch_mass,
-        });
-    }
+    let powered_equipment = resolve_powered_ore_equipment(
+        provider.definition(),
+        provider.condition(),
+        definition.mass_flow_capability(),
+        definition.max_batch_mass_capability(),
+        selected_mass,
+    )
+    .map_err(|error| match error {
+        PoweredOreEquipmentError::MissingMassFlowCapability => {
+            ScreeningResolutionError::MissingMassFlowCapability
+        }
+        PoweredOreEquipmentError::MissingMaximumBatchMassCapability => {
+            ScreeningResolutionError::MissingMaximumBatchMassCapability
+        }
+        PoweredOreEquipmentError::BatchMassExceeded { selected, maximum } => {
+            ScreeningResolutionError::BatchMassExceeded { selected, maximum }
+        }
+    })?;
+    let processing_rate = powered_equipment.processing_rate();
 
     let outputs = resolve_screening_outputs(definition, inputs.consumed_inputs())
         .map_err(ScreeningResolutionError::Batch)?;
@@ -584,27 +586,29 @@ pub fn resolve_screening_process(
             provided: provided_carrier,
         });
     }
-    let throughput_duration = calculate_mass_flow_duration_ceiling(
+    let available_power = energy_supply.max_output_power();
+    let timing = resolve_powered_ore_timing(
+        registries,
         processing_rate,
         selected_mass,
-        registries.core().physical_tick_duration(),
-    )
-    .map_err(ScreeningResolutionError::ThroughputDuration)?;
-    let available_power = energy_supply.max_output_power();
-    let energy_duration = calculate_power_duration_ceiling(
-        available_power,
         required_energy,
-        registries.core().physical_tick_duration(),
+        available_power,
+        definition.condition_wear_ppm_per_active_tick(),
+        provider.condition(),
     )
-    .map_err(ScreeningResolutionError::EnergyDuration)?;
-    let timing = OreProcessActiveTiming::new(throughput_duration, energy_duration);
+    .map_err(|error| match error {
+        PoweredOreTimingError::Throughput(error) => {
+            ScreeningResolutionError::ThroughputDuration(error)
+        }
+        PoweredOreTimingError::Energy(error) => ScreeningResolutionError::EnergyDuration(error),
+        PoweredOreTimingError::Condition(error) => {
+            ScreeningResolutionError::ConditionDuration(error)
+        }
+    })?;
+    let throughput_duration = timing.throughput_duration();
+    let energy_duration = timing.energy_duration();
     let duration = timing.duration();
-    let condition_after = timing
-        .condition_after(
-            definition.condition_wear_ppm_per_active_tick(),
-            provider.condition(),
-        )
-        .map_err(ScreeningResolutionError::ConditionDuration)?;
+    let condition_after = timing.condition_after();
     let equipment_use = provider.validated_use();
     let resolution = inputs
         .resolve_with_energy_and_equipment(
@@ -902,35 +906,29 @@ pub(crate) fn validate_loaded_screening_job(
         .energy()
         .get_store(consumed_energy.definition())
         .ok_or(ScreeningJobValidationError::UnknownEnergyDefinition { job: job.id() })?;
-    let processing_rate = match resolve_equipment_capability(
+    let powered_equipment = resolve_powered_ore_equipment(
         equipment_definition,
         provider.condition(),
         definition.mass_flow_capability(),
-    ) {
-        Some(CapabilityValue::MassFlow(rate)) => rate,
-        Some(_) | None => {
-            return Err(ScreeningJobValidationError::MissingMassFlowCapability { job: job.id() });
-        }
-    };
-    let maximum_batch_mass = match resolve_equipment_capability(
-        equipment_definition,
-        provider.condition(),
         definition.max_batch_mass_capability(),
-    ) {
-        Some(CapabilityValue::Mass(mass)) => mass,
-        Some(_) | None => {
-            return Err(
-                ScreeningJobValidationError::MissingMaximumBatchMassCapability { job: job.id() },
-            );
+        job.consumed_mass(),
+    )
+    .map_err(|error| match error {
+        PoweredOreEquipmentError::MissingMassFlowCapability => {
+            ScreeningJobValidationError::MissingMassFlowCapability { job: job.id() }
         }
-    };
-    if job.consumed_mass() > maximum_batch_mass {
-        return Err(ScreeningJobValidationError::BatchMassExceeded {
-            job: job.id(),
-            selected: job.consumed_mass(),
-            maximum: maximum_batch_mass,
-        });
-    }
+        PoweredOreEquipmentError::MissingMaximumBatchMassCapability => {
+            ScreeningJobValidationError::MissingMaximumBatchMassCapability { job: job.id() }
+        }
+        PoweredOreEquipmentError::BatchMassExceeded { selected, maximum } => {
+            ScreeningJobValidationError::BatchMassExceeded {
+                job: job.id(),
+                selected,
+                maximum,
+            }
+        }
+    })?;
+    let processing_rate = powered_equipment.processing_rate();
     let expected =
         resolve_screening_outputs(definition, job.consumed_inputs()).map_err(|error| {
             ScreeningJobValidationError::Batch {
@@ -969,25 +967,31 @@ pub(crate) fn validate_loaded_screening_job(
             required: required_energy,
         });
     }
-    let throughput_duration = calculate_mass_flow_duration_ceiling(
+    let timing = resolve_powered_ore_timing(
+        registries,
         processing_rate,
         job.consumed_mass(),
-        registries.core().physical_tick_duration(),
-    )
-    .map_err(|error| ScreeningJobValidationError::ThroughputDuration {
-        job: job.id(),
-        error,
-    })?;
-    let energy_duration = calculate_power_duration_ceiling(
-        energy_definition.max_output_power(),
         required_energy,
-        registries.core().physical_tick_duration(),
+        energy_definition.max_output_power(),
+        definition.condition_wear_ppm_per_active_tick(),
+        provider.condition(),
     )
-    .map_err(|error| ScreeningJobValidationError::EnergyDuration {
-        job: job.id(),
-        error,
+    .map_err(|error| match error {
+        PoweredOreTimingError::Throughput(error) => {
+            ScreeningJobValidationError::ThroughputDuration {
+                job: job.id(),
+                error,
+            }
+        }
+        PoweredOreTimingError::Energy(error) => ScreeningJobValidationError::EnergyDuration {
+            job: job.id(),
+            error,
+        },
+        PoweredOreTimingError::Condition(error) => ScreeningJobValidationError::ConditionDuration {
+            job: job.id(),
+            error,
+        },
     })?;
-    let timing = OreProcessActiveTiming::new(throughput_duration, energy_duration);
     let required_duration = timing.duration();
     let stored_duration = job.active_duration().value();
     if stored_duration != required_duration.value() {
@@ -997,15 +1001,7 @@ pub(crate) fn validate_loaded_screening_job(
             required_ticks: required_duration.value(),
         });
     }
-    let required_condition_after = timing
-        .condition_after(
-            definition.condition_wear_ppm_per_active_tick(),
-            provider.condition(),
-        )
-        .map_err(|error| ScreeningJobValidationError::ConditionDuration {
-            job: job.id(),
-            error,
-        })?;
+    let required_condition_after = timing.condition_after();
     let stored_condition_after = job
         .equipment_condition_after()
         .ok_or(ScreeningJobValidationError::MissingConditionOutcome { job: job.id() })?;

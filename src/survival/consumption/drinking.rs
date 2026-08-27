@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::{AggregateVolume, Volume};
+use crate::core::quantity::{AggregateVolume, Temperature, Volume};
 use crate::core::state::AppState;
 use crate::fluid::{
     FluidEgressCommitError, FluidEgressError, FluidStoreId, FluidStructuralLoadError,
@@ -32,6 +32,12 @@ pub enum DrinkError {
         store: FluidStoreId,
     },
     NotDrinkable,
+    TemperatureOutsideConsumptionRange {
+        store: FluidStoreId,
+        temperature: Temperature,
+        minimum: Temperature,
+        maximum: Temperature,
+    },
     ZeroVolume,
     InsufficientVolume {
         store: FluidStoreId,
@@ -68,6 +74,19 @@ impl Display for DrinkError {
                 write!(formatter, "drink source store {} is empty", store.value())
             }
             Self::NotDrinkable => formatter.write_str("stored fluid is not authored as drinkable"),
+            Self::TemperatureOutsideConsumptionRange {
+                store,
+                temperature,
+                minimum,
+                maximum,
+            } => write!(
+                formatter,
+                "drink source {} at {} mK lies outside its direct-consumption range {}..={} mK",
+                store.value(),
+                temperature.millikelvin(),
+                minimum.millikelvin(),
+                maximum.millikelvin()
+            ),
             Self::ZeroVolume => formatter.write_str("drink volume must be nonzero"),
             Self::InsufficientVolume {
                 store,
@@ -115,6 +134,7 @@ impl Error for DrinkError {
             | Self::UnknownStore { store: _ }
             | Self::EmptyStore { store: _ }
             | Self::NotDrinkable
+            | Self::TemperatureOutsideConsumptionRange { .. }
             | Self::ZeroVolume
             | Self::InsufficientVolume { .. }
             | Self::FluidRevisionExhausted
@@ -235,6 +255,15 @@ pub fn validate_drink(
         .get_drink(contents.fluid())
         .copied()
         .ok_or(DrinkError::NotDrinkable)?;
+    let consumption_temperature = drink.consumption_temperature();
+    if !consumption_temperature.contains(contents.temperature()) {
+        return Err(DrinkError::TemperatureOutsideConsumptionRange {
+            store,
+            temperature: contents.temperature(),
+            minimum: consumption_temperature.minimum(),
+            maximum: consumption_temperature.maximum(),
+        });
+    }
     let egress =
         validate_fluid_egress(registries, state, store, volume).map_err(|error| match error {
             FluidEgressError::UnknownStore { store } => DrinkError::UnknownStore { store },

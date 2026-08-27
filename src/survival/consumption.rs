@@ -11,7 +11,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::arithmetic::checked_mul_div_with_remainder;
-use crate::core::quantity::{AggregateMass, Energy, Mass, Volume};
+use crate::core::quantity::{AggregateMass, Energy, Mass, Temperature, Volume};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::inventory::{
@@ -67,6 +67,12 @@ pub enum EatError {
     },
     NotEdible {
         commodity: CommodityKey,
+    },
+    TemperatureOutsideConsumptionRange {
+        lot: MaterialLotId,
+        temperature: Temperature,
+        minimum: Temperature,
+        maximum: Temperature,
     },
     Spoiled {
         lot: MaterialLotId,
@@ -153,6 +159,19 @@ impl Display for EatError {
                 commodity.material().value(),
                 commodity.form().value()
             ),
+            Self::TemperatureOutsideConsumptionRange {
+                lot,
+                temperature,
+                minimum,
+                maximum,
+            } => write!(
+                formatter,
+                "food lot {} at {} mK lies outside its direct-consumption range {}..={} mK",
+                lot.value(),
+                temperature.millikelvin(),
+                minimum.millikelvin(),
+                maximum.millikelvin()
+            ),
             Self::Spoiled { lot, age } => write!(
                 formatter,
                 "food lot {} is spoiled after {} ticks",
@@ -212,6 +231,7 @@ impl Error for EatError {
             | Self::InsufficientLotMass { .. }
             | Self::InventoryMassOverflow { stockpile: _ }
             | Self::NotEdible { commodity: _ }
+            | Self::TemperatureOutsideConsumptionRange { .. }
             | Self::Spoiled { .. }
             | Self::ShelfLifeOverflow
             | Self::MetabolicEnergyOverflow
@@ -514,6 +534,15 @@ pub fn validate_eat(
             .ok_or(EatError::NotEdible {
                 commodity: lot.commodity(),
             })?;
+        let consumption_temperature = food.consumption_temperature();
+        if !consumption_temperature.contains(lot.temperature()) {
+            return Err(EatError::TemperatureOutsideConsumptionRange {
+                lot: selection.lot(),
+                temperature: lot.temperature(),
+                minimum: consumption_temperature.minimum(),
+                maximum: consumption_temperature.maximum(),
+            });
+        }
         let metabolic_material = food.commodity().material();
         if lot.composition().pure_material() != Some(metabolic_material) {
             return Err(EatError::UnsupportedComposition {

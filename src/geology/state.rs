@@ -39,12 +39,8 @@ pub enum GeologicalDepositLifecycle {
     Depleted,
 }
 
-/// Opaque world-generation authorization for one finite geological deposit.
-///
-/// The type is public so a future geological generator can pass an authorized plan into the
-/// canonical admission function, but production callers cannot construct one directly. This keeps
-/// geological matter creation behind a physical world-generation owner rather than a general spawn
-/// API.
+/// Controlled world-generation authorization used by tests and maintained gameplay fixtures.
+#[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GeneratedDepositSpec {
     bounds: VoxelBounds,
@@ -55,12 +51,8 @@ pub struct GeneratedDepositSpec {
     composition: MaterialComposition,
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl GeneratedDepositSpec {
-    /// Test-side stand-in for a future regional world-generation resolver.
-    ///
-    /// Production code deliberately has no constructor until a real geological generator can
-    /// establish this source authorization without exposing arbitrary matter creation.
-    #[cfg(any(test, feature = "test-gameplay"))]
     pub(crate) fn new(
         bounds: VoxelBounds,
         commodity: CommodityKey,
@@ -258,6 +250,7 @@ impl GeologyState {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "test-gameplay"))]
     pub(super) const fn next_deposit_id(&self) -> u32 {
         self.next_deposit_id
     }
@@ -272,6 +265,7 @@ impl GeologyState {
         self.deposits.values()
     }
 
+    #[cfg(any(test, feature = "test-gameplay"))]
     pub(super) fn insert_deposit(
         &mut self,
         record: GeologicalDepositRecord,

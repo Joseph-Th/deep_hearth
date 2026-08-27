@@ -19,13 +19,8 @@ use crate::material::{
 };
 use crate::matter::calculate_matter_accounting;
 
-#[cfg(feature = "test-soak")]
-use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{add_structural_element, validate_activate_structural_element};
-
-#[cfg(feature = "test-soak")]
-use crate::structural::{make_test_deconstruction_resolution, validate_structural_deconstruction};
 
 fn wood_length_for_mass(mass: Mass) -> Length {
     assert!(!mass.is_zero(), "test member mass must be nonzero");
@@ -98,10 +93,9 @@ fn liquid_material_cannot_become_structural_embodiment() {
 
     assert_eq!(
         validate_structural_construction(&registries, &state, resolution),
-        Err(StructuralConstructionError::UnsupportedPhase {
+        Err(StructuralConstructionError::UnconsolidatedForm {
             element,
             form: FORM_MOLTEN,
-            phase: MaterialPhase::Liquid,
         })
     );
     assert_eq!(state, before);
@@ -172,7 +166,7 @@ fn particulate_material_requires_consolidation_before_structural_embodiment() {
 
     assert_eq!(
         validate_structural_construction(&registries, &state, resolution),
-        Err(StructuralConstructionError::UnsupportedParticulateForm {
+        Err(StructuralConstructionError::UnconsolidatedForm {
             element,
             form: FORM_CRUSHED,
         })
@@ -583,137 +577,4 @@ fn construction_rechecks_both_owner_revisions_before_consuming_matter() {
             .map(|stockpile| stockpile.stored_mass()),
         Some(Mass::from_milligrams(20))
     );
-}
-
-#[cfg(feature = "test-soak")]
-fn run_construction_ownership_soak(seed: WorldSeed) -> AppState {
-    let registries = build_registries();
-    let mut state = AppState::new(seed);
-    let mut source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10)) {
-        Ok(stockpile) => stockpile,
-        Err(error) => panic!("construction soak source failed: {error}"),
-    };
-    let mut destination = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
-    {
-        Ok(stockpile) => stockpile,
-        Err(error) => panic!("construction soak destination failed: {error}"),
-    };
-    let mut lot = match deposit_lot_for_test(
-        &registries,
-        &mut state,
-        source,
-        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-        Mass::from_milligrams(10),
-        crate::core::quantity::Temperature::from_millikelvin(293_150),
-    ) {
-        Ok(lot) => lot,
-        Err(error) => panic!("construction soak initial material failed: {error}"),
-    };
-    let initial_matter = match calculate_matter_accounting(&state) {
-        Ok(accounting) => accounting.total(),
-        Err(error) => panic!("construction soak initial matter accounting failed: {error}"),
-    };
-    let initial_energy = explicit_energy(&registries, &state);
-
-    for step in 0_u64..1_000 {
-        let element = member(&registries, &mut state, Mass::from_milligrams(10));
-        let construction = match bind_structural_construction_selection(
-            &state,
-            element,
-            source,
-            &[MaterialLotSelection::new(lot, Mass::from_milligrams(10))],
-        ) {
-            Ok(resolution) => resolution,
-            Err(error) => panic!("construction soak binding failed at step {step}: {error:?}"),
-        };
-        let token = match validate_structural_construction(&registries, &state, construction) {
-            Ok(token) => token,
-            Err(error) => {
-                panic!("construction soak validation failed at step {step}: {error}")
-            }
-        };
-        if let Err(error) = token.commit(&mut state) {
-            panic!("construction soak commit failed at step {step}: {error}");
-        }
-
-        let activation = match validate_activate_structural_element(&registries, &state, element) {
-            Ok(token) => token,
-            Err(error) => {
-                panic!("construction soak activation failed at step {step}: {error}")
-            }
-        };
-        if let Err(error) = activation.commit(&mut state) {
-            panic!("construction soak activation commit failed at step {step}: {error}");
-        }
-
-        let deconstruction = match validate_structural_deconstruction(
-            &registries,
-            &state,
-            make_test_deconstruction_resolution(element, destination),
-        ) {
-            Ok(token) => token,
-            Err(error) => {
-                panic!("construction soak deconstruction failed at step {step}: {error}")
-            }
-        };
-        let outcome = match deconstruction.commit(&mut state) {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                panic!("construction soak deconstruction commit failed at step {step}: {error}")
-            }
-        };
-        assert_eq!(outcome.recovered_lots().len(), 1);
-        lot = outcome.recovered_lots()[0];
-        std::mem::swap(&mut source, &mut destination);
-
-        if let Err(error) = advance_tick(&registries, &mut state) {
-            panic!("construction soak tick failed at step {step}: {error}");
-        }
-        if step.is_multiple_of(97) {
-            if let Err(error) = validate_loaded_state(&registries, &state) {
-                panic!("construction soak exhaustive audit failed at step {step}: {error}");
-            }
-            let matter = match calculate_matter_accounting(&state) {
-                Ok(accounting) => accounting.total(),
-                Err(error) => {
-                    panic!("construction soak matter accounting failed at step {step}: {error}")
-                }
-            };
-            assert_eq!(matter, initial_matter);
-            assert_eq!(explicit_energy(&registries, &state), initial_energy);
-        }
-    }
-
-    assert_eq!(state.structures().elements().count(), 0);
-    assert_eq!(
-        state
-            .inventory()
-            .get_stockpile(source)
-            .map(|stockpile| stockpile.stored_mass()),
-        Some(Mass::from_milligrams(10))
-    );
-    assert_eq!(
-        state
-            .inventory()
-            .get_stockpile(destination)
-            .map(|stockpile| stockpile.stored_mass()),
-        Some(Mass::ZERO)
-    );
-    assert_eq!(state.tick().value(), 1_000);
-    assert_eq!(
-        calculate_matter_accounting(&state).map(|accounting| accounting.total()),
-        Ok(initial_matter)
-    );
-    assert_eq!(explicit_energy(&registries, &state), initial_energy);
-    state
-}
-
-#[cfg(feature = "test-soak")]
-#[test]
-#[ignore = "long-horizon soak"]
-fn construction_deconstruction_soak_preserves_conservation_and_replay() {
-    let seed = WorldSeed::new(0x5C00_5000);
-    let first = run_construction_ownership_soak(seed);
-    let second = run_construction_ownership_soak(seed);
-    assert_eq!(first, second);
 }

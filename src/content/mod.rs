@@ -39,8 +39,7 @@ use test_support::{
 #[cfg(test)]
 pub(crate) use test_support::{
     make_test_registries_with_casting, make_test_registries_with_comminution,
-    make_test_registries_with_energy_store, make_test_registries_with_energy_stores,
-    make_test_registries_with_energy_stores_and_process, make_test_registries_with_equipment,
+    make_test_registries_with_energy_store, make_test_registries_with_equipment,
     make_test_registries_with_fluids, make_test_registries_with_melting,
     make_test_registries_with_process, make_test_registries_with_screening,
     make_test_registries_with_sensible_heating,
@@ -95,7 +94,7 @@ const DEFAULT_TICKS_PER_DAY: u64 = 24_000;
 const DEFAULT_PHYSICAL_SECONDS_PER_DAY: u32 = 86_400;
 const DEFAULT_DAYS_PER_MONTH: u16 = 8;
 const DEFAULT_MONTHS_PER_YEAR: u16 = 12;
-const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(46);
+const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(48);
 
 fn build_core_definitions() -> CoreDefinitions {
     CoreDefinitions::new(

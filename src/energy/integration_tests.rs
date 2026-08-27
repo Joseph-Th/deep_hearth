@@ -1,4 +1,4 @@
-//! Tests for the sibling mod module; isolated so test-only edits do not invalidate production builds.
+//! Tests for exact power integration, inverse duration calculation, and specific-energy scaling.
 
 use super::*;
 

@@ -3,12 +3,15 @@
 mod construction_execution;
 mod definitions;
 mod disassembly_execution;
+#[cfg(any(test, feature = "test-gameplay"))]
 mod equipment_execution;
 mod equipment_integration;
 mod equipment_structural_integration;
 mod maintenance_execution;
 mod maintenance_resolution;
 mod state;
+#[cfg(test)]
+mod test_condition_mutation;
 mod upgrade_execution;
 
 pub use construction_execution::{
@@ -25,10 +28,6 @@ pub use disassembly_execution::{
 };
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use equipment_execution::add_equipment;
-pub use equipment_execution::{
-    EquipmentConditionCommitError, EquipmentConditionPlan, EquipmentConditionPlanError,
-    apply_equipment_condition_plan, decide_equipment_wear,
-};
 pub use equipment_integration::{
     EquipmentProviderError, ResolvedEquipmentProvider, resolve_equipment_provider,
 };
@@ -47,6 +46,11 @@ pub use maintenance_resolution::{
 };
 pub use state::{
     EquipmentId, EquipmentOperationTrace, EquipmentRecord, EquipmentState, EquipmentValidationError,
+};
+#[cfg(test)]
+pub(crate) use test_condition_mutation::{
+    EquipmentConditionCommitError, EquipmentConditionPlanError, apply_equipment_condition_plan,
+    decide_equipment_wear,
 };
 pub use upgrade_execution::{
     EquipmentUpgradeCommitError, EquipmentUpgradeError, ValidatedEquipmentUpgrade,

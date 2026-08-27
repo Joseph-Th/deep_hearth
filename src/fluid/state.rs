@@ -292,26 +292,6 @@ impl FluidState {
         self.revision = next_revision;
     }
 
-    /// Applies one validated transfer's final contents to both stores under one revision advance.
-    pub(super) fn apply_transfer_contents(
-        &mut self,
-        source: FluidStoreId,
-        source_contents: Option<FluidContents>,
-        destination: FluidStoreId,
-        destination_contents: FluidContents,
-        next_revision: u64,
-    ) {
-        let Some(source_record) = self.records.get_mut(&source) else {
-            unreachable!("validated fluid source cannot disappear without a revision change");
-        };
-        source_record.contents = source_contents;
-        let Some(destination_record) = self.records.get_mut(&destination) else {
-            unreachable!("validated fluid destination cannot disappear without a revision change");
-        };
-        destination_record.contents = Some(destination_contents);
-        self.revision = next_revision;
-    }
-
     pub(crate) fn has_valid_id_cursor(&self) -> bool {
         self.next_store_id != 0
             && self

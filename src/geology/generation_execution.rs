@@ -16,7 +16,7 @@ use super::state::{
 
 /// Failure while admitting a finite world-generated geological deposit into authoritative state.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum InsertGeneratedDepositError {
+pub(crate) enum InsertGeneratedDepositError {
     UnknownMaterial { material: MaterialId },
     UnknownForm { form: FormId },
     UnsupportedCommodity { commodity: CommodityKey },
@@ -94,7 +94,7 @@ impl Error for InsertGeneratedDepositError {
 ///
 /// This is not a player mining operation. It establishes finite geological matter that the mining
 /// subsystem may later reserve and excavate through its tool/labor-gated transaction.
-pub fn insert_generated_deposit(
+pub(crate) fn insert_generated_deposit(
     registries: &Registries,
     state: &mut AppState,
     spec: GeneratedDepositSpec,

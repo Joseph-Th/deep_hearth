@@ -4,8 +4,6 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::material::{FormId, MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy};
-
 /// Normalization scale for structural utilization and retained-capacity fractions.
 pub const STRUCTURAL_PARTS_PER_MILLION: u32 = 1_000_000;
 
@@ -42,7 +40,6 @@ pub struct StructuralProfileDefinition {
     strained_at_ppm: u32,
     cracking_at_ppm: u32,
     cracked_capacity_ppm: u32,
-    damaged_recovery_form: FormId,
 }
 
 impl StructuralProfileDefinition {
@@ -54,7 +51,6 @@ impl StructuralProfileDefinition {
         strained_at_ppm: u32,
         cracking_at_ppm: u32,
         cracked_capacity_ppm: u32,
-        damaged_recovery_form: FormId,
     ) -> Self {
         let name = name.into();
         assert!(
@@ -81,7 +77,6 @@ impl StructuralProfileDefinition {
             strained_at_ppm,
             cracking_at_ppm,
             cracked_capacity_ppm,
-            damaged_recovery_form,
         }
     }
 
@@ -114,12 +109,6 @@ impl StructuralProfileDefinition {
     pub const fn cracked_capacity_ppm(&self) -> u32 {
         self.cracked_capacity_ppm
     }
-
-    /// Returns the conserved non-load-bearing form produced when damaged member matter is recovered.
-    #[must_use]
-    pub const fn damaged_recovery_form(&self) -> FormId {
-        self.damaged_recovery_form
-    }
 }
 
 #[cfg(test)]
@@ -149,33 +138,5 @@ impl StructuralRegistry {
     #[must_use]
     pub fn get_profile(&self, id: StructuralProfileId) -> Option<&StructuralProfileDefinition> {
         self.definitions.get(&id)
-    }
-
-    pub(crate) fn validate_references(&self, materials: &MaterialRegistry) {
-        for definition in self.definitions.values() {
-            let form = materials
-                .get_form(definition.damaged_recovery_form())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "structural profile {} references missing damaged-recovery form {}",
-                        definition.id().value(),
-                        definition.damaged_recovery_form().value()
-                    )
-                });
-            assert_eq!(
-                form.phase(),
-                MaterialPhase::Solid,
-                "structural profile {} damaged-recovery form {} must be solid",
-                definition.id().value(),
-                definition.damaged_recovery_form().value()
-            );
-            assert_eq!(
-                form.particle_size_policy(),
-                ParticleSizeStatePolicy::Untracked,
-                "structural profile {} damaged-recovery form {} must not require particulate state",
-                definition.id().value(),
-                definition.damaged_recovery_form().value()
-            );
-        }
     }
 }

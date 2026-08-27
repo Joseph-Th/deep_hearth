@@ -30,6 +30,7 @@ fn commodity_requires_explicit_material_form_authoring() {
         "test form",
         MaterialPhase::Solid,
         ParticleSizeStatePolicy::Untracked,
+        MaterialFormCohesion::Consolidated,
     ));
     assert!(!registry.has_commodity(CommodityKey::new(material, form)));
 
@@ -58,6 +59,7 @@ fn particle_size_range_and_form_policy_reject_ambiguous_runtime_state() {
         "particulate fixture",
         MaterialPhase::Solid,
         ParticleSizeStatePolicy::Required,
+        MaterialFormCohesion::Loose,
     ));
     let commodity = CommodityKey::new(MaterialId::new(1), form);
     assert_eq!(

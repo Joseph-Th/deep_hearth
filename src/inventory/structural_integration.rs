@@ -22,13 +22,6 @@ use super::StockpileId;
 pub(crate) struct StockpileStoredMassChange {
     stockpile: StockpileId,
     stored_after: Mass,
-    increase_policy: StockpileMassIncreasePolicy,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum StockpileMassIncreasePolicy {
-    ActiveSupportRequired,
-    CommittedInboundMayComplete,
 }
 
 impl StockpileStoredMassChange {
@@ -37,17 +30,6 @@ impl StockpileStoredMassChange {
         Self {
             stockpile,
             stored_after,
-            increase_policy: StockpileMassIncreasePolicy::ActiveSupportRequired,
-        }
-    }
-
-    /// Final mass from inbound matter that was already durably reserved while support was valid.
-    #[must_use]
-    pub(crate) const fn new_committed_inbound(stockpile: StockpileId, stored_after: Mass) -> Self {
-        Self {
-            stockpile,
-            stored_after,
-            increase_policy: StockpileMassIncreasePolicy::CommittedInboundMayComplete,
         }
     }
 }
@@ -175,6 +157,7 @@ impl ValidatedStockpileStructuralLoad {
         self.expected_revision
     }
 
+    #[cfg(any(test, feature = "test-gameplay"))]
     pub(crate) const fn revision_delta(&self) -> u64 {
         if self.structural.is_some() { 1 } else { 0 }
     }
@@ -312,21 +295,14 @@ pub(crate) fn resolve_stockpile_stored_loads(
                     element: support,
                 },
             )?;
-            if change.stored_after > record.stored_mass() {
-                match change.increase_policy {
-                    StockpileMassIncreasePolicy::ActiveSupportRequired => {
-                        if support_record.lifecycle() != StructuralLifecycle::Active {
-                            return Err(
-                                StockpileStructuralLoadError::SupportNotActiveForIncrease {
-                                    stockpile: change.stockpile,
-                                    element: support,
-                                    lifecycle: support_record.lifecycle(),
-                                },
-                            );
-                        }
-                    }
-                    StockpileMassIncreasePolicy::CommittedInboundMayComplete => {}
-                }
+            if change.stored_after > record.stored_mass()
+                && support_record.lifecycle() != StructuralLifecycle::Active
+            {
+                return Err(StockpileStructuralLoadError::SupportNotActiveForIncrease {
+                    stockpile: change.stockpile,
+                    element: support,
+                    lifecycle: support_record.lifecycle(),
+                });
             }
             affected_supports.insert(support);
         }
@@ -608,7 +584,7 @@ impl ValidatedStockpileSupportChange {
         }
         if let Some(job) = state
             .production()
-            .get_output_stockpile_occupant(self.stockpile)
+            .get_running_output_stockpile_occupant(self.stockpile)
         {
             return Err(StockpileSupportCommitError::StockpileBusy {
                 stockpile: self.stockpile,
@@ -643,7 +619,10 @@ fn validate_not_busy(
     state: &AppState,
     stockpile: StockpileId,
 ) -> Result<(), StockpileSupportError> {
-    if let Some(job) = state.production().get_output_stockpile_occupant(stockpile) {
+    if let Some(job) = state
+        .production()
+        .get_running_output_stockpile_occupant(stockpile)
+    {
         return Err(StockpileSupportError::StockpileBusy {
             stockpile,
             job: job.id(),

@@ -3,20 +3,15 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::capability::{
-    CapabilityEvaluationError, CapabilityId, CapabilityValue, evaluate_capabilities,
-};
+use crate::capability::{CapabilityEvaluationError, CapabilityId, evaluate_capabilities};
 use crate::core::quantity::{Energy, Mass, Power, Temperature};
 use crate::core::state::AppState;
 use crate::energy::{
-    EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerDurationError,
-    calculate_power_duration_ceiling, validate_energy_supply,
+    EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerDurationError, validate_energy_supply,
 };
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
 use crate::inventory::{MaterialLotSelection, StockpileId};
-use crate::maintenance::{
-    ActiveConditionDurationError, calculate_usable_condition_after_active_ticks,
-};
+use crate::maintenance::ActiveConditionDurationError;
 use crate::material::MaterialLotSpecError;
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
@@ -25,6 +20,11 @@ use crate::production::{
 use crate::registry::Registries;
 
 use super::super::PhaseSensibleHeatError;
+use super::super::equipment_physics::{
+    ThermalBatchLimitError, ThermalPowerTemperatureError, ThermalTransferTimingError,
+    resolve_thermal_power_temperature_limits, resolve_thermal_transfer_timing,
+    validate_thermal_batch_mass,
+};
 use super::sensible_batch::{SensibleHeatingBatchError, resolve_sensible_heating_batch};
 
 /// Observable physically resolved sensible-heating operation before production start.
@@ -307,23 +307,25 @@ pub fn resolve_sensible_heating_process(
     )
     .map_err(SensibleHeatingResolutionError::Capability)?;
 
-    let heating_power = match provider.get_capability(definition.heating_power_capability()) {
-        Some(CapabilityValue::Power(power)) => power,
-        Some(_) | None => {
-            return Err(SensibleHeatingResolutionError::MissingHeatingPower {
+    let limits = resolve_thermal_power_temperature_limits(
+        provider.definition(),
+        provider.condition(),
+        definition.heating_power_capability(),
+        definition.max_temperature_capability(),
+    )
+    .map_err(|error| match error {
+        ThermalPowerTemperatureError::MissingTransferPower => {
+            SensibleHeatingResolutionError::MissingHeatingPower {
                 capability: definition.heating_power_capability(),
-            });
+            }
         }
-    };
-    let maximum_temperature = match provider.get_capability(definition.max_temperature_capability())
-    {
-        Some(CapabilityValue::Temperature(temperature)) => temperature,
-        Some(_) | None => {
-            return Err(SensibleHeatingResolutionError::MissingMaximumTemperature {
+        ThermalPowerTemperatureError::MissingMaximumTemperature => {
+            SensibleHeatingResolutionError::MissingMaximumTemperature {
                 capability: definition.max_temperature_capability(),
-            });
+            }
         }
-    };
+    })?;
+    let maximum_temperature = limits.maximum_temperature();
     if target > maximum_temperature {
         return Err(
             SensibleHeatingResolutionError::TargetExceedsEquipmentMaximum {
@@ -332,22 +334,22 @@ pub fn resolve_sensible_heating_process(
             },
         );
     }
-    let maximum_batch_mass = match provider.get_capability(definition.max_batch_mass_capability()) {
-        Some(CapabilityValue::Mass(mass)) => mass,
-        Some(_) | None => {
-            return Err(SensibleHeatingResolutionError::MissingMaximumBatchMass {
+    validate_thermal_batch_mass(
+        provider.definition(),
+        provider.condition(),
+        definition.max_batch_mass_capability(),
+        inputs.input_mass(),
+    )
+    .map_err(|error| match error {
+        ThermalBatchLimitError::MissingMaximumBatchMass => {
+            SensibleHeatingResolutionError::MissingMaximumBatchMass {
                 capability: definition.max_batch_mass_capability(),
-            });
+            }
         }
-    };
-    if inputs.input_mass() > maximum_batch_mass {
-        return Err(
-            SensibleHeatingResolutionError::BatchMassExceedsEquipmentCapacity {
-                selected: inputs.input_mass(),
-                maximum: maximum_batch_mass,
-            },
-        );
-    }
+        ThermalBatchLimitError::BatchMassExceeded { selected, maximum } => {
+            SensibleHeatingResolutionError::BatchMassExceedsEquipmentCapacity { selected, maximum }
+        }
+    })?;
 
     let batch =
         resolve_sensible_heating_batch(registries.materials(), inputs.consumed_inputs(), target)
@@ -366,19 +368,25 @@ pub fn resolve_sensible_heating_process(
             provided: provided_carrier,
         });
     }
-    let transfer_power = heating_power.min(energy_supply.max_output_power());
-    let duration = calculate_power_duration_ceiling(
-        transfer_power,
+    let timing = resolve_thermal_transfer_timing(
+        registries,
+        limits.transfer_power(),
+        energy_supply.max_output_power(),
         required_energy,
-        registries.core().physical_tick_duration(),
-    )
-    .map_err(SensibleHeatingResolutionError::Duration)?;
-    let equipment_condition_after = calculate_usable_condition_after_active_ticks(
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
-        duration,
     )
-    .map_err(SensibleHeatingResolutionError::ConditionDuration)?;
+    .map_err(|error| match error {
+        ThermalTransferTimingError::Duration(error) => {
+            SensibleHeatingResolutionError::Duration(error)
+        }
+        ThermalTransferTimingError::ConditionDuration(error) => {
+            SensibleHeatingResolutionError::ConditionDuration(error)
+        }
+    })?;
+    let transfer_power = timing.transfer_power();
+    let duration = timing.duration();
+    let equipment_condition_after = timing.condition_after();
 
     let resolution = inputs
         .resolve_with_energy_and_equipment(

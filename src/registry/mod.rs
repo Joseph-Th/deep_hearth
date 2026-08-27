@@ -116,7 +116,6 @@ impl Registries {
         domains
             .equipment
             .validate_references(&domains.capabilities, &domains.materials);
-        domains.structural.validate_references(&domains.materials);
         domains
             .production
             .validate_references(&domains.materials, &domains.capabilities);

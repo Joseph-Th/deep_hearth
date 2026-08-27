@@ -170,21 +170,9 @@ pub(crate) fn make_test_registries_with_energy_store(
     make_test_registries_with_energy_stores(vec![definition])
 }
 
-pub(crate) fn make_test_registries_with_energy_stores(
-    definitions: Vec<EnergyStoreDefinition>,
-) -> Registries {
+fn make_test_registries_with_energy_stores(definitions: Vec<EnergyStoreDefinition>) -> Registries {
     let mut domains = TestRegistryDomains::empty();
     domains.energy = EnergyRegistry::new(definitions);
-    domains.build()
-}
-
-pub(crate) fn make_test_registries_with_energy_stores_and_process(
-    definitions: Vec<EnergyStoreDefinition>,
-    process: ProcessDefinition,
-) -> Registries {
-    let mut domains = TestRegistryDomains::empty();
-    domains.energy = EnergyRegistry::new(definitions);
-    domains.production = build_production_registry(process);
     domains.build()
 }
 

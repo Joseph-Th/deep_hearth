@@ -24,8 +24,8 @@ use crate::equipment::{
     validate_unmount_equipment,
 };
 use crate::inventory::{
-    MaterialLotSelection, StockpileId, StockpileStorageProfile, StockpileSupportError,
-    add_solid_stockpile_for_test, add_stockpile, deposit_lot_for_test, validate_mount_stockpile,
+    MaterialLotSelection, StockpileId, StockpileStorageProfile, add_solid_stockpile_for_test,
+    add_stockpile, deposit_lot_for_test, validate_mount_stockpile, validate_unmount_stockpile,
 };
 use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::material::{CommodityKey, MaterialComposition};
@@ -1607,6 +1607,10 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
         .unwrap_or_else(|error| panic!("suspension fixture mount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("suspension fixture mount commit failed: {error}"));
+    validate_mount_stockpile(&registries, &state, destination, failed_support)
+        .unwrap_or_else(|error| panic!("suspension destination mount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("suspension destination mount commit failed: {error}"));
 
     let resolved = resolve_test_sensible_heating_process(
         &registries,
@@ -1698,14 +1702,12 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
         .unwrap_or_else(|error| {
             panic!("released production source remained spuriously relocation-locked: {error}")
         });
-    assert_eq!(
-        validate_mount_stockpile(&registries, &state, destination, recovery_support),
-        Err(StockpileSupportError::StockpileBusy {
-            stockpile: destination,
-            job,
-            release: ProductionOccupancyRelease::AwaitingResume,
-        })
-    );
+    let _destination_unmount = validate_unmount_stockpile(&registries, &state, destination)
+        .unwrap_or_else(|error| {
+            panic!(
+                "suspended production destination remained spuriously relocation-locked: {error}"
+            )
+        });
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
@@ -1788,6 +1790,41 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("suspended equipment remount commit failed: {error}"));
 
+    let reason_change = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("suspension reason transition tick failed: {error}"));
+    assert_eq!(
+        reason_change.production_availability_changes(),
+        &[ProductionAvailabilityChange::SuspensionReasonChanged {
+            job,
+            previous: ProductionSuspensionReason::EquipmentSupportUnavailable { equipment },
+            reason: ProductionSuspensionReason::OutputSupportUnavailable {
+                stockpile: destination,
+            },
+        }]
+    );
+    assert_eq!(
+        state
+            .production()
+            .get_job(job)
+            .and_then(|record| record.suspension())
+            .map(|suspension| (suspension.remaining_active_time(), suspension.reason())),
+        Some((
+            expected_remaining,
+            ProductionSuspensionReason::OutputSupportUnavailable {
+                stockpile: destination,
+            }
+        ))
+    );
+
+    validate_unmount_stockpile(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("suspended destination unmount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("suspended destination unmount commit failed: {error}"));
+    validate_mount_stockpile(&registries, &state, destination, recovery_support)
+        .unwrap_or_else(|error| panic!("suspended destination remount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("suspended destination remount commit failed: {error}"));
+
     let resumed_at = state.tick();
     let resumed_due = resumed_at
         .checked_add_span(expected_remaining)
@@ -1798,7 +1835,9 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
         outcome.production_availability_changes(),
         &[ProductionAvailabilityChange::Resumed {
             job,
-            reason: ProductionSuspensionReason::EquipmentSupportUnavailable { equipment },
+            reason: ProductionSuspensionReason::OutputSupportUnavailable {
+                stockpile: destination,
+            },
             resumed_at,
             scheduled_completion: resumed_due,
         }]

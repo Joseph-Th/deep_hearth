@@ -12,11 +12,7 @@ use crate::core::quantity::{Area, Length, Mass, Temperature};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
-use crate::energy::{
-    EnergySupplyError, EnergyTransferCommitError, add_energy_store,
-    add_energy_store_with_initial_for_test, make_test_energy_transfer_resolution,
-    validate_energy_supply, validate_energy_transfer,
-};
+use crate::energy::{EnergySupplyError, add_energy_store, validate_energy_supply};
 use crate::equipment::{
     EquipmentConditionPlanError, decide_equipment_wear, validate_assemble_equipment,
     validate_mount_equipment, validate_unmount_equipment,
@@ -308,19 +304,6 @@ fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
             .unwrap_or_else(|error| panic!("hand crank assembly commit failed: {error}"));
     let drive = add_energy_store(&registries, &mut state, ENERGY_MECHANICAL_SMALL_DRIVE)
         .unwrap_or_else(|error| panic!("manual power drive allocation failed: {error}"));
-    let donor = add_energy_store_with_initial_for_test(
-        &registries,
-        &mut state,
-        ENERGY_MECHANICAL_SMALL_DRIVE,
-        Energy::from_nanojoules(1_000),
-    )
-    .unwrap_or_else(|error| panic!("manual power donor fixture failed: {error}"));
-    let stale_transfer = validate_energy_transfer(
-        &registries,
-        &state,
-        make_test_energy_transfer_resolution(donor, drive, Energy::from_nanojoules(100)),
-    )
-    .unwrap_or_else(|error| panic!("stale transfer setup failed: {error}"));
     let survival_before = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("manual power survival state disappeared"));
     let condition_before = state
@@ -417,10 +400,6 @@ fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
     assert_eq!(
         decide_equipment_wear(&state, crank, 1),
         Err(EquipmentConditionPlanError::EquipmentBusyManualPower { equipment: crank })
-    );
-    assert_eq!(
-        stale_transfer.commit(&mut state),
-        Err(EnergyTransferCommitError::DestinationBusyManualPower { store: drive })
     );
 
     advance_exact(&registries, &mut state, 5);

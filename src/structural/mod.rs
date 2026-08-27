@@ -1,9 +1,11 @@
 //! Structural load and failure subsystem; definitions classify material response, state owns support graphs, analysis resolves loads, and execution commits consequences.
 
 mod analysis;
+#[cfg(any(test, feature = "test-gameplay"))]
 mod construction_execution;
-mod deconstruction_execution;
 mod definitions;
+#[cfg(any(test, feature = "test-gameplay"))]
+mod element_execution;
 mod geometry;
 mod load;
 mod state;
@@ -12,17 +14,6 @@ mod structural_execution;
 pub use analysis::{
     StructuralAnalysis, StructuralAnalysisError, StructuralAssessment, StructuralDamageEvent,
     StructuralFailureCause, StructuralStage, analyze_structure,
-};
-pub use construction_execution::{
-    StructuralConstructionCommitError, StructuralConstructionError,
-    StructuralConstructionResolution, StructuralMaterialRequirement,
-    StructuralMaterialRequirementError, ValidatedStructuralConstruction,
-    resolve_structural_material_requirement, validate_structural_construction,
-};
-pub use deconstruction_execution::{
-    StructuralDeconstructionCommitError, StructuralDeconstructionError,
-    StructuralDeconstructionOutcome, StructuralDeconstructionResolution,
-    ValidatedStructuralDeconstruction, validate_structural_deconstruction,
 };
 pub use definitions::{
     STRUCTURAL_PARTS_PER_MILLION, StructuralLoadMode, StructuralProfileDefinition,
@@ -41,24 +32,40 @@ pub use state::{
     StructuralLoadKind, StructureState, StructureValidationError,
 };
 pub use structural_execution::{
-    AddStructuralElementError, StructuralCommitError, StructuralMutationError,
-    StructuralMutationOutcome, ValidatedStructuralMutation, add_structural_element,
-    validate_activate_structural_element, validate_link_support,
+    StructuralCommitError, StructuralMutationError, StructuralMutationOutcome,
+};
+
+#[cfg(feature = "test-gameplay")]
+pub use element_execution::{AddStructuralElementError, add_structural_element};
+#[cfg(not(feature = "test-gameplay"))]
+pub(crate) use structural_execution::ValidatedStructuralMutation;
+#[cfg(feature = "test-gameplay")]
+pub use structural_execution::{
+    ValidatedStructuralMutation, validate_activate_structural_element, validate_link_support,
     validate_remove_structural_element, validate_remove_support, validate_set_structural_load,
 };
 
+#[cfg(all(test, not(feature = "test-gameplay")))]
+pub(crate) use element_execution::{AddStructuralElementError, add_structural_element};
+#[cfg(all(test, not(feature = "test-gameplay")))]
+pub(crate) use structural_execution::{
+    validate_activate_structural_element, validate_link_support,
+    validate_remove_structural_element, validate_set_structural_load,
+};
+
+#[cfg(feature = "test-gameplay")]
+pub(crate) use construction_execution::{
+    bind_structural_construction_selection, resolve_structural_material_requirement,
+    validate_structural_construction,
+};
 pub(crate) use state::validate_loaded_structure;
 pub(crate) use structural_execution::{
     ValidatedStructuralLoadBatch, validate_set_owned_structural_load,
     validate_set_owned_structural_loads,
 };
 
-#[cfg(feature = "test-gameplay")]
-pub(crate) use construction_execution::bind_structural_construction_selection;
 #[cfg(test)]
 pub(crate) use construction_execution::materialize_structural_element_for_test;
-#[cfg(test)]
-pub(crate) use deconstruction_execution::make_test_deconstruction_resolution;
 
 #[cfg(test)]
 pub(crate) fn make_test_structural_geometry(

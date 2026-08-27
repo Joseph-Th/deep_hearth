@@ -57,9 +57,30 @@ fn passive_survival_costs_cannot_exceed_full_reserves() {
 #[test]
 fn drink_hydration_multiplier_cannot_create_hydration_volume() {
     let fluid = FluidDefinitionId::new(1);
-    let maximum = DrinkDefinition::new(fluid, 1_000_000);
+    let temperature = ConsumptionTemperatureRange::new(
+        Temperature::from_millikelvin(273_150),
+        Temperature::from_millikelvin(333_150),
+    );
+    let maximum = DrinkDefinition::new(fluid, 1_000_000, temperature);
     assert_eq!(maximum.hydration_multiplier_ppm(), 1_000_000);
 
-    assert!(std::panic::catch_unwind(|| DrinkDefinition::new(fluid, 0)).is_err());
-    assert!(std::panic::catch_unwind(|| DrinkDefinition::new(fluid, 1_000_001)).is_err());
+    assert!(std::panic::catch_unwind(|| DrinkDefinition::new(fluid, 0, temperature)).is_err());
+    assert!(
+        std::panic::catch_unwind(|| DrinkDefinition::new(fluid, 1_000_001, temperature)).is_err()
+    );
+}
+
+#[test]
+fn direct_consumption_temperature_range_is_ordered_and_inclusive() {
+    let minimum = Temperature::from_millikelvin(273_150);
+    let maximum = Temperature::from_millikelvin(333_150);
+    let range = ConsumptionTemperatureRange::new(minimum, maximum);
+
+    assert!(range.contains(minimum));
+    assert!(range.contains(maximum));
+    assert!(!range.contains(Temperature::from_millikelvin(273_149)));
+    assert!(!range.contains(Temperature::from_millikelvin(333_151)));
+    assert!(
+        std::panic::catch_unwind(|| ConsumptionTemperatureRange::new(maximum, minimum)).is_err()
+    );
 }

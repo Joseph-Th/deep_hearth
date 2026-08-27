@@ -14,8 +14,9 @@ use crate::inventory::{
 };
 use crate::material::{CommodityKey, MaterialInputSpec, MaterialLotSpec};
 use crate::production::{
-    ProcessDefinition, ProcessId, StartProcessError, make_test_process_resolution,
-    validate_process_inputs, validate_start_process,
+    ProcessDefinition, ProcessId, ProductionAvailabilityChange, ProductionSuspensionReason,
+    StartProcessError, make_test_process_resolution, validate_process_inputs,
+    validate_start_process,
 };
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -312,7 +313,7 @@ fn validated_production_start_rejects_destination_support_collapse_before_commit
 }
 
 #[test]
-fn committed_production_completes_after_destination_support_fails() {
+fn production_suspends_until_failed_destination_support_is_recovered() {
     let process = ProcessDefinition::new(
         ProcessId::new(971_003),
         "committed failed destination fixture",
@@ -325,6 +326,7 @@ fn committed_production_completes_after_destination_support_fails() {
     let registries = make_test_registries_with_process(process);
     let mut state = AppState::new(WorldSeed::new(0x1A71_0010));
     let support = active_support(&registries, &mut state, 0);
+    let recovery_support = active_support(&registries, &mut state, 2);
     let source = seeded_stockpile(
         &registries,
         &mut state,
@@ -382,9 +384,48 @@ fn committed_production_completes_after_destination_support_fails() {
         Some(StructuralLifecycle::Failed)
     );
 
-    if let Err(error) = advance_tick(&registries, &mut state) {
-        panic!("committed output did not complete onto failed destination support: {error}");
-    }
+    let suspended = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("failed destination suspension tick failed: {error}"));
+    let job = state
+        .production()
+        .jobs()
+        .next()
+        .unwrap_or_else(|| panic!("production job disappeared instead of suspending"));
+    assert_eq!(
+        suspended.production_availability_changes(),
+        &[ProductionAvailabilityChange::Suspended {
+            job: job.id(),
+            reason: ProductionSuspensionReason::OutputSupportUnavailable {
+                stockpile: destination,
+            },
+            suspended_at: crate::core::time::SimulationTick::new(0),
+            remaining_active_time: crate::core::time::TickSpan::new(1),
+        }]
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|record| record.stored_mass()),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(
+        state
+            .structures()
+            .get_element(support)
+            .map(|record| record.load(StructuralLoadKind::StoredMatter)),
+        Some(Force::ZERO)
+    );
+    assert_eq!(state.production().jobs().count(), 1);
+    validate_unmount_stockpile(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("suspended destination unmount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("suspended destination unmount commit failed: {error}"));
+    mount(&registries, &mut state, destination, recovery_support);
+
+    let completed = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("recovered destination completion failed: {error}"));
+    assert_eq!(completed.production_completions().len(), 1);
     assert_eq!(
         state
             .inventory()
@@ -395,7 +436,7 @@ fn committed_production_completes_after_destination_support_fails() {
     assert_eq!(
         state
             .structures()
-            .get_element(support)
+            .get_element(recovery_support)
             .map(|record| record.load(StructuralLoadKind::StoredMatter)),
         Some(expected_weight(&registries, Mass::from_milligrams(10)))
     );

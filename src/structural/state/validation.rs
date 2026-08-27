@@ -6,8 +6,7 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::{Acceleration, AggregateMass, Force, Mass};
 use crate::core::time::SimulationTick;
 use crate::material::{
-    CommodityKey, MaterialId, MaterialPhase, MaterialPhaseStateError, MaterialRegistry,
-    ParticleSizeStatePolicy, validate_material_phase_state,
+    MaterialId, MaterialPhaseStateError, MaterialRegistry, validate_material_phase_state,
 };
 
 use super::super::definitions::{StructuralProfileId, StructuralRegistry};
@@ -34,11 +33,6 @@ pub enum StructureValidationError {
     UnknownMaterial {
         element: StructuralElementId,
         material: MaterialId,
-    },
-    NoDamageRecoveryCommodity {
-        element: StructuralElementId,
-        material: MaterialId,
-        form: crate::material::FormId,
     },
     ZeroCrossSection {
         element: StructuralElementId,
@@ -82,16 +76,7 @@ pub enum StructureValidationError {
     UnknownEmbodiedCommodity {
         element: StructuralElementId,
     },
-    UnsupportedEmbodiedPhase {
-        element: StructuralElementId,
-        form: crate::material::FormId,
-        phase: MaterialPhase,
-    },
-    UnsupportedEmbodiedParticulateForm {
-        element: StructuralElementId,
-        form: crate::material::FormId,
-    },
-    DamagedRecoveryFormEmbodied {
+    UnconsolidatedEmbodiedForm {
         element: StructuralElementId,
         form: crate::material::FormId,
     },
@@ -179,15 +164,9 @@ impl Display for StructureValidationError {
                 "structural next-id cursor {next} is not above allocated element {}",
                 highest.value()
             ),
-            Self::UnsupportedEmbodiedParticulateForm { element, form } => write!(
+            Self::UnconsolidatedEmbodiedForm { element, form } => write!(
                 formatter,
-                "structural element {} directly embodies particulate form {} without consolidation physics",
-                element.value(),
-                form.value()
-            ),
-            Self::DamagedRecoveryFormEmbodied { element, form } => write!(
-                formatter,
-                "structural element {} directly embodies damaged-recovery form {} without reprocessing it into load-bearing stock",
+                "structural element {} directly embodies unconsolidated form {} without first producing rigid construction stock",
                 element.value(),
                 form.value()
             ),
@@ -229,17 +208,6 @@ impl Display for StructureValidationError {
                 "structural element {} references unknown material {}",
                 element.value(),
                 material.value()
-            ),
-            Self::NoDamageRecoveryCommodity {
-                element,
-                material,
-                form,
-            } => write!(
-                formatter,
-                "structural element {} uses material {} without authored damaged-recovery form {}",
-                element.value(),
-                material.value(),
-                form.value()
             ),
             Self::ZeroCrossSection { element } => write!(
                 formatter,
@@ -293,16 +261,6 @@ impl Display for StructureValidationError {
                 formatter,
                 "structural element {} owns an unknown material/form commodity",
                 element.value()
-            ),
-            Self::UnsupportedEmbodiedPhase {
-                element,
-                form,
-                phase,
-            } => write!(
-                formatter,
-                "structural element {} owns {phase:?} material form {}; structural embodiment must be solid",
-                element.value(),
-                form.value()
             ),
             Self::InvalidEmbodiedPhaseState { element, error } => write!(
                 formatter,
@@ -451,8 +409,6 @@ impl Error for StructureValidationError {
                 profile: _profile,
             } => None,
             Self::UnknownMaterial { .. }
-            | Self::NoDamageRecoveryCommodity { .. }
-            | Self::DamagedRecoveryFormEmbodied { .. }
             | Self::UnsupportedEmbodiedComposition { .. }
             | Self::UnknownEmbodiedCompositionMaterial { .. } => None,
             Self::ZeroCrossSection { element: _element }
@@ -487,12 +443,7 @@ impl Error for StructureValidationError {
                 expected: _expected,
                 found: _found,
             } => None,
-            Self::UnsupportedEmbodiedPhase {
-                element: _element,
-                form: _form,
-                phase: _phase,
-            } => None,
-            Self::UnsupportedEmbodiedParticulateForm {
+            Self::UnconsolidatedEmbodiedForm {
                 element: _element,
                 form: _form,
             } => None,
@@ -566,24 +517,16 @@ pub(crate) fn validate_loaded_structure(
                 record: record.id,
             });
         }
-        let profile = profiles.get_profile(record.profile()).ok_or(
-            StructureValidationError::UnknownProfile {
+        profiles
+            .get_profile(record.profile())
+            .ok_or(StructureValidationError::UnknownProfile {
                 element: record.id,
                 profile: record.profile(),
-            },
-        )?;
+            })?;
         if materials.get_material(record.material()).is_none() {
             return Err(StructureValidationError::UnknownMaterial {
                 element: record.id,
                 material: record.material(),
-            });
-        }
-        let recovery_form = profile.damaged_recovery_form();
-        if !materials.has_commodity(CommodityKey::new(record.material(), recovery_form)) {
-            return Err(StructureValidationError::NoDamageRecoveryCommodity {
-                element: record.id,
-                material: record.material(),
-                form: recovery_form,
             });
         }
         if record.cross_section().is_zero() {
@@ -620,23 +563,8 @@ pub(crate) fn validate_loaded_structure(
                     });
                 }
             };
-            if form.phase() != MaterialPhase::Solid {
-                return Err(StructureValidationError::UnsupportedEmbodiedPhase {
-                    element: record.id,
-                    form: commodity.form(),
-                    phase: form.phase(),
-                });
-            }
-            if form.particle_size_policy() == ParticleSizeStatePolicy::Required {
-                return Err(
-                    StructureValidationError::UnsupportedEmbodiedParticulateForm {
-                        element: record.id,
-                        form: commodity.form(),
-                    },
-                );
-            }
-            if commodity.form() == profile.damaged_recovery_form() {
-                return Err(StructureValidationError::DamagedRecoveryFormEmbodied {
+            if !form.is_consolidated() {
+                return Err(StructureValidationError::UnconsolidatedEmbodiedForm {
                     element: record.id,
                     form: commodity.form(),
                 });

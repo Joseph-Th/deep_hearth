@@ -156,29 +156,6 @@ impl EnergyState {
             .unwrap_or_else(|| panic!("runtime invariant broken: prevalidated energy disappeared"));
     }
 
-    pub(super) fn apply_transfer_contents(
-        &mut self,
-        source: EnergyStoreId,
-        source_after: Energy,
-        destination: EnergyStoreId,
-        destination_after: Energy,
-        next_revision: u64,
-    ) {
-        self.records
-            .get_mut(&source)
-            .unwrap_or_else(|| {
-                panic!("prevalidated energy transfer source disappeared before commit")
-            })
-            .stored = source_after;
-        self.records
-            .get_mut(&destination)
-            .unwrap_or_else(|| {
-                panic!("prevalidated energy transfer destination disappeared before commit")
-            })
-            .stored = destination_after;
-        self.revision = next_revision;
-    }
-
     /// Removes one prevalidated empty energy store without rewinding its ID cursor.
     pub(super) fn remove_store(
         &mut self,

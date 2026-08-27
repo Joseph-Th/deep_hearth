@@ -17,6 +17,7 @@ pub(in crate::inventory) struct LotSlice {
     pub(in crate::inventory) mass: Mass,
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::inventory) struct LotStorageTransition {
     at: SimulationTick,
@@ -24,6 +25,7 @@ pub(in crate::inventory) struct LotStorageTransition {
     destination_preservation_multiplier_ppm: u32,
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 impl LotStorageTransition {
     #[must_use]
     pub(in crate::inventory) const fn new(
@@ -128,6 +130,7 @@ pub(in crate::inventory) fn apply_insert_or_merge_new_lot(
     existing_id
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(in crate::inventory) fn apply_move_full_lot(
     state: &mut InventoryState,
     lot: MaterialLotId,
@@ -183,6 +186,7 @@ pub(in crate::inventory) fn apply_move_full_lot(
     }
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(in crate::inventory) fn apply_split_lot(
     state: &mut InventoryState,
     source_lot: MaterialLotId,

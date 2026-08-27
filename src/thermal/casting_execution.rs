@@ -3,23 +3,17 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::capability::{
-    CapabilityEvaluationError, CapabilityId, CapabilityValue, evaluate_capabilities,
-};
+use crate::capability::{CapabilityEvaluationError, CapabilityId, evaluate_capabilities};
 use crate::core::quantity::{Energy, Mass, Power, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::energy::{
-    EnergyCarrier, EnergySinkError, EnergyStoreId, PowerDurationError,
-    calculate_power_duration_ceiling, validate_energy_sink,
+    EnergyCarrier, EnergySinkError, EnergyStoreId, PowerDurationError, validate_energy_sink,
 };
-use crate::equipment::{
-    EquipmentId, EquipmentProviderError, resolve_equipment_capability, resolve_equipment_provider,
-};
+use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
 use crate::maintenance::{
     ActiveConditionDurationError, Condition, assert_valid_condition_wear_ppm_per_tick,
-    calculate_usable_condition_after_active_ticks,
 };
 use crate::material::{
     CommodityKey, FormId, MaterialComposition, MaterialId, MaterialLotSpec, MaterialLotSpecError,
@@ -31,6 +25,11 @@ use crate::production::{
 };
 use crate::registry::Registries;
 
+use super::equipment_physics::{
+    ThermalBatchLimitError, ThermalPowerTemperatureError, ThermalTransferTimingError,
+    resolve_thermal_power_temperature_limits, resolve_thermal_transfer_timing,
+    validate_thermal_batch_mass,
+};
 use super::{
     FusionHeatError, PhaseChangeForms, SensibleHeatError, calculate_fusion_heat,
     calculate_sensible_heat,
@@ -625,37 +624,40 @@ pub fn resolve_casting_process(
     )
     .map_err(CastingResolutionError::Capability)?;
 
-    let cooling_power = match provider.get_capability(definition.cooling_power_capability()) {
-        Some(CapabilityValue::Power(power)) => power,
-        Some(_) | None => {
-            return Err(CastingResolutionError::MissingCoolingPower {
+    let limits = resolve_thermal_power_temperature_limits(
+        provider.definition(),
+        provider.condition(),
+        definition.cooling_power_capability(),
+        definition.max_temperature_capability(),
+    )
+    .map_err(|error| match error {
+        ThermalPowerTemperatureError::MissingTransferPower => {
+            CastingResolutionError::MissingCoolingPower {
                 capability: definition.cooling_power_capability(),
-            });
+            }
         }
-    };
-    let maximum_temperature = match provider.get_capability(definition.max_temperature_capability())
-    {
-        Some(CapabilityValue::Temperature(temperature)) => temperature,
-        Some(_) | None => {
-            return Err(CastingResolutionError::MissingMaximumTemperature {
+        ThermalPowerTemperatureError::MissingMaximumTemperature => {
+            CastingResolutionError::MissingMaximumTemperature {
                 capability: definition.max_temperature_capability(),
-            });
+            }
         }
-    };
-    let maximum_batch_mass = match provider.get_capability(definition.max_batch_mass_capability()) {
-        Some(CapabilityValue::Mass(mass)) => mass,
-        Some(_) | None => {
-            return Err(CastingResolutionError::MissingMaximumBatchMass {
+    })?;
+    validate_thermal_batch_mass(
+        provider.definition(),
+        provider.condition(),
+        definition.max_batch_mass_capability(),
+        inputs.input_mass(),
+    )
+    .map_err(|error| match error {
+        ThermalBatchLimitError::MissingMaximumBatchMass => {
+            CastingResolutionError::MissingMaximumBatchMass {
                 capability: definition.max_batch_mass_capability(),
-            });
+            }
         }
-    };
-    if inputs.input_mass() > maximum_batch_mass {
-        return Err(CastingResolutionError::BatchMassExceedsEquipmentCapacity {
-            selected: inputs.input_mass(),
-            maximum: maximum_batch_mass,
-        });
-    }
+        ThermalBatchLimitError::BatchMassExceeded { selected, maximum } => {
+            CastingResolutionError::BatchMassExceedsEquipmentCapacity { selected, maximum }
+        }
+    })?;
 
     let batch = resolve_casting_batch(
         registries.materials(),
@@ -664,11 +666,11 @@ pub fn resolve_casting_process(
         inputs.consumed_inputs(),
     )
     .map_err(CastingResolutionError::Batch)?;
-    if batch.hottest_input > maximum_temperature {
+    if batch.hottest_input > limits.maximum_temperature() {
         return Err(
             CastingResolutionError::InputTemperatureExceedsEquipmentMaximum {
                 input: batch.hottest_input,
-                maximum: maximum_temperature,
+                maximum: limits.maximum_temperature(),
             },
         );
     }
@@ -681,19 +683,23 @@ pub fn resolve_casting_process(
             provided: provided_carrier,
         });
     }
-    let transfer_power = cooling_power.min(energy_sink.max_input_power());
-    let duration = calculate_power_duration_ceiling(
-        transfer_power,
+    let timing = resolve_thermal_transfer_timing(
+        registries,
+        limits.transfer_power(),
+        energy_sink.max_input_power(),
         batch.released_energy,
-        registries.core().physical_tick_duration(),
-    )
-    .map_err(CastingResolutionError::Duration)?;
-    let equipment_condition_after = calculate_usable_condition_after_active_ticks(
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
-        duration,
     )
-    .map_err(CastingResolutionError::ConditionDuration)?;
+    .map_err(|error| match error {
+        ThermalTransferTimingError::Duration(error) => CastingResolutionError::Duration(error),
+        ThermalTransferTimingError::ConditionDuration(error) => {
+            CastingResolutionError::ConditionDuration(error)
+        }
+    })?;
+    let transfer_power = timing.transfer_power();
+    let duration = timing.duration();
+    let equipment_condition_after = timing.condition_after();
     let resolution = inputs
         .resolve_with_equipment_and_energy_release(
             duration,
@@ -1001,49 +1007,38 @@ pub(super) fn validate_loaded_casting_job(
     else {
         return Err(CastingJobValidationError::UnknownEnergyDefinition { job: job.id() });
     };
-    let cooling_power = match resolve_equipment_capability(
+    let limits = resolve_thermal_power_temperature_limits(
         equipment_definition,
         provider.condition(),
         definition.cooling_power_capability(),
-    ) {
-        Some(CapabilityValue::Power(power)) => power,
-        Some(_) | None => {
-            return Err(CastingJobValidationError::MissingCoolingPowerCapability { job: job.id() });
-        }
-    };
-    let maximum_temperature = match resolve_equipment_capability(
-        equipment_definition,
-        provider.condition(),
         definition.max_temperature_capability(),
-    ) {
-        Some(CapabilityValue::Temperature(temperature)) => temperature,
-        Some(_) | None => {
-            return Err(
-                CastingJobValidationError::MissingMaximumTemperatureCapability { job: job.id() },
-            );
+    )
+    .map_err(|error| match error {
+        ThermalPowerTemperatureError::MissingTransferPower => {
+            CastingJobValidationError::MissingCoolingPowerCapability { job: job.id() }
         }
-    };
-    let maximum_batch_mass = match resolve_equipment_capability(
+        ThermalPowerTemperatureError::MissingMaximumTemperature => {
+            CastingJobValidationError::MissingMaximumTemperatureCapability { job: job.id() }
+        }
+    })?;
+    validate_thermal_batch_mass(
         equipment_definition,
         provider.condition(),
         definition.max_batch_mass_capability(),
-    ) {
-        Some(CapabilityValue::Mass(mass)) => mass,
-        Some(_) | None => {
-            return Err(
-                CastingJobValidationError::MissingMaximumBatchMassCapability { job: job.id() },
-            );
+        job.consumed_mass(),
+    )
+    .map_err(|error| match error {
+        ThermalBatchLimitError::MissingMaximumBatchMass => {
+            CastingJobValidationError::MissingMaximumBatchMassCapability { job: job.id() }
         }
-    };
-    if job.consumed_mass() > maximum_batch_mass {
-        return Err(
+        ThermalBatchLimitError::BatchMassExceeded { selected, maximum } => {
             CastingJobValidationError::BatchMassExceedsEquipmentCapacity {
                 job: job.id(),
-                selected: job.consumed_mass(),
-                maximum: maximum_batch_mass,
-            },
-        );
-    }
+                selected,
+                maximum,
+            }
+        }
+    })?;
     let batch = resolve_casting_batch(
         registries.materials(),
         definition.liquid_form(),
@@ -1054,12 +1049,12 @@ pub(super) fn validate_loaded_casting_job(
         job: job.id(),
         error,
     })?;
-    if batch.hottest_input > maximum_temperature {
+    if batch.hottest_input > limits.maximum_temperature() {
         return Err(
             CastingJobValidationError::InputTemperatureExceedsEquipmentMaximum {
                 job: job.id(),
                 input: batch.hottest_input,
-                maximum: maximum_temperature,
+                maximum: limits.maximum_temperature(),
             },
         );
     }
@@ -1077,16 +1072,27 @@ pub(super) fn validate_loaded_casting_job(
             required: batch.released_energy,
         });
     }
-    let transfer_power = cooling_power.min(energy_definition.max_input_power());
-    let required_duration = calculate_power_duration_ceiling(
-        transfer_power,
+    let timing = resolve_thermal_transfer_timing(
+        registries,
+        limits.transfer_power(),
+        energy_definition.max_input_power(),
         batch.released_energy,
-        registries.core().physical_tick_duration(),
+        definition.condition_wear_ppm_per_active_tick(),
+        provider.condition(),
     )
-    .map_err(|error| CastingJobValidationError::Duration {
-        job: job.id(),
-        error,
+    .map_err(|error| match error {
+        ThermalTransferTimingError::Duration(error) => CastingJobValidationError::Duration {
+            job: job.id(),
+            error,
+        },
+        ThermalTransferTimingError::ConditionDuration(error) => {
+            CastingJobValidationError::ConditionDuration {
+                job: job.id(),
+                error,
+            }
+        }
     })?;
+    let required_duration = timing.duration();
     let stored_duration = job.active_duration();
     if stored_duration != required_duration {
         return Err(CastingJobValidationError::DurationMismatch {
@@ -1095,15 +1101,7 @@ pub(super) fn validate_loaded_casting_job(
             required: required_duration,
         });
     }
-    let required_condition_after = calculate_usable_condition_after_active_ticks(
-        definition.condition_wear_ppm_per_active_tick(),
-        provider.condition(),
-        required_duration,
-    )
-    .map_err(|error| CastingJobValidationError::ConditionDuration {
-        job: job.id(),
-        error,
-    })?;
+    let required_condition_after = timing.condition_after();
     let Some(stored_condition_after) = job.equipment_condition_after() else {
         return Err(CastingJobValidationError::MissingEquipmentConditionOutcome { job: job.id() });
     };

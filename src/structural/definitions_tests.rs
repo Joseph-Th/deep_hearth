@@ -1,7 +1,6 @@
 //! Tests for the sibling definitions module; isolated so test-only edits do not invalidate production builds.
 
 use super::*;
-use crate::content::FORM_SCRAP;
 
 const TEST_PROFILE: StructuralProfileId = StructuralProfileId::new(950_001);
 
@@ -13,7 +12,6 @@ fn profile(cracking_at_ppm: u32, cracked_capacity_ppm: u32) -> StructuralProfile
         500_000,
         cracking_at_ppm,
         cracked_capacity_ppm,
-        FORM_SCRAP,
     )
 }
 

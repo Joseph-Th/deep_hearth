@@ -1005,12 +1005,8 @@ fn crush_batch(
                         suspended_at: _suspended_at,
                         remaining_active_time,
                     } if changed_job == job => Some((reason, remaining_active_time)),
-                    ProductionAvailabilityChange::Suspended {
-                        job: _job,
-                        reason: _reason,
-                        suspended_at: _suspended_at,
-                        remaining_active_time: _remaining_active_time,
-                    } => None,
+                    ProductionAvailabilityChange::Suspended { .. }
+                    | ProductionAvailabilityChange::SuspensionReasonChanged { .. } => None,
                     ProductionAvailabilityChange::Resumed {
                         job: _job,
                         reason: _reason,

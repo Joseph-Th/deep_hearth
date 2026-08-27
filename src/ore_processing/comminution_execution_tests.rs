@@ -3,7 +3,7 @@
 use super::*;
 use crate::capability::{
     CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityProfile,
-    CapabilityRequirement, CapabilityValueKind,
+    CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{
     FORM_CONCENTRATE, FORM_CRUSHED, FORM_INGOT, FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG,

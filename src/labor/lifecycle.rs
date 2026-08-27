@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
+use crate::production::ProductionAvailabilityChange;
 use crate::registry::Registries;
 use crate::survival::SurvivalExertion;
 
@@ -29,15 +30,46 @@ pub enum PlayerWorkStartError {
 
 /// Resolves the incremental physiological cost of the currently active player-owned job.
 #[must_use]
-pub(crate) fn player_work_exertion(registries: &Registries, state: &AppState) -> SurvivalExertion {
+pub(crate) fn player_work_exertion(
+    registries: &Registries,
+    state: &AppState,
+    production_availability: &[ProductionAvailabilityChange],
+) -> SurvivalExertion {
     let Some(work) = state.player_work().active() else {
-        return SurvivalExertion::REST;
+        let mut resumed_manual_work = production_availability.iter().filter_map(|change| {
+            let ProductionAvailabilityChange::Resumed { job, .. } = *change else {
+                return None;
+            };
+            let record = state.production().get_job(job).unwrap_or_else(|| {
+                panic!("runtime invariant broken: resumed production job is missing")
+            });
+            registries
+                .crafting()
+                .get_manual(record.process())
+                .map(|definition| definition.exertion())
+        });
+        let exertion = resumed_manual_work.next().unwrap_or(SurvivalExertion::REST);
+        assert!(
+            resumed_manual_work.next().is_none(),
+            "runtime invariant broken: more than one manual craft resumed in one tick"
+        );
+        return exertion;
     };
     match work {
         PlayerWork::ManualCraft { job } => {
             let record = state.production().get_job(job).unwrap_or_else(|| {
                 panic!("runtime invariant broken: player work references missing craft job")
             });
+            let active_this_tick = production_availability
+                .iter()
+                .copied()
+                .find(|change| change.job() == job)
+                .map_or(!record.is_suspended(), |change| {
+                    matches!(change, ProductionAvailabilityChange::Resumed { .. })
+                });
+            if !active_this_tick {
+                return SurvivalExertion::REST;
+            }
             registries
                 .crafting()
                 .get_manual(record.process())
@@ -257,17 +289,92 @@ pub(crate) enum PlayerWorkTickError {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct PlayerWorkTickPlan {
-    expected_revision: u64,
-    next_revision: u64,
-    work: PlayerWork,
+pub(crate) enum PlayerWorkTickPlan {
+    Release {
+        expected_revision: u64,
+        next_revision: u64,
+        work: PlayerWork,
+    },
+    Start(ValidatedPlayerWorkStart),
+}
+
+pub(crate) fn decide_manual_craft_player_work_start(
+    registries: &Registries,
+    state: &AppState,
+    job: crate::production::ProductionJobId,
+    remaining: TickSpan,
+) -> Result<Option<ValidatedPlayerWorkStart>, PlayerWorkTickError> {
+    let record = state.production().get_job(job).unwrap_or_else(|| {
+        panic!("runtime invariant broken: manual craft resume references missing production job")
+    });
+    let definition = registries
+        .crafting()
+        .get_manual(record.process())
+        .unwrap_or_else(|| {
+            panic!("runtime invariant broken: manual craft resume references non-manual process")
+        });
+    match validate_player_work_start(
+        registries,
+        state,
+        PlayerWork::ManualCraft { job },
+        remaining,
+        definition.exertion(),
+    ) {
+        Ok(start) => Ok(Some(start)),
+        Err(PlayerWorkStartError::RevisionExhausted) => Err(PlayerWorkTickError::RevisionExhausted),
+        Err(PlayerWorkStartError::MetabolicCostOverflow { .. })
+        | Err(PlayerWorkStartError::HydrationCostOverflow { .. }) => {
+            panic!(
+                "runtime invariant broken: accepted manual craft remaining-work budget overflowed"
+            )
+        }
+        Err(PlayerWorkStartError::SurvivalNotInitialized)
+        | Err(PlayerWorkStartError::PlayerDead)
+        | Err(PlayerWorkStartError::Busy { .. })
+        | Err(PlayerWorkStartError::InsufficientMetabolicEnergy { .. })
+        | Err(PlayerWorkStartError::InsufficientHydration { .. }) => Ok(None),
+    }
 }
 
 pub(crate) fn decide_player_work_tick(
+    registries: &Registries,
     state: &AppState,
     next_tick: SimulationTick,
+    production_availability: &[ProductionAvailabilityChange],
 ) -> Result<Option<PlayerWorkTickPlan>, PlayerWorkTickError> {
     let Some(work) = state.player_work().active() else {
+        for change in production_availability {
+            let ProductionAvailabilityChange::Resumed {
+                job,
+                scheduled_completion,
+                ..
+            } = *change
+            else {
+                continue;
+            };
+            let record = state.production().get_job(job).unwrap_or_else(|| {
+                panic!("runtime invariant broken: resumed production job is missing")
+            });
+            if registries.crafting().get_manual(record.process()).is_none() {
+                continue;
+            }
+            if scheduled_completion == next_tick {
+                return Ok(None);
+            }
+            let remaining = record
+                .suspension()
+                .unwrap_or_else(|| {
+                    panic!("runtime invariant broken: resumed manual craft was not suspended")
+                })
+                .remaining_active_time();
+            let start = decide_manual_craft_player_work_start(registries, state, job, remaining)?
+                .unwrap_or_else(|| {
+                    panic!(
+                        "runtime invariant broken: production resumed manual craft without available player labor"
+                    )
+                });
+            return Ok(Some(PlayerWorkTickPlan::Start(start)));
+        }
         return Ok(None);
     };
     let releases_now = match work {
@@ -275,7 +382,19 @@ pub(crate) fn decide_player_work_tick(
             let record = state.production().get_job(job).unwrap_or_else(|| {
                 panic!("runtime invariant broken: player work references missing craft job")
             });
-            !record.is_suspended() && record.completes_at() == next_tick
+            match production_availability
+                .iter()
+                .copied()
+                .find(|change| change.job() == job)
+            {
+                Some(ProductionAvailabilityChange::Suspended { .. }) => true,
+                Some(ProductionAvailabilityChange::SuspensionReasonChanged { .. }) => false,
+                Some(ProductionAvailabilityChange::Resumed {
+                    scheduled_completion,
+                    ..
+                }) => scheduled_completion == next_tick,
+                None => !record.is_suspended() && record.completes_at() == next_tick,
+            }
         }
         PlayerWork::Mining { job } => {
             let record = state.mining().get_job(job).unwrap_or_else(|| {
@@ -293,7 +412,7 @@ pub(crate) fn decide_player_work_tick(
     let next_revision = expected_revision
         .checked_add(1)
         .ok_or(PlayerWorkTickError::RevisionExhausted)?;
-    Ok(Some(PlayerWorkTickPlan {
+    Ok(Some(PlayerWorkTickPlan::Release {
         expected_revision,
         next_revision,
         work,
@@ -301,11 +420,17 @@ pub(crate) fn decide_player_work_tick(
 }
 
 pub(crate) fn apply_player_work_tick(state: &mut AppState, plan: Option<PlayerWorkTickPlan>) {
-    if let Some(plan) = plan {
-        state.player_work_state_mut().apply_release(
-            plan.expected_revision,
-            plan.next_revision,
-            plan.work,
-        );
+    match plan {
+        Some(PlayerWorkTickPlan::Release {
+            expected_revision,
+            next_revision,
+            work,
+        }) => {
+            state
+                .player_work_state_mut()
+                .apply_release(expected_revision, next_revision, work);
+        }
+        Some(PlayerWorkTickPlan::Start(start)) => start.apply(state),
+        None => {}
     }
 }

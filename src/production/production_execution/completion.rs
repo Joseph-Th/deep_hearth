@@ -13,6 +13,7 @@ use crate::inventory::{
     ValidatedStockpileStructuralLoad, apply_reserved_deposits, decide_reserved_deposits,
     validate_stockpile_stored_mass_changes,
 };
+use crate::labor::{PlayerWorkTickError, decide_manual_craft_player_work_start};
 use crate::registry::Registries;
 use crate::structural::{StructuralCommitError, StructuralLifecycle};
 
@@ -31,6 +32,11 @@ pub enum ProductionAvailabilityChange {
         suspended_at: SimulationTick,
         remaining_active_time: TickSpan,
     },
+    SuspensionReasonChanged {
+        job: ProductionJobId,
+        previous: ProductionSuspensionReason,
+        reason: ProductionSuspensionReason,
+    },
     Resumed {
         job: ProductionJobId,
         reason: ProductionSuspensionReason,
@@ -48,6 +54,11 @@ impl ProductionAvailabilityChange {
                 reason: _reason,
                 suspended_at: _suspended_at,
                 remaining_active_time: _remaining_active_time,
+            } => job,
+            Self::SuspensionReasonChanged {
+                job,
+                previous: _previous,
+                reason: _reason,
             } => job,
             Self::Resumed {
                 job,
@@ -96,6 +107,10 @@ pub(crate) struct CompletionPlan {
 }
 
 impl CompletionPlan {
+    pub(crate) fn availability_changes(&self) -> &[ProductionAvailabilityChange] {
+        &self.availability_changes
+    }
+
     pub(crate) fn equipment_revision_steps(&self) -> u64 {
         u64::from(!self.equipment_outcomes.is_empty())
     }
@@ -114,6 +129,13 @@ struct CompletionRevisionPlan {
     expected_energy_revision: u64,
     next_energy_revision: u64,
     expected_structure_revision: u64,
+    player_labor_dependencies: Option<PlayerLaborRevisionDependencies>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PlayerLaborRevisionDependencies {
+    expected_player_work_revision: u64,
+    expected_survival_revision: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -136,6 +158,7 @@ pub(crate) enum CompletionPlanError {
     ProductionRevision,
     EquipmentRevision,
     EnergyRevision,
+    PlayerWorkRevision,
     ResumeTickOverflow {
         job: ProductionJobId,
         current: SimulationTick,
@@ -163,6 +186,8 @@ pub(crate) enum CompletionCommitError {
     EquipmentRevisionConflict { expected: u64, actual: u64 },
     EnergyRevisionConflict { expected: u64, actual: u64 },
     StructureRevisionConflict { expected: u64, actual: u64 },
+    PlayerWorkRevisionConflict { expected: u64, actual: u64 },
+    SurvivalRevisionConflict { expected: u64, actual: u64 },
     Structure(StructuralCommitError),
 }
 
@@ -193,34 +218,97 @@ fn has_required_active_equipment_support(state: &AppState, job: &ProductionJobRe
     })
 }
 
-fn decide_availability_changes(
+fn unavailable_output_support(state: &AppState, job: &ProductionJobRecord) -> Option<StockpileId> {
+    job.output_streams()
+        .iter()
+        .map(|stream| stream.destination())
+        .find(|destination| {
+            let stockpile = state
+                .inventory()
+                .get_stockpile(*destination)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "runtime invariant broken: production job {} references missing output stockpile {}",
+                        job.id().value(),
+                        destination.value()
+                    )
+                });
+            stockpile.supported_by().is_some_and(|element| {
+                !state
+                    .structures()
+                    .get_element(element)
+                    .is_some_and(|support| support.lifecycle() == StructuralLifecycle::Active)
+            })
+        })
+}
+
+fn current_physical_suspension_reason(
     state: &AppState,
-) -> Result<Vec<ProductionAvailabilityChange>, CompletionPlanError> {
-    let current = state.tick();
-    let mut changes = Vec::new();
-    let mut equipment_jobs = state.production().equipment_occupants().collect::<Vec<_>>();
-    equipment_jobs.sort_unstable();
-    for job_id in equipment_jobs {
-        let job = match state.production().get_job(job_id) {
-            Some(job) => job,
-            None => panic!(
-                "runtime invariant broken: equipment occupancy index references missing production job {}",
-                job_id.value()
-            ),
-        };
-        if !job.has_required_active_support() {
-            continue;
-        }
-        let provider = match job.equipment_provider() {
-            Some(provider) => provider,
-            None => panic!(
+    job: &ProductionJobRecord,
+) -> Option<ProductionSuspensionReason> {
+    if !has_required_active_equipment_support(state, job) {
+        let provider = job.equipment_provider().unwrap_or_else(|| {
+            panic!(
                 "runtime invariant broken: support-dependent production job {} has no equipment provider",
                 job.id().value()
-            ),
+            )
+        });
+        return Some(ProductionSuspensionReason::EquipmentSupportUnavailable {
+            equipment: provider.equipment(),
+        });
+    }
+    unavailable_output_support(state, job)
+        .map(|stockpile| ProductionSuspensionReason::OutputSupportUnavailable { stockpile })
+}
+
+fn decide_availability_changes(
+    registries: &Registries,
+    state: &AppState,
+) -> Result<
+    (
+        Vec<ProductionAvailabilityChange>,
+        Option<PlayerLaborRevisionDependencies>,
+    ),
+    CompletionPlanError,
+> {
+    let current = state.tick();
+    let mut changes = Vec::new();
+    let mut player_labor_claimed = state.player_work().active().is_some();
+    let mut player_work_consulted = false;
+    let mut survival_consulted = false;
+    for job in state.production().jobs() {
+        let physical_unavailable = current_physical_suspension_reason(state, job);
+        let unavailable = if physical_unavailable.is_some() || job.suspension().is_none() {
+            physical_unavailable
+        } else if registries.crafting().get_manual(job.process()).is_some() {
+            player_work_consulted = true;
+            if player_labor_claimed {
+                Some(ProductionSuspensionReason::PlayerLaborUnavailable)
+            } else {
+                survival_consulted = true;
+                let remaining = job
+                    .suspension()
+                    .unwrap_or_else(|| {
+                        panic!("runtime invariant broken: manual resume candidate is not suspended")
+                    })
+                    .remaining_active_time();
+                match decide_manual_craft_player_work_start(registries, state, job.id(), remaining)
+                {
+                    Ok(Some(_start)) => {
+                        player_labor_claimed = true;
+                        None
+                    }
+                    Ok(None) => Some(ProductionSuspensionReason::PlayerLaborUnavailable),
+                    Err(PlayerWorkTickError::RevisionExhausted) => {
+                        return Err(CompletionPlanError::PlayerWorkRevision);
+                    }
+                }
+            }
+        } else {
+            None
         };
-        let support_active = has_required_active_equipment_support(state, job);
-        match job.suspension() {
-            None if !support_active => {
+        match (job.suspension(), unavailable) {
+            (None, Some(reason)) => {
                 let remaining = job
                     .completes_at()
                     .value()
@@ -237,14 +325,12 @@ fn decide_availability_changes(
                 );
                 changes.push(ProductionAvailabilityChange::Suspended {
                     job: job.id(),
-                    reason: ProductionSuspensionReason::EquipmentSupportUnavailable {
-                        equipment: provider.equipment(),
-                    },
+                    reason,
                     suspended_at: current,
                     remaining_active_time: TickSpan::new(remaining),
                 });
             }
-            Some(suspension) if support_active => {
+            (Some(suspension), None) => {
                 let remaining = suspension.remaining_active_time();
                 let Some(scheduled_completion) = current.checked_add_span(remaining) else {
                     return Err(CompletionPlanError::ResumeTickOverflow {
@@ -260,10 +346,22 @@ fn decide_availability_changes(
                     scheduled_completion,
                 });
             }
-            None | Some(_) => {}
+            (Some(suspension), Some(reason)) if suspension.reason() != reason => {
+                changes.push(ProductionAvailabilityChange::SuspensionReasonChanged {
+                    job: job.id(),
+                    previous: suspension.reason(),
+                    reason,
+                });
+            }
+            (None, None) | (Some(_), Some(_)) => {}
         }
     }
-    Ok(changes)
+    let player_labor_dependencies =
+        player_work_consulted.then(|| PlayerLaborRevisionDependencies {
+            expected_player_work_revision: state.player_work().revision(),
+            expected_survival_revision: survival_consulted.then(|| state.survival().revision()),
+        });
+    Ok((changes, player_labor_dependencies))
 }
 
 /// Decides provider availability transitions and all jobs due on one exact tick without mutating
@@ -277,7 +375,8 @@ pub(crate) fn decide_due_completions(
     let expected_equipment_revision = state.equipment().revision();
     let expected_energy_revision = state.energy().revision();
     let expected_structure_revision = state.structures().revision();
-    let availability_changes = decide_availability_changes(state)?;
+    let (availability_changes, player_labor_dependencies) =
+        decide_availability_changes(registries, state)?;
     let mut due_ids = state.production().jobs_due_at(tick);
     for change in &availability_changes {
         match *change {
@@ -289,6 +388,11 @@ pub(crate) fn decide_due_completions(
             } => {
                 due_ids.remove(&job);
             }
+            ProductionAvailabilityChange::SuspensionReasonChanged {
+                job: _job,
+                previous: _previous,
+                reason: _reason,
+            } => {}
             ProductionAvailabilityChange::Resumed {
                 job,
                 reason: _reason,
@@ -428,10 +532,7 @@ pub(crate) fn decide_due_completions(
                 stockpile: destination,
             },
         )?;
-        mass_changes.push(StockpileStoredMassChange::new_committed_inbound(
-            destination,
-            stored_after,
-        ));
+        mass_changes.push(StockpileStoredMassChange::new(destination, stored_after));
     }
     let structural_load = if mass_changes.is_empty() {
         None
@@ -459,6 +560,7 @@ pub(crate) fn decide_due_completions(
             expected_energy_revision,
             next_energy_revision,
             expected_structure_revision,
+            player_labor_dependencies,
         },
         inventory_deposits,
         availability_changes,
@@ -484,6 +586,7 @@ pub(crate) fn apply_completion_plan(
                 expected_energy_revision,
                 next_energy_revision,
                 expected_structure_revision,
+                player_labor_dependencies,
             },
         inventory_deposits,
         availability_changes,
@@ -508,6 +611,24 @@ pub(crate) fn apply_completion_plan(
                 expected: expected_energy_revision,
                 actual: actual_energy_revision,
             });
+        }
+    }
+    if let Some(dependencies) = player_labor_dependencies {
+        let actual_player_work_revision = state.player_work().revision();
+        if actual_player_work_revision != dependencies.expected_player_work_revision {
+            return Err(CompletionCommitError::PlayerWorkRevisionConflict {
+                expected: dependencies.expected_player_work_revision,
+                actual: actual_player_work_revision,
+            });
+        }
+        if let Some(expected_survival_revision) = dependencies.expected_survival_revision {
+            let actual_survival_revision = state.survival().revision();
+            if actual_survival_revision != expected_survival_revision {
+                return Err(CompletionCommitError::SurvivalRevisionConflict {
+                    expected: expected_survival_revision,
+                    actual: actual_survival_revision,
+                });
+            }
         }
     }
     if !equipment_outcomes.is_empty() || !availability_changes.is_empty() {
@@ -559,6 +680,15 @@ pub(crate) fn apply_completion_plan(
                     remaining_active_time,
                     reason,
                 );
+            }
+            ProductionAvailabilityChange::SuspensionReasonChanged {
+                job,
+                previous,
+                reason,
+            } => {
+                state
+                    .production_state_mut()
+                    .change_suspension_reason(job, previous, reason);
             }
             ProductionAvailabilityChange::Resumed {
                 job,

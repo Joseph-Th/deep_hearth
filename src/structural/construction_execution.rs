@@ -1,7 +1,9 @@
-//! Geometry-constrained construction-material transfer into planned structural members.
+//! Fixture-only geometry-constrained materialization of planned structural members.
 //!
 //! Member geometry and material density determine the exact conservative solid-mass requirement. This
-//! module does not authorize labor, tools, joints, cutting/placement waste, or build duration.
+//! module exists to create physically valid controlled test/gameplay-audit starting states. It is not a
+//! player construction system and does not authorize labor, tools, joints, cutting/placement waste, or
+//! build duration.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -19,7 +21,7 @@ use crate::inventory::{
     ExplicitConsumptionSelectionError, MaterialLotSelection,
     validate_explicit_consumption_selection,
 };
-use crate::material::{FormId, MaterialId, MaterialPhase, ParticleSizeStatePolicy};
+use crate::material::{FormId, MaterialId};
 use crate::registry::Registries;
 
 use super::StructuralCommitError;
@@ -44,6 +46,7 @@ pub struct StructuralMaterialRequirement {
 
 impl StructuralMaterialRequirement {
     #[must_use]
+    #[cfg(test)]
     pub const fn element(self) -> StructuralElementId {
         self.element
     }
@@ -54,6 +57,7 @@ impl StructuralMaterialRequirement {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub const fn solid_volume_ceiling(self) -> Volume {
         self.solid_volume_ceiling
     }
@@ -131,10 +135,10 @@ pub fn resolve_structural_material_requirement(
     })
 }
 
-/// Immutable output of a future physical construction resolver.
+/// Immutable fixture materialization selection for a planned member.
 ///
-/// There is no public constructor. A resolver must decide the required batch from actual member
-/// geometry, joinery, wastage, tooling, and construction method before this transfer can occur.
+/// There is no runtime/public constructor. A future player construction system must resolve geometry,
+/// joinery, wastage, tooling, labor, and duration rather than reusing this setup-only binding.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub struct StructuralConstructionResolution {
@@ -144,27 +148,12 @@ pub struct StructuralConstructionResolution {
 
 impl StructuralConstructionResolution {
     #[must_use]
-    pub const fn element(&self) -> StructuralElementId {
-        self.element
-    }
-
-    #[must_use]
-    pub const fn source(&self) -> StockpileId {
-        self.selection.source()
-    }
-
-    #[must_use]
     pub const fn mass(&self) -> Mass {
         self.selection.total_consumed()
     }
-
-    #[must_use]
-    pub fn material_traces(&self) -> &[ConsumedMaterialTrace] {
-        self.selection.consumed_inputs()
-    }
 }
 
-/// Harness-side binding failure standing in for a future physical construction resolver.
+/// Harness-side binding failure for controlled fixture materialization.
 #[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum StructuralConstructionBindingError {
@@ -213,16 +202,7 @@ pub enum StructuralConstructionError {
         element: StructuralElementId,
         form: FormId,
     },
-    UnsupportedPhase {
-        element: StructuralElementId,
-        form: FormId,
-        phase: MaterialPhase,
-    },
-    UnsupportedParticulateForm {
-        element: StructuralElementId,
-        form: FormId,
-    },
-    DamagedRecoveryFormNotLoadBearing {
+    UnconsolidatedForm {
         element: StructuralElementId,
         form: FormId,
     },
@@ -270,15 +250,9 @@ impl Display for StructuralConstructionError {
                 element.value(),
                 form.value()
             ),
-            Self::UnsupportedParticulateForm { element, form } => write!(
+            Self::UnconsolidatedForm { element, form } => write!(
                 formatter,
-                "structural element {} cannot directly embody particulate form {}; consolidation physics must produce a load-bearing bulk form first",
-                element.value(),
-                form.value()
-            ),
-            Self::DamagedRecoveryFormNotLoadBearing { element, form } => write!(
-                formatter,
-                "structural element {} cannot be constructed directly from damaged-recovery form {}; reprocessing must first produce usable construction stock",
+                "structural element {} cannot directly embody unconsolidated form {}; shaping or consolidation must first produce rigid construction stock",
                 element.value(),
                 form.value()
             ),
@@ -319,16 +293,6 @@ impl Display for StructuralConstructionError {
                 "structural element {} currently requires pure material {} because mixed-composition strength is not yet modeled",
                 element.value(),
                 material.value()
-            ),
-            Self::UnsupportedPhase {
-                element,
-                form,
-                phase,
-            } => write!(
-                formatter,
-                "structural element {} cannot embody {phase:?} material form {}; construction requires solid matter",
-                element.value(),
-                form.value()
             ),
             Self::InventorySelectionStale { expected, actual } => write!(
                 formatter,
@@ -385,18 +349,9 @@ impl Error for StructuralConstructionError {
                 element: _element,
                 form: _form,
             }
-            | Self::UnsupportedParticulateForm {
+            | Self::UnconsolidatedForm {
                 element: _element,
                 form: _form,
-            }
-            | Self::DamagedRecoveryFormNotLoadBearing {
-                element: _element,
-                form: _form,
-            } => None,
-            Self::UnsupportedPhase {
-                element: _element,
-                form: _form,
-                phase: _phase,
             } => None,
             Self::MaterialQuantityMismatch {
                 element: _element,
@@ -478,11 +433,7 @@ pub struct ValidatedStructuralConstruction {
 
 impl ValidatedStructuralConstruction {
     #[must_use]
-    pub const fn mass(&self) -> Mass {
-        self.mass
-    }
-
-    #[must_use]
+    #[cfg(test)]
     pub const fn self_weight(&self) -> Force {
         self.self_weight
     }
@@ -556,7 +507,7 @@ pub fn validate_structural_construction(
     if !record.embodied_mass().is_zero() || !record.embodied_material().is_empty() {
         return Err(StructuralConstructionError::AlreadyMaterialized { element });
     }
-    let profile = registries
+    registries
         .structural()
         .get_profile(record.profile())
         .ok_or(StructuralConstructionError::UnknownProfile {
@@ -571,26 +522,11 @@ pub fn validate_structural_construction(
                 form: form_id,
             });
         };
-        if form.phase() != MaterialPhase::Solid {
-            return Err(StructuralConstructionError::UnsupportedPhase {
-                element,
-                form: form_id,
-                phase: form.phase(),
-            });
-        }
-        if form.particle_size_policy() == ParticleSizeStatePolicy::Required {
-            return Err(StructuralConstructionError::UnsupportedParticulateForm {
+        if !form.is_consolidated() {
+            return Err(StructuralConstructionError::UnconsolidatedForm {
                 element,
                 form: form_id,
             });
-        }
-        if form_id == profile.damaged_recovery_form() {
-            return Err(
-                StructuralConstructionError::DamagedRecoveryFormNotLoadBearing {
-                    element,
-                    form: form_id,
-                },
-            );
         }
         let found = trace.profile().commodity().material();
         if found != record.material() {

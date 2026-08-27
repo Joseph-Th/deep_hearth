@@ -15,14 +15,15 @@ use super::knowledge::{
     MaterialAbundanceEstimate, PARTS_PER_MILLION, total_lower_bound_ppm,
 };
 
-/// Immutable result of a future physical prospecting or analytical resolver.
+/// Immutable evidence result produced by an authorized prospecting or analytical resolver.
 ///
-/// There is deliberately no public constructor. Surface inspection, panning, sampling, drilling,
-/// assays, and geophysical instruments must resolve their own spatial and abundance uncertainty
-/// before they can authorize persistent knowledge.
+/// Runtime field prospecting constructs this internally after its timed labor action completes. Test
+/// code can construct synthetic evidence for knowledge-boundary coverage. Future panning, sampling,
+/// drilling, assays, and geophysics must resolve their own spatial and abundance uncertainty before
+/// they can authorize persistent knowledge.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
-pub struct ProspectingResolution {
+pub(crate) struct ProspectingResolution {
     region: VoxelBounds,
     evidence: GeologicalEvidenceKind,
     findings: Vec<MaterialAbundanceEstimate>,
@@ -55,21 +56,6 @@ impl ProspectingResolution {
             evidence,
             findings,
         }
-    }
-
-    #[must_use]
-    pub const fn region(&self) -> VoxelBounds {
-        self.region
-    }
-
-    #[must_use]
-    pub const fn evidence(&self) -> GeologicalEvidenceKind {
-        self.evidence
-    }
-
-    #[must_use]
-    pub fn findings(&self) -> &[MaterialAbundanceEstimate] {
-        &self.findings
     }
 }
 
@@ -196,7 +182,8 @@ impl ValidatedGeologicalObservation {
 }
 
 /// Validates already-resolved prospecting information without consulting hidden deposit truth.
-pub fn validate_record_prospecting(
+#[cfg(test)]
+pub(crate) fn validate_record_prospecting(
     registries: &Registries,
     state: &AppState,
     resolution: ProspectingResolution,

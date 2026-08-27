@@ -81,9 +81,11 @@ owners rather than cached totals.
 
 ## Materials, inventory, and geology
 
-Materials are immutable definitions. Forms define phase and particle-state policy. `CommodityKey`
-combines one material and one form, but runtime ownership is limited to exact pairs explicitly authored in
-the material registry; independently valid material and form IDs do not imply a valid commodity. Composition
+Materials are immutable definitions. Forms define phase, particle-state policy, and physical cohesion.
+Only consolidated non-particulate solids may directly become rigid infrastructure components or structural
+embodiment; loose forms require an explicit shaping or consolidation process first. `CommodityKey` combines
+one material and one form, but runtime ownership is limited to exact pairs explicitly authored in the
+material registry; independently valid material and form IDs do not imply a valid commodity. Composition
 remains a separate exact property.
 
 `MaterialComposition` is sorted normalized mass fraction totaling exactly 1,000,000 ppm. Mixed matter
@@ -98,8 +100,10 @@ ingress, completion output, reform output, and relocation fragments bind to the 
 coalescing, and the monotonic lot cursor advances only when a distinct lot will actually persist.
 
 Stockpiles own capacity, containment, preservation, inbound reservations, and derived routing/mass
-indexes. Inventory is custody, not movement authorization: material relocation requires an opaque
-physical/logistics resolution or an already-bound exact selection from another canonical resolver.
+indexes. Inventory is custody, not movement authorization. Ordinary runtime movement occurs only when a
+canonical owner has already bound exact ingress, egress, reform, or reserved-output consequences. Generic
+stockpile-to-stockpile transport has no runtime authorizer. The `test-gameplay` harness may inject one
+controlled conserved delivery to exercise downstream consequences without pretending logistics exists.
 Same-material reform must perform a real commodity-form change; a selection already entirely in the
 target commodity is rejected instead of manufacturing a meaningless inventory mutation.
 
@@ -142,8 +146,12 @@ finite energy/equipment consequences. Production reserves output capacity at sta
 matter plus modeled energy while work is in flight. Completion is revision-bound and must preserve exact
 represented matter and modeled energy across all streams.
 
-Supported equipment may cause a production job to suspend when support becomes unavailable. Suspension
-keeps work-in-process and exact remaining active time; valid recovery resumes the same committed job.
+Required equipment support or reserved-output support may suspend a production job when that support
+becomes unavailable. Suspension keeps work-in-process, reservations, and exact remaining active time.
+Suspended manual crafting releases `PlayerWorkState` so blocked work does not monopolize the player;
+physical recovery reacquires player labor through the ordinary attention and survival-budget admission
+boundary before active time can resume. If labor is unavailable, the job remains suspended without
+burning exertion or active process time.
 
 Implemented physical resolvers include:
 
@@ -184,8 +192,9 @@ Maintenance consumes an exact replacement commodity, produces a distinct conserv
 restores the authored condition target. It is a physical material reform, not condition-only mutation.
 
 `PlayerWorkState` is exclusive across manual crafting, field prospecting, hand mining, and direct manual
-power. Work admission binds projected metabolic-energy and hydration cost. Successful completion consumes
-that same budget.
+power. Work admission binds projected metabolic-energy and hydration cost. Suspended manual production
+does not reserve player attention; resumption must pass the same admission again for its exact remaining
+active time. Successful active work consumes the corresponding physiological budget.
 
 Direct player power uses a real portable unmounted power provider and finite compatible destination
 store. Duration respects provider/store transfer limits and sustainable metabolic output; physiological
@@ -201,12 +210,16 @@ not create artificial healing-rate cliffs; the read-only assessment rounds that 
 No-benefit consumption is rejected rather than silently wasting finite resources.
 
 Energy stores own carrier, capacity, directional power envelopes, stored energy, identity, revision, and
-optional embodied traces. Transfer requires an opaque same-carrier authorization; storage does not choose
-paths, convert carriers, or generate energy.
+optional embodied traces. Current runtime owners consume or supply energy through their own validated
+reservations, and direct manual power is an explicit generator. There is no generic store-to-store transfer
+authorization: storage does not invent a path, carrier conversion, or energy source. A future transfer
+system must provide the physical path and consequences before any cross-store movement is admitted.
 
-Fluid stores own identity, volume, temperature, capacity, revision, and optional support. Transfer is
-exact and opaque-authorized. The current model does not implicitly mix unlike fluids or temperatures.
-Supported fluid load derives from authored material density.
+Fluid stores own identity, volume, temperature, capacity, revision, and optional support. Current runtime
+operations support exact finite withdrawal and support changes; there is no generic inter-store transfer,
+pumping, or mixing path. The model therefore never teleports fluid between stores or implicitly mixes
+unlike fluids or temperatures. Supported fluid load derives from authored material density, and canonical
+withdrawal updates that derived load.
 
 ## Structures
 
@@ -216,9 +229,11 @@ stable/strained/cracked/failed transitions with support-loss cascades.
 Support edges are admitted only when the members' voxel bounds touch or overlap, so structural topology
 cannot transmit load across empty space while sub-voxel joint geometry remains outside the current model.
 
-Construction transfers exact inventory traces into structural ownership. Deconstruction returns exact
-traces for undamaged members and reforms damaged members into the profile's authored non-load-bearing
-recovery form. Materialized members are never generically deleted.
+The gameplay-audit fixture may materialize a planned member from exact conserved inventory traces after
+validating geometry-derived mass, consolidated physical form, composition, source capacity, and resulting self-weight.
+That fixture transaction is setup infrastructure, not an implemented player construction action. Runtime
+materialized members are never generically deleted; a future demolition/recovery system must authorize
+labor/tools/time and conserved salvage before embodied matter can leave structural ownership.
 
 Stockpile, equipment, and fluid owners each maintain their own structural load channel. Multi-owner load
 changes are planned against final aggregate load so results do not depend on mutation order.

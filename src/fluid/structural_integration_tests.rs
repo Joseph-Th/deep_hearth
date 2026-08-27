@@ -8,21 +8,16 @@ use crate::content::{
 use crate::core::quantity::{Area, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
-
-#[cfg(feature = "test-soak")]
-use crate::fluid::calculate_fluid_volume_accounting;
-use crate::fluid::{FluidDefinition, FluidDefinitionId, FluidTransferError};
+use crate::fluid::{
+    FluidDefinition, FluidDefinitionId, add_fluid_store, add_fluid_store_with_contents_for_fixture,
+    validate_fluid_egress,
+};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralLoadKind, StructuralMutationError, add_structural_element,
     materialize_structural_element_for_test, validate_activate_structural_element,
     validate_remove_structural_element, validate_set_structural_load,
-};
-
-use super::super::storage_execution::{
-    add_fluid_store, add_fluid_store_with_contents_for_fixture,
-    make_test_fluid_transfer_resolution, validate_fluid_transfer,
 };
 
 const TEST_FLUID: FluidDefinitionId = FluidDefinitionId::new(941_001);
@@ -202,7 +197,7 @@ fn direct_fluid_load_write_and_supported_member_removal_are_blocked() {
 }
 
 #[test]
-fn failed_support_can_be_drained_but_cannot_receive_new_fluid_weight() {
+fn failed_support_can_be_drained_and_rejects_new_mounts() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x9410_0004));
     let support = add_active_support(&registries, &mut state, 0);
@@ -220,43 +215,32 @@ fn failed_support_can_be_drained_but_cannot_receive_new_fluid_weight() {
             .map(|record| record.lifecycle()),
         Some(StructuralLifecycle::Failed)
     );
-    let destination = match add_fluid_store(&mut state, Volume::from_microliters(5_000_000_000)) {
-        Ok(store) => store,
-        Err(error) => panic!("fluid drain destination fixture failed: {error}"),
-    };
-
-    let drain = match validate_fluid_transfer(
+    let drain = match validate_fluid_egress(
         &registries,
         &state,
-        make_test_fluid_transfer_resolution(
-            source,
-            destination,
-            Volume::from_microliters(1_000_000),
-        ),
+        source,
+        Volume::from_microliters(1_000_000),
     ) {
         Ok(token) => token,
-        Err(error) => panic!("failed-support drain validation failed: {error}"),
+        Err(error) => panic!("failed-support drain validation failed: {error:?}"),
     };
     if let Err(error) = drain.commit(&mut state) {
         panic!("failed-support drain commit failed: {error}");
     }
-
+    assert_eq!(
+        state
+            .fluid()
+            .get_store(source)
+            .map(|record| record.stored_volume()),
+        Some(Volume::from_microliters(4_999_000_000))
+    );
+    let incoming = add_filled(&registries, &mut state, 1);
     assert!(matches!(
-        validate_fluid_transfer(
-            &registries,
-            &state,
-            make_test_fluid_transfer_resolution(
-                destination,
-                source,
-                Volume::from_microliters(1),
-            ),
-        ),
-        Err(FluidTransferError::StructuralLoad(
-            FluidStructuralLoadError::SupportNotActiveForIncrease {
-                element,
-                lifecycle: StructuralLifecycle::Failed,
-            }
-        )) if element == support
+        validate_mount_fluid_store(&registries, &state, incoming, support),
+        Err(FluidSupportError::TargetNotActive {
+            element,
+            lifecycle: StructuralLifecycle::Failed,
+        }) if element == support
     ));
 
     let unmount = match validate_unmount_fluid_store(&registries, &state, source) {
@@ -273,178 +257,6 @@ fn failed_support_can_be_drained_but_cannot_receive_new_fluid_weight() {
             .and_then(|record| record.supported_by()),
         None
     );
-}
-
-#[test]
-fn fluid_transfer_can_collapse_destination_support_and_reports_damage() {
-    let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9410_0010));
-    let support = add_active_support(&registries, &mut state, 0);
-    let source = add_filled(&registries, &mut state, 5_000_000_000);
-    let destination = match add_fluid_store(&mut state, Volume::from_microliters(5_000_000_000)) {
-        Ok(store) => store,
-        Err(error) => panic!("fluid collapse destination fixture failed: {error}"),
-    };
-    mount(&registries, &mut state, destination, support);
-
-    let token = match validate_fluid_transfer(
-        &registries,
-        &state,
-        make_test_fluid_transfer_resolution(
-            source,
-            destination,
-            Volume::from_microliters(5_000_000_000),
-        ),
-    ) {
-        Ok(token) => token,
-        Err(error) => panic!("fluid collapse transfer validation failed: {error}"),
-    };
-    let outcome = match token.commit(&mut state) {
-        Ok(outcome) => outcome,
-        Err(error) => panic!("fluid collapse transfer commit failed: {error}"),
-    };
-
-    assert!(
-        outcome
-            .structural_analysis()
-            .is_some_and(|analysis| !analysis.damage_events().is_empty())
-    );
-    assert_eq!(
-        state
-            .structures()
-            .get_element(support)
-            .map(|record| record.lifecycle()),
-        Some(StructuralLifecycle::Failed)
-    );
-    assert_eq!(
-        state
-            .fluid()
-            .get_store(destination)
-            .map(|record| record.stored_volume()),
-        Some(Volume::from_microliters(5_000_000_000))
-    );
-    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-}
-
-#[test]
-fn failed_support_allows_same_support_redistribution_without_added_weight() {
-    let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9410_0011));
-    let support = add_active_support(&registries, &mut state, 0);
-    let source = add_filled(&registries, &mut state, 1_000);
-    let destination = match add_fluid_store(&mut state, Volume::from_microliters(1_000)) {
-        Ok(store) => store,
-        Err(error) => panic!("failed redistribution destination fixture failed: {error}"),
-    };
-    mount(&registries, &mut state, source, support);
-    mount(&registries, &mut state, destination, support);
-    let overload = match validate_set_structural_load(
-        &registries,
-        &state,
-        support,
-        StructuralLoadKind::Snow,
-        Force::from_millinewtons(50_000_000),
-    ) {
-        Ok(token) => token,
-        Err(error) => panic!("failed redistribution overload validation failed: {error}"),
-    };
-    if let Err(error) = overload.commit(&mut state) {
-        panic!("failed redistribution overload commit failed: {error}");
-    }
-    assert_eq!(
-        state
-            .structures()
-            .get_element(support)
-            .map(|record| record.lifecycle()),
-        Some(StructuralLifecycle::Failed)
-    );
-    let load_before = state
-        .structures()
-        .get_element(support)
-        .map(|record| record.load(StructuralLoadKind::Fluid));
-
-    let token = match validate_fluid_transfer(
-        &registries,
-        &state,
-        make_test_fluid_transfer_resolution(source, destination, Volume::from_microliters(100)),
-    ) {
-        Ok(token) => token,
-        Err(error) => panic!("failed same-support redistribution rejected: {error}"),
-    };
-    let outcome = match token.commit(&mut state) {
-        Ok(outcome) => outcome,
-        Err(error) => panic!("failed same-support redistribution commit failed: {error}"),
-    };
-
-    assert!(outcome.structural_analysis().is_none());
-    assert_eq!(
-        state
-            .structures()
-            .get_element(support)
-            .map(|record| record.load(StructuralLoadKind::Fluid)),
-        load_before
-    );
-    assert_eq!(
-        state
-            .fluid()
-            .get_store(source)
-            .map(|record| record.stored_volume()),
-        Some(Volume::from_microliters(900))
-    );
-    assert_eq!(
-        state
-            .fluid()
-            .get_store(destination)
-            .map(|record| record.stored_volume()),
-        Some(Volume::from_microliters(100))
-    );
-}
-
-#[test]
-fn transfer_binds_structure_even_when_support_local_weight_is_unchanged() {
-    let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9410_0005));
-    let support = add_active_support(&registries, &mut state, 0);
-    let source = add_filled(&registries, &mut state, 1_000_000);
-    let destination = match add_fluid_store(&mut state, Volume::from_microliters(1_000_000)) {
-        Ok(store) => store,
-        Err(error) => panic!("same-support destination fixture failed: {error}"),
-    };
-    mount(&registries, &mut state, source, support);
-    mount(&registries, &mut state, destination, support);
-    let token = match validate_fluid_transfer(
-        &registries,
-        &state,
-        make_test_fluid_transfer_resolution(source, destination, Volume::from_microliters(100_000)),
-    ) {
-        Ok(token) => token,
-        Err(error) => panic!("same-support transfer validation failed: {error}"),
-    };
-    let fluid_before = state.fluid().clone();
-    let snow = match validate_set_structural_load(
-        &registries,
-        &state,
-        support,
-        StructuralLoadKind::Snow,
-        Force::from_millinewtons(1),
-    ) {
-        Ok(token) => token,
-        Err(error) => panic!("same-support stale structure fixture failed: {error}"),
-    };
-    if let Err(error) = snow.commit(&mut state) {
-        panic!("same-support stale structure commit failed: {error}");
-    }
-
-    assert!(matches!(
-        token.commit(&mut state),
-        Err(super::super::FluidTransferCommitError::Structure(
-            StructuralCommitError::StaleRevision {
-                expected: _expected,
-                actual: _actual,
-            }
-        ))
-    ));
-    assert_eq!(state.fluid(), &fluid_before);
 }
 
 #[test]
@@ -555,70 +367,5 @@ fn tampered_fluid_derived_load_is_rejected_on_load() {
                 }
             )
         ))
-    );
-}
-
-#[cfg(feature = "test-soak")]
-#[test]
-#[ignore = "long-horizon soak"]
-fn supported_fluid_transfer_soak_preserves_volume_load_invariants_and_replay() {
-    let registries = registries();
-    let mut first = AppState::new(WorldSeed::new(0x9410_0009));
-    let left_support = add_active_support(&registries, &mut first, 0);
-    let right_support = add_active_support(&registries, &mut first, 2);
-    let left = add_filled(&registries, &mut first, 10_000);
-    let right = match add_fluid_store(&mut first, Volume::from_microliters(10_000)) {
-        Ok(store) => store,
-        Err(error) => panic!("supported fluid soak destination failed: {error}"),
-    };
-    mount(&registries, &mut first, left, left_support);
-    mount(&registries, &mut first, right, right_support);
-    let initial_volume = match calculate_fluid_volume_accounting(&first) {
-        Ok(accounting) => accounting.total(),
-        Err(error) => panic!("supported fluid soak accounting failed: {error}"),
-    };
-    let mut second = first.clone();
-
-    for step in 0..1_000_u64 {
-        let (source, destination) = if step.is_multiple_of(2) {
-            (left, right)
-        } else {
-            (right, left)
-        };
-        for state in [&mut first, &mut second] {
-            let token = match validate_fluid_transfer(
-                &registries,
-                state,
-                make_test_fluid_transfer_resolution(
-                    source,
-                    destination,
-                    Volume::from_microliters(1),
-                ),
-            ) {
-                Ok(token) => token,
-                Err(error) => {
-                    panic!("supported fluid soak validation failed at {step}: {error}")
-                }
-            };
-            if let Err(error) = token.commit(state) {
-                panic!("supported fluid soak commit failed at {step}: {error}");
-            }
-        }
-        if step % 97 == 0 {
-            if let Err(error) = validate_loaded_state(&registries, &first) {
-                panic!("supported fluid soak audit failed at {step}: {error}");
-            }
-            assert_eq!(
-                calculate_fluid_volume_accounting(&first).map(|accounting| accounting.total()),
-                Ok(initial_volume)
-            );
-        }
-    }
-
-    assert_eq!(first, second);
-    assert_eq!(validate_loaded_state(&registries, &first), Ok(()));
-    assert_eq!(
-        calculate_fluid_volume_accounting(&first).map(|accounting| accounting.total()),
-        Ok(initial_volume)
     );
 }

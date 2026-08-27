@@ -2,13 +2,17 @@
 //! World generation and advanced survey resolvers remain separate; local field inspection acquires
 //! bounded evidence, while mining authorization and timed excavation remain owned by mining.
 
+#[cfg(any(test, feature = "test-gameplay"))]
 mod generation_execution;
 mod knowledge;
 mod prospecting_action;
 mod prospecting_execution;
 mod state;
 
-pub use generation_execution::{InsertGeneratedDepositError, insert_generated_deposit};
+#[cfg(test)]
+pub(crate) use generation_execution::InsertGeneratedDepositError;
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) use generation_execution::insert_generated_deposit;
 pub use knowledge::{
     AbundanceBound, GeologicalEvidenceConsistency, GeologicalEvidenceKind,
     GeologicalKnowledgeAssessment, GeologicalKnowledgeMap, GeologicalKnowledgeState,
@@ -20,13 +24,15 @@ pub use prospecting_action::{
     FieldProspectingCommitError, FieldProspectingOutcome, FieldProspectingRequest,
     FieldProspectingStartError, ValidatedFieldProspectingStart, validate_start_field_prospecting,
 };
-pub use prospecting_execution::{
+#[cfg(test)]
+pub(crate) use prospecting_execution::validate_record_prospecting;
+pub(crate) use prospecting_execution::{
     ProspectingCommitError, ProspectingResolution, RecordProspectingError,
-    ValidatedGeologicalObservation, validate_record_prospecting,
+    ValidatedGeologicalObservation,
 };
-pub use state::{
-    GeneratedDepositSpec, GeologicalDepositId, GeologicalDepositLifecycle, GeologyValidationError,
-};
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) use state::GeneratedDepositSpec;
+pub use state::{GeologicalDepositId, GeologicalDepositLifecycle, GeologyValidationError};
 
 pub(crate) use knowledge::validate_loaded_geological_knowledge;
 pub(crate) use prospecting_action::{

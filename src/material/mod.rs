@@ -341,6 +341,17 @@ pub enum ParticleSizeStatePolicy {
     Required,
 }
 
+/// Authored physical cohesion of one material form.
+///
+/// A consolidated form can directly participate in rigid assemblies. Loose forms require an
+/// explicit shaping, compaction, casting, or other consolidation process before they can become a
+/// load-bearing or otherwise rigid component.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum MaterialFormCohesion {
+    Consolidated,
+    Loose,
+}
+
 /// Failure because a lot's particle-size state disagrees with its authored physical form.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParticleSizeStateError {
@@ -555,6 +566,7 @@ pub struct FormDefinition {
     name: String,
     phase: MaterialPhase,
     particle_size_policy: ParticleSizeStatePolicy,
+    cohesion: MaterialFormCohesion,
 }
 
 impl FormDefinition {
@@ -565,12 +577,19 @@ impl FormDefinition {
         name: impl Into<String>,
         phase: MaterialPhase,
         particle_size_policy: ParticleSizeStatePolicy,
+        cohesion: MaterialFormCohesion,
     ) -> Self {
         assert!(id.value() != 0, "material form id must be nonzero");
         assert!(
             phase == MaterialPhase::Solid
                 || particle_size_policy == ParticleSizeStatePolicy::Untracked,
             "liquid forms cannot require discrete particle-size state"
+        );
+        assert!(
+            cohesion != MaterialFormCohesion::Consolidated
+                || (phase == MaterialPhase::Solid
+                    && particle_size_policy == ParticleSizeStatePolicy::Untracked),
+            "consolidated forms must be non-particulate solids"
         );
         let name = name.into();
         assert!(
@@ -582,6 +601,7 @@ impl FormDefinition {
             name,
             phase,
             particle_size_policy,
+            cohesion,
         }
     }
 
@@ -603,6 +623,16 @@ impl FormDefinition {
     #[must_use]
     pub const fn particle_size_policy(&self) -> ParticleSizeStatePolicy {
         self.particle_size_policy
+    }
+
+    #[must_use]
+    pub const fn cohesion(&self) -> MaterialFormCohesion {
+        self.cohesion
+    }
+
+    #[must_use]
+    pub const fn is_consolidated(&self) -> bool {
+        matches!(self.cohesion, MaterialFormCohesion::Consolidated)
     }
 }
 

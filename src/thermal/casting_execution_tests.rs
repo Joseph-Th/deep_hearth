@@ -3,7 +3,7 @@
 use super::*;
 use crate::capability::{
     CapabilityComparison, CapabilityDefinition, CapabilityProfile, CapabilityRequirement,
-    CapabilityValueKind,
+    CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{FORM_INGOT, FORM_MOLTEN, MATERIAL_COPPER, make_test_registries_with_casting};
 use crate::core::state::{StateValidationError, validate_loaded_state};

@@ -1,4 +1,4 @@
-//! Public resolved material-transfer transaction built on exact inventory relocation.
+//! Test/gameplay-audit controlled-delivery transaction built on exact inventory relocation.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -20,11 +20,11 @@ use super::{
     validate_material_relocation_from_selection,
 };
 
-/// Opaque authorization for one already physically resolved stockpile-to-stockpile movement.
+/// Fixture authorization for one controlled stockpile-to-stockpile delivery.
 ///
-/// Inventory validates and commits storage ownership but does not decide how matter travels through
-/// the world. Physical/logistics owners construct this token after resolving path, timing, and any
-/// transport-specific constraints; external callers cannot manufacture one directly.
+/// This type is compiled only for tests and the gameplay-audit feature. Inventory still validates and
+/// commits exact custody and structural-load consequences, but ordinary runtime cannot manufacture a
+/// pathless logistics event. A future logistics owner must resolve path, timing, and transport costs.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub struct MaterialTransferResolution {

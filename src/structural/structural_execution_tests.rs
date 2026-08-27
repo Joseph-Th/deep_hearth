@@ -6,12 +6,10 @@ use crate::content::{
 };
 use crate::core::quantity::{Area, Length};
 use crate::core::time::WorldSeed;
-use crate::inventory::add_solid_stockpile_for_test;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
-    StructuralFailureCause, StructuralStage, ValidatedStructuralDeconstruction,
-    make_test_deconstruction_resolution, materialize_structural_element_for_test,
-    validate_structural_deconstruction,
+    AddStructuralElementError, StructuralElementGeometry, StructuralFailureCause, StructuralStage,
+    add_structural_element, materialize_structural_element_for_test,
 };
 
 const MEMBER_AREA: Area = Area::from_square_millimeters(1_000);
@@ -77,35 +75,6 @@ fn allocation_revalidates_geometry_before_mutating_state() {
         ))
     );
     assert_eq!(state, before);
-}
-
-fn validate_test_deconstruction(
-    registries: &Registries,
-    state: &mut AppState,
-    element: StructuralElementId,
-) -> ValidatedStructuralDeconstruction {
-    let mass = match state.structures().get_element(element) {
-        Some(record) => record.embodied_mass(),
-        None => panic!("deconstruction fixture references missing structural element"),
-    };
-    let destination = match add_solid_stockpile_for_test(state, mass) {
-        Ok(destination) => destination,
-        Err(error) => panic!("deconstruction fixture stockpile failed: {error}"),
-    };
-    match validate_structural_deconstruction(
-        registries,
-        state,
-        make_test_deconstruction_resolution(element, destination),
-    ) {
-        Ok(token) => token,
-        Err(error) => panic!("deconstruction fixture validation failed: {error}"),
-    }
-}
-
-fn commit_test_deconstruction(token: ValidatedStructuralDeconstruction, state: &mut AppState) {
-    if let Err(error) = token.commit(state) {
-        panic!("deconstruction fixture commit failed: {error}");
-    }
 }
 
 fn make_test_element(
@@ -591,131 +560,37 @@ fn removing_one_load_path_cascades_failure_through_dependents_atomically() {
 }
 
 #[test]
-fn removing_member_redistributes_to_surviving_support_and_cleans_indexes() {
-    let registries = build_registries();
-    let mut state = AppState::new(WorldSeed::new(0x5100_0010));
-    let left = make_test_element(&registries, &mut state, 0, 0, true);
-    let right = make_test_element(&registries, &mut state, 2, 0, true);
-    let deck = make_test_element(&registries, &mut state, 1, 1, false);
-    activate_test_element(&registries, &mut state, left);
-    activate_test_element(&registries, &mut state, right);
-    link_test_support(&registries, &mut state, deck, left);
-    link_test_support(&registries, &mut state, deck, right);
-    activate_test_element(&registries, &mut state, deck);
-    let load = match validate_set_structural_load(
-        &registries,
-        &state,
-        deck,
-        StructuralLoadKind::Occupancy,
-        Force::from_millinewtons(30_000_000),
-    ) {
-        Ok(token) => token,
-        Err(error) => panic!("member removal load fixture failed: {error}"),
-    };
-    commit_test_mutation(load, &mut state);
-
-    let removal = validate_test_deconstruction(&registries, &mut state, left);
-    assert!(removal.structural_analysis().damage_events().is_empty());
-    let right_assessment = match removal
-        .structural_analysis()
-        .assessments()
-        .iter()
-        .copied()
-        .find(|assessment| assessment.element() == right)
-    {
-        Some(assessment) => assessment,
-        None => panic!("surviving support assessment disappeared during removal planning"),
-    };
-    assert_eq!(right_assessment.carried_load().millinewtons(), 30_000_002);
-    assert_eq!(right_assessment.stage(), StructuralStage::Strained);
-    commit_test_deconstruction(removal, &mut state);
-
-    assert!(state.structures().get_element(left).is_none());
-    assert!(state.structures().supports(left).is_none());
-    assert!(state.structures().dependents(left).is_none());
-    let deck_supports: Vec<_> = match state.structures().supports(deck) {
-        Some(supports) => supports.collect(),
-        None => panic!("deck support index disappeared after member removal"),
-    };
-    assert_eq!(deck_supports, vec![right]);
-    let right_dependents: Vec<_> = match state.structures().dependents(right) {
-        Some(dependents) => dependents.collect(),
-        None => panic!("surviving support reverse index disappeared"),
-    };
-    assert_eq!(right_dependents, vec![deck]);
-    assert_eq!(
-        crate::core::state::validate_loaded_state(&registries, &state),
-        Ok(())
-    );
-}
-
-#[test]
-fn failed_debris_can_be_removed_and_rebuilt_without_reusing_identity() {
+fn failed_embodied_debris_cannot_be_deleted_without_a_recovery_system() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5100_0011));
     let foundation = make_test_element(&registries, &mut state, 0, 0, true);
-    let middle = make_test_element(&registries, &mut state, 0, 1, false);
-    let top = make_test_element(&registries, &mut state, 0, 2, false);
     activate_test_element(&registries, &mut state, foundation);
-    link_test_support(&registries, &mut state, middle, foundation);
-    activate_test_element(&registries, &mut state, middle);
-    link_test_support(&registries, &mut state, top, middle);
-    activate_test_element(&registries, &mut state, top);
-
-    let remove_foundation = validate_test_deconstruction(&registries, &mut state, foundation);
-    assert_eq!(
-        remove_foundation
-            .structural_analysis()
-            .damage_events()
-            .len(),
-        2
-    );
-    commit_test_deconstruction(remove_foundation, &mut state);
-    assert_eq!(
-        state
-            .structures()
-            .get_element(middle)
-            .map(|record| record.lifecycle()),
-        Some(StructuralLifecycle::Failed)
-    );
-    assert_eq!(
-        state
-            .structures()
-            .get_element(top)
-            .map(|record| record.lifecycle()),
-        Some(StructuralLifecycle::Failed)
-    );
-
-    for debris in [top, middle] {
-        let token = validate_test_deconstruction(&registries, &mut state, debris);
-        commit_test_deconstruction(token, &mut state);
-        assert!(state.structures().get_element(debris).is_none());
-    }
-    assert_eq!(state.structures().elements().count(), 0);
-
-    let replacement_foundation = make_test_element(&registries, &mut state, 0, 0, true);
-    let replacement_upper = make_test_element(&registries, &mut state, 0, 1, false);
-    assert!(replacement_foundation > top);
-    assert!(replacement_upper > replacement_foundation);
-    activate_test_element(&registries, &mut state, replacement_foundation);
-    link_test_support(
+    let overload = validate_set_structural_load(
         &registries,
-        &mut state,
-        replacement_upper,
-        replacement_foundation,
-    );
-    activate_test_element(&registries, &mut state, replacement_upper);
-
-    assert_eq!(
-        crate::core::state::validate_loaded_state(&registries, &state),
-        Ok(())
-    );
+        &state,
+        foundation,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(50_000_000),
+    )
+    .unwrap_or_else(|error| panic!("debris overload validation failed: {error}"));
+    commit_test_mutation(overload, &mut state);
     assert_eq!(
         state
             .structures()
-            .get_element(replacement_upper)
+            .get_element(foundation)
             .map(|record| record.lifecycle()),
-        Some(StructuralLifecycle::Active)
+        Some(StructuralLifecycle::Failed)
+    );
+    assert_eq!(
+        validate_remove_structural_element(&registries, &state, foundation),
+        Err(StructuralMutationError::ElementOwnsMatter {
+            element: foundation,
+            mass: state
+                .structures()
+                .get_element(foundation)
+                .unwrap_or_else(|| panic!("failed debris disappeared"))
+                .embodied_mass(),
+        })
     );
 }
 

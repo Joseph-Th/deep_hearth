@@ -32,6 +32,61 @@ fn initialize_and_spend_reserves(registries: &Registries, state: &mut AppState) 
     }
 }
 
+#[test]
+fn direct_consumption_rejects_unsafe_food_and_water_temperatures_without_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0018));
+    initialize_and_spend_reserves(&registries, &mut state);
+    let hot_temperature = Temperature::from_millikelvin(333_151);
+    let food_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
+        .unwrap_or_else(|error| panic!("hot food stockpile failed: {error}"));
+    let food = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        food_source,
+        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+        Mass::from_milligrams(10),
+        hot_temperature,
+    )
+    .unwrap_or_else(|error| panic!("hot food fixture failed: {error}"));
+    let water = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        Volume::from_microliters(10),
+        FLUID_WATER,
+        Volume::from_microliters(10),
+        hot_temperature,
+    )
+    .unwrap_or_else(|error| panic!("hot water fixture failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_eat(
+            &registries,
+            &state,
+            food_source,
+            &[MaterialLotSelection::new(food, Mass::from_milligrams(1))],
+        )
+        .err(),
+        Some(EatError::TemperatureOutsideConsumptionRange {
+            lot: food,
+            temperature: hot_temperature,
+            minimum: Temperature::from_millikelvin(273_150),
+            maximum: Temperature::from_millikelvin(333_150),
+        })
+    );
+    assert_eq!(
+        validate_drink(&registries, &state, water, Volume::from_microliters(1)).err(),
+        Some(DrinkError::TemperatureOutsideConsumptionRange {
+            store: water,
+            temperature: hot_temperature,
+            minimum: Temperature::from_millikelvin(273_150),
+            maximum: Temperature::from_millikelvin(333_150),
+        })
+    );
+    assert_eq!(state, before);
+}
+
 fn start_attention_owning_craft(registries: &Registries, state: &mut AppState) -> PlayerWork {
     let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("attention craft source fixture failed: {error}"));

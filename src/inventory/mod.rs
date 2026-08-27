@@ -38,6 +38,7 @@ pub use structural_integration::{
     StockpileSupportOutcome, ValidatedStockpileSupportChange, validate_mount_stockpile,
     validate_unmount_stockpile,
 };
+#[cfg(any(test, feature = "test-gameplay"))]
 pub use transactions::{
     MaterialTransferCommitError, MaterialTransferError, MaterialTransferResolution,
     ValidatedMaterialTransfer, validate_material_transfer,
@@ -59,7 +60,7 @@ pub(crate) use state::{
 };
 pub(crate) use storage_validation::validate_stockpile_storage;
 pub(crate) use structural_integration::{
-    StockpileStoredMassChange, ValidatedStockpileStructuralLoad, resolve_stockpile_stored_loads,
+    StockpileStoredMassChange, ValidatedStockpileStructuralLoad,
     validate_stockpile_stored_mass_changes, validate_stockpile_support_for_new_inbound,
 };
 pub(crate) use transactions::{

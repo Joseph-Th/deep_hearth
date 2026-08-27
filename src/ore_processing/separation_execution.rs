@@ -4,13 +4,13 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::capability::{CapabilityEvaluationError, CapabilityValue, evaluate_capabilities};
+use crate::capability::{CapabilityEvaluationError, evaluate_capabilities};
 use crate::core::quantity::{Energy, Mass, MassFlow, Power, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::energy::{
     EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerDurationError,
-    calculate_mass_specific_energy, calculate_power_duration_ceiling, validate_energy_supply,
+    calculate_mass_specific_energy, validate_energy_supply,
 };
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
@@ -25,11 +25,11 @@ use crate::production::{
 };
 use crate::registry::Registries;
 
-use super::timing::OreProcessActiveTiming;
-use super::{
-    ConstituentSeparationProcessDefinition, MassFlowDurationError,
-    calculate_mass_flow_duration_ceiling,
+use super::powered_physics::{
+    PoweredOreEquipmentError, PoweredOreTimingError, resolve_powered_ore_equipment,
+    resolve_powered_ore_timing,
 };
+use super::{ConstituentSeparationProcessDefinition, MassFlowDurationError};
 
 mod validation;
 
@@ -680,25 +680,26 @@ pub fn resolve_constituent_separation_process(
         process_definition.capability_requirements(),
     )
     .map_err(ConstituentSeparationResolutionError::Capability)?;
-    let processing_rate = match provider.get_capability(definition.mass_flow_capability()) {
-        Some(CapabilityValue::MassFlow(rate)) => rate,
-        Some(_) | None => {
-            return Err(ConstituentSeparationResolutionError::MissingMassFlowCapability);
-        }
-    };
-    let maximum_batch_mass = match provider.get_capability(definition.max_batch_mass_capability()) {
-        Some(CapabilityValue::Mass(mass)) => mass,
-        Some(_) | None => {
-            return Err(ConstituentSeparationResolutionError::MissingMaximumBatchMassCapability);
-        }
-    };
     let selected_mass = inputs.input_mass();
-    if selected_mass > maximum_batch_mass {
-        return Err(ConstituentSeparationResolutionError::BatchMassExceeded {
-            selected: selected_mass,
-            maximum: maximum_batch_mass,
-        });
-    }
+    let powered_equipment = resolve_powered_ore_equipment(
+        provider.definition(),
+        provider.condition(),
+        definition.mass_flow_capability(),
+        definition.max_batch_mass_capability(),
+        selected_mass,
+    )
+    .map_err(|error| match error {
+        PoweredOreEquipmentError::MissingMassFlowCapability => {
+            ConstituentSeparationResolutionError::MissingMassFlowCapability
+        }
+        PoweredOreEquipmentError::MissingMaximumBatchMassCapability => {
+            ConstituentSeparationResolutionError::MissingMaximumBatchMassCapability
+        }
+        PoweredOreEquipmentError::BatchMassExceeded { selected, maximum } => {
+            ConstituentSeparationResolutionError::BatchMassExceeded { selected, maximum }
+        }
+    })?;
+    let processing_rate = powered_equipment.processing_rate();
     let outputs = resolve_separation_outputs(definition, inputs.consumed_inputs())
         .map_err(ConstituentSeparationResolutionError::Batch)?;
     let required_energy =
@@ -711,27 +712,31 @@ pub fn resolve_constituent_separation_process(
             provided: energy_supply.trace().carrier(),
         });
     }
-    let throughput_duration = calculate_mass_flow_duration_ceiling(
+    let available_power = energy_supply.max_output_power();
+    let timing = resolve_powered_ore_timing(
+        registries,
         processing_rate,
         selected_mass,
-        registries.core().physical_tick_duration(),
-    )
-    .map_err(ConstituentSeparationResolutionError::ThroughputDuration)?;
-    let available_power = energy_supply.max_output_power();
-    let energy_duration = calculate_power_duration_ceiling(
-        available_power,
         required_energy,
-        registries.core().physical_tick_duration(),
+        available_power,
+        definition.condition_wear_ppm_per_active_tick(),
+        provider.condition(),
     )
-    .map_err(ConstituentSeparationResolutionError::EnergyDuration)?;
-    let timing = OreProcessActiveTiming::new(throughput_duration, energy_duration);
+    .map_err(|error| match error {
+        PoweredOreTimingError::Throughput(error) => {
+            ConstituentSeparationResolutionError::ThroughputDuration(error)
+        }
+        PoweredOreTimingError::Energy(error) => {
+            ConstituentSeparationResolutionError::EnergyDuration(error)
+        }
+        PoweredOreTimingError::Condition(error) => {
+            ConstituentSeparationResolutionError::ConditionDuration(error)
+        }
+    })?;
+    let throughput_duration = timing.throughput_duration();
+    let energy_duration = timing.energy_duration();
     let duration = timing.duration();
-    let condition_after = timing
-        .condition_after(
-            definition.condition_wear_ppm_per_active_tick(),
-            provider.condition(),
-        )
-        .map_err(ConstituentSeparationResolutionError::ConditionDuration)?;
+    let condition_after = timing.condition_after();
     let equipment_use = provider.validated_use();
     let resolution = inputs
         .resolve_with_energy_and_equipment(

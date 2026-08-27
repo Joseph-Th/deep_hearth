@@ -1,14 +1,25 @@
 //! Built-in physiology and primitive edible/drinkable content.
 
-use crate::core::quantity::{Energy, MassSpecificEnergy, Volume};
+use crate::core::quantity::{Energy, MassSpecificEnergy, Temperature, Volume};
 use crate::core::time::TickSpan;
 use crate::material::CommodityKey;
 use crate::survival::{
-    DrinkDefinition, FoodCategory, FoodDefinition, HydrationDefinition, MetabolismDefinition,
-    NutritionDefinition, PhysiologyDefinition, SurvivalRegistry,
+    ConsumptionTemperatureRange, DrinkDefinition, FoodCategory, FoodDefinition,
+    HydrationDefinition, MetabolismDefinition, NutritionDefinition, PhysiologyDefinition,
+    SurvivalRegistry,
 };
 
 use super::{FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES, MATERIAL_GRAIN, MATERIAL_MEAT};
+
+const MINIMUM_CONSUMPTION_TEMPERATURE_MK: u32 = 273_150;
+const MAXIMUM_CONSUMPTION_TEMPERATURE_MK: u32 = 333_150;
+
+fn direct_consumption_temperature() -> ConsumptionTemperatureRange {
+    ConsumptionTemperatureRange::new(
+        Temperature::from_millikelvin(MINIMUM_CONSUMPTION_TEMPERATURE_MK),
+        Temperature::from_millikelvin(MAXIMUM_CONSUMPTION_TEMPERATURE_MK),
+    )
+}
 
 fn physiology() -> PhysiologyDefinition {
     PhysiologyDefinition::new(
@@ -36,6 +47,7 @@ fn foods() -> [FoodDefinition; 3] {
             MassSpecificEnergy::from_nanojoules_per_milligram(14_000_000_000),
             0,
             TickSpan::new(24_000 * 32),
+            direct_consumption_temperature(),
         ),
         FoodDefinition::new(
             CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
@@ -43,6 +55,7 @@ fn foods() -> [FoodDefinition; 3] {
             MassSpecificEnergy::from_nanojoules_per_milligram(2_500_000_000),
             1,
             TickSpan::new(24_000 * 4),
+            direct_consumption_temperature(),
         ),
         FoodDefinition::new(
             CommodityKey::new(MATERIAL_MEAT, FORM_FOOD),
@@ -50,6 +63,7 @@ fn foods() -> [FoodDefinition; 3] {
             MassSpecificEnergy::from_nanojoules_per_milligram(10_000_000_000),
             1,
             TickSpan::new(24_000 * 3),
+            direct_consumption_temperature(),
         ),
     ]
 }
@@ -58,7 +72,11 @@ pub(crate) fn build_survival_registry() -> SurvivalRegistry {
     SurvivalRegistry::new(
         physiology(),
         foods(),
-        [DrinkDefinition::new(FLUID_WATER, 1_000_000)],
+        [DrinkDefinition::new(
+            FLUID_WATER,
+            1_000_000,
+            direct_consumption_temperature(),
+        )],
     )
 }
 

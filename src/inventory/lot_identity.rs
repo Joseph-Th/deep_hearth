@@ -23,6 +23,7 @@ pub(in crate::inventory) struct LotIdentityPlanner<'a> {
     state: &'a InventoryState,
     excluded_existing: BTreeSet<MaterialLotId>,
     available_arrivals: Vec<PlannedAvailableLot>,
+    #[cfg(any(test, feature = "test-gameplay"))]
     initial_next_lot_id: u64,
     next_lot_id: u64,
 }
@@ -37,12 +38,14 @@ impl<'a> LotIdentityPlanner<'a> {
             state,
             excluded_existing: excluded_existing.into_iter().collect(),
             available_arrivals: Vec::new(),
+            #[cfg(any(test, feature = "test-gameplay"))]
             initial_next_lot_id: next_lot_id,
             next_lot_id,
         }
     }
 
     /// Adds a lot whose existing identity will arrive before subsequently planned new parcels.
+    #[cfg(any(test, feature = "test-gameplay"))]
     pub(in crate::inventory) fn note_preserved_arrival(
         &mut self,
         id: MaterialLotId,
@@ -121,6 +124,7 @@ impl<'a> LotIdentityPlanner<'a> {
         self.next_lot_id
     }
 
+    #[cfg(any(test, feature = "test-gameplay"))]
     pub(in crate::inventory) const fn allocated_any(&self) -> bool {
         self.next_lot_id != self.initial_next_lot_id
     }

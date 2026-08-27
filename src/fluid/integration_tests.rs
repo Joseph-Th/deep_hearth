@@ -1,4 +1,4 @@
-//! Tests for the sibling mod module; isolated so test-only edits do not invalidate production builds.
+//! Tests for exact volumetric-flow integration and fractional-volume carry.
 
 use super::*;
 

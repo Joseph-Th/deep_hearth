@@ -3,23 +3,17 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::capability::{
-    CapabilityEvaluationError, CapabilityId, CapabilityValue, evaluate_capabilities,
-};
+use crate::capability::{CapabilityEvaluationError, CapabilityId, evaluate_capabilities};
 use crate::core::quantity::{Energy, Mass, Power, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::energy::{
-    EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerDurationError,
-    calculate_power_duration_ceiling, validate_energy_supply,
+    EnergyCarrier, EnergyStoreId, EnergySupplyError, PowerDurationError, validate_energy_supply,
 };
-use crate::equipment::{
-    EquipmentId, EquipmentProviderError, resolve_equipment_capability, resolve_equipment_provider,
-};
+use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
 use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection, StockpileId};
 use crate::maintenance::{
     ActiveConditionDurationError, Condition, assert_valid_condition_wear_ppm_per_tick,
-    calculate_usable_condition_after_active_ticks,
 };
 use crate::material::{
     CommodityKey, FormId, MaterialComposition, MaterialId, MaterialLotSpec, MaterialLotSpecError,
@@ -31,6 +25,11 @@ use crate::production::{
 };
 use crate::registry::Registries;
 
+use super::equipment_physics::{
+    ThermalBatchLimitError, ThermalPowerTemperatureError, ThermalTransferTimingError,
+    resolve_thermal_power_temperature_limits, resolve_thermal_transfer_timing,
+    validate_thermal_batch_mass,
+};
 use super::{
     FusionHeatError, PhaseChangeForms, SensibleHeatError, calculate_fusion_heat,
     calculate_sensible_heat,
@@ -622,37 +621,40 @@ pub fn resolve_melting_process(
     )
     .map_err(MeltingResolutionError::Capability)?;
 
-    let heating_power = match provider.get_capability(definition.heating_power_capability()) {
-        Some(CapabilityValue::Power(power)) => power,
-        Some(_) | None => {
-            return Err(MeltingResolutionError::MissingHeatingPower {
+    let limits = resolve_thermal_power_temperature_limits(
+        provider.definition(),
+        provider.condition(),
+        definition.heating_power_capability(),
+        definition.max_temperature_capability(),
+    )
+    .map_err(|error| match error {
+        ThermalPowerTemperatureError::MissingTransferPower => {
+            MeltingResolutionError::MissingHeatingPower {
                 capability: definition.heating_power_capability(),
-            });
+            }
         }
-    };
-    let maximum_temperature = match provider.get_capability(definition.max_temperature_capability())
-    {
-        Some(CapabilityValue::Temperature(temperature)) => temperature,
-        Some(_) | None => {
-            return Err(MeltingResolutionError::MissingMaximumTemperature {
+        ThermalPowerTemperatureError::MissingMaximumTemperature => {
+            MeltingResolutionError::MissingMaximumTemperature {
                 capability: definition.max_temperature_capability(),
-            });
+            }
         }
-    };
-    let maximum_batch_mass = match provider.get_capability(definition.max_batch_mass_capability()) {
-        Some(CapabilityValue::Mass(mass)) => mass,
-        Some(_) | None => {
-            return Err(MeltingResolutionError::MissingMaximumBatchMass {
+    })?;
+    validate_thermal_batch_mass(
+        provider.definition(),
+        provider.condition(),
+        definition.max_batch_mass_capability(),
+        inputs.input_mass(),
+    )
+    .map_err(|error| match error {
+        ThermalBatchLimitError::MissingMaximumBatchMass => {
+            MeltingResolutionError::MissingMaximumBatchMass {
                 capability: definition.max_batch_mass_capability(),
-            });
+            }
         }
-    };
-    if inputs.input_mass() > maximum_batch_mass {
-        return Err(MeltingResolutionError::BatchMassExceedsEquipmentCapacity {
-            selected: inputs.input_mass(),
-            maximum: maximum_batch_mass,
-        });
-    }
+        ThermalBatchLimitError::BatchMassExceeded { selected, maximum } => {
+            MeltingResolutionError::BatchMassExceedsEquipmentCapacity { selected, maximum }
+        }
+    })?;
 
     let batch = resolve_melting_batch(
         registries.materials(),
@@ -661,11 +663,11 @@ pub fn resolve_melting_process(
         inputs.consumed_inputs(),
     )
     .map_err(MeltingResolutionError::Batch)?;
-    if batch.melting_point > maximum_temperature {
+    if batch.melting_point > limits.maximum_temperature() {
         return Err(
             MeltingResolutionError::MeltingPointExceedsEquipmentMaximum {
                 melting_point: batch.melting_point,
-                maximum: maximum_temperature,
+                maximum: limits.maximum_temperature(),
             },
         );
     }
@@ -679,19 +681,23 @@ pub fn resolve_melting_process(
             provided: provided_carrier,
         });
     }
-    let transfer_power = heating_power.min(energy_supply.max_output_power());
-    let duration = calculate_power_duration_ceiling(
-        transfer_power,
+    let timing = resolve_thermal_transfer_timing(
+        registries,
+        limits.transfer_power(),
+        energy_supply.max_output_power(),
         batch.required_energy,
-        registries.core().physical_tick_duration(),
-    )
-    .map_err(MeltingResolutionError::Duration)?;
-    let equipment_condition_after = calculate_usable_condition_after_active_ticks(
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
-        duration,
     )
-    .map_err(MeltingResolutionError::ConditionDuration)?;
+    .map_err(|error| match error {
+        ThermalTransferTimingError::Duration(error) => MeltingResolutionError::Duration(error),
+        ThermalTransferTimingError::ConditionDuration(error) => {
+            MeltingResolutionError::ConditionDuration(error)
+        }
+    })?;
+    let transfer_power = timing.transfer_power();
+    let duration = timing.duration();
+    let equipment_condition_after = timing.condition_after();
     let resolution = inputs
         .resolve_with_energy_and_equipment(
             duration,
@@ -987,49 +993,38 @@ pub(super) fn validate_loaded_melting_job(
     else {
         return Err(MeltingJobValidationError::UnknownEnergyDefinition { job: job.id() });
     };
-    let heating_power = match resolve_equipment_capability(
+    let limits = resolve_thermal_power_temperature_limits(
         equipment_definition,
         provider.condition(),
         definition.heating_power_capability(),
-    ) {
-        Some(CapabilityValue::Power(power)) => power,
-        Some(_) | None => {
-            return Err(MeltingJobValidationError::MissingHeatingPowerCapability { job: job.id() });
-        }
-    };
-    let maximum_temperature = match resolve_equipment_capability(
-        equipment_definition,
-        provider.condition(),
         definition.max_temperature_capability(),
-    ) {
-        Some(CapabilityValue::Temperature(temperature)) => temperature,
-        Some(_) | None => {
-            return Err(
-                MeltingJobValidationError::MissingMaximumTemperatureCapability { job: job.id() },
-            );
+    )
+    .map_err(|error| match error {
+        ThermalPowerTemperatureError::MissingTransferPower => {
+            MeltingJobValidationError::MissingHeatingPowerCapability { job: job.id() }
         }
-    };
-    let maximum_batch_mass = match resolve_equipment_capability(
+        ThermalPowerTemperatureError::MissingMaximumTemperature => {
+            MeltingJobValidationError::MissingMaximumTemperatureCapability { job: job.id() }
+        }
+    })?;
+    validate_thermal_batch_mass(
         equipment_definition,
         provider.condition(),
         definition.max_batch_mass_capability(),
-    ) {
-        Some(CapabilityValue::Mass(mass)) => mass,
-        Some(_) | None => {
-            return Err(
-                MeltingJobValidationError::MissingMaximumBatchMassCapability { job: job.id() },
-            );
+        job.consumed_mass(),
+    )
+    .map_err(|error| match error {
+        ThermalBatchLimitError::MissingMaximumBatchMass => {
+            MeltingJobValidationError::MissingMaximumBatchMassCapability { job: job.id() }
         }
-    };
-    if job.consumed_mass() > maximum_batch_mass {
-        return Err(
+        ThermalBatchLimitError::BatchMassExceeded { selected, maximum } => {
             MeltingJobValidationError::BatchMassExceedsEquipmentCapacity {
                 job: job.id(),
-                selected: job.consumed_mass(),
-                maximum: maximum_batch_mass,
-            },
-        );
-    }
+                selected,
+                maximum,
+            }
+        }
+    })?;
     let batch = resolve_melting_batch(
         registries.materials(),
         definition.solid_form(),
@@ -1040,12 +1035,12 @@ pub(super) fn validate_loaded_melting_job(
         job: job.id(),
         error,
     })?;
-    if batch.melting_point > maximum_temperature {
+    if batch.melting_point > limits.maximum_temperature() {
         return Err(
             MeltingJobValidationError::MeltingPointExceedsEquipmentMaximum {
                 job: job.id(),
                 melting_point: batch.melting_point,
-                maximum: maximum_temperature,
+                maximum: limits.maximum_temperature(),
             },
         );
     }
@@ -1063,16 +1058,27 @@ pub(super) fn validate_loaded_melting_job(
             required: batch.required_energy,
         });
     }
-    let transfer_power = heating_power.min(energy_definition.max_output_power());
-    let required_duration = calculate_power_duration_ceiling(
-        transfer_power,
+    let timing = resolve_thermal_transfer_timing(
+        registries,
+        limits.transfer_power(),
+        energy_definition.max_output_power(),
         batch.required_energy,
-        registries.core().physical_tick_duration(),
+        definition.condition_wear_ppm_per_active_tick(),
+        provider.condition(),
     )
-    .map_err(|error| MeltingJobValidationError::Duration {
-        job: job.id(),
-        error,
+    .map_err(|error| match error {
+        ThermalTransferTimingError::Duration(error) => MeltingJobValidationError::Duration {
+            job: job.id(),
+            error,
+        },
+        ThermalTransferTimingError::ConditionDuration(error) => {
+            MeltingJobValidationError::ConditionDuration {
+                job: job.id(),
+                error,
+            }
+        }
     })?;
+    let required_duration = timing.duration();
     let stored_duration = job.active_duration();
     if stored_duration != required_duration {
         return Err(MeltingJobValidationError::DurationMismatch {
@@ -1081,15 +1087,7 @@ pub(super) fn validate_loaded_melting_job(
             required: required_duration,
         });
     }
-    let required_condition_after = calculate_usable_condition_after_active_ticks(
-        definition.condition_wear_ppm_per_active_tick(),
-        provider.condition(),
-        required_duration,
-    )
-    .map_err(|error| MeltingJobValidationError::ConditionDuration {
-        job: job.id(),
-        error,
-    })?;
+    let required_condition_after = timing.condition_after();
     let Some(stored_condition_after) = job.equipment_condition_after() else {
         return Err(MeltingJobValidationError::MissingEquipmentConditionOutcome { job: job.id() });
     };

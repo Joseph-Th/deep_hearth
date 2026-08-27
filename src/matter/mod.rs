@@ -123,11 +123,11 @@ impl Error for MatterAccountingError {}
 /// Recomputes matter ownership from authoritative records without trusting stockpile caches.
 ///
 /// Finite geological deposits own their remaining extractable matter until a canonical extraction
-/// transfers it into inventory. Construction moves selected inventory matter into structural
-/// embodiment until conserved deconstruction returns or transforms it. Production inputs are removed
-/// from inventory at process start. The running job's resolved output snapshot becomes the durable
-/// owner of that same matter until completion. Reserved inbound capacity is not additional matter and
-/// is deliberately
+/// transfers it into inventory. Fixture materialization can move selected inventory matter into
+/// structural embodiment, where it remains authoritative structural matter because runtime
+/// demolition/recovery is not currently modeled. Production inputs are removed from inventory at
+/// process start. The running job's resolved output snapshot becomes the durable owner of that same
+/// matter until completion. Reserved inbound capacity is not additional matter and is deliberately
 /// excluded from this projection.
 pub fn calculate_matter_accounting(
     state: &AppState,

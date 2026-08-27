@@ -2,10 +2,10 @@
 
 mod comminution_execution;
 mod definitions;
+mod powered_physics;
 mod screening_execution;
 mod separation_execution;
 mod throughput;
-mod timing;
 
 use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
 use crate::material::{CommodityKey, MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy};

@@ -3,8 +3,8 @@
 use crate::core::quantity::Temperature;
 use crate::material::{
     CommodityKey, ElectricalProperties, FormDefinition, FormId, FusionProperties,
-    MaterialDefinition, MaterialId, MaterialPhase, MaterialProperties, MaterialRegistry,
-    MechanicalProperties, ParticleSizeStatePolicy, ThermalProperties,
+    MaterialDefinition, MaterialFormCohesion, MaterialId, MaterialPhase, MaterialProperties,
+    MaterialRegistry, MechanicalProperties, ParticleSizeStatePolicy, ThermalProperties,
 };
 
 pub const MATERIAL_WOOD: MaterialId = MaterialId::new(1);
@@ -35,99 +35,83 @@ pub const FORM_REINFORCEMENT: FormId = FormId::new(13);
 pub const FORM_NATIVE_METAL: FormId = FormId::new(14);
 pub const FORM_SCRAP: FormId = FormId::new(15);
 
+fn consolidated_form(id: FormId, name: &'static str) -> FormDefinition {
+    FormDefinition::new(
+        id,
+        name,
+        MaterialPhase::Solid,
+        ParticleSizeStatePolicy::Untracked,
+        MaterialFormCohesion::Consolidated,
+    )
+}
+
+fn loose_form(
+    id: FormId,
+    name: &'static str,
+    phase: MaterialPhase,
+    particle_size_policy: ParticleSizeStatePolicy,
+) -> FormDefinition {
+    FormDefinition::new(
+        id,
+        name,
+        phase,
+        particle_size_policy,
+        MaterialFormCohesion::Loose,
+    )
+}
+
 pub(crate) fn build_material_registry() -> MaterialRegistry {
     let mut registry = MaterialRegistry::new();
 
-    registry.register_form(FormDefinition::new(
-        FORM_LOG,
-        "log",
-        MaterialPhase::Solid,
-        ParticleSizeStatePolicy::Untracked,
-    ));
-    registry.register_form(FormDefinition::new(
-        FORM_FOOD,
-        "food",
-        MaterialPhase::Solid,
-        ParticleSizeStatePolicy::Untracked,
-    ));
-    registry.register_form(FormDefinition::new(
-        FORM_TOOL,
-        "tool",
-        MaterialPhase::Solid,
-        ParticleSizeStatePolicy::Untracked,
-    ));
-    registry.register_form(FormDefinition::new(
-        FORM_CHIP,
-        "chip",
-        MaterialPhase::Solid,
-        ParticleSizeStatePolicy::Untracked,
-    ));
-    registry.register_form(FormDefinition::new(
-        FORM_HANDLE,
-        "handle",
-        MaterialPhase::Solid,
-        ParticleSizeStatePolicy::Untracked,
-    ));
-    registry.register_form(FormDefinition::new(
-        FORM_FLYWHEEL,
-        "flywheel",
-        MaterialPhase::Solid,
-        ParticleSizeStatePolicy::Untracked,
-    ));
-    registry.register_form(FormDefinition::new(
-        FORM_REINFORCEMENT,
-        "reinforcement",
-        MaterialPhase::Solid,
-        ParticleSizeStatePolicy::Untracked,
-    ));
-    registry.register_form(FormDefinition::new(
-        FORM_NATIVE_METAL,
-        "native metal",
-        MaterialPhase::Solid,
-        ParticleSizeStatePolicy::Untracked,
-    ));
-    registry.register_form(FormDefinition::new(
-        FORM_SCRAP,
-        "scrap",
-        MaterialPhase::Solid,
-        ParticleSizeStatePolicy::Untracked,
-    ));
-    registry.register_form(FormDefinition::new(
-        FORM_LUMP,
-        "lump",
-        MaterialPhase::Solid,
-        ParticleSizeStatePolicy::Untracked,
-    ));
-    registry.register_form(FormDefinition::new(
-        FORM_ORE,
-        "ore",
-        MaterialPhase::Solid,
-        ParticleSizeStatePolicy::Untracked,
-    ));
-    registry.register_form(FormDefinition::new(
-        FORM_CONCENTRATE,
-        "concentrate",
-        MaterialPhase::Solid,
-        ParticleSizeStatePolicy::Untracked,
-    ));
-    registry.register_form(FormDefinition::new(
-        FORM_INGOT,
-        "ingot",
-        MaterialPhase::Solid,
-        ParticleSizeStatePolicy::Untracked,
-    ));
-    registry.register_form(FormDefinition::new(
-        FORM_MOLTEN,
-        "molten",
-        MaterialPhase::Liquid,
-        ParticleSizeStatePolicy::Untracked,
-    ));
-    registry.register_form(FormDefinition::new(
-        FORM_CRUSHED,
-        "crushed",
-        MaterialPhase::Solid,
-        ParticleSizeStatePolicy::Required,
-    ));
+    for definition in [
+        consolidated_form(FORM_LOG, "log"),
+        loose_form(
+            FORM_FOOD,
+            "food",
+            MaterialPhase::Solid,
+            ParticleSizeStatePolicy::Untracked,
+        ),
+        consolidated_form(FORM_TOOL, "tool"),
+        loose_form(
+            FORM_CHIP,
+            "chip",
+            MaterialPhase::Solid,
+            ParticleSizeStatePolicy::Untracked,
+        ),
+        consolidated_form(FORM_HANDLE, "handle"),
+        consolidated_form(FORM_FLYWHEEL, "flywheel"),
+        consolidated_form(FORM_REINFORCEMENT, "reinforcement"),
+        consolidated_form(FORM_NATIVE_METAL, "native metal"),
+        loose_form(
+            FORM_SCRAP,
+            "scrap",
+            MaterialPhase::Solid,
+            ParticleSizeStatePolicy::Untracked,
+        ),
+        consolidated_form(FORM_LUMP, "lump"),
+        consolidated_form(FORM_ORE, "ore"),
+        loose_form(
+            FORM_CONCENTRATE,
+            "concentrate",
+            MaterialPhase::Solid,
+            ParticleSizeStatePolicy::Untracked,
+        ),
+        consolidated_form(FORM_INGOT, "ingot"),
+        loose_form(
+            FORM_MOLTEN,
+            "molten",
+            MaterialPhase::Liquid,
+            ParticleSizeStatePolicy::Untracked,
+        ),
+        loose_form(
+            FORM_CRUSHED,
+            "crushed",
+            MaterialPhase::Solid,
+            ParticleSizeStatePolicy::Required,
+        ),
+    ] {
+        registry.register_form(definition);
+    }
 
     registry.register_material(MaterialDefinition::new(
         MATERIAL_WOOD,

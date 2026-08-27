@@ -2,23 +2,13 @@
 
 use crate::core::quantity::Mass;
 
-use super::{
-    CommodityKey, MaterialInputSpec, MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy,
-};
+use super::{CommodityKey, MaterialInputSpec, MaterialRegistry};
 
 /// Authored assembly matter must describe consolidated solid object material.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MaterialAssemblyReferenceError {
-    UnknownCommodity {
-        commodity: CommodityKey,
-    },
-    UnsupportedPhase {
-        commodity: CommodityKey,
-        phase: MaterialPhase,
-    },
-    UnsupportedParticulateForm {
-        commodity: CommodityKey,
-    },
+    UnknownCommodity { commodity: CommodityKey },
+    UnconsolidatedForm { commodity: CommodityKey },
 }
 
 /// Exact pure-material inputs required to materialize one persistent physical object.
@@ -72,9 +62,9 @@ impl MaterialAssemblyProfile {
 
     /// Validates references and the physical-form boundary shared by persistent rigid assemblies.
     ///
-    /// Equipment and energy-store embodiment currently have no internal fluid-container, binder,
-    /// compaction, or sintering owner. Liquid and explicitly particulate forms therefore cannot be
-    /// authored as if they were already consolidated object components.
+    /// Equipment and energy-store embodiment currently have no shaping, compaction, casting, or
+    /// sintering owner. Only forms explicitly authored as consolidated can therefore be used as
+    /// already-rigid object components.
     pub(crate) fn validate_infrastructure_references(
         &self,
         materials: &MaterialRegistry,
@@ -87,16 +77,8 @@ impl MaterialAssemblyProfile {
             let form = materials
                 .get_form(commodity.form())
                 .unwrap_or_else(|| unreachable!("resolved commodity has a form definition"));
-            if form.phase() != MaterialPhase::Solid {
-                return Err(MaterialAssemblyReferenceError::UnsupportedPhase {
-                    commodity,
-                    phase: form.phase(),
-                });
-            }
-            if form.particle_size_policy() == ParticleSizeStatePolicy::Required {
-                return Err(MaterialAssemblyReferenceError::UnsupportedParticulateForm {
-                    commodity,
-                });
+            if !form.is_consolidated() {
+                return Err(MaterialAssemblyReferenceError::UnconsolidatedForm { commodity });
             }
         }
         Ok(())

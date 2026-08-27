@@ -56,7 +56,7 @@ pub enum ProductionValidationError {
     RequiredSupportWithoutEquipment {
         job: ProductionJobId,
     },
-    SuspensionWithoutRequiredSupport {
+    SuspensionEquipmentSupportNotRequired {
         job: ProductionJobId,
     },
     ZeroSuspensionRemaining {
@@ -84,6 +84,10 @@ pub enum ProductionValidationError {
         job: ProductionJobId,
         expected: EquipmentId,
         reason: EquipmentId,
+    },
+    SuspensionOutputMismatch {
+        job: ProductionJobId,
+        stockpile: StockpileId,
     },
     NoOutputs {
         job: ProductionJobId,
@@ -278,9 +282,9 @@ impl Display for ProductionValidationError {
                 "production job {} requires active equipment support but has no equipment provider",
                 job.value()
             ),
-            Self::SuspensionWithoutRequiredSupport { job } => write!(
+            Self::SuspensionEquipmentSupportNotRequired { job } => write!(
                 formatter,
-                "production job {} is suspended for equipment support without an active-support requirement",
+                "production job {} is suspended for equipment support without requiring active equipment support",
                 job.value()
             ),
             Self::ZeroSuspensionRemaining { job } => write!(
@@ -336,6 +340,12 @@ impl Display for ProductionValidationError {
                 job.value(),
                 reason.value(),
                 expected.value()
+            ),
+            Self::SuspensionOutputMismatch { job, stockpile } => write!(
+                formatter,
+                "production job {} suspension references stockpile {} that is not one of its output destinations",
+                job.value(),
+                stockpile.value()
             ),
             Self::NoOutputs { job } => write!(
                 formatter,
@@ -650,11 +660,6 @@ pub(crate) fn validate_loaded_production(
             return Err(ProductionValidationError::RequiredSupportWithoutEquipment { job: *id });
         }
         if let Some(suspension) = job.schedule.suspension {
-            if !job.equipment.requires_active_support {
-                return Err(
-                    ProductionValidationError::SuspensionWithoutRequiredSupport { job: *id },
-                );
-            }
             if suspension.remaining_active_time().value() == 0 {
                 return Err(ProductionValidationError::ZeroSuspensionRemaining { job: *id });
             }
@@ -687,6 +692,13 @@ pub(crate) fn validate_loaded_production(
             }
             match suspension.reason() {
                 ProductionSuspensionReason::EquipmentSupportUnavailable { equipment } => {
+                    if !job.equipment.requires_active_support {
+                        return Err(
+                            ProductionValidationError::SuspensionEquipmentSupportNotRequired {
+                                job: *id,
+                            },
+                        );
+                    }
                     let expected = match job.equipment.provider {
                         Some(provider) => provider.equipment(),
                         None => {
@@ -705,6 +717,19 @@ pub(crate) fn validate_loaded_production(
                         });
                     }
                 }
+                ProductionSuspensionReason::OutputSupportUnavailable { stockpile } => {
+                    if !job
+                        .output_streams
+                        .iter()
+                        .any(|stream| stream.destination == stockpile)
+                    {
+                        return Err(ProductionValidationError::SuspensionOutputMismatch {
+                            job: *id,
+                            stockpile,
+                        });
+                    }
+                }
+                ProductionSuspensionReason::PlayerLaborUnavailable => {}
             }
         }
         if job.output_streams.is_empty() {

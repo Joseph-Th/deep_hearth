@@ -1,4 +1,4 @@
-//! Canonical structural construction and revision-bound mutations with synchronous damage-cascade resolution.
+//! Revision-bound structural topology/load mutations with synchronous damage-cascade resolution.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
@@ -9,148 +9,32 @@ use crate::core::state::AppState;
 use crate::equipment::EquipmentId;
 use crate::fluid::FluidStoreId;
 use crate::inventory::StockpileId;
-use crate::material::{CommodityKey, FormId, MaterialId};
 use crate::registry::Registries;
 
 use super::analysis::{
     StructuralAnalysis, StructuralAnalysisError, StructuralAnalysisOverlay, StructuralDamageEvent,
     analyze_structure_components_with_overlay,
 };
-use super::definitions::StructuralProfileId;
-use super::geometry::StructuralGeometryError;
-use super::state::{
-    StructuralElementConfiguration, StructuralElementGeometry, StructuralElementId,
-    StructuralElementRecord, StructuralLifecycle, StructuralLoadKind,
-};
-
-/// Failure while allocating a planned structural member and its synchronized indexes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AddStructuralElementError {
-    UnknownProfile { profile: StructuralProfileId },
-    UnknownMaterial { material: MaterialId },
-    NoDamageRecoveryCommodity { material: MaterialId, form: FormId },
-    Geometry(StructuralGeometryError),
-    IdExhausted,
-    RevisionExhausted,
-}
-
-impl Display for AddStructuralElementError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownProfile { profile } => {
-                write!(formatter, "unknown structural profile {}", profile.value())
-            }
-            Self::UnknownMaterial { material } => {
-                write!(
-                    formatter,
-                    "unknown structural material {}",
-                    material.value()
-                )
-            }
-            Self::NoDamageRecoveryCommodity { material, form } => write!(
-                formatter,
-                "structural material {} cannot use profile recovery form {} because that material/form commodity is not authored",
-                material.value(),
-                form.value()
-            ),
-            Self::Geometry(error) => write!(formatter, "invalid structural geometry: {error}"),
-            Self::IdExhausted => {
-                formatter.write_str("structural element identifier space is exhausted")
-            }
-            Self::RevisionExhausted => {
-                formatter.write_str("structural state revision space is exhausted")
-            }
-        }
-    }
-}
-
-impl Error for AddStructuralElementError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Geometry(error) => Some(error),
-            Self::UnknownProfile { profile: _profile } => None,
-            Self::UnknownMaterial { .. } | Self::NoDamageRecoveryCommodity { .. } => None,
-            Self::IdExhausted | Self::RevisionExhausted => None,
-        }
-    }
-}
-
-/// Adds an inert planned member. It cannot carry or transmit load until activated canonically.
-pub fn add_structural_element(
-    registries: &Registries,
-    state: &mut AppState,
-    profile: StructuralProfileId,
-    material: MaterialId,
-    geometry: StructuralElementGeometry,
-    is_grounded: bool,
-) -> Result<StructuralElementId, AddStructuralElementError> {
-    let profile_definition = registries
-        .structural()
-        .get_profile(profile)
-        .ok_or(AddStructuralElementError::UnknownProfile { profile })?;
-    if registries.materials().get_material(material).is_none() {
-        return Err(AddStructuralElementError::UnknownMaterial { material });
-    }
-    let recovery_form = profile_definition.damaged_recovery_form();
-    if !registries
-        .materials()
-        .has_commodity(CommodityKey::new(material, recovery_form))
-    {
-        return Err(AddStructuralElementError::NoDamageRecoveryCommodity {
-            material,
-            form: recovery_form,
-        });
-    }
-    geometry
-        .validate()
-        .map_err(AddStructuralElementError::Geometry)?;
-    let structures = state.structures();
-    let id = StructuralElementId::new(structures.next_element_id());
-    let next_element_id = structures
-        .next_element_id()
-        .checked_add(1)
-        .ok_or(AddStructuralElementError::IdExhausted)?;
-    let next_revision = structures
-        .revision()
-        .checked_add(1)
-        .ok_or(AddStructuralElementError::RevisionExhausted)?;
-    let record = StructuralElementRecord {
-        id,
-        configuration: StructuralElementConfiguration {
-            profile,
-            material,
-            geometry,
-            is_grounded,
-        },
-        embodied_mass: crate::core::quantity::Mass::ZERO,
-        embodied_material: Vec::new(),
-        loads: Default::default(),
-        lifecycle: StructuralLifecycle::Planned,
-        is_cracked: false,
-        created_at: state.tick(),
-    };
-
-    let structures = state.structure_state_mut();
-    structures.insert_element(record, next_element_id, next_revision);
-    Ok(id)
-}
+#[cfg(any(test, feature = "test-gameplay"))]
+use super::state::StructuralLifecycle;
+use super::state::{StructuralElementId, StructuralLoadKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StructuralMutation {
+    #[cfg(any(test, feature = "test-gameplay"))]
     LinkSupport {
         element: StructuralElementId,
         support: StructuralElementId,
     },
+    #[cfg(any(test, feature = "test-gameplay"))]
     RemoveSupport {
         element: StructuralElementId,
         support: StructuralElementId,
     },
-    RemoveElement {
-        element: StructuralElementId,
-    },
-    Activate {
-        element: StructuralElementId,
-    },
+    #[cfg(any(test, feature = "test-gameplay"))]
+    RemoveElement { element: StructuralElementId },
+    #[cfg(any(test, feature = "test-gameplay"))]
+    Activate { element: StructuralElementId },
     SetLoadContribution {
         element: StructuralElementId,
         kind: StructuralLoadKind,
@@ -270,7 +154,7 @@ impl Display for StructuralMutationError {
             ),
             Self::ElementOwnsMatter { element, mass } => write!(
                 formatter,
-                "structural element {} owns {} mg of embodied matter and must be deconstructed through a conserved recovery transaction",
+                "structural element {} owns {} mg of embodied matter and cannot be generically removed; demolition and recovery are not implemented",
                 element.value(),
                 mass.milligrams()
             ),
@@ -446,6 +330,7 @@ impl ValidatedStructuralMutation {
         validate_operation_commit_state(structures, self.operation)?;
         for event in self.analysis.damage_events() {
             let element = event.element();
+            #[cfg(any(test, feature = "test-gameplay"))]
             if matches!(
                 self.operation,
                 StructuralMutation::RemoveElement { element: removed } if removed == element
@@ -549,74 +434,6 @@ fn apply_owned_loads(
     }
 }
 
-/// Revision-bound removal analyzed together with an external subsystem's final load contributions.
-#[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ValidatedStructuralRemovalWithLoads {
-    element: StructuralElementId,
-    kind: StructuralLoadKind,
-    loads: BTreeMap<StructuralElementId, Force>,
-    expected_revision: u64,
-    next_revision: u64,
-    analysis: StructuralAnalysis,
-}
-
-impl ValidatedStructuralRemovalWithLoads {
-    #[must_use]
-    pub(crate) const fn analysis(&self) -> &StructuralAnalysis {
-        &self.analysis
-    }
-
-    pub(crate) const fn expected_revision(&self) -> u64 {
-        self.expected_revision
-    }
-
-    pub(crate) fn commit(
-        self,
-        state: &mut AppState,
-    ) -> Result<StructuralMutationOutcome, StructuralCommitError> {
-        let structures = state.structure_state_mut();
-        if structures.revision() != self.expected_revision {
-            return Err(StructuralCommitError::StaleRevision {
-                expected: self.expected_revision,
-                actual: structures.revision(),
-            });
-        }
-        validate_operation_commit_state(
-            structures,
-            StructuralMutation::RemoveElement {
-                element: self.element,
-            },
-        )?;
-        for element in self.loads.keys().copied() {
-            if element == self.element || structures.get_element(element).is_none() {
-                return Err(StructuralCommitError::StateChanged { element });
-            }
-        }
-        for event in self.analysis.damage_events() {
-            if event.element() == self.element || structures.get_element(event.element()).is_none()
-            {
-                return Err(StructuralCommitError::StateChanged {
-                    element: event.element(),
-                });
-            }
-        }
-
-        apply_operation_unchecked(
-            structures,
-            StructuralMutation::RemoveElement {
-                element: self.element,
-            },
-        );
-        apply_owned_loads(structures, self.kind, self.loads);
-        apply_damage_events(structures, self.analysis.damage_events());
-        structures.apply_revision(self.next_revision);
-        Ok(StructuralMutationOutcome {
-            analysis: self.analysis,
-        })
-    }
-}
-
 /// Successful structural mutation including the load projection and damage generated by that change.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StructuralMutationOutcome {
@@ -675,6 +492,7 @@ fn validate_operation_commit_state(
     operation: StructuralMutation,
 ) -> Result<(), StructuralCommitError> {
     match operation {
+        #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::LinkSupport { element, support } => {
             let Some(supports) = structures.support_set(element) else {
                 return Err(StructuralCommitError::StateChanged { element });
@@ -686,6 +504,7 @@ fn validate_operation_commit_state(
                 return Err(StructuralCommitError::SupportStateChanged { element, support });
             }
         }
+        #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::RemoveSupport { element, support } => {
             let Some(supports) = structures.support_set(element) else {
                 return Err(StructuralCommitError::StateChanged { element });
@@ -697,6 +516,7 @@ fn validate_operation_commit_state(
                 return Err(StructuralCommitError::SupportStateChanged { element, support });
             }
         }
+        #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::RemoveElement { element } => {
             if structures.get_element(element).is_none() {
                 return Err(StructuralCommitError::StateChanged { element });
@@ -732,8 +552,13 @@ fn validate_operation_commit_state(
                 }
             }
         }
-        StructuralMutation::Activate { element }
-        | StructuralMutation::SetLoadContribution { element, .. } => {
+        #[cfg(any(test, feature = "test-gameplay"))]
+        StructuralMutation::Activate { element } => {
+            if structures.get_element(element).is_none() {
+                return Err(StructuralCommitError::StateChanged { element });
+            }
+        }
+        StructuralMutation::SetLoadContribution { element, .. } => {
             if structures.get_element(element).is_none() {
                 return Err(StructuralCommitError::StateChanged { element });
             }
@@ -747,15 +572,19 @@ fn apply_operation_unchecked(
     operation: StructuralMutation,
 ) {
     match operation {
+        #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::LinkSupport { element, support } => {
             structures.link_support(element, support);
         }
+        #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::RemoveSupport { element, support } => {
             structures.unlink_support(element, support);
         }
+        #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::RemoveElement { element } => {
             structures.remove_element(element);
         }
+        #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::Activate { element } => {
             structures.activate_element(element);
         }
@@ -769,6 +598,7 @@ fn apply_operation_unchecked(
     }
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 fn validate_common_element(
     state: &AppState,
     element: StructuralElementId,
@@ -806,15 +636,19 @@ fn build_plan(
         },
     )?;
     let overlay = match operation {
+        #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::LinkSupport { element, support } => {
             StructuralAnalysisOverlay::link_support(element, support)
         }
+        #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::RemoveSupport { element, support } => {
             StructuralAnalysisOverlay::remove_support(element, support)
         }
+        #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::RemoveElement { element } => {
             StructuralAnalysisOverlay::remove_element(element)
         }
+        #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::Activate { element } => StructuralAnalysisOverlay::activate(element),
         StructuralMutation::SetLoadContribution {
             element,
@@ -823,10 +657,12 @@ fn build_plan(
         } => StructuralAnalysisOverlay::set_load(element, kind, load),
     };
     let seeds = match operation {
+        #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::LinkSupport { element, support }
         | StructuralMutation::RemoveSupport { element, support } => {
             BTreeSet::from([element, support])
         }
+        #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::RemoveElement { element } => {
             let mut seeds = BTreeSet::new();
             if let Some(supports) = state.structures().supports(element) {
@@ -837,8 +673,9 @@ fn build_plan(
             }
             seeds
         }
-        StructuralMutation::Activate { element }
-        | StructuralMutation::SetLoadContribution { element, .. } => BTreeSet::from([element]),
+        #[cfg(any(test, feature = "test-gameplay"))]
+        StructuralMutation::Activate { element } => BTreeSet::from([element]),
+        StructuralMutation::SetLoadContribution { element, .. } => BTreeSet::from([element]),
     };
     let analysis = analyze_structure_components_with_overlay(
         registries.structural(),
@@ -857,6 +694,7 @@ fn build_plan(
 }
 
 /// Validates adding a deterministic load path from one member to another.
+#[cfg(any(test, feature = "test-gameplay"))]
 pub fn validate_link_support(
     registries: &Registries,
     state: &AppState,
@@ -900,6 +738,7 @@ pub fn validate_link_support(
 }
 
 /// Validates removal of one load path; unsupported dependents fail in the same eventual commit.
+#[cfg(any(test, feature = "test-gameplay"))]
 pub fn validate_remove_support(
     registries: &Registries,
     state: &AppState,
@@ -928,6 +767,7 @@ pub fn validate_remove_support(
 ///
 /// Failed members use this same path so collapse remains recoverable rather than creating immortal
 /// debris records with dangling topology.
+#[cfg(any(test, feature = "test-gameplay"))]
 pub fn validate_remove_structural_element(
     registries: &Registries,
     state: &AppState,
@@ -959,85 +799,8 @@ pub fn validate_remove_structural_element(
     )
 }
 
-/// Validates structural removal together with final external load values under one revision.
-///
-/// This is used by cross-owner recovery operations where removing a member and depositing recovered
-/// matter can affect the same structural component. Analysis therefore sees both consequences at
-/// once rather than depending on an arbitrary intermediate mutation order.
-pub(crate) fn validate_remove_structural_element_with_owned_loads(
-    registries: &Registries,
-    state: &AppState,
-    element: StructuralElementId,
-    kind: StructuralLoadKind,
-    loads: BTreeMap<StructuralElementId, Force>,
-) -> Result<ValidatedStructuralRemovalWithLoads, StructuralMutationError> {
-    if state.structures().get_element(element).is_none() {
-        return Err(StructuralMutationError::UnknownElement { element });
-    }
-    if let Some(equipment) = state.equipment().supported_equipment(element).next() {
-        return Err(StructuralMutationError::ElementSupportsEquipment { element, equipment });
-    }
-    if let Some(stockpile) = state.inventory().supported_stockpiles(element).next() {
-        return Err(StructuralMutationError::ElementSupportsStockpile { element, stockpile });
-    }
-    if let Some(store) = state.fluid().supported_stores(element).next() {
-        return Err(StructuralMutationError::ElementSupportsFluidStore { element, store });
-    }
-
-    let mut changed = BTreeMap::new();
-    for (load_element, load) in loads {
-        if load_element == element {
-            return Err(StructuralMutationError::LoadTargetsRemovedElement { element, kind });
-        }
-        let record = state.structures().get_element(load_element).ok_or(
-            StructuralMutationError::UnknownElement {
-                element: load_element,
-            },
-        )?;
-        if record.load(kind) != load {
-            changed.insert(load_element, load);
-        }
-    }
-
-    let expected_revision = state.structures().revision();
-    let next_revision = expected_revision
-        .checked_add(1)
-        .ok_or(StructuralMutationError::RevisionExhausted)?;
-    let overlay = StructuralAnalysisOverlay::remove_element_with_loads(
-        element,
-        changed
-            .iter()
-            .map(|(load_element, load)| ((*load_element, kind), *load))
-            .collect(),
-    );
-    let mut seeds = BTreeSet::new();
-    if let Some(supports) = state.structures().supports(element) {
-        seeds.extend(supports);
-    }
-    if let Some(dependents) = state.structures().dependents(element) {
-        seeds.extend(dependents);
-    }
-    seeds.extend(changed.keys().copied());
-    let analysis = analyze_structure_components_with_overlay(
-        registries.structural(),
-        registries.materials(),
-        state.structures(),
-        overlay,
-        &seeds,
-    )
-    .map_err(StructuralMutationError::Analysis)?;
-
-    Ok(ValidatedStructuralRemovalWithLoads {
-        element,
-        kind,
-        loads: changed,
-        expected_revision,
-        next_revision,
-        analysis,
-    })
-}
-
 /// Validates transition from construction planning into the active load-bearing graph.
+#[cfg(any(test, feature = "test-gameplay"))]
 pub fn validate_activate_structural_element(
     registries: &Registries,
     state: &AppState,
@@ -1075,6 +838,7 @@ pub fn validate_activate_structural_element(
 }
 
 /// Validates an explicit external load change and resolves all resulting cracks and failures.
+#[cfg(any(test, feature = "test-gameplay"))]
 pub fn validate_set_structural_load(
     registries: &Registries,
     state: &AppState,

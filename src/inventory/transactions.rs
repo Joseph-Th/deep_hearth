@@ -23,14 +23,18 @@ use super::{
     validate_stockpile_stored_mass_changes,
 };
 
+#[cfg(any(test, feature = "test-gameplay"))]
 mod relocation;
+#[cfg(any(test, feature = "test-gameplay"))]
 mod transfer;
 
+#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use relocation::{
     MaterialRelocationCommitError, MaterialRelocationError, ValidatedMaterialRelocation,
     validate_material_relocation_from_selection,
 };
 
+#[cfg(any(test, feature = "test-gameplay"))]
 pub use transfer::{
     MaterialTransferCommitError, MaterialTransferError, MaterialTransferResolution,
     ValidatedMaterialTransfer, validate_material_transfer,
@@ -409,6 +413,7 @@ impl ValidatedMaterialEgress {
         self.total_consumed
     }
 
+    #[cfg(any(test, feature = "test-gameplay"))]
     pub(crate) fn consumed_inputs(&self) -> &[ConsumedMaterialTrace] {
         &self.consumed_inputs
     }

@@ -5,9 +5,10 @@ use crate::content::{
     EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
     FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL,
     MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, MINING_METHOD_HAND_PICK,
-    PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE, build_registries,
+    PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    build_registries,
 };
-use crate::core::quantity::{Temperature, Volume};
+use crate::core::quantity::{Area, Force, Length, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::crafting::{
@@ -22,7 +23,10 @@ use crate::geology::{
     GeneratedDepositSpec, GeologicalDepositId, GeologicalEvidenceKind, MaterialAbundanceEstimate,
     ProspectingResolution, validate_record_prospecting,
 };
-use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
+use crate::inventory::{
+    StockpileStructuralLoadError, add_solid_stockpile_for_test, deposit_lot_for_test,
+    validate_mount_stockpile, validate_unmount_stockpile,
+};
 use crate::labor::{
     PlayerWork, PlayerWorkStartError, PlayerWorkValidationError,
     calculate_player_work_resource_budget,
@@ -36,6 +40,11 @@ use crate::mining::{
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
+use crate::structural::{
+    StructuralElementId, StructuralLifecycle, StructuralLoadKind, add_structural_element,
+    materialize_structural_element_for_test, validate_activate_structural_element,
+    validate_set_structural_load,
+};
 use crate::survival::{assess_survival, initialize_player_survival};
 
 fn deposit_spec() -> GeneratedDepositSpec {
@@ -72,6 +81,30 @@ fn insert_known_deposit(
         .commit(state)
         .unwrap_or_else(|error| panic!("mining known-deposit evidence commit failed: {error}"));
     Ok(deposit)
+}
+
+fn active_stockpile_support(registries: &Registries, state: &mut AppState) -> StructuralElementId {
+    let bounds = VoxelBounds::new(VoxelCoord::new(8, 0, 0), VoxelCoord::new(9, 1, 1))
+        .unwrap_or_else(|error| panic!("mining support bounds failed: {error}"));
+    let support = add_structural_element(
+        registries,
+        state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        crate::structural::make_test_structural_geometry(
+            bounds,
+            Length::from_micrometers(1),
+            Area::from_square_millimeters(1_000),
+        ),
+        true,
+    )
+    .unwrap_or_else(|error| panic!("mining support allocation failed: {error}"));
+    materialize_structural_element_for_test(registries, state, support, FORM_LOG);
+    validate_activate_structural_element(registries, state, support)
+        .unwrap_or_else(|error| panic!("mining support activation failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("mining support activation commit failed: {error}"));
+    support
 }
 
 fn validate_known_mining(
@@ -1275,6 +1308,104 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
         .into_state(&registries)
         .unwrap_or_else(|error| panic!("mining save validation failed: {error}"));
     assert_eq!(restored, state);
+}
+
+#[test]
+fn ready_mining_output_waits_for_destination_support_recovery() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_0030));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("mining support-recovery survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+        .unwrap_or_else(|error| panic!("mining support-recovery destination failed: {error}"));
+    let support = active_stockpile_support(&registries, &mut state);
+    validate_mount_stockpile(&registries, &state, destination, support)
+        .unwrap_or_else(|error| panic!("mining support-recovery mount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("mining support-recovery mount commit failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("mining support-recovery deposit failed: {error}"));
+    let job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("mining support-recovery start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("mining support-recovery start commit failed: {error}"));
+    let duration = state
+        .mining()
+        .get_job(job)
+        .and_then(|record| {
+            record
+                .completes_at()
+                .value()
+                .checked_sub(record.started_at().value())
+        })
+        .unwrap_or_else(|| panic!("mining support-recovery duration was invalid"));
+    for _ in 0..duration {
+        advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("mining support-recovery work tick failed: {error}"));
+    }
+    assert!(
+        state
+            .mining()
+            .get_job(job)
+            .is_some_and(|record| record.ready_at().is_some())
+    );
+
+    validate_set_structural_load(
+        &registries,
+        &state,
+        support,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(50_000_000),
+    )
+    .unwrap_or_else(|error| panic!("mining support-recovery overload failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("mining support-recovery overload commit failed: {error}"));
+    assert_eq!(
+        state
+            .structures()
+            .get_element(support)
+            .map(|record| record.lifecycle()),
+        Some(StructuralLifecycle::Failed)
+    );
+    let blocked = state.clone();
+    assert!(matches!(
+        validate_claim_mining_output(&registries, &state, job),
+        Err(MiningClaimError::StructuralLoad(
+            StockpileStructuralLoadError::SupportNotActiveForIncrease {
+                stockpile,
+                element,
+                lifecycle: StructuralLifecycle::Failed,
+            }
+        )) if stockpile == destination && element == support
+    ));
+    assert_eq!(state, blocked);
+
+    validate_unmount_stockpile(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("mining support-recovery unmount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("mining support-recovery unmount commit failed: {error}"));
+    validate_claim_mining_output(&registries, &state, job)
+        .unwrap_or_else(|error| panic!("mining support-recovery claim failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("mining support-recovery claim commit failed: {error}"));
+    assert!(state.mining().get_job(job).is_none());
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|record| (record.stored_mass(), record.reserved_inbound())),
+        Some((Mass::from_milligrams(100_000), Mass::ZERO))
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[cfg(feature = "test-soak")]

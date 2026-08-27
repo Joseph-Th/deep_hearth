@@ -28,11 +28,13 @@ pub struct ProductionOutputStream {
 /// Why an in-flight production job is currently unable to accumulate active process time.
 ///
 /// Suspension never manufactures a failure product. The production job remains the authoritative
-/// owner of its consumed matter and energy until its physical provider becomes usable again.
+/// owner of its consumed matter and energy until its physical requirements become usable again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum ProductionSuspensionReason {
     EquipmentSupportUnavailable { equipment: EquipmentId },
+    OutputSupportUnavailable { stockpile: StockpileId },
+    PlayerLaborUnavailable,
 }
 
 /// When an occupied resource can become available to unrelated work.
@@ -534,23 +536,19 @@ impl ProductionState {
             .and_then(|job| self.jobs.get(job))
     }
 
-    /// Returns active job IDs that own equipment, in deterministic equipment-ID order.
-    ///
-    /// Systems that publish job-ordered results must sort these IDs before deciding those results.
-    pub(crate) fn equipment_occupants(&self) -> impl Iterator<Item = ProductionJobId> + '_ {
-        self.equipment_occupancy.values().copied()
-    }
-
-    /// Returns the lowest-ID active production job with in-flight output reserved for a stockpile.
+    /// Returns the lowest-ID running production job with in-flight output reserved for a stockpile.
+    /// Suspended jobs do not block support relocation because their active-time clock is stopped.
     #[must_use]
-    pub(crate) fn get_output_stockpile_occupant(
+    pub(crate) fn get_running_output_stockpile_occupant(
         &self,
         stockpile: StockpileId,
     ) -> Option<&ProductionJobRecord> {
         self.output_stockpile_occupancy
             .get(&stockpile)
-            .and_then(BTreeSet::first)
-            .and_then(|job| self.jobs.get(job))
+            .and_then(|jobs| {
+                jobs.iter()
+                    .find_map(|job| self.jobs.get(job).filter(|record| !record.is_suspended()))
+            })
     }
 
     pub(super) fn insert_job(
@@ -726,6 +724,32 @@ impl ProductionState {
             "runtime invariant broken: resumed job {} already exists in due index",
             id.value()
         );
+    }
+
+    pub(super) fn change_suspension_reason(
+        &mut self,
+        id: ProductionJobId,
+        previous: ProductionSuspensionReason,
+        reason: ProductionSuspensionReason,
+    ) {
+        let record = self.jobs.get_mut(&id).unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: production job {} disappeared before suspension reason change",
+                id.value()
+            )
+        });
+        let suspension = record.schedule.suspension.as_mut().unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: running job {} received a suspension reason change",
+                id.value()
+            )
+        });
+        assert_eq!(
+            suspension.reason, previous,
+            "runtime invariant broken: production suspension reason changed after planning"
+        );
+        assert_ne!(previous, reason);
+        suspension.reason = reason;
     }
 
     pub(super) fn apply_revision(&mut self, next_revision: u64) {

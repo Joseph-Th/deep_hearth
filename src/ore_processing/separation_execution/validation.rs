@@ -3,23 +3,18 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::capability::CapabilityValue;
 use crate::core::quantity::{Energy, Mass};
-use crate::energy::{
-    EnergyCarrier, PowerDurationError, calculate_mass_specific_energy,
-    calculate_power_duration_ceiling,
-};
-use crate::equipment::resolve_equipment_capability;
+use crate::energy::{EnergyCarrier, PowerDurationError, calculate_mass_specific_energy};
 use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::production::{ProductionJobId, ProductionJobRecord};
 use crate::registry::Registries;
 
 use super::{ConstituentSeparationBatchError, resolve_separation_outputs};
-use crate::ore_processing::timing::OreProcessActiveTiming;
-use crate::ore_processing::{
-    ConstituentSeparationProcessDefinition, MassFlowDurationError,
-    calculate_mass_flow_duration_ceiling,
+use crate::ore_processing::powered_physics::{
+    PoweredOreEquipmentError, PoweredOreTimingError, resolve_powered_ore_equipment,
+    resolve_powered_ore_timing,
 };
+use crate::ore_processing::{ConstituentSeparationProcessDefinition, MassFlowDurationError};
 
 /// Persistent-state failure found while replaying an in-flight constituent-separation job.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -275,41 +270,31 @@ pub(crate) fn validate_loaded_constituent_separation_job(
         .ok_or(
             ConstituentSeparationJobValidationError::UnknownEnergyDefinition { job: job.id() },
         )?;
-    let processing_rate = match resolve_equipment_capability(
+    let powered_equipment = resolve_powered_ore_equipment(
         equipment_definition,
         provider.condition(),
         definition.mass_flow_capability(),
-    ) {
-        Some(CapabilityValue::MassFlow(rate)) => rate,
-        Some(_) | None => {
-            return Err(
-                ConstituentSeparationJobValidationError::MissingMassFlowCapability {
-                    job: job.id(),
-                },
-            );
-        }
-    };
-    let maximum_batch_mass = match resolve_equipment_capability(
-        equipment_definition,
-        provider.condition(),
         definition.max_batch_mass_capability(),
-    ) {
-        Some(CapabilityValue::Mass(mass)) => mass,
-        Some(_) | None => {
-            return Err(
-                ConstituentSeparationJobValidationError::MissingMaximumBatchMassCapability {
-                    job: job.id(),
-                },
-            );
+        job.consumed_mass(),
+    )
+    .map_err(|error| match error {
+        PoweredOreEquipmentError::MissingMassFlowCapability => {
+            ConstituentSeparationJobValidationError::MissingMassFlowCapability { job: job.id() }
         }
-    };
-    if job.consumed_mass() > maximum_batch_mass {
-        return Err(ConstituentSeparationJobValidationError::BatchMassExceeded {
-            job: job.id(),
-            selected: job.consumed_mass(),
-            maximum: maximum_batch_mass,
-        });
-    }
+        PoweredOreEquipmentError::MissingMaximumBatchMassCapability => {
+            ConstituentSeparationJobValidationError::MissingMaximumBatchMassCapability {
+                job: job.id(),
+            }
+        }
+        PoweredOreEquipmentError::BatchMassExceeded { selected, maximum } => {
+            ConstituentSeparationJobValidationError::BatchMassExceeded {
+                job: job.id(),
+                selected,
+                maximum,
+            }
+        }
+    })?;
+    let processing_rate = powered_equipment.processing_rate();
     let expected =
         resolve_separation_outputs(definition, job.consumed_inputs()).map_err(|error| {
             ConstituentSeparationJobValidationError::Batch {
@@ -359,29 +344,35 @@ pub(crate) fn validate_loaded_constituent_separation_job(
             required: required_energy,
         });
     }
-    let throughput_duration = calculate_mass_flow_duration_ceiling(
+    let timing = resolve_powered_ore_timing(
+        registries,
         processing_rate,
         job.consumed_mass(),
-        registries.core().physical_tick_duration(),
-    )
-    .map_err(
-        |error| ConstituentSeparationJobValidationError::ThroughputDuration {
-            job: job.id(),
-            error,
-        },
-    )?;
-    let energy_duration = calculate_power_duration_ceiling(
-        energy_definition.max_output_power(),
         required_energy,
-        registries.core().physical_tick_duration(),
+        energy_definition.max_output_power(),
+        definition.condition_wear_ppm_per_active_tick(),
+        provider.condition(),
     )
-    .map_err(
-        |error| ConstituentSeparationJobValidationError::EnergyDuration {
-            job: job.id(),
-            error,
-        },
-    )?;
-    let timing = OreProcessActiveTiming::new(throughput_duration, energy_duration);
+    .map_err(|error| match error {
+        PoweredOreTimingError::Throughput(error) => {
+            ConstituentSeparationJobValidationError::ThroughputDuration {
+                job: job.id(),
+                error,
+            }
+        }
+        PoweredOreTimingError::Energy(error) => {
+            ConstituentSeparationJobValidationError::EnergyDuration {
+                job: job.id(),
+                error,
+            }
+        }
+        PoweredOreTimingError::Condition(error) => {
+            ConstituentSeparationJobValidationError::ConditionDuration {
+                job: job.id(),
+                error,
+            }
+        }
+    })?;
     let required_duration = timing.duration();
     if job.active_duration() != required_duration {
         return Err(ConstituentSeparationJobValidationError::DurationMismatch {
@@ -390,17 +381,7 @@ pub(crate) fn validate_loaded_constituent_separation_job(
             required_ticks: required_duration.value(),
         });
     }
-    let required_condition = timing
-        .condition_after(
-            definition.condition_wear_ppm_per_active_tick(),
-            provider.condition(),
-        )
-        .map_err(
-            |error| ConstituentSeparationJobValidationError::ConditionDuration {
-                job: job.id(),
-                error,
-            },
-        )?;
+    let required_condition = timing.condition_after();
     let stored_condition = job.equipment_condition_after().ok_or(
         ConstituentSeparationJobValidationError::MissingConditionOutcome { job: job.id() },
     )?;

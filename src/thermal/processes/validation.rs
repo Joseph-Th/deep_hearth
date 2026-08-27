@@ -3,20 +3,21 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::capability::CapabilityValue;
 use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::time::TickSpan;
-use crate::energy::{EnergyCarrier, PowerDurationError, calculate_power_duration_ceiling};
-use crate::equipment::resolve_equipment_capability;
-use crate::maintenance::{
-    ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
-};
+use crate::energy::{EnergyCarrier, PowerDurationError};
+use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::material::MaterialLotSpecError;
 use crate::production::{ProductionJobId, ProductionJobRecord};
 use crate::registry::Registries;
 
 use super::super::PhaseSensibleHeatError;
 use super::super::casting_execution::{CastingJobValidationError, validate_loaded_casting_job};
+use super::super::equipment_physics::{
+    ThermalBatchLimitError, ThermalPowerTemperatureError, ThermalTransferTimingError,
+    resolve_thermal_power_temperature_limits, resolve_thermal_transfer_timing,
+    validate_thermal_batch_mass,
+};
 use super::super::melting_execution::{MeltingJobValidationError, validate_loaded_melting_job};
 use super::sensible_batch::{SensibleHeatingBatchError, resolve_sensible_heating_batch};
 
@@ -404,28 +405,21 @@ pub(crate) fn validate_loaded_thermal_job(
     {
         return Err(ThermalJobValidationError::MixedOutputTemperatures { job: job.id() });
     }
-    let heating_power = match resolve_equipment_capability(
+    let limits = resolve_thermal_power_temperature_limits(
         equipment_definition,
         provider.condition(),
         thermal_definition.heating_power_capability(),
-    ) {
-        Some(CapabilityValue::Power(power)) => power,
-        Some(_) | None => {
-            return Err(ThermalJobValidationError::MissingHeatingPowerCapability { job: job.id() });
-        }
-    };
-    let maximum_temperature = match resolve_equipment_capability(
-        equipment_definition,
-        provider.condition(),
         thermal_definition.max_temperature_capability(),
-    ) {
-        Some(CapabilityValue::Temperature(temperature)) => temperature,
-        Some(_) | None => {
-            return Err(
-                ThermalJobValidationError::MissingMaximumTemperatureCapability { job: job.id() },
-            );
+    )
+    .map_err(|error| match error {
+        ThermalPowerTemperatureError::MissingTransferPower => {
+            ThermalJobValidationError::MissingHeatingPowerCapability { job: job.id() }
         }
-    };
+        ThermalPowerTemperatureError::MissingMaximumTemperature => {
+            ThermalJobValidationError::MissingMaximumTemperatureCapability { job: job.id() }
+        }
+    })?;
+    let maximum_temperature = limits.maximum_temperature();
     if target > maximum_temperature {
         return Err(ThermalJobValidationError::TargetExceedsEquipmentMaximum {
             job: job.id(),
@@ -433,27 +427,24 @@ pub(crate) fn validate_loaded_thermal_job(
             maximum: maximum_temperature,
         });
     }
-    let maximum_batch_mass = match resolve_equipment_capability(
+    validate_thermal_batch_mass(
         equipment_definition,
         provider.condition(),
         thermal_definition.max_batch_mass_capability(),
-    ) {
-        Some(CapabilityValue::Mass(mass)) => mass,
-        Some(_) | None => {
-            return Err(
-                ThermalJobValidationError::MissingMaximumBatchMassCapability { job: job.id() },
-            );
+        job.consumed_mass(),
+    )
+    .map_err(|error| match error {
+        ThermalBatchLimitError::MissingMaximumBatchMass => {
+            ThermalJobValidationError::MissingMaximumBatchMassCapability { job: job.id() }
         }
-    };
-    if job.consumed_mass() > maximum_batch_mass {
-        return Err(
+        ThermalBatchLimitError::BatchMassExceeded { selected, maximum } => {
             ThermalJobValidationError::BatchMassExceedsEquipmentCapacity {
                 job: job.id(),
-                selected: job.consumed_mass(),
-                maximum: maximum_batch_mass,
-            },
-        );
-    }
+                selected,
+                maximum,
+            }
+        }
+    })?;
 
     let batch =
         resolve_sensible_heating_batch(registries.materials(), job.consumed_inputs(), target)
@@ -466,16 +457,27 @@ pub(crate) fn validate_loaded_thermal_job(
             required: required_energy,
         });
     }
-    let transfer_power = heating_power.min(energy_definition.max_output_power());
-    let required_duration = calculate_power_duration_ceiling(
-        transfer_power,
+    let timing = resolve_thermal_transfer_timing(
+        registries,
+        limits.transfer_power(),
+        energy_definition.max_output_power(),
         required_energy,
-        registries.core().physical_tick_duration(),
+        thermal_definition.condition_wear_ppm_per_active_tick(),
+        provider.condition(),
     )
-    .map_err(|error| ThermalJobValidationError::Duration {
-        job: job.id(),
-        error,
+    .map_err(|error| match error {
+        ThermalTransferTimingError::Duration(error) => ThermalJobValidationError::Duration {
+            job: job.id(),
+            error,
+        },
+        ThermalTransferTimingError::ConditionDuration(error) => {
+            ThermalJobValidationError::ConditionDuration {
+                job: job.id(),
+                error,
+            }
+        }
     })?;
+    let required_duration = timing.duration();
     let stored_duration = job.active_duration();
     if stored_duration != required_duration {
         return Err(ThermalJobValidationError::DurationMismatch {
@@ -484,15 +486,7 @@ pub(crate) fn validate_loaded_thermal_job(
             required: required_duration,
         });
     }
-    let required_condition_after = calculate_usable_condition_after_active_ticks(
-        thermal_definition.condition_wear_ppm_per_active_tick(),
-        provider.condition(),
-        required_duration,
-    )
-    .map_err(|error| ThermalJobValidationError::ConditionDuration {
-        job: job.id(),
-        error,
-    })?;
+    let required_condition_after = timing.condition_after();
     let Some(stored_condition_after) = job.equipment_condition_after() else {
         return Err(ThermalJobValidationError::MissingEquipmentConditionOutcome { job: job.id() });
     };

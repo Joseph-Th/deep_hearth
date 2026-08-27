@@ -8,7 +8,10 @@ use crate::content::make_test_registries_with_equipment;
 use crate::content::{EQUIPMENT_STONE_PICK, build_registries};
 use crate::core::quantity::Mass;
 use crate::core::time::WorldSeed;
-use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId};
+use crate::equipment::{
+    EquipmentConditionCommitError, EquipmentDefinition, EquipmentDefinitionId,
+    apply_equipment_condition_plan, decide_equipment_wear,
+};
 use crate::maintenance::MaintenanceThresholds;
 
 const TEST_CAPABILITY: CapabilityId = CapabilityId::new(810_001);

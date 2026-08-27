@@ -247,7 +247,7 @@ pub(crate) fn validate_loaded_player_work(
     let manual_jobs = state
         .production()
         .jobs()
-        .filter(|job| crafting.get_manual(job.process()).is_some())
+        .filter(|job| job.suspension().is_none() && crafting.get_manual(job.process()).is_some())
         .map(|job| job.id())
         .collect::<Vec<_>>();
     let mining_jobs = state
@@ -287,12 +287,28 @@ pub(crate) fn validate_loaded_player_work(
             if manual_jobs.as_slice() != [job] {
                 return Err(PlayerWorkValidationError::ManualCraftMissingWork);
             }
+            let remaining = record
+                .suspension()
+                .map(|suspension| suspension.remaining_active_time())
+                .unwrap_or_else(|| {
+                    TickSpan::new(
+                        record
+                            .completes_at()
+                            .value()
+                            .checked_sub(state.tick().value())
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "runtime invariant broken: running manual craft job is already due"
+                                )
+                            }),
+                    )
+                });
             validate_remaining_resources(
                 registries,
                 player.metabolic_energy(),
                 player.hydration(),
                 definition.exertion(),
-                TickSpan::new(record.completes_at().value() - state.tick().value()),
+                remaining,
             )?;
         }
         PlayerWork::Mining { job } => {

@@ -198,6 +198,7 @@ struct LoadProjection {
     carried: BTreeMap<StructuralElementId, Force>,
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StructuralSupportOverlay {
     Link {
@@ -213,6 +214,7 @@ enum StructuralSupportOverlay {
 /// One-operation read overlay used to analyze a proposed mutation without cloning structural state.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct StructuralAnalysisOverlay {
+    #[cfg(any(test, feature = "test-gameplay"))]
     support: Option<StructuralSupportOverlay>,
     lifecycle: Option<(StructuralElementId, StructuralLifecycle)>,
     loads: BTreeMap<(StructuralElementId, StructuralLoadKind), Force>,
@@ -221,6 +223,7 @@ pub(crate) struct StructuralAnalysisOverlay {
 
 impl StructuralAnalysisOverlay {
     #[must_use]
+    #[cfg(any(test, feature = "test-gameplay"))]
     pub(crate) fn link_support(element: StructuralElementId, support: StructuralElementId) -> Self {
         Self {
             support: Some(StructuralSupportOverlay::Link { element, support }),
@@ -231,6 +234,7 @@ impl StructuralAnalysisOverlay {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "test-gameplay"))]
     pub(crate) fn remove_support(
         element: StructuralElementId,
         support: StructuralElementId,
@@ -244,6 +248,7 @@ impl StructuralAnalysisOverlay {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "test-gameplay"))]
     pub(crate) fn activate(element: StructuralElementId) -> Self {
         Self {
             support: None,
@@ -260,6 +265,7 @@ impl StructuralAnalysisOverlay {
         load: Force,
     ) -> Self {
         Self {
+            #[cfg(any(test, feature = "test-gameplay"))]
             support: None,
             lifecycle: None,
             loads: BTreeMap::from([((element, kind), load)]),
@@ -272,6 +278,7 @@ impl StructuralAnalysisOverlay {
         loads: BTreeMap<(StructuralElementId, StructuralLoadKind), Force>,
     ) -> Self {
         Self {
+            #[cfg(any(test, feature = "test-gameplay"))]
             support: None,
             lifecycle: None,
             loads,
@@ -280,24 +287,12 @@ impl StructuralAnalysisOverlay {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "test-gameplay"))]
     pub(crate) fn remove_element(element: StructuralElementId) -> Self {
         Self {
             support: None,
             lifecycle: None,
             loads: BTreeMap::new(),
-            removed: Some(element),
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn remove_element_with_loads(
-        element: StructuralElementId,
-        loads: BTreeMap<(StructuralElementId, StructuralLoadKind), Force>,
-    ) -> Self {
-        Self {
-            support: None,
-            lifecycle: None,
-            loads,
             removed: Some(element),
         }
     }
@@ -321,12 +316,15 @@ impl StructuralAnalysisOverlay {
         let Some(base) = state.support_set(element) else {
             return Cow::Owned(BTreeSet::new());
         };
+        #[cfg(any(test, feature = "test-gameplay"))]
         let support_change_applies = matches!(
             self.support,
             Some(StructuralSupportOverlay::Link { element: changed, .. })
                 | Some(StructuralSupportOverlay::Remove { element: changed, .. })
                 if changed == element
         );
+        #[cfg(not(any(test, feature = "test-gameplay")))]
+        let support_change_applies = false;
         let removal_applies = self
             .removed
             .is_some_and(|removed| removed == element || base.contains(&removed));
@@ -335,6 +333,7 @@ impl StructuralAnalysisOverlay {
         }
 
         let mut owned = base.clone();
+        #[cfg(any(test, feature = "test-gameplay"))]
         match self.support {
             Some(StructuralSupportOverlay::Link {
                 element: changed,
@@ -368,12 +367,15 @@ impl StructuralAnalysisOverlay {
         let Some(base) = state.dependent_set(support) else {
             return Cow::Owned(BTreeSet::new());
         };
+        #[cfg(any(test, feature = "test-gameplay"))]
         let support_change_applies = matches!(
             self.support,
             Some(StructuralSupportOverlay::Link { support: changed, .. })
                 | Some(StructuralSupportOverlay::Remove { support: changed, .. })
                 if changed == support
         );
+        #[cfg(not(any(test, feature = "test-gameplay")))]
+        let support_change_applies = false;
         let removal_applies = self
             .removed
             .is_some_and(|removed| removed == support || base.contains(&removed));
@@ -382,6 +384,7 @@ impl StructuralAnalysisOverlay {
         }
 
         let mut owned = base.clone();
+        #[cfg(any(test, feature = "test-gameplay"))]
         match self.support {
             Some(StructuralSupportOverlay::Link {
                 element,
