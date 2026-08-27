@@ -30,12 +30,6 @@ impl FluidVolumeAccounting {
     pub const fn total(&self) -> AggregateVolume {
         self.total
     }
-
-    pub fn volumes(&self) -> impl Iterator<Item = (FluidDefinitionId, AggregateVolume)> + '_ {
-        self.by_fluid
-            .iter()
-            .map(|(fluid, volume)| (*fluid, *volume))
-    }
 }
 
 /// Overflow while projecting world-scale fluid volume.

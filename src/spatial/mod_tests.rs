@@ -3,17 +3,6 @@
 use super::*;
 
 #[test]
-fn checked_offset_rejects_coordinate_wraparound() {
-    let origin = VoxelCoord::new(i64::MAX, 0, 0);
-
-    assert_eq!(origin.checked_offset(VoxelDelta::new(1, 0, 0)), None);
-    assert_eq!(
-        VoxelCoord::new(10, 20, 30).checked_offset(VoxelDelta::new(-2, 3, -4)),
-        Some(VoxelCoord::new(8, 23, 26))
-    );
-}
-
-#[test]
 fn bounds_are_half_open_and_count_voxels_exactly() {
     let bounds = match VoxelBounds::new(VoxelCoord::new(-2, 10, 5), VoxelCoord::new(3, 12, 9)) {
         Ok(bounds) => bounds,
@@ -74,13 +63,5 @@ fn bounds_reject_zero_or_negative_extent_per_axis() {
     assert_eq!(
         VoxelBounds::new(VoxelCoord::new(0, 2, 0), VoxelCoord::new(1, 1, 1)),
         Err(VoxelBoundsError::NonPositiveExtent { axis: Axis::Y })
-    );
-}
-
-#[test]
-fn column_projection_discards_only_vertical_coordinate() {
-    assert_eq!(
-        ColumnCoord::from(VoxelCoord::new(12, -400, 91)),
-        ColumnCoord::new(12, 91)
     );
 }

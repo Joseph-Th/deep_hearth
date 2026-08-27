@@ -296,10 +296,10 @@ pub fn validate_drink(
         .maximum_hydration()
         .checked_sub(player.hydration())
         .ok_or(DrinkError::HydrationOverflow)?;
-    let hydration_gained = hydration_gain.min(available_hydration);
-    if hydration_gained.is_zero() {
+    if available_hydration.is_zero() {
         return Err(DrinkError::NoHydrationGain { volume });
     }
+    let hydration_gained = hydration_gain.min(available_hydration);
     let hydration_after = player
         .hydration()
         .checked_add(hydration_gained)

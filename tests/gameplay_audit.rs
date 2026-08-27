@@ -11,6 +11,9 @@ use std::env;
 mod agency;
 #[path = "gameplay_harness/capability_boundary.rs"]
 mod capability_boundary;
+#[cfg(test)]
+#[path = "gameplay_harness/catalog_contract_tests.rs"]
+mod catalog_contract_tests;
 #[path = "gameplay_harness/configuration.rs"]
 mod configuration;
 #[path = "gameplay_harness/contracts.rs"]

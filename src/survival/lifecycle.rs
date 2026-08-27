@@ -121,11 +121,6 @@ impl SurvivalAssessment {
     pub const fn hydration_state(self) -> HydrationState {
         self.hydration_state
     }
-
-    #[must_use]
-    pub const fn is_alive(self) -> bool {
-        self.vitality.parts_per_million() > 0
-    }
 }
 
 /// Failure while admitting the local player into survival simulation.

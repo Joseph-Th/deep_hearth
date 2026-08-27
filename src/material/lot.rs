@@ -35,6 +35,9 @@ impl MaterialInputSpec {
     }
 
     /// Builds a composition-constrained input requirement in canonical material-ID order.
+    ///
+    /// Runtime lots must contain their commodity host material, so the constraint set must leave at
+    /// least one normalized part for that host even when the host itself has no positive minimum.
     pub fn with_constraints(
         commodity: CommodityKey,
         mass: Mass,
@@ -51,13 +54,26 @@ impl MaterialInputSpec {
                 });
             }
         }
-        let minimum_total_ppm = constraints
+        let minimum_total_ppm = constraints.iter().fold(0_u64, |total, constraint| {
+            total.saturating_add(u64::from(constraint.minimum_parts_per_million()))
+        });
+        let host_constraint = constraints
             .iter()
-            .map(|constraint| u64::from(constraint.minimum_parts_per_million()))
-            .sum::<u64>();
-        if minimum_total_ppm > u64::from(COMPOSITION_PARTS_PER_MILLION) {
+            .find(|constraint| constraint.material() == commodity.material());
+        if matches!(host_constraint, Some(constraint) if constraint.maximum_parts_per_million() == 0)
+        {
+            return Err(MaterialInputSpecError::HostExcluded {
+                host: commodity.material(),
+            });
+        }
+        let host_minimum_ppm = host_constraint
+            .map(|constraint| constraint.minimum_parts_per_million())
+            .unwrap_or(0);
+        let minimum_required_ppm =
+            minimum_total_ppm.saturating_add(u64::from((host_minimum_ppm == 0) as u8));
+        if minimum_required_ppm > u64::from(COMPOSITION_PARTS_PER_MILLION) {
             return Err(MaterialInputSpecError::ImpossibleMinimumTotal {
-                total_ppm: minimum_total_ppm,
+                total_ppm: minimum_required_ppm,
             });
         }
         Ok(Self {
@@ -95,6 +111,7 @@ impl MaterialInputSpec {
 pub enum MaterialInputSpecError {
     ZeroMass,
     DuplicateConstraint { material: MaterialId },
+    HostExcluded { host: MaterialId },
     ImpossibleMinimumTotal { total_ppm: u64 },
 }
 
@@ -109,9 +126,14 @@ impl Display for MaterialInputSpecError {
                 "material input specification repeats constraint for material {}",
                 material.value()
             ),
+            Self::HostExcluded { host } => write!(
+                formatter,
+                "material input specification excludes commodity host material {}",
+                host.value()
+            ),
             Self::ImpossibleMinimumTotal { total_ppm } => write!(
                 formatter,
-                "material input specification requires combined minimum fractions of {total_ppm} ppm, exceeding {COMPOSITION_PARTS_PER_MILLION} ppm"
+                "material input specification requires combined minimum fractions of {total_ppm} ppm including its host material, exceeding {COMPOSITION_PARTS_PER_MILLION} ppm"
             ),
         }
     }

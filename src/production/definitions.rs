@@ -134,14 +134,6 @@ impl ProcessDefinition {
     pub fn capability_requirements(&self) -> &[CapabilityRequirement] {
         &self.capability_requirements
     }
-
-    #[must_use]
-    pub const fn fixed_input_mass(&self) -> Option<Mass> {
-        match &self.input_policy {
-            ProcessInputPolicy::Fixed { input_mass, .. } => Some(*input_mass),
-            ProcessInputPolicy::SelectedBatch => None,
-        }
-    }
 }
 
 fn validate_capability_requirements(id: ProcessId, requirements: &[CapabilityRequirement]) {

@@ -1,51 +1,70 @@
 # Status
 
-This document is the runtime capability boundary. A capability is ordinary-play reachable only when it
-appears under **Implemented runtime** without a capability-only qualification. Bootstrapped gameplay
-harnesses may exercise deeper systems without making them ordinarily acquirable.
+This page defines current runtime scope. It is the authority for whether a capability is ordinarily
+reachable, implemented only for controlled evaluation, or absent. Product intent in
+[`GAME_DESIGN.md`](GAME_DESIGN.md) does not establish implementation.
 
-Use [`README.md`](README.md) for repository routing, [`ARCHITECTURE.md`](ARCHITECTURE.md) for engineering
-rules, [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) for implemented subsystem contracts, and
-[`GAME_DESIGN.md`](GAME_DESIGN.md) for forward design intent.
+Use [`README.md`](README.md) for routing, [`ARCHITECTURE.md`](ARCHITECTURE.md) for engineering rules,
+[`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) for subsystem contracts, and [`TESTING.md`](TESTING.md) for
+verification.
 
-## Implemented runtime
+## Ordinary-play reachable
 
-| Area | Capability |
+Current progression:
+
+`local clues -> prospect -> stone tools -> evidence-gated hand mining -> scarce-copper choice -> primitive power and processing -> second reinforcement`
+
+| Area | Current capability |
 | --- | --- |
-| Core | Deterministic headless simulation with immutable versioned registries, generated `AppState`, persisted RNG streams, typed time, checked integer physical quantities, and explicit tick order. |
-| Persistence | Current save schema only. Trusted load rebuilds derived indexes and validates local and cross-owner invariants before returning state. Encoding and storage are adapter concerns. |
-| Matter and inventory | Typed materials/forms, exact composition and particle state, finite stockpiles and lots, containment/preservation, reservations, deterministic coalescing, owner-specific ingress/egress/reform, provenance, temperature, and exact represented-matter accounting. |
-| Geology and knowledge | Finite hidden deposits plus persisted player observations with bounded abundance evidence. Hidden deposit identity and exact hidden state are not player-facing. |
-| Prospecting | Survival-costed one-voxel field inspection for coarse evidence and a slower detailed field survey for narrower evidence. Both use exclusive player labor and persist observations. |
-| Mining | Evidence-gated hand mining through opaque targets, real tools, hardness/batch/throughput limits, wear, destination reservation, in-flight ownership, and explicit output claim. |
-| Production and crafting | Timed closed-mass jobs with exact selected inputs, output reservations, persisted work-in-process, multi-stream routing, revision-bound completion, support-aware suspension/resume, and production-backed manual shaping that releases player attention while blocked. |
-| Survival and labor | Metabolic energy, hydration, vitality, recent Grain/Fruit/Protein nutrition, perishable food, preservation, finite drinking water, activity-dependent exertion costs that can shift the dominant reserve pressure, and one exclusive player-work owner with survival-budget re-admission for resumed hand work. |
-| Equipment and maintenance | Persistent embodied equipment, condition-dependent capabilities, assembly, additive upgrades, occupancy, fixed/portable installation, pristine disassembly, worn recovery, and material-consuming maintenance. |
-| Energy and manual power | Finite typed-carrier energy stores with directional power limits, owner-specific finite supply/sink accounting, material-backed store construction, and survival-costed player power through real portable equipment. |
-| Structures and fluids | Material-backed structural members with contact-constrained support topology, axial analysis, source-owned loads, damage, and failure cascades, plus finite homogeneous fluid stores with exact withdrawal and support-aware load. Harness setup can materialize structurally valid members from conserved inventory, but this is not a player construction action. |
-| Physical capability scalars | Typed throughput, mass, temperature, pressure, power, torque, speed, electrical, flow, volume, efficiency, transmission, and operating-limit calculations. |
-| Ore processing | Crushing, grinding, dry screening, oversize regrinding, strict binary native-copper separation, and generalized copper concentration from liberated multi-gangue feed with finite target/gangue recovery, emergent concentrate grade, finite work, equipment limits, wear, physical tailings, and exact constituent accounting. |
-| Thermal production | Sensible heating, pure-material melting, and pure-material casting with finite energy, equipment limits, phase boundaries, and latent heat. |
-| Primitive progression | Visible local clues -> prospecting and evidence -> stone tools -> evidence-gated hand mining -> deferred refinement when current options prove insufficient -> scarce copper choice between extraction and stored-work rate -> flywheel/crusher -> native-copper separation -> second reinforcement. Extracted form/composition informs later processing; delegated work returns player attention. |
-| Industrial capability evaluation | Workshop, ore-preparation, and pure-copper foundry harnesses exercise already-installed industrial systems, including a structurally installed full-batch gravity separator sized to the crusher/grinder/screen preparation line. They do not establish runtime acquisition of those systems. |
-| Spatial and assets | Checked chunk-independent voxel coordinates; deterministic renderer-neutral texture baking and WGSL assembly. No graphics backend. |
-| Verification | Unit, persistence, conservation, soak, and gameplay coverage through local tooling. [`TESTING.md`](TESTING.md) owns commands and harness rules. |
+| Survival and labor | Metabolic energy, hydration, vitality, Grain/Fruit/Protein nutrition, perishable food, preservation, finite drinking water, activity-dependent exertion, and one exclusive player-work owner. |
+| Materials and inventory | Typed materials/forms, exact composition and particle state, finite stockpiles/lots, containment, preservation, reservations, provenance, temperature, deterministic coalescing, and exact represented-matter accounting. |
+| Prospecting and knowledge | Survival-costed field inspection and detailed field survey produce persisted bounded evidence without exposing hidden deposit identity or exact hidden state. |
+| Mining | Evidence-gated hand mining through opaque targets with real tools, hardness/batch/throughput limits, wear, reserved destination capacity, in-flight ownership, and explicit output claim. |
+| Crafting and equipment | Production-backed manual shaping, persistent embodied equipment, assembly, additive upgrades, condition-dependent capabilities, occupancy, installation, disassembly/recovery, and material-consuming maintenance. |
+| Primitive power | Material-backed finite energy storage and survival-costed manual power through real portable equipment. |
+| Primitive processing | Crushing and native-copper separation use finite work, equipment capability, wear, exact selected matter, and physical outputs. Delegated work returns player attention. |
+
+## Implemented runtime support
+
+These systems are active runtime infrastructure, but not every object or operation they can represent is
+ordinarily acquirable.
+
+| Area | Current capability |
+| --- | --- |
+| Core | Deterministic headless simulation, immutable versioned registries, generated `AppState`, persisted RNG streams, typed time, checked integer physical quantities, and explicit tick order. |
+| Persistence | Current save schema only. Trusted load rebuilds derived indexes and validates local and cross-owner invariants before returning state. Encoding/storage remain adapter concerns. |
+| Production | Timed closed-mass jobs with exact selected inputs, reserved outputs, persisted work-in-process, multi-stream routing, revision-bound completion, and support-aware suspension/resume. |
+| Energy and fluids | Finite typed-carrier energy stores with directional power limits and finite homogeneous fluid stores with exact withdrawal and support-aware load. No generic inter-store transfer exists. |
+| Structures | Material-backed members with contact-constrained support topology, axial analysis, source-owned loads, damage, and failure cascades. Controlled setup can materialize valid members; player construction is absent. |
+| Physical scalars | Typed throughput, mass, temperature, pressure, power, torque, speed, electrical, flow, volume, efficiency, transmission, and operating-limit calculations. |
+| Spatial and presentation | Checked chunk-independent voxel coordinates, deterministic renderer-neutral texture baking, and deterministic WGSL assembly. No graphics backend. |
+
+## Capability-only evaluation
+
+These production systems are executable through controlled gameplay-harness setup. Their ordinary-play
+acquisition path is not implemented.
+
+| Surface | Evaluated capability |
+| --- | --- |
+| Workshop | Installed industrial machines operate under finite stored work, survival pressure, wear, maintenance, structural support, suspension/recovery, and policy-dependent choices. |
+| Ore preparation | Installed crushing, grinding, dry screening, oversize regrinding, and generalized copper concentration preserve exact constituent accounting and produce physical tailings. |
+| Foundry | Installed sensible heating, pure-material melting, and pure-material casting use finite energy, equipment limits, phase boundaries, latent heat, and finite heat recovery. |
 
 ## Not implemented
 
 | Area | Boundary |
 | --- | --- |
-| Engine/platform | Graphics backend, window/input/audio integration, ECS choice, networking, platform integration, general engine shell. |
-| World representation | Voxel/chunk storage, terrain generation, streaming, world-scale spatial indexing, and runtime discovery of clue locations. |
-| Logistics | Ordinary-play stockpile-to-stockpile transport authorization, pathing, carrying/haulage time, transport labor/energy, and world-space delivery. The gameplay audit can inject a controlled conserved delivery as scenario setup/event infrastructure. |
-| Advanced geology/mining | Regional geological generation, voxel ore topology, panning, physical sampling, drilling, assays, geophysics, mechanized excavation, access, haulage, drainage, ground control, recovery fractions, waste rock, and tailings transport/impoundment beyond the particulate tailings lots produced by current concentration. |
-| Thermal/chemical industry | Environmental heat transport, vaporization, combustion, fuels/emissions, mixed/alloy phase behavior, concentration methods beyond the current liberated-copper separator model, smelting/reduction, alloying, forging, and machining. |
-| Rich maintenance and structures | Maintenance labor/tools/access, bespoke component salvage, player-authorized construction/deconstruction, construction labor/waste, demolition/salvage physics, bending, shear, torsion, buckling, joints, and terrain support. |
-| Power networks | General store-to-store energy transfer authorization, shaft/belt networks, inertia/slip/clutches, steam systems, electrical topology, generation, distribution, protection, and spatial network integration. |
-| Hydrology | General inter-store fluid transport, ground/surface water, channels, pumps, irrigation, wastewater, sanitation, fluid mixing, and pressure/temperature-dependent fluid properties. |
-| Ecology and society | Agriculture, soil simulation, ecology, genetics, creatures, hunting/combat, workers, settlements, logistics, trade, economy, and migration. |
-| Industrial acquisition | Ordinary-play acquisition for industrial machines and industrial energy systems, plus the processing infrastructure required to reach the bootstrapped industrial harnesses. |
+| Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, platform integration, general engine shell. |
+| World representation | Voxel/chunk storage, terrain generation, streaming, world-scale spatial indexing, runtime discovery of clue locations. |
+| Logistics | Ordinary stockpile transport authorization, pathing, carrying/haulage time, transport labor/energy, world-space delivery. Controlled harness delivery is setup infrastructure only. |
+| Advanced geology/mining | Regional generation, voxel ore topology, sampling, drilling, assays, geophysics, mechanized excavation, access, haulage, drainage, ground control, recovery fractions, waste rock, tailings transport/impoundment. |
+| Thermal/chemical industry | Environmental heat transport, vaporization, combustion, fuels/emissions, mixed/alloy phase behavior, smelting/reduction, alloying, forging, machining, and separation beyond the current liberated-copper model. |
+| Rich maintenance/structures | Maintenance labor/tools/access, bespoke salvage, player construction/deconstruction, construction waste, demolition/salvage physics, bending, shear, torsion, buckling, joints, terrain support. |
+| Power networks | Generic store-to-store energy transfer, shaft/belt networks, inertia/slip/clutches, steam, electrical topology, generation, distribution, protection, spatial network integration. |
+| Hydrology | Generic inter-store fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, mixing, pressure/temperature-dependent fluid properties. |
+| Ecology and society | Agriculture, soil, ecology, genetics, creatures, hunting/combat, workers, settlements, trade, economy, migration. |
+| Industrial acquisition | Ordinary-play acquisition for industrial machines, industrial energy systems, and the infrastructure needed to reach capability-only scenarios. |
 | Save storage adapters | Save-file encoding/storage, filesystem atomicity, compression, cloud storage. |
 
-List a capability as implemented only when it has an authoritative owner, a canonical runtime path,
-persistence semantics where required, invariant coverage, and executable verification.
+A capability moves into implemented scope only when it has an authoritative owner, one canonical runtime
+path, required persistence semantics, invariant coverage, and executable verification.

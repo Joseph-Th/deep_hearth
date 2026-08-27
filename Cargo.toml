@@ -20,7 +20,7 @@ required-features = ["test-shader-validation"]
 
 [[test]]
 name = "gameplay_workshop"
-path = "tests/gameplay_harness/main.rs"
+path = "tests/gameplay_workshop.rs"
 required-features = ["test-gameplay"]
 
 [[test]]

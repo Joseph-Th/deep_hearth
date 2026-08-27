@@ -41,10 +41,20 @@ def configure_report_replay_environment(
     variation = environ[variation_key]
     behavior = environ[behavior_key]
     return variation, behavior
+
+
 GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
 GAMEPLAY_SCOPES = ("all", *GAMEPLAY_TARGETS)
 GAMEPLAY_SCOPE_BY_TARGET = {target: scope for scope, target in GAMEPLAY_TARGETS.items()}
 GAMEPLAY_AUDIT_REPAIRS = {
+    "agency::gameplay_maintained_agency_counterfactuals": (
+        "gameplay_audit",
+        "agency::gameplay_maintained_agency_counterfactuals",
+    ),
+    "catalog_contract_tests::gameplay_machine_process_catalog_has_evidence": (
+        "gameplay_audit",
+        "catalog_contract_tests::gameplay_machine_process_catalog_has_evidence",
+    ),
     "focused::gameplay_survival_provisioning_probe": (
         "gameplay_survival",
         "gameplay_survival_provisioning_probe",
@@ -62,12 +72,37 @@ GAMEPLAY_AUDIT_REPAIRS = {
         "gameplay_foundry_probe",
     ),
 }
+GAMEPLAY_WORKSHOP_TEST_PREFIXES = (
+    "configuration::",
+    "scenario::",
+    "seed_contract_tests::",
+    "workshop::",
+    "workshop_contract_tests::",
+)
 FAILED_TEST = re.compile(r"^    (?P<name>[A-Za-z0-9_:]+)$", re.MULTILINE)
 FAILED_GAMEPLAY_TARGET = re.compile(r"to rerun pass `--test (?P<target>gameplay_[a-z_]+)`")
+RUST_TEST_RESULT = re.compile(
+    r"test result: ok\. (?P<passed>\d+) passed; (?P<failed>\d+) failed; "
+    r"(?P<ignored>\d+) ignored;"
+)
 
 
 def cargo(alias: str) -> list[str]:
     return ["cargo", alias]
+
+
+def rust_test_summary(stdout: str) -> str | None:
+    """Return one compact count for successful Rust test output, if present."""
+
+    matches = list(RUST_TEST_RESULT.finditer(stdout))
+    if not matches:
+        return None
+    passed = sum(int(match.group("passed")) for match in matches)
+    ignored = sum(int(match.group("ignored")) for match in matches)
+    detail = f"{passed} test{'s' if passed != 1 else ''}"
+    if ignored:
+        detail += f", {ignored} ignored"
+    return detail
 
 
 def quick_plan() -> list[tuple[str, list[str]]]:
@@ -98,16 +133,22 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
             failed = FAILED_TEST.findall(combined)
             if failed:
                 if target == GAMEPLAY_AUDIT_TARGET:
-                    repair = GAMEPLAY_AUDIT_REPAIRS.get(failed[-1])
+                    failed_test = failed[-1]
+                    repair = GAMEPLAY_AUDIT_REPAIRS.get(failed_test)
                     if repair is not None:
                         focused_target, focused_test = repair
                         return (
                             "python tools/run_test.py "
                             f"--target {focused_target} {focused_test}"
                         )
+                    if failed_test.startswith(GAMEPLAY_WORKSHOP_TEST_PREFIXES):
+                        return (
+                            "python tools/run_test.py "
+                            f"--target {GAMEPLAY_TARGETS['workshop']} {failed_test}"
+                        )
                     return (
                         "python tools/run_test.py "
-                        f"--target {GAMEPLAY_TARGETS['workshop']} {failed[-1]}"
+                        f"--target {GAMEPLAY_AUDIT_TARGET} {failed_test}"
                     )
                 return f"python tools/run_test.py --target {target} {failed[-1]}"
             scope = GAMEPLAY_SCOPE_BY_TARGET.get(target)
@@ -275,7 +316,9 @@ def report_stage(
         return None
     assert result is not None
     if result.returncode == 0:
-        print(f"PASS ({elapsed:.1f}s)")
+        detail = rust_test_summary(result.stdout)
+        suffix = f"; {detail}" if detail is not None else ""
+        print(f"PASS ({elapsed:.1f}s{suffix})")
         if echo_success and result.stdout.strip():
             print(result.stdout.rstrip())
         return elapsed

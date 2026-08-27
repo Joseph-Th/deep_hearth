@@ -39,36 +39,6 @@ impl VoxelCoord {
     pub const fn z(self) -> i64 {
         self.z
     }
-
-    /// Applies a signed voxel displacement without allowing integer wraparound.
-    #[must_use]
-    pub const fn checked_offset(self, delta: VoxelDelta) -> Option<Self> {
-        let Some(x) = self.x.checked_add(delta.x) else {
-            return None;
-        };
-        let Some(y) = self.y.checked_add(delta.y) else {
-            return None;
-        };
-        let Some(z) = self.z.checked_add(delta.z) else {
-            return None;
-        };
-        Some(Self { x, y, z })
-    }
-
-    /// Returns a checked displacement from `other` to this coordinate.
-    #[must_use]
-    pub const fn checked_delta_from(self, other: Self) -> Option<VoxelDelta> {
-        let Some(x) = self.x.checked_sub(other.x) else {
-            return None;
-        };
-        let Some(y) = self.y.checked_sub(other.y) else {
-            return None;
-        };
-        let Some(z) = self.z.checked_sub(other.z) else {
-            return None;
-        };
-        Some(VoxelDelta { x, y, z })
-    }
 }
 
 #[derive(Deserialize)]
@@ -86,70 +56,6 @@ impl<'de> Deserialize<'de> for VoxelBounds {
         let representation = VoxelBoundsRepresentation::deserialize(deserializer)?;
         Self::new(representation.min, representation.max_exclusive)
             .map_err(serde::de::Error::custom)
-    }
-}
-
-/// Signed voxel displacement independent of absolute world position.
-#[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
-)]
-pub struct VoxelDelta {
-    x: i64,
-    y: i64,
-    z: i64,
-}
-
-impl VoxelDelta {
-    #[must_use]
-    pub const fn new(x: i64, y: i64, z: i64) -> Self {
-        Self { x, y, z }
-    }
-
-    #[must_use]
-    pub const fn x(self) -> i64 {
-        self.x
-    }
-
-    #[must_use]
-    pub const fn y(self) -> i64 {
-        self.y
-    }
-
-    #[must_use]
-    pub const fn z(self) -> i64 {
-        self.z
-    }
-}
-
-/// Horizontal column coordinate used by climate, terrain-column, and hydrology projections.
-#[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
-)]
-pub struct ColumnCoord {
-    x: i64,
-    z: i64,
-}
-
-impl ColumnCoord {
-    #[must_use]
-    pub const fn new(x: i64, z: i64) -> Self {
-        Self { x, z }
-    }
-
-    #[must_use]
-    pub const fn x(self) -> i64 {
-        self.x
-    }
-
-    #[must_use]
-    pub const fn z(self) -> i64 {
-        self.z
-    }
-}
-
-impl From<VoxelCoord> for ColumnCoord {
-    fn from(value: VoxelCoord) -> Self {
-        Self::new(value.x(), value.z())
     }
 }
 

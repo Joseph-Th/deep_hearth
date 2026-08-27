@@ -303,7 +303,7 @@ fn validated_drink_rejects_player_work_started_before_commit_without_mutation() 
 }
 
 #[test]
-fn drinking_with_any_hydration_room_consumes_the_exact_requested_volume() {
+fn drinking_clamps_hydration_gain_while_consuming_exact_requested_volume() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5A70_0016));
     initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
@@ -341,24 +341,29 @@ fn drinking_with_any_hydration_room_consumes_the_exact_requested_volume() {
     .unwrap_or_else(|error| panic!("partial-hydration water fixture failed: {error}"));
 
     let outcome = validate_drink(&registries, &state, store, Volume::from_microliters(10))
-        .unwrap_or_else(|error| panic!("partial-hydration drink validation failed: {error}"))
+        .unwrap_or_else(|error| panic!("partial-hydration drinking validation failed: {error}"))
         .commit(&mut state)
-        .unwrap_or_else(|error| panic!("partial-hydration drink commit failed: {error}"));
+        .unwrap_or_else(|error| panic!("partial-hydration drinking commit failed: {error}"));
 
     assert_eq!(outcome.volume(), Volume::from_microliters(10));
     assert_eq!(outcome.hydration_gained(), Volume::from_microliters(1));
     assert_eq!(
+        assess_survival(&registries, &state)
+            .unwrap_or_else(|| panic!("partial-hydration player disappeared"))
+            .hydration(),
+        physiology.maximum_hydration()
+    );
+    assert_eq!(
         state
             .fluid()
             .get_store(store)
-            .and_then(|record| record.contents()),
+            .and_then(|record| record.contents())
+            .map(|contents| contents.volume()),
         None
     );
     assert_eq!(
-        assess_survival(&registries, &state)
-            .unwrap_or_else(|| panic!("partial-hydration survival state disappeared"))
-            .hydration(),
-        physiology.maximum_hydration()
+        state.survival().consumed_fluid_volume(FLUID_WATER),
+        AggregateVolume::from_microliters(10)
     );
 }
 

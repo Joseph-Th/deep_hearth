@@ -173,10 +173,10 @@ impl ComputeEntryPoint {
         );
         let invocation_count = workgroup_size
             .iter()
-            .map(|dimension| u32::from(*dimension))
-            .product::<u32>();
+            .map(|dimension| u64::from(*dimension))
+            .product::<u64>();
         assert!(
-            invocation_count <= MAX_COMPUTE_WORKGROUP_INVOCATIONS,
+            invocation_count <= u64::from(MAX_COMPUTE_WORKGROUP_INVOCATIONS),
             "compute workgroup exceeds the portable invocation limit"
         );
         Self {

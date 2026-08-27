@@ -1,7 +1,7 @@
 # Game Design
 
-This document defines the intended player experience and progression. It is a forward design target, not
-an implementation inventory. Use [`STATUS.md`](STATUS.md) for current capability.
+This page owns intended player experience and progression. It is a design target, not implementation
+evidence. Use [`STATUS.md`](STATUS.md) for current capability.
 
 ## Core fantasy
 
@@ -127,13 +127,14 @@ Industrialization shifts the dominant cost of work:
 Each transition should increase scale while preserving meaningful sources, sinks, bottlenecks, and
 failure modes.
 
-The early industrial loop establishes this pattern before settlement-scale industry. Scarce material
-creates a real choice between extraction capability and stored-work generation. Primitive machinery turns
-repeated processing into returned player attention, and processed matter opens the next capability:
+Early industrial progression should establish this pattern before settlement-scale industry. Scarce
+material creates a real choice between extraction capability and stored-work generation. Primitive
+machinery turns repeated processing into returned player attention, and processed matter opens the next
+capability:
 
 `invest matter + labor -> delegate a physical process -> use returned attention -> recover useful matter -> reinvest`
 
-Later industry deepens the same relationship through richer separation, power, maintenance, logistics,
+Industrial scale deepens the same relationship through richer separation, power, maintenance, logistics,
 and control.
 
 Progression pacing follows several additional constraints:
@@ -168,21 +169,15 @@ systems causing them.
 
 ## Mechanic review
 
-A proposed mechanic should usually satisfy these conditions:
+A mechanic belongs in the design when its important causes and effects are perceivable, it creates a
+meaningful decision or obligation, it interacts with another major system, and the player can improve,
+delegate, mitigate, or automate it over time. Matter, energy, fluid, labor, and information transitions
+need explicit physical or social authority.
 
-- important causes and effects are perceivable;
-- it creates a meaningful decision, constraint, obligation, or risk;
-- it interacts with at least one other major system;
-- the player can improve, delegate, mitigate, or automate it over time;
-- progress transforms the problem rather than simply deleting it;
-- failure is understandable and normally recoverable;
-- repetitive input is not the primary source of difficulty;
-- matter, energy, fluid, labor, and information transitions have explicit physical or social authority.
-
-Simplify, integrate, or remove mechanics that do not create useful decisions or world coherence.
+Simplify, integrate, or remove mechanics that rely on repetitive input, hide their causes, or do not create
+useful decisions or world coherence.
 
 ## Scope
 
-This document owns gameplay intent, progression, and player-facing system behavior. It does not own
-engine architecture, rendering implementation, simulation scheduling, persistence mechanics, networking,
-or performance policy. Those contracts belong to the engineering documents listed in `README.md`.
+This page does not own engine architecture, rendering implementation, simulation scheduling, persistence,
+networking, or performance policy. Use the authority map in [`README.md`](README.md) for those contracts.

@@ -51,6 +51,14 @@ class LocalCiPlanTests(unittest.TestCase):
     def test_quick_lane_is_build_free(self) -> None:
         self.assertEqual(cargo_build_commands(ci.quick_plan()), [])
 
+    def test_rust_test_summary_is_concise_and_aggregates_multiple_results(self) -> None:
+        output = (
+            "test result: ok. 18 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out\n"
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"
+        )
+        self.assertEqual(ci.rust_test_summary(output), "20 tests, 1 ignored")
+        self.assertIsNone(ci.rust_test_summary("Finished test profile"))
+
     def test_unit_test_bodies_stay_out_of_production_source_files(self) -> None:
         inline_marker = "#[cfg(test)]\nmod tests {"
         offenders = [
@@ -140,6 +148,30 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
             "python tools/run_test.py --target gameplay_ore gameplay_ore_preparation_probe",
+        )
+
+    def test_agency_failure_reuses_the_aggregate_target_instead_of_linking_another_binary(self) -> None:
+        output = "failures:\n    agency::gameplay_maintained_agency_counterfactuals\n"
+        error = "error: test failed, to rerun pass `--test gameplay_audit`"
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("all"), output, error),
+            "python tools/run_test.py --target gameplay_audit agency::gameplay_maintained_agency_counterfactuals",
+        )
+
+    def test_global_catalog_failure_reuses_the_aggregate_target(self) -> None:
+        output = "failures:\n    catalog_contract_tests::gameplay_machine_process_catalog_has_evidence\n"
+        error = "error: test failed, to rerun pass `--test gameplay_audit`"
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("all"), output, error),
+            "python tools/run_test.py --target gameplay_audit catalog_contract_tests::gameplay_machine_process_catalog_has_evidence",
+        )
+
+    def test_unknown_aggregate_only_failure_stays_on_the_aggregate_target(self) -> None:
+        output = "failures:\n    future_contracts::new_global_check\n"
+        error = "error: test failed, to rerun pass `--test gameplay_audit`"
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("all"), output, error),
+            "python tools/run_test.py --target gameplay_audit future_contracts::new_global_check",
         )
 
     def test_integration_exact_command_infers_target_required_features(self) -> None:
@@ -378,7 +410,10 @@ class ExactTestCommandTests(unittest.TestCase):
         ore = run_test.source_test_catalog("gameplay_ore", None)
         audit = run_test.source_test_catalog("gameplay_audit", None)
         self.assertIn("workshop_contract_tests::gameplay_harness_gate", workshop)
-        self.assertIn("agency::gameplay_maintained_agency_counterfactuals", workshop)
+        self.assertNotIn("agency::gameplay_maintained_agency_counterfactuals", workshop)
+        self.assertNotIn(
+            "catalog_contract_tests::gameplay_machine_process_catalog_has_evidence", workshop
+        )
         self.assertIn(
             "configuration::tests::default_gate_keeps_maintained_anchors_and_adds_a_bounded_variation_sample",
             workshop,
@@ -399,13 +434,15 @@ class ExactTestCommandTests(unittest.TestCase):
         self.assertEqual(
             set(audit) - set(workshop),
             {
+                "agency::gameplay_maintained_agency_counterfactuals",
+                "catalog_contract_tests::gameplay_machine_process_catalog_has_evidence",
                 "focused::gameplay_survival_provisioning_probe",
                 "focused::gameplay_primitive_progression_probe",
                 "focused::gameplay_ore_preparation_probe",
                 "focused::gameplay_foundry_probe",
                 "gameplay_report",
             },
-            "every broad-audit-only maintained test must route to a focused repair target or the ignored report",
+            "every broad-audit-only maintained test must be an explicit counterfactual, focused probe, or report",
         )
 
     def test_source_catalog_listing_never_builds_through_cargo_command(self) -> None:

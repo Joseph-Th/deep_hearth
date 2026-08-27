@@ -10,9 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
-use crate::energy::{
-    ConsumedEnergyTrace, ReleasedEnergyTrace, ValidatedEnergySink, ValidatedEnergySupply,
-};
+use crate::energy::{ConsumedEnergyTrace, ValidatedEnergySink, ValidatedEnergySupply};
 use crate::equipment::{EquipmentOperationTrace, ValidatedEquipmentUse};
 use crate::inventory::{
     ConsumedMaterialTrace, ConsumptionSelection, ConsumptionSelectionError,
@@ -488,6 +486,9 @@ fn scale_input(
         }) => {
             unreachable!("authored input constraints were validated before repeat scaling")
         }
+        Err(MaterialInputSpecError::HostExcluded { host: _ }) => {
+            unreachable!("authored input host feasibility was validated before repeat scaling")
+        }
         Err(MaterialInputSpecError::ImpossibleMinimumTotal { total_ppm: _ }) => {
             unreachable!(
                 "authored input constraint feasibility was validated before repeat scaling"
@@ -719,12 +720,6 @@ impl ProcessResolution {
     #[must_use]
     pub fn energy_input(&self) -> Option<ConsumedEnergyTrace> {
         self.energy_supply.map(ValidatedEnergySupply::trace)
-    }
-
-    /// Returns exact energy released from material and bound to a finite sink, if any.
-    #[must_use]
-    pub fn energy_output(&self) -> Option<ReleasedEnergyTrace> {
-        self.energy_sink.map(ValidatedEnergySink::trace)
     }
 
     /// Returns the exact equipment-provider snapshot bound by the physical resolver, if any.

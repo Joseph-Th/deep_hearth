@@ -81,6 +81,8 @@ owners rather than cached totals.
 
 ## Materials, inventory, and geology
 
+### Materials and lots
+
 Materials are immutable definitions. Forms define phase, particle-state policy, and physical cohesion.
 Only consolidated non-particulate solids may directly become rigid infrastructure components or structural
 embodiment; loose forms require an explicit shaping or consolidation process first. `CommodityKey` combines
@@ -99,16 +101,19 @@ prevent unsafe coalescing. Lot IDs identify persistent distinct lots, not transa
 ingress, completion output, reform output, and relocation fragments bind to the identity that will survive
 coalescing, and the monotonic lot cursor advances only when a distinct lot will actually persist.
 
+### Inventory
+
 Stockpiles own capacity, containment, preservation, inbound reservations, and derived routing/mass
-indexes. Inventory is custody, not movement authorization. Ordinary runtime movement occurs only when a
-canonical owner has already bound exact ingress, egress, reform, or reserved-output consequences. Generic
-stockpile-to-stockpile transport has no runtime authorizer. The `test-gameplay` harness may inject one
-controlled conserved delivery to exercise downstream consequences without pretending logistics exists.
-Same-material reform must perform a real commodity-form change; a selection already entirely in the
-target commodity is rejected instead of manufacturing a meaningless inventory mutation.
+indexes. Inventory is custody, not movement authorization. Runtime movement requires a canonical owner that
+binds exact ingress, egress, reform, or reserved-output consequences. Generic stockpile transport has no
+runtime authorizer. The `test-gameplay` harness may inject one controlled conserved delivery as setup/event
+infrastructure; this does not grant general transport authority. Same-material reform is valid only when the
+commodity form changes; input already entirely in the target commodity is rejected.
 
 Supported stockpiles contribute `StructuralLoadKind::StoredMatter`. Every canonical stored-mass mutation
 updates inventory ownership and the resulting structural load atomically.
+
+### Geology and knowledge
 
 Geological deposits are a separate finite matter owner. They contain spatial bounds, material profile,
 excavation hardness, provenance, remaining mass, and lifecycle. Player-facing code cannot enumerate
@@ -117,6 +122,8 @@ hidden deposit truth.
 Geological knowledge is a separate persisted owner. Observations contain authorized spatial evidence and
 bounded abundance estimates, not deposit identity. Recording requires an opaque `ProspectingResolution`;
 assessment combines only acquired evidence and preserves contradiction or spatial incomparability.
+
+### Prospecting and mining
 
 Local prospecting is exclusive `PlayerWorkState` labor over one voxel. Field inspection produces coarse
 surface-abundance evidence. Detailed field survey costs more time and survival reserve for narrower evidence.
@@ -138,6 +145,8 @@ to inventory.
 
 ## Production and processing
 
+### Production jobs
+
 `ProcessDefinition` owns immutable identity, material requirements, and typed capability requirements.
 Operation-specific physics belong in resolver outputs, not static duration/yield fields.
 
@@ -147,19 +156,20 @@ matter plus modeled energy while work is in flight. Completion is revision-bound
 represented matter and modeled energy across all streams.
 
 Required equipment support or reserved-output support may suspend a production job when that support
-becomes unavailable. Suspension keeps work-in-process, reservations, and exact remaining active time.
-Suspended manual crafting releases `PlayerWorkState` so blocked work does not monopolize the player;
-physical recovery reacquires player labor through the ordinary attention and survival-budget admission
-boundary before active time can resume. If labor is unavailable, the job remains suspended without
-burning exertion or active process time.
+becomes unavailable. Suspension preserves work-in-process, reservations, and exact remaining active time.
+Suspended manual crafting releases `PlayerWorkState`. Resumption reacquires player labor through the normal
+attention and survival-budget admission boundary. Without available labor, the job remains suspended and
+consumes no exertion or active process time.
 
-Implemented physical resolvers include:
+### Physical resolvers
 
-- comminution with authored feed/output particle state, condition-sensitive throughput, batch limits,
+Implemented resolvers are:
+
+- **Comminution:** authored feed/output particle state, condition-sensitive throughput, batch limits,
   finite work energy, power-limited duration, and active-tick wear;
-- dry screening that partitions fully resolved particle classes around an authored aperture without
+- **Dry screening:** partitions fully resolved particle classes around an authored aperture without
   inventing fractional or unresolved splits;
-- constituent separation for physically liberated particulate feed. Binary definitions may restrict feed
+- **Constituent separation:** handles physically liberated particulate feed. Binary definitions may restrict feed
   to one authored target plus one authored residue material; concentration definitions accept arbitrary
   non-target gangue without composition-specific recipes. Output mass is derived from exact selected
   composition rather than a fixed yield. Concentration authors distinct target and lower non-target
@@ -167,13 +177,14 @@ Implemented physical resolvers include:
   gangue rejection. Fractional component remainders are deterministically distributed across blended
   particulate lots so represented constituent content remains exact. Concentrate and residue retain input
   particulate state, and persisted jobs replay composition, streams, energy, duration, and wear;
-- sensible heating, pure-material melting, and pure-material casting with real selected matter, finite
-  energy sources/sinks, equipment limits, phase boundaries, and latent heat. Melting and casting
-  definitions bind both authored input and output forms, so phase-change admission and persisted-job
-  replay cannot bypass an unimplemented material-processing step merely because another form has
-  compatible material and phase properties.
+- **Thermal processing:** sensible heating, pure-material melting, and pure-material casting use real
+  selected matter, finite energy sources/sinks, equipment limits, phase boundaries, and latent heat. Melting
+  and casting definitions bind authored input and output forms; admission and persisted replay cannot
+  substitute a different form solely because its material and phase are compatible.
 
 ## Equipment, labor, survival, energy, and fluids
+
+### Equipment and maintenance
 
 Capabilities use explicit typed values and `AtLeast`/`AtMost` requirements. Equipment providers expose
 runtime condition-adjusted capabilities through the same evaluation boundary as nominal definitions.
@@ -191,6 +202,8 @@ reset wear through reassembly.
 Maintenance consumes an exact replacement commodity, produces a distinct conserved spent form, and
 restores the authored condition target. It is a physical material reform, not condition-only mutation.
 
+### Player work and survival
+
 `PlayerWorkState` is exclusive across manual crafting, field prospecting, hand mining, and direct manual
 power. Work admission binds projected metabolic-energy and hydration cost. Suspended manual production
 does not reserve player attention; resumption must pass the same admission again for its exact remaining
@@ -203,37 +216,34 @@ together.
 
 Survival tracks metabolic energy, hydration, vitality, and category-specific recent nutrition. Eating and
 drinking consume exact physical portions into terminal conservation owners; physiological gains clamp
-independently to authored reserve capacities. Vitality recovery scales with the weakest Grain/Fruit/Protein
-reserve, so calories concentrated in one category cannot mathematically stand in for a balanced recent
-diet. Fractional recovery is accumulated in persisted fixed-point state so whole-ppm vitality storage does
-not create artificial healing-rate cliffs; the read-only assessment rounds that exact rate for presentation.
-No-benefit consumption is rejected rather than silently wasting finite resources.
+independently to authored reserve capacities. Vitality recovery is limited by the weakest
+Grain/Fruit/Protein reserve. Persisted fixed-point carry preserves fractional recovery between ticks; the
+read-only assessment rounds the exact rate for presentation. Consumption that improves no reserve is
+rejected before finite resources are consumed.
+
+### Energy and fluids
 
 Energy stores own carrier, capacity, directional power envelopes, stored energy, identity, revision, and
-optional embodied traces. Current runtime owners consume or supply energy through their own validated
-reservations, and direct manual power is an explicit generator. There is no generic store-to-store transfer
-authorization: storage does not invent a path, carrier conversion, or energy source. A future transfer
-system must provide the physical path and consequences before any cross-store movement is admitted.
+optional embodied traces. Runtime owners consume or supply energy through their own validated reservations;
+direct manual power is an explicit generator. Generic store-to-store transfer is not authorized because no
+physical path, carrier conversion, or transfer consequence is modeled.
 
-Fluid stores own identity, volume, temperature, capacity, revision, and optional support. Current runtime
-operations support exact finite withdrawal and support changes; there is no generic inter-store transfer,
-pumping, or mixing path. The model therefore never teleports fluid between stores or implicitly mixes
-unlike fluids or temperatures. Supported fluid load derives from authored material density, and canonical
-withdrawal updates that derived load.
+Fluid stores own identity, volume, temperature, capacity, revision, and optional support. Runtime operations
+support exact finite withdrawal and support changes. There is no generic inter-store transfer, pumping, or
+mixing path, so cross-store movement and mixing require an explicit owning system. Supported fluid load
+derives from authored material density; canonical withdrawal updates that load.
 
 ## Structures
 
 Structural members own geometry, topology, embodied material, self-weight, external source-separated
-loads, lifecycle, and damage. Current analysis models axial tension/compression and deterministic
-stable/strained/cracked/failed transitions with support-loss cascades.
-Support edges are admitted only when the members' voxel bounds touch or overlap, so structural topology
-cannot transmit load across empty space while sub-voxel joint geometry remains outside the current model.
+loads, lifecycle, and damage. Analysis models axial tension/compression and deterministic
+stable/strained/cracked/failed transitions with support-loss cascades. Support edges require touching or
+overlapping voxel bounds; sub-voxel joint geometry is outside the model.
 
 The gameplay-audit fixture may materialize a planned member from exact conserved inventory traces after
-validating geometry-derived mass, consolidated physical form, composition, source capacity, and resulting self-weight.
-That fixture transaction is setup infrastructure, not an implemented player construction action. Runtime
-materialized members are never generically deleted; a future demolition/recovery system must authorize
-labor/tools/time and conserved salvage before embodied matter can leave structural ownership.
+validating geometry-derived mass, consolidated form, composition, source capacity, and self-weight. This is
+setup infrastructure, not a player construction action. Embodied matter has no generic deletion path; any
+demolition/recovery operation must explicitly model authorization, labor/tools/time, and conserved salvage.
 
 Stockpile, equipment, and fluid owners each maintain their own structural load channel. Multi-owner load
 changes are planned against final aggregate load so results do not depend on mutation order.

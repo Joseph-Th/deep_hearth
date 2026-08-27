@@ -20,6 +20,39 @@ fn input_spec_rejects_duplicate_material_constraints() {
 }
 
 #[test]
+fn input_spec_requires_room_for_its_commodity_host() {
+    let host = MaterialId::new(3);
+    let other = MaterialId::new(4);
+    let all_other = CompositionConstraint::new(
+        other,
+        COMPOSITION_PARTS_PER_MILLION,
+        COMPOSITION_PARTS_PER_MILLION,
+    )
+    .unwrap_or_else(|error| panic!("other-material constraint fixture failed: {error}"));
+    assert_eq!(
+        MaterialInputSpec::with_constraints(
+            CommodityKey::new(host, FormId::new(1)),
+            Mass::from_milligrams(10),
+            vec![all_other],
+        ),
+        Err(MaterialInputSpecError::ImpossibleMinimumTotal {
+            total_ppm: u64::from(COMPOSITION_PARTS_PER_MILLION) + 1,
+        })
+    );
+
+    let excludes_host = CompositionConstraint::new(host, 0, 0)
+        .unwrap_or_else(|error| panic!("host-exclusion constraint fixture failed: {error}"));
+    assert_eq!(
+        MaterialInputSpec::with_constraints(
+            CommodityKey::new(host, FormId::new(1)),
+            Mass::from_milligrams(10),
+            vec![excludes_host],
+        ),
+        Err(MaterialInputSpecError::HostExcluded { host })
+    );
+}
+
+#[test]
 fn input_spec_rejects_physically_impossible_combined_minimums() {
     let host = MaterialId::new(3);
     let other = MaterialId::new(4);
