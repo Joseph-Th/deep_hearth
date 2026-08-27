@@ -367,6 +367,16 @@ impl EquipmentDefinition {
     #[must_use]
     pub fn with_maintenance_profile(mut self, profile: EquipmentMaintenanceProfile) -> Self {
         assert!(
+            self.maintenance_profile.is_none(),
+            "equipment definition {} cannot define more than one maintenance profile",
+            self.id.value()
+        );
+        assert!(
+            self.assembly_profile.is_none(),
+            "equipment definition {} cannot combine exact assembly traces with aggregate maintenance until component replacement is modeled",
+            self.id.value()
+        );
+        assert!(
             profile.restored_condition() > self.maintenance_thresholds.warning_below(),
             "equipment definition {} maintenance service must restore into its normal condition band",
             self.id.value()
@@ -378,6 +388,16 @@ impl EquipmentDefinition {
     /// Adds the exact conserved commodity from which this equipment may be assembled at runtime.
     #[must_use]
     pub fn with_assembly_profile(mut self, profile: MaterialAssemblyProfile) -> Self {
+        assert!(
+            self.assembly_profile.is_none(),
+            "equipment definition {} cannot define more than one assembly profile",
+            self.id.value()
+        );
+        assert!(
+            self.maintenance_profile.is_none(),
+            "equipment definition {} cannot combine exact assembly traces with aggregate maintenance until component replacement is modeled",
+            self.id.value()
+        );
         self.assembly_profile = Some(profile);
         self
     }
@@ -385,6 +405,11 @@ impl EquipmentDefinition {
     /// Adds a destructive same-material recovery form for worn assembled equipment.
     #[must_use]
     pub fn with_worn_recovery_form(mut self, form: FormId) -> Self {
+        assert!(
+            self.worn_recovery_form.is_none(),
+            "equipment definition {} cannot define more than one worn-recovery form",
+            self.id.value()
+        );
         assert!(
             self.assembly_profile.is_some(),
             "equipment definition {} cannot author worn recovery without embodied assembly matter",
@@ -397,6 +422,11 @@ impl EquipmentDefinition {
     /// Adds one additive, material-conserving upgrade route from an existing equipment definition.
     #[must_use]
     pub fn with_upgrade_profile(mut self, profile: EquipmentUpgradeProfile) -> Self {
+        assert!(
+            self.upgrade_profile.is_none(),
+            "equipment definition {} cannot define more than one upgrade profile",
+            self.id.value()
+        );
         assert_ne!(
             profile.from(),
             self.id,
@@ -519,6 +549,11 @@ impl EquipmentRegistry {
                 );
             }
             if let Some(maintenance) = definition.maintenance_profile() {
+                assert!(
+                    definition.assembly_profile().is_none(),
+                    "equipment definition {} cannot combine exact assembly traces with aggregate maintenance until component replacement is modeled",
+                    definition.id().value()
+                );
                 for commodity in [maintenance.replacement(), maintenance.spent()] {
                     assert!(
                         materials.has_commodity(commodity),
@@ -528,6 +563,28 @@ impl EquipmentRegistry {
                         commodity.form().value()
                     );
                 }
+                let replacement_form = materials
+                    .get_form(maintenance.replacement().form())
+                    .unwrap_or_else(|| {
+                        unreachable!("validated maintenance replacement commodity has its form")
+                    });
+                let spent_form = materials
+                    .get_form(maintenance.spent().form())
+                    .unwrap_or_else(|| {
+                        unreachable!("validated maintenance spent commodity has its form")
+                    });
+                assert_eq!(
+                    replacement_form.phase(),
+                    spent_form.phase(),
+                    "equipment definition {} maintenance cannot change material phase without a thermal process",
+                    definition.id().value()
+                );
+                assert_eq!(
+                    replacement_form.particle_size_policy(),
+                    spent_form.particle_size_policy(),
+                    "equipment definition {} maintenance cannot change particle-size state without a particle-transform process",
+                    definition.id().value()
+                );
             }
             if let Some(assembly) = definition.assembly_profile() {
                 assert_eq!(

@@ -15,6 +15,7 @@ use crate::labor::{
 };
 use crate::material::{
     CommodityKey, MaterialComposition, MaterialLotSpec, MaterialLotSpecError, MaterialRegistry,
+    ParticleSizeStatePolicy,
 };
 use crate::production::{
     ProcessId, ProcessInputError, ProcessResolution, ProcessResolutionError, ProductionJobId,
@@ -288,6 +289,13 @@ impl CraftingRegistry {
                     definition.process().value(),
                     input_form.phase(),
                     output_form.phase()
+                );
+                assert_eq!(
+                    output_form.particle_size_policy(),
+                    ParticleSizeStatePolicy::Untracked,
+                    "manual craft {} output form {} cannot require particle-size state because manual shaping has no authored particulate output distribution",
+                    definition.process().value(),
+                    output.commodity().form().value()
                 );
             }
             let process = production

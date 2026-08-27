@@ -139,6 +139,10 @@ pub(crate) enum MaterialReformError {
         source: MaterialId,
         target: MaterialId,
     },
+    PhaseChanged {
+        source: FormId,
+        target: FormId,
+    },
     TargetUnchanged {
         commodity: CommodityKey,
     },
@@ -224,6 +228,10 @@ pub(crate) fn validate_material_reform_from_selection(
             })
         }
     })?;
+    let target_form = registries
+        .materials()
+        .get_form(target.form())
+        .unwrap_or_else(|| unreachable!("validated material reform target has its form"));
     if consumed_inputs
         .iter()
         .all(|trace| trace.profile().commodity() == target)
@@ -237,6 +245,22 @@ pub(crate) fn validate_material_reform_from_selection(
             return Err(MaterialReformError::MaterialChanged {
                 source: source_material,
                 target: target.material(),
+            });
+        }
+        let source_form_id = trace.profile().commodity().form();
+        let source_form = registries
+            .materials()
+            .get_form(source_form_id)
+            .unwrap_or_else(|| {
+                panic!(
+                    "runtime invariant broken: material reform source references missing form {}",
+                    source_form_id.value()
+                )
+            });
+        if source_form.phase() != target_form.phase() {
+            return Err(MaterialReformError::PhaseChanged {
+                source: source_form_id,
+                target: target.form(),
             });
         }
         validate_stockpile_storage(

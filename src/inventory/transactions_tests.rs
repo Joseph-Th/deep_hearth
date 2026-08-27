@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use super::*;
 use crate::content::{
-    FORM_CHIP, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE, MATERIAL_BERRIES,
+    FORM_CHIP, FORM_FOOD, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_ORE, MATERIAL_BERRIES,
     MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
     build_registries,
 };
@@ -1279,6 +1279,54 @@ fn exact_reform_changes_only_physical_form_and_conserves_matter() {
     );
     validate_loaded_inventory(registries.materials(), state.inventory(), state.tick())
         .unwrap_or_else(|error| panic!("reformed inventory failed validation: {error}"));
+}
+
+#[test]
+fn exact_reform_rejects_phase_change_at_shared_melting_boundary_without_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_2013));
+    let profile =
+        StockpileStorageProfile::new(true, true, Temperature::from_millikelvin(2_000_000))
+            .unwrap_or_else(|error| panic!("phase-change reform storage profile failed: {error}"));
+    let stockpile = add_stockpile(&mut state, Mass::from_milligrams(20), profile)
+        .unwrap_or_else(|error| panic!("phase-change reform stockpile failed: {error}"));
+    let melting_point = registries
+        .materials()
+        .get_material(MATERIAL_COPPER)
+        .and_then(|definition| definition.properties().thermal().melting_point())
+        .unwrap_or_else(|| panic!("copper fixture lost its melting point"));
+    let ingot = CommodityKey::new(MATERIAL_COPPER, FORM_INGOT);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        ingot,
+        Mass::from_milligrams(10),
+        melting_point,
+    )
+    .unwrap_or_else(|error| panic!("phase-change reform source deposit failed: {error}"));
+    let selection = validate_consumption_selection(
+        state.inventory(),
+        stockpile,
+        &[MaterialInputSpec::new(ingot, Mass::from_milligrams(10))],
+    )
+    .unwrap_or_else(|error| panic!("phase-change reform selection failed: {error:?}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_material_reform_from_selection(
+            &registries,
+            &state,
+            stockpile,
+            CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+            selection,
+        ),
+        Err(MaterialReformError::PhaseChanged {
+            source: FORM_INGOT,
+            target: FORM_MOLTEN,
+        })
+    );
+    assert_eq!(state, before);
 }
 
 #[test]

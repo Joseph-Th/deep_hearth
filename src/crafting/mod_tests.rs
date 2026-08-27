@@ -2,10 +2,10 @@
 
 use super::*;
 use crate::content::{
-    FORM_CHIP, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL,
-    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
-    PROCESS_KNAP_STONE_TOOL, PROSPECTING_FIELD_INSPECTION, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-    build_registries,
+    FORM_CHIP, FORM_CRUSHED, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE,
+    FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_KNAP_STONE_TOOL, PROSPECTING_FIELD_INSPECTION,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Temperature};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -20,8 +20,8 @@ use crate::material::{CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{
-    ProcessInputError, ProductionAvailabilityChange, ProductionSuspensionReason, StartProcessError,
-    validate_start_process,
+    ProcessDefinition, ProcessId, ProcessInputError, ProductionAvailabilityChange,
+    ProductionRegistry, ProductionSuspensionReason, StartProcessError, validate_start_process,
 };
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -34,6 +34,36 @@ use crate::survival::{assess_survival, initialize_player_survival};
 
 fn stone_lump() -> CommodityKey {
     CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
+}
+
+#[test]
+fn manual_craft_registry_rejects_output_that_requires_unauthored_particle_state() {
+    let registries = build_registries();
+    let process = ProcessId::new(880_001);
+    let input = CommodityKey::new(MATERIAL_COPPER, FORM_INGOT);
+    let output = CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED);
+    let input_mass = Mass::from_milligrams(1);
+    let mut production = ProductionRegistry::new();
+    production.register_process(ProcessDefinition::new(
+        process,
+        "particulate manual output fixture",
+        vec![crate::material::MaterialInputSpec::new(input, input_mass)],
+        Vec::new(),
+    ));
+    let crafting = CraftingRegistry::new([ManualCraftDefinition::new(
+        process,
+        input,
+        input_mass,
+        TickSpan::new(1),
+        SurvivalExertion::REST,
+        vec![ManualCraftOutput::new(output, input_mass)],
+    )]);
+
+    let result = std::panic::catch_unwind(|| {
+        crafting.validate_references(&production, registries.materials());
+    });
+
+    assert!(result.is_err());
 }
 
 #[test]

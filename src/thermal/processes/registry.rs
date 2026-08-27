@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
 use crate::energy::EnergyCarrier;
 use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
-use crate::material::{MaterialPhase, MaterialRegistry};
+use crate::material::{MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy};
 use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
 
 use super::super::casting_execution::CastingProcessDefinition;
@@ -210,6 +210,13 @@ impl ThermalRegistry {
                 definition.process().value(),
                 definition.solid_form().value()
             );
+            assert_eq!(
+                solid_form.particle_size_policy(),
+                ParticleSizeStatePolicy::Untracked,
+                "casting process {} output form {} cannot require particle-size state because casting has no authored particulate output distribution",
+                definition.process().value(),
+                definition.solid_form().value()
+            );
         }
         for definition in self.melting.values().copied() {
             validate_common_thermal_references(
@@ -251,6 +258,10 @@ impl ThermalRegistry {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "registry_tests.rs"]
+mod tests;
 
 fn validate_common_thermal_references(
     process: ProcessId,

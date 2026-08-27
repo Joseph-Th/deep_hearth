@@ -108,7 +108,9 @@ indexes. Inventory is custody, not movement authorization. Runtime movement requ
 binds exact ingress, egress, reform, or reserved-output consequences. Generic stockpile transport has no
 runtime authorizer. The `test-gameplay` harness may inject one controlled conserved delivery as setup/event
 infrastructure; this does not grant general transport authority. Same-material reform is valid only when the
-commodity form changes; input already entirely in the target commodity is rejected.
+commodity form changes without changing material phase; input already entirely in the target commodity is
+rejected. Reform preserves temperature, composition, and particle state, so phase transitions remain owned
+by explicit thermal processing rather than by inventory relabeling.
 
 Supported stockpiles contribute `StructuralLoadKind::StoredMatter`. Every canonical stored-mass mutation
 updates inventory ownership and the resulting structural load atomically.
@@ -155,6 +157,10 @@ finite energy/equipment consequences. Production reserves output capacity at sta
 matter plus modeled energy while work is in flight. Completion is revision-bound and must preserve exact
 represented matter and modeled energy across all streams.
 
+Manual shaping conserves material identity and mass, preserves input temperature, cannot change phase,
+and only authors output forms whose particle-size state is untracked. A particulate output requires an
+operation with an explicit output particle-size distribution rather than an underspecified hand recipe.
+
 Required equipment support or reserved-output support may suspend a production job when that support
 becomes unavailable. Suspension preserves work-in-process, reservations, and exact remaining active time.
 Suspended manual crafting releases `PlayerWorkState`. Resumption reacquires player labor through the normal
@@ -175,12 +181,14 @@ Implemented resolvers are:
   composition rather than a fixed yield. Concentration authors distinct target and lower non-target
   recoveries, so product grade emerges from feed assay and separator selectivity rather than perfect
   gangue rejection. Fractional component remainders are deterministically distributed across blended
-  particulate lots so represented constituent content remains exact. Concentrate and residue retain input
-  particulate state, and persisted jobs replay composition, streams, energy, duration, and wear;
+  particulate lots so represented constituent content remains exact. Separation cannot consolidate matter:
+  target outputs remain loose, while concentrate and residue retain input particulate state. Persisted jobs
+  replay composition, streams, energy, duration, and wear;
 - **Thermal processing:** sensible heating, pure-material melting, and pure-material casting use real
   selected matter, finite energy sources/sinks, equipment limits, phase boundaries, and latent heat. Melting
   and casting definitions bind authored input and output forms; admission and persisted replay cannot
-  substitute a different form solely because its material and phase are compatible.
+  substitute a different form solely because its material and phase are compatible. Casting outputs are
+  non-particulate solids because the current casting resolver does not invent a particle-size distribution.
 
 ## Equipment, labor, survival, energy, and fluids
 
@@ -197,10 +205,14 @@ remain usable without one. Mounted equipment contributes equipment-owned structu
 Assembly consumes exact material traces. Additive upgrades preserve identity, condition, and existing
 traces while adding authored matter. Pristine idle unmounted equipment may disassemble to exact traces;
 worn recovery, where authored, reforms traces into a same-material recovery form that cannot immediately
-reset wear through reassembly.
+reset wear through reassembly. Exact assembled equipment does not currently author aggregate maintenance:
+component replacement would need to swap the corresponding embodied traces rather than convert incoming
+replacement stock directly into spent material.
 
-Maintenance consumes an exact replacement commodity, produces a distinct conserved spent form, and
-restores the authored condition target. It is a physical material reform, not condition-only mutation.
+Maintenance consumes an exact replacement commodity, produces a distinct conserved spent form with the
+same material phase and particle-state policy, and restores the authored condition target. It is a physical
+material reform for the currently untraced maintainable machinery, not condition-only mutation; phase or
+particle transformations require their owning processes.
 
 ### Player work and survival
 
@@ -228,10 +240,14 @@ optional embodied traces. Runtime owners consume or supply energy through their 
 direct manual power is an explicit generator. Generic store-to-store transfer is not authorized because no
 physical path, carrier conversion, or transfer consequence is modeled.
 
-Fluid stores own identity, volume, temperature, capacity, revision, and optional support. Runtime operations
-support exact finite withdrawal and support changes. There is no generic inter-store transfer, pumping, or
-mixing path, so cross-store movement and mixing require an explicit owning system. Supported fluid load
-derives from authored material density; canonical withdrawal updates that load.
+Fluid stores own identity, volume, temperature, capacity, revision, and optional support. One underlying
+material has at most one fluid identity while composition, contamination, concentration, and phase-mixture
+state are absent; distinct IDs cannot stand in for unmodeled fluid properties. Runtime operations support
+exact finite withdrawal and support changes. There is no generic inter-store transfer, pumping, or mixing
+path, so cross-store movement and mixing require an explicit owning system. Supported fluid load derives
+from authored material density; canonical withdrawal updates that load. Fluid temperature prevents
+thermally incompatible contents from being treated as interchangeable, but finite-fluid thermal transport
+and the thermal fate of consumed fluid are not yet modeled in the explicit-energy conservation ledger.
 
 ## Structures
 

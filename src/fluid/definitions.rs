@@ -70,12 +70,19 @@ pub struct FluidRegistry {
 impl FluidRegistry {
     pub(crate) fn new(definitions: impl IntoIterator<Item = FluidDefinition>) -> Self {
         let mut by_id = BTreeMap::new();
+        let mut by_material = BTreeMap::new();
         for definition in definitions {
             let id = definition.id();
+            let material = definition.material();
             assert!(
                 by_id.insert(id, definition).is_none(),
                 "duplicate fluid definition id {}",
                 id.value()
+            );
+            assert!(
+                by_material.insert(material, id).is_none(),
+                "fluid material {} cannot have multiple physically indistinguishable fluid definitions",
+                material.value()
             );
         }
         Self { definitions: by_id }
@@ -97,3 +104,7 @@ impl FluidRegistry {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "definitions_tests.rs"]
+mod tests;

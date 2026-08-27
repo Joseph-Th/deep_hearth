@@ -96,6 +96,10 @@ pub enum EquipmentMaintenanceMaterialError {
         source: crate::material::MaterialId,
         target: crate::material::MaterialId,
     },
+    SpentPhaseChanged {
+        replacement: crate::material::FormId,
+        spent: crate::material::FormId,
+    },
     SpentFormUnchanged {
         commodity: CommodityKey,
     },
@@ -146,6 +150,12 @@ impl Display for EquipmentMaintenanceMaterialError {
                 "equipment maintenance cannot change material identity from {} to {}",
                 source.value(),
                 target.value()
+            ),
+            Self::SpentPhaseChanged { replacement, spent } => write!(
+                formatter,
+                "equipment maintenance cannot change material phase from form {} to form {} without a thermal process",
+                replacement.value(),
+                spent.value()
             ),
             Self::SpentFormUnchanged { commodity } => write!(
                 formatter,
@@ -213,6 +223,10 @@ impl Error for EquipmentMaintenanceMaterialError {
             | Self::SpentMaterialChanged {
                 source: _material,
                 target: _,
+            } => None,
+            Self::SpentPhaseChanged {
+                replacement: _replacement,
+                spent: _spent,
             } => None,
             Self::SpentFormUnchanged {
                 commodity: _commodity,
@@ -620,6 +634,12 @@ fn map_material_error(error: MaterialReformError) -> EquipmentMaintenanceMateria
         }
         MaterialReformError::MaterialChanged { source, target } => {
             EquipmentMaintenanceMaterialError::SpentMaterialChanged { source, target }
+        }
+        MaterialReformError::PhaseChanged { source, target } => {
+            EquipmentMaintenanceMaterialError::SpentPhaseChanged {
+                replacement: source,
+                spent: target,
+            }
         }
         MaterialReformError::TargetUnchanged { commodity } => {
             EquipmentMaintenanceMaterialError::SpentFormUnchanged { commodity }

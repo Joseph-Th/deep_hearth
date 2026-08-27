@@ -758,6 +758,12 @@ fn meal_rejects_duplicate_lot_without_mutation() {
 fn preservation_multiplier_extends_food_shelf_life_without_mutation() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5A70_0002));
+    let berries = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    let shelf_life = registries
+        .survival()
+        .get_food(berries)
+        .unwrap_or_else(|| panic!("berry food definition disappeared"))
+        .shelf_life();
     let profile = StockpileStorageProfile::with_preservation(
         true,
         false,
@@ -771,7 +777,7 @@ fn preservation_multiplier_extends_food_shelf_life_without_mutation() {
         &registries,
         &mut state,
         stockpile,
-        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        berries,
         Mass::from_milligrams(100),
         Temperature::from_millikelvin(293_150),
     )
@@ -781,7 +787,7 @@ fn preservation_multiplier_extends_food_shelf_life_without_mutation() {
         assess_food_freshness(&registries, &state, lot),
         Ok(FoodFreshness::Fresh {
             age: TickSpan::new(0),
-            remaining: TickSpan::new(24_000 * 12),
+            remaining: TickSpan::new(shelf_life.value() * 3),
         })
     );
 }
@@ -790,6 +796,7 @@ fn preservation_multiplier_extends_food_shelf_life_without_mutation() {
 fn preservation_transfer_slows_future_spoilage_without_rewriting_prior_age() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5A70_0007));
+    let ticks_per_day = registries.core().calendar().ticks_per_day();
     let ambient = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000))
         .unwrap_or_else(|error| panic!("ambient food stockpile failed: {error}"));
     let preserved_profile = StockpileStorageProfile::with_preservation(
@@ -811,12 +818,12 @@ fn preservation_transfer_slows_future_spoilage_without_rewriting_prior_age() {
     )
     .unwrap_or_else(|error| panic!("preservation-history berry fixture failed: {error}"));
 
-    apply_clock_advance(&mut state, SimulationTick::new(72_000));
+    apply_clock_advance(&mut state, SimulationTick::new(ticks_per_day * 3));
     assert_eq!(
         assess_food_freshness(&registries, &state, berries),
         Ok(FoodFreshness::Fresh {
-            age: TickSpan::new(72_000),
-            remaining: TickSpan::new(24_000),
+            age: TickSpan::new(ticks_per_day * 3),
+            remaining: TickSpan::new(ticks_per_day),
         })
     );
 
@@ -835,15 +842,15 @@ fn preservation_transfer_slows_future_spoilage_without_rewriting_prior_age() {
     assert_eq!(
         assess_food_freshness(&registries, &state, berries),
         Ok(FoodFreshness::Fresh {
-            age: TickSpan::new(72_000),
-            remaining: TickSpan::new(72_000),
+            age: TickSpan::new(ticks_per_day * 3),
+            remaining: TickSpan::new(ticks_per_day * 3),
         })
     );
-    apply_clock_advance(&mut state, SimulationTick::new(144_000));
+    apply_clock_advance(&mut state, SimulationTick::new(ticks_per_day * 6));
     assert_eq!(
         assess_food_freshness(&registries, &state, berries),
         Ok(FoodFreshness::Spoiled {
-            age: TickSpan::new(96_000),
+            age: TickSpan::new(ticks_per_day * 4),
         })
     );
     validate_loaded_state(&registries, &state)

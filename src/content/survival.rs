@@ -9,7 +9,9 @@ use crate::survival::{
     SurvivalRegistry,
 };
 
-use super::{FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES, MATERIAL_GRAIN, MATERIAL_MEAT};
+use super::{
+    DEFAULT_TICKS_PER_DAY, FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES, MATERIAL_GRAIN, MATERIAL_MEAT,
+};
 
 const MINIMUM_CONSUMPTION_TEMPERATURE_MK: u32 = 273_150;
 const MAXIMUM_CONSUMPTION_TEMPERATURE_MK: u32 = 333_150;
@@ -46,7 +48,7 @@ fn foods() -> [FoodDefinition; 3] {
             FoodCategory::Grain,
             MassSpecificEnergy::from_nanojoules_per_milligram(14_000_000_000),
             0,
-            TickSpan::new(24_000 * 32),
+            TickSpan::new(DEFAULT_TICKS_PER_DAY * 32),
             direct_consumption_temperature(),
         ),
         FoodDefinition::new(
@@ -54,7 +56,7 @@ fn foods() -> [FoodDefinition; 3] {
             FoodCategory::Fruit,
             MassSpecificEnergy::from_nanojoules_per_milligram(2_500_000_000),
             1,
-            TickSpan::new(24_000 * 4),
+            TickSpan::new(DEFAULT_TICKS_PER_DAY * 4),
             direct_consumption_temperature(),
         ),
         FoodDefinition::new(
@@ -62,7 +64,7 @@ fn foods() -> [FoodDefinition; 3] {
             FoodCategory::Protein,
             MassSpecificEnergy::from_nanojoules_per_milligram(10_000_000_000),
             1,
-            TickSpan::new(24_000 * 3),
+            TickSpan::new(DEFAULT_TICKS_PER_DAY * 3),
             direct_consumption_temperature(),
         ),
     ]

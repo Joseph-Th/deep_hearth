@@ -8,7 +8,9 @@ mod separation_execution;
 mod throughput;
 
 use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
-use crate::material::{CommodityKey, MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy};
+use crate::material::{
+    CommodityKey, MaterialFormCohesion, MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy,
+};
 use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
 use std::collections::BTreeMap;
 
@@ -341,6 +343,13 @@ impl OreProcessingRegistry {
                 .get_form(target_form)
                 .unwrap_or_else(|| unreachable!("validated target commodity requires its form"));
             assert_eq!(target_output.phase(), MaterialPhase::Solid);
+            assert_eq!(
+                target_output.cohesion(),
+                MaterialFormCohesion::Loose,
+                "constituent-separation process {} target output form {} cannot become consolidated without an explicit consolidation operation",
+                definition.process().value(),
+                target_form.value()
+            );
             if definition.residue_material().is_none() {
                 assert_eq!(
                     target_output.particle_size_policy(),

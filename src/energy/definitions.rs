@@ -96,6 +96,11 @@ impl EnergyStoreDefinition {
     /// Adds the exact conserved matter required to construct this store in gameplay.
     #[must_use]
     pub fn with_assembly_profile(mut self, profile: MaterialAssemblyProfile) -> Self {
+        assert!(
+            self.assembly_profile.is_none(),
+            "energy store definition {} cannot define more than one assembly profile",
+            self.id.value()
+        );
         self.assembly_profile = Some(profile);
         self
     }
@@ -135,6 +140,10 @@ impl EnergyStoreDefinition {
         self.assembly_profile.as_ref()
     }
 }
+
+#[cfg(test)]
+#[path = "definitions_tests.rs"]
+mod tests;
 
 /// Immutable deterministic authored lookup table for finite energy stores.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

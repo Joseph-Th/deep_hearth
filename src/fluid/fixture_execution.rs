@@ -15,6 +15,7 @@ pub(crate) enum AddFluidStoreError {
     ZeroCapacity,
     UnknownDefinition { definition: FluidDefinitionId },
     InitialVolumeZero,
+    InitialTemperatureZero,
     InitialVolumeExceedsCapacity { initial: Volume, capacity: Volume },
     IdExhausted,
     RevisionExhausted,
@@ -28,6 +29,9 @@ impl Display for AddFluidStoreError {
                 write!(formatter, "unknown fluid definition {}", definition.value())
             }
             Self::InitialVolumeZero => formatter.write_str("initial fluid volume must be nonzero"),
+            Self::InitialTemperatureZero => {
+                formatter.write_str("initial fluid temperature must be above absolute zero")
+            }
             Self::InitialVolumeExceedsCapacity { initial, capacity } => write!(
                 formatter,
                 "initial fluid volume {} uL exceeds store capacity {} uL",
@@ -63,6 +67,9 @@ fn allocate_fluid_store(
     if let Some(contents) = contents {
         if contents.volume.is_zero() {
             return Err(AddFluidStoreError::InitialVolumeZero);
+        }
+        if contents.temperature == Temperature::ZERO {
+            return Err(AddFluidStoreError::InitialTemperatureZero);
         }
         if contents.volume > capacity {
             return Err(AddFluidStoreError::InitialVolumeExceedsCapacity {

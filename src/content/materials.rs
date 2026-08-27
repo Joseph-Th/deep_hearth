@@ -81,7 +81,12 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
         consolidated_form(FORM_HANDLE, "handle"),
         consolidated_form(FORM_FLYWHEEL, "flywheel"),
         consolidated_form(FORM_REINFORCEMENT, "reinforcement"),
-        consolidated_form(FORM_NATIVE_METAL, "native metal"),
+        loose_form(
+            FORM_NATIVE_METAL,
+            "native metal",
+            MaterialPhase::Solid,
+            ParticleSizeStatePolicy::Untracked,
+        ),
         loose_form(
             FORM_SCRAP,
             "scrap",

@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Volume;
+use crate::core::quantity::{Temperature, Volume};
 use crate::core::time::SimulationTick;
 use crate::structural::StructuralElementId;
 
@@ -22,6 +22,9 @@ pub enum FluidValidationError {
         store: FluidStoreId,
     },
     ZeroStoredVolume {
+        store: FluidStoreId,
+    },
+    ZeroStoredTemperature {
         store: FluidStoreId,
     },
     CapacityExceeded {
@@ -79,6 +82,11 @@ impl Display for FluidValidationError {
             Self::ZeroStoredVolume { store } => write!(
                 formatter,
                 "fluid store {} retains a fluid identity at zero volume",
+                store.value()
+            ),
+            Self::ZeroStoredTemperature { store } => write!(
+                formatter,
+                "fluid store {} contains fluid at absolute zero",
                 store.value()
             ),
             Self::CapacityExceeded {
@@ -176,6 +184,9 @@ pub(crate) fn validate_loaded_fluid(
         if let Some(contents) = record.contents {
             if contents.volume.is_zero() {
                 return Err(FluidValidationError::ZeroStoredVolume { store: record.id });
+            }
+            if contents.temperature == Temperature::ZERO {
+                return Err(FluidValidationError::ZeroStoredTemperature { store: record.id });
             }
             if contents.volume > record.capacity {
                 return Err(FluidValidationError::CapacityExceeded {

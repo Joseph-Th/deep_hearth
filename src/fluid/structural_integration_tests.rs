@@ -9,8 +9,8 @@ use crate::core::quantity::{Area, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::fluid::{
-    FluidDefinition, FluidDefinitionId, add_fluid_store, add_fluid_store_with_contents_for_fixture,
-    validate_fluid_egress,
+    FluidDefinition, FluidDefinitionId, FluidValidationError, add_fluid_store,
+    add_fluid_store_with_contents_for_fixture, validate_fluid_egress,
 };
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -32,8 +32,50 @@ fn registries_with_material(material: crate::material::MaterialId) -> Registries
     )])
 }
 
+#[test]
+fn trusted_load_rejects_absolute_zero_fluid_contents() {
+    let registries = registries();
+    let mut state = AppState::new(WorldSeed::new(0x9410_0009));
+    let store = add_filled(&registries, &mut state, 1_000);
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("zero-temperature fluid tamper serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["fluid"]["records"][store.value().to_string()]["contents"]["temperature"] =
+        serde_json::json!(0_u32);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("zero-temperature fluid tamper decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Fluid(
+            FluidValidationError::ZeroStoredTemperature { store }
+        )))
+    );
+}
+
 fn registries() -> Registries {
     registries_with_material(MATERIAL_WATER)
+}
+
+#[test]
+fn fluid_fixture_rejects_absolute_zero_contents_without_mutation() {
+    let registries = registries();
+    let mut state = AppState::new(WorldSeed::new(0x9410_000A));
+    let before = state.clone();
+
+    assert_eq!(
+        add_fluid_store_with_contents_for_fixture(
+            &registries,
+            &mut state,
+            Volume::from_microliters(1_000),
+            TEST_FLUID,
+            Volume::from_microliters(1_000),
+            crate::core::quantity::Temperature::ZERO,
+        ),
+        Err(super::super::fixture_execution::AddFluidStoreError::InitialTemperatureZero)
+    );
+    assert_eq!(state, before);
 }
 
 fn bounds(x: i64) -> VoxelBounds {
