@@ -52,6 +52,10 @@ impl MiningMethodDefinition {
             "mining method name must not be empty"
         );
         assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
+        assert!(
+            !exertion.energy_cost_per_tick().is_zero(),
+            "mining exertion must consume metabolic energy"
+        );
         Self {
             id,
             name,
@@ -91,6 +95,10 @@ impl MiningMethodDefinition {
         self.exertion
     }
 }
+
+#[cfg(test)]
+#[path = "definitions_tests.rs"]
+mod tests;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MiningRegistry {

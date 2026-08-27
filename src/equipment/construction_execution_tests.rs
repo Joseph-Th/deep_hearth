@@ -8,8 +8,10 @@ use crate::core::quantity::Temperature;
 use crate::core::state::StateValidationError;
 use crate::core::time::WorldSeed;
 use crate::equipment::EquipmentValidationError;
-use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
-use crate::material::CommodityKey;
+use crate::inventory::{
+    add_solid_stockpile_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
+};
+use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 
 #[test]
@@ -66,5 +68,66 @@ fn composite_pick_requires_both_authored_inputs_and_rejects_forged_embodiment() 
                 traced: Mass::from_milligrams(1_000_001),
             }
         )))
+    );
+}
+
+#[test]
+fn equipment_assembly_skips_older_contaminated_stock_when_pure_material_exists() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA55E_0002));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_800_000))
+        .unwrap_or_else(|error| panic!("mixed assembly source fixture failed: {error}"));
+    let mixed = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_STONE, 900_000),
+        CompositionComponent::new(MATERIAL_WOOD, 100_000),
+    ])
+    .unwrap_or_else(|error| panic!("mixed assembly composition fixture failed: {error}"));
+    let contaminated = deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+        Mass::from_milligrams(800_000),
+        Temperature::from_millikelvin(293_150),
+        mixed,
+    )
+    .unwrap_or_else(|error| panic!("contaminated assembly stock fixture failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+        Mass::from_milligrams(800_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("pure assembly stone fixture failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+        Mass::from_milligrams(200_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("pure assembly handle fixture failed: {error}"));
+
+    validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, source)
+        .unwrap_or_else(|error| panic!("mixed-stock assembly validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("mixed-stock assembly commit failed: {error}"));
+
+    assert_eq!(
+        state
+            .inventory()
+            .get_lot(contaminated)
+            .map(|lot| lot.mass()),
+        Some(Mass::from_milligrams(800_000))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(source)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::from_milligrams(800_000))
     );
 }

@@ -1,13 +1,11 @@
 //! Explicit fixture setup for the pure-copper foundry capability probe.
 
 use super::capability_boundary::{
-    assert_capability_only_energy_store, assert_capability_only_equipment,
+    seed_capability_only_energy_store, seed_capability_only_equipment,
 };
 use super::industrial_support::install_equipment_on_grounded_support;
 use super::support::add_solid_stockpile;
-use deep_hearth::content::gameplay_fixture::{
-    seed_energy_store as seed_energy_store_exact, seed_equipment, seed_lot, seed_stockpile,
-};
+use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,
     EQUIPMENT_ELECTRIC_FURNACE, FORM_INGOT, MATERIAL_COPPER,
@@ -55,12 +53,6 @@ pub(super) fn setup_foundry_probe(
         mold_condition,
         electrical_energy,
     } = setup;
-    for equipment in [EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_CASTING_MOLD] {
-        assert_capability_only_equipment(registries, equipment);
-    }
-    for store in [ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK] {
-        assert_capability_only_energy_store(registries, store);
-    }
     let mut state = AppState::new(WorldSeed::new(seed));
     let pure_copper_source = add_solid_stockpile(&mut state, mass);
     let molten_temperature = registries
@@ -80,13 +72,13 @@ pub(super) fn setup_foundry_probe(
         mass,
         input_temperature,
     );
-    let furnace = seed_equipment(
+    let furnace = seed_capability_only_equipment(
         registries,
         &mut state,
         EQUIPMENT_ELECTRIC_FURNACE,
         furnace_condition,
     );
-    let mold = seed_equipment(
+    let mold = seed_capability_only_equipment(
         registries,
         &mut state,
         EQUIPMENT_CASTING_MOLD,
@@ -94,14 +86,18 @@ pub(super) fn setup_foundry_probe(
     );
     install_equipment_on_grounded_support(registries, &mut state, furnace, 0);
     install_equipment_on_grounded_support(registries, &mut state, mold, 2);
-    let electrical_buffer = seed_energy_store_exact(
+    let electrical_buffer = seed_capability_only_energy_store(
         registries,
         &mut state,
         ENERGY_ELECTRICAL_BUFFER,
         electrical_energy,
     );
-    let heat_sink =
-        seed_energy_store_exact(registries, &mut state, ENERGY_THERMAL_SINK, Energy::ZERO);
+    let heat_sink = seed_capability_only_energy_store(
+        registries,
+        &mut state,
+        ENERGY_THERMAL_SINK,
+        Energy::ZERO,
+    );
     (
         state,
         FoundryIds {

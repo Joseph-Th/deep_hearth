@@ -3,12 +3,10 @@
 use deep_hearth::content::{
     EQUIPMENT_JAW_CRUSHER, MATERIAL_WOOD, PROCESS_CRUSH_ORE, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
 };
-use deep_hearth::core::quantity::{Area, Force, Mass};
+use deep_hearth::core::quantity::{Area, Length, Mass};
 use deep_hearth::maintenance::{CONDITION_PARTS_PER_MILLION, Condition};
 use deep_hearth::registry::Registries;
-use deep_hearth::structural::{
-    STRUCTURAL_PARTS_PER_MILLION, StructuralLoadMode, calculate_weight_force_ceiling,
-};
+use deep_hearth::structural::{STRUCTURAL_PARTS_PER_MILLION, calculate_weight_force_ceiling};
 
 use super::configuration::MaintainedAnchor;
 use super::report::{
@@ -16,7 +14,10 @@ use super::report::{
     StructuralPreference,
 };
 use super::seed::mix64;
+use super::structural_fixture::support_area_for_utilization;
 use super::support::nominal_equipment_mass_capability;
+
+pub(super) const WORKSHOP_SUPPORT_LENGTH: Length = Length::from_micrometers(2_000_000);
 
 fn condition(parts_per_million: u32) -> Condition {
     Condition::new(parts_per_million)
@@ -43,6 +44,7 @@ pub(super) struct ScenarioSurvivalVariation {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ScenarioOreVariation {
     pub(super) ore_copper_ppm: u32,
+    pub(super) gangue_clay_share_ppm: u32,
     pub(super) nominal_batch_mass: Mass,
     pub(super) order_mass: Mass,
 }
@@ -60,7 +62,9 @@ pub(super) struct ScenarioCrusherVariation {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ScenarioStructureVariation {
     pub(super) compact_support_area: Area,
+    pub(super) compact_target_utilization_ppm: u32,
     pub(super) reinforced_support_area: Area,
+    pub(super) reinforced_target_utilization_ppm: u32,
     pub(super) reinforced_background_mass: Mass,
 }
 
@@ -92,6 +96,7 @@ impl ScenarioVariation {
         let l = mix64(k);
         let m = mix64(l);
         let n = mix64(m);
+        let o = mix64(n);
         let crusher_definition = registries
             .equipment()
             .get_equipment(EQUIPMENT_JAW_CRUSHER)
@@ -192,8 +197,14 @@ impl ScenarioVariation {
         let target_low = 350_000_u32;
         let target_high = 750_000_u32;
         let compact_target_ppm = target_low + (b % u64::from(target_high - target_low + 1)) as u32;
-        let compact_area =
-            support_area_for_utilization(registries, crusher_weight, compact_target_ppm);
+        let compact_area = support_area_for_utilization(
+            registries,
+            MATERIAL_WOOD,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            WORKSHOP_SUPPORT_LENGTH,
+            crusher_weight,
+            compact_target_ppm,
+        );
         let reinforced_background_mass =
             scale_mass(crusher_definition.mass(), 100_000 + (f % 900_001) as u32);
         let reinforced_loaded_mass = crusher_definition
@@ -204,6 +215,9 @@ impl ScenarioVariation {
             target_low + (d % u64::from(target_high - target_low + 1)) as u32;
         let reinforced_area = support_area_for_utilization(
             registries,
+            MATERIAL_WOOD,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            WORKSHOP_SUPPORT_LENGTH,
             calculate_weight_force_ceiling(reinforced_loaded_mass, registries.core().gravity()),
             reinforced_target_ppm,
         );
@@ -244,6 +258,7 @@ impl ScenarioVariation {
             },
             ore: ScenarioOreVariation {
                 ore_copper_ppm: 450_000 + (b % 300_001) as u32,
+                gangue_clay_share_ppm: 100_000 + (o % 500_001) as u32,
                 nominal_batch_mass: Mass::from_milligrams(nominal_batch_mass),
                 order_mass: Mass::from_milligrams(order_mass),
             },
@@ -257,7 +272,9 @@ impl ScenarioVariation {
             },
             structure: ScenarioStructureVariation {
                 compact_support_area: compact_area,
+                compact_target_utilization_ppm: compact_target_ppm,
                 reinforced_support_area: reinforced_area,
+                reinforced_target_utilization_ppm: reinforced_target_ppm,
                 reinforced_background_mass,
             },
             delivery: ScenarioDeliveryVariation {
@@ -275,52 +292,6 @@ impl ScenarioVariation {
     }
 }
 
-fn divide_ceiling(numerator: u128, denominator: u128) -> u128 {
-    assert!(denominator > 0, "gameplay harness divisor must be nonzero");
-    if numerator == 0 {
-        0
-    } else {
-        1 + (numerator - 1) / denominator
-    }
-}
-
-fn support_area_for_utilization(
-    registries: &Registries,
-    carried_load: Force,
-    target_utilization_ppm: u32,
-) -> Area {
-    assert!(target_utilization_ppm > 0);
-    let profile = registries
-        .structural()
-        .get_profile(STRUCTURAL_PROFILE_AXIAL_COMPRESSION)
-        .unwrap_or_else(|| panic!("canonical compression profile disappeared"));
-    let material = registries
-        .materials()
-        .get_material(MATERIAL_WOOD)
-        .unwrap_or_else(|| panic!("canonical wood material disappeared"));
-    let mechanical = material.properties().mechanical();
-    let strength_kpa = match profile.load_mode() {
-        StructuralLoadMode::Compression => mechanical.compressive_strength_kpa(),
-        StructuralLoadMode::Tension => mechanical.tensile_strength_kpa(),
-    };
-    assert!(
-        strength_kpa > 0,
-        "canonical support material must have nonzero strength"
-    );
-    let required_capacity = divide_ceiling(
-        carried_load
-            .millinewtons()
-            .checked_mul(u128::from(STRUCTURAL_PARTS_PER_MILLION))
-            .unwrap_or_else(|| panic!("gameplay harness support-capacity scaling overflowed")),
-        u128::from(target_utilization_ppm),
-    );
-    let area = divide_ceiling(required_capacity, u128::from(strength_kpa));
-    let area = u64::try_from(area).unwrap_or_else(|_| {
-        panic!("gameplay harness support area exceeds authored quantity range")
-    });
-    Area::from_square_millimeters(area.max(1))
-}
-
 fn scale_mass(mass: Mass, parts_per_million: u32) -> Mass {
     let scaled = u128::from(mass.milligrams()) * u128::from(parts_per_million)
         / u128::from(STRUCTURAL_PARTS_PER_MILLION);
@@ -331,6 +302,8 @@ fn scale_mass(mass: Mass, parts_per_million: u32) -> Mass {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
     use deep_hearth::content::build_registries;
 
@@ -356,5 +329,86 @@ mod tests {
 
         assert_eq!(first.behavior_seed, second.behavior_seed);
         assert_eq!(first.policy, second.policy);
+    }
+
+    #[test]
+    fn generated_world_seeds_change_real_physical_pressures() {
+        let registries = build_registries();
+        let variations = (1_u64..=8)
+            .map(|seed| ScenarioVariation::from_seeds(&registries, seed, 0xCAFE, None))
+            .collect::<Vec<_>>();
+
+        let ore_grades = variations
+            .iter()
+            .map(|variation| variation.ore.ore_copper_ppm)
+            .collect::<BTreeSet<_>>();
+        let gangue_clay_shares = variations
+            .iter()
+            .map(|variation| variation.ore.gangue_clay_share_ppm)
+            .collect::<BTreeSet<_>>();
+        let batch_masses = variations
+            .iter()
+            .map(|variation| variation.ore.nominal_batch_mass.milligrams())
+            .collect::<BTreeSet<_>>();
+        let crusher_conditions = variations
+            .iter()
+            .map(|variation| {
+                variation
+                    .crusher
+                    .initial_crusher_condition
+                    .parts_per_million()
+            })
+            .collect::<BTreeSet<_>>();
+        let support_shapes = variations
+            .iter()
+            .map(|variation| {
+                (
+                    variation
+                        .structure
+                        .compact_support_area
+                        .square_millimeters(),
+                    variation
+                        .structure
+                        .reinforced_support_area
+                        .square_millimeters(),
+                )
+            })
+            .collect::<BTreeSet<_>>();
+        let resource_pressures = variations
+            .iter()
+            .map(|variation| {
+                (
+                    variation.crusher.small_drive_batch_budget,
+                    variation.crusher.small_drive_partial_batch_ppm,
+                    variation.crusher.large_drive_batch_budget,
+                    variation.crusher.large_drive_partial_batch_ppm,
+                    variation.crusher.maintenance_replacement_units,
+                )
+            })
+            .collect::<BTreeSet<_>>();
+        let deliveries = variations
+            .iter()
+            .map(|variation| {
+                (
+                    variation.delivery.mass.milligrams(),
+                    variation.delivery.destination_is_compact,
+                )
+            })
+            .collect::<BTreeSet<_>>();
+
+        for (label, count) in [
+            ("ore grade", ore_grades.len()),
+            ("gangue composition", gangue_clay_shares.len()),
+            ("nominal batch mass", batch_masses.len()),
+            ("crusher condition", crusher_conditions.len()),
+            ("support geometry", support_shapes.len()),
+            ("finite resources", resource_pressures.len()),
+            ("controlled delivery", deliveries.len()),
+        ] {
+            assert!(
+                count > 1,
+                "gameplay world variation collapsed: sampled seeds no longer vary {label}"
+            );
+        }
     }
 }

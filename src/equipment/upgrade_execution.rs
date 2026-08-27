@@ -62,7 +62,6 @@ pub enum EquipmentUpgradeError {
     SourceMassOverflow {
         stockpile: StockpileId,
     },
-    ImpureUpgradeMaterial,
     StaleInventorySelection {
         expected: u64,
         actual: u64,
@@ -147,9 +146,6 @@ impl Display for EquipmentUpgradeError {
                 "equipment-upgrade source {} mass accounting overflowed",
                 stockpile.value()
             ),
-            Self::ImpureUpgradeMaterial => formatter.write_str(
-                "equipment upgrade requires pure matter matching the authored additive material",
-            ),
             Self::StaleInventorySelection { expected, actual } => write!(
                 formatter,
                 "equipment-upgrade material selection expected inventory revision {expected} but current revision is {actual}"
@@ -182,7 +178,6 @@ impl Error for EquipmentUpgradeError {
             | Self::UnknownSource { .. }
             | Self::InsufficientMaterial { .. }
             | Self::SourceMassOverflow { .. }
-            | Self::ImpureUpgradeMaterial
             | Self::StaleInventorySelection { .. }
             | Self::InventoryRevisionExhausted
             | Self::EquipmentRevisionExhausted => None,
@@ -454,12 +449,6 @@ pub fn validate_upgrade_equipment(
                     EquipmentUpgradeError::SourceMassOverflow { stockpile }
                 }
             })?;
-    if selection.consumed_inputs().iter().any(|trace| {
-        trace.profile().composition().pure_material()
-            != Some(trace.profile().commodity().material())
-    }) {
-        return Err(EquipmentUpgradeError::ImpureUpgradeMaterial);
-    }
     let additions = selection.consumed_inputs().to_vec();
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {

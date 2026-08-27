@@ -14,6 +14,8 @@ mod focused_seeds;
 mod fresh_seed;
 #[path = "gameplay_harness/industrial_support.rs"]
 mod industrial_support;
+#[path = "gameplay_harness/ore_fixture.rs"]
+mod ore_fixture;
 #[path = "gameplay_harness/report.rs"]
 mod report;
 #[path = "gameplay_harness/scenario.rs"]
@@ -25,6 +27,8 @@ mod seed;
 mod seed_contract_tests;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/structural_fixture.rs"]
+mod structural_fixture;
 #[path = "gameplay_harness/support.rs"]
 mod support;
 

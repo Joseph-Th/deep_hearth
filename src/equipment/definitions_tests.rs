@@ -5,7 +5,7 @@ use crate::content::{FORM_SCRAP, FORM_TOOL, MATERIAL_STONE};
 use crate::material::MaterialInputSpec;
 
 fn assembly_profile() -> MaterialAssemblyProfile {
-    MaterialAssemblyProfile::new(vec![MaterialInputSpec::new(
+    MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         Mass::from_milligrams(1),
     )])
@@ -29,6 +29,20 @@ fn basic_definition(id: EquipmentDefinitionId) -> EquipmentDefinition {
         capabilities,
         thresholds,
     )
+}
+
+#[test]
+fn runtime_acquisition_classification_follows_assembly_and_upgrade_routes() {
+    let unavailable = basic_definition(EquipmentDefinitionId::new(810_011));
+    let assembled = basic_definition(EquipmentDefinitionId::new(810_012))
+        .with_assembly_profile(assembly_profile());
+    let upgraded = basic_definition(EquipmentDefinitionId::new(810_013)).with_upgrade_profile(
+        EquipmentUpgradeProfile::new(EquipmentDefinitionId::new(810_014), assembly_profile()),
+    );
+
+    assert!(!unavailable.has_runtime_acquisition_route());
+    assert!(assembled.has_runtime_acquisition_route());
+    assert!(upgraded.has_runtime_acquisition_route());
 }
 
 fn maintenance_registry(spent: CommodityKey) -> EquipmentRegistry {

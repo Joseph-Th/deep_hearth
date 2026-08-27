@@ -90,9 +90,6 @@ pub enum EquipmentMaintenanceResolutionError {
     MaterialSelectionMassOverflow {
         stockpile: StockpileId,
     },
-    ImpureReplacementMaterial {
-        commodity: CommodityKey,
-    },
 }
 
 impl Display for EquipmentMaintenanceResolutionError {
@@ -153,11 +150,6 @@ impl Display for EquipmentMaintenanceResolutionError {
                 "maintenance replacement selection overflows mass accounting in stockpile {}",
                 stockpile.value()
             ),
-            Self::ImpureReplacementMaterial { commodity } => write!(
-                formatter,
-                "maintenance replacement commodity {} must be pure authored material",
-                commodity.value()
-            ),
         }
     }
 }
@@ -201,7 +193,7 @@ pub fn resolve_equipment_maintenance(
     let material = validate_consumption_selection(
         state.inventory(),
         request.material_source,
-        &[MaterialInputSpec::new(
+        &[MaterialInputSpec::pure(
             profile.replacement(),
             profile.replacement_mass(),
         )],
@@ -225,10 +217,6 @@ pub fn resolve_equipment_maintenance(
             EquipmentMaintenanceResolutionError::MaterialSelectionMassOverflow { stockpile }
         }
     })?;
-    if let Some(commodity) = impure_replacement_commodity(&material) {
-        return Err(EquipmentMaintenanceResolutionError::ImpureReplacementMaterial { commodity });
-    }
-
     Ok(EquipmentMaintenanceResolution {
         equipment: request.equipment,
         expected_equipment_revision: state.equipment().revision(),

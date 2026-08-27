@@ -35,7 +35,6 @@ pub enum EnergyStoreAssemblyError {
     SourceMassOverflow {
         stockpile: StockpileId,
     },
-    ImpureAssemblyMaterial,
     StaleInventorySelection {
         expected: u64,
         actual: u64,
@@ -80,9 +79,6 @@ impl Display for EnergyStoreAssemblyError {
                 "energy-store construction source {} mass accounting overflowed",
                 stockpile.value()
             ),
-            Self::ImpureAssemblyMaterial => formatter.write_str(
-                "energy-store construction requires pure matter matching the authored inputs",
-            ),
             Self::StaleInventorySelection { expected, actual } => write!(
                 formatter,
                 "energy-store construction material selection expected inventory revision {expected} but current revision is {actual}"
@@ -113,7 +109,6 @@ impl Error for EnergyStoreAssemblyError {
             | Self::UnknownSource { .. }
             | Self::InsufficientMaterial { .. }
             | Self::SourceMassOverflow { .. }
-            | Self::ImpureAssemblyMaterial
             | Self::StaleInventorySelection { .. }
             | Self::InventoryRevisionExhausted
             | Self::StoreIdExhausted
@@ -232,12 +227,6 @@ pub fn validate_assemble_energy_store(
                 EnergyStoreAssemblyError::SourceMassOverflow { stockpile }
             }
         })?;
-    if selection.consumed_inputs().iter().any(|trace| {
-        trace.profile().composition().pure_material()
-            != Some(trace.profile().commodity().material())
-    }) {
-        return Err(EnergyStoreAssemblyError::ImpureAssemblyMaterial);
-    }
     let embodied_material = selection.consumed_inputs().to_vec();
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {

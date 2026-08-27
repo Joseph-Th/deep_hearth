@@ -36,7 +36,6 @@ pub enum EquipmentAssemblyError {
     SourceMassOverflow {
         stockpile: StockpileId,
     },
-    ImpureAssemblyMaterial,
     StaleInventorySelection {
         expected: u64,
         actual: u64,
@@ -81,9 +80,6 @@ impl Display for EquipmentAssemblyError {
                 "assembly source {} mass accounting overflowed",
                 stockpile.value()
             ),
-            Self::ImpureAssemblyMaterial => formatter.write_str(
-                "equipment assembly requires pure matter matching the authored input material",
-            ),
             Self::StaleInventorySelection { expected, actual } => write!(
                 formatter,
                 "equipment assembly material selection expected inventory revision {expected} but current revision is {actual}"
@@ -117,7 +113,6 @@ impl Error for EquipmentAssemblyError {
                 required: _,
             }
             | Self::SourceMassOverflow { stockpile: _ }
-            | Self::ImpureAssemblyMaterial
             | Self::StaleInventorySelection {
                 expected: _,
                 actual: _,
@@ -242,12 +237,6 @@ pub fn validate_assemble_equipment(
                 EquipmentAssemblyError::SourceMassOverflow { stockpile }
             }
         })?;
-    if selection.consumed_inputs().iter().any(|trace| {
-        trace.profile().composition().pure_material()
-            != Some(trace.profile().commodity().material())
-    }) {
-        return Err(EquipmentAssemblyError::ImpureAssemblyMaterial);
-    }
     let embodied_material = selection.consumed_inputs().to_vec();
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {

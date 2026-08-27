@@ -4,6 +4,25 @@ use super::*;
 use crate::material::{COMPOSITION_PARTS_PER_MILLION, CompositionComponent, FormId};
 
 #[test]
+fn pure_input_spec_accepts_only_exact_host_material() {
+    let host = MaterialId::new(3);
+    let other = MaterialId::new(4);
+    let spec = MaterialInputSpec::pure(
+        CommodityKey::new(host, FormId::new(1)),
+        Mass::from_milligrams(10),
+    );
+    let mixed = MaterialComposition::new(vec![
+        CompositionComponent::new(host, 900_000),
+        CompositionComponent::new(other, 100_000),
+    ])
+    .unwrap_or_else(|error| panic!("mixed input fixture failed: {error}"));
+
+    assert!(spec.requires_pure_material());
+    assert!(spec.is_satisfied_by(&MaterialComposition::pure(host)));
+    assert!(!spec.is_satisfied_by(&mixed));
+}
+
+#[test]
 fn input_spec_rejects_duplicate_material_constraints() {
     let material = MaterialId::new(3);
     let constraint = CompositionConstraint::new(material, 100_000, 900_000)

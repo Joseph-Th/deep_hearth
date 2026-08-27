@@ -43,6 +43,11 @@ impl MaterialAssemblyProfile {
                 !input.mass().is_zero(),
                 "material assembly input mass must be nonzero"
             );
+            assert!(
+                input.requires_pure_material(),
+                "material assembly commodity {} must require pure host material",
+                input.commodity().value()
+            );
             input_mass = input_mass
                 .checked_add(input.mass())
                 .unwrap_or_else(|| panic!("material assembly input mass overflows"));

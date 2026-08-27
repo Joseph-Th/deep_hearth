@@ -141,6 +141,10 @@ impl ManualCraftDefinition {
         );
         assert!(!duration.is_zero(), "manual craft duration must be nonzero");
         assert!(
+            !exertion.energy_cost_per_tick().is_zero(),
+            "manual craft exertion must consume metabolic energy"
+        );
+        assert!(
             !outputs.is_empty(),
             "manual craft must produce conserved output matter"
         );
@@ -325,6 +329,11 @@ impl CraftingRegistry {
             );
             assert_eq!(inputs[0].commodity(), definition.input());
             assert_eq!(inputs[0].mass(), definition.input_mass());
+            assert!(
+                inputs[0].requires_pure_material(),
+                "manual craft {} production input must require pure host material",
+                definition.process().value()
+            );
         }
     }
 }
@@ -338,7 +347,6 @@ pub enum ManualCraftError {
         process: ProcessId,
     },
     Input(ProcessInputError),
-    UnsupportedComposition,
     MixedInputTemperature,
     MissingInputTrace,
     DurationOverflow {
@@ -365,9 +373,6 @@ impl Display for ManualCraftError {
                 process.value()
             ),
             Self::Input(error) => write!(formatter, "manual craft input is invalid: {error}"),
-            Self::UnsupportedComposition => {
-                formatter.write_str("manual shaping requires pure input material")
-            }
             Self::MixedInputTemperature => formatter.write_str(
                 "manual shaping cannot combine different input temperatures without thermal physics",
             ),
@@ -404,7 +409,6 @@ impl Error for ManualCraftError {
             Self::SurvivalNotInitialized
             | Self::PlayerDead
             | Self::UnknownManualProcess { process: _ }
-            | Self::UnsupportedComposition
             | Self::MixedInputTemperature
             | Self::MissingInputTrace
             | Self::DurationOverflow { batches: _ }
@@ -435,14 +439,8 @@ pub fn resolve_manual_craft(
         .ok_or(ManualCraftError::UnknownManualProcess { process })?;
     let inputs = validate_repeated_process_inputs(registries, state, process, source, batches)
         .map_err(ManualCraftError::Input)?;
-    let expected_composition = MaterialComposition::pure(definition.input().material());
     let mut temperatures = BTreeSet::new();
     for trace in inputs.consumed_inputs() {
-        if trace.profile().commodity() != definition.input()
-            || trace.profile().composition() != &expected_composition
-        {
-            return Err(ManualCraftError::UnsupportedComposition);
-        }
         temperatures.insert(trace.profile().temperature());
     }
     if temperatures.len() != 1 {

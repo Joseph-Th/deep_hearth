@@ -3,7 +3,7 @@
 use std::env;
 
 use super::capability_boundary::{
-    assert_capability_only_energy_store, assert_capability_only_equipment,
+    seed_capability_only_energy_store, seed_capability_only_equipment,
 };
 use super::configuration::{
     MAINTAINED_BEHAVIOR_ROOT, MAINTAINED_VARIATION_ROOT, ScenarioPlanMode, scenario_seeds_from,
@@ -12,27 +12,27 @@ use super::contracts::{assert_anchor_diversity, assert_scenario_contracts};
 use super::fresh_seed::fresh_root;
 use super::has_verbose_output;
 use super::industrial_support::install_equipment_on_grounded_support;
+use super::ore_fixture::copper_ore_composition;
 use super::report::{
     EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioChoiceReport,
     ScenarioPolicyVariation, ScenarioProgressReport, ScenarioReport, ScenarioResourceReport,
     ScenarioStructureReport, StructuralPreference, print_content_summary, print_harness_summary,
 };
-use super::scenario::{ScenarioDeliveryVariation, ScenarioVariation};
+use super::scenario::{ScenarioDeliveryVariation, ScenarioVariation, WORKSHOP_SUPPORT_LENGTH};
 use super::seed::mix64;
 use super::support::{ROOM_TEMPERATURE, add_solid_stockpile};
 use deep_hearth::content::gameplay_fixture::{
-    authorize_controlled_material_delivery, materialize_structure, seed_composed_lot,
-    seed_energy_store as bootstrap_seed_energy_store, seed_equipment, seed_lot,
+    authorize_controlled_material_delivery, materialize_structure, seed_composed_lot, seed_lot,
     seed_player_survival_at_hydration_warning,
 };
 use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
     EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_JAW_CRUSHER,
     FORM_CRUSHED, FORM_INGOT, FORM_LOG, FORM_ORE, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CRUSH_ORE, PROCESS_MELT_PURE_COPPER,
+    MATERIAL_WOOD, PROCESS_CRUSH_ORE, PROCESS_MELT_PURE_COPPER,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
-use deep_hearth::core::quantity::{Area, Energy, Length, Mass};
+use deep_hearth::core::quantity::{Area, Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::{TickSpan, WorldSeed};
 use deep_hearth::energy::{
@@ -53,7 +53,7 @@ use deep_hearth::labor::{
     validate_start_manual_power,
 };
 use deep_hearth::maintenance::{Condition, MaintenanceBand};
-use deep_hearth::material::{CommodityKey, CompositionComponent, MaterialComposition};
+use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::ore_processing::{
     ComminutionBottleneck, ComminutionRequest, ComminutionResolutionError, ResolvedComminution,
@@ -79,8 +79,6 @@ use deep_hearth::thermal::{
 #[path = "workshop/crush_planning.rs"]
 mod crush_planning;
 use crush_planning::*;
-
-const WORKSHOP_SUPPORT_LENGTH: Length = Length::from_micrometers(2_000_000);
 
 struct ManualRecoveryProbe {
     option: Option<ManualRecoveryOption>,
@@ -229,13 +227,13 @@ struct ControlledDeliveryRuntime<'state> {
     authorization: &'state mut Option<MaterialTransferResolution>,
 }
 
-fn seed_energy_store_exact(
+fn seed_capability_store_exact(
     registries: &Registries,
     state: &mut AppState,
     definition: deep_hearth::energy::EnergyStoreDefinitionId,
     amount: Energy,
 ) -> EnergyStoreId {
-    bootstrap_seed_energy_store(registries, state, definition, amount)
+    seed_capability_only_energy_store(registries, state, definition, amount)
 }
 
 fn stored_work_from_nominal_batches(
@@ -256,14 +254,6 @@ fn stored_work_from_nominal_batches(
         full.checked_add(partial)
             .unwrap_or_else(|| panic!("gameplay stored-work total overflowed")),
     )
-}
-
-fn mixed_ore_composition(copper_ppm: u32) -> MaterialComposition {
-    MaterialComposition::new(vec![
-        CompositionComponent::new(MATERIAL_COPPER, copper_ppm),
-        CompositionComponent::new(MATERIAL_STONE, 1_000_000 - copper_ppm),
-    ])
-    .unwrap_or_else(|error| panic!("gameplay harness ore composition failed: {error}"))
 }
 
 fn bounds(x: i64) -> VoxelBounds {
@@ -318,23 +308,13 @@ fn seed_energy_store(
         ),
     };
     let amount = Energy::from_nanojoules(authored.capacity().nanojoules() / fraction_divisor);
-    bootstrap_seed_energy_store(registries, state, definition, amount)
+    seed_capability_store_exact(registries, state, definition, amount)
 }
 
 fn setup_workshop(
     registries: &Registries,
     variation: ScenarioVariation,
 ) -> (AppState, WorkshopIds, Option<MaterialTransferResolution>) {
-    for equipment in [EQUIPMENT_JAW_CRUSHER, EQUIPMENT_ELECTRIC_FURNACE] {
-        assert_capability_only_equipment(registries, equipment);
-    }
-    for store in [
-        ENERGY_MECHANICAL_SMALL_DRIVE,
-        ENERGY_MECHANICAL_LARGE_DRIVE,
-        ENERGY_ELECTRICAL_BUFFER,
-    ] {
-        assert_capability_only_energy_store(registries, store);
-    }
     let mut state = AppState::new(WorldSeed::new(variation.world_seed));
     if variation.survival.start_at_hydration_warning {
         seed_player_survival_at_hydration_warning(registries, &mut state);
@@ -368,7 +348,10 @@ fn setup_workshop(
         CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
         ore_mass,
         ROOM_TEMPERATURE,
-        mixed_ore_composition(variation.ore.ore_copper_ppm),
+        copper_ore_composition(
+            variation.ore.ore_copper_ppm,
+            variation.ore.gangue_clay_share_ppm,
+        ),
     );
     if !replacement_total.is_zero() {
         seed_lot(
@@ -381,14 +364,14 @@ fn setup_workshop(
         );
     }
 
-    let crusher = seed_equipment(
+    let crusher = seed_capability_only_equipment(
         registries,
         &mut state,
         EQUIPMENT_JAW_CRUSHER,
         variation.crusher.initial_crusher_condition,
     );
     let hand_crank = assemble_workshop_hand_crank(registries, &mut state);
-    let furnace = seed_equipment(
+    let furnace = seed_capability_only_equipment(
         registries,
         &mut state,
         EQUIPMENT_ELECTRIC_FURNACE,
@@ -459,7 +442,7 @@ fn setup_workshop(
         variation.crusher.small_drive_batch_budget,
         variation.crusher.small_drive_partial_batch_ppm,
     );
-    let small_drive = seed_energy_store_exact(
+    let small_drive = seed_capability_store_exact(
         registries,
         &mut state,
         ENERGY_MECHANICAL_SMALL_DRIVE,
@@ -470,7 +453,7 @@ fn setup_workshop(
         variation.crusher.large_drive_batch_budget,
         variation.crusher.large_drive_partial_batch_ppm,
     );
-    let large_drive = seed_energy_store_exact(
+    let large_drive = seed_capability_store_exact(
         registries,
         &mut state,
         ENERGY_MECHANICAL_LARGE_DRIVE,

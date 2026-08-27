@@ -8,9 +8,9 @@ use super::seed::mix64;
 use super::support::nominal_equipment_mass_capability;
 use deep_hearth::content::{
     ENERGY_MECHANICAL_LARGE_DRIVE, EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRAVITY_SEPARATOR,
-    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, FORM_CONCENTRATE, MATERIAL_COPPER,
-    PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
-    PROCESS_GRIND_CRUSHED_ORE, PROCESS_SCREEN_CRUSHED_ORE,
+    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, FORM_CONCENTRATE, MATERIAL_CLAY,
+    MATERIAL_COPPER, MATERIAL_STONE, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
+    PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_SCREEN_CRUSHED_ORE,
 };
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -52,7 +52,7 @@ fn represented_copper_ppm_mg(state: &AppState, stockpiles: &[StockpileId]) -> u1
         .sum()
 }
 
-fn probe_parameters(registries: &Registries, seed: u64) -> OrePreparationSetup {
+pub(super) fn probe_parameters(registries: &Registries, seed: u64) -> OrePreparationSetup {
     let crusher = registries
         .ore_processing()
         .get_comminution(PROCESS_CRUSH_ORE)
@@ -132,6 +132,7 @@ fn probe_parameters(registries: &Registries, seed: u64) -> OrePreparationSetup {
         minimum_units + mix64(seed ^ 0x0AE5_1A5E) % (maximum_units - minimum_units + 1);
     let batch_mass = Mass::from_milligrams(representable_unit * unit_count);
     let copper_ppm = 300_000 + (mix64(seed ^ 0xC0FF_EE11) % 400_001) as u32;
+    let clay_share_ppm = 100_000 + (mix64(seed ^ 0x4741_4E47_5545_4D49) % 500_001) as u32;
     let required_energy_upper_bound = [
         crusher.specific_energy(),
         grinder.specific_energy(),
@@ -169,6 +170,7 @@ fn probe_parameters(registries: &Registries, seed: u64) -> OrePreparationSetup {
     OrePreparationSetup {
         batch_mass,
         copper_ppm,
+        clay_share_ppm,
         crusher_condition: varied_healthy_condition(
             registries,
             EQUIPMENT_JAW_CRUSHER,
@@ -240,6 +242,8 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         .composition()
         .clone();
     let input_copper_ppm = input_composition.parts_per_million(MATERIAL_COPPER);
+    let input_stone_ppm = input_composition.parts_per_million(MATERIAL_STONE);
+    let input_clay_ppm = input_composition.parts_per_million(MATERIAL_CLAY);
 
     let crush_selection = [MaterialLotSelection::new(ids.ore_lot, batch_mass)];
     let crushed = resolve_comminution_process(
@@ -817,9 +821,11 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
 
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
-            "CAPABILITY ORE_PREP seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[particle-state,routing,finite-work,wear,constituent-concentration] batch={}mg copper={}ppm concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm initial-condition=[crusher:{} grinder:{} screen:{} separator:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t concentrate:{}b/{}t] matter=conserved composition=exact energy=resolved",
+            "CAPABILITY ORE_PREP seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[particle-state,routing,finite-work,wear,constituent-concentration] batch={}mg feed=[copper:{}ppm stone:{}ppm clay:{}ppm] concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm initial-condition=[crusher:{} grinder:{} screen:{} separator:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t concentrate:{}b/{}t] matter=conserved composition=exact energy=resolved",
             batch_mass.milligrams(),
             input_copper_ppm,
+            input_stone_ppm,
+            input_clay_ppm,
             concentrate_mass.milligrams(),
             tailings_mass.milligrams(),
             concentrate_grade_ppm,
@@ -841,9 +847,11 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         );
     } else {
         std::println!(
-            "ORE REVIEW seed=0x{seed:016X} role=capability-only pipeline=crush->grind->screen->regrind->concentrate batch={}mg copper={}ppm concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm stored-work=[used:{}nJ remaining:{}nJ] durations=[{}+{}+{}+{}t concentration:{}b/{}t] matter=conserved composition=exact",
+            "ORE REVIEW seed=0x{seed:016X} role=capability-only pipeline=crush->grind->screen->regrind->concentrate batch={}mg feed=[copper:{}ppm stone:{}ppm clay:{}ppm] concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm stored-work=[used:{}nJ remaining:{}nJ] durations=[{}+{}+{}+{}t concentration:{}b/{}t] matter=conserved composition=exact",
             batch_mass.milligrams(),
             input_copper_ppm,
+            input_stone_ppm,
+            input_clay_ppm,
             concentrate_mass.milligrams(),
             tailings_mass.milligrams(),
             concentrate_grade_ppm,

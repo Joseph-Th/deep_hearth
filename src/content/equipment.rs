@@ -292,11 +292,11 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             vec![mining_curve],
         )
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-            MaterialInputSpec::new(
+            MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
                 Mass::from_milligrams(800_000),
             ),
-            MaterialInputSpec::new(
+            MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
                 Mass::from_milligrams(200_000),
             ),
@@ -314,11 +314,11 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             vec![hand_crank_curve],
         )
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-            MaterialInputSpec::new(
+            MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
                 Mass::from_milligrams(900_000),
             ),
-            MaterialInputSpec::new(
+            MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
                 Mass::from_milligrams(200_000),
             ),
@@ -346,15 +346,15 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             vec![reinforced_mining_curve],
         )
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-            MaterialInputSpec::new(
+            MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
                 Mass::from_milligrams(800_000),
             ),
-            MaterialInputSpec::new(
+            MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
                 Mass::from_milligrams(200_000),
             ),
-            MaterialInputSpec::new(
+            MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
                 Mass::from_milligrams(20_000),
             ),
@@ -362,7 +362,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
         .with_worn_recovery_form(FORM_SCRAP)
         .with_upgrade_profile(EquipmentUpgradeProfile::new(
             EQUIPMENT_STONE_PICK,
-            MaterialAssemblyProfile::new(vec![MaterialInputSpec::new(
+            MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
                 Mass::from_milligrams(20_000),
             )]),
@@ -379,15 +379,15 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             vec![reinforced_hand_crank_curve],
         )
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-            MaterialInputSpec::new(
+            MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
                 Mass::from_milligrams(900_000),
             ),
-            MaterialInputSpec::new(
+            MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
                 Mass::from_milligrams(200_000),
             ),
-            MaterialInputSpec::new(
+            MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
                 Mass::from_milligrams(20_000),
             ),
@@ -395,7 +395,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
         .with_worn_recovery_form(FORM_SCRAP)
         .with_upgrade_profile(EquipmentUpgradeProfile::new(
             EQUIPMENT_STONE_HAND_CRANK,
-            MaterialAssemblyProfile::new(vec![MaterialInputSpec::new(
+            MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
                 Mass::from_milligrams(20_000),
             )]),
@@ -418,11 +418,11 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             vec![stone_crusher_curve],
         )
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-            MaterialInputSpec::new(
+            MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
                 Mass::from_milligrams(1_600_000),
             ),
-            MaterialInputSpec::new(
+            MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
                 Mass::from_milligrams(400_000),
             ),
@@ -446,11 +446,11 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             vec![stone_separator_curve],
         )
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-            MaterialInputSpec::new(
+            MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
                 Mass::from_milligrams(800_000),
             ),
-            MaterialInputSpec::new(
+            MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
                 Mass::from_milligrams(400_000),
             ),

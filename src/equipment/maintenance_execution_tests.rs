@@ -364,12 +364,12 @@ fn authored_maintenance_resolution_rejects_unneeded_or_understocked_service() {
 }
 
 #[test]
-fn maintenance_rejects_contaminated_replacement_material_at_both_boundaries() {
+fn maintenance_filters_contaminated_stock_and_rejects_forged_impure_selection() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x8120_000B));
     let equipment = add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000))
         .unwrap_or_else(|error| panic!("impure maintenance equipment fixture failed: {error}"));
-    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(27))
         .unwrap_or_else(|error| panic!("impure maintenance source fixture failed: {error}"));
     let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
         .unwrap_or_else(|error| panic!("impure maintenance spent fixture failed: {error}"));
@@ -398,8 +398,11 @@ fn maintenance_rejects_contaminated_replacement_material_at_both_boundaries() {
             EquipmentMaintenanceRequest::new(equipment, source, spent),
         ),
         Err(
-            EquipmentMaintenanceResolutionError::ImpureReplacementMaterial {
+            EquipmentMaintenanceResolutionError::InsufficientReplacementMaterial {
+                stockpile: source,
                 commodity: replacement,
+                available: Mass::ZERO,
+                required: Mass::from_milligrams(7),
             }
         )
     );
@@ -421,6 +424,17 @@ fn maintenance_rejects_contaminated_replacement_material_at_both_boundaries() {
         })
     );
     assert_eq!(state, before);
+
+    add_material(&registries, &mut state, source, Mass::from_milligrams(7));
+    let resolved = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(equipment, source, spent),
+    )
+    .unwrap_or_else(|error| {
+        panic!("maintenance should skip contaminated replacement stock: {error}")
+    });
+    assert_eq!(resolved.material_mass(), Mass::from_milligrams(7));
 }
 
 #[test]

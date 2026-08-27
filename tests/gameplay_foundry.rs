@@ -18,6 +18,8 @@ mod production_support;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/structural_fixture.rs"]
+mod structural_fixture;
 #[path = "gameplay_harness/support.rs"]
 mod support;
 

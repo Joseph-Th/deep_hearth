@@ -173,7 +173,7 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
         ProcessDefinition::new(
             PROCESS_KNAP_STONE_TOOL,
             "knap stone tool",
-            vec![MaterialInputSpec::new(
+            vec![MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
                 Mass::from_milligrams(1_000_000),
             )],
@@ -182,7 +182,7 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
         ProcessDefinition::new(
             PROCESS_SHAPE_WOOD_HANDLE,
             "shape wood handle",
-            vec![MaterialInputSpec::new(
+            vec![MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
                 Mass::from_milligrams(1_000_000),
             )],
@@ -191,7 +191,7 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
         ProcessDefinition::new(
             PROCESS_SHAPE_STONE_FLYWHEEL,
             "shape stone flywheel",
-            vec![MaterialInputSpec::new(
+            vec![MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
                 Mass::from_milligrams(1_000_000),
             )],
@@ -200,7 +200,7 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
         ProcessDefinition::new(
             PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
             "cold-work native copper reinforcement",
-            vec![MaterialInputSpec::new(
+            vec![MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
                 Mass::from_milligrams(20_000),
             )],

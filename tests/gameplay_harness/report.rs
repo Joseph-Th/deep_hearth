@@ -101,6 +101,7 @@ impl ScenarioReport {
             policy: variation.policy,
             inputs: ScenarioInputReport {
                 ore_copper_ppm: variation.ore.ore_copper_ppm,
+                gangue_clay_share_ppm: variation.ore.gangue_clay_share_ppm,
                 nominal_batch_mass: variation.ore.nominal_batch_mass,
                 order_mass: variation.ore.order_mass,
                 start_at_hydration_warning: variation.survival.start_at_hydration_warning,
@@ -162,6 +163,7 @@ pub(super) struct ScenarioResourceReport {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ScenarioInputReport {
     pub(super) ore_copper_ppm: u32,
+    pub(super) gangue_clay_share_ppm: u32,
     pub(super) nominal_batch_mass: Mass,
     pub(super) order_mass: Mass,
     pub(super) start_at_hydration_warning: bool,
@@ -282,17 +284,15 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
     let runtime_path_equipment = registries
         .equipment()
         .definitions()
-        .filter(|definition| {
-            definition.assembly_profile().is_some() || definition.upgrade_profile().is_some()
-        })
+        .filter(|definition| definition.has_runtime_acquisition_route())
         .count();
     let runtime_path_energy = registries
         .energy()
         .definitions()
-        .filter(|definition| definition.assembly_profile().is_some())
+        .filter(|definition| definition.has_runtime_assembly_route())
         .count();
     std::println!(
-        "CONTENT REACHABILITY equipment=[runtime-path:{runtime_path_equipment} capability-only:{}] energy=[runtime-path:{runtime_path_energy} capability-only:{}]",
+        "CONTENT ACQUISITION DECLARATIONS equipment=[runtime-path:{runtime_path_equipment} no-runtime-path:{}] energy=[runtime-path:{runtime_path_energy} no-runtime-path:{}] global-runtime-scope=STATUS.md",
         equipment_count - runtime_path_equipment,
         energy_count - runtime_path_energy,
     );
@@ -303,37 +303,33 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
     let acquisition_declared_equipment = registries
         .equipment()
         .definitions()
-        .filter(|definition| {
-            definition.assembly_profile().is_some() || definition.upgrade_profile().is_some()
-        })
+        .filter(|definition| definition.has_runtime_acquisition_route())
         .map(|definition| definition.name())
         .collect::<Vec<_>>()
         .join(",");
     let no_acquisition_equipment = registries
         .equipment()
         .definitions()
-        .filter(|definition| {
-            definition.assembly_profile().is_none() && definition.upgrade_profile().is_none()
-        })
+        .filter(|definition| !definition.has_runtime_acquisition_route())
         .map(|definition| definition.name())
         .collect::<Vec<_>>()
         .join(",");
     let assembly_declared_energy = registries
         .energy()
         .definitions()
-        .filter(|definition| definition.assembly_profile().is_some())
+        .filter(|definition| definition.has_runtime_assembly_route())
         .map(|definition| definition.name())
         .collect::<Vec<_>>()
         .join(",");
     let no_assembly_energy = registries
         .energy()
         .definitions()
-        .filter(|definition| definition.assembly_profile().is_none())
+        .filter(|definition| !definition.has_runtime_assembly_route())
         .map(|definition| definition.name())
         .collect::<Vec<_>>()
         .join(",");
     std::println!(
-        "CONTENT ACQUISITION declared-equipment=[{acquisition_declared_equipment}] declared-energy=[{assembly_declared_energy}] no-runtime-path-equipment=[{no_acquisition_equipment}] no-runtime-path-energy=[{no_assembly_energy}] evidence-note=declaration-is-not-end-to-end-reachability missing-bridge=[runtime-industrial-acquisition,industrial-power-generation,concentrate-reduction/smelting]"
+        "CONTENT ACQUISITION declared-equipment=[{acquisition_declared_equipment}] declared-energy=[{assembly_declared_energy}] no-runtime-path-equipment=[{no_acquisition_equipment}] no-runtime-path-energy=[{no_assembly_energy}] evidence-note=declaration-is-not-end-to-end-reachability global-runtime-scope=STATUS.md"
     );
 
     let equipment = registries
@@ -549,6 +545,16 @@ pub(super) fn print_harness_summary(
         .map(|report| report.inputs.ore_copper_ppm)
         .max()
         .unwrap_or_else(|| unreachable!("nonempty reports have an ore-grade maximum"));
+    let clay_share_min = reports
+        .iter()
+        .map(|report| report.inputs.gangue_clay_share_ppm)
+        .min()
+        .unwrap_or_else(|| unreachable!("nonempty reports have a gangue-clay minimum"));
+    let clay_share_max = reports
+        .iter()
+        .map(|report| report.inputs.gangue_clay_share_ppm)
+        .max()
+        .unwrap_or_else(|| unreachable!("nonempty reports have a gangue-clay maximum"));
     let batch_mass_min = reports
         .iter()
         .map(|report| report.inputs.nominal_batch_mass.milligrams())
@@ -772,7 +778,7 @@ pub(super) fn print_harness_summary(
     }
 
     std::println!(
-        "SAMPLE ore=[grade:{ore_grade_min}..{ore_grade_max}ppm nominal-batch:{batch_mass_min}..{batch_mass_max}mg order:{order_mass_min}..{order_mass_max}mg] crusher-condition=[{initial_condition_min}..{initial_condition_max}ppm normal:{initial_normal} warning:{initial_warning} critical:{initial_critical}] survival-start=[hydration-warning:{survival_warning_starts} full-reserve:{}] resources=[small-drive:{}..{}+{}..{}ppm nominal-batches large-drive:{}..{}+{}..{}ppm maintenance-units:{}..{}] scheduled-event=[tick:{delivery_tick_min}..{delivery_tick_max}t mass:{delivery_mass_min}..{delivery_mass_max}mg compact:{compact_deliveries} reinforced:{} actor-visibility:hidden]",
+        "SAMPLE ore=[grade:{ore_grade_min}..{ore_grade_max}ppm gangue-clay-share:{clay_share_min}..{clay_share_max}ppm nominal-batch:{batch_mass_min}..{batch_mass_max}mg order:{order_mass_min}..{order_mass_max}mg] crusher-condition=[{initial_condition_min}..{initial_condition_max}ppm normal:{initial_normal} warning:{initial_warning} critical:{initial_critical}] survival-start=[hydration-warning:{survival_warning_starts} full-reserve:{}] resources=[small-drive:{}..{}+{}..{}ppm nominal-batches large-drive:{}..{}+{}..{}ppm maintenance-units:{}..{}] scheduled-event=[tick:{delivery_tick_min}..{delivery_tick_max}t mass:{delivery_mass_min}..{delivery_mass_max}mg compact:{compact_deliveries} reinforced:{} actor-visibility:hidden]",
         reports.len() - survival_warning_starts,
         reports
             .iter()
@@ -971,7 +977,7 @@ pub(super) fn print_harness_summary(
     let unobserved = unobserved.join(",");
     if include_scenarios {
         std::println!(
-            "CAPABILITY SCOPE evidence=bootstrapped-industrial surface=[canonical-industrial-comminution,adaptive-batching,manual-energy-recovery,power-choice,wear,maintenance,structural-siting,controlled-supported-stockpile-delivery] observed=[{observed}] unobserved=[{unobserved}] outside-this-workshop-test=[playable-survival,playable-primitive-progression,industrial-ore-preparation,pure-copper-foundry] bootstrap=[industrial-workshop-equipment,industrial-energy-stores,constructed-bays,starting-workshop-matter,preauthorized-controlled-delivery] missing-bridge=[industrial-acquisition,industrial-power-generation,concentrate-reduction/smelting] actor-oracle=none fixture-guard=fail-if-injected-machine-becomes-runtime-acquirable capability-boundary=STATUS.md"
+            "CAPABILITY SCOPE evidence=bootstrapped-industrial surface=[canonical-industrial-comminution,adaptive-batching,manual-energy-recovery,power-choice,wear,maintenance,structural-siting,controlled-supported-stockpile-delivery] observed=[{observed}] unobserved=[{unobserved}] outside-this-workshop-test=[survival,primitive-progression,industrial-ore-preparation,pure-copper-foundry] bootstrap=[industrial-workshop-equipment,industrial-energy-stores,constructed-bays,starting-workshop-matter,preauthorized-controlled-delivery] actor-oracle=none fixture-guard=fail-if-injected-machine-becomes-runtime-acquirable global-runtime-scope=STATUS.md"
         );
     }
 

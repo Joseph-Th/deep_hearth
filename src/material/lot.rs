@@ -34,6 +34,28 @@ impl MaterialInputSpec {
         }
     }
 
+    /// Builds an input requirement that accepts only pure matter matching the commodity host.
+    #[must_use]
+    pub fn pure(commodity: CommodityKey, mass: Mass) -> Self {
+        assert!(
+            !mass.is_zero(),
+            "material input specification mass must be nonzero"
+        );
+        let purity = CompositionConstraint::new(
+            commodity.material(),
+            COMPOSITION_PARTS_PER_MILLION,
+            COMPOSITION_PARTS_PER_MILLION,
+        )
+        .unwrap_or_else(|error| {
+            panic!("pure material input specification has an invalid host constraint: {error}")
+        });
+        Self {
+            commodity,
+            mass,
+            constraints: vec![purity],
+        }
+    }
+
     /// Builds a composition-constrained input requirement in canonical material-ID order.
     ///
     /// Runtime lots must contain their commodity host material, so the constraint set must leave at
@@ -96,6 +118,18 @@ impl MaterialInputSpec {
     #[must_use]
     pub fn constraints(&self) -> &[CompositionConstraint] {
         &self.constraints
+    }
+
+    /// Returns whether this requirement admits only pure matter of its commodity host material.
+    #[must_use]
+    pub(crate) fn requires_pure_material(&self) -> bool {
+        matches!(
+            self.constraints.as_slice(),
+            [constraint]
+                if constraint.material() == self.commodity.material()
+                    && constraint.minimum_parts_per_million() == COMPOSITION_PARTS_PER_MILLION
+                    && constraint.maximum_parts_per_million() == COMPOSITION_PARTS_PER_MILLION
+        )
     }
 
     #[must_use]

@@ -30,6 +30,8 @@ mod foundry_setup;
 mod fresh_seed;
 #[path = "gameplay_harness/industrial_support.rs"]
 mod industrial_support;
+#[path = "gameplay_harness/ore_fixture.rs"]
+mod ore_fixture;
 #[path = "gameplay_harness/ore_probe.rs"]
 mod ore_probe;
 #[path = "gameplay_harness/ore_setup.rs"]
@@ -49,6 +51,8 @@ mod seed;
 mod seed_contract_tests;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/structural_fixture.rs"]
+mod structural_fixture;
 #[path = "gameplay_harness/support.rs"]
 mod support;
 #[path = "gameplay_harness/survival_probe.rs"]
@@ -109,29 +113,37 @@ fn gameplay_report() {
 
     use configuration::ScenarioPlanMode;
     use focused_runner::run_focused_probe_with_registries;
+    use focused_seeds::MAINTAINED_VARIATION_ROOT;
+    use fresh_seed::fresh_root;
 
     workshop::run_gameplay_harness(ScenarioPlanMode::Explore);
     agency::run_maintained_agency_counterfactuals();
 
     let registries = build_registries();
+    let focused_variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_464F);
+    std::println!("FOCUSED REPORT INPUT variation_root=0x{focused_variation_root:016X}");
     run_focused_probe_with_registries(
         &registries,
         "survival-provisioning",
         survival_probe::run_survival_provisioning_probe,
+        focused_variation_root,
     );
     run_focused_probe_with_registries(
         &registries,
         "primitive-progression",
         progression_probe::run_primitive_progression_probe,
+        focused_variation_root,
     );
     run_focused_probe_with_registries(
         &registries,
         "ore-preparation",
         ore_probe::run_ore_preparation_capability_probe,
+        focused_variation_root,
     );
     run_focused_probe_with_registries(
         &registries,
         "foundry",
         foundry_probe::run_foundry_capability_probe,
+        focused_variation_root,
     );
 }

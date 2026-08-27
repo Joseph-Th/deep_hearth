@@ -27,10 +27,12 @@ fn assembly_registries() -> Registries {
             Energy::from_nanojoules(1_000),
             Power::from_microwatts(25),
         )
-        .with_assembly_profile(MaterialAssemblyProfile::new(vec![MaterialInputSpec::new(
-            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-            Mass::from_milligrams(1),
-        )])),
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+                Mass::from_milligrams(1),
+            ),
+        ])),
     )
 }
 

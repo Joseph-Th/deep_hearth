@@ -13,7 +13,8 @@ mod structural_execution;
 
 pub use analysis::{
     StructuralAnalysis, StructuralAnalysisError, StructuralAssessment, StructuralDamageEvent,
-    StructuralFailureCause, StructuralStage, analyze_structure,
+    StructuralFailureCause, StructuralStage, analyze_structure, calculate_pristine_member_capacity,
+    calculate_structural_utilization_ppm,
 };
 pub use definitions::{
     STRUCTURAL_PARTS_PER_MILLION, StructuralLoadMode, StructuralProfileDefinition,

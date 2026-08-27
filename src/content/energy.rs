@@ -56,11 +56,11 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             Power::from_microwatts(500_000_000),
         )
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-            MaterialInputSpec::new(
+            MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
                 Mass::from_milligrams(900_000),
             ),
-            MaterialInputSpec::new(
+            MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
                 Mass::from_milligrams(200_000),
             ),

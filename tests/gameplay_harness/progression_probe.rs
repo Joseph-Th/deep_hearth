@@ -35,7 +35,8 @@ use deep_hearth::labor::{
     ManualPowerError, ManualPowerRequest, ProspectingMethodId, validate_start_manual_power,
 };
 use deep_hearth::material::{
-    CommodityKey, CompositionComponent, MaterialAssemblyProfile, MaterialComposition,
+    COMPOSITION_PARTS_PER_MILLION, CommodityKey, CompositionComponent, MaterialAssemblyProfile,
+    MaterialComposition,
 };
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::mining::{
@@ -57,6 +58,27 @@ use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 const MAX_STEADY_STATE_CRUSH_CYCLES: u64 = 64;
 
+pub(super) fn varied_four_way_order(seed: u64) -> [usize; 4] {
+    let mut order = [0, 1, 2, 3];
+    let mut random = seed;
+    for upper in (1..order.len()).rev() {
+        random = mix64(random ^ upper as u64);
+        let selected = usize::try_from(random % (upper as u64 + 1))
+            .unwrap_or_else(|_| unreachable!("four-way shuffle index fits usize"));
+        order.swap(upper, selected);
+    }
+    order
+}
+
+fn progression_clue_bounds(slot: usize) -> VoxelBounds {
+    let x = i64::try_from(slot)
+        .unwrap_or_else(|_| unreachable!("four-way clue slot fits i64"))
+        .checked_mul(2)
+        .unwrap_or_else(|| unreachable!("bounded clue coordinate cannot overflow"));
+    VoxelBounds::new(VoxelCoord::new(x, -4, 0), VoxelCoord::new(x + 1, -3, 1))
+        .unwrap_or_else(|error| panic!("primitive progression clue bounds failed: {error}"))
+}
+
 /// Fail closed when the authored player-facing acquisition/action catalog grows beyond what this
 /// cold-agent progression episode either exercises naturally or explicitly classifies outside the
 /// episode fantasy.
@@ -67,9 +89,7 @@ fn assert_playable_catalog_coverage(registries: &Registries) {
     let actual_equipment = registries
         .equipment()
         .definitions()
-        .filter(|definition| {
-            definition.assembly_profile().is_some() || definition.upgrade_profile().is_some()
-        })
+        .filter(|definition| definition.has_runtime_acquisition_route())
         .map(|definition| definition.id().value())
         .collect::<BTreeSet<_>>();
     let exercised_equipment = BTreeSet::from([
@@ -88,7 +108,7 @@ fn assert_playable_catalog_coverage(registries: &Registries) {
     let actual_energy = registries
         .energy()
         .definitions()
-        .filter(|definition| definition.assembly_profile().is_some())
+        .filter(|definition| definition.has_runtime_assembly_route())
         .map(|definition| definition.id().value())
         .collect::<BTreeSet<_>>();
     assert_eq!(

@@ -8,6 +8,8 @@ mod focused_runner;
 mod focused_seeds;
 #[path = "gameplay_harness/industrial_support.rs"]
 mod industrial_support;
+#[path = "gameplay_harness/ore_fixture.rs"]
+mod ore_fixture;
 #[path = "gameplay_harness/ore_probe.rs"]
 mod ore_probe;
 #[path = "gameplay_harness/ore_setup.rs"]
@@ -18,6 +20,8 @@ mod production_support;
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
+#[path = "gameplay_harness/structural_fixture.rs"]
+mod structural_fixture;
 #[path = "gameplay_harness/support.rs"]
 mod support;
 

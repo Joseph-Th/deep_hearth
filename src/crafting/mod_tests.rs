@@ -7,7 +7,7 @@ use crate::content::{
     PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_KNAP_STONE_TOOL, PROSPECTING_FIELD_INSPECTION,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
-use crate::core::quantity::{Area, Energy, Force, Length, Temperature};
+use crate::core::quantity::{Area, Energy, Force, Length, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::geology::{FieldProspectingRequest, validate_start_field_prospecting};
@@ -47,7 +47,7 @@ fn manual_craft_registry_rejects_output_that_requires_unauthored_particle_state(
     production.register_process(ProcessDefinition::new(
         process,
         "particulate manual output fixture",
-        vec![crate::material::MaterialInputSpec::new(input, input_mass)],
+        vec![crate::material::MaterialInputSpec::pure(input, input_mass)],
         Vec::new(),
     ));
     let crafting = CraftingRegistry::new([ManualCraftDefinition::new(
@@ -55,12 +55,31 @@ fn manual_craft_registry_rejects_output_that_requires_unauthored_particle_state(
         input,
         input_mass,
         TickSpan::new(1),
-        SurvivalExertion::REST,
+        SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO),
         vec![ManualCraftOutput::new(output, input_mass)],
     )]);
 
     let result = std::panic::catch_unwind(|| {
         crafting.validate_references(&production, registries.materials());
+    });
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn manual_craft_definition_rejects_zero_exertion() {
+    let result = std::panic::catch_unwind(|| {
+        ManualCraftDefinition::new(
+            ProcessId::new(880_002),
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1),
+            TickSpan::new(1),
+            SurvivalExertion::REST,
+            vec![ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(1),
+            )],
+        )
     });
 
     assert!(result.is_err());
@@ -120,7 +139,7 @@ fn native_copper_reinforcement_rejects_ordinary_ore_form_without_inventing_separ
 }
 
 #[test]
-fn native_copper_reinforcement_rejects_contaminated_native_metal() {
+fn native_copper_reinforcement_filters_contaminated_native_metal() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xC4AF_7010));
     initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
@@ -158,11 +177,63 @@ fn native_copper_reinforcement_rejects_contaminated_native_metal() {
             ),
         )
         .err(),
-        Some(StartManualCraftError::Resolution(
-            ManualCraftError::UnsupportedComposition
-        ))
+        Some(StartManualCraftError::Resolution(ManualCraftError::Input(
+            ProcessInputError::InsufficientMass {
+                stockpile: source,
+                commodity: CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+                available: Mass::ZERO,
+                requested: Mass::from_milligrams(20_000),
+            }
+        )))
     );
     assert_eq!(state, before);
+}
+
+#[test]
+fn native_copper_reinforcement_skips_contaminated_stock_when_pure_metal_exists() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xC4AF_7011));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("mixed-stock craft survival setup failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(40_000))
+        .unwrap_or_else(|error| panic!("mixed-stock craft source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
+        .unwrap_or_else(|error| panic!("mixed-stock craft destination failed: {error}"));
+    let mixed = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_COPPER, 900_000),
+        CompositionComponent::new(MATERIAL_STONE, 100_000),
+    ])
+    .unwrap_or_else(|error| panic!("mixed-stock craft composition failed: {error}"));
+    deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+        Mass::from_milligrams(20_000),
+        Temperature::from_millikelvin(293_150),
+        mixed,
+    )
+    .unwrap_or_else(|error| panic!("mixed-stock contaminated copper failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+        Mass::from_milligrams(20_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("mixed-stock pure copper failed: {error}"));
+
+    let _validated = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(
+            PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+            source,
+            destination,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("mixed-stock manual craft should select pure copper: {error}"));
 }
 
 fn make_fixture() -> (Registries, AppState, StockpileId, StockpileId) {

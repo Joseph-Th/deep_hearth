@@ -1,4 +1,4 @@
-//! Small shared fixtures used by the workshop/report harness and focused probe targets.
+//! Minimal fixtures shared by every focused gameplay target.
 
 use deep_hearth::capability::{CapabilityId, CapabilityValue};
 use deep_hearth::content::gameplay_fixture::seed_stockpile;

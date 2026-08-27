@@ -76,6 +76,16 @@ pub(super) fn run_scenario(
         StructuralStage::Failed,
         "gameplay scenario must offer a legal reinforced crusher siting option"
     );
+    assert!(
+        compact_assessment.utilization_ppm()
+            <= u128::from(variation.structure.compact_target_utilization_ppm),
+        "gameplay compact-support fixture drifted above its production structural-utilization target"
+    );
+    assert!(
+        reinforced_assessment.utilization_ppm()
+            <= u128::from(variation.structure.reinforced_target_utilization_ppm),
+        "gameplay reinforced-support fixture drifted above its production structural-utilization target"
+    );
     let compact_is_better = (
         stage_rank(compact_assessment.stage()),
         compact_assessment.utilization_ppm(),
@@ -123,10 +133,11 @@ pub(super) fn run_scenario(
         "reinforced"
     };
     println!(
-        "\nSCENARIO world=0x{:016X} behavior=0x{:016X} ore={}ppm Cu order={}mg nominal_batch={}mg crusher={}ppm controller_event=[tick:{} mass:{}mg target:{} actor_visibility:hidden] policy=[power:{} recovery:{} maintenance:{} structure:{}] stored_work=[small:{}+{}ppm nominal-batches, high-power:{}+{}ppm nominal-batches] maintenance=[units:{} replacement:{}mg target:{}ppm]",
+        "\nSCENARIO world=0x{:016X} behavior=0x{:016X} ore=[copper:{}ppm gangue-clay-share:{}ppm] order={}mg nominal_batch={}mg crusher={}ppm controller_event=[tick:{} mass:{}mg target:{} actor_visibility:hidden] policy=[power:{} recovery:{} maintenance:{} structure:{}] stored_work=[small:{}+{}ppm nominal-batches, high-power:{}+{}ppm nominal-batches] maintenance=[units:{} replacement:{}mg target:{}ppm]",
         variation.world_seed,
         variation.behavior_seed,
         variation.ore.ore_copper_ppm,
+        variation.ore.gangue_clay_share_ppm,
         variation.ore.order_mass.milligrams(),
         variation.ore.nominal_batch_mass.milligrams(),
         variation
@@ -187,13 +198,10 @@ pub(super) fn run_scenario(
             }
         }
 
-        let pre_batch_transition_budget = report
-            .progress
-            .target_mass
-            .milligrams()
-            .checked_add(u64::from(variation.crusher.maintenance_replacement_units))
-            .and_then(|value| value.checked_add(1))
-            .unwrap_or_else(|| panic!("workshop pre-batch transition budget overflowed"));
+        let pre_batch_transition_budget =
+            u64::from(variation.crusher.maintenance_replacement_units)
+                .checked_add(3)
+                .unwrap_or_else(|| panic!("workshop pre-batch transition budget overflowed"));
         let mut selected_batch = None;
         for _ in 0..pre_batch_transition_budget {
             let (
@@ -817,17 +825,17 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     );
     print_content_summary(&registries, verbose);
     std::println!(
-        "REACHABILITY playable=[survival,local-prospecting,hand-mining,manual-crafting,primitive-power,primitive-processing] capability-only=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] missing=[world-scale-clue-discovery,industrial-acquisition,industrial-power-generation,smelting]"
+        "EVIDENCE SCOPE ordinary-play-probes=[survival,local-prospecting,hand-mining,manual-crafting,primitive-power,primitive-processing] controlled-capability-probes=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] authority-for-global-runtime-scope=STATUS.md"
     );
     if verbose {
         std::println!(
-            "PLAYABILITY runtime-actions-after-controlled-bootstrap=[pressure-sensitive-survival-response+activity-dependent-work-pressure+provisioning,surface-prospecting->evidence-gated-mining,deferred-evidence-refinement-when-current-options-fail,manual-shaping,equipment-assembly+upgrade,hand-mining,material-backed-flywheel-construction,survival-costed-manual-power,primitive-autonomous-crushing,primitive-constituent-separation] primitive-processing-utility=[attention:playable bounded-payback:true lifecycle:condition-limited progression-leverage:second-upgrade-work material-progression:playable-separated-copper] bootstrap-assumptions=[starting-authored-food+drink+storage-profile,raw-gathered-matter,visible-local-geological-clue-regions] discovery=[quick-local-inspection:playable detailed-local-refinement:playable constraint-triggered-ambiguity-recovery:playable evidence-to-extraction:playable extracted-form+composition-observation:playable hidden-deposit-id:unavailable-to-actor] capability-only=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] missing-bridge=[world-scale-clue-discovery+spatially-coarse-to-local-refinement,industrial-acquisition,industrial-power-generation,concentrate-reduction/smelting]"
+            "PLAYABILITY EVIDENCE runtime-actions-after-controlled-bootstrap=[pressure-sensitive-survival-response+activity-dependent-work-pressure+provisioning,surface-prospecting->evidence-gated-mining,deferred-evidence-refinement-when-current-options-fail,manual-shaping,equipment-assembly+upgrade,hand-mining,material-backed-flywheel-construction,survival-costed-manual-power,primitive-autonomous-crushing,primitive-constituent-separation] bootstrap-assumptions=[starting-authored-food+drink+storage-profile,raw-gathered-matter,visible-local-geological-clue-regions] actor-hidden=[deposit-identity,future-controlled-event] note=claims-are-limited-to-executed-probes"
         );
         std::println!(
             "PLAYER LOOP runtime-after-bootstrap=[inspect-local-clues->act-on-resolved-evidence+defer-uncertain-clues->respond-to-hunger/thirst+choose-work-that-shifts-body-pressure+shape-tools->mine->learn-form+composition-from-extraction->revisit-uncertainty-when-direct-supply-fails->choose-processing-feed-from-observed-matter->choose-first-copper-affordance:[hard-material-access|stored-work-rate]->mechanize->mine-more-while-crushing->repay-automation-attention-before-wear-endpoint->separate-crushed-ore->forge-second-upgrade->converge] capability-workshop=[site-machine->process-total-mass->adapt-batch-to-condition+stored-work->choose-power->hand-charge-or-protect-survival->react-to-world-load->maintain-or-relocate->iterate] utility=[information,material-access,player-attention,processed-material,survival-reserve,machine-condition,structural-margin,stored-work,time]"
         );
         std::println!(
-            "CORE FANTASY TARGET loop=[observe-world->infer-affordances->respond-to-constraints-with-information->survive+prepare->extract->make-scarce-investment->delegate-repetition->reinvest-returned-attention->convert-processed-matter-into-next-capability] evidence-map=[experience:progression:knowledge+extraction+scarce-investment+primitive-delegation experience:survival:pressure+provisioning+work-cost experience:workshop:stored-work+wear+maintenance+structure+recovery capability-only:ore:full-batch-preparation capability-only:foundry:pure-copper-thermal-chain] interpretation=derived-in-focused-probe-reviews-not-from-this-catalog-line industrial-reachability=capability-only boundary=[world-scale-clue-discovery+spatially-coarse-to-local-refinement,material-sampling/drilling/assays/geophysics,industrial-acquisition,industrial-power-generation,concentrate-reduction/smelting]"
+            "CORE FANTASY TARGET loop=[observe-world->infer-affordances->respond-to-constraints-with-information->survive+prepare->extract->make-scarce-investment->delegate-repetition->reinvest-returned-attention->convert-processed-matter-into-next-capability] evidence-map=[experience:progression:knowledge+extraction+scarce-investment+primitive-delegation experience:survival:pressure+provisioning+work-cost experience:workshop:stored-work+wear+maintenance+structure+recovery capability:ore:full-batch-preparation capability:foundry:pure-copper-thermal-chain] interpretation=derived-from-executable-probe-outcomes global-runtime-boundary=STATUS.md"
         );
     }
     println!(

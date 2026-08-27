@@ -139,6 +139,14 @@ impl EnergyStoreDefinition {
     pub fn assembly_profile(&self) -> Option<&MaterialAssemblyProfile> {
         self.assembly_profile.as_ref()
     }
+
+    /// Returns whether ordinary runtime gameplay currently declares a construction route for this
+    /// store definition. Discovery/reporting code should consume this owner classification instead
+    /// of inferring it from implementation fields.
+    #[must_use]
+    pub const fn has_runtime_assembly_route(&self) -> bool {
+        self.assembly_profile.is_some()
+    }
 }
 
 #[cfg(test)]

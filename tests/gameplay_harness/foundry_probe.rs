@@ -22,7 +22,7 @@ use deep_hearth::thermal::{
     resolve_casting_process, resolve_melting_process,
 };
 
-fn probe_setup(registries: &Registries, seed: u64) -> FoundrySetup {
+pub(super) fn probe_setup(registries: &Registries, seed: u64) -> FoundrySetup {
     let melting = registries
         .thermal()
         .get_melting(PROCESS_MELT_PURE_COPPER)

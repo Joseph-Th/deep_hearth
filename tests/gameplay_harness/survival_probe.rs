@@ -10,14 +10,18 @@ use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, MANUAL_POWER_HAND_CRANK,
     MATERIAL_COPPER, PROSPECTING_FIELD_INSPECTION,
 };
-use deep_hearth::core::quantity::{Energy, Mass, Temperature, Volume};
+use deep_hearth::core::quantity::{
+    AggregateMass, AggregateVolume, Energy, Mass, Temperature, Volume,
+};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::WorldSeed;
 use deep_hearth::energy::validate_assemble_energy_store;
 use deep_hearth::equipment::validate_assemble_equipment;
-use deep_hearth::fluid::calculate_fluid_volume_accounting;
+use deep_hearth::fluid::{FluidStoreId, calculate_fluid_volume_accounting};
 use deep_hearth::geology::{FieldProspectingRequest, validate_start_field_prospecting};
-use deep_hearth::inventory::{MaterialLotId, MaterialLotSelection, StockpileStorageProfile};
+use deep_hearth::inventory::{
+    MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile,
+};
 use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
@@ -47,6 +51,27 @@ const fn category_salt(category: FoodCategory) -> u64 {
         FoodCategory::Fruit => 0x4652_5549_5400_0002,
         FoodCategory::Protein => 0x5052_4F54_4549_4E03,
     }
+}
+
+fn provisioning_drink_supply(registries: &Registries, world: &ProvisioningWorld) -> Volume {
+    let hydration_deficit = u128::from(
+        registries
+            .survival()
+            .physiology()
+            .hydration_loss_per_tick()
+            .microliters(),
+    )
+    .checked_mul(u128::from(world.provisioning_wait_ticks))
+    .unwrap_or_else(|| panic!("survival probe hydration supply target overflowed"));
+    let volume = hydration_deficit
+        .checked_mul(1_000_000)
+        .unwrap_or_else(|| panic!("survival probe drink supply scaling overflowed"))
+        .div_ceil(u128::from(world.drink.hydration_multiplier_ppm()))
+        .max(1);
+    Volume::from_microliters(
+        u64::try_from(volume)
+            .unwrap_or_else(|_| panic!("survival probe drink supply exceeds authoritative range")),
+    )
 }
 
 fn fresh_age(registries: &Registries, state: &AppState, lot: MaterialLotId) -> u64 {
@@ -194,25 +219,103 @@ fn provisioning_priority_from_reserves(
     }
 }
 
-struct ProvisioningWorld<'a> {
-    foods: &'a [FoodDefinition],
-    offered_masses: &'a [Mass],
-    witness_index: usize,
+pub(super) struct ProvisioningWorld {
+    pub(super) foods: Vec<FoodDefinition>,
+    pub(super) offered_masses: Vec<Mass>,
+    pub(super) witness_index: usize,
     preserved_profile: StockpileStorageProfile,
-    preservation_multiplier_ppm: u32,
-    age_ticks: u64,
-    provisioning_wait_ticks: u64,
-    target_absorbed_energy: u128,
+    pub(super) preservation_multiplier_ppm: u32,
+    pub(super) age_ticks: u64,
+    pub(super) provisioning_wait_ticks: u64,
+    pub(super) target_absorbed_energy: u128,
     drink: DrinkDefinition,
 }
 
-fn run_provisioning_case(
-    registries: &Registries,
-    seed: u64,
-    world: &ProvisioningWorld<'_>,
-    policy: DietProvisioningPolicy,
-) -> SurvivalCaseReview {
-    let ProvisioningWorld {
+pub(super) fn provisioning_world(registries: &Registries, seed: u64) -> ProvisioningWorld {
+    let physiology = registries.survival().physiology();
+    let mut foods_by_category = BTreeMap::<FoodCategory, Vec<FoodDefinition>>::new();
+    for food in registries.survival().foods().copied() {
+        foods_by_category
+            .entry(food.category())
+            .or_default()
+            .push(food);
+    }
+    assert!(
+        !foods_by_category.is_empty(),
+        "survival gameplay is stale or unavailable: the runtime registry has no authored edible food"
+    );
+    let foods = foods_by_category
+        .iter()
+        .enumerate()
+        .map(|(index, (category, options))| {
+            let choice = usize::try_from(
+                mix64(seed ^ category_salt(*category) ^ index as u64) % options.len() as u64,
+            )
+            .unwrap_or_else(|_| unreachable!("food option index fits usize"));
+            options[choice]
+        })
+        .collect::<Vec<_>>();
+    let compact_indices = selected_food_indices(&foods, DietProvisioningPolicy::CompactCalories);
+    let balanced_indices = selected_food_indices(&foods, DietProvisioningPolicy::BalancedRecovery);
+    let witness_slot =
+        usize::try_from(mix64(seed ^ 0x5052_4553_5749_544E) % compact_indices.len() as u64)
+            .unwrap_or_else(|_| unreachable!("preservation witness index fits usize"));
+    let witness_index = compact_indices[witness_slot];
+    let witness_food = foods[witness_index];
+    let preservation_multiplier_ppm =
+        2_000_000 + (mix64(seed ^ 0x5052_4553_4552_5645) % 2_000_001) as u32;
+    let preserved_profile = StockpileStorageProfile::with_preservation(
+        true,
+        false,
+        Temperature::from_millikelvin(350_000),
+        preservation_multiplier_ppm,
+    )
+    .unwrap_or_else(|error| panic!("survival probe preservation profile failed: {error}"));
+    let age_limit = (witness_food.shelf_life().value() / 4).max(1);
+    let age_ticks = (256 + mix64(seed ^ 0x4147_455F_464F_4F44) % 512).min(age_limit);
+    let ticks_per_day = registries.core().calendar().ticks_per_day();
+    let provisioning_base = ticks_per_day
+        .checked_mul(2)
+        .map(|ticks| ticks / 3)
+        .unwrap_or_else(|| panic!("survival probe provisioning horizon overflowed"));
+    let provisioning_jitter = (ticks_per_day / 12).max(1);
+    let provisioning_wait_ticks = provisioning_base
+        .checked_add(mix64(seed ^ 0x4441_5946_5241_4354) % provisioning_jitter)
+        .unwrap_or_else(|| panic!("survival probe provisioning wait overflowed"));
+    assert!(provisioning_wait_ticks > age_ticks);
+    let target_absorbed_energy = physiology
+        .basal_energy_cost_per_tick()
+        .nanojoules()
+        .checked_mul(u128::from(provisioning_wait_ticks))
+        .unwrap_or_else(|| panic!("survival probe meal-energy target overflowed"));
+    assert!(target_absorbed_energy < physiology.maximum_metabolic_energy().nanojoules());
+    let compact_target = target_absorbed_energy
+        .div_ceil(compact_indices.len() as u128)
+        .max(1);
+    let balanced_target = target_absorbed_energy
+        .div_ceil(balanced_indices.len() as u128)
+        .max(1);
+    let offered_masses = foods
+        .iter()
+        .enumerate()
+        .map(|(index, food)| {
+            let balanced = mass_for_target_energy(*food, balanced_target);
+            if compact_indices.contains(&index) {
+                balanced.max(mass_for_target_energy(*food, compact_target))
+            } else {
+                balanced
+            }
+        })
+        .collect::<Vec<_>>();
+    let drinks = registries.survival().drinks().copied().collect::<Vec<_>>();
+    assert!(
+        !drinks.is_empty(),
+        "survival gameplay is stale or unavailable: the runtime registry has no authored drinkable fluid"
+    );
+    let drink_index = usize::try_from(mix64(seed ^ 0x4452_494E_4B00_0001) % drinks.len() as u64)
+        .unwrap_or_else(|_| unreachable!("drink index fits usize"));
+
+    ProvisioningWorld {
         foods,
         offered_masses,
         witness_index,
@@ -221,12 +324,27 @@ fn run_provisioning_case(
         age_ticks,
         provisioning_wait_ticks,
         target_absorbed_energy,
-        drink,
-    } = *world;
+        drink: drinks[drink_index],
+    }
+}
+
+struct ProvisioningPlan {
+    selected_indices: Vec<usize>,
+    selected_masses: Vec<Mass>,
+    drink_volume: Volume,
+}
+
+fn provisioning_plan(
+    registries: &Registries,
+    world: &ProvisioningWorld,
+    policy: DietProvisioningPolicy,
+) -> ProvisioningPlan {
+    let foods = world.foods.as_slice();
     let physiology = registries.survival().physiology();
     let selected_indices = selected_food_indices(foods, policy);
     assert!(!selected_indices.is_empty());
-    let category_target = target_absorbed_energy
+    let category_target = world
+        .target_absorbed_energy
         .div_ceil(selected_indices.len() as u128)
         .max(1);
     let selected_masses = selected_indices
@@ -235,7 +353,7 @@ fn run_provisioning_case(
         .collect::<Vec<_>>();
     for (index, selected_mass) in selected_indices.iter().zip(&selected_masses) {
         assert!(
-            *selected_mass <= offered_masses[*index],
+            *selected_mass <= world.offered_masses[*index],
             "survival probe offered food must cover every matched-policy portion"
         );
     }
@@ -250,7 +368,7 @@ fn run_provisioning_case(
         })
         .unwrap_or_else(|| panic!("survival probe food hydration overflowed"));
     let hydration_deficit = u128::from(physiology.hydration_loss_per_tick().microliters())
-        .checked_mul(u128::from(provisioning_wait_ticks))
+        .checked_mul(u128::from(world.provisioning_wait_ticks))
         .unwrap_or_else(|| panic!("survival probe hydration deficit overflowed"));
     let target_drink_gain = hydration_deficit
         .saturating_sub(offered_food_hydration)
@@ -258,21 +376,46 @@ fn run_provisioning_case(
     let drink_volume = target_drink_gain
         .checked_mul(1_000_000)
         .unwrap_or_else(|| panic!("survival probe drink scaling overflowed"))
-        .div_ceil(u128::from(drink.hydration_multiplier_ppm()))
+        .div_ceil(u128::from(world.drink.hydration_multiplier_ppm()))
         .max(1);
     let drink_volume = Volume::from_microliters(
         u64::try_from(drink_volume)
             .unwrap_or_else(|_| panic!("survival probe drink volume exceeds authoritative range")),
     );
-    let drink_capacity = drink_volume
-        .checked_add(drink_volume)
-        .unwrap_or_else(|| panic!("survival probe drink capacity overflowed"));
+    ProvisioningPlan {
+        selected_indices,
+        selected_masses,
+        drink_volume,
+    }
+}
+
+struct PreparedProvisioningWorld {
+    state: AppState,
+    ambient_meal: StockpileId,
+    prepared_lots: Vec<MaterialLotId>,
+    preserved_witness: MaterialLotId,
+    drink_store: FluidStoreId,
+    ambient_age: u64,
+    preserved_age: u64,
+    preservation_age_saved_ticks: u64,
+    matter_total: AggregateMass,
+    fluid_total: AggregateVolume,
+}
+
+fn prepare_provisioning_world(
+    registries: &Registries,
+    seed: u64,
+    world: &ProvisioningWorld,
+    drink_supply: Volume,
+) -> PreparedProvisioningWorld {
+    let foods = world.foods.as_slice();
+    let offered_masses = world.offered_masses.as_slice();
+    let witness_food = foods[world.witness_index];
+    let witness_mass = offered_masses[world.witness_index];
     let ambient_capacity = offered_masses
         .iter()
         .try_fold(Mass::ZERO, |total, mass| total.checked_add(*mass))
         .unwrap_or_else(|| panic!("survival probe offered-food capacity overflowed"));
-    let witness_food = foods[witness_index];
-    let witness_mass = offered_masses[witness_index];
 
     let mut state = AppState::new(WorldSeed::new(seed));
     initialize_player_survival(registries, &mut state)
@@ -282,23 +425,22 @@ fn run_provisioning_case(
         ambient_capacity,
         StockpileStorageProfile::solid_only(),
     );
-    let preserved_reserve = seed_stockpile(&mut state, witness_mass, preserved_profile);
-    let prepared = foods
+    let preserved_reserve = seed_stockpile(&mut state, witness_mass, world.preserved_profile);
+    let prepared_lots = foods
         .iter()
         .zip(offered_masses)
         .map(|(food, mass)| {
-            let lot = seed_lot(
+            seed_lot(
                 registries,
                 &mut state,
                 ambient_meal,
                 food.commodity(),
                 *mass,
                 ROOM_TEMPERATURE,
-            );
-            (*food, lot)
+            )
         })
         .collect::<Vec<_>>();
-    let ambient_witness = prepared[witness_index].1;
+    let ambient_witness = prepared_lots[world.witness_index];
     let preserved_witness = seed_lot(
         registries,
         &mut state,
@@ -310,13 +452,13 @@ fn run_provisioning_case(
     let drink_store = seed_fluid_store(
         registries,
         &mut state,
-        drink_capacity,
-        drink.fluid(),
-        drink_capacity,
+        drink_supply,
+        world.drink.fluid(),
+        drink_supply,
         ROOM_TEMPERATURE,
     );
 
-    advance_exact(registries, &mut state, age_ticks);
+    advance_exact(registries, &mut state, world.age_ticks);
     let ambient_age = fresh_age(registries, &state, ambient_witness);
     let preserved_age = fresh_age(registries, &state, preserved_witness);
     assert!(
@@ -324,14 +466,65 @@ fn run_provisioning_case(
         "authored preservation must slow future food spoilage relative to ambient storage"
     );
     let preservation_age_saved_ticks = ambient_age - preserved_age;
-    advance_exact(registries, &mut state, provisioning_wait_ticks - age_ticks);
+    advance_exact(
+        registries,
+        &mut state,
+        world.provisioning_wait_ticks - world.age_ticks,
+    );
+    validate_loaded_state(registries, &state).unwrap_or_else(|error| {
+        panic!("survival probe decision-point state audit failed: {error}")
+    });
+    let matter_total = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("survival probe initial matter audit failed: {error}"))
+        .total();
+    let fluid_total = calculate_fluid_volume_accounting(&state)
+        .unwrap_or_else(|error| panic!("survival probe initial fluid audit failed: {error}"))
+        .total();
+
+    PreparedProvisioningWorld {
+        state,
+        ambient_meal,
+        prepared_lots,
+        preserved_witness,
+        drink_store,
+        ambient_age,
+        preserved_age,
+        preservation_age_saved_ticks,
+        matter_total,
+        fluid_total,
+    }
+}
+
+fn run_provisioning_case(
+    registries: &Registries,
+    seed: u64,
+    world: &ProvisioningWorld,
+    prepared: &PreparedProvisioningWorld,
+    plan: &ProvisioningPlan,
+    policy: DietProvisioningPolicy,
+) -> SurvivalCaseReview {
+    let foods = world.foods.as_slice();
+    let offered_masses = world.offered_masses.as_slice();
+    let witness_index = world.witness_index;
+    let preservation_multiplier_ppm = world.preservation_multiplier_ppm;
+    let age_ticks = world.age_ticks;
+    let provisioning_wait_ticks = world.provisioning_wait_ticks;
+    let drink = world.drink;
+    let physiology = registries.survival().physiology();
+    let witness_food = foods[witness_index];
+    let witness_mass = offered_masses[witness_index];
+    let selected_indices = plan.selected_indices.as_slice();
+    let selected_masses = plan.selected_masses.as_slice();
+    let drink_volume = plan.drink_volume;
+    let ambient_age = prepared.ambient_age;
+    let preserved_age = prepared.preserved_age;
+    let preservation_age_saved_ticks = prepared.preservation_age_saved_ticks;
+    // Counterfactual evaluation branches only after the shared world has reached the observable
+    // provisioning decision point. The acting policy never sees or queries the sibling branch.
+    let mut state = prepared.state.clone();
 
     let before = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("survival probe player disappeared before provisioning"));
-    let matter_before = calculate_matter_accounting(&state)
-        .unwrap_or_else(|error| panic!("survival probe initial matter audit failed: {error}"));
-    let fluid_before = calculate_fluid_volume_accounting(&state)
-        .unwrap_or_else(|error| panic!("survival probe initial fluid audit failed: {error}"));
     let energy_deficit_ppm = normalized_energy_deficit_ppm(
         physiology.maximum_metabolic_energy(),
         before.metabolic_energy(),
@@ -351,8 +544,8 @@ fn run_provisioning_case(
     };
     let selections = selected_indices
         .iter()
-        .zip(&selected_masses)
-        .map(|(index, mass)| MaterialLotSelection::new(prepared[*index].1, *mass))
+        .zip(selected_masses)
+        .map(|(index, mass)| MaterialLotSelection::new(prepared.prepared_lots[*index], *mass))
         .collect::<Vec<_>>();
     let selected_categories = selected_indices
         .iter()
@@ -370,21 +563,21 @@ fn run_provisioning_case(
     let diet_quality_before = before.diet_quality_ppm();
     let recovery_rate_before = before.diet_supported_vitality_recovery_ppm_per_tick();
     let (meal, drank, action_order) = if drink_first {
-        let drank = validate_drink(registries, &state, drink_store, drink_volume)
+        let drank = validate_drink(registries, &state, prepared.drink_store, drink_volume)
             .unwrap_or_else(|error| panic!("survival probe drinking validation failed: {error}"))
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("survival probe drinking commit failed: {error}"));
-        let meal = validate_eat(registries, &state, ambient_meal, &selections)
+        let meal = validate_eat(registries, &state, prepared.ambient_meal, &selections)
             .unwrap_or_else(|error| panic!("survival probe varied meal validation failed: {error}"))
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("survival probe varied meal commit failed: {error}"));
         (meal, drank, "drink->eat")
     } else {
-        let meal = validate_eat(registries, &state, ambient_meal, &selections)
+        let meal = validate_eat(registries, &state, prepared.ambient_meal, &selections)
             .unwrap_or_else(|error| panic!("survival probe varied meal validation failed: {error}"))
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("survival probe varied meal commit failed: {error}"));
-        let drank = validate_drink(registries, &state, drink_store, drink_volume)
+        let drank = validate_drink(registries, &state, prepared.drink_store, drink_volume)
             .unwrap_or_else(|error| panic!("survival probe drinking validation failed: {error}"))
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("survival probe drinking commit failed: {error}"));
@@ -402,7 +595,7 @@ fn run_provisioning_case(
     assert_eq!(
         state
             .inventory()
-            .get_lot(preserved_witness)
+            .get_lot(prepared.preserved_witness)
             .map(|lot| lot.mass()),
         Some(witness_mass),
         "food rotation must retain the fresher preserved witness instead of consuming it first"
@@ -429,14 +622,14 @@ fn run_provisioning_case(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("survival probe final matter audit failed: {error}"))
             .total(),
-        matter_before.total(),
+        prepared.matter_total,
         "eating must transfer matter into survival ownership rather than delete it"
     );
     assert_eq!(
         calculate_fluid_volume_accounting(&state)
             .unwrap_or_else(|error| panic!("survival probe final fluid audit failed: {error}"))
             .total(),
-        fluid_before.total(),
+        prepared.fluid_total,
         "drinking must transfer finite fluid into survival ownership rather than delete it"
     );
     validate_loaded_state(registries, &state)
@@ -483,7 +676,7 @@ fn run_provisioning_case(
         recovery_rate_before_ppm_per_tick: recovery_rate_before,
         recovery_rate_after_ppm_per_tick: recovery_rate_after,
         reserve_recovered,
-        preservation_age_saved_ticks,
+        preservation_age_saved_ticks: prepared.preservation_age_saved_ticks,
         retained_preserved_mass_mg: witness_mass.milligrams(),
         energy_deficit_ppm,
         hydration_deficit_ppm,
@@ -806,111 +999,32 @@ fn evaluate_survival_work_pressure_probe(registries: &Registries, seed: u64) {
 fn evaluate_survival_provisioning_probe(registries: &Registries, seed: u64) {
     evaluate_survival_pressure_response_probe(registries, seed);
     evaluate_survival_work_pressure_probe(registries, seed);
-    let physiology = registries.survival().physiology();
-    let mut foods_by_category = BTreeMap::<FoodCategory, Vec<FoodDefinition>>::new();
-    for food in registries.survival().foods().copied() {
-        foods_by_category
-            .entry(food.category())
-            .or_default()
-            .push(food);
-    }
-    assert!(
-        !foods_by_category.is_empty(),
-        "survival gameplay is stale or unavailable: the runtime registry has no authored edible food"
-    );
-    let foods = foods_by_category
-        .iter()
-        .enumerate()
-        .map(|(index, (category, options))| {
-            let choice = usize::try_from(
-                mix64(seed ^ category_salt(*category) ^ index as u64) % options.len() as u64,
-            )
-            .unwrap_or_else(|_| unreachable!("food option index fits usize"));
-            options[choice]
-        })
-        .collect::<Vec<_>>();
-    let compact_indices = selected_food_indices(&foods, DietProvisioningPolicy::CompactCalories);
-    let balanced_indices = selected_food_indices(&foods, DietProvisioningPolicy::BalancedRecovery);
-    let witness_slot =
-        usize::try_from(mix64(seed ^ 0x5052_4553_5749_544E) % compact_indices.len() as u64)
-            .unwrap_or_else(|_| unreachable!("preservation witness index fits usize"));
-    let witness_index = compact_indices[witness_slot];
-    let witness_food = foods[witness_index];
-    let preservation_multiplier_ppm =
-        2_000_000 + (mix64(seed ^ 0x5052_4553_4552_5645) % 2_000_001) as u32;
-    let preserved_profile = StockpileStorageProfile::with_preservation(
-        true,
-        false,
-        Temperature::from_millikelvin(350_000),
-        preservation_multiplier_ppm,
-    )
-    .unwrap_or_else(|error| panic!("survival probe preservation profile failed: {error}"));
-    let age_limit = (witness_food.shelf_life().value() / 4).max(1);
-    let age_ticks = (256 + mix64(seed ^ 0x4147_455F_464F_4F44) % 512).min(age_limit);
-    let ticks_per_day = registries.core().calendar().ticks_per_day();
-    let provisioning_base = ticks_per_day
-        .checked_mul(2)
-        .map(|ticks| ticks / 3)
-        .unwrap_or_else(|| panic!("survival probe provisioning horizon overflowed"));
-    let provisioning_jitter = (ticks_per_day / 12).max(1);
-    let provisioning_wait_ticks = provisioning_base
-        .checked_add(mix64(seed ^ 0x4441_5946_5241_4354) % provisioning_jitter)
-        .unwrap_or_else(|| panic!("survival probe provisioning wait overflowed"));
-    assert!(provisioning_wait_ticks > age_ticks);
-    let target_absorbed_energy = physiology
-        .basal_energy_cost_per_tick()
-        .nanojoules()
-        .checked_mul(u128::from(provisioning_wait_ticks))
-        .unwrap_or_else(|| panic!("survival probe meal-energy target overflowed"));
-    assert!(target_absorbed_energy < physiology.maximum_metabolic_energy().nanojoules());
-    let compact_target = target_absorbed_energy
-        .div_ceil(compact_indices.len() as u128)
-        .max(1);
-    let balanced_target = target_absorbed_energy
-        .div_ceil(balanced_indices.len() as u128)
-        .max(1);
-    let offered_masses = foods
-        .iter()
-        .enumerate()
-        .map(|(index, food)| {
-            let balanced = mass_for_target_energy(*food, balanced_target);
-            if compact_indices.contains(&index) {
-                balanced.max(mass_for_target_energy(*food, compact_target))
-            } else {
-                balanced
-            }
-        })
-        .collect::<Vec<_>>();
-    let drinks = registries.survival().drinks().copied().collect::<Vec<_>>();
-    assert!(
-        !drinks.is_empty(),
-        "survival gameplay is stale or unavailable: the runtime registry has no authored drinkable fluid"
-    );
-    let drink_index = usize::try_from(mix64(seed ^ 0x4452_494E_4B00_0001) % drinks.len() as u64)
-        .unwrap_or_else(|_| unreachable!("drink index fits usize"));
-    let drink = drinks[drink_index];
-    let world = ProvisioningWorld {
-        foods: &foods,
-        offered_masses: &offered_masses,
-        witness_index,
-        preserved_profile,
-        preservation_multiplier_ppm,
-        age_ticks,
-        provisioning_wait_ticks,
-        target_absorbed_energy,
-        drink,
-    };
+    let world = provisioning_world(registries, seed);
+    let foods = world.foods.as_slice();
+    let provisioning_wait_ticks = world.provisioning_wait_ticks;
+    let compact_plan =
+        provisioning_plan(registries, &world, DietProvisioningPolicy::CompactCalories);
+    let balanced_plan =
+        provisioning_plan(registries, &world, DietProvisioningPolicy::BalancedRecovery);
+    let drink_supply = provisioning_drink_supply(registries, &world);
+    assert!(compact_plan.drink_volume <= drink_supply);
+    assert!(balanced_plan.drink_volume <= drink_supply);
+    let prepared = prepare_provisioning_world(registries, seed, &world, drink_supply);
 
     let compact = run_provisioning_case(
         registries,
         seed,
         &world,
+        &prepared,
+        &compact_plan,
         DietProvisioningPolicy::CompactCalories,
     );
     let balanced = run_provisioning_case(
         registries,
         seed,
         &world,
+        &prepared,
+        &balanced_plan,
         DietProvisioningPolicy::BalancedRecovery,
     );
     assert_eq!(compact.policy, DietProvisioningPolicy::CompactCalories);

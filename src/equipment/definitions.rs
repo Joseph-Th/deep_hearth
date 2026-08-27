@@ -490,6 +490,14 @@ impl EquipmentDefinition {
         self.upgrade_profile.as_ref()
     }
 
+    /// Returns whether ordinary runtime gameplay currently declares any acquisition route for this
+    /// equipment definition. This is the authoritative classification used by discovery/reporting
+    /// code; callers must not reconstruct it from the individual route fields.
+    #[must_use]
+    pub const fn has_runtime_acquisition_route(&self) -> bool {
+        self.assembly_profile.is_some() || self.upgrade_profile.is_some()
+    }
+
     #[must_use]
     pub const fn worn_recovery_form(&self) -> Option<FormId> {
         self.worn_recovery_form

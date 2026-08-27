@@ -1,7 +1,9 @@
 //! Tests for the sibling assembly module; isolated so test-only edits do not invalidate production builds.
 
 use super::*;
-use crate::content::{FORM_CRUSHED, FORM_MOLTEN, FORM_SCRAP, MATERIAL_COPPER, build_registries};
+use crate::content::{
+    FORM_CRUSHED, FORM_INGOT, FORM_MOLTEN, FORM_SCRAP, MATERIAL_COPPER, build_registries,
+};
 
 #[test]
 fn infrastructure_assembly_rejects_every_unconsolidated_form() {
@@ -12,7 +14,7 @@ fn infrastructure_assembly_rejects_every_unconsolidated_form() {
 
     for commodity in [liquid, particulate, scrap] {
         assert_eq!(
-            MaterialAssemblyProfile::new(vec![MaterialInputSpec::new(
+            MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
                 commodity,
                 Mass::from_milligrams(1),
             )])
@@ -20,4 +22,17 @@ fn infrastructure_assembly_rejects_every_unconsolidated_form() {
             Err(MaterialAssemblyReferenceError::UnconsolidatedForm { commodity })
         );
     }
+}
+
+#[test]
+fn infrastructure_assembly_requires_pure_input_specs_at_authoring_time() {
+    let commodity = CommodityKey::new(MATERIAL_COPPER, FORM_INGOT);
+    let result = std::panic::catch_unwind(|| {
+        MaterialAssemblyProfile::new(vec![MaterialInputSpec::new(
+            commodity,
+            Mass::from_milligrams(1),
+        )])
+    });
+
+    assert!(result.is_err());
 }

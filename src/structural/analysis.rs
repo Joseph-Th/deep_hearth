@@ -8,11 +8,12 @@ use std::fmt::{Display, Formatter};
 use crate::core::arithmetic::{
     scale_u128_fraction_ceil, scale_u128_fraction_floor, scaled_ratio_floor_saturating,
 };
-use crate::core::quantity::Force;
-use crate::material::{MaterialId, MaterialRegistry};
+use crate::core::quantity::{Area, Force};
+use crate::material::{MaterialDefinition, MaterialId, MaterialRegistry};
 
 use super::definitions::{
-    STRUCTURAL_PARTS_PER_MILLION, StructuralLoadMode, StructuralProfileId, StructuralRegistry,
+    STRUCTURAL_PARTS_PER_MILLION, StructuralLoadMode, StructuralProfileDefinition,
+    StructuralProfileId, StructuralRegistry,
 };
 use super::state::{
     StructuralElementId, StructuralElementRecord, StructuralLifecycle, StructuralLoadKind,
@@ -26,6 +27,42 @@ pub enum StructuralStage {
     Strained,
     Cracking,
     Failed,
+}
+
+/// Projects structural utilization using the same normalized ratio as authoritative analysis.
+#[must_use]
+pub fn calculate_structural_utilization_ppm(load: Force, capacity: Force) -> u128 {
+    if capacity.is_zero() {
+        return if load.is_zero() { 0 } else { u128::MAX };
+    }
+    scaled_ratio_floor_saturating(
+        load.millinewtons(),
+        capacity.millinewtons(),
+        STRUCTURAL_PARTS_PER_MILLION,
+    )
+}
+
+/// Projects the pristine axial capacity of one material/profile cross-section.
+///
+/// This is the same capacity calculation used by authoritative structural analysis. Planning,
+/// presentation, and gameplay evaluation should use this projection instead of reproducing
+/// strength-axis selection or unit conversion outside the structural owner.
+#[must_use]
+pub fn calculate_pristine_member_capacity(
+    profile: &StructuralProfileDefinition,
+    material: &MaterialDefinition,
+    cross_section: Area,
+) -> Force {
+    let mechanical = material.properties().mechanical();
+    let strength_kpa = match profile.load_mode() {
+        StructuralLoadMode::Compression => mechanical.compressive_strength_kpa(),
+        StructuralLoadMode::Tension => mechanical.tensile_strength_kpa(),
+    };
+
+    // 1 kPa * 1 mm^2 = 1 mN, so authored strength and cross-section multiply exactly.
+    Force::from_millinewtons(
+        u128::from(strength_kpa) * u128::from(cross_section.square_millimeters()),
+    )
 }
 
 /// Why a structural member crossed into irreversible failure during one analysis.
@@ -618,15 +655,10 @@ fn pristine_capacity(
             material: record.material(),
         });
     };
-    let mechanical = material.properties().mechanical();
-    let strength_kpa = match profile.load_mode() {
-        StructuralLoadMode::Compression => mechanical.compressive_strength_kpa(),
-        StructuralLoadMode::Tension => mechanical.tensile_strength_kpa(),
-    };
-
-    // 1 kPa * 1 mm^2 = 1 mN, so authored strength and cross-section multiply exactly.
-    Ok(Force::from_millinewtons(
-        u128::from(strength_kpa) * u128::from(record.cross_section().square_millimeters()),
+    Ok(calculate_pristine_member_capacity(
+        profile,
+        material,
+        record.cross_section(),
     ))
 }
 
@@ -636,17 +668,6 @@ fn scale_capacity(capacity: Force, ppm: u32) -> Force {
         ppm,
         STRUCTURAL_PARTS_PER_MILLION,
     ))
-}
-
-fn utilization_ppm(load: Force, capacity: Force) -> u128 {
-    if capacity.is_zero() {
-        return if load.is_zero() { 0 } else { u128::MAX };
-    }
-    scaled_ratio_floor_saturating(
-        load.millinewtons(),
-        capacity.millinewtons(),
-        STRUCTURAL_PARTS_PER_MILLION,
-    )
 }
 
 fn is_at_or_above_fraction(load: Force, capacity: Force, threshold_ppm: u32) -> bool {
@@ -836,7 +857,7 @@ fn analyze_structure_scoped(
             carried_load,
             pristine_capacity: pristine,
             effective_capacity: effective,
-            utilization_ppm: utilization_ppm(carried_load, effective),
+            utilization_ppm: calculate_structural_utilization_ppm(carried_load, effective),
             stage,
         });
     }
@@ -867,3 +888,7 @@ fn analyze_structure_scoped(
         damage_events,
     })
 }
+
+#[cfg(test)]
+#[path = "analysis_tests.rs"]
+mod tests;

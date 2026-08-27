@@ -45,7 +45,6 @@ pub(super) fn run_primitive_progression_case(
         "hard-seam progression fixture must reward improved extraction capability with richer processable ore"
     );
     let trace_copper_ppm = 50_000 + (mix64(seed ^ 0x5452_4143_455F_4752) % 40_001) as u32;
-    let refined_clue_sample_mass = Mass::from_milligrams(10_000);
     let PrimitiveMaterialPlan {
         raw_inputs,
         raw_capacity,
@@ -97,6 +96,15 @@ pub(super) fn run_primitive_progression_case(
         pick_upgrade_native.milligrams() > 1,
         "primitive scarce-copper episode requires a nontrivial upgrade parcel"
     );
+    let maximum_sample_mg = stone_pick_batch_limit
+        .milligrams()
+        .min(pick_upgrade_native.milligrams() / 2)
+        .max(1);
+    let minimum_sample_mg = maximum_sample_mg.div_ceil(2);
+    let refined_clue_sample_mass = Mass::from_milligrams(
+        minimum_sample_mg
+            + mix64(seed ^ 0x5341_4D50_4C45_4D47) % (maximum_sample_mg - minimum_sample_mg + 1),
+    );
     let concurrent_soft_mass = pick_upgrade_native;
     assert!(concurrent_soft_mass <= stone_pick_batch_limit);
     let native_surplus = Mass::from_milligrams(
@@ -127,16 +135,23 @@ pub(super) fn run_primitive_progression_case(
             ROOM_TEMPERATURE,
         );
     }
-    let soft_ore_bounds = VoxelBounds::new(VoxelCoord::new(0, -4, 0), VoxelCoord::new(1, -3, 1))
-        .unwrap_or_else(|error| panic!("primitive progression soft-ore bounds failed: {error}"));
+    let clue_slots = varied_four_way_order(seed ^ 0x434C_5545_5F4C_4159);
+    let observation_order = varied_four_way_order(seed ^ 0x434C_5545_5F4F_5244);
+    let soft_ore_bounds = progression_clue_bounds(clue_slots[0]);
     let ore_composition = MaterialComposition::new(vec![
         CompositionComponent::new(MATERIAL_COPPER, ore_copper_ppm),
-        CompositionComponent::new(MATERIAL_STONE, 1_000_000 - ore_copper_ppm),
+        CompositionComponent::new(
+            MATERIAL_STONE,
+            COMPOSITION_PARTS_PER_MILLION - ore_copper_ppm,
+        ),
     ])
     .unwrap_or_else(|error| panic!("primitive progression ore composition failed: {error}"));
     let hard_ore_composition = MaterialComposition::new(vec![
         CompositionComponent::new(MATERIAL_COPPER, hard_ore_copper_ppm),
-        CompositionComponent::new(MATERIAL_STONE, 1_000_000 - hard_ore_copper_ppm),
+        CompositionComponent::new(
+            MATERIAL_STONE,
+            COMPOSITION_PARTS_PER_MILLION - hard_ore_copper_ppm,
+        ),
     ])
     .unwrap_or_else(|error| panic!("primitive progression hard-ore composition failed: {error}"));
     let _ = seed_geological_deposit(
@@ -152,8 +167,7 @@ pub(super) fn run_primitive_progression_case(
         ),
     );
     let soft_ore_target = MiningTargetRequest::new(soft_ore_bounds, MATERIAL_COPPER);
-    let hard_ore_bounds = VoxelBounds::new(VoxelCoord::new(2, -4, 0), VoxelCoord::new(3, -3, 1))
-        .unwrap_or_else(|error| panic!("primitive progression hard-ore bounds failed: {error}"));
+    let hard_ore_bounds = progression_clue_bounds(clue_slots[1]);
     let _ = seed_geological_deposit(
         registries,
         &mut state,
@@ -167,8 +181,7 @@ pub(super) fn run_primitive_progression_case(
         ),
     );
     let hard_ore_target = MiningTargetRequest::new(hard_ore_bounds, MATERIAL_COPPER);
-    let native_bounds = VoxelBounds::new(VoxelCoord::new(4, -4, 0), VoxelCoord::new(5, -3, 1))
-        .unwrap_or_else(|error| panic!("primitive native-copper bounds failed: {error}"));
+    let native_bounds = progression_clue_bounds(clue_slots[2]);
     let _ = seed_geological_deposit(
         registries,
         &mut state,
@@ -182,11 +195,13 @@ pub(super) fn run_primitive_progression_case(
         ),
     );
     let native_target = MiningTargetRequest::new(native_bounds, MATERIAL_COPPER);
-    let trace_bounds = VoxelBounds::new(VoxelCoord::new(6, -4, 0), VoxelCoord::new(7, -3, 1))
-        .unwrap_or_else(|error| panic!("primitive trace-copper bounds failed: {error}"));
+    let trace_bounds = progression_clue_bounds(clue_slots[3]);
     let trace_composition = MaterialComposition::new(vec![
         CompositionComponent::new(MATERIAL_COPPER, trace_copper_ppm),
-        CompositionComponent::new(MATERIAL_STONE, 1_000_000 - trace_copper_ppm),
+        CompositionComponent::new(
+            MATERIAL_STONE,
+            COMPOSITION_PARTS_PER_MILLION - trace_copper_ppm,
+        ),
     ])
     .unwrap_or_else(|error| panic!("primitive trace-copper composition failed: {error}"));
     let _ = seed_geological_deposit(
@@ -195,7 +210,9 @@ pub(super) fn run_primitive_progression_case(
         geological_deposit_spec(
             trace_bounds,
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
-            Mass::from_milligrams(100_000),
+            refined_clue_sample_mass
+                .checked_add(refined_clue_sample_mass)
+                .unwrap_or_else(|| panic!("primitive trace-copper reserve mass overflowed")),
             ROOM_TEMPERATURE,
             stone_hardness_limit,
             trace_composition,
@@ -209,12 +226,13 @@ pub(super) fn run_primitive_progression_case(
         .total();
     let survival_before = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("primitive progression survival state disappeared"));
-    let clue_requests = [
+    let clue_roles = [
         soft_ore_target,
         hard_ore_target,
         native_target,
         trace_target,
     ];
+    let clue_requests = observation_order.map(|index| clue_roles[index]);
     for request in clue_requests {
         assert_eq!(
             resolve_mining_target(&state, request),
