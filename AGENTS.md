@@ -1,5 +1,9 @@
 # Deep Hearth Agent Guide
 
+**BCA policy:** ratchet
+
+`bca.toml` and [`TESTING.md`](TESTING.md) own the cognitive-complexity ratchet; other BCA metrics remain advisory.
+
 This is the project execution card. Root [`../AGENTS.md`](../AGENTS.md) owns workspace coordination and
 concurrency procedure. [`README.md`](README.md) owns project routing. [`STATUS.md`](STATUS.md) owns current
 capability.

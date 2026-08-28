@@ -11,6 +11,7 @@ Choose the smallest command that completely proves the changed contract.
 | --- | --- |
 | Documentation/contracts only | `python tools/check_authority_docs.py` |
 | Build-free edit loop | `python ci.py quick` |
+| Complexity and change-risk report | `bca report --vcs` |
 | Production compile | `cargo check-fast` |
 | Standard production gate | `python ci.py gate` |
 | One unit/integration test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
@@ -29,8 +30,20 @@ Choose the smallest command that completely proves the changed contract.
 | Clippy with warnings denied | `python ci.py gate --lint` |
 | Human-readable gameplay report | `python ci.py report` |
 
-`python ci.py quick` checks formatting, documentation/repository contracts, and the local CI plan without
-building Rust. `python ci.py gate` adds the normal production compile. Specialized gate flags replace that
+`python ci.py quick` checks formatting, the BCA cognitive-complexity ratchet, documentation/repository
+contracts, and the local CI plan without building Rust. The ratchet requires the exact BCA CLI version
+owned by `tools/check_bca.py`; install the current pin with
+`cargo install big-code-analysis-cli --version 2.1.0 --locked`.
+[`bca.toml`](bca.toml) owns the analyzed source scope and threshold, while
+[`.bca-baseline.toml`](.bca-baseline.toml) pins current offenders so only new or worsened cognitive
+complexity fails the routine gate. The gate ignores BCA suppression comments, and baseline entries carry
+body hashes so an unchanged over-threshold function can be renamed without creating artificial debt. A BCA
+failure should normally be repaired by simplifying the changed code; regenerating the baseline is reserved
+for a deliberate threshold-policy change or explicitly accepted debt, not routine failure repair. Cyclomatic
+complexity, file size, Halstead metrics, and other BCA signals remain advisory because they can over-penalize
+exhaustive Rust matches, explicit constructors, or cohesive owner modules. `bca report --vcs` combines those
+advisory metrics with repository churn and fix history to prioritize review; its aggregate scores are not
+completion gates. `python ci.py gate` adds the normal production compile. Specialized gate flags replace that
 compile with the selected focused lane. Audit lanes are the maintained broad runtime checks.
 
 Do not run a compile-only command next to an executable lane that already compiles the same changed surface.

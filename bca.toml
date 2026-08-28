@@ -1,0 +1,15 @@
+# Big Code Analysis policy for maintained Rust source. The routine gate intentionally uses only cognitive
+# complexity: it tracked real nested decision logic during adoption without penalizing exhaustive Rust
+# matches, explicit typed constructors, or large-but-cohesive files. Other BCA metrics remain advisory via
+# `bca report --vcs`.
+paths = ["src"]
+exclude_from = ".bcaignore"
+exclude_tests = true
+cyclomatic_count_try = false
+
+[check]
+baseline = ".bca-baseline.toml"
+baseline_fuzzy_match = true
+
+[thresholds]
+cognitive = 25

@@ -1,0 +1,4 @@
+# Adjacent unit-test bodies are exercised by Rust tests and do not participate in the production
+# complexity ratchet. Test-support modules that are maintained as normal Rust source remain analyzed.
+src/**/*_tests.rs
+src/**/mod_tests.rs

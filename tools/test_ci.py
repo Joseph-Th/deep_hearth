@@ -51,6 +51,15 @@ class LocalCiPlanTests(unittest.TestCase):
     def test_quick_lane_is_build_free(self) -> None:
         self.assertEqual(cargo_build_commands(ci.quick_plan()), [])
 
+    def test_quick_lane_includes_bca_complexity_ratchet(self) -> None:
+        self.assertIn(
+            (
+                "complexity ratchet",
+                [sys.executable, "tools/check_bca.py"],
+            ),
+            ci.quick_plan(),
+        )
+
     def test_rust_test_summary_is_concise_and_aggregates_multiple_results(self) -> None:
         output = (
             "test result: ok. 18 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out\n"
