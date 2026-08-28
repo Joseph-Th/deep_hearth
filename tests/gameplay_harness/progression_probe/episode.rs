@@ -9,12 +9,6 @@ pub(super) fn run_primitive_progression_case(
     emit_detail: bool,
 ) -> PrimitiveProgressionExperience {
     let mined_mass = progression_mining_mass(registries, seed);
-    let two_mining_batches = mined_mass
-        .checked_add(mined_mass)
-        .unwrap_or_else(|| panic!("primitive progression ore fixture mass overflowed"));
-    let three_mining_batches = two_mining_batches
-        .checked_add(mined_mass)
-        .unwrap_or_else(|| panic!("primitive progression ore fixture mass overflowed"));
     let crushed_storage_capacity = multiply_mass(
         mined_mass,
         MAX_STEADY_STATE_CRUSH_CYCLES + 2,
@@ -27,13 +21,26 @@ pub(super) fn run_primitive_progression_case(
         mined_mass.milligrams().div_ceil(2)
             + mix64(seed ^ 0x4841_5244_5F4F_5245) % (mined_mass.milligrams() + 1),
     );
-    let soft_ore_deposit_mass = three_mining_batches
-        .checked_add(soft_ore_surplus)
-        .unwrap_or_else(|| panic!("primitive progression soft-ore reserve mass overflowed"));
+    let concurrent_jobs_per_cycle_budget = 14 + mix64(seed ^ 0x434F_4E43_5552_5245) % 7;
+    let reserve_batch_budget = (MAX_STEADY_STATE_CRUSH_CYCLES + 2)
+        .checked_mul(concurrent_jobs_per_cycle_budget)
+        .unwrap_or_else(|| panic!("primitive progression reserve batch budget overflowed"));
+    // The autonomous window can fit many short mining jobs inside one slower crusher batch. Keep
+    // both known ore bodies finite, but size them from the bounded repeat horizon rather than the
+    // old assumption that one machine cycle implied roughly one mining batch. Seed variation keeps
+    // depletion slack different between worlds without letting fixture exhaustion dominate the
+    // returned-attention experiment before it has time to become informative.
+    let soft_ore_deposit_mass = multiply_mass(
+        mined_mass,
+        reserve_batch_budget,
+        "soft-ore concurrent-work reserve",
+    )
+    .checked_add(soft_ore_surplus)
+    .unwrap_or_else(|| panic!("primitive progression soft-ore reserve mass overflowed"));
     let hard_ore_deposit_mass = multiply_mass(
         mined_mass,
-        MAX_STEADY_STATE_CRUSH_CYCLES + 2,
-        "hard-ore reserve",
+        reserve_batch_budget,
+        "hard-ore concurrent-work reserve",
     )
     .checked_add(hard_ore_surplus)
     .unwrap_or_else(|| panic!("primitive progression hard-ore reserve mass overflowed"));
@@ -514,6 +521,7 @@ pub(super) fn run_primitive_progression_case(
         soft_separation_feed_mass,
         seed,
     );
+    let mut hard_sample_copper_ppm = None;
     let (
         mut machine,
         mut reinforced_mining_ticks,
@@ -543,6 +551,7 @@ pub(super) fn run_primitive_progression_case(
             let hard_sample =
                 observe_single_material_sample(&state, hard_ore_storage, "hard-seam ore");
             assert_eq!(hard_sample.commodity.form(), FORM_ORE);
+            hard_sample_copper_ppm = Some(hard_sample.copper_ppm);
             let hard_feed_is_better = hard_sample.copper_ppm > bulk_sample.copper_ppm;
             let (
                 primary_source,
@@ -748,14 +757,27 @@ pub(super) fn run_primitive_progression_case(
                 registries,
                 &mut state,
                 hard_clue.request,
-                ore_storage,
+                hard_ore_storage,
                 pick,
                 mined_mass,
             );
             reinforced_mining_ticks = Some(ticks);
             hard_seam_accessed_at = Some(state.tick().value());
+            let hard_sample =
+                observe_single_material_sample(&state, hard_ore_storage, "hard-seam ore");
+            assert_eq!(hard_sample.commodity.form(), FORM_ORE);
+            hard_sample_copper_ppm = Some(hard_sample.copper_ppm);
         }
     }
+
+    let hard_sample_copper_ppm = hard_sample_copper_ppm
+        .unwrap_or_else(|| panic!("primitive progression never observed its accessible hard seam"));
+    let post_convergence_mining_target_is_hard = hard_sample_copper_ppm > bulk_sample.copper_ppm;
+    let post_convergence_mining_target = if post_convergence_mining_target_is_hard {
+        hard_clue.request
+    } else {
+        bulk_ore_clue.request
+    };
 
     let banked_energy = state
         .energy()
@@ -793,7 +815,7 @@ pub(super) fn run_primitive_progression_case(
         machine.reserve_mass,
         planned_reserve_energy,
         ConcurrentMiningPlan {
-            target: hard_clue.request,
+            target: post_convergence_mining_target,
             destination: ore_storage,
             pick,
             mass: mined_mass,
@@ -828,7 +850,7 @@ pub(super) fn run_primitive_progression_case(
         ore_storage,
         crushed_storage,
         machine,
-        hard_clue.request,
+        post_convergence_mining_target,
         pick,
         mined_mass,
         required_steady_state_productive_ticks,
@@ -846,13 +868,21 @@ pub(super) fn run_primitive_progression_case(
     let total_ore_reserve = soft_ore_deposit_mass
         .checked_add(hard_ore_deposit_mass)
         .unwrap_or_else(|| panic!("primitive progression combined ore reserve overflowed"));
+    let post_convergence_mined = reserve_work
+        .mined_mass
+        .checked_add(steady_state.mined_mass)
+        .unwrap_or_else(|| panic!("primitive post-convergence mining accounting overflowed"));
     let hard_ore_mined = mined_mass
-        .checked_add(reserve_work.mined_mass)
-        .and_then(|mass| mass.checked_add(steady_state.mined_mass))
+        .checked_add(if post_convergence_mining_target_is_hard {
+            post_convergence_mined
+        } else {
+            Mass::ZERO
+        })
         .unwrap_or_else(|| panic!("primitive hard-ore accounting overflowed"));
     let total_ore_mined = mined_mass
         .checked_add(concurrent_work.mined_mass)
-        .and_then(|mass| mass.checked_add(hard_ore_mined))
+        .and_then(|mass| mass.checked_add(mined_mass))
+        .and_then(|mass| mass.checked_add(post_convergence_mined))
         .unwrap_or_else(|| panic!("primitive total-ore accounting overflowed"));
     let unmined_ore_reserve = total_ore_reserve
         .checked_sub(total_ore_mined)
@@ -974,6 +1004,7 @@ pub(super) fn run_primitive_progression_case(
         selected_processing_feed_copper_ppm,
         selected_processing_feed_is_hard,
         processing_feed_selected_from_bulk,
+        post_convergence_mining_target_is_hard,
         refined_clue_sample_mass,
         refined_clue_mining_ticks,
         primary_batch_mass: mined_mass,

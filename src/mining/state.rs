@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
 use crate::equipment::{EquipmentDefinitionId, EquipmentId, EquipmentOperationTrace};
 use crate::geology::GeologicalDepositId;
@@ -42,8 +43,16 @@ pub(super) struct MiningJobIdentity {
 pub(super) struct MiningJobResources {
     pub(super) destination: StockpileId,
     pub(super) equipment_trace: EquipmentOperationTrace,
+    pub(super) deposit_mass_before: Mass,
     pub(super) output: MaterialLotSpec,
     pub(super) equipment_condition_after: Condition,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum MiningJobPhase {
+    Working,
+    ReadyToClaim,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,7 +60,7 @@ pub(super) struct MiningJobResources {
 pub(super) struct MiningJobSchedule {
     pub(super) started_at: SimulationTick,
     pub(super) completes_at: SimulationTick,
-    pub(super) ready_at: Option<SimulationTick>,
+    pub(super) phase: MiningJobPhase,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,6 +97,10 @@ impl MiningJobRecord {
         self.identity.deposit
     }
     #[must_use]
+    pub(crate) const fn deposit_mass_before(&self) -> Mass {
+        self.resources.deposit_mass_before
+    }
+    #[must_use]
     pub const fn destination(&self) -> StockpileId {
         self.resources.destination
     }
@@ -120,12 +133,12 @@ impl MiningJobRecord {
         self.resources.equipment_condition_after
     }
     #[must_use]
-    pub const fn ready_at(&self) -> Option<SimulationTick> {
-        self.schedule.ready_at
+    pub const fn is_working(&self) -> bool {
+        matches!(self.schedule.phase, MiningJobPhase::Working)
     }
     #[must_use]
-    pub const fn is_working(&self) -> bool {
-        self.schedule.ready_at.is_none()
+    pub const fn is_ready_to_claim(&self) -> bool {
+        matches!(self.schedule.phase, MiningJobPhase::ReadyToClaim)
     }
 }
 
@@ -193,13 +206,21 @@ impl MiningState {
         self.due_jobs.get(&tick)
     }
 
+    #[must_use]
+    pub(crate) fn pending_claim_job(&self) -> Option<MiningJobId> {
+        self.jobs
+            .values()
+            .find(|job| job.is_ready_to_claim())
+            .map(MiningJobRecord::id)
+    }
+
     pub(crate) fn insert_job(
         &mut self,
         record: MiningJobRecord,
         next_job_id: u64,
         next_revision: u64,
     ) {
-        assert!(record.schedule.ready_at.is_none());
+        assert!(record.is_working());
         assert!(!self.equipment_occupancy.contains_key(&record.equipment()));
         let id = record.identity.id;
         assert!(
@@ -236,13 +257,13 @@ impl MiningState {
         &mut self,
         expected_revision: u64,
         next_revision: u64,
-        ready_at: SimulationTick,
+        completion_tick: SimulationTick,
     ) -> Vec<MiningJobId> {
         assert_eq!(self.revision, expected_revision);
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
         let jobs = self
             .due_jobs
-            .remove(&ready_at)
+            .remove(&completion_tick)
             .unwrap_or_else(|| panic!("validated due mining bucket disappeared"));
         let mut ready = Vec::with_capacity(jobs.len());
         for id in jobs {
@@ -250,8 +271,8 @@ impl MiningState {
                 .jobs
                 .get_mut(&id)
                 .unwrap_or_else(|| panic!("validated mining job disappeared"));
-            assert!(record.schedule.ready_at.is_none());
-            record.schedule.ready_at = Some(ready_at);
+            assert!(record.is_working());
+            record.schedule.phase = MiningJobPhase::ReadyToClaim;
             let removed = self.equipment_occupancy.remove(&record.equipment());
             assert_eq!(removed, Some(id));
             ready.push(id);
@@ -272,7 +293,7 @@ impl MiningState {
             .jobs
             .remove(&id)
             .unwrap_or_else(|| panic!("validated mining claim job disappeared"));
-        assert!(record.schedule.ready_at.is_some());
+        assert!(record.is_ready_to_claim());
         self.revision = next_revision;
         record
     }

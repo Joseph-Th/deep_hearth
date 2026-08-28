@@ -142,9 +142,13 @@ tie-break. A resolution binds geology and knowledge revisions, and mining rechec
 Public mining state does not expose deposit identity, exact hidden remaining mass, pre-claim composition, or
 exact target hardness.
 
-Mining transfers exact geological matter into `MiningState` after target, tool, labor, capability, wear,
-destination, and reservation validation. Completion releases work occupancy; claim transfers the owned output
-to inventory.
+Mining start validates target, tool, labor, capability, wear, destination, and reservation constraints, then
+stores a source/output trace while geology retains ownership of the exact batch throughout active labor.
+Completion atomically removes that batch from geology, applies tool wear, releases work occupancy, and opens a
+zero-time terminal claim boundary. The world clock cannot advance while any completed mining output remains
+unclaimed, so extracted matter cannot remain indefinitely weightless between completion and its reserved
+inventory destination. Claim remains explicit so destination-support failure can be repaired at the completion
+tick.
 
 ## Production and processing
 

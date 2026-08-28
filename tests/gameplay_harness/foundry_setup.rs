@@ -39,6 +39,7 @@ pub(super) struct FoundrySetup {
     pub(super) furnace_condition: Condition,
     pub(super) mold_condition: Condition,
     pub(super) electrical_energy: Energy,
+    pub(super) thermal_sink_energy: Energy,
 }
 
 pub(super) fn setup_foundry_probe(
@@ -52,6 +53,7 @@ pub(super) fn setup_foundry_probe(
         furnace_condition,
         mold_condition,
         electrical_energy,
+        thermal_sink_energy,
     } = setup;
     let mut state = AppState::new(WorldSeed::new(seed));
     let pure_copper_source = add_solid_stockpile(&mut state, mass);
@@ -96,7 +98,7 @@ pub(super) fn setup_foundry_probe(
         registries,
         &mut state,
         ENERGY_THERMAL_SINK,
-        Energy::ZERO,
+        thermal_sink_energy,
     );
     (
         state,

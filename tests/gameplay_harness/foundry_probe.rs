@@ -1,8 +1,10 @@
 //! Focused pure-copper melt/cast capability probe.
 
-use super::foundry_setup::{FoundrySetup, setup_foundry_probe};
+use super::focused_runner::focused_probe_role_label;
+use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::foundry_setup::{FoundryIds, FoundrySetup, setup_foundry_probe};
 use super::production_support::{
-    finish_production_job, select_stockpile_mass, varied_healthy_condition,
+    finish_uninterrupted_production_job, select_stockpile_mass, varied_healthy_condition,
 };
 use super::seed::mix64;
 use super::support::{ROOM_TEMPERATURE, nominal_equipment_mass_capability};
@@ -14,7 +16,7 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::{Energy, Mass, Temperature};
 use deep_hearth::core::state::validate_loaded_state;
 use deep_hearth::core::time::TickSpan;
-use deep_hearth::energy::{PowerRemainder, integrate_power};
+use deep_hearth::energy::{EnergySinkError, EnergySupplyError, PowerRemainder, integrate_power};
 use deep_hearth::inventory::MaterialLotSelection;
 use deep_hearth::material::MaterialComposition;
 use deep_hearth::matter::calculate_matter_accounting;
@@ -22,7 +24,8 @@ use deep_hearth::production::validate_start_process;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::thermal::{
-    CastingRequest, MeltingRequest, calculate_fusion_heat, calculate_sensible_heat,
+    CastingRequest, CastingResolutionError, MeltingRequest, MeltingResolutionError,
+    ResolvedCasting, ResolvedMelting, calculate_fusion_heat, calculate_sensible_heat,
     resolve_casting_process, resolve_melting_process,
 };
 
@@ -85,20 +88,43 @@ pub(super) fn probe_setup(registries: &Registries, seed: u64) -> FoundrySetup {
         .get_store(ENERGY_ELECTRICAL_BUFFER)
         .map(|definition| definition.capacity())
         .unwrap_or_else(|| panic!("foundry probe electrical-buffer definition disappeared"));
-    let electrical_slack = electrical_capacity
-        .checked_sub(required_electrical)
-        .unwrap_or_else(|| panic!("foundry electrical buffer cannot power a legal melt batch"));
-    let headroom_ppm = 50_000 + (mix64(seed ^ 0x454C_4543_4845_4144) % 550_001) as u32;
-    let electrical_headroom = Energy::from_nanojoules(
-        electrical_slack
-            .nanojoules()
-            .checked_mul(u128::from(headroom_ppm))
-            .map(|scaled| scaled / 1_000_000)
-            .unwrap_or_else(|| panic!("foundry electrical headroom scaling overflowed")),
+    assert!(
+        electrical_capacity >= required_electrical,
+        "foundry electrical buffer must remain capable of the maintained full-batch contract"
     );
-    let electrical_energy = required_electrical
-        .checked_add(electrical_headroom)
-        .unwrap_or_else(|| panic!("foundry initial electrical energy overflowed"));
+    // The seed owns resource pressure so explicit replay recreates the same world regardless of
+    // runner role. Generated worlds span under- and over-provisioned electrical budgets.
+    let energy_budget_ppm = 400_000 + (mix64(seed ^ 0x454C_4543_4845_4147) % 950_001) as u32;
+    let electrical_budget = Energy::from_nanojoules(
+        required_electrical
+            .nanojoules()
+            .checked_mul(u128::from(energy_budget_ppm))
+            .map(|scaled| scaled / 1_000_000)
+            .unwrap_or_else(|| panic!("foundry electrical budget scaling overflowed")),
+    );
+    let electrical_energy = std::cmp::min(electrical_budget, electrical_capacity);
+    let thermal_capacity = registries
+        .energy()
+        .get_store(ENERGY_THERMAL_SINK)
+        .map(|definition| definition.capacity())
+        .unwrap_or_else(|| panic!("foundry probe thermal-sink definition disappeared"));
+    // Existing heat competes with casting for finite sink capacity. Use a bimodal cool/saturated
+    // distribution instead of uniform pressure: otherwise passive rejection during melting clears
+    // most middling loads before they can affect a casting decision. The maintained anchor falls in
+    // the cool bucket through the mixer; organic seeds commonly begin near saturation.
+    let thermal_roll = mix64(seed ^ 0x5448_4552_4D53_494F);
+    let thermal_pressure_ppm = if thermal_roll.is_multiple_of(5) {
+        (thermal_roll % 250_001) as u32
+    } else {
+        900_000 + ((thermal_roll >> 8) % 100_001) as u32
+    };
+    let thermal_sink_energy = Energy::from_nanojoules(
+        thermal_capacity
+            .nanojoules()
+            .checked_mul(u128::from(thermal_pressure_ppm))
+            .map(|scaled| scaled / 1_000_000)
+            .unwrap_or_else(|| panic!("foundry thermal pressure scaling overflowed")),
+    );
     FoundrySetup {
         mass,
         input_temperature,
@@ -113,10 +139,252 @@ pub(super) fn probe_setup(registries: &Registries, seed: u64) -> FoundrySetup {
             mix64(seed ^ 0x4D4F_4C44_434F_4E44),
         ),
         electrical_energy,
+        thermal_sink_energy,
     }
 }
 
-pub(super) fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum MeltBatchLimit {
+    OfferedBatch,
+    EquipmentCapacity,
+    FiniteEnergy,
+    ConditionLifetime,
+}
+
+impl MeltBatchLimit {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::OfferedBatch => "offered-batch",
+            Self::EquipmentCapacity => "equipment-capacity",
+            Self::FiniteEnergy => "finite-energy",
+            Self::ConditionLifetime => "condition-lifetime",
+        }
+    }
+}
+
+fn melt_scaling_limit(error: &MeltingResolutionError) -> Option<MeltBatchLimit> {
+    match error {
+        MeltingResolutionError::BatchMassExceedsEquipmentCapacity { .. } => {
+            Some(MeltBatchLimit::EquipmentCapacity)
+        }
+        MeltingResolutionError::Energy(EnergySupplyError::InsufficientEnergy { .. }) => {
+            Some(MeltBatchLimit::FiniteEnergy)
+        }
+        MeltingResolutionError::ConditionDuration(_) => Some(MeltBatchLimit::ConditionLifetime),
+        _ => None,
+    }
+}
+
+fn resolve_melt_for_mass(
+    registries: &Registries,
+    state: &deep_hearth::core::state::AppState,
+    ids: FoundryIds,
+    mass: Mass,
+) -> Result<ResolvedMelting, MeltingResolutionError> {
+    let selection = [MaterialLotSelection::new(ids.pure_copper_lot, mass)];
+    resolve_melting_process(
+        registries,
+        state,
+        MeltingRequest::new(
+            PROCESS_MELT_PURE_COPPER,
+            ids.pure_copper_source,
+            &selection,
+            ids.furnace,
+            ids.electrical_buffer,
+        ),
+    )
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CastBatchLimit {
+    OfferedBatch,
+    EquipmentCapacity,
+    ThermalSinkCapacity,
+    ConditionLifetime,
+}
+
+impl CastBatchLimit {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::OfferedBatch => "offered-batch",
+            Self::EquipmentCapacity => "equipment-capacity",
+            Self::ThermalSinkCapacity => "thermal-sink-capacity",
+            Self::ConditionLifetime => "condition-lifetime",
+        }
+    }
+}
+
+fn cast_scaling_limit(error: &CastingResolutionError) -> Option<CastBatchLimit> {
+    match error {
+        CastingResolutionError::BatchMassExceedsEquipmentCapacity { .. } => {
+            Some(CastBatchLimit::EquipmentCapacity)
+        }
+        CastingResolutionError::EnergySink(EnergySinkError::InsufficientCapacity { .. }) => {
+            Some(CastBatchLimit::ThermalSinkCapacity)
+        }
+        CastingResolutionError::ConditionDuration(_) => Some(CastBatchLimit::ConditionLifetime),
+        _ => None,
+    }
+}
+
+fn resolve_cast_for_mass(
+    registries: &Registries,
+    state: &deep_hearth::core::state::AppState,
+    ids: FoundryIds,
+    mass: Mass,
+) -> Result<ResolvedCasting, CastingResolutionError> {
+    let selection = select_stockpile_mass(state, ids.molten_vessel, mass, "foundry molten offer");
+    resolve_casting_process(
+        registries,
+        state,
+        CastingRequest::new(
+            PROCESS_CAST_PURE_COPPER,
+            ids.molten_vessel,
+            selection.as_slice(),
+            ids.mold,
+            ids.heat_sink,
+        ),
+    )
+}
+
+pub(super) fn resolve_largest_feasible_cast(
+    registries: &Registries,
+    state: &deep_hearth::core::state::AppState,
+    ids: FoundryIds,
+    offered: Mass,
+) -> Option<(ResolvedCasting, Mass, CastBatchLimit)> {
+    match resolve_cast_for_mass(registries, state, ids, offered) {
+        Ok(resolved) => return Some((resolved, offered, CastBatchLimit::OfferedBatch)),
+        Err(error) if cast_scaling_limit(&error).is_some() => {}
+        Err(error) => {
+            panic!("foundry offered-batch casting resolution failed unexpectedly: {error}")
+        }
+    }
+
+    let mut low = 1_u64;
+    let mut high = offered.milligrams();
+    let mut best = 0_u64;
+    while low <= high {
+        let mid = low + (high - low) / 2;
+        match resolve_cast_for_mass(registries, state, ids, Mass::from_milligrams(mid)) {
+            Ok(_) => {
+                best = mid;
+                low = mid + 1;
+            }
+            Err(error) if cast_scaling_limit(&error).is_some() => {
+                high = mid - 1;
+            }
+            Err(error) => {
+                panic!("foundry adaptive casting resolution failed unexpectedly: {error}")
+            }
+        }
+    }
+    if best == 0 {
+        return None;
+    }
+    let processed = Mass::from_milligrams(best);
+    let resolved = resolve_cast_for_mass(registries, state, ids, processed)
+        .unwrap_or_else(|error| panic!("foundry selected feasible cast became invalid: {error}"));
+    let offered_error = resolve_cast_for_mass(registries, state, ids, offered)
+        .err()
+        .unwrap_or_else(|| unreachable!("offered cast was already known to be constrained"));
+    let limit = cast_scaling_limit(&offered_error)
+        .unwrap_or_else(|| unreachable!("offered cast constraint must remain scale-related"));
+    Some((resolved, processed, limit))
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RecoveryCast {
+    cast_mass: Mass,
+    remaining_mass: Mass,
+    limit: CastBatchLimit,
+    duration: TickSpan,
+    released_heat: Energy,
+}
+
+fn execute_recovery_cast(
+    registries: &Registries,
+    state: &mut deep_hearth::core::state::AppState,
+    ids: FoundryIds,
+    offered: Mass,
+) -> Option<RecoveryCast> {
+    let (casting, cast_mass, limit) =
+        resolve_largest_feasible_cast(registries, state, ids, offered)?;
+    let duration = casting.process_resolution().duration();
+    let released_heat = casting.released_energy();
+    let job = validate_start_process(
+        registries,
+        state,
+        casting.process_resolution(),
+        ids.molten_vessel,
+        ids.cast_storage,
+    )
+    .unwrap_or_else(|error| panic!("foundry recovery casting start failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("foundry recovery casting commit failed: {error}"));
+    finish_uninterrupted_production_job(
+        registries,
+        state,
+        job,
+        duration,
+        "foundry recovery casting",
+    );
+    let remaining_mass = offered
+        .checked_sub(cast_mass)
+        .unwrap_or_else(|| unreachable!("recovery cast cannot exceed its offered molten mass"));
+    Some(RecoveryCast {
+        cast_mass,
+        remaining_mass,
+        limit,
+        duration,
+        released_heat,
+    })
+}
+
+pub(super) fn resolve_largest_feasible_melt(
+    registries: &Registries,
+    state: &deep_hearth::core::state::AppState,
+    ids: FoundryIds,
+    offered: Mass,
+) -> Option<(ResolvedMelting, Mass, MeltBatchLimit)> {
+    match resolve_melt_for_mass(registries, state, ids, offered) {
+        Ok(resolved) => return Some((resolved, offered, MeltBatchLimit::OfferedBatch)),
+        Err(error) if melt_scaling_limit(&error).is_some() => {}
+        Err(error) => panic!("foundry offered-batch melt resolution failed unexpectedly: {error}"),
+    }
+
+    let mut low = 1_u64;
+    let mut high = offered.milligrams();
+    let mut best = 0_u64;
+    while low <= high {
+        let mid = low + (high - low) / 2;
+        match resolve_melt_for_mass(registries, state, ids, Mass::from_milligrams(mid)) {
+            Ok(_) => {
+                best = mid;
+                low = mid + 1;
+            }
+            Err(error) if melt_scaling_limit(&error).is_some() => {
+                high = mid - 1;
+            }
+            Err(error) => panic!("foundry adaptive melt resolution failed unexpectedly: {error}"),
+        }
+    }
+    if best == 0 {
+        return None;
+    }
+    let processed = Mass::from_milligrams(best);
+    let resolved = resolve_melt_for_mass(registries, state, ids, processed)
+        .unwrap_or_else(|error| panic!("foundry selected feasible melt became invalid: {error}"));
+    let offered_error = resolve_melt_for_mass(registries, state, ids, offered)
+        .err()
+        .unwrap_or_else(|| unreachable!("offered batch was already known to be constrained"));
+    let limit = melt_scaling_limit(&offered_error)
+        .unwrap_or_else(|| unreachable!("offered batch constraint must remain scale-related"));
+    Some((resolved, processed, limit))
+}
+
+pub(super) fn run_foundry_capability_probe(registries: &Registries, case: FocusedProbeCase) {
+    let seed = case.seed();
     let setup = probe_setup(registries, seed);
     let mass = setup.mass;
     let input_temperature = setup.input_temperature;
@@ -136,19 +404,34 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
         .get_store(ids.heat_sink)
         .map(|store| store.stored())
         .unwrap_or_else(|| panic!("foundry heat sink disappeared after setup"));
-    let pure_selection = [MaterialLotSelection::new(ids.pure_copper_lot, mass)];
-    let melt = resolve_melting_process(
-        registries,
-        &state,
-        MeltingRequest::new(
-            PROCESS_MELT_PURE_COPPER,
-            ids.pure_copper_source,
-            &pure_selection,
-            ids.furnace,
-            ids.electrical_buffer,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("foundry probe pure-copper melt failed: {error}"));
+    let Some((melt, processed_mass, melt_limit)) =
+        resolve_largest_feasible_melt(registries, &state, ids, mass)
+    else {
+        assert!(
+            case.role() != FocusedProbeRole::MaintainedAnchor,
+            "maintained foundry anchor must always admit a nonzero melt batch"
+        );
+        validate_loaded_state(registries, &state)
+            .unwrap_or_else(|error| panic!("foundry no-work stop-state audit failed: {error}"));
+        assert_eq!(
+            calculate_matter_accounting(&state)
+                .unwrap_or_else(|error| panic!("foundry no-work matter audit failed: {error}"))
+                .total(),
+            initial_matter
+        );
+        std::println!(
+            "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome=stopped stage=melt blocker=no-feasible-batch electrical={}nJ matter=conserved",
+            focused_probe_role_label(case.role()),
+            initial_electrical.nanojoules(),
+        );
+        return;
+    };
+    if case.role() == FocusedProbeRole::MaintainedAnchor {
+        assert_eq!(
+            processed_mass, mass,
+            "maintained foundry anchor must preserve the full offered-batch capability contract"
+        );
+    }
     let melt_duration = melt.process_resolution().duration();
     let melt_job = validate_start_process(
         registries,
@@ -160,30 +443,64 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
     .unwrap_or_else(|error| panic!("foundry probe melt start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("foundry probe melt commit failed: {error}"));
-    finish_production_job(
+    finish_uninterrupted_production_job(
         registries,
         &mut state,
         melt_job,
         melt_duration,
         "foundry melt",
     );
+    let thermal_before_cast = state
+        .energy()
+        .get_store(ids.heat_sink)
+        .map(|store| store.stored())
+        .unwrap_or_else(|| panic!("foundry heat sink disappeared before casting"));
 
-    let molten_selection =
-        select_stockpile_mass(&state, ids.molten_vessel, mass, "foundry molten output");
-    let casting = resolve_casting_process(
-        registries,
-        &state,
-        CastingRequest::new(
-            PROCESS_CAST_PURE_COPPER,
-            ids.molten_vessel,
-            molten_selection.as_slice(),
-            ids.mold,
-            ids.heat_sink,
-        ),
-    )
-    .unwrap_or_else(|error| panic!("foundry probe pure-copper casting failed: {error}"));
+    let Some((casting, cast_mass, cast_limit)) =
+        resolve_largest_feasible_cast(registries, &state, ids, processed_mass)
+    else {
+        assert!(
+            case.role() != FocusedProbeRole::MaintainedAnchor,
+            "maintained foundry anchor must always admit a nonzero cast batch"
+        );
+        validate_loaded_state(registries, &state)
+            .unwrap_or_else(|error| panic!("foundry cast-stop state audit failed: {error}"));
+        assert_eq!(
+            calculate_matter_accounting(&state)
+                .unwrap_or_else(|error| panic!("foundry cast-stop matter audit failed: {error}"))
+                .total(),
+            initial_matter
+        );
+        std::println!(
+            "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome=stopped stage=cast blocker=no-feasible-batch melted={}mg molten={}mg matter=conserved",
+            focused_probe_role_label(case.role()),
+            processed_mass.milligrams(),
+            processed_mass.milligrams(),
+        );
+        return;
+    };
+    if case.role() == FocusedProbeRole::MaintainedAnchor {
+        assert_eq!(
+            cast_mass, processed_mass,
+            "maintained foundry anchor must cast the full melted batch"
+        );
+    }
     let cast_duration = casting.process_resolution().duration();
     let released_heat = casting.released_energy();
+    // Compare the actual cast against a same-duration branch with no cast started. This uses the
+    // canonical tick scheduler to account for passive heat rejection instead of reimplementing its
+    // timing in the harness. The branch is created only after the cast choice has been resolved.
+    let mut no_cast_baseline = state.clone();
+    for _ in 0..cast_duration.value() {
+        advance_tick(registries, &mut no_cast_baseline).unwrap_or_else(|error| {
+            panic!("foundry no-cast thermal baseline tick failed: {error}")
+        });
+    }
+    let thermal_without_cast = no_cast_baseline
+        .energy()
+        .get_store(ids.heat_sink)
+        .map(|store| store.stored())
+        .unwrap_or_else(|| panic!("foundry heat sink disappeared from no-cast baseline"));
     let cast_job = validate_start_process(
         registries,
         &state,
@@ -194,13 +511,16 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
     .unwrap_or_else(|error| panic!("foundry probe casting start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("foundry probe casting commit failed: {error}"));
-    finish_production_job(
+    finish_uninterrupted_production_job(
         registries,
         &mut state,
         cast_job,
         cast_duration,
         "foundry casting",
     );
+    let molten_remaining = processed_mass
+        .checked_sub(cast_mass)
+        .unwrap_or_else(|| unreachable!("cast mass cannot exceed melted mass"));
 
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("foundry probe final state audit failed: {error}"));
@@ -227,17 +547,29 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
         "foundry melt must consume exactly its resolved electrical energy"
     );
     assert_eq!(
-        initial_thermal.checked_add(released_heat),
+        thermal_without_cast.checked_add(released_heat),
         Some(final_thermal),
-        "foundry casting must recover exactly its resolved released heat into the finite sink"
+        "foundry casting must add exactly its resolved released heat above the canonical same-duration passive-cooling baseline"
+    );
+    assert!(
+        thermal_before_cast <= initial_thermal,
+        "passive heat rejection during melting must not increase pre-existing sink energy"
     );
     assert_eq!(
         state
             .inventory()
             .get_stockpile(ids.cast_storage)
             .map(|stockpile| stockpile.stored_mass()),
-        Some(mass),
-        "foundry capability probe must conserve cast output mass"
+        Some(cast_mass),
+        "foundry capability probe must store exactly the mass accepted by canonical casting"
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(ids.molten_vessel)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(molten_remaining),
+        "an adaptive partial cast must leave the uncast molten remainder physically owned"
     );
     let thermal_sink = registries
         .energy()
@@ -280,35 +612,139 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
     );
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("foundry post-cooldown state audit failed: {error}"));
+    let recovery = if molten_remaining.is_zero() {
+        None
+    } else {
+        execute_recovery_cast(registries, &mut state, ids, molten_remaining)
+    };
+    let recovered_cast_mass = recovery.map_or(Mass::ZERO, |recovery| recovery.cast_mass);
+    let final_molten_remaining =
+        recovery.map_or(molten_remaining, |recovery| recovery.remaining_mass);
+    let recovery_limit = recovery.map_or("not-needed", |recovery| recovery.limit.label());
+    let recovery_ticks = recovery.map_or(0, |recovery| recovery.duration.value());
+    let recovery_heat = recovery.map_or(Energy::ZERO, |recovery| recovery.released_heat);
+    if recovery.is_some() {
+        validate_loaded_state(registries, &state)
+            .unwrap_or_else(|error| panic!("foundry recovery-cast state audit failed: {error}"));
+        assert_eq!(
+            calculate_matter_accounting(&state)
+                .unwrap_or_else(|error| panic!(
+                    "foundry recovery-cast matter audit failed: {error}"
+                ))
+                .total(),
+            initial_matter,
+            "foundry recovery casting must conserve represented matter"
+        );
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(ids.cast_storage)
+                .map(|stockpile| stockpile.stored_mass()),
+            cast_mass.checked_add(recovered_cast_mass),
+            "foundry recovery must append exactly the newly cast mass"
+        );
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(ids.molten_vessel)
+                .map(|stockpile| stockpile.stored_mass()),
+            Some(final_molten_remaining),
+            "foundry recovery must retain any still-uncast molten remainder"
+        );
+        assert_eq!(
+            state
+                .energy()
+                .get_store(ids.heat_sink)
+                .map(|store| store.stored()),
+            Some(recovery_heat),
+            "a recovery cast started from an empty sink must capture exactly its released heat"
+        );
+    }
+    let outcome = if molten_remaining.is_zero() {
+        "completed"
+    } else if final_molten_remaining.is_zero() {
+        "recovered-after-cooldown"
+    } else {
+        "partial-after-recovery"
+    };
+    if case.role() == FocusedProbeRole::MaintainedCoverage {
+        assert_eq!(case.seed(), 2, "unknown maintained foundry coverage seed");
+        assert_eq!(
+            cast_limit,
+            CastBatchLimit::ThermalSinkCapacity,
+            "foundry coverage seed 2 must preserve thermal-sink-limited first casting"
+        );
+        assert!(
+            !molten_remaining.is_zero(),
+            "thermal-limited first casting must retain a physical molten remainder"
+        );
+        assert!(
+            recovery.is_some(),
+            "thermal coverage must exercise cooldown recovery"
+        );
+        assert_eq!(
+            final_molten_remaining,
+            Mass::ZERO,
+            "thermal coverage must recover the complete retained molten batch after cooldown"
+        );
+    }
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
-            "CAPABILITY FOUNDRY seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[phase-change,finite-electrical-input,finite-thermal-recovery,passive-heat-rejection,wear] batch={}mg input={}mK initial-condition=[furnace:{} mold:{}ppm] electrical=[initial:{}nJ melt:{}nJ remaining:{}nJ] thermal=[released:{}nJ captured:{}nJ cooled:{}nJ cooldown:{}t] melt={}t cast={}t matter=conserved",
+            "CAPABILITY FOUNDRY seed=0x{seed:016X} sample={} outcome={outcome} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[phase-change,finite-electrical-input,finite-thermal-recovery,passive-heat-rejection,wear] offered={}mg melted={}mg melt-limit={} first-cast={}mg cast-limit={} molten-after-first={}mg recovery-cast={}mg recovery-limit={} molten-final={}mg input={}mK initial-condition=[furnace:{} mold:{}ppm] electrical=[initial:{}nJ melt:{}nJ remaining:{}nJ] thermal=[initial:{}nJ pre-cast:{}nJ no-cast-baseline:{}nJ released:{}nJ captured:{}nJ cooled:{}nJ cooldown:{}t recovery-heat:{}nJ] durations=[melt:{}t cast:{}t recovery-cast:{}t] matter=conserved",
+            focused_probe_role_label(case.role()),
             mass.milligrams(),
+            processed_mass.milligrams(),
+            melt_limit.label(),
+            cast_mass.milligrams(),
+            cast_limit.label(),
+            molten_remaining.milligrams(),
+            recovered_cast_mass.milligrams(),
+            recovery_limit,
+            final_molten_remaining.milligrams(),
             input_temperature.millikelvin(),
             initial_furnace_condition.parts_per_million(),
             initial_mold_condition.parts_per_million(),
             initial_electrical.nanojoules(),
             melt.required_energy().nanojoules(),
             final_electrical.nanojoules(),
+            initial_thermal.nanojoules(),
+            thermal_before_cast.nanojoules(),
+            thermal_without_cast.nanojoules(),
             released_heat.nanojoules(),
             final_thermal.nanojoules(),
             cooled_thermal.nanojoules(),
             cooling_ticks,
+            recovery_heat.nanojoules(),
             melt_duration.value(),
             cast_duration.value(),
+            recovery_ticks,
         );
     } else {
         std::println!(
-            "FOUNDRY REVIEW seed=0x{seed:016X} role=capability-only pipeline=heat->melt->cast->passive-cool batch={}mg input={}mK electrical=[used:{}nJ remaining:{}nJ] thermal=[captured:{}nJ cooldown:{}t remaining:{}nJ] durations=[melt:{}t cast:{}t] matter=conserved",
+            "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome={outcome} pipeline=heat->melt->cast->passive-cool->retry offered={}mg melted={}mg melt-limit={} first-cast={}mg cast-limit={} molten-after-first={}mg recovery-cast={}mg recovery-limit={} molten-final={}mg input={}mK electrical=[used:{}nJ remaining:{}nJ] thermal=[initial:{}nJ pre-cast:{}nJ no-cast-baseline:{}nJ captured:{}nJ cooldown:{}t cooled:{}nJ recovery-heat:{}nJ] durations=[melt:{}t cast:{}t recovery-cast:{}t] matter=conserved",
+            focused_probe_role_label(case.role()),
             mass.milligrams(),
+            processed_mass.milligrams(),
+            melt_limit.label(),
+            cast_mass.milligrams(),
+            cast_limit.label(),
+            molten_remaining.milligrams(),
+            recovered_cast_mass.milligrams(),
+            recovery_limit,
+            final_molten_remaining.milligrams(),
             input_temperature.millikelvin(),
             melt.required_energy().nanojoules(),
             final_electrical.nanojoules(),
+            initial_thermal.nanojoules(),
+            thermal_before_cast.nanojoules(),
+            thermal_without_cast.nanojoules(),
             final_thermal.nanojoules(),
             cooling_ticks,
             cooled_thermal.nanojoules(),
+            recovery_heat.nanojoules(),
             melt_duration.value(),
             cast_duration.value(),
+            recovery_ticks,
         );
     }
 }

@@ -157,14 +157,14 @@ pub fn validate_claim_mining_output(
         .mining()
         .get_job(job)
         .ok_or(MiningClaimError::UnknownJob { job })?;
-    let ready_at = record
-        .ready_at()
-        .ok_or(MiningClaimError::NotReady { job })?;
+    if !record.is_ready_to_claim() {
+        return Err(MiningClaimError::NotReady { job });
+    }
     let mass = record.output().mass();
     let inventory = decide_reserved_deposits(
         registries,
         state.inventory(),
-        ready_at,
+        record.completes_at(),
         vec![ReservedDepositRequest::new(
             record.destination(),
             vec![record.output().clone()],

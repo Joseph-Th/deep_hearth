@@ -38,7 +38,7 @@ use crate::mining::{
     MiningJobValidationError, MiningTargetRequest, MiningValidationError, resolve_mining_target,
 };
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
-use crate::simulation::advance_tick;
+use crate::simulation::{TickError, advance_tick};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralElementId, StructuralLifecycle, StructuralLoadKind, add_structural_element,
@@ -559,7 +559,7 @@ fn ready_mining_job_keeps_historical_tool_physics_after_tool_upgrade() {
         state
             .mining()
             .get_job(job)
-            .is_some_and(|record| record.ready_at().is_some())
+            .is_some_and(MiningJobRecord::is_ready_to_claim)
     );
 
     let reinforcement_source =
@@ -612,6 +612,49 @@ fn ready_mining_job_keeps_historical_tool_physics_after_tool_upgrade() {
 }
 
 #[test]
+fn loaded_working_mining_job_rejects_forged_source_mass_trace() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_0031));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("mining source-trace survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+        .unwrap_or_else(|error| panic!("mining source-trace destination failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("mining source-trace deposit failed: {error}"));
+    let job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("mining source-trace start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("mining source-trace commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("mining source-trace serialization failed: {error}"));
+    encoded["state"]["systems"]["mining"]["jobs"][job.value().to_string()]["resources"]["deposit_mass_before"] =
+        serde_json::json!(900_000_u64);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("mining source-trace tamper decode failed: {error}"));
+
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::MiningJob(
+            MiningJobValidationError::DepositMassStateMismatch {
+                job,
+                expected: Mass::from_milligrams(900_000),
+                actual: Mass::from_milligrams(1_000_000),
+            }
+        )))
+    );
+}
+
+#[test]
 fn loaded_ready_mining_job_reconstructs_authored_duration() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xA11E_0022));
@@ -649,7 +692,7 @@ fn loaded_ready_mining_job_reconstructs_authored_duration() {
         .mining()
         .get_job(job)
         .unwrap_or_else(|| panic!("ready mining duration-audit job disappeared"));
-    assert!(ready.ready_at().is_some());
+    assert!(ready.is_ready_to_claim());
     let forged_started_at = ready.started_at().value() + 1;
 
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
@@ -985,7 +1028,7 @@ fn copper_reinforcement_turns_cold_worked_native_metal_into_more_capable_extract
             .get_deposit(deposit)
             .unwrap_or_else(|| panic!("reinforced mining deposit disappeared"))
             .remaining_mass(),
-        Mass::from_milligrams(750_000)
+        Mass::from_milligrams(1_000_000)
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("reinforced mining state audit failed: {error}"));
@@ -1177,7 +1220,7 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
             .get_deposit(deposit)
             .unwrap_or_else(|| panic!("mining deposit disappeared"))
             .remaining_mass(),
-        Mass::from_milligrams(900_000)
+        Mass::from_milligrams(1_000_000)
     );
     assert_eq!(
         state
@@ -1235,6 +1278,14 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
     assert_eq!(state.player_work().active(), None);
     assert_eq!(
         state
+            .geology()
+            .get_deposit(deposit)
+            .unwrap_or_else(|| panic!("mining deposit disappeared after work"))
+            .remaining_mass(),
+        Mass::from_milligrams(900_000)
+    );
+    assert_eq!(
+        state
             .equipment()
             .get_equipment(pick)
             .unwrap_or_else(|| panic!("mining pick disappeared after work"))
@@ -1270,6 +1321,15 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
             .unwrap_or_else(|| panic!("mining destination disappeared before claim"))
             .stored_mass(),
         Mass::ZERO
+    );
+    let ready_state = state.clone();
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(TickError::PendingMiningClaim { job })
+    );
+    assert_eq!(
+        state, ready_state,
+        "pending mining output must not allow simulation time or any owner state to advance"
     );
 
     validate_claim_mining_output(&registries, &state, job)
@@ -1356,7 +1416,7 @@ fn ready_mining_output_waits_for_destination_support_recovery() {
         state
             .mining()
             .get_job(job)
-            .is_some_and(|record| record.ready_at().is_some())
+            .is_some_and(MiningJobRecord::is_ready_to_claim)
     );
 
     validate_set_structural_load(

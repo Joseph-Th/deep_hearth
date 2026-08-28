@@ -58,14 +58,9 @@ pub enum MiningValidationError {
         due: SimulationTick,
         current: SimulationTick,
     },
-    ReadyTickMismatch {
+    ReadyClaimOutsideCompletionTick {
         job: MiningJobId,
-        ready: SimulationTick,
-        due: SimulationTick,
-    },
-    ReadyInFuture {
-        job: MiningJobId,
-        ready: SimulationTick,
+        completion: SimulationTick,
         current: SimulationTick,
     },
     DueIndexMismatch,
@@ -122,22 +117,15 @@ impl Display for MiningValidationError {
                 due.value(),
                 current.value()
             ),
-            Self::ReadyTickMismatch { job, ready, due } => write!(
-                formatter,
-                "ready mining job {} records ready tick {} but completion tick is {}",
-                job.value(),
-                ready.value(),
-                due.value()
-            ),
-            Self::ReadyInFuture {
+            Self::ReadyClaimOutsideCompletionTick {
                 job,
-                ready,
+                completion,
                 current,
             } => write!(
                 formatter,
-                "mining job {} is marked ready at future tick {} from current tick {}",
+                "ready mining job {} must be claimed at completion tick {} but current tick is {}",
                 job.value(),
-                ready.value(),
+                completion.value(),
                 current.value()
             ),
             Self::DueIndexMismatch => {
@@ -186,9 +174,10 @@ fn validate_mining_job(
 ) -> Result<(), MiningValidationError> {
     validate_mining_job_identity(state, key, job)?;
     validate_mining_job_schedule(job, current)?;
-    match job.ready_at() {
-        None => validate_working_mining_job(job, current, expected),
-        Some(ready) => validate_ready_mining_job(job, ready, current),
+    if job.is_working() {
+        validate_working_mining_job(job, current, expected)
+    } else {
+        validate_ready_mining_job(job, current)
     }
 }
 
@@ -250,20 +239,12 @@ fn validate_working_mining_job(
 
 fn validate_ready_mining_job(
     job: &MiningJobRecord,
-    ready: SimulationTick,
     current: SimulationTick,
 ) -> Result<(), MiningValidationError> {
-    if ready != job.completes_at() {
-        return Err(MiningValidationError::ReadyTickMismatch {
+    if job.completes_at() != current {
+        return Err(MiningValidationError::ReadyClaimOutsideCompletionTick {
             job: job.id(),
-            ready,
-            due: job.completes_at(),
-        });
-    }
-    if ready > current {
-        return Err(MiningValidationError::ReadyInFuture {
-            job: job.id(),
-            ready,
+            completion: job.completes_at(),
             current,
         });
     }

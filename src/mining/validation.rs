@@ -49,6 +49,16 @@ pub enum MiningJobValidationError {
     OutputProfileMismatch {
         job: MiningJobId,
     },
+    OutputExceedsDepositTrace {
+        job: MiningJobId,
+        traced: Mass,
+        output: Mass,
+    },
+    DepositMassStateMismatch {
+        job: MiningJobId,
+        expected: Mass,
+        actual: Mass,
+    },
     OutputStorageInvalid {
         job: MiningJobId,
     },
@@ -161,6 +171,28 @@ impl Display for MiningJobValidationError {
                 formatter,
                 "mining job {} output no longer matches its geological deposit",
                 job.value()
+            ),
+            Self::OutputExceedsDepositTrace {
+                job,
+                traced,
+                output,
+            } => write!(
+                formatter,
+                "mining job {} output {} mg exceeds traced pre-extraction deposit mass {} mg",
+                job.value(),
+                output.milligrams(),
+                traced.milligrams()
+            ),
+            Self::DepositMassStateMismatch {
+                job,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "mining job {} expects geological source mass {} mg in its current phase but found {} mg",
+                job.value(),
+                expected.milligrams(),
+                actual.milligrams()
             ),
             Self::OutputStorageInvalid { job } => write!(
                 formatter,
@@ -277,6 +309,8 @@ impl Error for MiningJobValidationError {
             | Self::WorkingEquipmentMounted { .. }
             | Self::EquipmentConditionMismatch { .. }
             | Self::OutputProfileMismatch { .. }
+            | Self::OutputExceedsDepositTrace { .. }
+            | Self::DepositMassStateMismatch { .. }
             | Self::OutputStorageInvalid { .. }
             | Self::EquipmentAlsoUsedByProduction { .. }
             | Self::MissingCapability { .. }
@@ -335,6 +369,7 @@ struct MiningJobReferences<'state> {
     deposit_commodity: CommodityKey,
     deposit_temperature: Temperature,
     deposit_composition: &'state MaterialComposition,
+    deposit_remaining_mass: Mass,
     excavation_hardness: Pressure,
 }
 
@@ -369,6 +404,7 @@ fn resolve_mining_job_references<'state>(
         deposit_commodity: deposit.commodity(),
         deposit_temperature: deposit.temperature(),
         deposit_composition: deposit.composition(),
+        deposit_remaining_mass: deposit.remaining_mass(),
         excavation_hardness: deposit.excavation_hardness(),
     })
 }
@@ -398,6 +434,33 @@ fn validate_working_mining_equipment(
     }
     if equipment.condition() != job.equipment_condition_before() {
         return Err(MiningJobValidationError::EquipmentConditionMismatch { job: job.id() });
+    }
+    Ok(())
+}
+
+fn validate_mining_source_ownership(
+    job: &MiningJobRecord,
+    references: &MiningJobReferences<'_>,
+) -> Result<(), MiningJobValidationError> {
+    let remaining_after = job
+        .deposit_mass_before()
+        .checked_sub(job.output().mass())
+        .ok_or(MiningJobValidationError::OutputExceedsDepositTrace {
+            job: job.id(),
+            traced: job.deposit_mass_before(),
+            output: job.output().mass(),
+        })?;
+    let expected = if job.is_working() {
+        job.deposit_mass_before()
+    } else {
+        remaining_after
+    };
+    if references.deposit_remaining_mass != expected {
+        return Err(MiningJobValidationError::DepositMassStateMismatch {
+            job: job.id(),
+            expected,
+            actual: references.deposit_remaining_mass,
+        });
     }
     Ok(())
 }
@@ -491,6 +554,7 @@ fn validate_loaded_mining_job(
 ) -> Result<(), MiningJobValidationError> {
     let references = resolve_mining_job_references(registries, state, job)?;
     validate_working_mining_equipment(state, job)?;
+    validate_mining_source_ownership(job, &references)?;
     validate_mining_output(registries, job, &references)?;
     validate_mining_equipment_exclusivity(state, job)?;
     validate_mining_job_physics(registries, job, &references)

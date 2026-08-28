@@ -99,7 +99,6 @@ pub enum MiningStartError {
     },
     InventoryRevisionExhausted,
     DestinationSupport(StockpileStructuralLoadError),
-    GeologyRevisionExhausted,
     MiningIdExhausted,
     MiningRevisionExhausted,
     Work(PlayerWorkStartError),
@@ -220,9 +219,6 @@ impl Display for MiningStartError {
             Self::DestinationSupport(error) => {
                 write!(formatter, "mining destination support failed: {error}")
             }
-            Self::GeologyRevisionExhausted => {
-                formatter.write_str("geology revision space is exhausted")
-            }
             Self::MiningIdExhausted => {
                 formatter.write_str("mining job identifier space is exhausted")
             }
@@ -239,7 +235,7 @@ struct MiningTargetPlan {
     deposit: GeologicalDepositId,
     expected_knowledge_revision: u64,
     excavation_hardness: Pressure,
-    remaining_after: Mass,
+    deposit_mass_before: Mass,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -282,15 +278,11 @@ fn validate_mining_target(
     if mass > record.remaining_mass() {
         return Err(MiningStartError::InsufficientTargetMass { requested: mass });
     }
-    let remaining_after = record
-        .remaining_mass()
-        .checked_sub(mass)
-        .ok_or(MiningStartError::InsufficientTargetMass { requested: mass })?;
     Ok(MiningTargetPlan {
         deposit,
         expected_knowledge_revision: target.expected_knowledge_revision,
         excavation_hardness: record.excavation_hardness(),
-        remaining_after,
+        deposit_mass_before: record.remaining_mass(),
     })
 }
 
@@ -441,7 +433,6 @@ impl Error for MiningStartError {
             | Self::DestinationMassOverflow { .. }
             | Self::DestinationCapacityExceeded { .. }
             | Self::InventoryRevisionExhausted
-            | Self::GeologyRevisionExhausted
             | Self::MiningIdExhausted
             | Self::MiningRevisionExhausted => None,
         }
@@ -580,7 +571,6 @@ impl Error for MiningStartCommitError {
 #[must_use]
 pub struct ValidatedMiningStart {
     revisions: MiningStartRevisions,
-    remaining_after: Mass,
     next_mining_job_id: u64,
     reservation: ValidatedInboundReservation,
     work: ValidatedPlayerWorkStart,
@@ -595,7 +585,7 @@ struct RevisionTransition {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MiningStartRevisions {
-    geology: RevisionTransition,
+    geology: u64,
     knowledge: u64,
     equipment: u64,
     mining: RevisionTransition,
@@ -604,9 +594,9 @@ struct MiningStartRevisions {
 
 impl ValidatedMiningStart {
     fn precheck_owner_revisions(&self, state: &AppState) -> Result<(), MiningStartCommitError> {
-        if state.geology().revision() != self.revisions.geology.expected {
+        if state.geology().revision() != self.revisions.geology {
             return Err(MiningStartCommitError::StaleGeology {
-                expected: self.revisions.geology.expected,
+                expected: self.revisions.geology,
                 actual: state.geology().revision(),
             });
         }
@@ -675,11 +665,6 @@ impl ValidatedMiningStart {
         self.precheck_equipment_occupancy(state)?;
         let id = self.record.id();
         self.reservation.apply(state.inventory_state_mut());
-        state.geology_state_mut().apply_extraction(
-            self.record.deposit(),
-            self.remaining_after,
-            self.revisions.geology.next,
-        );
         state.mining_state_mut().insert_job(
             self.record,
             self.next_mining_job_id,
@@ -725,9 +710,6 @@ pub fn validate_start_mining(
         validate_mining_destination(registries, state, destination, &output, mass)?;
 
     let expected_geology_revision = state.geology().revision();
-    let next_geology_revision = expected_geology_revision
-        .checked_add(1)
-        .ok_or(MiningStartError::GeologyRevisionExhausted)?;
     let expected_equipment_revision = state.equipment().revision();
     let expected_mining_revision = state.mining().revision();
     let next_mining_revision = expected_mining_revision
@@ -749,10 +731,7 @@ pub fn validate_start_mining(
 
     Ok(ValidatedMiningStart {
         revisions: MiningStartRevisions {
-            geology: RevisionTransition {
-                expected: expected_geology_revision,
-                next: next_geology_revision,
-            },
+            geology: expected_geology_revision,
             knowledge: target_plan.expected_knowledge_revision,
             equipment: expected_equipment_revision,
             mining: RevisionTransition {
@@ -761,7 +740,6 @@ pub fn validate_start_mining(
             },
             structure: destination_plan.expected_structure_revision,
         },
-        remaining_after: target_plan.remaining_after,
         next_mining_job_id,
         reservation: destination_plan.reservation,
         work,
@@ -774,13 +752,14 @@ pub fn validate_start_mining(
             MiningJobResources {
                 destination,
                 equipment_trace: equipment_plan.trace,
+                deposit_mass_before: target_plan.deposit_mass_before,
                 output,
                 equipment_condition_after: equipment_plan.condition_after,
             },
             MiningJobSchedule {
                 started_at: state.tick(),
                 completes_at,
-                ready_at: None,
+                phase: super::state::MiningJobPhase::Working,
             },
         ),
     })

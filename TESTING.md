@@ -109,11 +109,11 @@ acquirable.
 
 | Target | Contract proved |
 | --- | --- |
-| `survival` | Immediate hunger/thirst response, activity-dependent reserve pressure, preservation, diet tradeoffs, provisioning, and reserve recovery through canonical eating/drinking/work. |
+| `survival` | Distinct hunger-, thirst-, and passive-pressure worlds, variable food-category availability, activity-dependent reserve pressure, preservation, diet tradeoffs, provisioning, and reserve recovery through canonical eating/drinking/work. |
 | `progression` | Local evidence acquisition, primitive crafting/mining/power/processing, a materially consequential scarce-copper choice, autonomous work, second reinforcement, convergence, returned attention, and finite machine lifecycle. |
 | `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structure, hidden world pressure, and recovery. |
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow over variable gangue with selective recovery, full-batch industrial separation, exact constituent accounting, and physical tailings. Capability-only. |
-| `foundry` | Installed pure-copper heating, melting, casting, finite energy, finite heat recovery, and passive sink cooling. Capability-only. |
+| `foundry` | Installed pure-copper heating, melting, casting, finite electrical supply, pre-existing finite thermal load, adaptive partial batches, retained molten remainder, and passive sink recovery. Capability-only. |
 
 ### Progression probe requirements
 
@@ -126,7 +126,7 @@ World-scale clue discovery is outside scope. The probe must show that the actor:
 - encounters direct-source insufficiency through a canonical rejected action;
 - makes the same-state scarce-copper choice between extraction capability and stored-work rate;
 - chooses its natural branch from player-visible evidence and explicit actor policy rather than behavior-seed coin flips or counterfactual outcomes;
-- treats hard-seam access as an uncertain opportunity rather than a guaranteed grade upgrade, then reassesses the extracted sample against already-owned processable ore before choosing feed;
+- treats hard-seam access as an uncertain opportunity rather than a guaranteed grade upgrade, then reassesses the extracted sample against already-owned processable ore before choosing both processing feed and subsequent extraction target;
 - obtains reciprocal physical benefit before both branches converge on the same final capabilities;
 - delegates crushing while performing other useful work and recovers the second reinforcement from processed ore;
 - reports demonstrated productive overlap separately from autonomous time the episode does not fill with useful work; construction-time equivalence is observational, not a required success claim;
@@ -161,13 +161,22 @@ consequences, matched-policy agency results, and focused survival/progression/or
 | `DEEP_HEARTH_GAMEPLAY_VERBOSE` | expanded high-signal decisions, blockers, physical tradeoffs, and focused-probe diagnostics |
 | `DEEP_HEARTH_GAMEPLAY_TRACE` | full per-operation workshop narration plus verbose diagnostics; use only when the compact/verbose evidence identifies a scenario that needs step-by-step replay |
 
-Gameplay gates and audits keep stable maintained anchors, then add a small fresh variation sample on each
-run. Every realized variation root and world seed is printed before execution, so any surprising run is
-exactly replayable with the variables above. Explicit replay values suppress fresh sampling. Unit tests for
-the seed planner itself remain deterministic. Hard assertions own balance-independent invariants and anchor
-contracts; organic samples are allowed to complete, partially complete, or stop at an observed gameplay
-constraint without turning balance-sensitive outcomes into flaky expectations. Malformed explicit seeds fail
-configuration.
+Gameplay gates and audits keep a stable primary anchor plus small stable coverage worlds for important
+alternative paths, then add a fresh variation sample on each run. The maintained coverage set currently
+guarantees food-category shortage plus hunger/thirst pressure, a worse sampled hard seam, finite-work ore
+exhaustion, and thermal-limited casting with cooldown recovery. Variation contracts must still prove that
+generated worlds retain structurally different decisions or blockers, not merely different numeric inputs.
+Focused samples are labeled `anchor`, `coverage`, `organic`, or `replay` in the printed input plan. The primary
+anchor owns the full capability contract; coverage worlds own their named alternate path without inheriting
+the anchor's success expectation. Organic and explicit-replay samples recreate their physical world
+from the seed alone and may adapt, partially complete, or stop only on explicitly recognized canonical
+runtime constraints. A recognized stop is still required to leave trusted-load-valid state and preserve the
+relevant conservation invariants; unexpected resolver, commit, ownership, or persistence failures remain hard
+failures. Harness code must prefer asking production resolvers for feasible actions over copying capability,
+energy, wear, timing, or yield calculations into actor logic. Every realized variation root and world seed is
+printed before execution, so any surprising run is exactly replayable with the variables above. Explicit
+replay values suppress fresh sampling. Unit tests for the seed planner itself remain deterministic. Malformed
+explicit seeds fail configuration.
 
 ## Completion
 

@@ -1,4 +1,4 @@
-//! Fresh replay-root generation used only by exploratory gameplay sampling.
+//! Fresh replay-root generation for bounded organic gameplay sampling.
 
 use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};

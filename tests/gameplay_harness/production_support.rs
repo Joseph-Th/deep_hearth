@@ -74,7 +74,12 @@ pub(super) fn select_stockpile_mass(
     selections
 }
 
-pub(super) fn finish_production_job(
+/// Advances an already-admitted capability-probe job whose providers are intentionally stable.
+///
+/// This helper is not a general actor scheduler. It asserts that no suspension or other world event
+/// changes the runtime duration, so callers cannot accidentally hide a support or availability branch
+/// behind a generic "finish" utility.
+pub(super) fn finish_uninterrupted_production_job(
     registries: &Registries,
     state: &mut AppState,
     job: ProductionJobId,

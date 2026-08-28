@@ -246,7 +246,7 @@ fn account_in_flight_material(
     state: &AppState,
     accounting: &mut ExplicitEnergyAccounting,
 ) -> Result<(), ExplicitEnergyAccountingError> {
-    for job in state.mining().jobs() {
+    for job in state.mining().jobs().filter(|job| job.is_ready_to_claim()) {
         let output = job.output();
         add_material_thermal_energy(
             registries,

@@ -181,7 +181,7 @@ fn calculate_in_process_mass(state: &AppState) -> Result<AggregateMass, MatterAc
             }
         }
     }
-    for job in state.mining().jobs() {
+    for job in state.mining().jobs().filter(|job| job.is_ready_to_claim()) {
         total = total
             .checked_add(AggregateMass::from_mass(job.output().mass()))
             .ok_or(MatterAccountingError::InProcessMassOverflow)?;
@@ -212,13 +212,14 @@ fn calculate_total_mass(parts: &[AggregateMass]) -> Result<AggregateMass, Matter
 
 /// Recomputes matter ownership from authoritative records without trusting stockpile caches.
 ///
-/// Finite geological deposits own their remaining extractable matter until a canonical extraction
+/// Finite geological deposits own their remaining extractable matter through active mining labor.
+/// Mining completion transfers the exact batch into a zero-time ready-to-claim owner, and claim then
 /// transfers it into inventory. Fixture materialization can move selected inventory matter into
 /// structural embodiment, where it remains authoritative structural matter because runtime
 /// demolition/recovery is not currently modeled. Production inputs are removed from inventory at
-/// process start. The running job's resolved output snapshot becomes the durable owner of that same
-/// matter until completion. Reserved inbound capacity is not additional matter and is deliberately
-/// excluded from this projection.
+/// process start. The running production job's resolved output snapshot becomes the durable owner of
+/// that same matter until completion. Reserved inbound capacity and working mining output plans are
+/// not additional matter and are deliberately excluded from this projection.
 pub fn calculate_matter_accounting(
     state: &AppState,
 ) -> Result<MatterAccounting, MatterAccountingError> {

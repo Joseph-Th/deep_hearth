@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
+use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::seed::mix64;
 use super::support::{ROOM_TEMPERATURE, add_solid_stockpile, nominal_equipment_mass_capability};
 use deep_hearth::capability::{CapabilityId, CapabilityValue};
@@ -771,6 +772,7 @@ struct PrimitiveProgressionExperience {
     selected_processing_feed_copper_ppm: u32,
     selected_processing_feed_is_hard: bool,
     processing_feed_selected_from_bulk: bool,
+    post_convergence_mining_target_is_hard: bool,
     refined_clue_sample_mass: Mass,
     refined_clue_mining_ticks: u64,
     primary_batch_mass: Mass,
@@ -1276,7 +1278,8 @@ fn fill_primitive_accumulator(
 pub(super) enum PrimitiveSteadyStop {
     #[default]
     CycleLimit,
-    NoConcurrentWork,
+    TargetSupply,
+    ToolCondition,
     CrusherCondition,
     CrankCondition,
 }
@@ -1285,7 +1288,8 @@ impl PrimitiveSteadyStop {
     const fn label(self) -> &'static str {
         match self {
             Self::CycleLimit => "probe-cycle-limit",
-            Self::NoConcurrentWork => "no-concurrent-player-work",
+            Self::TargetSupply => "known-target-supply",
+            Self::ToolCondition => "player-tool-condition-lifetime",
             Self::CrusherCondition => "crusher-condition-lifetime",
             Self::CrankCondition => "crank-condition-lifetime",
         }
@@ -1397,14 +1401,18 @@ fn run_steady_state_crushing(
         {
             productive_payback_cycle = Some(cycle);
         }
-        if work.mining_jobs == 0
-            && matches!(
-                work.autonomous_stop,
-                AutonomousWorkStop::TargetSupply | AutonomousWorkStop::ToolCondition
-            )
-        {
-            totals.stop = PrimitiveSteadyStop::NoConcurrentWork;
-            break;
+        if work.mining_jobs == 0 {
+            match work.autonomous_stop {
+                AutonomousWorkStop::TargetSupply => {
+                    totals.stop = PrimitiveSteadyStop::TargetSupply;
+                    break;
+                }
+                AutonomousWorkStop::ToolCondition => {
+                    totals.stop = PrimitiveSteadyStop::ToolCondition;
+                    break;
+                }
+                AutonomousWorkStop::MachineCompleted | AutonomousWorkStop::FeedBufferCapacity => {}
+            }
         }
     }
     totals.productive_payback_cycle = productive_payback_cycle;

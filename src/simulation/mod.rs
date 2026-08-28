@@ -107,8 +107,12 @@ pub enum TickError {
     SurvivalHydrationCostOverflow,
     /// Exclusive player-work ownership cannot release at this tick.
     PlayerWorkRevisionExhausted,
+    /// Geology cannot advance its persisted revision for a mining completion this tick.
+    GeologyRevisionExhausted,
     /// Mining cannot advance its persisted scheduling revision for this tick.
     MiningRevisionExhausted,
+    /// Completed mining output must be claimed before authoritative time can advance again.
+    PendingMiningClaim { job: MiningJobId },
     /// Direct player-powered generation cannot advance its energy owner revision this tick.
     ManualPowerEnergyRevisionExhausted,
     /// Direct player-powered generation cannot advance its equipment owner revision this tick.
@@ -170,9 +174,17 @@ impl Display for TickError {
             Self::PlayerWorkRevisionExhausted => {
                 formatter.write_str("player-work revision space is exhausted")
             }
+            Self::GeologyRevisionExhausted => {
+                formatter.write_str("geology revision space is exhausted during mining completion")
+            }
             Self::MiningRevisionExhausted => {
                 formatter.write_str("mining revision space is exhausted")
             }
+            Self::PendingMiningClaim { job } => write!(
+                formatter,
+                "mining job {} completed this tick and its reserved output must be claimed before time advances",
+                job.value()
+            ),
             Self::ManualPowerEnergyRevisionExhausted => {
                 formatter.write_str("manual power energy revision space is exhausted")
             }
@@ -325,7 +337,9 @@ impl Error for TickError {
             | Self::SurvivalEnergyCostOverflow
             | Self::SurvivalHydrationCostOverflow
             | Self::PlayerWorkRevisionExhausted
+            | Self::GeologyRevisionExhausted
             | Self::MiningRevisionExhausted
+            | Self::PendingMiningClaim { .. }
             | Self::ManualPowerEnergyRevisionExhausted
             | Self::ManualPowerEquipmentRevisionExhausted
             | Self::GeologicalObservationIdExhausted
@@ -346,6 +360,10 @@ pub fn advance_tick(
     registries: &Registries,
     state: &mut AppState,
 ) -> Result<TickOutcome, TickError> {
+    if let Some(job) = state.mining().pending_claim_job() {
+        return Err(TickError::PendingMiningClaim { job });
+    }
+
     let current = state.tick();
     let Some(next_value) = current.value().checked_add(1) else {
         return Err(TickError::ClockExhausted { current });
@@ -404,8 +422,9 @@ pub fn advance_tick(
             }
         })?;
     let mining_plan = decide_mining_tick(state, next_tick).map_err(|error| match error {
-        MiningTickError::MiningRevisionExhausted => TickError::MiningRevisionExhausted,
-        MiningTickError::EquipmentRevisionExhausted => TickError::EquipmentRevisionExhausted,
+        MiningTickError::Geology => TickError::GeologyRevisionExhausted,
+        MiningTickError::Mining => TickError::MiningRevisionExhausted,
+        MiningTickError::Equipment => TickError::EquipmentRevisionExhausted,
     })?;
     let equipment_revision_steps = completion_plan
         .equipment_revision_steps()

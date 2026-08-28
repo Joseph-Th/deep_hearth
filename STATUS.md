@@ -19,7 +19,7 @@ Current progression:
 | Survival and labor | Metabolic energy, hydration, vitality, Grain/Fruit/Protein nutrition, perishable food, preservation, finite drinking water, activity-dependent exertion, and one exclusive player-work owner. |
 | Materials and inventory | Typed materials/forms, exact composition and particle state, finite stockpiles/lots, containment, preservation, reservations, provenance, temperature, deterministic coalescing, and exact represented-matter accounting. |
 | Prospecting and knowledge | Survival-costed field inspection and detailed field survey produce persisted bounded evidence without exposing hidden deposit identity or exact hidden state. |
-| Mining | Evidence-gated hand mining through opaque targets with real tools, hardness/batch/throughput limits, wear, reserved destination capacity, in-flight ownership, and explicit output claim. |
+| Mining | Evidence-gated hand mining through opaque targets with real tools, hardness/batch/throughput limits, wear, reserved destination capacity, geological ownership retained through active labor, completion-time extraction, and an explicit zero-time terminal output claim that blocks further clock advancement until resolved. |
 | Crafting and equipment | Production-backed manual shaping, persistent embodied equipment, assembly, additive upgrades, condition-dependent capabilities, occupancy, installation, disassembly/recovery, and material-consuming maintenance. |
 | Primitive power | Material-backed finite energy storage and survival-costed manual power through real portable equipment. |
 | Primitive processing | Crushing and native-copper separation use finite work, equipment capability, wear, exact selected matter, and physical outputs. Delegated work returns player attention. |

@@ -28,6 +28,7 @@ struct PrimitiveProgressionReview {
     hard_ore_evidence_upper_ppm: u32,
     bulk_sample_copper_ppm: u32,
     processing_feed_selected_from_bulk: bool,
+    post_convergence_mining_target_is_hard: bool,
     direct_second_upgrade_blocked: bool,
     refined_clue_sample_mg: u64,
     refined_clue_mining_ticks: u64,
@@ -520,6 +521,7 @@ fn evaluate_primitive_progression_probe(
         hard_ore_evidence_upper_ppm: extraction.hard_ore_evidence_upper_ppm,
         bulk_sample_copper_ppm: extraction.bulk_sample_copper_ppm,
         processing_feed_selected_from_bulk: extraction.processing_feed_selected_from_bulk,
+        post_convergence_mining_target_is_hard: natural.post_convergence_mining_target_is_hard,
         direct_second_upgrade_blocked: extraction.direct_second_upgrade_blocked,
         refined_clue_sample_mg: extraction.refined_clue_sample_mass.milligrams(),
         refined_clue_mining_ticks: extraction.refined_clue_mining_ticks,
@@ -642,7 +644,7 @@ fn evaluate_primitive_progression_probe(
         .checked_sub(review.surface_resolved_clue_count)
         .unwrap_or_else(|| unreachable!("resolved clue count cannot exceed observed clue count"));
     std::println!(
-        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=observe->infer->prepare->extract->invest->delegate->reinvest captured:{fantasy_captured} knowledge=[surface:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t] actor-choice=[policy=hard-lower-bound-premium>={}ppm chosen:{} owned-bulk:{}ppm hard-evidence:{}..{}ppm] tradeoff=[extraction-feed:{} extraction-grade:{}ppm mechanization-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} first-output-delta:{:+}t reciprocal:{} converged:{}] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
+        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=observe->infer->prepare->extract->invest->delegate->reinvest captured:{fantasy_captured} knowledge=[surface:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t] actor-choice=[policy=hard-lower-bound-premium>={}ppm chosen:{} owned-bulk:{}ppm hard-evidence:{}..{}ppm] tradeoff=[extraction-feed:{} extraction-grade:{}ppm mechanization-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} first-output-delta:{:+}t reciprocal:{} converged:{}] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
         review.surface_prospecting_ticks,
         review.surface_clue_count,
         review.surface_resolved_clue_count,
@@ -669,6 +671,11 @@ fn evaluate_primitive_progression_probe(
         natural.machine_useful_overlap_ticks,
         review.unfilled_autonomous_ticks,
         review.productive_autonomy_utilization_ppm,
+        if review.post_convergence_mining_target_is_hard {
+            "hard-sample"
+        } else {
+            "owned-bulk"
+        },
         review.primary_mining_jobs,
         review.primary_autonomous_stop.label(),
         review.reserve_mining_jobs,
@@ -736,6 +743,26 @@ fn evaluate_primitive_progression_probe(
     review
 }
 
-pub(crate) fn run_primitive_progression_probe(registries: &Registries, seed: u64) {
-    let _ = evaluate_primitive_progression_probe(registries, seed);
+pub(crate) fn run_primitive_progression_probe(registries: &Registries, case: FocusedProbeCase) {
+    let review = evaluate_primitive_progression_probe(registries, case.seed());
+    if case.role() == FocusedProbeRole::MaintainedCoverage {
+        assert_eq!(
+            case.seed(),
+            3,
+            "unknown maintained progression coverage seed"
+        );
+        assert_eq!(
+            review.natural_priority,
+            PrimitivePriority::MechanizationFirst,
+            "progression coverage seed 3 must preserve the alternate scarce-copper priority"
+        );
+        assert!(
+            review.extraction_reassessment_avoided_worse_feed,
+            "progression coverage seed 3 must preserve a worse hard-seam sample"
+        );
+        assert!(
+            !review.post_convergence_mining_target_is_hard,
+            "progression coverage seed 3 must switch subsequent extraction back to the known better bulk ore"
+        );
+    }
 }

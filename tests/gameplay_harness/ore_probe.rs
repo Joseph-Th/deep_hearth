@@ -1,8 +1,10 @@
 //! Focused ore-preparation capability probe.
 
-use super::ore_setup::{OrePreparationSetup, setup_ore_preparation_probe};
+use super::focused_runner::focused_probe_role_label;
+use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::ore_setup::{OrePreparationProbeIds, OrePreparationSetup, setup_ore_preparation_probe};
 use super::production_support::{
-    finish_production_job, select_stockpile_mass, varied_healthy_condition,
+    finish_uninterrupted_production_job, select_stockpile_mass, varied_healthy_condition,
 };
 use super::seed::mix64;
 use super::support::nominal_equipment_mass_capability;
@@ -12,16 +14,17 @@ use deep_hearth::content::{
     MATERIAL_COPPER, MATERIAL_STONE, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
     PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_SCREEN_CRUSHED_ORE,
 };
-use deep_hearth::core::quantity::{Energy, Mass};
+use deep_hearth::core::quantity::{AggregateMass, Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::energy::calculate_mass_specific_energy;
+use deep_hearth::energy::{EnergySupplyError, calculate_mass_specific_energy};
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::ore_processing::{
     ComminutionBatchError, ComminutionRequest, ComminutionResolutionError,
-    ConstituentSeparationProcessDefinition, ConstituentSeparationRequest, ScreeningBatchError,
-    ScreeningProcessDefinition, ScreeningRequest, ScreeningResolutionError,
-    resolve_comminution_process, resolve_constituent_separation_process, resolve_screening_process,
+    ConstituentSeparationProcessDefinition, ConstituentSeparationRequest,
+    ConstituentSeparationResolutionError, ScreeningBatchError, ScreeningProcessDefinition,
+    ScreeningRequest, ScreeningResolutionError, resolve_comminution_process,
+    resolve_constituent_separation_process, resolve_screening_process,
 };
 use deep_hearth::production::{
     ProcessOutputRoute, validate_start_process, validate_start_process_routed,
@@ -149,24 +152,22 @@ pub(super) fn probe_parameters(registries: &Registries, seed: u64) -> OrePrepara
         .get_store(ENERGY_MECHANICAL_LARGE_DRIVE)
         .map(|definition| definition.capacity())
         .unwrap_or_else(|| panic!("ore preparation drive definition disappeared"));
-    let slack = drive_capacity
-        .checked_sub(required_energy_upper_bound)
-        .unwrap_or_else(|| {
-            panic!(
-                "authored industrial drive cannot power the complete legal ore-preparation chain"
-            )
-        });
-    let headroom_ppm = 50_000 + (mix64(seed ^ 0x454E_4552_4759_4844) % 550_001) as u32;
-    let varied_headroom = Energy::from_nanojoules(
-        slack
-            .nanojoules()
-            .checked_mul(u128::from(headroom_ppm))
-            .map(|scaled| scaled / 1_000_000)
-            .unwrap_or_else(|| panic!("ore preparation energy headroom scaling overflowed")),
+    assert!(
+        drive_capacity >= required_energy_upper_bound,
+        "authored industrial drive must remain capable of the maintained full-chain ore contract"
     );
-    let drive_energy = required_energy_upper_bound
-        .checked_add(varied_headroom)
-        .unwrap_or_else(|| panic!("ore preparation initial energy overflowed"));
+    // Seed-only pressure makes exact replays independent of runner role. Fresh samples range from
+    // materially under-provisioned to comfortably funded, so the actor can encounter real finite-
+    // energy stops instead of every generated world being pre-funded to success.
+    let energy_budget_ppm = 400_000 + (mix64(seed ^ 0x454E_4552_4759_4845) % 950_001) as u32;
+    let varied_budget = Energy::from_nanojoules(
+        required_energy_upper_bound
+            .nanojoules()
+            .checked_mul(u128::from(energy_budget_ppm))
+            .map(|scaled| scaled / 1_000_000)
+            .unwrap_or_else(|| panic!("ore preparation energy budget scaling overflowed")),
+    );
+    let drive_energy = std::cmp::min(varied_budget, drive_capacity);
     OrePreparationSetup {
         batch_mass,
         copper_ppm,
@@ -195,7 +196,105 @@ pub(super) fn probe_parameters(registries: &Registries, seed: u64) -> OrePrepara
     }
 }
 
-pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed: u64) {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum OreStopReason {
+    FiniteEnergy,
+    EquipmentCapacity,
+    ConditionLifetime,
+}
+
+impl OreStopReason {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::FiniteEnergy => "finite-energy",
+            Self::EquipmentCapacity => "equipment-capacity",
+            Self::ConditionLifetime => "condition-lifetime",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum OreProbeOutcome {
+    Completed,
+    Stopped {
+        stage: &'static str,
+        reason: OreStopReason,
+    },
+}
+
+fn report_ore_energy_stop(
+    registries: &Registries,
+    state: &AppState,
+    ids: OrePreparationProbeIds,
+    case: FocusedProbeCase,
+    initial_matter: AggregateMass,
+    stage: &'static str,
+    available: Energy,
+    requested: Energy,
+) -> OreProbeOutcome {
+    validate_loaded_state(registries, state)
+        .unwrap_or_else(|error| panic!("ore preparation stop-state audit failed: {error}"));
+    let current_matter = calculate_matter_accounting(state)
+        .unwrap_or_else(|error| panic!("ore preparation stop-state matter audit failed: {error}"))
+        .total();
+    assert_eq!(
+        current_matter, initial_matter,
+        "energy-limited ore preparation must conserve represented matter before stopping"
+    );
+    let stored = state
+        .energy()
+        .get_store(ids.drive)
+        .map(|store| store.stored())
+        .unwrap_or_else(|| panic!("ore preparation drive disappeared at energy-limited stop"));
+    assert_eq!(stored, available);
+    std::println!(
+        "ORE REVIEW seed=0x{:016X} sample={} role=capability-only outcome=stopped stage={stage} blocker=finite-energy available={}nJ requested={}nJ tick={} matter=conserved",
+        case.seed(),
+        focused_probe_role_label(case.role()),
+        available.nanojoules(),
+        requested.nanojoules(),
+        state.tick().value(),
+    );
+    OreProbeOutcome::Stopped {
+        stage,
+        reason: OreStopReason::FiniteEnergy,
+    }
+}
+
+fn report_ore_runtime_stop(
+    registries: &Registries,
+    state: &AppState,
+    case: FocusedProbeCase,
+    initial_matter: AggregateMass,
+    stage: &'static str,
+    reason: OreStopReason,
+) -> OreProbeOutcome {
+    validate_loaded_state(registries, state)
+        .unwrap_or_else(|error| panic!("ore preparation stop-state audit failed: {error}"));
+    assert_eq!(
+        calculate_matter_accounting(state)
+            .unwrap_or_else(|error| panic!(
+                "ore preparation stop-state matter audit failed: {error}"
+            ))
+            .total(),
+        initial_matter,
+        "runtime-limited ore preparation must conserve represented matter before stopping"
+    );
+    std::println!(
+        "ORE REVIEW seed=0x{:016X} sample={} role=capability-only outcome=stopped stage={stage} blocker={} tick={} matter=conserved",
+        case.seed(),
+        focused_probe_role_label(case.role()),
+        reason.label(),
+        state.tick().value(),
+    );
+    OreProbeOutcome::Stopped { stage, reason }
+}
+
+pub(super) fn evaluate_ore_preparation_capability_probe(
+    registries: &Registries,
+    case: FocusedProbeCase,
+) -> OreProbeOutcome {
+    let seed = case.seed();
     let setup = probe_parameters(registries, seed);
     let batch_mass = setup.batch_mass;
     let initial_crusher_condition = setup.crusher_condition;
@@ -246,7 +345,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
     let input_clay_ppm = input_composition.parts_per_million(MATERIAL_CLAY);
 
     let crush_selection = [MaterialLotSelection::new(ids.ore_lot, batch_mass)];
-    let crushed = resolve_comminution_process(
+    let crushed = match resolve_comminution_process(
         registries,
         &state,
         ComminutionRequest::new(
@@ -256,8 +355,50 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             ids.crusher,
             ids.drive,
         ),
-    )
-    .unwrap_or_else(|error| panic!("canonical crushing probe resolution failed: {error}"));
+    ) {
+        Ok(resolved) => resolved,
+        Err(ComminutionResolutionError::Energy(EnergySupplyError::InsufficientEnergy {
+            store: _,
+            available,
+            requested,
+        })) if case.role() != FocusedProbeRole::MaintainedAnchor => {
+            return report_ore_energy_stop(
+                registries,
+                &state,
+                ids,
+                case,
+                initial_matter,
+                "crush",
+                available,
+                requested,
+            );
+        }
+        Err(ComminutionResolutionError::BatchMassExceeded { .. })
+            if case.role() != FocusedProbeRole::MaintainedAnchor =>
+        {
+            return report_ore_runtime_stop(
+                registries,
+                &state,
+                case,
+                initial_matter,
+                "crush",
+                OreStopReason::EquipmentCapacity,
+            );
+        }
+        Err(ComminutionResolutionError::ConditionDuration(_))
+            if case.role() != FocusedProbeRole::MaintainedAnchor =>
+        {
+            return report_ore_runtime_stop(
+                registries,
+                &state,
+                case,
+                initial_matter,
+                "crush",
+                OreStopReason::ConditionLifetime,
+            );
+        }
+        Err(error) => panic!("canonical crushing probe resolution failed: {error}"),
+    };
     let crush_duration = crushed.process_resolution().duration();
     let crush_energy = crushed.required_energy();
     let crusher_condition = crushed.condition_after();
@@ -271,7 +412,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
     .unwrap_or_else(|error| panic!("ore preparation crushing start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("ore preparation crushing commit failed: {error}"));
-    finish_production_job(
+    finish_uninterrupted_production_job(
         registries,
         &mut state,
         crush_job,
@@ -294,42 +435,44 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             .and_then(|lot| lot.particle_size_distribution())
             == Some(crusher_definition.output_particle_size_distribution())
     });
-    match resolve_screening_process(
-        registries,
-        &state,
-        ScreeningRequest::new(
-            PROCESS_SCREEN_CRUSHED_ORE,
-            ids.crushed_storage,
-            crushed_selection.as_slice(),
-            ids.screen,
-            ids.drive,
-        ),
-    ) {
-        Ok(_)
-        | Err(ScreeningResolutionError::Batch(ScreeningBatchError::UnresolvedParticleClass {
-            ..
-        })) => {}
-        Err(error) => panic!("direct-screen route failed unexpectedly: {error}"),
-    }
-    match resolve_comminution_process(
-        registries,
-        &state,
-        ComminutionRequest::new(
-            PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
-            ids.crushed_storage,
-            crushed_selection.as_slice(),
-            ids.grinder,
-            ids.drive,
-        ),
-    ) {
-        Ok(_)
-        | Err(ComminutionResolutionError::Batch(
-            ComminutionBatchError::InputParticleSizeOutsideOperatingRange { .. },
-        )) => {}
-        Err(error) => panic!("direct fine-grind route failed unexpectedly: {error}"),
+    if case.role() == FocusedProbeRole::MaintainedAnchor {
+        match resolve_screening_process(
+            registries,
+            &state,
+            ScreeningRequest::new(
+                PROCESS_SCREEN_CRUSHED_ORE,
+                ids.crushed_storage,
+                crushed_selection.as_slice(),
+                ids.screen,
+                ids.drive,
+            ),
+        ) {
+            Ok(_)
+            | Err(ScreeningResolutionError::Batch(
+                ScreeningBatchError::UnresolvedParticleClass { .. },
+            )) => {}
+            Err(error) => panic!("direct-screen route failed unexpectedly: {error}"),
+        }
+        match resolve_comminution_process(
+            registries,
+            &state,
+            ComminutionRequest::new(
+                PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
+                ids.crushed_storage,
+                crushed_selection.as_slice(),
+                ids.grinder,
+                ids.drive,
+            ),
+        ) {
+            Ok(_)
+            | Err(ComminutionResolutionError::Batch(
+                ComminutionBatchError::InputParticleSizeOutsideOperatingRange { .. },
+            )) => {}
+            Err(error) => panic!("direct fine-grind route failed unexpectedly: {error}"),
+        }
     }
 
-    let ground = resolve_comminution_process(
+    let ground = match resolve_comminution_process(
         registries,
         &state,
         ComminutionRequest::new(
@@ -339,8 +482,50 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             ids.grinder,
             ids.drive,
         ),
-    )
-    .unwrap_or_else(|error| panic!("canonical grinding probe resolution failed: {error}"));
+    ) {
+        Ok(resolved) => resolved,
+        Err(ComminutionResolutionError::Energy(EnergySupplyError::InsufficientEnergy {
+            store: _,
+            available,
+            requested,
+        })) if case.role() != FocusedProbeRole::MaintainedAnchor => {
+            return report_ore_energy_stop(
+                registries,
+                &state,
+                ids,
+                case,
+                initial_matter,
+                "grind",
+                available,
+                requested,
+            );
+        }
+        Err(ComminutionResolutionError::BatchMassExceeded { .. })
+            if case.role() != FocusedProbeRole::MaintainedAnchor =>
+        {
+            return report_ore_runtime_stop(
+                registries,
+                &state,
+                case,
+                initial_matter,
+                "grind",
+                OreStopReason::EquipmentCapacity,
+            );
+        }
+        Err(ComminutionResolutionError::ConditionDuration(_))
+            if case.role() != FocusedProbeRole::MaintainedAnchor =>
+        {
+            return report_ore_runtime_stop(
+                registries,
+                &state,
+                case,
+                initial_matter,
+                "grind",
+                OreStopReason::ConditionLifetime,
+            );
+        }
+        Err(error) => panic!("canonical grinding probe resolution failed: {error}"),
+    };
     let grind_duration = ground.process_resolution().duration();
     let grind_energy = ground.required_energy();
     let grinder_condition = ground.condition_after();
@@ -354,7 +539,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
     .unwrap_or_else(|error| panic!("ore preparation grinding start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("ore preparation grinding commit failed: {error}"));
-    finish_production_job(
+    finish_uninterrupted_production_job(
         registries,
         &mut state,
         grind_job,
@@ -389,7 +574,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             || class.range().minimum_diameter() > screen_definition.aperture()
     });
 
-    let screened = resolve_screening_process(
+    let screened = match resolve_screening_process(
         registries,
         &state,
         ScreeningRequest::new(
@@ -399,8 +584,50 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             ids.screen,
             ids.drive,
         ),
-    )
-    .unwrap_or_else(|error| panic!("canonical screening probe resolution failed: {error}"));
+    ) {
+        Ok(resolved) => resolved,
+        Err(ScreeningResolutionError::Energy(EnergySupplyError::InsufficientEnergy {
+            store: _,
+            available,
+            requested,
+        })) if case.role() != FocusedProbeRole::MaintainedAnchor => {
+            return report_ore_energy_stop(
+                registries,
+                &state,
+                ids,
+                case,
+                initial_matter,
+                "screen",
+                available,
+                requested,
+            );
+        }
+        Err(ScreeningResolutionError::BatchMassExceeded { .. })
+            if case.role() != FocusedProbeRole::MaintainedAnchor =>
+        {
+            return report_ore_runtime_stop(
+                registries,
+                &state,
+                case,
+                initial_matter,
+                "screen",
+                OreStopReason::EquipmentCapacity,
+            );
+        }
+        Err(ScreeningResolutionError::ConditionDuration(_))
+            if case.role() != FocusedProbeRole::MaintainedAnchor =>
+        {
+            return report_ore_runtime_stop(
+                registries,
+                &state,
+                case,
+                initial_matter,
+                "screen",
+                OreStopReason::ConditionLifetime,
+            );
+        }
+        Err(error) => panic!("canonical screening probe resolution failed: {error}"),
+    };
     let screen_duration = screened.process_resolution().duration();
     let screen_energy = screened.required_energy();
     let screen_condition = screened.condition_after();
@@ -429,7 +656,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
     .unwrap_or_else(|error| panic!("ore preparation screening start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("ore preparation screening commit failed: {error}"));
-    finish_production_job(
+    finish_uninterrupted_production_job(
         registries,
         &mut state,
         screen_job,
@@ -471,7 +698,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
                                 })
                     })
             });
-            let fine_ground = resolve_comminution_process(
+            let fine_ground = match resolve_comminution_process(
                 registries,
                 &state,
                 ComminutionRequest::new(
@@ -481,10 +708,54 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
                     ids.grinder,
                     ids.drive,
                 ),
-            )
-            .unwrap_or_else(|error| {
-                panic!("canonical fine-grinding probe resolution failed: {error}")
-            });
+            ) {
+                Ok(resolved) => resolved,
+                Err(ComminutionResolutionError::Energy(
+                    EnergySupplyError::InsufficientEnergy {
+                        store: _,
+                        available,
+                        requested,
+                    },
+                )) if case.role() != FocusedProbeRole::MaintainedAnchor => {
+                    return report_ore_energy_stop(
+                        registries,
+                        &state,
+                        ids,
+                        case,
+                        initial_matter,
+                        "regrind-oversize",
+                        available,
+                        requested,
+                    );
+                }
+                Err(ComminutionResolutionError::BatchMassExceeded { .. })
+                    if case.role() != FocusedProbeRole::MaintainedAnchor =>
+                {
+                    return report_ore_runtime_stop(
+                        registries,
+                        &state,
+                        case,
+                        initial_matter,
+                        "regrind-oversize",
+                        OreStopReason::EquipmentCapacity,
+                    );
+                }
+                Err(ComminutionResolutionError::ConditionDuration(_))
+                    if case.role() != FocusedProbeRole::MaintainedAnchor =>
+                {
+                    return report_ore_runtime_stop(
+                        registries,
+                        &state,
+                        case,
+                        initial_matter,
+                        "regrind-oversize",
+                        OreStopReason::ConditionLifetime,
+                    );
+                }
+                Err(error) => {
+                    panic!("canonical fine-grinding probe resolution failed: {error}")
+                }
+            };
             let fine_duration = fine_ground.process_resolution().duration();
             let fine_energy = fine_ground.required_energy();
             let final_grinder_projection = fine_ground.condition_after();
@@ -498,7 +769,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             .unwrap_or_else(|error| panic!("ore preparation fine-grinding start failed: {error}"))
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("ore preparation fine-grinding commit failed: {error}"));
-            finish_production_job(
+            finish_uninterrupted_production_job(
                 registries,
                 &mut state,
                 fine_job,
@@ -516,22 +787,13 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             )
         };
 
-    let separator_batch_limit = nominal_equipment_mass_capability(
-        registries,
-        EQUIPMENT_GRAVITY_SEPARATOR,
-        concentration_definition.max_batch_mass_capability(),
-    );
-    assert!(
-        batch_mass <= separator_batch_limit,
-        "industrial ore-preparation separator must accept the full prepared batch so capability depth is not hidden behind repetitive micro-batching"
-    );
     let selection = select_stockpile_mass(
         &state,
         ids.undersize_storage,
         batch_mass,
         "full fine liberated feed for industrial copper concentration",
     );
-    let concentrated = resolve_constituent_separation_process(
+    let concentrated = match resolve_constituent_separation_process(
         registries,
         &state,
         ConstituentSeparationRequest::new(
@@ -541,8 +803,52 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             ids.separator,
             ids.drive,
         ),
-    )
-    .unwrap_or_else(|error| panic!("copper concentration resolution failed: {error}"));
+    ) {
+        Ok(resolved) => resolved,
+        Err(ConstituentSeparationResolutionError::Energy(
+            EnergySupplyError::InsufficientEnergy {
+                store: _,
+                available,
+                requested,
+            },
+        )) if case.role() != FocusedProbeRole::MaintainedAnchor => {
+            return report_ore_energy_stop(
+                registries,
+                &state,
+                ids,
+                case,
+                initial_matter,
+                "concentrate",
+                available,
+                requested,
+            );
+        }
+        Err(ConstituentSeparationResolutionError::BatchMassExceeded { .. })
+            if case.role() != FocusedProbeRole::MaintainedAnchor =>
+        {
+            return report_ore_runtime_stop(
+                registries,
+                &state,
+                case,
+                initial_matter,
+                "concentrate",
+                OreStopReason::EquipmentCapacity,
+            );
+        }
+        Err(ConstituentSeparationResolutionError::ConditionDuration(_))
+            if case.role() != FocusedProbeRole::MaintainedAnchor =>
+        {
+            return report_ore_runtime_stop(
+                registries,
+                &state,
+                case,
+                initial_matter,
+                "concentrate",
+                OreStopReason::ConditionLifetime,
+            );
+        }
+        Err(error) => panic!("copper concentration resolution failed: {error}"),
+    };
     let concentration_duration = concentrated.process_resolution().duration();
     let concentration_duration_ticks = concentration_duration.value();
     let concentration_energy = concentrated.required_energy();
@@ -567,7 +873,7 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
     .unwrap_or_else(|error| panic!("copper concentration start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("copper concentration commit failed: {error}"));
-    finish_production_job(
+    finish_uninterrupted_production_job(
         registries,
         &mut state,
         job,
@@ -821,7 +1127,8 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
 
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
-            "CAPABILITY ORE_PREP seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[particle-state,routing,finite-work,wear,constituent-concentration] batch={}mg feed=[copper:{}ppm stone:{}ppm clay:{}ppm] concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm initial-condition=[crusher:{} grinder:{} screen:{} separator:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t concentrate:{}b/{}t] matter=conserved composition=exact energy=resolved",
+            "CAPABILITY ORE_PREP seed=0x{seed:016X} sample={} outcome=completed reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[particle-state,routing,finite-work,wear,constituent-concentration] batch={}mg feed=[copper:{}ppm stone:{}ppm clay:{}ppm] concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm initial-condition=[crusher:{} grinder:{} screen:{} separator:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t concentrate:{}b/{}t] matter=conserved composition=exact energy=resolved",
+            focused_probe_role_label(case.role()),
             batch_mass.milligrams(),
             input_copper_ppm,
             input_stone_ppm,
@@ -847,7 +1154,8 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
         );
     } else {
         std::println!(
-            "ORE REVIEW seed=0x{seed:016X} role=capability-only pipeline=crush->grind->screen->regrind->concentrate batch={}mg feed=[copper:{}ppm stone:{}ppm clay:{}ppm] concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm stored-work=[used:{}nJ remaining:{}nJ] durations=[{}+{}+{}+{}t concentration:{}b/{}t] matter=conserved composition=exact",
+            "ORE REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome=completed pipeline=crush->grind->screen->regrind->concentrate batch={}mg feed=[copper:{}ppm stone:{}ppm clay:{}ppm] concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm stored-work=[used:{}nJ remaining:{}nJ] durations=[{}+{}+{}+{}t concentration:{}b/{}t] matter=conserved composition=exact",
+            focused_probe_role_label(case.role()),
             batch_mass.milligrams(),
             input_copper_ppm,
             input_stone_ppm,
@@ -865,6 +1173,27 @@ pub(super) fn run_ore_preparation_capability_probe(registries: &Registries, seed
             fine_duration_ticks,
             concentration_batches,
             concentration_duration_ticks,
+        );
+    }
+    OreProbeOutcome::Completed
+}
+
+pub(super) fn run_ore_preparation_capability_probe(
+    registries: &Registries,
+    case: FocusedProbeCase,
+) {
+    let outcome = evaluate_ore_preparation_capability_probe(registries, case);
+    if case.role() == FocusedProbeRole::MaintainedCoverage {
+        assert_eq!(case.seed(), 2, "unknown maintained ore coverage seed");
+        assert!(
+            matches!(
+                outcome,
+                OreProbeOutcome::Stopped {
+                    reason: OreStopReason::FiniteEnergy,
+                    ..
+                }
+            ),
+            "ore coverage seed 2 must preserve a canonical finite-work stop"
         );
     }
 }
