@@ -41,6 +41,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=[],
         help="restrict the diff to one metric; repeat for multiple metrics",
     )
+    diff.add_argument(
+        "--path",
+        action="append",
+        default=[],
+        help="restrict the diff to a path; repeat for multiple paths",
+    )
     return parser.parse_args(argv)
 
 
@@ -56,6 +62,8 @@ def command_for(args: argparse.Namespace) -> list[str]:
         command = ["bca", "diff", "--since", args.since, "--format", "markdown"]
         for metric in args.metric:
             command.extend(["--metric", metric])
+        for path in args.path:
+            command.extend(["--paths", path])
         return command
     raise ValueError(f"unknown BCA mode: {args.mode}")
 

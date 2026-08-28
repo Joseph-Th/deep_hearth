@@ -8,21 +8,25 @@ use crate::content::{
     MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
     build_registries,
 };
-use crate::core::quantity::Temperature;
-use crate::core::state::apply_clock_advance;
+use crate::core::quantity::{Mass, Temperature};
+use crate::core::state::{AppState, apply_clock_advance};
 use crate::core::time::SimulationTick;
 use crate::core::time::WorldSeed;
 use crate::inventory::{
-    MaterialFixtureError, MaterialIngressEntry, MaterialIngressError, ReservedDepositRequest,
-    StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
-    apply_consumption_reservation, apply_material_ingress, apply_reserved_deposits,
-    decide_reserved_deposits, deposit_bulk_for_test, deposit_composed_lot_for_test,
-    deposit_lot_for_test, validate_consumption_reservation_from_selection,
-    validate_consumption_selection, validate_loaded_inventory, validate_material_ingress,
-    validate_material_transfer_for_test,
+    MaterialFixtureError, MaterialIngressEntry, MaterialIngressError, MaterialLotRecord,
+    ReservedDepositRequest, StockpileStorageError, StockpileStorageProfile,
+    add_solid_stockpile_for_test, add_stockpile, apply_consumption_reservation,
+    apply_material_ingress, apply_reserved_deposits, decide_reserved_deposits,
+    deposit_bulk_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
+    validate_consumption_reservation_from_selection, validate_consumption_selection,
+    validate_loaded_inventory, validate_material_ingress, validate_material_transfer_for_test,
 };
-use crate::material::{CompositionComponent, MaterialComposition, MaterialLotSpec, MaterialPhase};
+use crate::material::{
+    CommodityKey, CompositionComponent, MaterialComposition, MaterialInputSpec, MaterialLotSpec,
+    MaterialPhase,
+};
 use crate::matter::calculate_matter_accounting;
+use crate::registry::Registries;
 
 fn wood_log() -> CommodityKey {
     CommodityKey::new(MATERIAL_WOOD, FORM_LOG)

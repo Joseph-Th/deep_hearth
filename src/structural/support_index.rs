@@ -1,0 +1,127 @@
+//! Shared deterministic reverse-index transition for runtime owners mounted on structural elements.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Debug;
+
+use super::state::StructuralElementId;
+
+/// Structural inconsistency in a runtime owner's derived support reverse index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SupportIndexValidationFault<Id> {
+    ZeroSupportElementId,
+    EmptySupportBucket {
+        element: StructuralElementId,
+    },
+    InvalidItemId {
+        item: Id,
+        element: StructuralElementId,
+    },
+    UnknownIndexedItem {
+        item: Id,
+        element: StructuralElementId,
+    },
+    SupportMismatch {
+        item: Id,
+        indexed: StructuralElementId,
+        actual: Option<StructuralElementId>,
+    },
+}
+
+/// Validates one owner's derived structural-support reverse index against authoritative records.
+pub(crate) fn validate_support_index<Id>(
+    index: &BTreeMap<StructuralElementId, BTreeSet<Id>>,
+    invalid_item_id: impl Fn(Id) -> bool,
+    actual_support: impl Fn(Id) -> Option<Option<StructuralElementId>>,
+) -> Result<(), SupportIndexValidationFault<Id>>
+where
+    Id: Copy + Ord,
+{
+    for (element, items) in index {
+        if element.value() == 0 {
+            return Err(SupportIndexValidationFault::ZeroSupportElementId);
+        }
+        if items.is_empty() {
+            return Err(SupportIndexValidationFault::EmptySupportBucket { element: *element });
+        }
+        for item in items.iter().copied() {
+            if invalid_item_id(item) {
+                return Err(SupportIndexValidationFault::InvalidItemId {
+                    item,
+                    element: *element,
+                });
+            }
+            let Some(actual) = actual_support(item) else {
+                return Err(SupportIndexValidationFault::UnknownIndexedItem {
+                    item,
+                    element: *element,
+                });
+            };
+            if actual != Some(*element) {
+                return Err(SupportIndexValidationFault::SupportMismatch {
+                    item,
+                    indexed: *element,
+                    actual,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Applies one already-validated structural-support reassignment to an owner's reverse index.
+///
+/// The owning subsystem remains responsible for its authoritative record and revision. This helper
+/// owns only the repeated derived-index invariant: the old membership must exist, a distinct new
+/// membership must not already exist, empty buckets are removed, and the final membership is unique.
+pub(crate) fn apply_support_index_change<Id>(
+    index: &mut BTreeMap<StructuralElementId, BTreeSet<Id>>,
+    item: Id,
+    before: Option<StructuralElementId>,
+    after: Option<StructuralElementId>,
+) where
+    Id: Copy + Debug + Ord,
+{
+    if let Some(before) = before {
+        assert!(
+            index
+                .get(&before)
+                .is_some_and(|indexed| indexed.contains(&item)),
+            "runtime invariant broken: structural support index {before:?} is missing {item:?}"
+        );
+    }
+    if after != before
+        && let Some(after) = after
+    {
+        assert!(
+            !index
+                .get(&after)
+                .is_some_and(|indexed| indexed.contains(&item)),
+            "runtime invariant broken: structural support index {after:?} already contains {item:?}"
+        );
+    }
+
+    if let Some(before) = before {
+        let remove_bucket = {
+            let indexed = index.get_mut(&before).unwrap_or_else(|| {
+                panic!(
+                    "runtime invariant broken: structural support index lost {before:?} while moving {item:?}"
+                )
+            });
+            assert!(
+                indexed.remove(&item),
+                "runtime invariant broken: structural support index {before:?} lost {item:?} while moving it"
+            );
+            indexed.is_empty()
+        };
+        if remove_bucket {
+            index.remove(&before);
+        }
+    }
+
+    if let Some(after) = after {
+        assert!(
+            index.entry(after).or_default().insert(item),
+            "runtime invariant broken: structural support index {after:?} duplicated {item:?}"
+        );
+    }
+}

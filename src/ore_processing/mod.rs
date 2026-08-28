@@ -7,11 +7,12 @@ mod screening_execution;
 mod separation_execution;
 mod throughput;
 
-use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
+use crate::capability::{CapabilityRegistry, CapabilityValueKind};
 use crate::material::{
     CommodityKey, MaterialFormCohesion, MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy,
 };
 use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
+pub use powered_physics::PoweredOreJobValidationError;
 use std::collections::BTreeMap;
 
 pub use comminution_execution::{
@@ -56,8 +57,7 @@ pub struct OreProcessingRegistry {
 fn validate_powered_process_contract(
     operation: &str,
     process: ProcessId,
-    mass_flow_capability: CapabilityId,
-    max_batch_mass_capability: CapabilityId,
+    profile: PoweredOreProcessProfile,
     production: &ProductionRegistry,
     capabilities: &CapabilityRegistry,
 ) {
@@ -74,12 +74,12 @@ fn validate_powered_process_contract(
     );
     for (capability, kind, role) in [
         (
-            mass_flow_capability,
+            profile.mass_flow_capability(),
             CapabilityValueKind::MassFlow,
             "throughput",
         ),
         (
-            max_batch_mass_capability,
+            profile.max_batch_mass_capability(),
             CapabilityValueKind::Mass,
             "maximum-batch",
         ),
@@ -96,6 +96,216 @@ fn validate_powered_process_contract(
             kind,
             "{operation} process {} {role} capability has wrong physical kind",
             process.value()
+        );
+    }
+}
+
+fn validate_comminution_references(
+    definition: &ComminutionProcessDefinition,
+    production: &ProductionRegistry,
+    capabilities: &CapabilityRegistry,
+    materials: &MaterialRegistry,
+) {
+    validate_powered_process_contract(
+        "comminution",
+        definition.process(),
+        definition.operating_profile(),
+        production,
+        capabilities,
+    );
+    for (form, role) in [
+        (definition.input_form(), "input"),
+        (definition.output_form(), "output"),
+    ] {
+        let authored = match materials.get_form(form) {
+            Some(authored) => authored,
+            None => panic!(
+                "comminution process {} references missing {role} form {}",
+                definition.process().value(),
+                form.value()
+            ),
+        };
+        assert_eq!(
+            authored.phase(),
+            MaterialPhase::Solid,
+            "comminution process {} {role} form {} must be solid",
+            definition.process().value(),
+            form.value()
+        );
+    }
+    let output_form = match materials.get_form(definition.output_form()) {
+        Some(output_form) => output_form,
+        None => unreachable!("comminution output form was resolved above"),
+    };
+    assert_eq!(
+        output_form.particle_size_policy(),
+        ParticleSizeStatePolicy::Required,
+        "comminution process {} output form {} must require particle-size state",
+        definition.process().value(),
+        definition.output_form().value()
+    );
+    if let Some(input_range) = definition.input_particle_size_range() {
+        let input_form = match materials.get_form(definition.input_form()) {
+            Some(input_form) => input_form,
+            None => unreachable!("comminution input form was resolved above"),
+        };
+        assert_eq!(
+            input_form.particle_size_policy(),
+            ParticleSizeStatePolicy::Required,
+            "comminution process {} with a feed-size range requires particulate input form {}",
+            definition.process().value(),
+            definition.input_form().value()
+        );
+        let output_range = definition.output_particle_size();
+        assert!(
+            output_range.minimum_diameter() <= input_range.minimum_diameter()
+                && output_range.maximum_diameter() < input_range.maximum_diameter(),
+            "comminution process {} feed-size range {}..={} um cannot admit a strictly reducing output {}..={} um",
+            definition.process().value(),
+            input_range.minimum_diameter().micrometers(),
+            input_range.maximum_diameter().micrometers(),
+            output_range.minimum_diameter().micrometers(),
+            output_range.maximum_diameter().micrometers()
+        );
+    }
+}
+
+fn validate_screening_references(
+    definition: ScreeningProcessDefinition,
+    production: &ProductionRegistry,
+    capabilities: &CapabilityRegistry,
+    materials: &MaterialRegistry,
+) {
+    validate_powered_process_contract(
+        "screening",
+        definition.process(),
+        definition.operating_profile(),
+        production,
+        capabilities,
+    );
+    for (form, role) in [
+        (definition.input_form(), "input"),
+        (definition.output_form(), "output"),
+    ] {
+        let authored = materials.get_form(form).unwrap_or_else(|| {
+            panic!(
+                "screening process {} references missing {role} form {}",
+                definition.process().value(),
+                form.value()
+            )
+        });
+        assert_eq!(
+            authored.phase(),
+            MaterialPhase::Solid,
+            "screening process {} {role} form {} must be solid",
+            definition.process().value(),
+            form.value()
+        );
+        assert_eq!(
+            authored.particle_size_policy(),
+            ParticleSizeStatePolicy::Required,
+            "screening process {} {role} form {} must require particle-size state",
+            definition.process().value(),
+            form.value()
+        );
+    }
+}
+
+fn validate_separation_references(
+    definition: ConstituentSeparationProcessDefinition,
+    production: &ProductionRegistry,
+    capabilities: &CapabilityRegistry,
+    materials: &MaterialRegistry,
+) {
+    validate_powered_process_contract(
+        "constituent-separation",
+        definition.process(),
+        definition.operating_profile(),
+        production,
+        capabilities,
+    );
+    let input_form = materials
+        .get_form(definition.input_form())
+        .unwrap_or_else(|| {
+            panic!(
+                "constituent-separation process {} references missing input form {}",
+                definition.process().value(),
+                definition.input_form().value()
+            )
+        });
+    assert_eq!(
+        input_form.phase(),
+        MaterialPhase::Solid,
+        "constituent-separation process {} input must be solid",
+        definition.process().value()
+    );
+    assert_eq!(
+        input_form.particle_size_policy(),
+        ParticleSizeStatePolicy::Required,
+        "constituent-separation process {} requires liberated particulate feed",
+        definition.process().value()
+    );
+    let target_material = definition.target_material();
+    let target_form = definition.target_output_form();
+    assert!(
+        materials.get_material(target_material).is_some(),
+        "constituent-separation process {} references missing target material {}",
+        definition.process().value(),
+        target_material.value()
+    );
+    assert!(
+        materials.has_commodity(CommodityKey::new(target_material, target_form)),
+        "constituent-separation process {} references invalid target material/form {}:{}",
+        definition.process().value(),
+        target_material.value(),
+        target_form.value()
+    );
+    let target_output = materials
+        .get_form(target_form)
+        .unwrap_or_else(|| unreachable!("validated target commodity requires its form"));
+    assert_eq!(target_output.phase(), MaterialPhase::Solid);
+    assert_eq!(
+        target_output.cohesion(),
+        MaterialFormCohesion::Loose,
+        "constituent-separation process {} target output form {} cannot become consolidated without an explicit consolidation operation",
+        definition.process().value(),
+        target_form.value()
+    );
+    if definition.residue_material().is_none() {
+        assert_eq!(
+            target_output.particle_size_policy(),
+            ParticleSizeStatePolicy::Required,
+            "constituent concentration process {} target output must retain particle-size state",
+            definition.process().value()
+        );
+    }
+
+    let residue_form = definition.residue_output_form();
+    let residue_output = materials.get_form(residue_form).unwrap_or_else(|| {
+        panic!(
+            "constituent-separation process {} references missing residue form {}",
+            definition.process().value(),
+            residue_form.value()
+        )
+    });
+    assert_eq!(residue_output.phase(), MaterialPhase::Solid);
+    assert_eq!(
+        residue_output.particle_size_policy(),
+        ParticleSizeStatePolicy::Required,
+        "constituent-separation process {} residue output must retain particle-size state",
+        definition.process().value()
+    );
+    if let Some(residue_material) = definition.residue_material() {
+        assert!(
+            materials.has_commodity(CommodityKey::new(residue_material, residue_form)),
+            "constituent-separation process {} references invalid residue material/form {}:{}",
+            definition.process().value(),
+            residue_material.value(),
+            residue_form.value()
+        );
+        assert_ne!(
+            residue_material, target_material,
+            "binary constituent separation must use a residue material distinct from its target"
         );
     }
 }
@@ -194,199 +404,13 @@ impl OreProcessingRegistry {
         materials: &MaterialRegistry,
     ) {
         for definition in self.comminution.values() {
-            validate_powered_process_contract(
-                "comminution",
-                definition.process(),
-                definition.mass_flow_capability(),
-                definition.max_batch_mass_capability(),
-                production,
-                capabilities,
-            );
-            for (form, role) in [
-                (definition.input_form(), "input"),
-                (definition.output_form(), "output"),
-            ] {
-                let authored = match materials.get_form(form) {
-                    Some(authored) => authored,
-                    None => panic!(
-                        "comminution process {} references missing {role} form {}",
-                        definition.process().value(),
-                        form.value()
-                    ),
-                };
-                assert_eq!(
-                    authored.phase(),
-                    MaterialPhase::Solid,
-                    "comminution process {} {role} form {} must be solid",
-                    definition.process().value(),
-                    form.value()
-                );
-            }
-            let output_form = match materials.get_form(definition.output_form()) {
-                Some(output_form) => output_form,
-                None => unreachable!("comminution output form was resolved above"),
-            };
-            assert_eq!(
-                output_form.particle_size_policy(),
-                ParticleSizeStatePolicy::Required,
-                "comminution process {} output form {} must require particle-size state",
-                definition.process().value(),
-                definition.output_form().value()
-            );
-            if let Some(input_range) = definition.input_particle_size_range() {
-                let input_form = match materials.get_form(definition.input_form()) {
-                    Some(input_form) => input_form,
-                    None => unreachable!("comminution input form was resolved above"),
-                };
-                assert_eq!(
-                    input_form.particle_size_policy(),
-                    ParticleSizeStatePolicy::Required,
-                    "comminution process {} with a feed-size range requires particulate input form {}",
-                    definition.process().value(),
-                    definition.input_form().value()
-                );
-                let output_range = definition.output_particle_size();
-                assert!(
-                    output_range.minimum_diameter() <= input_range.minimum_diameter()
-                        && output_range.maximum_diameter() < input_range.maximum_diameter(),
-                    "comminution process {} feed-size range {}..={} um cannot admit a strictly reducing output {}..={} um",
-                    definition.process().value(),
-                    input_range.minimum_diameter().micrometers(),
-                    input_range.maximum_diameter().micrometers(),
-                    output_range.minimum_diameter().micrometers(),
-                    output_range.maximum_diameter().micrometers()
-                );
-            }
+            validate_comminution_references(definition, production, capabilities, materials);
         }
         for definition in self.screening.values().copied() {
-            validate_powered_process_contract(
-                "screening",
-                definition.process(),
-                definition.mass_flow_capability(),
-                definition.max_batch_mass_capability(),
-                production,
-                capabilities,
-            );
-            for (form, role) in [
-                (definition.input_form(), "input"),
-                (definition.output_form(), "output"),
-            ] {
-                let authored = materials.get_form(form).unwrap_or_else(|| {
-                    panic!(
-                        "screening process {} references missing {role} form {}",
-                        definition.process().value(),
-                        form.value()
-                    )
-                });
-                assert_eq!(
-                    authored.phase(),
-                    MaterialPhase::Solid,
-                    "screening process {} {role} form {} must be solid",
-                    definition.process().value(),
-                    form.value()
-                );
-                assert_eq!(
-                    authored.particle_size_policy(),
-                    ParticleSizeStatePolicy::Required,
-                    "screening process {} {role} form {} must require particle-size state",
-                    definition.process().value(),
-                    form.value()
-                );
-            }
+            validate_screening_references(definition, production, capabilities, materials);
         }
         for definition in self.separation.values().copied() {
-            validate_powered_process_contract(
-                "constituent-separation",
-                definition.process(),
-                definition.mass_flow_capability(),
-                definition.max_batch_mass_capability(),
-                production,
-                capabilities,
-            );
-            let input_form = materials
-                .get_form(definition.input_form())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "constituent-separation process {} references missing input form {}",
-                        definition.process().value(),
-                        definition.input_form().value()
-                    )
-                });
-            assert_eq!(
-                input_form.phase(),
-                MaterialPhase::Solid,
-                "constituent-separation process {} input must be solid",
-                definition.process().value()
-            );
-            assert_eq!(
-                input_form.particle_size_policy(),
-                ParticleSizeStatePolicy::Required,
-                "constituent-separation process {} requires liberated particulate feed",
-                definition.process().value()
-            );
-            let target_material = definition.target_material();
-            let target_form = definition.target_output_form();
-            assert!(
-                materials.get_material(target_material).is_some(),
-                "constituent-separation process {} references missing target material {}",
-                definition.process().value(),
-                target_material.value()
-            );
-            assert!(
-                materials.has_commodity(CommodityKey::new(target_material, target_form)),
-                "constituent-separation process {} references invalid target material/form {}:{}",
-                definition.process().value(),
-                target_material.value(),
-                target_form.value()
-            );
-            let target_output = materials
-                .get_form(target_form)
-                .unwrap_or_else(|| unreachable!("validated target commodity requires its form"));
-            assert_eq!(target_output.phase(), MaterialPhase::Solid);
-            assert_eq!(
-                target_output.cohesion(),
-                MaterialFormCohesion::Loose,
-                "constituent-separation process {} target output form {} cannot become consolidated without an explicit consolidation operation",
-                definition.process().value(),
-                target_form.value()
-            );
-            if definition.residue_material().is_none() {
-                assert_eq!(
-                    target_output.particle_size_policy(),
-                    ParticleSizeStatePolicy::Required,
-                    "constituent concentration process {} target output must retain particle-size state",
-                    definition.process().value()
-                );
-            }
-
-            let residue_form = definition.residue_output_form();
-            let residue_output = materials.get_form(residue_form).unwrap_or_else(|| {
-                panic!(
-                    "constituent-separation process {} references missing residue form {}",
-                    definition.process().value(),
-                    residue_form.value()
-                )
-            });
-            assert_eq!(residue_output.phase(), MaterialPhase::Solid);
-            assert_eq!(
-                residue_output.particle_size_policy(),
-                ParticleSizeStatePolicy::Required,
-                "constituent-separation process {} residue output must retain particle-size state",
-                definition.process().value()
-            );
-            if let Some(residue_material) = definition.residue_material() {
-                assert!(
-                    materials.has_commodity(CommodityKey::new(residue_material, residue_form)),
-                    "constituent-separation process {} references invalid residue material/form {}:{}",
-                    definition.process().value(),
-                    residue_material.value(),
-                    residue_form.value()
-                );
-                assert_ne!(
-                    residue_material, target_material,
-                    "binary constituent separation must use a residue material distinct from its target"
-                );
-            }
+            validate_separation_references(definition, production, capabilities, materials);
         }
     }
 }

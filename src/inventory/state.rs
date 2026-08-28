@@ -11,7 +11,7 @@ use crate::core::time::SimulationTick;
 use crate::material::{
     CommodityKey, MaterialComposition, MaterialPhase, ParticleSizeDistribution, ParticleSizeRange,
 };
-use crate::structural::StructuralElementId;
+use crate::structural::{StructuralElementId, apply_support_index_change};
 
 mod lot_mutation;
 
@@ -662,6 +662,11 @@ impl InventoryState {
         after: Option<StructuralElementId>,
         next_revision: u64,
     ) {
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "validated stockpile support change must advance the owner revision exactly once"
+        );
         let record = match self.stockpiles.get(&stockpile) {
             Some(record) => record,
             None => panic!(
@@ -673,64 +678,7 @@ impl InventoryState {
             record.supported_by, before,
             "runtime invariant broken: stockpile support record disagrees with support index"
         );
-        if let Some(before) = before {
-            assert!(
-                self.stockpiles_by_support
-                    .get(&before)
-                    .is_some_and(|indexed| indexed.contains(&stockpile)),
-                "runtime invariant broken: inventory support index element {} missing stockpile {}",
-                before.value(),
-                stockpile.value()
-            );
-        }
-        if after != before
-            && let Some(after) = after
-        {
-            assert!(
-                !self
-                    .stockpiles_by_support
-                    .get(&after)
-                    .is_some_and(|indexed| indexed.contains(&stockpile)),
-                "runtime invariant broken: inventory support index element {} already contains stockpile {}",
-                after.value(),
-                stockpile.value()
-            );
-        }
-        if let Some(before) = before {
-            let remove_entry = {
-                let indexed = match self.stockpiles_by_support.get_mut(&before) {
-                    Some(indexed) => indexed,
-                    None => panic!(
-                        "runtime invariant broken: inventory support index missing element {} for stockpile {}",
-                        before.value(),
-                        stockpile.value()
-                    ),
-                };
-                assert!(
-                    indexed.remove(&stockpile),
-                    "runtime invariant broken: inventory support index element {} missing stockpile {}",
-                    before.value(),
-                    stockpile.value()
-                );
-                indexed.is_empty()
-            };
-            if remove_entry {
-                self.stockpiles_by_support.remove(&before);
-            }
-        }
-        if let Some(after) = after {
-            let inserted = self
-                .stockpiles_by_support
-                .entry(after)
-                .or_default()
-                .insert(stockpile);
-            assert!(
-                inserted,
-                "runtime invariant broken: inventory support index element {} already contains stockpile {}",
-                after.value(),
-                stockpile.value()
-            );
-        }
+        apply_support_index_change(&mut self.stockpiles_by_support, stockpile, before, after);
         let record = match self.stockpiles.get_mut(&stockpile) {
             Some(record) => record,
             None => unreachable!("stockpile support record was prechecked before index mutation"),

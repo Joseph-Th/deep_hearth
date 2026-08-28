@@ -464,26 +464,25 @@ fn normalized_nutrition_gain_ppm(offered: Energy, maximum: Energy) -> Result<u32
     u32::try_from(gain).map_err(|_| EatError::NutritionOverflow)
 }
 
-pub fn validate_eat(
-    registries: &Registries,
-    state: &AppState,
-    source: StockpileId,
-    selections: &[MaterialLotSelection],
-) -> Result<ValidatedEat, EatError> {
-    let attention = validate_player_attention(state).map_err(|error| match error {
-        PlayerAttentionError::SurvivalNotInitialized => EatError::SurvivalNotInitialized,
-        PlayerAttentionError::PlayerDead => EatError::PlayerDead,
-        PlayerAttentionError::Busy { active } => EatError::PlayerBusy { active },
-    })?;
-    let Some(player) = state.survival().player().copied() else {
-        return Err(EatError::SurvivalNotInitialized);
-    };
-    let exact_selection = validate_explicit_consumption_selection(
-        state.inventory(),
-        source,
-        selections,
-    )
-    .map_err(|error| match error {
+#[derive(Debug)]
+struct ResolvedFoodPortion {
+    outcome: EatPortionOutcome,
+    energy_nj: u128,
+    hydration_ul: u128,
+    material: MaterialId,
+}
+
+#[derive(Debug)]
+struct MealOffer {
+    portions: Vec<EatPortionOutcome>,
+    offered_energy: Energy,
+    offered_hydration_ul: u128,
+    category_energy: NutritionEnergy,
+    consumed_additions: BTreeMap<MaterialId, AggregateMass>,
+}
+
+fn map_eat_selection_error(error: ExplicitConsumptionSelectionError) -> EatError {
+    match error {
         ExplicitConsumptionSelectionError::UnknownStockpile { stockpile } => {
             EatError::UnknownStockpile { stockpile }
         }
@@ -512,7 +511,86 @@ pub fn validate_eat(
         ExplicitConsumptionSelectionError::MassOverflow { stockpile } => {
             EatError::InventoryMassOverflow { stockpile }
         }
-    })?;
+    }
+}
+
+fn map_food_freshness_error(error: FoodFreshnessError) -> EatError {
+    match error {
+        FoodFreshnessError::UnknownLot { lot } => EatError::UnknownLot { lot },
+        FoodFreshnessError::UnknownStockpile { stockpile } => {
+            EatError::UnknownStockpile { stockpile }
+        }
+        FoodFreshnessError::NotEdible { commodity } => EatError::NotEdible { commodity },
+        FoodFreshnessError::ShelfLifeOverflow => EatError::ShelfLifeOverflow,
+    }
+}
+
+fn resolve_food_portion(
+    registries: &Registries,
+    state: &AppState,
+    selection: MaterialLotSelection,
+) -> Result<ResolvedFoodPortion, EatError> {
+    let lot = state
+        .inventory()
+        .get_lot(selection.lot())
+        .ok_or(EatError::UnknownLot {
+            lot: selection.lot(),
+        })?;
+    let food = registries
+        .survival()
+        .get_food(lot.commodity())
+        .copied()
+        .ok_or(EatError::NotEdible {
+            commodity: lot.commodity(),
+        })?;
+    let consumption_temperature = food.consumption_temperature();
+    if !consumption_temperature.contains(lot.temperature()) {
+        return Err(EatError::TemperatureOutsideConsumptionRange {
+            lot: selection.lot(),
+            temperature: lot.temperature(),
+            minimum: consumption_temperature.minimum(),
+            maximum: consumption_temperature.maximum(),
+        });
+    }
+    let material = food.commodity().material();
+    if lot.composition().pure_material() != Some(material) {
+        return Err(EatError::UnsupportedComposition {
+            lot: selection.lot(),
+            material,
+        });
+    }
+    if let FoodFreshness::Spoiled { age } =
+        assess_food_freshness(registries, state, selection.lot())
+            .map_err(map_food_freshness_error)?
+    {
+        return Err(EatError::Spoiled {
+            lot: selection.lot(),
+            age,
+        });
+    }
+    let energy_nj = u128::from(selection.mass().milligrams())
+        .checked_mul(u128::from(food.dietary_energy().nanojoules_per_milligram()))
+        .ok_or(EatError::MetabolicEnergyOverflow)?;
+    let hydration_ul = u128::from(selection.mass().milligrams())
+        .checked_mul(u128::from(food.hydration_microliters_per_milligram()))
+        .ok_or(EatError::HydrationOverflow)?;
+    Ok(ResolvedFoodPortion {
+        outcome: EatPortionOutcome {
+            lot: selection.lot(),
+            mass: selection.mass(),
+            category: food.category(),
+        },
+        energy_nj,
+        hydration_ul,
+        material,
+    })
+}
+
+fn resolve_meal_offer(
+    registries: &Registries,
+    state: &AppState,
+    selections: &[MaterialLotSelection],
+) -> Result<MealOffer, EatError> {
     let mut ordered = selections.to_vec();
     ordered.sort_unstable();
     let mut offered_energy_nj = 0_u128;
@@ -520,103 +598,138 @@ pub fn validate_eat(
     let mut category_energy = NutritionEnergy::default();
     let mut consumed_additions = BTreeMap::<MaterialId, AggregateMass>::new();
     let mut portions = Vec::with_capacity(ordered.len());
+
     for selection in ordered {
-        let lot = state
-            .inventory()
-            .get_lot(selection.lot())
-            .ok_or(EatError::UnknownLot {
-                lot: selection.lot(),
-            })?;
-        let food = registries
-            .survival()
-            .get_food(lot.commodity())
-            .copied()
-            .ok_or(EatError::NotEdible {
-                commodity: lot.commodity(),
-            })?;
-        let consumption_temperature = food.consumption_temperature();
-        if !consumption_temperature.contains(lot.temperature()) {
-            return Err(EatError::TemperatureOutsideConsumptionRange {
-                lot: selection.lot(),
-                temperature: lot.temperature(),
-                minimum: consumption_temperature.minimum(),
-                maximum: consumption_temperature.maximum(),
-            });
-        }
-        let metabolic_material = food.commodity().material();
-        if lot.composition().pure_material() != Some(metabolic_material) {
-            return Err(EatError::UnsupportedComposition {
-                lot: selection.lot(),
-                material: metabolic_material,
-            });
-        }
-        match assess_food_freshness(registries, state, selection.lot()).map_err(
-            |error| match error {
-                FoodFreshnessError::UnknownLot { lot } => EatError::UnknownLot { lot },
-                FoodFreshnessError::UnknownStockpile { stockpile } => {
-                    EatError::UnknownStockpile { stockpile }
-                }
-                FoodFreshnessError::NotEdible { commodity } => EatError::NotEdible { commodity },
-                FoodFreshnessError::ShelfLifeOverflow => EatError::ShelfLifeOverflow,
-            },
-        )? {
-            FoodFreshness::Fresh {
-                age: _,
-                remaining: _,
-            } => {}
-            FoodFreshness::Spoiled { age } => {
-                return Err(EatError::Spoiled {
-                    lot: selection.lot(),
-                    age,
-                });
-            }
-        }
-        let portion_energy = u128::from(selection.mass().milligrams())
-            .checked_mul(u128::from(food.dietary_energy().nanojoules_per_milligram()))
-            .ok_or(EatError::MetabolicEnergyOverflow)?;
+        let resolved = resolve_food_portion(registries, state, selection)?;
         offered_energy_nj = offered_energy_nj
-            .checked_add(portion_energy)
+            .checked_add(resolved.energy_nj)
             .ok_or(EatError::MetabolicEnergyOverflow)?;
         category_energy
-            .checked_add(food.category(), portion_energy)
+            .checked_add(resolved.outcome.category, resolved.energy_nj)
             .ok_or(EatError::NutritionOverflow)?;
         offered_hydration_ul = offered_hydration_ul
-            .checked_add(
-                u128::from(selection.mass().milligrams())
-                    .checked_mul(u128::from(food.hydration_microliters_per_milligram()))
-                    .ok_or(EatError::HydrationOverflow)?,
-            )
+            .checked_add(resolved.hydration_ul)
             .ok_or(EatError::HydrationOverflow)?;
-        let addition = AggregateMass::from_mass(selection.mass());
         let current = consumed_additions
-            .get(&metabolic_material)
+            .get(&resolved.material)
             .copied()
             .unwrap_or(AggregateMass::ZERO);
         consumed_additions.insert(
-            metabolic_material,
+            resolved.material,
             current
-                .checked_add(addition)
+                .checked_add(AggregateMass::from_mass(resolved.outcome.mass))
                 .ok_or(EatError::ConsumedMatterOverflow {
-                    material: metabolic_material,
+                    material: resolved.material,
                 })?,
         );
-        portions.push(EatPortionOutcome {
-            lot: selection.lot(),
-            mass: selection.mass(),
-            category: food.category(),
-        });
+        portions.push(resolved.outcome);
     }
-    let physiology = registries.survival().physiology();
-    let offered_energy = Energy::from_nanojoules(offered_energy_nj);
-    let available_energy = physiology
-        .maximum_metabolic_energy()
+
+    Ok(MealOffer {
+        portions,
+        offered_energy: Energy::from_nanojoules(offered_energy_nj),
+        offered_hydration_ul,
+        category_energy,
+        consumed_additions,
+    })
+}
+
+fn resolve_energy_gain(
+    player: PlayerSurvivalRecord,
+    maximum: Energy,
+    offered: Energy,
+) -> Result<(Energy, Energy), EatError> {
+    let available = maximum
         .checked_sub(player.metabolic_energy())
         .ok_or(EatError::MetabolicEnergyOverflow)?;
-    let energy_gained = offered_energy.min(available_energy);
-    let energy_after = player
+    let gained = offered.min(available);
+    let after = player
         .metabolic_energy()
-        .checked_add(energy_gained)
+        .checked_add(gained)
         .ok_or(EatError::MetabolicEnergyOverflow)?;
+    Ok((gained, after))
+}
+
+fn resolve_hydration_and_nutrition(
+    player: PlayerSurvivalRecord,
+    maximum_hydration: Volume,
+    maximum_metabolic_energy: Energy,
+    offer: &MealOffer,
+) -> Result<(Volume, Volume, super::NutritionReserves, NutritionGain), EatError> {
+    let hydration_gain_ul =
+        u64::try_from(offer.offered_hydration_ul).map_err(|_| EatError::HydrationOverflow)?;
+    let available_hydration = maximum_hydration
+        .checked_sub(player.hydration())
+        .ok_or(EatError::HydrationOverflow)?;
+    let hydration_gained = Volume::from_microliters(hydration_gain_ul).min(available_hydration);
+    let hydration_after = player
+        .hydration()
+        .checked_add(hydration_gained)
+        .ok_or(EatError::HydrationOverflow)?;
+    let nutrition_gain_ppm =
+        normalized_nutrition_gain_ppm(offer.offered_energy, maximum_metabolic_energy)?;
+    let allocated = allocate_nutrition(nutrition_gain_ppm, offer.category_energy);
+    let (after_grain, grain_ppm) = player
+        .nutrition()
+        .add(FoodCategory::Grain, allocated.get(FoodCategory::Grain));
+    let (after_fruit, fruit_ppm) =
+        after_grain.add(FoodCategory::Fruit, allocated.get(FoodCategory::Fruit));
+    let (nutrition_after, protein_ppm) =
+        after_fruit.add(FoodCategory::Protein, allocated.get(FoodCategory::Protein));
+    Ok((
+        hydration_gained,
+        hydration_after,
+        nutrition_after,
+        NutritionGain {
+            grain_ppm,
+            fruit_ppm,
+            protein_ppm,
+        },
+    ))
+}
+
+fn resolve_consumed_mass_totals(
+    state: &AppState,
+    additions: BTreeMap<MaterialId, AggregateMass>,
+) -> Result<Vec<(MaterialId, AggregateMass)>, EatError> {
+    additions
+        .into_iter()
+        .map(|(material, addition)| {
+            state
+                .survival()
+                .consumed_mass(material)
+                .checked_add(addition)
+                .map(|next| (material, next))
+                .ok_or(EatError::ConsumedMatterOverflow { material })
+        })
+        .collect()
+}
+
+pub fn validate_eat(
+    registries: &Registries,
+    state: &AppState,
+    source: StockpileId,
+    selections: &[MaterialLotSelection],
+) -> Result<ValidatedEat, EatError> {
+    let attention = validate_player_attention(state).map_err(|error| match error {
+        PlayerAttentionError::SurvivalNotInitialized => EatError::SurvivalNotInitialized,
+        PlayerAttentionError::PlayerDead => EatError::PlayerDead,
+        PlayerAttentionError::Busy { active } => EatError::PlayerBusy { active },
+    })?;
+    let Some(player) = state.survival().player().copied() else {
+        return Err(EatError::SurvivalNotInitialized);
+    };
+    let exact_selection =
+        validate_explicit_consumption_selection(state.inventory(), source, selections)
+            .map_err(map_eat_selection_error)?;
+    let offer = resolve_meal_offer(registries, state, selections)?;
+    let physiology = registries.survival().physiology();
+    let (energy_gained, energy_after) = resolve_energy_gain(
+        player,
+        physiology.maximum_metabolic_energy(),
+        offer.offered_energy,
+    )?;
+
     let egress = validate_material_egress_from_selection(state.inventory(), exact_selection)
         .map_err(|error| match error {
             MaterialEgressError::StaleSelection {
@@ -640,37 +753,13 @@ pub fn validate_eat(
     )
     .map_err(EatError::StructuralLoad)?;
 
-    let hydration_gain_ul =
-        u64::try_from(offered_hydration_ul).map_err(|_| EatError::HydrationOverflow)?;
-    let available_hydration = physiology
-        .maximum_hydration()
-        .checked_sub(player.hydration())
-        .ok_or(EatError::HydrationOverflow)?;
-    let hydration_gained = Volume::from_microliters(hydration_gain_ul).min(available_hydration);
-    let hydration_after = player
-        .hydration()
-        .checked_add(hydration_gained)
-        .ok_or(EatError::HydrationOverflow)?;
-    let nutrition_gain_ppm =
-        normalized_nutrition_gain_ppm(offered_energy, physiology.maximum_metabolic_energy())?;
-    let allocated_nutrition = allocate_nutrition(nutrition_gain_ppm, category_energy);
-    let (nutrition_after_grain, grain_ppm) = player.nutrition().add(
-        FoodCategory::Grain,
-        allocated_nutrition.get(FoodCategory::Grain),
-    );
-    let (nutrition_after_fruit, fruit_ppm) = nutrition_after_grain.add(
-        FoodCategory::Fruit,
-        allocated_nutrition.get(FoodCategory::Fruit),
-    );
-    let (nutrition_after, protein_ppm) = nutrition_after_fruit.add(
-        FoodCategory::Protein,
-        allocated_nutrition.get(FoodCategory::Protein),
-    );
-    let nutrition_gained = NutritionGain {
-        grain_ppm,
-        fruit_ppm,
-        protein_ppm,
-    };
+    let (hydration_gained, hydration_after, nutrition_after, nutrition_gained) =
+        resolve_hydration_and_nutrition(
+            player,
+            physiology.maximum_hydration(),
+            physiology.maximum_metabolic_energy(),
+            &offer,
+        )?;
     let total_mass = egress.total_consumed();
     if energy_gained.is_zero() && hydration_gained.is_zero() && nutrition_gained.total_ppm() == 0 {
         return Err(EatError::NoReserveGain { mass: total_mass });
@@ -679,17 +768,8 @@ pub fn validate_eat(
     let next_survival_revision = expected_survival_revision
         .checked_add(1)
         .ok_or(EatError::SurvivalRevisionExhausted)?;
-    let next_consumed_masses = consumed_additions
-        .into_iter()
-        .map(|(material, addition)| {
-            state
-                .survival()
-                .consumed_mass(material)
-                .checked_add(addition)
-                .map(|next| (material, next))
-                .ok_or(EatError::ConsumedMatterOverflow { material })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let next_consumed_masses = resolve_consumed_mass_totals(state, offer.consumed_additions)?;
+
     Ok(ValidatedEat {
         attention,
         expected_survival_revision,
@@ -705,7 +785,7 @@ pub fn validate_eat(
         ),
         next_consumed_masses,
         outcome: EatOutcome {
-            portions,
+            portions: offer.portions,
             total_mass,
             energy_gained,
             hydration_gained,

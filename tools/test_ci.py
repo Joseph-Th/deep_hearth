@@ -102,6 +102,8 @@ class LocalCiPlanTests(unittest.TestCase):
                         "cognitive",
                         "--metric",
                         "cyclomatic",
+                        "--path",
+                        "src/mining/execution.rs",
                     ]
                 )
             ),
@@ -116,6 +118,8 @@ class LocalCiPlanTests(unittest.TestCase):
                 "cognitive",
                 "--metric",
                 "cyclomatic",
+                "--paths",
+                "src/mining/execution.rs",
             ],
         )
 

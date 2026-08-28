@@ -583,17 +583,17 @@ fn project_loads(
     Ok(LoadProjection { carried })
 }
 
-fn expand_unsupported_failures(
+fn initialize_support_failure_frontier(
     state: &StructureState,
-    failed: &BTreeSet<StructuralElementId>,
     overlay: &StructuralAnalysisOverlay,
-    scope: &BTreeSet<StructuralElementId>,
-) -> BTreeSet<StructuralElementId> {
-    let active = active_ids(state, failed, overlay, scope);
+    active: &BTreeSet<StructuralElementId>,
+) -> (
+    BTreeMap<StructuralElementId, usize>,
+    BTreeSet<StructuralElementId>,
+) {
     let mut remaining_supports = BTreeMap::new();
     let mut ready = BTreeSet::new();
-
-    for element in &active {
+    for element in active {
         let record = &state.element_map()[element];
         if record.is_grounded() {
             continue;
@@ -608,30 +608,44 @@ fn expand_unsupported_failures(
             ready.insert(*element);
         }
     }
+    (remaining_supports, ready)
+}
+
+fn remove_failed_support(
+    remaining_supports: &mut BTreeMap<StructuralElementId, usize>,
+    unsupported: &BTreeSet<StructuralElementId>,
+    dependent: StructuralElementId,
+) -> bool {
+    if unsupported.contains(&dependent) {
+        return false;
+    }
+    let Some(remaining) = remaining_supports.get_mut(&dependent) else {
+        return false;
+    };
+    if *remaining > 0 {
+        *remaining -= 1;
+    }
+    *remaining == 0
+}
+
+fn expand_unsupported_failures(
+    state: &StructureState,
+    failed: &BTreeSet<StructuralElementId>,
+    overlay: &StructuralAnalysisOverlay,
+    scope: &BTreeSet<StructuralElementId>,
+) -> BTreeSet<StructuralElementId> {
+    let active = active_ids(state, failed, overlay, scope);
+    let (mut remaining_supports, mut ready) =
+        initialize_support_failure_frontier(state, overlay, &active);
 
     let mut unsupported = BTreeSet::new();
     while let Some(element) = ready.pop_first() {
         if !unsupported.insert(element) {
             continue;
         }
-        for dependent in overlay.dependents(state, element).iter() {
-            if !active.contains(dependent) || unsupported.contains(dependent) {
-                continue;
-            }
-            let Some(record) = state.element_map().get(dependent) else {
-                continue;
-            };
-            if record.is_grounded() {
-                continue;
-            }
-            let Some(remaining) = remaining_supports.get_mut(dependent) else {
-                continue;
-            };
-            if *remaining > 0 {
-                *remaining -= 1;
-            }
-            if *remaining == 0 {
-                ready.insert(*dependent);
+        for dependent in overlay.dependents(state, element).iter().copied() {
+            if remove_failed_support(&mut remaining_supports, &unsupported, dependent) {
+                ready.insert(dependent);
             }
         }
     }

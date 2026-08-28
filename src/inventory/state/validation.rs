@@ -11,7 +11,7 @@ use crate::material::{
     MaterialRegistry, ParticleSizeStateError, validate_material_particle_size_state,
     validate_material_phase_state,
 };
-use crate::structural::StructuralElementId;
+use crate::structural::{StructuralElementId, SupportIndexValidationFault, validate_support_index};
 
 use super::{
     InventoryState, MaterialLotId, MaterialLotRecord, StockpileId, StockpileLotIndex,
@@ -793,28 +793,40 @@ fn validate_lot_indexes(
 fn validate_stockpile_support_index(
     state: &InventoryState,
 ) -> Result<(), InventoryValidationError> {
-    for (element, stockpiles) in &state.stockpiles_by_support {
-        if element.value() == 0 {
-            return Err(InventoryValidationError::ZeroIndexedSupportElementId);
+    validate_support_index(
+        &state.stockpiles_by_support,
+        |_stockpile| false,
+        |stockpile| {
+            state
+                .stockpiles
+                .get(&stockpile)
+                .map(|record| record.supported_by)
+        },
+    )
+    .map_err(|fault| match fault {
+        SupportIndexValidationFault::ZeroSupportElementId => {
+            InventoryValidationError::ZeroIndexedSupportElementId
         }
-        if stockpiles.is_empty() {
-            return Err(InventoryValidationError::EmptySupportIndex { element: *element });
+        SupportIndexValidationFault::EmptySupportBucket { element } => {
+            InventoryValidationError::EmptySupportIndex { element }
         }
-        for stockpile in stockpiles {
-            let Some(record) = state.stockpiles.get(stockpile) else {
-                return Err(InventoryValidationError::UnknownIndexedStockpile {
-                    stockpile: *stockpile,
-                    element: *element,
-                });
-            };
-            if record.supported_by != Some(*element) {
-                return Err(InventoryValidationError::SupportIndexMismatch {
-                    stockpile: *stockpile,
-                    indexed: *element,
-                    actual: record.supported_by,
-                });
+        SupportIndexValidationFault::InvalidItemId { .. } => {
+            unreachable!("stockpile support validation does not define an additional ID rule")
+        }
+        SupportIndexValidationFault::UnknownIndexedItem { item, element } => {
+            InventoryValidationError::UnknownIndexedStockpile {
+                stockpile: item,
+                element,
             }
         }
-    }
-    Ok(())
+        SupportIndexValidationFault::SupportMismatch {
+            item,
+            indexed,
+            actual,
+        } => InventoryValidationError::SupportIndexMismatch {
+            stockpile: item,
+            indexed,
+            actual,
+        },
+    })
 }

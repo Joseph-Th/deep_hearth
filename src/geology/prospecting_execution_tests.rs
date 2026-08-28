@@ -93,6 +93,91 @@ fn observations_persist_quantitative_uncertainty_without_exposing_deposit_identi
 }
 
 #[test]
+fn precision_ranking_uses_width_then_footprint_then_recency_then_identity() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_0010));
+    let query = bounds(4, 6);
+
+    let wider_small = record(
+        &registries,
+        &mut state,
+        make_test_prospecting_resolution(
+            bounds(4, 6),
+            GeologicalEvidenceKind::CoreSample,
+            vec![estimate(MATERIAL_COPPER, 300_000, 500_000)],
+        ),
+    );
+    let narrower_large = record(
+        &registries,
+        &mut state,
+        make_test_prospecting_resolution(
+            bounds(0, 10),
+            GeologicalEvidenceKind::CoreSample,
+            vec![estimate(MATERIAL_COPPER, 350_000, 450_000)],
+        ),
+    );
+    assert_eq!(
+        assess_geological_knowledge(state.geological_knowledge(), query, MATERIAL_COPPER)
+            .most_precise(),
+        Some(narrower_large),
+        "narrower abundance bounds must outrank a smaller footprint"
+    );
+
+    let narrower_small = record(
+        &registries,
+        &mut state,
+        make_test_prospecting_resolution(
+            bounds(4, 6),
+            GeologicalEvidenceKind::CoreSample,
+            vec![estimate(MATERIAL_COPPER, 350_000, 450_000)],
+        ),
+    );
+    assert_eq!(
+        assess_geological_knowledge(state.geological_knowledge(), query, MATERIAL_COPPER)
+            .most_precise(),
+        Some(narrower_small),
+        "smaller footprint must break an equal-width tie"
+    );
+
+    if let Err(error) = advance_tick(&registries, &mut state) {
+        panic!("precision-ranking fixture tick failed: {error}");
+    }
+    let newer = record(
+        &registries,
+        &mut state,
+        make_test_prospecting_resolution(
+            bounds(4, 6),
+            GeologicalEvidenceKind::CoreSample,
+            vec![estimate(MATERIAL_COPPER, 350_000, 450_000)],
+        ),
+    );
+    assert_eq!(
+        assess_geological_knowledge(state.geological_knowledge(), query, MATERIAL_COPPER)
+            .most_precise(),
+        Some(newer),
+        "newer evidence must break an equal-width equal-footprint tie"
+    );
+
+    let same_tick_later_id = record(
+        &registries,
+        &mut state,
+        make_test_prospecting_resolution(
+            bounds(4, 6),
+            GeologicalEvidenceKind::CoreSample,
+            vec![estimate(MATERIAL_COPPER, 350_000, 450_000)],
+        ),
+    );
+    assert!(same_tick_later_id > newer);
+    assert_eq!(
+        assess_geological_knowledge(state.geological_knowledge(), query, MATERIAL_COPPER)
+            .most_precise(),
+        Some(newer),
+        "lower persistent identity must break a complete precision tie"
+    );
+    assert!(wider_small < narrower_large);
+}
+
+#[test]
 fn contradictory_surveys_remain_visible_instead_of_being_averaged() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x6B00_0002));

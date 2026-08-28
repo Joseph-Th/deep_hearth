@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 use crate::fluid::{FluidDefinitionId, FluidRegistry};
 use crate::material::{MaterialId, MaterialRegistry};
 
+use super::state::PlayerSurvivalRecord;
 use super::{FoodCategory, NUTRITION_PARTS_PER_MILLION, SurvivalRegistry, SurvivalState, Vitality};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,18 +77,10 @@ impl Display for SurvivalValidationError {
 
 impl Error for SurvivalValidationError {}
 
-pub(crate) fn validate_loaded_survival(
+fn validate_player_reserves(
     registry: &SurvivalRegistry,
-    materials: &MaterialRegistry,
-    fluids: &FluidRegistry,
-    state: &SurvivalState,
+    player: &PlayerSurvivalRecord,
 ) -> Result<(), SurvivalValidationError> {
-    let Some(player) = state.player() else {
-        if state.consumed_matter().next().is_some() || state.consumed_fluids().next().is_some() {
-            return Err(SurvivalValidationError::ConsumedMatterWithoutPlayer);
-        }
-        return Ok(());
-    };
     let physiology = registry.physiology();
     if player.metabolic_energy() > physiology.maximum_metabolic_energy() {
         return Err(SurvivalValidationError::EnergyExceedsMaximum);
@@ -98,17 +91,18 @@ pub(crate) fn validate_loaded_survival(
     if player.vitality().parts_per_million() > Vitality::MAXIMUM.parts_per_million() {
         return Err(SurvivalValidationError::VitalityExceedsMaximum);
     }
-    if player.vitality_recovery_remainder() >= NUTRITION_PARTS_PER_MILLION {
+    let recovery_remainder = player.vitality_recovery_remainder();
+    if recovery_remainder >= NUTRITION_PARTS_PER_MILLION {
         return Err(
             SurvivalValidationError::VitalityRecoveryRemainderOutOfRange {
-                value: player.vitality_recovery_remainder(),
+                value: recovery_remainder,
             },
         );
     }
-    if player.vitality() == Vitality::MAXIMUM && player.vitality_recovery_remainder() != 0 {
+    if player.vitality() == Vitality::MAXIMUM && recovery_remainder != 0 {
         return Err(
             SurvivalValidationError::VitalityRecoveryRemainderAtMaximum {
-                value: player.vitality_recovery_remainder(),
+                value: recovery_remainder,
             },
         );
     }
@@ -122,6 +116,14 @@ pub(crate) fn validate_loaded_survival(
             return Err(SurvivalValidationError::NutritionExceedsMaximum { category, value });
         }
     }
+    Ok(())
+}
+
+fn validate_consumed_matter(
+    registry: &SurvivalRegistry,
+    materials: &MaterialRegistry,
+    state: &SurvivalState,
+) -> Result<(), SurvivalValidationError> {
     for (material, mass) in state.consumed_matter() {
         if materials.get_material(material).is_none() || !registry.has_food_material(material) {
             return Err(SurvivalValidationError::UnknownConsumedMaterial { material });
@@ -130,6 +132,14 @@ pub(crate) fn validate_loaded_survival(
             return Err(SurvivalValidationError::ZeroConsumedMass { material });
         }
     }
+    Ok(())
+}
+
+fn validate_consumed_fluids(
+    registry: &SurvivalRegistry,
+    fluids: &FluidRegistry,
+    state: &SurvivalState,
+) -> Result<(), SurvivalValidationError> {
     for (fluid, volume) in state.consumed_fluids() {
         if fluids.get_fluid(fluid).is_none() || registry.get_drink(fluid).is_none() {
             return Err(SurvivalValidationError::UnknownConsumedFluid { fluid });
@@ -139,6 +149,23 @@ pub(crate) fn validate_loaded_survival(
         }
     }
     Ok(())
+}
+
+pub(crate) fn validate_loaded_survival(
+    registry: &SurvivalRegistry,
+    materials: &MaterialRegistry,
+    fluids: &FluidRegistry,
+    state: &SurvivalState,
+) -> Result<(), SurvivalValidationError> {
+    let Some(player) = state.player() else {
+        if state.consumed_matter().next().is_some() || state.consumed_fluids().next().is_some() {
+            return Err(SurvivalValidationError::ConsumedMatterWithoutPlayer);
+        }
+        return Ok(());
+    };
+    validate_player_reserves(registry, player)?;
+    validate_consumed_matter(registry, materials, state)?;
+    validate_consumed_fluids(registry, fluids, state)
 }
 
 #[cfg(test)]

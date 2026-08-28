@@ -13,7 +13,7 @@ use crate::ore_processing::{
 };
 use crate::production::{ProcessDefinition, ProcessId, ProductionRegistry};
 use crate::thermal::{
-    CastingProcessDefinition, MeltingProcessDefinition, PhaseChangeForms,
+    CastingPhaseChange, CastingProcessDefinition, MeltingProcessDefinition, PhaseChangeForms,
     SensibleHeatingProcessDefinition, ThermalRegistry,
 };
 
@@ -120,7 +120,10 @@ fn phase_change_definitions_require_authored_phase_directions() {
                 TEST_MAX_TEMPERATURE,
                 TEST_MAX_BATCH_MASS,
                 EnergyCarrier::Thermal,
-                PhaseChangeForms::new(FORM_INGOT, FORM_INGOT),
+                CastingPhaseChange::new(
+                    PhaseChangeForms::new(FORM_INGOT, FORM_INGOT),
+                    Temperature::from_millikelvin(300_000),
+                ),
                 1,
             )],
         ),
@@ -133,7 +136,10 @@ fn phase_change_definitions_require_authored_phase_directions() {
                 TEST_MAX_TEMPERATURE,
                 TEST_MAX_BATCH_MASS,
                 EnergyCarrier::Thermal,
-                PhaseChangeForms::new(FORM_MOLTEN, FORM_MOLTEN),
+                CastingPhaseChange::new(
+                    PhaseChangeForms::new(FORM_MOLTEN, FORM_MOLTEN),
+                    Temperature::from_millikelvin(300_000),
+                ),
                 1,
             )],
         ),

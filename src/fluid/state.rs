@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Temperature, Volume};
 use crate::core::time::SimulationTick;
-use crate::structural::StructuralElementId;
+use crate::structural::{StructuralElementId, apply_support_index_change};
 
 use super::definitions::FluidDefinitionId;
 
@@ -215,6 +215,11 @@ impl FluidState {
         after: Option<StructuralElementId>,
         next_revision: u64,
     ) {
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "validated fluid support change must advance the owner revision exactly once"
+        );
         let record = match self.records.get(&store) {
             Some(record) => record,
             None => panic!(
@@ -226,64 +231,7 @@ impl FluidState {
             record.supported_by, before,
             "runtime invariant broken: fluid store support record disagrees with support index"
         );
-        if let Some(before) = before {
-            assert!(
-                self.stores_by_support
-                    .get(&before)
-                    .is_some_and(|indexed| indexed.contains(&store)),
-                "runtime invariant broken: fluid support index element {} missing store {}",
-                before.value(),
-                store.value()
-            );
-        }
-        if after != before
-            && let Some(after) = after
-        {
-            assert!(
-                !self
-                    .stores_by_support
-                    .get(&after)
-                    .is_some_and(|indexed| indexed.contains(&store)),
-                "runtime invariant broken: fluid support index element {} already contains store {}",
-                after.value(),
-                store.value()
-            );
-        }
-        if let Some(before) = before {
-            let remove_entry = {
-                let indexed = match self.stores_by_support.get_mut(&before) {
-                    Some(indexed) => indexed,
-                    None => panic!(
-                        "runtime invariant broken: fluid support index missing element {} for store {}",
-                        before.value(),
-                        store.value()
-                    ),
-                };
-                assert!(
-                    indexed.remove(&store),
-                    "runtime invariant broken: fluid support index element {} missing store {}",
-                    before.value(),
-                    store.value()
-                );
-                indexed.is_empty()
-            };
-            if remove_entry {
-                self.stores_by_support.remove(&before);
-            }
-        }
-        if let Some(after) = after {
-            let inserted = self
-                .stores_by_support
-                .entry(after)
-                .or_default()
-                .insert(store);
-            assert!(
-                inserted,
-                "runtime invariant broken: fluid support index element {} already contains store {}",
-                after.value(),
-                store.value()
-            );
-        }
+        apply_support_index_change(&mut self.stores_by_support, store, before, after);
         let record = match self.records.get_mut(&store) {
             Some(record) => record,
             None => unreachable!("fluid support record was prechecked before index mutation"),

@@ -22,8 +22,9 @@ use crate::registry::Registries;
 
 use super::MassFlowDurationError;
 use super::powered_physics::{
-    PoweredOreEquipmentError, PoweredOreTimingError, resolve_powered_ore_equipment,
-    resolve_powered_ore_timing,
+    PoweredOreEquipmentError, PoweredOreJobValidationError, PoweredOreTimingError,
+    resolve_powered_ore_equipment, resolve_powered_ore_job_replay, resolve_powered_ore_timing,
+    validate_powered_ore_job_replay,
 };
 
 mod outputs;
@@ -384,70 +385,13 @@ pub fn resolve_comminution_process(
 /// Persistent-state failure found while recomputing an in-flight comminution job from its traces.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ComminutionJobValidationError {
-    MissingEnergy {
+    Powered {
         job: ProductionJobId,
-    },
-    UnexpectedReleasedEnergy {
-        job: ProductionJobId,
-    },
-    MissingEquipmentProvider {
-        job: ProductionJobId,
-    },
-    UnknownEquipmentDefinition {
-        job: ProductionJobId,
-    },
-    UnknownEnergyDefinition {
-        job: ProductionJobId,
-    },
-    MissingMassFlowCapability {
-        job: ProductionJobId,
-    },
-    MissingMaximumBatchMassCapability {
-        job: ProductionJobId,
-    },
-    BatchMassExceeded {
-        job: ProductionJobId,
-        selected: Mass,
-        maximum: Mass,
+        error: PoweredOreJobValidationError,
     },
     Batch {
         job: ProductionJobId,
         error: ComminutionBatchError,
-    },
-    WrongEnergyCarrier {
-        job: ProductionJobId,
-        required: EnergyCarrier,
-        provided: EnergyCarrier,
-    },
-    EnergyMismatch {
-        job: ProductionJobId,
-        traced: Energy,
-        required: Energy,
-    },
-    ThroughputDuration {
-        job: ProductionJobId,
-        error: MassFlowDurationError,
-    },
-    EnergyDuration {
-        job: ProductionJobId,
-        error: PowerDurationError,
-    },
-    ConditionDuration {
-        job: ProductionJobId,
-        error: ActiveConditionDurationError,
-    },
-    DurationMismatch {
-        job: ProductionJobId,
-        stored_ticks: u64,
-        required_ticks: u64,
-    },
-    MissingConditionOutcome {
-        job: ProductionJobId,
-    },
-    ConditionOutcomeMismatch {
-        job: ProductionJobId,
-        stored: Condition,
-        required: Condition,
     },
     OutputMismatch {
         job: ProductionJobId,
@@ -457,116 +401,15 @@ pub enum ComminutionJobValidationError {
 impl Display for ComminutionJobValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MissingEnergy { job } => write!(
+            Self::Powered { job, error } => write!(
                 formatter,
-                "comminution job {} has no consumed work-energy trace",
+                "comminution job {} powered-physics replay failed: {error}",
                 job.value()
-            ),
-            Self::UnexpectedReleasedEnergy { job } => write!(
-                formatter,
-                "comminution job {} contains an energy output not authorized by its resolver",
-                job.value()
-            ),
-            Self::MissingEquipmentProvider { job } => write!(
-                formatter,
-                "comminution job {} has no occupied equipment provider",
-                job.value()
-            ),
-            Self::UnknownEquipmentDefinition { job } => write!(
-                formatter,
-                "comminution job {} references an unknown equipment definition",
-                job.value()
-            ),
-            Self::UnknownEnergyDefinition { job } => write!(
-                formatter,
-                "comminution job {} references an unknown energy-store definition",
-                job.value()
-            ),
-            Self::MissingMassFlowCapability { job } => write!(
-                formatter,
-                "comminution job {} equipment lacks its authored mass-flow capability",
-                job.value()
-            ),
-            Self::MissingMaximumBatchMassCapability { job } => write!(
-                formatter,
-                "comminution job {} equipment lacks its authored maximum-batch capability",
-                job.value()
-            ),
-            Self::BatchMassExceeded {
-                job,
-                selected,
-                maximum,
-            } => write!(
-                formatter,
-                "comminution job {} selected {} mg above its persisted equipment maximum {} mg",
-                job.value(),
-                selected.milligrams(),
-                maximum.milligrams()
             ),
             Self::Batch { job, error } => write!(
                 formatter,
                 "comminution job {} has invalid batch physics: {error}",
                 job.value()
-            ),
-            Self::WrongEnergyCarrier {
-                job,
-                required,
-                provided,
-            } => write!(
-                formatter,
-                "comminution job {} requires {required:?} energy but traces {provided:?}",
-                job.value()
-            ),
-            Self::EnergyMismatch {
-                job,
-                traced,
-                required,
-            } => write!(
-                formatter,
-                "comminution job {} traces {} nJ but mass-specific work requires {} nJ",
-                job.value(),
-                traced.nanojoules(),
-                required.nanojoules()
-            ),
-            Self::ThroughputDuration { job, error } => write!(
-                formatter,
-                "comminution job {} cannot recompute throughput duration: {error}",
-                job.value()
-            ),
-            Self::EnergyDuration { job, error } => write!(
-                formatter,
-                "comminution job {} cannot recompute work-energy delivery duration: {error}",
-                job.value()
-            ),
-            Self::ConditionDuration { job, error } => write!(
-                formatter,
-                "comminution job {} exceeds equipment condition lifetime: {error}",
-                job.value()
-            ),
-            Self::DurationMismatch {
-                job,
-                stored_ticks,
-                required_ticks,
-            } => write!(
-                formatter,
-                "comminution job {} stores duration {stored_ticks} ticks but physics require {required_ticks}",
-                job.value()
-            ),
-            Self::MissingConditionOutcome { job } => write!(
-                formatter,
-                "comminution job {} has no persisted equipment condition outcome",
-                job.value()
-            ),
-            Self::ConditionOutcomeMismatch {
-                job,
-                stored,
-                required,
-            } => write!(
-                formatter,
-                "comminution job {} stores equipment condition {} ppm but physics require {} ppm",
-                job.value(),
-                stored.parts_per_million(),
-                required.parts_per_million()
             ),
             Self::OutputMismatch { job } => write!(
                 formatter,
@@ -580,44 +423,9 @@ impl Display for ComminutionJobValidationError {
 impl Error for ComminutionJobValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Powered { error, .. } => Some(error),
             Self::Batch { job: _job, error } => Some(error),
-            Self::ThroughputDuration { job: _job, error } => Some(error),
-            Self::EnergyDuration { job: _job, error } => Some(error),
-            Self::ConditionDuration { job: _job, error } => Some(error),
-            Self::MissingEnergy { job: _job }
-            | Self::UnexpectedReleasedEnergy { job: _job }
-            | Self::MissingEquipmentProvider { job: _job }
-            | Self::UnknownEquipmentDefinition { job: _job }
-            | Self::UnknownEnergyDefinition { job: _job }
-            | Self::MissingMassFlowCapability { job: _job }
-            | Self::MissingMaximumBatchMassCapability { job: _job }
-            | Self::MissingConditionOutcome { job: _job }
-            | Self::OutputMismatch { job: _job } => None,
-            Self::BatchMassExceeded {
-                job: _job,
-                selected: _selected,
-                maximum: _maximum,
-            } => None,
-            Self::WrongEnergyCarrier {
-                job: _job,
-                required: _required,
-                provided: _provided,
-            } => None,
-            Self::EnergyMismatch {
-                job: _job,
-                traced: _traced,
-                required: _required,
-            } => None,
-            Self::DurationMismatch {
-                job: _job,
-                stored_ticks: _stored_ticks,
-                required_ticks: _required_ticks,
-            } => None,
-            Self::ConditionOutcomeMismatch {
-                job: _job,
-                stored: _stored,
-                required: _required,
-            } => None,
+            Self::OutputMismatch { job: _job } => None,
         }
     }
 }
@@ -629,46 +437,11 @@ pub(crate) fn validate_loaded_comminution_job(
     let Some(definition) = registries.ore_processing().get_comminution(job.process()) else {
         return Ok(());
     };
-    let consumed_energy = job
-        .consumed_energy()
-        .ok_or(ComminutionJobValidationError::MissingEnergy { job: job.id() })?;
-    if job.released_energy().is_some() {
-        return Err(ComminutionJobValidationError::UnexpectedReleasedEnergy { job: job.id() });
-    }
-    let provider = job
-        .equipment_provider()
-        .ok_or(ComminutionJobValidationError::MissingEquipmentProvider { job: job.id() })?;
-    let equipment_definition = registries
-        .equipment()
-        .get_equipment(provider.definition())
-        .ok_or(ComminutionJobValidationError::UnknownEquipmentDefinition { job: job.id() })?;
-    let energy_definition = registries
-        .energy()
-        .get_store(consumed_energy.definition())
-        .ok_or(ComminutionJobValidationError::UnknownEnergyDefinition { job: job.id() })?;
-    let powered_equipment = resolve_powered_ore_equipment(
-        equipment_definition,
-        provider.condition(),
-        definition.mass_flow_capability(),
-        definition.max_batch_mass_capability(),
-        job.consumed_mass(),
-    )
-    .map_err(|error| match error {
-        PoweredOreEquipmentError::MissingMassFlowCapability => {
-            ComminutionJobValidationError::MissingMassFlowCapability { job: job.id() }
-        }
-        PoweredOreEquipmentError::MissingMaximumBatchMassCapability => {
-            ComminutionJobValidationError::MissingMaximumBatchMassCapability { job: job.id() }
-        }
-        PoweredOreEquipmentError::BatchMassExceeded { selected, maximum } => {
-            ComminutionJobValidationError::BatchMassExceeded {
-                job: job.id(),
-                selected,
-                maximum,
-            }
-        }
-    })?;
-    let processing_rate = powered_equipment.processing_rate();
+    let replay = resolve_powered_ore_job_replay(registries, job, definition.operating_profile())
+        .map_err(|error| ComminutionJobValidationError::Powered {
+            job: job.id(),
+            error,
+        })?;
     let required_outputs =
         resolve_comminution_outputs(definition, job.consumed_inputs()).map_err(|error| {
             ComminutionJobValidationError::Batch {
@@ -682,70 +455,12 @@ pub(crate) fn validate_loaded_comminution_job(
     if required_outputs.as_slice() != output_stream.outputs() {
         return Err(ComminutionJobValidationError::OutputMismatch { job: job.id() });
     }
-    if consumed_energy.carrier() != definition.energy_carrier() {
-        return Err(ComminutionJobValidationError::WrongEnergyCarrier {
-            job: job.id(),
-            required: definition.energy_carrier(),
-            provided: consumed_energy.carrier(),
-        });
-    }
-    let required_energy =
-        calculate_mass_specific_energy(job.consumed_mass(), definition.specific_energy());
-    if consumed_energy.energy() != required_energy {
-        return Err(ComminutionJobValidationError::EnergyMismatch {
-            job: job.id(),
-            traced: consumed_energy.energy(),
-            required: required_energy,
-        });
-    }
-    let timing = resolve_powered_ore_timing(
-        registries,
-        processing_rate,
-        job.consumed_mass(),
-        required_energy,
-        energy_definition.max_output_power(),
-        definition.condition_wear_ppm_per_active_tick(),
-        provider.condition(),
-    )
-    .map_err(|error| match error {
-        PoweredOreTimingError::Throughput(error) => {
-            ComminutionJobValidationError::ThroughputDuration {
-                job: job.id(),
-                error,
-            }
-        }
-        PoweredOreTimingError::Energy(error) => ComminutionJobValidationError::EnergyDuration {
+    validate_powered_ore_job_replay(registries, job, replay).map_err(|error| {
+        ComminutionJobValidationError::Powered {
             job: job.id(),
             error,
-        },
-        PoweredOreTimingError::Condition(error) => {
-            ComminutionJobValidationError::ConditionDuration {
-                job: job.id(),
-                error,
-            }
         }
-    })?;
-    let required_duration = timing.duration();
-    let stored_duration = job.active_duration().value();
-    if stored_duration != required_duration.value() {
-        return Err(ComminutionJobValidationError::DurationMismatch {
-            job: job.id(),
-            stored_ticks: stored_duration,
-            required_ticks: required_duration.value(),
-        });
-    }
-    let required_condition_after = timing.condition_after();
-    let stored_condition_after = job
-        .equipment_condition_after()
-        .ok_or(ComminutionJobValidationError::MissingConditionOutcome { job: job.id() })?;
-    if stored_condition_after != required_condition_after {
-        return Err(ComminutionJobValidationError::ConditionOutcomeMismatch {
-            job: job.id(),
-            stored: stored_condition_after,
-            required: required_condition_after,
-        });
-    }
-    Ok(())
+    })
 }
 
 #[cfg(test)]

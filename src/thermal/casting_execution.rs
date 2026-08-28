@@ -16,14 +16,13 @@ use crate::inventory::StockpileId;
 use crate::maintenance::{
     ActiveConditionDurationError, Condition, assert_valid_condition_wear_ppm_per_tick,
 };
-use crate::material::{FormId, MaterialId};
+use crate::material::{CommodityKey, FormId, MaterialComposition, MaterialId, MaterialLotSpec};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
     ProcessResolutionError, ProductionJobId, ProductionJobRecord, validate_selected_process_inputs,
 };
 use crate::registry::Registries;
 
-use super::PhaseChangeForms;
 use super::equipment_physics::{
     ThermalBatchLimitError, ThermalPowerTemperatureError, ThermalTransferTimingError,
     resolve_thermal_power_temperature_limits, resolve_thermal_transfer_timing,
@@ -32,10 +31,45 @@ use super::equipment_physics::{
 use super::phase_change_batch::{
     PurePhaseChangeBatchError, PurePhaseChangeDirection, resolve_pure_phase_change_batch,
 };
+use super::{PhaseChangeForms, calculate_phase_sensible_heat};
 #[cfg(test)]
 use super::{calculate_fusion_heat, calculate_sensible_heat};
-#[cfg(test)]
-use crate::material::{CommodityKey, MaterialComposition};
+
+/// Immutable declaration that one selected-batch process solidifies pure liquid matter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CastingPhaseChange {
+    forms: PhaseChangeForms,
+    output_temperature: Temperature,
+}
+
+impl CastingPhaseChange {
+    #[must_use]
+    pub const fn new(forms: PhaseChangeForms, output_temperature: Temperature) -> Self {
+        assert!(
+            output_temperature.millikelvin() > 0,
+            "casting output temperature must be above absolute zero"
+        );
+        Self {
+            forms,
+            output_temperature,
+        }
+    }
+
+    #[must_use]
+    pub const fn liquid_form(self) -> FormId {
+        self.forms.input()
+    }
+
+    #[must_use]
+    pub const fn solid_form(self) -> FormId {
+        self.forms.output()
+    }
+
+    #[must_use]
+    pub const fn output_temperature(self) -> Temperature {
+        self.output_temperature
+    }
+}
 
 /// Immutable declaration that one selected-batch process solidifies pure liquid matter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,7 +79,7 @@ pub struct CastingProcessDefinition {
     max_temperature_capability: CapabilityId,
     max_batch_mass_capability: CapabilityId,
     energy_carrier: EnergyCarrier,
-    forms: PhaseChangeForms,
+    phase_change: CastingPhaseChange,
     condition_wear_ppm_per_active_tick: u32,
 }
 
@@ -57,7 +91,7 @@ impl CastingProcessDefinition {
         max_temperature_capability: CapabilityId,
         max_batch_mass_capability: CapabilityId,
         energy_carrier: EnergyCarrier,
-        forms: PhaseChangeForms,
+        phase_change: CastingPhaseChange,
         condition_wear_ppm_per_active_tick: u32,
     ) -> Self {
         assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
@@ -67,7 +101,7 @@ impl CastingProcessDefinition {
             max_temperature_capability,
             max_batch_mass_capability,
             energy_carrier,
-            forms,
+            phase_change,
             condition_wear_ppm_per_active_tick,
         }
     }
@@ -99,12 +133,18 @@ impl CastingProcessDefinition {
 
     #[must_use]
     pub const fn liquid_form(self) -> FormId {
-        self.forms.input()
+        self.phase_change.liquid_form()
     }
 
     #[must_use]
     pub const fn solid_form(self) -> FormId {
-        self.forms.output()
+        self.phase_change.solid_form()
+    }
+
+    /// Temperature of the solid lot after the casting cycle removes latent and sensible heat.
+    #[must_use]
+    pub const fn output_temperature(self) -> Temperature {
+        self.phase_change.output_temperature()
     }
 
     #[must_use]
@@ -120,15 +160,40 @@ fn resolve_casting_batch(
     materials: &crate::material::MaterialRegistry,
     liquid_form: FormId,
     solid_form: FormId,
+    output_temperature: Temperature,
     traces: &[crate::inventory::ConsumedMaterialTrace],
 ) -> Result<super::phase_change_batch::PurePhaseChangeBatch, CastingBatchError> {
-    resolve_pure_phase_change_batch(
+    let mut batch = resolve_pure_phase_change_batch(
         materials,
         liquid_form,
         solid_form,
         PurePhaseChangeDirection::Solidify,
         traces,
+    )?;
+    let solid_cooling = calculate_phase_sensible_heat(
+        materials,
+        batch.output.mass(),
+        CommodityKey::new(batch.material, solid_form),
+        batch.output.composition(),
+        batch.melting_point,
+        output_temperature,
     )
+    .map_err(|error| PurePhaseChangeBatchError::SolidCooling {
+        material: batch.material,
+        error,
+    })?;
+    batch.transfer_energy = batch
+        .transfer_energy
+        .checked_add(solid_cooling.energy())
+        .ok_or(PurePhaseChangeBatchError::EnergyOverflow)?;
+    batch.output = MaterialLotSpec::with_composition(
+        CommodityKey::new(batch.material, solid_form),
+        batch.output.mass(),
+        output_temperature,
+        MaterialComposition::pure(batch.material),
+    )
+    .map_err(PurePhaseChangeBatchError::Output)?;
+    Ok(batch)
 }
 
 /// Exact runtime selection, cooling equipment, and finite heat sink for one casting operation.
@@ -409,6 +474,7 @@ pub fn resolve_casting_process(
         registries.materials(),
         definition.liquid_form(),
         definition.solid_form(),
+        definition.output_temperature(),
         inputs.consumed_inputs(),
     )
     .map_err(CastingResolutionError::Batch)?;
@@ -420,7 +486,7 @@ pub fn resolve_casting_process(
             },
         );
     }
-    let energy_sink = validate_energy_sink(registries, state, energy_sink, batch.phase_energy)
+    let energy_sink = validate_energy_sink(registries, state, energy_sink, batch.transfer_energy)
         .map_err(CastingResolutionError::EnergySink)?;
     let provided_carrier = energy_sink.trace().carrier();
     if provided_carrier != definition.energy_carrier() {
@@ -433,7 +499,7 @@ pub fn resolve_casting_process(
         registries,
         limits.transfer_power(),
         energy_sink.max_input_power(),
-        batch.phase_energy,
+        batch.transfer_energy,
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
     )
@@ -463,7 +529,7 @@ pub fn resolve_casting_process(
         equipment,
         material: batch.material,
         melting_point: batch.melting_point,
-        released_energy: batch.phase_energy,
+        released_energy: batch.transfer_energy,
         transfer_power,
     })
 }
@@ -789,6 +855,7 @@ pub(super) fn validate_loaded_casting_job(
         registries.materials(),
         definition.liquid_form(),
         definition.solid_form(),
+        definition.output_temperature(),
         job.consumed_inputs(),
     )
     .map_err(|error| CastingJobValidationError::Batch {
@@ -811,18 +878,18 @@ pub(super) fn validate_loaded_casting_job(
             provided: released_energy.carrier(),
         });
     }
-    if released_energy.energy() != batch.phase_energy {
+    if released_energy.energy() != batch.transfer_energy {
         return Err(CastingJobValidationError::ReleasedEnergyMismatch {
             job: job.id(),
             traced: released_energy.energy(),
-            required: batch.phase_energy,
+            required: batch.transfer_energy,
         });
     }
     let timing = resolve_thermal_transfer_timing(
         registries,
         limits.transfer_power(),
         energy_definition.max_input_power(),
-        batch.phase_energy,
+        batch.transfer_energy,
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
     )

@@ -88,7 +88,8 @@ Only consolidated non-particulate solids may directly become rigid infrastructur
 embodiment; loose forms require an explicit shaping or consolidation process first. `CommodityKey` combines
 one material and one form, but runtime ownership is limited to exact pairs explicitly authored in the
 material registry; independently valid material and form IDs do not imply a valid commodity. Composition
-remains a separate exact property.
+remains a separate exact property. Authoring a liquid commodity requires fusion properties for its material,
+so the registry cannot contain a liquid identity for which no physically valid runtime temperature exists.
 
 `MaterialComposition` is sorted normalized mass fraction totaling exactly 1,000,000 ppm. Mixed matter
 preserves composition without inventing synthetic material identities. Particulate state uses validated,
@@ -171,6 +172,13 @@ consumes no exertion or active process time.
 
 Implemented resolvers are:
 
+Powered ore-processing definitions share one `PoweredOreProcessProfile` for throughput capability,
+batch limit, energy carrier, mass-specific work, and active-tick wear. Runtime admission and trusted-load
+replay both derive their common equipment, energy, timing, and condition physics from that same profile;
+each process owner validates only its process-specific material/output transformation between those shared
+replay phases. This prevents comminution, screening, and separation saves from drifting into different
+interpretations of the same authored operating envelope.
+
 - **Comminution:** authored feed/output particle state, condition-sensitive throughput, batch limits,
   finite work energy, power-limited duration, and active-tick wear;
 - **Dry screening:** partitions fully resolved particle classes around an authored aperture without
@@ -187,8 +195,14 @@ Implemented resolvers are:
 - **Thermal processing:** sensible heating, pure-material melting, and pure-material casting use real
   selected matter, finite energy sources/sinks, equipment limits, phase boundaries, and latent heat. Melting
   and casting definitions bind authored input and output forms; admission and persisted replay cannot
-  substitute a different form solely because its material and phase are compatible. Casting outputs are
-  non-particulate solids because the current casting resolver does not invent a particle-size distribution.
+  substitute a different form solely because its material and phase are compatible. Casting definitions
+  also own the completed solid temperature. Casting first removes liquid superheat and latent heat at the
+  fusion boundary, then removes the solid's sensible heat down to that authored output temperature; all
+  three contributions enter the finite thermal sink. Completed cast lots therefore do not remain
+  indefinitely at the melting boundary. Registry validation requires each casting form pair to apply to at
+  least one authored material and requires its completed-solid temperature to remain in the solid range for
+  every material that authors both forms. Casting outputs are non-particulate solids because the current
+  casting resolver does not invent a particle-size distribution.
 
 ## Equipment, labor, survival, energy, and fluids
 

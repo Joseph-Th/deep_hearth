@@ -1,8 +1,9 @@
 //! Built-in thermal-process resolution semantics for canonical workshop equipment.
 
+use crate::core::quantity::Temperature;
 use crate::energy::EnergyCarrier;
 use crate::thermal::{
-    CastingProcessDefinition, MeltingProcessDefinition, PhaseChangeForms,
+    CastingPhaseChange, CastingProcessDefinition, MeltingProcessDefinition, PhaseChangeForms,
     SensibleHeatingProcessDefinition, ThermalRegistry,
 };
 
@@ -31,7 +32,10 @@ pub(crate) fn build_thermal_registry() -> ThermalRegistry {
             CAPABILITY_THERMAL_MAX_TEMPERATURE,
             CAPABILITY_THERMAL_BATCH,
             EnergyCarrier::Thermal,
-            PhaseChangeForms::new(FORM_MOLTEN, FORM_INGOT),
+            CastingPhaseChange::new(
+                PhaseChangeForms::new(FORM_MOLTEN, FORM_INGOT),
+                Temperature::from_millikelvin(293_150),
+            ),
             10,
         )],
     )

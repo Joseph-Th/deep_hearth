@@ -10,6 +10,7 @@ mod geometry;
 mod load;
 mod state;
 mod structural_execution;
+mod support_index;
 
 pub use analysis::{
     StructuralAnalysis, StructuralAnalysisError, StructuralAssessment, StructuralDamageEvent,
@@ -63,6 +64,9 @@ pub(crate) use state::validate_loaded_structure;
 pub(crate) use structural_execution::{
     ValidatedStructuralLoadBatch, validate_set_owned_structural_load,
     validate_set_owned_structural_loads,
+};
+pub(crate) use support_index::{
+    SupportIndexValidationFault, apply_support_index_change, validate_support_index,
 };
 
 #[cfg(test)]

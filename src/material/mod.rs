@@ -667,14 +667,26 @@ impl MaterialRegistry {
 
     /// Registers one exact authored material/form combination.
     pub(crate) fn register_commodity(&mut self, commodity: CommodityKey) {
+        let material = self
+            .materials
+            .get(&commodity.material())
+            .unwrap_or_else(|| {
+                panic!(
+                    "commodity references missing material {}",
+                    commodity.material().value()
+                )
+            });
+        let form = self.forms.get(&commodity.form()).unwrap_or_else(|| {
+            panic!(
+                "commodity references missing form {}",
+                commodity.form().value()
+            )
+        });
         assert!(
-            self.materials.contains_key(&commodity.material()),
-            "commodity references missing material {}",
-            commodity.material().value()
-        );
-        assert!(
-            self.forms.contains_key(&commodity.form()),
-            "commodity references missing form {}",
+            form.phase() != MaterialPhase::Liquid
+                || material.properties().thermal().fusion().is_some(),
+            "liquid commodity material {} form {} requires authored fusion properties",
+            commodity.material().value(),
             commodity.form().value()
         );
         assert!(
@@ -699,6 +711,11 @@ impl MaterialRegistry {
     #[must_use]
     pub fn get_material(&self, id: MaterialId) -> Option<&MaterialDefinition> {
         self.materials.get(&id)
+    }
+
+    /// Iterates authored materials deterministically by stable material ID.
+    pub(crate) fn definitions(&self) -> impl Iterator<Item = &MaterialDefinition> {
+        self.materials.values()
     }
 
     /// Returns one physical-form definition by stable ID.

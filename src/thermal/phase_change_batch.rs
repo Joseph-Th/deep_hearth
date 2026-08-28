@@ -10,7 +10,10 @@ use crate::material::{
     MaterialPhase, MaterialRegistry,
 };
 
-use super::{FusionHeatError, SensibleHeatError, calculate_fusion_heat, calculate_sensible_heat};
+use super::{
+    FusionHeatError, PhaseSensibleHeatError, SensibleHeatError, calculate_fusion_heat,
+    calculate_sensible_heat,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PurePhaseChangeDirection {
@@ -70,6 +73,10 @@ pub enum PurePhaseChangeBatchError {
     SensibleHeat {
         material: MaterialId,
         error: SensibleHeatError,
+    },
+    SolidCooling {
+        material: MaterialId,
+        error: PhaseSensibleHeatError,
     },
     FusionHeat {
         material: MaterialId,
@@ -140,6 +147,11 @@ impl Display for PurePhaseChangeBatchError {
                 "material {} cannot reach its fusion boundary: {error}",
                 material.value()
             ),
+            Self::SolidCooling { material, error } => write!(
+                formatter,
+                "solid material {} cannot reach its authored casting output temperature: {error}",
+                material.value()
+            ),
             Self::FusionHeat { material, error } => write!(
                 formatter,
                 "material {} cannot resolve latent heat: {error}",
@@ -159,6 +171,7 @@ impl Error for PurePhaseChangeBatchError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::SensibleHeat { error, .. } => Some(error),
+            Self::SolidCooling { error, .. } => Some(error),
             Self::FusionHeat { error, .. } => Some(error),
             Self::Output(error) => Some(error),
             Self::EmptyInput
@@ -180,8 +193,176 @@ pub(super) struct PurePhaseChangeBatch {
     pub(super) material: MaterialId,
     pub(super) melting_point: Temperature,
     pub(super) hottest_input: Temperature,
-    pub(super) phase_energy: Energy,
+    pub(super) transfer_energy: Energy,
     pub(super) output: MaterialLotSpec,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PhaseChangeTracePhysics {
+    melting_point: Temperature,
+    transfer_energy: Energy,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PhaseChangeBatchAccumulator {
+    material: Option<MaterialId>,
+    melting_point: Option<Temperature>,
+    hottest_input: Temperature,
+    total_mass: Mass,
+    transfer_energy: Energy,
+}
+
+impl PhaseChangeBatchAccumulator {
+    fn new() -> Self {
+        Self {
+            material: None,
+            melting_point: None,
+            hottest_input: Temperature::ZERO,
+            total_mass: Mass::ZERO,
+            transfer_energy: Energy::ZERO,
+        }
+    }
+
+    fn accept_material(&mut self, material: MaterialId) -> Result<(), PurePhaseChangeBatchError> {
+        if let Some(expected) = self.material {
+            if expected != material {
+                return Err(PurePhaseChangeBatchError::MixedMaterials {
+                    expected,
+                    found: material,
+                });
+            }
+        } else {
+            self.material = Some(material);
+        }
+        Ok(())
+    }
+
+    fn add_trace(
+        &mut self,
+        trace: &ConsumedMaterialTrace,
+        physics: PhaseChangeTracePhysics,
+    ) -> Result<(), PurePhaseChangeBatchError> {
+        if let Some(expected) = self.melting_point {
+            debug_assert_eq!(expected, physics.melting_point);
+        } else {
+            self.melting_point = Some(physics.melting_point);
+        }
+        self.hottest_input = self.hottest_input.max(trace.profile().temperature());
+        self.transfer_energy = self
+            .transfer_energy
+            .checked_add(physics.transfer_energy)
+            .ok_or(PurePhaseChangeBatchError::EnergyOverflow)?;
+        self.total_mass = self
+            .total_mass
+            .checked_add(trace.mass())
+            .ok_or(PurePhaseChangeBatchError::MassOverflow)?;
+        Ok(())
+    }
+
+    fn finish(
+        self,
+        output_form: FormId,
+    ) -> Result<PurePhaseChangeBatch, PurePhaseChangeBatchError> {
+        let Some(material) = self.material else {
+            return Err(PurePhaseChangeBatchError::EmptyInput);
+        };
+        let Some(melting_point) = self.melting_point else {
+            return Err(PurePhaseChangeBatchError::EmptyInput);
+        };
+        let output = MaterialLotSpec::with_composition(
+            CommodityKey::new(material, output_form),
+            self.total_mass,
+            melting_point,
+            MaterialComposition::pure(material),
+        )
+        .map_err(PurePhaseChangeBatchError::Output)?;
+        Ok(PurePhaseChangeBatch {
+            material,
+            melting_point,
+            hottest_input: self.hottest_input,
+            transfer_energy: self.transfer_energy,
+            output,
+        })
+    }
+}
+
+fn resolve_phase_change_trace_material(
+    materials: &MaterialRegistry,
+    input_form: FormId,
+    direction: PurePhaseChangeDirection,
+    trace: &ConsumedMaterialTrace,
+) -> Result<MaterialId, PurePhaseChangeBatchError> {
+    let profile = trace.profile();
+    let form_id = profile.commodity().form();
+    let Some(form) = materials.get_form(form_id) else {
+        return Err(PurePhaseChangeBatchError::UnknownInputForm { form: form_id });
+    };
+    let expected_phase = direction.input_phase();
+    if form.phase() != expected_phase {
+        return Err(PurePhaseChangeBatchError::InputPhaseMismatch {
+            form: form_id,
+            expected: expected_phase,
+            found: form.phase(),
+        });
+    }
+    if form_id != input_form {
+        return Err(PurePhaseChangeBatchError::InputFormMismatch {
+            expected: input_form,
+            found: form_id,
+        });
+    }
+    let Some(material) = profile.composition().pure_material() else {
+        return Err(PurePhaseChangeBatchError::ImpureInput {
+            commodity: profile.commodity(),
+        });
+    };
+    if profile.commodity().material() != material {
+        return Err(
+            PurePhaseChangeBatchError::PureMaterialDoesNotMatchCommodity {
+                commodity: profile.commodity(),
+                pure: material,
+            },
+        );
+    }
+    Ok(material)
+}
+
+fn resolve_phase_change_trace_physics(
+    materials: &MaterialRegistry,
+    direction: PurePhaseChangeDirection,
+    trace: &ConsumedMaterialTrace,
+    material: MaterialId,
+) -> Result<PhaseChangeTracePhysics, PurePhaseChangeBatchError> {
+    let profile = trace.profile();
+    let fusion = calculate_fusion_heat(materials, trace.mass(), material)
+        .map_err(|error| PurePhaseChangeBatchError::FusionHeat { material, error })?;
+    let melting_point = fusion.melting_point();
+    if !direction.input_temperature_is_valid(profile.temperature(), melting_point) {
+        return Err(
+            PurePhaseChangeBatchError::InputTemperatureOutsidePhaseRange {
+                material,
+                phase: direction.input_phase(),
+                current: profile.temperature(),
+                melting_point,
+            },
+        );
+    }
+    let sensible = calculate_sensible_heat(
+        materials,
+        trace.mass(),
+        profile.composition(),
+        profile.temperature(),
+        melting_point,
+    )
+    .map_err(|error| PurePhaseChangeBatchError::SensibleHeat { material, error })?;
+    let transfer_energy = sensible
+        .energy()
+        .checked_add(fusion.energy())
+        .ok_or(PurePhaseChangeBatchError::EnergyOverflow)?;
+    Ok(PhaseChangeTracePhysics {
+        melting_point,
+        transfer_energy,
+    })
 }
 
 /// Resolves the conserved matter and energy magnitude for one pure-material phase transition.
@@ -196,112 +377,13 @@ pub(super) fn resolve_pure_phase_change_batch(
     direction: PurePhaseChangeDirection,
     traces: &[ConsumedMaterialTrace],
 ) -> Result<PurePhaseChangeBatch, PurePhaseChangeBatchError> {
-    let mut batch_material = None;
-    let mut melting_point = None;
-    let mut hottest_input = Temperature::ZERO;
-    let mut total_mass = Mass::ZERO;
-    let mut phase_energy = Energy::ZERO;
-
+    let mut batch = PhaseChangeBatchAccumulator::new();
     for trace in traces {
-        let profile = trace.profile();
-        let form_id = profile.commodity().form();
-        let Some(form) = materials.get_form(form_id) else {
-            return Err(PurePhaseChangeBatchError::UnknownInputForm { form: form_id });
-        };
-        let expected_phase = direction.input_phase();
-        if form.phase() != expected_phase {
-            return Err(PurePhaseChangeBatchError::InputPhaseMismatch {
-                form: form_id,
-                expected: expected_phase,
-                found: form.phase(),
-            });
-        }
-        if form_id != input_form {
-            return Err(PurePhaseChangeBatchError::InputFormMismatch {
-                expected: input_form,
-                found: form_id,
-            });
-        }
-
-        let Some(material) = profile.composition().pure_material() else {
-            return Err(PurePhaseChangeBatchError::ImpureInput {
-                commodity: profile.commodity(),
-            });
-        };
-        if profile.commodity().material() != material {
-            return Err(
-                PurePhaseChangeBatchError::PureMaterialDoesNotMatchCommodity {
-                    commodity: profile.commodity(),
-                    pure: material,
-                },
-            );
-        }
-        if let Some(expected) = batch_material {
-            if expected != material {
-                return Err(PurePhaseChangeBatchError::MixedMaterials {
-                    expected,
-                    found: material,
-                });
-            }
-        } else {
-            batch_material = Some(material);
-        }
-
-        let fusion = calculate_fusion_heat(materials, trace.mass(), material)
-            .map_err(|error| PurePhaseChangeBatchError::FusionHeat { material, error })?;
-        if !direction.input_temperature_is_valid(profile.temperature(), fusion.melting_point()) {
-            return Err(
-                PurePhaseChangeBatchError::InputTemperatureOutsidePhaseRange {
-                    material,
-                    phase: expected_phase,
-                    current: profile.temperature(),
-                    melting_point: fusion.melting_point(),
-                },
-            );
-        }
-        if let Some(expected) = melting_point {
-            debug_assert_eq!(expected, fusion.melting_point());
-        } else {
-            melting_point = Some(fusion.melting_point());
-        }
-
-        hottest_input = hottest_input.max(profile.temperature());
-        let sensible = calculate_sensible_heat(
-            materials,
-            trace.mass(),
-            profile.composition(),
-            profile.temperature(),
-            fusion.melting_point(),
-        )
-        .map_err(|error| PurePhaseChangeBatchError::SensibleHeat { material, error })?;
-        phase_energy = phase_energy
-            .checked_add(sensible.energy())
-            .and_then(|energy| energy.checked_add(fusion.energy()))
-            .ok_or(PurePhaseChangeBatchError::EnergyOverflow)?;
-        total_mass = total_mass
-            .checked_add(trace.mass())
-            .ok_or(PurePhaseChangeBatchError::MassOverflow)?;
+        let material =
+            resolve_phase_change_trace_material(materials, input_form, direction, trace)?;
+        batch.accept_material(material)?;
+        let physics = resolve_phase_change_trace_physics(materials, direction, trace, material)?;
+        batch.add_trace(trace, physics)?;
     }
-
-    let Some(material) = batch_material else {
-        return Err(PurePhaseChangeBatchError::EmptyInput);
-    };
-    let Some(melting_point) = melting_point else {
-        return Err(PurePhaseChangeBatchError::EmptyInput);
-    };
-    let output = MaterialLotSpec::with_composition(
-        CommodityKey::new(material, output_form),
-        total_mass,
-        melting_point,
-        MaterialComposition::pure(material),
-    )
-    .map_err(PurePhaseChangeBatchError::Output)?;
-
-    Ok(PurePhaseChangeBatch {
-        material,
-        melting_point,
-        hottest_input,
-        phase_energy,
-        output,
-    })
+    batch.finish(output_form)
 }

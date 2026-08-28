@@ -6,8 +6,11 @@ use std::fmt::{Display, Formatter};
 use crate::capability::{CapabilityId, CapabilityValueKind};
 use crate::core::quantity::{Mass, Pressure};
 use crate::core::state::AppState;
-use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
-use crate::geology::GeologicalDepositLifecycle;
+use crate::core::time::TickSpan;
+use crate::equipment::{
+    EquipmentId, EquipmentOperationTrace, EquipmentProviderError, resolve_equipment_provider,
+};
+use crate::geology::{GeologicalDepositId, GeologicalDepositLifecycle};
 use crate::inventory::{
     InboundReservationError, StockpileId, StockpileStorageError, StockpileStructuralLoadError,
     ValidatedInboundReservation, validate_inbound_reservation, validate_stockpile_storage,
@@ -17,7 +20,7 @@ use crate::labor::{
     PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, ValidatedPlayerWorkStart,
     validate_player_work_start,
 };
-use crate::maintenance::ActiveConditionDurationError;
+use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::material::{MaterialLotSpec, MaterialLotSpecError};
 use crate::ore_processing::MassFlowDurationError;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
@@ -25,7 +28,9 @@ use crate::registry::Registries;
 
 use super::physics::{MiningPhysicsError, resolve_mining_physics};
 use super::state::{MiningJobIdentity, MiningJobResources, MiningJobSchedule};
-use super::{MiningJobId, MiningJobRecord, MiningMethodId, MiningTargetResolution};
+use super::{
+    MiningJobId, MiningJobRecord, MiningMethodDefinition, MiningMethodId, MiningTargetResolution,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MiningStartError {
@@ -229,6 +234,183 @@ impl Display for MiningStartError {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MiningTargetPlan {
+    deposit: GeologicalDepositId,
+    expected_knowledge_revision: u64,
+    excavation_hardness: Pressure,
+    remaining_after: Mass,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MiningEquipmentPlan {
+    duration: TickSpan,
+    condition_after: Condition,
+    trace: EquipmentOperationTrace,
+}
+
+struct MiningDestinationPlan {
+    reservation: ValidatedInboundReservation,
+    expected_structure_revision: Option<u64>,
+}
+
+fn validate_mining_target(
+    state: &AppState,
+    target: MiningTargetResolution,
+    mass: Mass,
+) -> Result<MiningTargetPlan, MiningStartError> {
+    if state.geology().revision() != target.expected_geology_revision {
+        return Err(MiningStartError::StaleTargetGeology {
+            expected: target.expected_geology_revision,
+            actual: state.geology().revision(),
+        });
+    }
+    if state.geological_knowledge().revision() != target.expected_knowledge_revision {
+        return Err(MiningStartError::StaleTargetKnowledge {
+            expected: target.expected_knowledge_revision,
+            actual: state.geological_knowledge().revision(),
+        });
+    }
+    let deposit = target.deposit;
+    let record = state
+        .geology()
+        .get_deposit(deposit)
+        .ok_or(MiningStartError::TargetUnavailable)?;
+    if record.lifecycle() == GeologicalDepositLifecycle::Depleted {
+        return Err(MiningStartError::TargetDepleted);
+    }
+    if mass > record.remaining_mass() {
+        return Err(MiningStartError::InsufficientTargetMass { requested: mass });
+    }
+    let remaining_after = record
+        .remaining_mass()
+        .checked_sub(mass)
+        .ok_or(MiningStartError::InsufficientTargetMass { requested: mass })?;
+    Ok(MiningTargetPlan {
+        deposit,
+        expected_knowledge_revision: target.expected_knowledge_revision,
+        excavation_hardness: record.excavation_hardness(),
+        remaining_after,
+    })
+}
+
+fn resolve_mining_equipment_plan(
+    registries: &Registries,
+    state: &AppState,
+    method: &MiningMethodDefinition,
+    equipment: EquipmentId,
+    excavation_hardness: Pressure,
+    mass: Mass,
+) -> Result<MiningEquipmentPlan, MiningStartError> {
+    let provider = resolve_equipment_provider(registries, state, equipment)
+        .map_err(MiningStartError::Equipment)?;
+    if state
+        .equipment()
+        .get_equipment(equipment)
+        .is_some_and(|record| record.supported_by().is_some())
+    {
+        return Err(MiningStartError::EquipmentMounted { equipment });
+    }
+    if let Some(job) = state.production().get_equipment_occupant(equipment) {
+        return Err(MiningStartError::EquipmentBusyProduction {
+            equipment,
+            job: job.id(),
+            release: job.occupancy_release(),
+        });
+    }
+    if let Some(job) = state.mining().get_equipment_occupant(equipment) {
+        return Err(MiningStartError::EquipmentBusyMining { equipment, job });
+    }
+    let physics = resolve_mining_physics(
+        registries,
+        method,
+        provider.definition(),
+        provider.condition(),
+        excavation_hardness,
+        mass,
+    )
+    .map_err(MiningStartError::from)?;
+    Ok(MiningEquipmentPlan {
+        duration: physics.duration(),
+        condition_after: physics.condition_after(),
+        trace: provider.validated_use().trace(),
+    })
+}
+
+fn resolve_mining_output(
+    state: &AppState,
+    target: MiningTargetPlan,
+    mass: Mass,
+) -> Result<MaterialLotSpec, MiningStartError> {
+    let record = state
+        .geology()
+        .get_deposit(target.deposit)
+        .ok_or(MiningStartError::TargetUnavailable)?;
+    MaterialLotSpec::with_composition(
+        record.commodity(),
+        mass,
+        record.temperature(),
+        record.composition().clone(),
+    )
+    .map_err(MiningStartError::InvalidOutput)
+}
+
+fn map_inbound_reservation_error(error: InboundReservationError) -> MiningStartError {
+    match error {
+        InboundReservationError::UnknownStockpile { stockpile } => {
+            MiningStartError::UnknownDestination { stockpile }
+        }
+        InboundReservationError::MassOverflow { stockpile } => {
+            MiningStartError::DestinationMassOverflow { stockpile }
+        }
+        InboundReservationError::CapacityExceeded {
+            stockpile,
+            capacity,
+            committed,
+            requested,
+        } => MiningStartError::DestinationCapacityExceeded {
+            stockpile,
+            capacity,
+            committed,
+            requested,
+        },
+        InboundReservationError::RevisionExhausted => MiningStartError::InventoryRevisionExhausted,
+    }
+}
+
+fn validate_mining_destination(
+    registries: &Registries,
+    state: &AppState,
+    destination: StockpileId,
+    output: &MaterialLotSpec,
+    mass: Mass,
+) -> Result<MiningDestinationPlan, MiningStartError> {
+    let destination_record = state.inventory().get_stockpile(destination).ok_or(
+        MiningStartError::UnknownDestination {
+            stockpile: destination,
+        },
+    )?;
+    validate_stockpile_storage(
+        registries,
+        destination_record,
+        destination,
+        output.commodity(),
+        output.composition(),
+        output.temperature(),
+        output.particle_size_distribution(),
+    )
+    .map_err(MiningStartError::DestinationStorage)?;
+    let expected_structure_revision =
+        validate_stockpile_support_for_new_inbound(state, destination)
+            .map_err(MiningStartError::DestinationSupport)?;
+    let reservation = validate_inbound_reservation(state.inventory(), destination, mass)
+        .map_err(map_inbound_reservation_error)?;
+    Ok(MiningDestinationPlan {
+        reservation,
+        expected_structure_revision,
+    })
+}
+
 impl Error for MiningStartError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
@@ -421,10 +603,7 @@ struct MiningStartRevisions {
 }
 
 impl ValidatedMiningStart {
-    pub fn commit(self, state: &mut AppState) -> Result<MiningJobId, MiningStartCommitError> {
-        self.work
-            .precheck(state)
-            .map_err(MiningStartCommitError::Work)?;
+    fn precheck_owner_revisions(&self, state: &AppState) -> Result<(), MiningStartCommitError> {
         if state.geology().revision() != self.revisions.geology.expected {
             return Err(MiningStartCommitError::StaleGeology {
                 expected: self.revisions.geology.expected,
@@ -463,6 +642,10 @@ impl ValidatedMiningStart {
                 actual: state.structures().revision(),
             });
         }
+        Ok(())
+    }
+
+    fn precheck_equipment_occupancy(&self, state: &AppState) -> Result<(), MiningStartCommitError> {
         if let Some(job) = state
             .production()
             .get_equipment_occupant(self.record.equipment())
@@ -481,6 +664,15 @@ impl ValidatedMiningStart {
                 job,
             });
         }
+        Ok(())
+    }
+
+    pub fn commit(self, state: &mut AppState) -> Result<MiningJobId, MiningStartCommitError> {
+        self.work
+            .precheck(state)
+            .map_err(MiningStartCommitError::Work)?;
+        self.precheck_owner_revisions(state)?;
+        self.precheck_equipment_occupancy(state)?;
         let id = self.record.id();
         self.reservation.apply(state.inventory_state_mut());
         state.geology_state_mut().apply_extraction(
@@ -511,128 +703,31 @@ pub fn validate_start_mining(
     if mass.is_zero() {
         return Err(MiningStartError::ZeroMass);
     }
-    let method_def = registries
+    let method_definition = registries
         .mining()
         .get_method(method)
         .ok_or(MiningStartError::UnknownMethod { method })?;
-    if state.geology().revision() != target.expected_geology_revision {
-        return Err(MiningStartError::StaleTargetGeology {
-            expected: target.expected_geology_revision,
-            actual: state.geology().revision(),
-        });
-    }
-    if state.geological_knowledge().revision() != target.expected_knowledge_revision {
-        return Err(MiningStartError::StaleTargetKnowledge {
-            expected: target.expected_knowledge_revision,
-            actual: state.geological_knowledge().revision(),
-        });
-    }
-    let deposit = target.deposit;
-    let deposit_record = state
-        .geology()
-        .get_deposit(deposit)
-        .ok_or(MiningStartError::TargetUnavailable)?;
-    if deposit_record.lifecycle() == GeologicalDepositLifecycle::Depleted {
-        return Err(MiningStartError::TargetDepleted);
-    }
-    if mass > deposit_record.remaining_mass() {
-        return Err(MiningStartError::InsufficientTargetMass { requested: mass });
-    }
-
-    let provider = resolve_equipment_provider(registries, state, equipment)
-        .map_err(MiningStartError::Equipment)?;
-    if state
-        .equipment()
-        .get_equipment(equipment)
-        .is_some_and(|record| record.supported_by().is_some())
-    {
-        return Err(MiningStartError::EquipmentMounted { equipment });
-    }
-    if let Some(job) = state.production().get_equipment_occupant(equipment) {
-        return Err(MiningStartError::EquipmentBusyProduction {
-            equipment,
-            job: job.id(),
-            release: job.occupancy_release(),
-        });
-    }
-    if let Some(job) = state.mining().get_equipment_occupant(equipment) {
-        return Err(MiningStartError::EquipmentBusyMining { equipment, job });
-    }
-    let physics = resolve_mining_physics(
+    let target_plan = validate_mining_target(state, target, mass)?;
+    let equipment_plan = resolve_mining_equipment_plan(
         registries,
-        method_def,
-        provider.definition(),
-        provider.condition(),
-        deposit_record.excavation_hardness(),
+        state,
+        method_definition,
+        equipment,
+        target_plan.excavation_hardness,
         mass,
-    )
-    .map_err(MiningStartError::from)?;
-    let duration = physics.duration();
+    )?;
     let completes_at = state
         .tick()
-        .checked_add_span(duration)
+        .checked_add_span(equipment_plan.duration)
         .ok_or(MiningStartError::CompletionTickOverflow)?;
-    let condition_after = physics.condition_after();
-    let equipment_trace = provider.validated_use().trace();
-    let output = MaterialLotSpec::with_composition(
-        deposit_record.commodity(),
-        mass,
-        deposit_record.temperature(),
-        deposit_record.composition().clone(),
-    )
-    .map_err(MiningStartError::InvalidOutput)?;
-    let destination_record = state.inventory().get_stockpile(destination).ok_or(
-        MiningStartError::UnknownDestination {
-            stockpile: destination,
-        },
-    )?;
-    validate_stockpile_storage(
-        registries,
-        destination_record,
-        destination,
-        output.commodity(),
-        output.composition(),
-        output.temperature(),
-        output.particle_size_distribution(),
-    )
-    .map_err(MiningStartError::DestinationStorage)?;
-    let expected_structure_revision =
-        validate_stockpile_support_for_new_inbound(state, destination)
-            .map_err(MiningStartError::DestinationSupport)?;
-    let reservation =
-        validate_inbound_reservation(state.inventory(), destination, mass).map_err(|error| {
-            match error {
-                InboundReservationError::UnknownStockpile { stockpile } => {
-                    MiningStartError::UnknownDestination { stockpile }
-                }
-                InboundReservationError::MassOverflow { stockpile } => {
-                    MiningStartError::DestinationMassOverflow { stockpile }
-                }
-                InboundReservationError::CapacityExceeded {
-                    stockpile,
-                    capacity,
-                    committed,
-                    requested,
-                } => MiningStartError::DestinationCapacityExceeded {
-                    stockpile,
-                    capacity,
-                    committed,
-                    requested,
-                },
-                InboundReservationError::RevisionExhausted => {
-                    MiningStartError::InventoryRevisionExhausted
-                }
-            }
-        })?;
+    let output = resolve_mining_output(state, target_plan, mass)?;
+    let destination_plan =
+        validate_mining_destination(registries, state, destination, &output, mass)?;
 
     let expected_geology_revision = state.geology().revision();
     let next_geology_revision = expected_geology_revision
         .checked_add(1)
         .ok_or(MiningStartError::GeologyRevisionExhausted)?;
-    let remaining_after = deposit_record
-        .remaining_mass()
-        .checked_sub(mass)
-        .ok_or(MiningStartError::InsufficientTargetMass { requested: mass })?;
     let expected_equipment_revision = state.equipment().revision();
     let expected_mining_revision = state.mining().revision();
     let next_mining_revision = expected_mining_revision
@@ -647,39 +742,40 @@ pub fn validate_start_mining(
         registries,
         state,
         PlayerWork::Mining { job },
-        duration,
-        method_def.exertion(),
+        equipment_plan.duration,
+        method_definition.exertion(),
     )
     .map_err(MiningStartError::Work)?;
+
     Ok(ValidatedMiningStart {
         revisions: MiningStartRevisions {
             geology: RevisionTransition {
                 expected: expected_geology_revision,
                 next: next_geology_revision,
             },
-            knowledge: target.expected_knowledge_revision,
+            knowledge: target_plan.expected_knowledge_revision,
             equipment: expected_equipment_revision,
             mining: RevisionTransition {
                 expected: expected_mining_revision,
                 next: next_mining_revision,
             },
-            structure: expected_structure_revision,
+            structure: destination_plan.expected_structure_revision,
         },
-        remaining_after,
+        remaining_after: target_plan.remaining_after,
         next_mining_job_id,
-        reservation,
+        reservation: destination_plan.reservation,
         work,
         record: MiningJobRecord::new(
             MiningJobIdentity {
                 id: job,
                 method,
-                deposit,
+                deposit: target_plan.deposit,
             },
             MiningJobResources {
                 destination,
-                equipment_trace,
+                equipment_trace: equipment_plan.trace,
                 output,
-                equipment_condition_after: condition_after,
+                equipment_condition_after: equipment_plan.condition_after,
             },
             MiningJobSchedule {
                 started_at: state.tick(),

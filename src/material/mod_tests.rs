@@ -13,6 +13,33 @@ fn make_test_properties() -> MaterialProperties {
 }
 
 #[test]
+fn liquid_commodity_requires_fusion_properties() {
+    let mut registry = MaterialRegistry::new();
+    let material = MaterialId::new(3);
+    let liquid = FormId::new(8);
+    registry.register_material(MaterialDefinition::new(
+        material,
+        "non-melting test material",
+        make_test_properties(),
+    ));
+    registry.register_form(FormDefinition::new(
+        liquid,
+        "test liquid",
+        MaterialPhase::Liquid,
+        ParticleSizeStatePolicy::Untracked,
+        MaterialFormCohesion::Loose,
+    ));
+
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            registry.register_commodity(CommodityKey::new(material, liquid));
+        }))
+        .is_err()
+    );
+    assert!(!registry.has_commodity(CommodityKey::new(material, liquid)));
+}
+
+#[test]
 fn commodity_requires_explicit_material_form_authoring() {
     let mut registry = MaterialRegistry::new();
     let material = MaterialId::new(3);

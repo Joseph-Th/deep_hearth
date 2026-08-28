@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
 use crate::energy::EnergyCarrier;
 use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
-use crate::material::{MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy};
+use crate::material::{CommodityKey, MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy};
 use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
 
 use super::super::casting_execution::CastingProcessDefinition;
@@ -182,41 +182,7 @@ impl ThermalRegistry {
                 production,
                 capabilities,
             );
-            let Some(liquid_form) = materials.get_form(definition.liquid_form()) else {
-                panic!(
-                    "casting process {} references missing input form {}",
-                    definition.process().value(),
-                    definition.liquid_form().value()
-                );
-            };
-            assert_eq!(
-                liquid_form.phase(),
-                MaterialPhase::Liquid,
-                "casting process {} input form {} must be liquid",
-                definition.process().value(),
-                definition.liquid_form().value()
-            );
-            let Some(solid_form) = materials.get_form(definition.solid_form()) else {
-                panic!(
-                    "casting process {} references missing output form {}",
-                    definition.process().value(),
-                    definition.solid_form().value()
-                );
-            };
-            assert_eq!(
-                solid_form.phase(),
-                MaterialPhase::Solid,
-                "casting process {} output form {} must be solid",
-                definition.process().value(),
-                definition.solid_form().value()
-            );
-            assert_eq!(
-                solid_form.particle_size_policy(),
-                ParticleSizeStatePolicy::Untracked,
-                "casting process {} output form {} cannot require particle-size state because casting has no authored particulate output distribution",
-                definition.process().value(),
-                definition.solid_form().value()
-            );
+            validate_casting_material_references(definition, materials);
         }
         for definition in self.melting.values().copied() {
             validate_common_thermal_references(
@@ -227,36 +193,135 @@ impl ThermalRegistry {
                 production,
                 capabilities,
             );
-            let Some(solid_form) = materials.get_form(definition.solid_form()) else {
-                panic!(
-                    "melting process {} references missing input form {}",
-                    definition.process().value(),
-                    definition.solid_form().value()
-                );
-            };
-            assert_eq!(
-                solid_form.phase(),
-                MaterialPhase::Solid,
-                "melting process {} input form {} must be solid",
-                definition.process().value(),
-                definition.solid_form().value()
-            );
-            let Some(liquid_form) = materials.get_form(definition.liquid_form()) else {
-                panic!(
-                    "melting process {} references missing output form {}",
-                    definition.process().value(),
-                    definition.liquid_form().value()
-                );
-            };
-            assert_eq!(
-                liquid_form.phase(),
-                MaterialPhase::Liquid,
-                "melting process {} output form {} must be liquid",
-                definition.process().value(),
-                definition.liquid_form().value()
-            );
+            validate_melting_form_references(definition, materials);
         }
     }
+}
+
+fn validate_casting_material_references(
+    definition: CastingProcessDefinition,
+    materials: &MaterialRegistry,
+) {
+    let liquid_form = materials
+        .get_form(definition.liquid_form())
+        .unwrap_or_else(|| {
+            panic!(
+                "casting process {} references missing input form {}",
+                definition.process().value(),
+                definition.liquid_form().value()
+            )
+        });
+    assert_eq!(
+        liquid_form.phase(),
+        MaterialPhase::Liquid,
+        "casting process {} input form {} must be liquid",
+        definition.process().value(),
+        definition.liquid_form().value()
+    );
+    let solid_form = materials
+        .get_form(definition.solid_form())
+        .unwrap_or_else(|| {
+            panic!(
+                "casting process {} references missing output form {}",
+                definition.process().value(),
+                definition.solid_form().value()
+            )
+        });
+    assert_eq!(
+        solid_form.phase(),
+        MaterialPhase::Solid,
+        "casting process {} output form {} must be solid",
+        definition.process().value(),
+        definition.solid_form().value()
+    );
+    assert_eq!(
+        solid_form.particle_size_policy(),
+        ParticleSizeStatePolicy::Untracked,
+        "casting process {} output form {} cannot require particle-size state because casting has no authored particulate output distribution",
+        definition.process().value(),
+        definition.solid_form().value()
+    );
+    validate_casting_applicable_materials(definition, materials);
+}
+
+fn validate_casting_applicable_materials(
+    definition: CastingProcessDefinition,
+    materials: &MaterialRegistry,
+) {
+    let mut has_applicable_material = false;
+    for material in materials.definitions() {
+        let id = material.id();
+        if !materials.has_commodity(CommodityKey::new(id, definition.liquid_form()))
+            || !materials.has_commodity(CommodityKey::new(id, definition.solid_form()))
+        {
+            continue;
+        }
+        has_applicable_material = true;
+        let melting_point = material
+            .properties()
+            .thermal()
+            .melting_point()
+            .unwrap_or_else(|| {
+                panic!(
+                    "casting process {} material {} has liquid and solid commodities but no fusion properties",
+                    definition.process().value(),
+                    id.value()
+                )
+            });
+        assert!(
+            definition.output_temperature() <= melting_point,
+            "casting process {} output temperature {} mK exceeds material {} melting point {} mK",
+            definition.process().value(),
+            definition.output_temperature().millikelvin(),
+            id.value(),
+            melting_point.millikelvin()
+        );
+    }
+    assert!(
+        has_applicable_material,
+        "casting process {} has no material authored in both input form {} and output form {}",
+        definition.process().value(),
+        definition.liquid_form().value(),
+        definition.solid_form().value()
+    );
+}
+
+fn validate_melting_form_references(
+    definition: MeltingProcessDefinition,
+    materials: &MaterialRegistry,
+) {
+    let solid_form = materials
+        .get_form(definition.solid_form())
+        .unwrap_or_else(|| {
+            panic!(
+                "melting process {} references missing input form {}",
+                definition.process().value(),
+                definition.solid_form().value()
+            )
+        });
+    assert_eq!(
+        solid_form.phase(),
+        MaterialPhase::Solid,
+        "melting process {} input form {} must be solid",
+        definition.process().value(),
+        definition.solid_form().value()
+    );
+    let liquid_form = materials
+        .get_form(definition.liquid_form())
+        .unwrap_or_else(|| {
+            panic!(
+                "melting process {} references missing output form {}",
+                definition.process().value(),
+                definition.liquid_form().value()
+            )
+        });
+    assert_eq!(
+        liquid_form.phase(),
+        MaterialPhase::Liquid,
+        "melting process {} output form {} must be liquid",
+        definition.process().value(),
+        definition.liquid_form().value()
+    );
 }
 
 #[cfg(test)]

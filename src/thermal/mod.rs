@@ -7,8 +7,8 @@ mod phase_change_batch;
 mod processes;
 
 pub use casting_execution::{
-    CastingBatchError, CastingJobValidationError, CastingProcessDefinition, CastingRequest,
-    CastingResolutionError, ResolvedCasting, resolve_casting_process,
+    CastingBatchError, CastingJobValidationError, CastingPhaseChange, CastingProcessDefinition,
+    CastingRequest, CastingResolutionError, ResolvedCasting, resolve_casting_process,
 };
 pub use melting_execution::{
     MeltingBatchError, MeltingJobValidationError, MeltingProcessDefinition, MeltingRequest,

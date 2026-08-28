@@ -46,10 +46,16 @@ complexity, file size, Halstead metrics, and other BCA signals remain advisory b
 exhaustive Rust matches, explicit constructors, or cohesive owner modules. `python tools/check_bca.py report`
 combines those advisory metrics with repository churn and fix history to prioritize review. Use repeated
 `--path` arguments to focus that report when a subsystem is already known. `python tools/check_bca.py diff`
-compares the working tree to a chosen revision and accepts repeated `--metric` arguments when a review needs
-a narrower signal. These reports are diagnostic evidence, not completion gates. `python ci.py gate` adds the
-normal production compile. Specialized gate flags replace that compile with the selected focused lane. Audit
-lanes are the maintained broad runtime checks.
+compares the working tree to a chosen revision and accepts repeated `--path` and `--metric` arguments when a
+review needs a narrower signal. For a nontrivial refactor, use the history-aware report before choosing the
+target, then use a focused diff after the change to verify that the intended complexity moved rather than
+merely being redistributed. For example, mining work can be reviewed with
+`python tools/check_bca.py report --path src/mining/execution.rs`, followed by
+`python tools/check_bca.py diff --since HEAD --path src/mining/execution.rs --metric cognitive --metric cyclomatic --metric sloc`.
+Do not split cohesive code, add forwarding helpers, or refresh the baseline merely to improve these numbers.
+These reports are diagnostic evidence, not completion gates. `python ci.py gate` adds the normal production
+compile. Specialized gate flags replace that compile with the selected focused lane. Audit lanes are the
+maintained broad runtime checks.
 
 Do not run a compile-only command next to an executable lane that already compiles the same changed surface.
 

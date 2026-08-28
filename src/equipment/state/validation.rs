@@ -11,7 +11,7 @@ use crate::material::{
     CommodityKey, MaterialAssemblyProfile, MaterialPhaseStateError, MaterialRegistry,
     ParticleSizeStateError, validate_material_particle_size_state, validate_material_phase_state,
 };
-use crate::structural::StructuralElementId;
+use crate::structural::{StructuralElementId, SupportIndexValidationFault, validate_support_index};
 
 use super::super::definitions::{EquipmentDefinition, EquipmentDefinitionId, EquipmentRegistry};
 use super::{EquipmentId, EquipmentRecord, EquipmentState};
@@ -566,31 +566,40 @@ fn validate_embodied_totals(
 fn validate_equipment_support_index(
     state: &EquipmentState,
 ) -> Result<(), EquipmentValidationError> {
-    for (element, equipment_ids) in &state.equipment_by_support {
-        if element.value() == 0 {
-            return Err(EquipmentValidationError::ZeroIndexedSupportElementId);
+    validate_support_index(
+        &state.equipment_by_support,
+        |equipment| equipment.value() == 0,
+        |equipment| {
+            state
+                .records
+                .get(&equipment)
+                .map(|record| record.supported_by)
+        },
+    )
+    .map_err(|fault| match fault {
+        SupportIndexValidationFault::ZeroSupportElementId => {
+            EquipmentValidationError::ZeroIndexedSupportElementId
         }
-        if equipment_ids.is_empty() {
-            return Err(EquipmentValidationError::EmptySupportIndex { element: *element });
+        SupportIndexValidationFault::EmptySupportBucket { element } => {
+            EquipmentValidationError::EmptySupportIndex { element }
         }
-        for equipment in equipment_ids {
-            if equipment.value() == 0 {
-                return Err(EquipmentValidationError::ZeroIndexedEquipmentId { element: *element });
+        SupportIndexValidationFault::InvalidItemId { element, .. } => {
+            EquipmentValidationError::ZeroIndexedEquipmentId { element }
+        }
+        SupportIndexValidationFault::UnknownIndexedItem { item, element } => {
+            EquipmentValidationError::UnknownIndexedEquipment {
+                equipment: item,
+                element,
             }
-            let Some(record) = state.records.get(equipment) else {
-                return Err(EquipmentValidationError::UnknownIndexedEquipment {
-                    equipment: *equipment,
-                    element: *element,
-                });
-            };
-            if record.supported_by != Some(*element) {
-                return Err(EquipmentValidationError::SupportIndexMismatch {
-                    equipment: *equipment,
-                    indexed: *element,
-                    actual: record.supported_by,
-                });
-            }
         }
-    }
-    Ok(())
+        SupportIndexValidationFault::SupportMismatch {
+            item,
+            indexed,
+            actual,
+        } => EquipmentValidationError::SupportIndexMismatch {
+            equipment: item,
+            indexed,
+            actual,
+        },
+    })
 }

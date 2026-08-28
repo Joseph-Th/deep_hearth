@@ -8,7 +8,7 @@ use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
 use crate::inventory::ConsumedMaterialTrace;
 use crate::maintenance::Condition;
-use crate::structural::StructuralElementId;
+use crate::structural::{StructuralElementId, apply_support_index_change};
 
 use super::definitions::EquipmentDefinitionId;
 
@@ -408,6 +408,11 @@ impl EquipmentState {
         after: Option<StructuralElementId>,
         next_revision: u64,
     ) {
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "validated equipment support change must advance the owner revision exactly once"
+        );
         let record = match self.records.get(&equipment) {
             Some(record) => record,
             None => panic!(
@@ -419,64 +424,7 @@ impl EquipmentState {
             record.supported_by, before,
             "runtime invariant broken: equipment support record disagrees with support index"
         );
-        if let Some(before) = before {
-            assert!(
-                self.equipment_by_support
-                    .get(&before)
-                    .is_some_and(|indexed| indexed.contains(&equipment)),
-                "runtime invariant broken: support index element {} missing equipment {}",
-                before.value(),
-                equipment.value()
-            );
-        }
-        if after != before
-            && let Some(after) = after
-        {
-            assert!(
-                !self
-                    .equipment_by_support
-                    .get(&after)
-                    .is_some_and(|indexed| indexed.contains(&equipment)),
-                "runtime invariant broken: support index element {} already contains equipment {}",
-                after.value(),
-                equipment.value()
-            );
-        }
-        if let Some(before) = before {
-            let remove_entry = {
-                let indexed = match self.equipment_by_support.get_mut(&before) {
-                    Some(indexed) => indexed,
-                    None => panic!(
-                        "runtime invariant broken: support index missing element {} for equipment {}",
-                        before.value(),
-                        equipment.value()
-                    ),
-                };
-                assert!(
-                    indexed.remove(&equipment),
-                    "runtime invariant broken: support index element {} missing equipment {}",
-                    before.value(),
-                    equipment.value()
-                );
-                indexed.is_empty()
-            };
-            if remove_entry {
-                self.equipment_by_support.remove(&before);
-            }
-        }
-        if let Some(after) = after {
-            let inserted = self
-                .equipment_by_support
-                .entry(after)
-                .or_default()
-                .insert(equipment);
-            assert!(
-                inserted,
-                "runtime invariant broken: support index element {} already contains equipment {}",
-                after.value(),
-                equipment.value()
-            );
-        }
+        apply_support_index_change(&mut self.equipment_by_support, equipment, before, after);
         let record = match self.records.get_mut(&equipment) {
             Some(record) => record,
             None => unreachable!("equipment support record was prechecked before index mutation"),

@@ -423,8 +423,9 @@ pub fn resolve_melting_process(
             },
         );
     }
-    let energy_supply = validate_energy_supply(registries, state, energy_store, batch.phase_energy)
-        .map_err(MeltingResolutionError::Energy)?;
+    let energy_supply =
+        validate_energy_supply(registries, state, energy_store, batch.transfer_energy)
+            .map_err(MeltingResolutionError::Energy)?;
     let provided_carrier = energy_supply.trace().carrier();
     if provided_carrier != definition.energy_carrier() {
         return Err(MeltingResolutionError::WrongEnergyCarrier {
@@ -436,7 +437,7 @@ pub fn resolve_melting_process(
         registries,
         limits.transfer_power(),
         energy_supply.max_output_power(),
-        batch.phase_energy,
+        batch.transfer_energy,
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
     )
@@ -466,7 +467,7 @@ pub fn resolve_melting_process(
         equipment,
         material: batch.material,
         melting_point: batch.melting_point,
-        required_energy: batch.phase_energy,
+        required_energy: batch.transfer_energy,
         transfer_power,
     })
 }
@@ -802,18 +803,18 @@ pub(super) fn validate_loaded_melting_job(
             provided: consumed_energy.carrier(),
         });
     }
-    if consumed_energy.energy() != batch.phase_energy {
+    if consumed_energy.energy() != batch.transfer_energy {
         return Err(MeltingJobValidationError::EnergyMismatch {
             job: job.id(),
             traced: consumed_energy.energy(),
-            required: batch.phase_energy,
+            required: batch.transfer_energy,
         });
     }
     let timing = resolve_thermal_transfer_timing(
         registries,
         limits.transfer_power(),
         energy_definition.max_output_power(),
-        batch.phase_energy,
+        batch.transfer_energy,
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
     )

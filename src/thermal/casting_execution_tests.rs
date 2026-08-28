@@ -35,6 +35,7 @@ const MOLD: EquipmentDefinitionId = EquipmentDefinitionId::new(960_001);
 const HEAT_SINK: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(960_001);
 const PROCESS: ProcessId = ProcessId::new(960_001);
 const MELTING_POINT: Temperature = Temperature::from_millikelvin(1_357_770);
+const OUTPUT_TEMPERATURE: Temperature = Temperature::from_millikelvin(300_000);
 
 #[derive(Clone, Copy)]
 struct FixtureIds {
@@ -147,7 +148,10 @@ fn make_registries(
             MAX_TEMPERATURE,
             MAX_BATCH_MASS,
             EnergyCarrier::Thermal,
-            PhaseChangeForms::new(FORM_MOLTEN, FORM_INGOT),
+            CastingPhaseChange::new(
+                PhaseChangeForms::new(FORM_MOLTEN, FORM_INGOT),
+                OUTPUT_TEMPERATURE,
+            ),
             10,
         ),
     )
@@ -251,9 +255,9 @@ fn finish_job(registries: &Registries, state: &mut AppState, duration: TickSpan)
 }
 
 #[test]
-fn casting_at_fusion_boundary_releases_exact_latent_heat() {
+fn casting_at_fusion_boundary_releases_latent_and_solid_cooling_heat() {
     let fixture = make_fixture(Mass::from_milligrams(10), MELTING_POINT);
-    let expected = match calculate_fusion_heat(
+    let latent = match calculate_fusion_heat(
         fixture.registries.materials(),
         Mass::from_milligrams(10),
         MATERIAL_COPPER,
@@ -261,6 +265,19 @@ fn casting_at_fusion_boundary_releases_exact_latent_heat() {
         Ok(heat) => heat.energy(),
         Err(error) => panic!("casting latent heat fixture failed: {error}"),
     };
+    let solid_cooling = calculate_phase_sensible_heat(
+        fixture.registries.materials(),
+        Mass::from_milligrams(10),
+        CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+        &MaterialComposition::pure(MATERIAL_COPPER),
+        MELTING_POINT,
+        OUTPUT_TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("casting solid-cooling fixture failed: {error}"))
+    .energy();
+    let expected = latent
+        .checked_add(solid_cooling)
+        .unwrap_or_else(|| panic!("casting boundary heat fixture overflowed"));
 
     let resolved = match resolve_selected(
         &fixture.registries,
@@ -282,7 +299,7 @@ fn casting_at_fusion_boundary_releases_exact_latent_heat() {
         CommodityKey::new(MATERIAL_COPPER, FORM_INGOT)
     );
     assert_eq!(output.mass(), Mass::from_milligrams(10));
-    assert_eq!(output.temperature(), MELTING_POINT);
+    assert_eq!(output.temperature(), OUTPUT_TEMPERATURE);
 }
 
 #[test]
@@ -307,7 +324,20 @@ fn superheated_casting_releases_sensible_cooling_plus_latent_heat() {
         Ok(heat) => heat.energy(),
         Err(error) => panic!("casting latent fixture failed: {error}"),
     };
-    let expected = match sensible.checked_add(latent) {
+    let solid_cooling = calculate_phase_sensible_heat(
+        fixture.registries.materials(),
+        Mass::from_milligrams(10),
+        CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
+        &MaterialComposition::pure(MATERIAL_COPPER),
+        MELTING_POINT,
+        OUTPUT_TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("casting solid-cooling fixture failed: {error}"))
+    .energy();
+    let expected = match sensible
+        .checked_add(latent)
+        .and_then(|energy| energy.checked_add(solid_cooling))
+    {
         Some(energy) => energy,
         None => panic!("casting expected released energy overflowed"),
     };
@@ -455,6 +485,18 @@ fn casting_moves_released_heat_only_when_completion_becomes_authoritative() {
                 stockpile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_INGOT))
             }),
         Some(Mass::from_milligrams(10))
+    );
+    assert!(
+        fixture
+            .state
+            .inventory()
+            .lot_ids(fixture.ids.destination)
+            .all(|lot| fixture
+                .state
+                .inventory()
+                .get_lot(lot)
+                .is_some_and(|record| record.temperature() == OUTPUT_TEMPERATURE)),
+        "completed casting must persist the authored solid output temperature"
     );
 }
 

@@ -1,6 +1,7 @@
 //! Persistent geological observations and conservative read-only knowledge assessment; sibling
 //! prospecting execution owns mutation while authoritative deposits remain separate hidden truth.
 
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -412,6 +413,110 @@ impl GeologicalKnowledgeAssessment {
     }
 }
 
+type EvidencePrecisionRank = (
+    Reverse<u32>,
+    Reverse<u128>,
+    SimulationTick,
+    Reverse<GeologicalObservationId>,
+);
+
+struct GeologicalEvidenceAggregate {
+    observations: Vec<GeologicalObservationId>,
+    highest_lower_ppm: u32,
+    lowest_upper_ppm: u32,
+    envelope_lower_ppm: u32,
+    envelope_upper_ppm: u32,
+    common_evidence_region: Option<VoxelBounds>,
+    most_precise: Option<EvidencePrecisionRank>,
+    latest_observed_at: Option<SimulationTick>,
+}
+
+impl GeologicalEvidenceAggregate {
+    fn new(region: VoxelBounds) -> Self {
+        Self {
+            observations: Vec::new(),
+            highest_lower_ppm: 0,
+            lowest_upper_ppm: PARTS_PER_MILLION,
+            envelope_lower_ppm: PARTS_PER_MILLION,
+            envelope_upper_ppm: 0,
+            common_evidence_region: Some(region),
+            most_precise: None,
+            latest_observed_at: None,
+        }
+    }
+
+    fn add(
+        &mut self,
+        id: GeologicalObservationId,
+        record: &GeologicalObservationRecord,
+        finding: MaterialAbundanceEstimate,
+        overlap: VoxelBounds,
+    ) {
+        self.observations.push(id);
+        self.highest_lower_ppm = self.highest_lower_ppm.max(finding.lower_ppm());
+        self.lowest_upper_ppm = self.lowest_upper_ppm.min(finding.upper_ppm());
+        self.envelope_lower_ppm = self.envelope_lower_ppm.min(finding.lower_ppm());
+        self.envelope_upper_ppm = self.envelope_upper_ppm.max(finding.upper_ppm());
+        self.common_evidence_region = self
+            .common_evidence_region
+            .and_then(|common| common.intersection(overlap));
+        self.latest_observed_at = Some(
+            self.latest_observed_at
+                .map_or(record.observed_at(), |current| {
+                    current.max(record.observed_at())
+                }),
+        );
+
+        let precision = (
+            Reverse(finding.width_ppm()),
+            Reverse(record.region().voxel_count().unwrap_or(u128::MAX)),
+            record.observed_at(),
+            Reverse(id),
+        );
+        self.most_precise = Some(
+            self.most_precise
+                .map_or(precision, |current| current.max(precision)),
+        );
+    }
+
+    fn into_assessment(
+        self,
+        material: MaterialId,
+        region: VoxelBounds,
+    ) -> GeologicalKnowledgeAssessment {
+        let has_evidence = !self.observations.is_empty();
+        let common_evidence_region = has_evidence
+            .then_some(self.common_evidence_region)
+            .flatten();
+        let consistency = if !has_evidence {
+            GeologicalEvidenceConsistency::NoEvidence
+        } else if common_evidence_region.is_none() {
+            GeologicalEvidenceConsistency::SpatiallyIncomparable
+        } else if self.highest_lower_ppm <= self.lowest_upper_ppm {
+            GeologicalEvidenceConsistency::Compatible {
+                lower_ppm: self.highest_lower_ppm,
+                upper_ppm: self.lowest_upper_ppm,
+            }
+        } else {
+            GeologicalEvidenceConsistency::Conflicting {
+                highest_lower_ppm: self.highest_lower_ppm,
+                lowest_upper_ppm: self.lowest_upper_ppm,
+            }
+        };
+        let envelope = has_evidence.then_some((self.envelope_lower_ppm, self.envelope_upper_ppm));
+        GeologicalKnowledgeAssessment {
+            material,
+            region,
+            observations: self.observations,
+            consistency,
+            envelope,
+            common_evidence_region,
+            most_precise: self.most_precise.map(|rank| rank.3.0),
+            latest_observed_at: self.latest_observed_at,
+        }
+    }
+}
+
 /// Builds a stable regional map from acquired evidence only.
 ///
 /// Materials known elsewhere but with no evidence intersecting this region are omitted. Ordering is
@@ -425,18 +530,11 @@ pub fn build_geological_knowledge_map(
         .known_materials()
         .filter_map(|material| {
             let assessment = assess_geological_knowledge(state, region, material);
-            match assessment.consistency() {
-                GeologicalEvidenceConsistency::NoEvidence => None,
-                GeologicalEvidenceConsistency::SpatiallyIncomparable => Some(assessment),
-                GeologicalEvidenceConsistency::Compatible {
-                    lower_ppm: _lower_ppm,
-                    upper_ppm: _upper_ppm,
-                } => Some(assessment),
-                GeologicalEvidenceConsistency::Conflicting {
-                    highest_lower_ppm: _highest_lower_ppm,
-                    lowest_upper_ppm: _lowest_upper_ppm,
-                } => Some(assessment),
-            }
+            (!matches!(
+                assessment.consistency(),
+                GeologicalEvidenceConsistency::NoEvidence
+            ))
+            .then_some(assessment)
         })
         .collect();
     GeologicalKnowledgeMap {
@@ -460,14 +558,7 @@ pub fn assess_geological_knowledge(
     region: VoxelBounds,
     material: MaterialId,
 ) -> GeologicalKnowledgeAssessment {
-    let mut observations = Vec::new();
-    let mut highest_lower = 0_u32;
-    let mut lowest_upper = PARTS_PER_MILLION;
-    let mut envelope_lower = PARTS_PER_MILLION;
-    let mut envelope_upper = 0_u32;
-    let mut common_evidence_region = Some(region);
-    let mut most_precise: Option<(u32, u128, SimulationTick, GeologicalObservationId)> = None;
-    let mut latest = None;
+    let mut aggregate = GeologicalEvidenceAggregate::new(region);
 
     for id in state.observation_ids_for_material(material) {
         let record = match state.get_observation(id) {
@@ -477,15 +568,9 @@ pub fn assess_geological_knowledge(
                 id.value()
             ),
         };
-        if !record.region().has_intersection(region) {
+        let Some(overlap) = record.region().intersection(region) else {
             continue;
-        }
-        let overlap = match record.region().intersection(region) {
-            Some(overlap) => overlap,
-            None => panic!("intersecting geological bounds must have a nonempty intersection"),
         };
-        common_evidence_region =
-            common_evidence_region.and_then(|common| common.intersection(overlap));
         let finding = match record.finding(material) {
             Some(finding) => finding,
             None => panic!(
@@ -493,75 +578,9 @@ pub fn assess_geological_knowledge(
                 material.value()
             ),
         };
-        observations.push(id);
-        highest_lower = highest_lower.max(finding.lower_ppm());
-        lowest_upper = lowest_upper.min(finding.upper_ppm());
-        envelope_lower = envelope_lower.min(finding.lower_ppm());
-        envelope_upper = envelope_upper.max(finding.upper_ppm());
-        latest = Some(match latest {
-            Some(current) => std::cmp::max(current, record.observed_at()),
-            None => record.observed_at(),
-        });
-
-        let volume = record.region().voxel_count().unwrap_or(u128::MAX);
-        let candidate = (finding.width_ppm(), volume, record.observed_at(), id);
-        let replace = match most_precise {
-            None => true,
-            Some(current) => {
-                candidate.0 < current.0
-                    || (candidate.0 == current.0 && candidate.1 < current.1)
-                    || (candidate.0 == current.0
-                        && candidate.1 == current.1
-                        && candidate.2 > current.2)
-                    || (candidate.0 == current.0
-                        && candidate.1 == current.1
-                        && candidate.2 == current.2
-                        && candidate.3 < current.3)
-            }
-        };
-        if replace {
-            most_precise = Some(candidate);
-        }
+        aggregate.add(id, record, finding, overlap);
     }
-
-    if observations.is_empty() {
-        common_evidence_region = None;
-    }
-    let (consistency, envelope) = if observations.is_empty() {
-        (GeologicalEvidenceConsistency::NoEvidence, None)
-    } else if common_evidence_region.is_none() {
-        (
-            GeologicalEvidenceConsistency::SpatiallyIncomparable,
-            Some((envelope_lower, envelope_upper)),
-        )
-    } else if highest_lower <= lowest_upper {
-        (
-            GeologicalEvidenceConsistency::Compatible {
-                lower_ppm: highest_lower,
-                upper_ppm: lowest_upper,
-            },
-            Some((envelope_lower, envelope_upper)),
-        )
-    } else {
-        (
-            GeologicalEvidenceConsistency::Conflicting {
-                highest_lower_ppm: highest_lower,
-                lowest_upper_ppm: lowest_upper,
-            },
-            Some((envelope_lower, envelope_upper)),
-        )
-    };
-
-    GeologicalKnowledgeAssessment {
-        material,
-        region,
-        observations,
-        consistency,
-        envelope,
-        common_evidence_region,
-        most_precise: most_precise.map(|candidate| candidate.3),
-        latest_observed_at: latest,
-    }
+    aggregate.into_assessment(material, region)
 }
 
 mod validation;

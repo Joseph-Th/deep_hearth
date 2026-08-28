@@ -89,6 +89,31 @@ impl PoweredOreProcessProfile {
             condition_wear_ppm_per_active_tick,
         }
     }
+
+    #[must_use]
+    pub(super) const fn mass_flow_capability(self) -> CapabilityId {
+        self.mass_flow_capability
+    }
+
+    #[must_use]
+    pub(super) const fn max_batch_mass_capability(self) -> CapabilityId {
+        self.max_batch_mass_capability
+    }
+
+    #[must_use]
+    pub(super) const fn energy_carrier(self) -> EnergyCarrier {
+        self.energy_carrier
+    }
+
+    #[must_use]
+    pub(super) const fn specific_energy(self) -> MassSpecificEnergy {
+        self.specific_energy
+    }
+
+    #[must_use]
+    pub(super) const fn condition_wear_ppm_per_active_tick(self) -> u32 {
+        self.condition_wear_ppm_per_active_tick
+    }
 }
 
 /// Immutable declaration that one selected-batch process reduces solid material to a finer form.
@@ -244,27 +269,31 @@ impl ConstituentSeparationProcessDefinition {
 
     #[must_use]
     pub const fn mass_flow_capability(self) -> CapabilityId {
-        self.operating.mass_flow_capability
+        self.operating.mass_flow_capability()
     }
 
     #[must_use]
     pub const fn max_batch_mass_capability(self) -> CapabilityId {
-        self.operating.max_batch_mass_capability
+        self.operating.max_batch_mass_capability()
     }
 
     #[must_use]
     pub const fn energy_carrier(self) -> EnergyCarrier {
-        self.operating.energy_carrier
+        self.operating.energy_carrier()
     }
 
     #[must_use]
     pub const fn specific_energy(self) -> MassSpecificEnergy {
-        self.operating.specific_energy
+        self.operating.specific_energy()
     }
 
     #[must_use]
     pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
-        self.operating.condition_wear_ppm_per_active_tick
+        self.operating.condition_wear_ppm_per_active_tick()
+    }
+
+    pub(super) const fn operating_profile(self) -> PoweredOreProcessProfile {
+        self.operating
     }
 }
 
@@ -316,27 +345,31 @@ impl ScreeningProcessDefinition {
 
     #[must_use]
     pub const fn mass_flow_capability(self) -> CapabilityId {
-        self.operating.mass_flow_capability
+        self.operating.mass_flow_capability()
     }
 
     #[must_use]
     pub const fn max_batch_mass_capability(self) -> CapabilityId {
-        self.operating.max_batch_mass_capability
+        self.operating.max_batch_mass_capability()
     }
 
     #[must_use]
     pub const fn energy_carrier(self) -> EnergyCarrier {
-        self.operating.energy_carrier
+        self.operating.energy_carrier()
     }
 
     #[must_use]
     pub const fn specific_energy(self) -> MassSpecificEnergy {
-        self.operating.specific_energy
+        self.operating.specific_energy()
     }
 
     #[must_use]
     pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
-        self.operating.condition_wear_ppm_per_active_tick
+        self.operating.condition_wear_ppm_per_active_tick()
+    }
+
+    pub(super) const fn operating_profile(self) -> PoweredOreProcessProfile {
+        self.operating
     }
 }
 
@@ -423,26 +456,30 @@ impl ComminutionProcessDefinition {
 
     #[must_use]
     pub const fn mass_flow_capability(&self) -> CapabilityId {
-        self.operating.mass_flow_capability
+        self.operating.mass_flow_capability()
     }
 
     #[must_use]
     pub const fn max_batch_mass_capability(&self) -> CapabilityId {
-        self.operating.max_batch_mass_capability
+        self.operating.max_batch_mass_capability()
     }
 
     #[must_use]
     pub const fn energy_carrier(&self) -> EnergyCarrier {
-        self.operating.energy_carrier
+        self.operating.energy_carrier()
     }
 
     #[must_use]
     pub const fn specific_energy(&self) -> MassSpecificEnergy {
-        self.operating.specific_energy
+        self.operating.specific_energy()
     }
 
     #[must_use]
     pub const fn condition_wear_ppm_per_active_tick(&self) -> u32 {
-        self.operating.condition_wear_ppm_per_active_tick
+        self.operating.condition_wear_ppm_per_active_tick()
+    }
+
+    pub(super) const fn operating_profile(&self) -> PoweredOreProcessProfile {
+        self.operating
     }
 }

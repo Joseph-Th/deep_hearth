@@ -25,7 +25,9 @@ use crate::inventory::{
 use crate::maintenance::MaintenanceThresholds;
 use crate::material::CompositionComponent;
 use crate::matter::calculate_matter_accounting;
-use crate::ore_processing::{ComminutionProcessDefinition, PoweredOreProcessProfile};
+use crate::ore_processing::{
+    ComminutionProcessDefinition, PoweredOreJobValidationError, PoweredOreProcessProfile,
+};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{ProcessDefinition, validate_start_process};
 use crate::simulation::advance_tick;
@@ -855,10 +857,12 @@ fn comminution_job_round_trip_revalidates_exact_outputs_and_continues() {
     assert_eq!(
         tampered_energy.into_state(&fixture.registries),
         Err(LoadError::InvalidState(
-            StateValidationError::ComminutionJob(ComminutionJobValidationError::EnergyMismatch {
+            StateValidationError::ComminutionJob(ComminutionJobValidationError::Powered {
                 job,
-                traced: Energy::from_nanojoules(1),
-                required: required_energy,
+                error: PoweredOreJobValidationError::EnergyMismatch {
+                    traced: Energy::from_nanojoules(1),
+                    required: required_energy,
+                },
             })
         ))
     );

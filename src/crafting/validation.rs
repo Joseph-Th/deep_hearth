@@ -4,13 +4,15 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
 
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::TickSpan;
 use crate::material::{MaterialComposition, MaterialLotSpec, MaterialLotSpecError};
 use crate::production::{
     ProcessOutputStreamId, ProductionJobId, ProductionJobRecord, ProductionSuspensionReason,
 };
 use crate::registry::Registries;
+
+use super::ManualCraftDefinition;
 
 /// Corruption or semantic drift in an in-flight manual shaping job.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -160,24 +162,9 @@ impl Error for ManualCraftJobValidationError {
     }
 }
 
-pub(crate) fn validate_loaded_manual_craft_job(
-    registries: &Registries,
+fn validate_manual_craft_resources(
     job: &ProductionJobRecord,
 ) -> Result<(), ManualCraftJobValidationError> {
-    let definition = registries.crafting().get_manual(job.process());
-    if job.suspension().is_some_and(|suspension| {
-        suspension.reason() == ProductionSuspensionReason::PlayerLaborUnavailable
-    }) && definition.is_none()
-    {
-        return Err(
-            ManualCraftJobValidationError::PlayerLaborSuspensionWithoutManualCraft {
-                job: job.id(),
-            },
-        );
-    }
-    let Some(definition) = definition else {
-        return Ok(());
-    };
     if job.consumed_energy().is_some() || job.released_energy().is_some() {
         return Err(ManualCraftJobValidationError::UnexpectedEnergy { job: job.id() });
     }
@@ -187,6 +174,13 @@ pub(crate) fn validate_loaded_manual_craft_job(
     {
         return Err(ManualCraftJobValidationError::UnexpectedEquipment { job: job.id() });
     }
+    Ok(())
+}
+
+fn validate_manual_craft_repetition(
+    definition: &ManualCraftDefinition,
+    job: &ProductionJobRecord,
+) -> Result<NonZeroU64, ManualCraftJobValidationError> {
     let batch_mass = definition.input_mass();
     let consumed_mass = job.consumed_mass();
     let quotient = consumed_mass.milligrams() / batch_mass.milligrams();
@@ -221,7 +215,13 @@ pub(crate) fn validate_loaded_manual_craft_job(
             required: required_duration,
         });
     }
+    Ok(batches)
+}
 
+fn validate_manual_craft_inputs(
+    definition: &ManualCraftDefinition,
+    job: &ProductionJobRecord,
+) -> Result<Temperature, ManualCraftJobValidationError> {
     let expected_composition = MaterialComposition::pure(definition.input().material());
     let mut temperature = None;
     for trace in job.consumed_inputs() {
@@ -239,10 +239,15 @@ pub(crate) fn validate_loaded_manual_craft_job(
             None => temperature = Some(trace.profile().temperature()),
         }
     }
-    let Some(temperature) = temperature else {
-        return Err(ManualCraftJobValidationError::InputCommodityMismatch { job: job.id() });
-    };
+    temperature.ok_or(ManualCraftJobValidationError::InputCommodityMismatch { job: job.id() })
+}
 
+fn reconstruct_manual_craft_outputs(
+    definition: &ManualCraftDefinition,
+    job: &ProductionJobRecord,
+    batches: NonZeroU64,
+    temperature: Temperature,
+) -> Result<Vec<MaterialLotSpec>, ManualCraftJobValidationError> {
     let mut expected_outputs = definition
         .outputs()
         .iter()
@@ -269,7 +274,13 @@ pub(crate) fn validate_loaded_manual_craft_job(
         })
         .collect::<Result<Vec<_>, _>>()?;
     expected_outputs.sort();
+    Ok(expected_outputs)
+}
 
+fn validate_manual_craft_outputs(
+    job: &ProductionJobRecord,
+    expected_outputs: &[MaterialLotSpec],
+) -> Result<(), ManualCraftJobValidationError> {
     let Some(stream) = job.single_output_stream() else {
         return Err(ManualCraftJobValidationError::OutputMismatch { job: job.id() });
     };
@@ -277,4 +288,29 @@ pub(crate) fn validate_loaded_manual_craft_job(
         return Err(ManualCraftJobValidationError::OutputMismatch { job: job.id() });
     }
     Ok(())
+}
+
+pub(crate) fn validate_loaded_manual_craft_job(
+    registries: &Registries,
+    job: &ProductionJobRecord,
+) -> Result<(), ManualCraftJobValidationError> {
+    let definition = registries.crafting().get_manual(job.process());
+    if job.suspension().is_some_and(|suspension| {
+        suspension.reason() == ProductionSuspensionReason::PlayerLaborUnavailable
+    }) && definition.is_none()
+    {
+        return Err(
+            ManualCraftJobValidationError::PlayerLaborSuspensionWithoutManualCraft {
+                job: job.id(),
+            },
+        );
+    }
+    let Some(definition) = definition else {
+        return Ok(());
+    };
+    validate_manual_craft_resources(job)?;
+    let batches = validate_manual_craft_repetition(definition, job)?;
+    let temperature = validate_manual_craft_inputs(definition, job)?;
+    let expected_outputs = reconstruct_manual_craft_outputs(definition, job, batches, temperature)?;
+    validate_manual_craft_outputs(job, &expected_outputs)
 }

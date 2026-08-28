@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Temperature, Volume};
 use crate::core::time::SimulationTick;
-use crate::structural::StructuralElementId;
+use crate::structural::{StructuralElementId, SupportIndexValidationFault, validate_support_index};
 
 use super::super::definitions::{FluidDefinitionId, FluidRegistry};
 use super::{FluidState, FluidStoreId, FluidStoreRecord};
@@ -259,31 +259,35 @@ fn validate_fluid_support_reference(
 }
 
 fn validate_fluid_support_index(state: &FluidState) -> Result<(), FluidValidationError> {
-    for (element, stores) in &state.stores_by_support {
-        if element.value() == 0 {
-            return Err(FluidValidationError::ZeroIndexedSupportElementId);
+    validate_support_index(
+        &state.stores_by_support,
+        |store| store.value() == 0,
+        |store| state.records.get(&store).map(|record| record.supported_by),
+    )
+    .map_err(|fault| match fault {
+        SupportIndexValidationFault::ZeroSupportElementId => {
+            FluidValidationError::ZeroIndexedSupportElementId
         }
-        if stores.is_empty() {
-            return Err(FluidValidationError::EmptySupportIndex { element: *element });
+        SupportIndexValidationFault::EmptySupportBucket { element } => {
+            FluidValidationError::EmptySupportIndex { element }
         }
-        for store in stores {
-            if store.value() == 0 {
-                return Err(FluidValidationError::ZeroIndexedStoreId { element: *element });
-            }
-            let Some(record) = state.records.get(store) else {
-                return Err(FluidValidationError::UnknownIndexedStore {
-                    store: *store,
-                    element: *element,
-                });
-            };
-            if record.supported_by != Some(*element) {
-                return Err(FluidValidationError::SupportIndexMismatch {
-                    store: *store,
-                    indexed: *element,
-                    actual: record.supported_by,
-                });
+        SupportIndexValidationFault::InvalidItemId { element, .. } => {
+            FluidValidationError::ZeroIndexedStoreId { element }
+        }
+        SupportIndexValidationFault::UnknownIndexedItem { item, element } => {
+            FluidValidationError::UnknownIndexedStore {
+                store: item,
+                element,
             }
         }
-    }
-    Ok(())
+        SupportIndexValidationFault::SupportMismatch {
+            item,
+            indexed,
+            actual,
+        } => FluidValidationError::SupportIndexMismatch {
+            store: item,
+            indexed,
+            actual,
+        },
+    })
 }

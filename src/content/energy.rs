@@ -43,7 +43,7 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             ENERGY_THERMAL_SINK,
             "workshop thermal sink",
             EnergyCarrier::Thermal,
-            Energy::from_nanojoules(10_000_000_000_000_000),
+            Energy::from_nanojoules(20_000_000_000_000_000),
             Power::from_microwatts(1_000_000_000_000),
             Power::ZERO,
         )

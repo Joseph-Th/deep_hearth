@@ -15,7 +15,7 @@ use crate::structural::{
 
 use super::StateValidationError;
 
-pub(super) fn validate_structural_integrations(
+fn validate_equipment_structural_loads(
     registries: &Registries,
     state: &AppState,
 ) -> Result<(), StateValidationError> {
@@ -71,6 +71,13 @@ pub(super) fn validate_structural_integrations(
         }
     }
 
+    Ok(())
+}
+
+fn validate_stockpile_structural_loads(
+    registries: &Registries,
+    state: &AppState,
+) -> Result<(), StateValidationError> {
     let mut stored_mass_by_element = BTreeMap::<StructuralElementId, AggregateMass>::new();
     for stockpile in state.systems.inventory.stockpiles() {
         let Some(element) = stockpile.supported_by() else {
@@ -115,6 +122,13 @@ pub(super) fn validate_structural_integrations(
         }
     }
 
+    Ok(())
+}
+
+fn validate_fluid_structural_loads(
+    registries: &Registries,
+    state: &AppState,
+) -> Result<(), StateValidationError> {
     for store in state.systems.fluid.stores() {
         let Some(element) = store.supported_by() else {
             continue;
@@ -137,6 +151,13 @@ pub(super) fn validate_structural_integrations(
             .map_err(StateValidationError::FluidStructuralLoad)?;
     }
 
+    Ok(())
+}
+
+fn validate_resolved_structural_damage(
+    registries: &Registries,
+    state: &AppState,
+) -> Result<(), StateValidationError> {
     let structural_analysis = analyze_structure(
         registries.structural(),
         registries.materials(),
@@ -147,4 +168,14 @@ pub(super) fn validate_structural_integrations(
         return Err(StateValidationError::UnresolvedStructuralDamage { event });
     }
     Ok(())
+}
+
+pub(super) fn validate_structural_integrations(
+    registries: &Registries,
+    state: &AppState,
+) -> Result<(), StateValidationError> {
+    validate_equipment_structural_loads(registries, state)?;
+    validate_stockpile_structural_loads(registries, state)?;
+    validate_fluid_structural_loads(registries, state)?;
+    validate_resolved_structural_damage(registries, state)
 }
