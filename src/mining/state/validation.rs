@@ -7,7 +7,28 @@ use std::fmt::{Display, Formatter};
 use crate::core::time::SimulationTick;
 use crate::equipment::EquipmentId;
 
-use super::{MiningJobId, MiningState};
+use super::{MiningJobId, MiningJobRecord, MiningState};
+
+#[derive(Default)]
+struct ExpectedMiningIndexes {
+    due: BTreeMap<SimulationTick, BTreeSet<MiningJobId>>,
+    equipment: BTreeMap<EquipmentId, MiningJobId>,
+}
+
+impl ExpectedMiningIndexes {
+    fn add_working_job(&mut self, job: &MiningJobRecord) -> Result<(), MiningValidationError> {
+        self.due
+            .entry(job.completes_at())
+            .or_default()
+            .insert(job.id());
+        if self.equipment.insert(job.equipment(), job.id()).is_some() {
+            return Err(MiningValidationError::EquipmentDoubleBooked {
+                equipment: job.equipment(),
+            });
+        }
+        Ok(())
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MiningValidationError {
@@ -143,84 +164,108 @@ pub(crate) fn validate_loaded_mining(
     if !state.has_valid_id_cursor() {
         return Err(MiningValidationError::InvalidIdCursor);
     }
-    let mut expected_due = BTreeMap::<SimulationTick, BTreeSet<MiningJobId>>::new();
-    let mut expected_equipment = BTreeMap::<EquipmentId, MiningJobId>::new();
+    let mut expected = ExpectedMiningIndexes::default();
     for (key, job) in &state.jobs {
-        if *key != job.identity.id {
-            return Err(MiningValidationError::JobIdMismatch {
-                key: *key,
-                record: job.identity.id,
-            });
-        }
-        if job.identity.id.value() >= state.next_job_id {
-            return Err(MiningValidationError::JobIdBeyondCursor {
-                job: job.identity.id,
-            });
-        }
-        if job.resources.output.mass().is_zero() {
-            return Err(MiningValidationError::ZeroOutputMass {
-                job: job.identity.id,
-            });
-        }
-        if job.schedule.started_at > current {
-            return Err(MiningValidationError::JobStartedInFuture {
-                job: job.identity.id,
-                started: job.schedule.started_at,
-                current,
-            });
-        }
-        if job.schedule.completes_at <= job.schedule.started_at {
-            return Err(MiningValidationError::CompletionNotAfterStart {
-                job: job.identity.id,
-                started: job.schedule.started_at,
-                completes: job.schedule.completes_at,
-            });
-        }
-        match job.schedule.ready_at {
-            None => {
-                if job.schedule.completes_at <= current {
-                    return Err(MiningValidationError::WorkingJobAlreadyDue {
-                        job: job.identity.id,
-                        due: job.schedule.completes_at,
-                        current,
-                    });
-                }
-                expected_due
-                    .entry(job.schedule.completes_at)
-                    .or_default()
-                    .insert(job.identity.id);
-                if expected_equipment
-                    .insert(job.equipment(), job.identity.id)
-                    .is_some()
-                {
-                    return Err(MiningValidationError::EquipmentDoubleBooked {
-                        equipment: job.equipment(),
-                    });
-                }
-            }
-            Some(ready) => {
-                if ready != job.schedule.completes_at {
-                    return Err(MiningValidationError::ReadyTickMismatch {
-                        job: job.identity.id,
-                        ready,
-                        due: job.schedule.completes_at,
-                    });
-                }
-                if ready > current {
-                    return Err(MiningValidationError::ReadyInFuture {
-                        job: job.identity.id,
-                        ready,
-                        current,
-                    });
-                }
-            }
-        }
+        validate_mining_job(state, *key, job, current, &mut expected)?;
     }
-    if state.due_jobs != expected_due {
+    if state.due_jobs != expected.due {
         return Err(MiningValidationError::DueIndexMismatch);
     }
-    if state.equipment_occupancy != expected_equipment {
+    if state.equipment_occupancy != expected.equipment {
         return Err(MiningValidationError::EquipmentOccupancyMismatch);
+    }
+    Ok(())
+}
+
+fn validate_mining_job(
+    state: &MiningState,
+    key: MiningJobId,
+    job: &MiningJobRecord,
+    current: SimulationTick,
+    expected: &mut ExpectedMiningIndexes,
+) -> Result<(), MiningValidationError> {
+    validate_mining_job_identity(state, key, job)?;
+    validate_mining_job_schedule(job, current)?;
+    match job.ready_at() {
+        None => validate_working_mining_job(job, current, expected),
+        Some(ready) => validate_ready_mining_job(job, ready, current),
+    }
+}
+
+fn validate_mining_job_identity(
+    state: &MiningState,
+    key: MiningJobId,
+    job: &MiningJobRecord,
+) -> Result<(), MiningValidationError> {
+    if key != job.id() {
+        return Err(MiningValidationError::JobIdMismatch {
+            key,
+            record: job.id(),
+        });
+    }
+    if job.id().value() >= state.next_job_id {
+        return Err(MiningValidationError::JobIdBeyondCursor { job: job.id() });
+    }
+    if job.output().mass().is_zero() {
+        return Err(MiningValidationError::ZeroOutputMass { job: job.id() });
+    }
+    Ok(())
+}
+
+fn validate_mining_job_schedule(
+    job: &MiningJobRecord,
+    current: SimulationTick,
+) -> Result<(), MiningValidationError> {
+    if job.started_at() > current {
+        return Err(MiningValidationError::JobStartedInFuture {
+            job: job.id(),
+            started: job.started_at(),
+            current,
+        });
+    }
+    if job.completes_at() <= job.started_at() {
+        return Err(MiningValidationError::CompletionNotAfterStart {
+            job: job.id(),
+            started: job.started_at(),
+            completes: job.completes_at(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_working_mining_job(
+    job: &MiningJobRecord,
+    current: SimulationTick,
+    expected: &mut ExpectedMiningIndexes,
+) -> Result<(), MiningValidationError> {
+    if job.completes_at() <= current {
+        return Err(MiningValidationError::WorkingJobAlreadyDue {
+            job: job.id(),
+            due: job.completes_at(),
+            current,
+        });
+    }
+    expected.add_working_job(job)
+}
+
+fn validate_ready_mining_job(
+    job: &MiningJobRecord,
+    ready: SimulationTick,
+    current: SimulationTick,
+) -> Result<(), MiningValidationError> {
+    if ready != job.completes_at() {
+        return Err(MiningValidationError::ReadyTickMismatch {
+            job: job.id(),
+            ready,
+            due: job.completes_at(),
+        });
+    }
+    if ready > current {
+        return Err(MiningValidationError::ReadyInFuture {
+            job: job.id(),
+            ready,
+            current,
+        });
     }
     Ok(())
 }

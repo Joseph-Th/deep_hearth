@@ -46,7 +46,8 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             Energy::from_nanojoules(10_000_000_000_000_000),
             Power::from_microwatts(1_000_000_000_000),
             Power::ZERO,
-        ),
+        )
+        .with_passive_dissipation_power(Power::from_microwatts(1_000_000_000_000)),
         EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_STONE_FLYWHEEL_DRIVE,
             "stone flywheel accumulator",

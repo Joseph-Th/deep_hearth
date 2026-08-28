@@ -20,6 +20,8 @@ use super::state::{
     StructureState,
 };
 
+mod cascade;
+
 /// Player-readable structural state derived from load, material capacity, and persistent damage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum StructuralStage {
@@ -690,7 +692,7 @@ pub fn analyze_structure(
 ) -> Result<StructuralAnalysis, StructuralAnalysisError> {
     let scope: BTreeSet<_> = state.element_ids().collect();
     let overlay = StructuralAnalysisOverlay::default();
-    analyze_structure_scoped(profiles, materials, state, &overlay, &scope)
+    cascade::analyze_structure_scoped(profiles, materials, state, &overlay, &scope)
 }
 
 pub(crate) fn analyze_structure_components_with_overlay(
@@ -701,192 +703,7 @@ pub(crate) fn analyze_structure_components_with_overlay(
     seeds: &BTreeSet<StructuralElementId>,
 ) -> Result<StructuralAnalysis, StructuralAnalysisError> {
     let scope = collect_connected_scope(state, &overlay, seeds);
-    analyze_structure_scoped(profiles, materials, state, &overlay, &scope)
-}
-
-fn analyze_structure_scoped(
-    profiles: &StructuralRegistry,
-    materials: &MaterialRegistry,
-    state: &StructureState,
-    overlay: &StructuralAnalysisOverlay,
-    scope: &BTreeSet<StructuralElementId>,
-) -> Result<StructuralAnalysis, StructuralAnalysisError> {
-    for element in scope {
-        let Some(record) = state.element_map().get(element) else {
-            continue;
-        };
-        if overlay.sum_applied_load(record).is_none() {
-            return Err(StructuralAnalysisError::AppliedLoadOverflow { element: record.id });
-        }
-    }
-
-    let mut failed: BTreeSet<_> = scope
-        .iter()
-        .copied()
-        .filter(|element| {
-            state.element_map().get(element).is_some_and(|record| {
-                !overlay.is_removed(record.id)
-                    && overlay.lifecycle(record) == StructuralLifecycle::Failed
-            })
-        })
-        .collect();
-    let mut cracked: BTreeSet<_> = scope
-        .iter()
-        .copied()
-        .filter(|element| {
-            state
-                .element_map()
-                .get(element)
-                .is_some_and(|record| !overlay.is_removed(record.id) && record.is_cracked)
-        })
-        .collect();
-    let initially_failed = failed.clone();
-    let initially_cracked = cracked.clone();
-    let mut failure_causes = BTreeMap::new();
-    let mut crack_context = BTreeMap::new();
-
-    loop {
-        let unsupported = expand_unsupported_failures(state, &failed, overlay, scope);
-        for element in unsupported {
-            failed.insert(element);
-            cracked.insert(element);
-            failure_causes.insert(element, StructuralFailureCause::Unsupported);
-        }
-        let projection = project_loads(state, &failed, overlay, scope)?;
-        let mut new_failures = BTreeMap::new();
-        let mut new_cracks = BTreeMap::new();
-
-        for (element, load) in &projection.carried {
-            let record = &state.element_map()[element];
-            let profile = profiles.get_profile(record.profile()).ok_or(
-                StructuralAnalysisError::UnknownProfile {
-                    element: *element,
-                    profile: record.profile(),
-                },
-            )?;
-            let pristine = pristine_capacity(profiles, materials, state, *element)?;
-            let effective = if cracked.contains(element) {
-                scale_capacity(pristine, profile.cracked_capacity_ppm())
-            } else {
-                pristine
-            };
-
-            if *load > effective {
-                new_failures.insert(
-                    *element,
-                    StructuralFailureCause::Overloaded {
-                        carried_load: *load,
-                        effective_capacity: effective,
-                    },
-                );
-                continue;
-            }
-            if !cracked.contains(element)
-                && is_at_or_above_fraction(*load, pristine, profile.cracking_at_ppm())
-            {
-                new_cracks.insert(*element, (*load, pristine));
-            }
-        }
-
-        new_failures.retain(|element, _| !failed.contains(element));
-        new_cracks
-            .retain(|element, _| !cracked.contains(element) && !new_failures.contains_key(element));
-        if new_failures.is_empty() && new_cracks.is_empty() {
-            break;
-        }
-
-        for (element, cause) in new_failures {
-            failed.insert(element);
-            cracked.insert(element);
-            failure_causes.insert(element, cause);
-        }
-        for (element, context) in new_cracks {
-            cracked.insert(element);
-            crack_context.insert(element, context);
-        }
-    }
-
-    let final_projection = project_loads(state, &failed, overlay, scope)?;
-    let mut assessments = Vec::new();
-    for element in scope {
-        let Some(record) = state.element_map().get(element) else {
-            continue;
-        };
-        if overlay.is_removed(record.id)
-            || overlay.lifecycle(record) == StructuralLifecycle::Planned
-        {
-            continue;
-        }
-        let pristine = pristine_capacity(profiles, materials, state, record.id)?;
-        let profile = profiles.get_profile(record.profile()).ok_or(
-            StructuralAnalysisError::UnknownProfile {
-                element: record.id,
-                profile: record.profile(),
-            },
-        )?;
-        let is_failed = failed.contains(&record.id);
-        let is_cracked = cracked.contains(&record.id);
-        let effective = if is_cracked {
-            scale_capacity(pristine, profile.cracked_capacity_ppm())
-        } else {
-            pristine
-        };
-        let carried_load = if is_failed {
-            match failure_causes.get(&record.id) {
-                Some(StructuralFailureCause::Overloaded { carried_load, .. }) => *carried_load,
-                Some(StructuralFailureCause::Unsupported) | None => Force::ZERO,
-            }
-        } else {
-            final_projection
-                .carried
-                .get(&record.id)
-                .copied()
-                .unwrap_or(Force::ZERO)
-        };
-        let stage = if is_failed {
-            StructuralStage::Failed
-        } else if is_cracked {
-            StructuralStage::Cracking
-        } else if is_at_or_above_fraction(carried_load, pristine, profile.strained_at_ppm()) {
-            StructuralStage::Strained
-        } else {
-            StructuralStage::Stable
-        };
-        assessments.push(StructuralAssessment {
-            element: record.id,
-            carried_load,
-            pristine_capacity: pristine,
-            effective_capacity: effective,
-            utilization_ppm: calculate_structural_utilization_ppm(carried_load, effective),
-            stage,
-        });
-    }
-
-    let mut damage_events = Vec::new();
-    for element in cracked.difference(&initially_cracked) {
-        if failed.contains(element) {
-            continue;
-        }
-        let (carried_load, pristine_capacity) = crack_context[element];
-        damage_events.push(StructuralDamageEvent::Cracked {
-            element: *element,
-            carried_load,
-            pristine_capacity,
-        });
-    }
-    for element in failed.difference(&initially_failed) {
-        let cause = failure_causes[element];
-        damage_events.push(StructuralDamageEvent::Failed {
-            element: *element,
-            cause,
-        });
-    }
-    damage_events.sort_by_key(|event| event.element());
-
-    Ok(StructuralAnalysis {
-        assessments,
-        damage_events,
-    })
+    cascade::analyze_structure_scoped(profiles, materials, state, &overlay, &scope)
 }
 
 #[cfg(test)]

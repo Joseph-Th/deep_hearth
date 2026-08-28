@@ -729,40 +729,66 @@ fn ore_pattern() -> TexturePattern {
     texels
 }
 
+fn panel_frame_texel(x: usize, y: usize) -> Option<PackedTexel> {
+    if x <= 1 || y <= 1 {
+        return Some(packed(0, if x == 0 || y == 0 { 4 } else { 6 }));
+    }
+    if x >= TEXTURE_SIDE - 2 || y >= TEXTURE_SIDE - 2 {
+        return Some(packed(
+            0,
+            if x == TEXTURE_SIDE - 1 || y == TEXTURE_SIDE - 1 {
+                12
+            } else {
+                10
+            },
+        ));
+    }
+    None
+}
+
+fn panel_rivet_texel(x: usize, y: usize) -> Option<PackedTexel> {
+    for (rivet_x, rivet_y) in [(4, 4), (27, 4), (4, 27), (27, 27)] {
+        let distance = squared_distance(x, y, rivet_x, rivet_y);
+        if distance == 0 {
+            return Some(packed(1, 12));
+        }
+        if distance <= 2 {
+            return Some(packed(1, 7));
+        }
+    }
+    None
+}
+
+fn panel_seam_texel(x: usize) -> Option<PackedTexel> {
+    match x {
+        15 => Some(packed(0, 5)),
+        16 => Some(packed(0, 10)),
+        _ => None,
+    }
+}
+
+fn panel_scratch_texel(x: usize, y: usize) -> Option<PackedTexel> {
+    let scratch = x > 4
+        && x < 27
+        && (x + y * 5 + usize::from((hash_2d(71, x / 4, y / 4) & 7) as u8)).is_multiple_of(29);
+    scratch.then(|| packed(1, varied_shade(6, 2, hash_2d(71, x, y))))
+}
+
 fn panel_pattern() -> TexturePattern {
     let mut texels = base_noise_pattern(0xa7b3_3141, 8, 2);
     for y in 0..TEXTURE_SIDE {
         for x in 0..TEXTURE_SIDE {
             let index = y * TEXTURE_SIDE + x;
-            if x <= 1 || y <= 1 {
-                texels[index] = packed(0, if x == 0 || y == 0 { 4 } else { 6 });
-            } else if x >= TEXTURE_SIDE - 2 || y >= TEXTURE_SIDE - 2 {
-                texels[index] = packed(
-                    0,
-                    if x == TEXTURE_SIDE - 1 || y == TEXTURE_SIDE - 1 {
-                        12
-                    } else {
-                        10
-                    },
-                );
-            }
-            for (rivet_x, rivet_y) in [(4, 4), (27, 4), (4, 27), (27, 27)] {
-                let distance = squared_distance(x, y, rivet_x, rivet_y);
-                if distance == 0 {
-                    texels[index] = packed(1, 12);
-                } else if distance <= 2 {
-                    texels[index] = packed(1, 7);
-                }
-            }
-            if x == 15 || x == 16 {
-                texels[index] = packed(0, if x == 15 { 5 } else { 10 });
-            }
-            let scratch = x > 4
-                && x < 27
-                && (x + y * 5 + usize::from((hash_2d(71, x / 4, y / 4) & 7) as u8))
-                    .is_multiple_of(29);
-            if scratch {
-                texels[index] = packed(1, varied_shade(6, 2, hash_2d(71, x, y)));
+            for overlay in [
+                panel_frame_texel(x, y),
+                panel_rivet_texel(x, y),
+                panel_seam_texel(x),
+                panel_scratch_texel(x, y),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                texels[index] = overlay;
             }
         }
     }

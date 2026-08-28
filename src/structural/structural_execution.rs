@@ -494,75 +494,73 @@ fn validate_operation_commit_state(
     match operation {
         #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::LinkSupport { element, support } => {
-            let Some(supports) = structures.support_set(element) else {
-                return Err(StructuralCommitError::StateChanged { element });
-            };
-            let Some(dependents) = structures.dependent_set(support) else {
-                return Err(StructuralCommitError::StateChanged { element: support });
-            };
-            if supports.contains(&support) || dependents.contains(&element) {
-                return Err(StructuralCommitError::SupportStateChanged { element, support });
-            }
+            validate_support_edge_state(structures, element, support, false)?
         }
         #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::RemoveSupport { element, support } => {
-            let Some(supports) = structures.support_set(element) else {
-                return Err(StructuralCommitError::StateChanged { element });
-            };
-            let Some(dependents) = structures.dependent_set(support) else {
-                return Err(StructuralCommitError::StateChanged { element: support });
-            };
-            if !supports.contains(&support) || !dependents.contains(&element) {
-                return Err(StructuralCommitError::SupportStateChanged { element, support });
-            }
+            validate_support_edge_state(structures, element, support, true)?
         }
         #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::RemoveElement { element } => {
-            if structures.get_element(element).is_none() {
-                return Err(StructuralCommitError::StateChanged { element });
-            }
-            let Some(supports) = structures.support_set(element) else {
-                return Err(StructuralCommitError::StateChanged { element });
-            };
-            let Some(dependents) = structures.dependent_set(element) else {
-                return Err(StructuralCommitError::StateChanged { element });
-            };
-            for support in supports {
-                let Some(reverse) = structures.dependent_set(*support) else {
-                    return Err(StructuralCommitError::StateChanged { element: *support });
-                };
-                if !reverse.contains(&element) {
-                    return Err(StructuralCommitError::SupportStateChanged {
-                        element,
-                        support: *support,
-                    });
-                }
-            }
-            for dependent in dependents {
-                let Some(forward) = structures.support_set(*dependent) else {
-                    return Err(StructuralCommitError::StateChanged {
-                        element: *dependent,
-                    });
-                };
-                if !forward.contains(&element) {
-                    return Err(StructuralCommitError::SupportStateChanged {
-                        element: *dependent,
-                        support: element,
-                    });
-                }
-            }
+            validate_element_removal_state(structures, element)?
         }
         #[cfg(any(test, feature = "test-gameplay"))]
-        StructuralMutation::Activate { element } => {
-            if structures.get_element(element).is_none() {
-                return Err(StructuralCommitError::StateChanged { element });
-            }
-        }
+        StructuralMutation::Activate { element } => validate_element_exists(structures, element)?,
         StructuralMutation::SetLoadContribution { element, .. } => {
-            if structures.get_element(element).is_none() {
-                return Err(StructuralCommitError::StateChanged { element });
-            }
+            validate_element_exists(structures, element)?
         }
+    }
+    Ok(())
+}
+
+fn validate_element_exists(
+    structures: &super::state::StructureState,
+    element: StructuralElementId,
+) -> Result<(), StructuralCommitError> {
+    if structures.get_element(element).is_none() {
+        return Err(StructuralCommitError::StateChanged { element });
+    }
+    Ok(())
+}
+
+#[cfg(any(test, feature = "test-gameplay"))]
+fn validate_support_edge_state(
+    structures: &super::state::StructureState,
+    element: StructuralElementId,
+    support: StructuralElementId,
+    expected_present: bool,
+) -> Result<(), StructuralCommitError> {
+    let Some(supports) = structures.support_set(element) else {
+        return Err(StructuralCommitError::StateChanged { element });
+    };
+    let Some(dependents) = structures.dependent_set(support) else {
+        return Err(StructuralCommitError::StateChanged { element: support });
+    };
+    if supports.contains(&support) != expected_present
+        || dependents.contains(&element) != expected_present
+    {
+        return Err(StructuralCommitError::SupportStateChanged { element, support });
+    }
+    Ok(())
+}
+
+#[cfg(any(test, feature = "test-gameplay"))]
+fn validate_element_removal_state(
+    structures: &super::state::StructureState,
+    element: StructuralElementId,
+) -> Result<(), StructuralCommitError> {
+    validate_element_exists(structures, element)?;
+    let Some(supports) = structures.support_set(element) else {
+        return Err(StructuralCommitError::StateChanged { element });
+    };
+    let Some(dependents) = structures.dependent_set(element) else {
+        return Err(StructuralCommitError::StateChanged { element });
+    };
+    for support in supports {
+        validate_support_edge_state(structures, element, *support, true)?;
+    }
+    for dependent in dependents {
+        validate_support_edge_state(structures, *dependent, element, true)?;
     }
     Ok(())
 }

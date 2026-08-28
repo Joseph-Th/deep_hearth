@@ -1,9 +1,11 @@
 //! Tests for the sibling mod module; isolated so test-only edits do not invalidate production builds.
 
 use super::*;
-use crate::content::build_registries;
+use crate::content::{ENERGY_THERMAL_SINK, build_registries};
+use crate::core::quantity::Energy;
 use crate::core::state::apply_clock_advance;
 use crate::core::time::WorldSeed;
+use crate::energy::add_energy_store_with_initial_for_test;
 use crate::survival::{Vitality, initialize_player_survival, player_record};
 
 #[test]
@@ -19,6 +21,30 @@ fn canonical_tick_advances_exactly_once() {
 
     assert_eq!(outcome.tick(), SimulationTick::new(1));
     assert_eq!(state.tick(), SimulationTick::new(1));
+}
+
+#[test]
+fn canonical_tick_applies_exact_passive_energy_dissipation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5100_0001));
+    let store = add_energy_store_with_initial_for_test(
+        &registries,
+        &mut state,
+        ENERGY_THERMAL_SINK,
+        Energy::from_nanojoules(5_000_000_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("passive-dissipation tick fixture failed: {error}"));
+
+    advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("passive-dissipation tick failed: {error}"));
+
+    assert_eq!(
+        state
+            .energy()
+            .get_store(store)
+            .map(|record| record.stored()),
+        Some(Energy::from_nanojoules(1_400_000_000_000_000))
+    );
 }
 
 #[test]

@@ -11,7 +11,7 @@ use crate::mining::MiningJobId;
 use crate::structural::StructuralCommitError;
 
 use super::ValidatedStartProcess;
-use crate::production::ProductionJobId;
+use crate::production::{ProductionJobId, ProductionJobRecord};
 
 /// Failure when a validated process start is committed after an owning state has changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -153,134 +153,150 @@ impl ValidatedStartProcess {
         } = self;
         let job_id = job.id();
 
-        for store in job
-            .consumed_energy()
-            .map(|trace| trace.source())
-            .into_iter()
-            .chain(job.released_energy().map(|trace| trace.destination()))
-        {
-            if state
-                .player_work()
-                .get_manual_power_energy_occupant(store)
-                .is_some()
-            {
-                return Err(StartProcessCommitError::EnergyStoreBusyManualPower { store });
-            }
-        }
-        if let Some(provider) = job.equipment_provider() {
-            let equipment = provider.equipment();
-            if let Some(mining_job) = state.mining().get_equipment_occupant(equipment) {
-                return Err(StartProcessCommitError::EquipmentBusyMining {
-                    equipment,
-                    job: mining_job,
-                });
-            }
-            if state
-                .player_work()
-                .get_manual_power_equipment_occupant(equipment)
-                .is_some()
-            {
-                return Err(StartProcessCommitError::EquipmentBusyManualPower { equipment });
-            }
-        }
-
-        let actual_production_revision = state.production().revision();
-        if actual_production_revision != expected_production_revision {
-            return Err(StartProcessCommitError::StaleProductionRevision {
-                expected: expected_production_revision,
-                actual: actual_production_revision,
-            });
-        }
+        validate_commit_occupancy(state, &job)?;
+        validate_production_revision(state, expected_production_revision)?;
         if let Some(energy) = energy_ingress_reservation {
-            let expected_energy_revision = energy.expected_revision();
-            let actual_energy_revision = state.energy().revision();
-            if actual_energy_revision != expected_energy_revision {
-                return Err(StartProcessCommitError::StaleEnergyRevision {
-                    expected: expected_energy_revision,
-                    actual: actual_energy_revision,
-                });
-            }
+            validate_energy_revision(state, energy.expected_revision())?;
         }
-        let expected_inventory_revision = reservation.expected_revision();
-        let actual_inventory_revision = state.inventory().revision();
-        if actual_inventory_revision != expected_inventory_revision {
-            return Err(StartProcessCommitError::StaleInventoryRevision {
-                expected: expected_inventory_revision,
-                actual: actual_inventory_revision,
-            });
-        }
+        validate_inventory_revision(state, reservation.expected_revision())?;
         if let Some(energy) = energy_reservation {
-            let expected_energy_revision = energy.expected_revision();
-            let actual_energy_revision = state.energy().revision();
-            if actual_energy_revision != expected_energy_revision {
-                return Err(StartProcessCommitError::StaleEnergyRevision {
-                    expected: expected_energy_revision,
-                    actual: actual_energy_revision,
-                });
-            }
+            validate_energy_revision(state, energy.expected_revision())?;
         }
         if let Some(equipment) = equipment_use {
-            let expected_equipment_revision = equipment.expected_equipment_revision();
-            let actual_equipment_revision = state.equipment().revision();
-            if actual_equipment_revision != expected_equipment_revision {
-                return Err(StartProcessCommitError::StaleEquipmentRevision {
-                    expected: expected_equipment_revision,
-                    actual: actual_equipment_revision,
-                });
-            }
+            validate_equipment_revision(state, equipment.expected_equipment_revision())?;
             if let Some(expected_structure_revision) = equipment.expected_structure_revision() {
-                let actual_structure_revision = state.structures().revision();
-                if actual_structure_revision != expected_structure_revision {
-                    return Err(StartProcessCommitError::StaleStructureRevision {
-                        expected: expected_structure_revision,
-                        actual: actual_structure_revision,
-                    });
-                }
+                validate_structure_revision(state, expected_structure_revision)?;
             }
         }
         if let Some(expected_structure_revision) = destination_structure_revision {
-            let actual_structure_revision = state.structures().revision();
-            if actual_structure_revision != expected_structure_revision {
-                return Err(StartProcessCommitError::StaleStructureRevision {
-                    expected: expected_structure_revision,
-                    actual: actual_structure_revision,
-                });
-            }
+            validate_structure_revision(state, expected_structure_revision)?;
         }
         if let Some(structural_load) = &structural_load {
-            let expected_structure_revision = structural_load.expected_revision();
-            let actual_structure_revision = state.structures().revision();
-            if actual_structure_revision != expected_structure_revision {
-                return Err(StartProcessCommitError::StaleStructureRevision {
-                    expected: expected_structure_revision,
-                    actual: actual_structure_revision,
-                });
-            }
+            validate_structure_revision(state, structural_load.expected_revision())?;
         }
         if let Some(structural_load) = structural_load {
             structural_load
                 .commit(state)
                 .map_err(StartProcessCommitError::Structure)?;
         }
-        apply_consumption_reservation(state.inventory_state_mut(), reservation).map_err(
-            |error| match error {
-                ReservationCommitError::StaleInventoryRevision { expected, actual } => {
-                    StartProcessCommitError::StaleInventoryRevision { expected, actual }
-                }
-            },
-        )?;
+        apply_consumption_reservation(state.inventory_state_mut(), reservation)
+            .map_err(map_inventory_commit_error)?;
         if let Some(energy) = energy_reservation {
-            apply_energy_consumption_reservation(state.energy_state_mut(), energy).map_err(
-                |error| match error {
-                    EnergyCommitError::StaleRevision { expected, actual } => {
-                        StartProcessCommitError::StaleEnergyRevision { expected, actual }
-                    }
-                },
-            )?;
+            apply_energy_consumption_reservation(state.energy_state_mut(), energy)
+                .map_err(map_energy_commit_error)?;
         }
         state
             .production_state_mut()
             .insert_job(job, next_job_id, next_production_revision);
         Ok(job_id)
+    }
+}
+
+fn validate_commit_occupancy(
+    state: &AppState,
+    job: &ProductionJobRecord,
+) -> Result<(), StartProcessCommitError> {
+    for store in job
+        .consumed_energy()
+        .map(|trace| trace.source())
+        .into_iter()
+        .chain(job.released_energy().map(|trace| trace.destination()))
+    {
+        if state
+            .player_work()
+            .get_manual_power_energy_occupant(store)
+            .is_some()
+        {
+            return Err(StartProcessCommitError::EnergyStoreBusyManualPower { store });
+        }
+    }
+    let Some(provider) = job.equipment_provider() else {
+        return Ok(());
+    };
+    let equipment = provider.equipment();
+    if let Some(mining_job) = state.mining().get_equipment_occupant(equipment) {
+        return Err(StartProcessCommitError::EquipmentBusyMining {
+            equipment,
+            job: mining_job,
+        });
+    }
+    if state
+        .player_work()
+        .get_manual_power_equipment_occupant(equipment)
+        .is_some()
+    {
+        return Err(StartProcessCommitError::EquipmentBusyManualPower { equipment });
+    }
+    Ok(())
+}
+
+fn validate_production_revision(
+    state: &AppState,
+    expected: u64,
+) -> Result<(), StartProcessCommitError> {
+    let actual = state.production().revision();
+    if actual != expected {
+        return Err(StartProcessCommitError::StaleProductionRevision { expected, actual });
+    }
+    Ok(())
+}
+
+fn validate_inventory_revision(
+    state: &AppState,
+    expected: u64,
+) -> Result<(), StartProcessCommitError> {
+    let actual = state.inventory().revision();
+    if actual != expected {
+        return Err(StartProcessCommitError::StaleInventoryRevision { expected, actual });
+    }
+    Ok(())
+}
+
+fn validate_energy_revision(
+    state: &AppState,
+    expected: u64,
+) -> Result<(), StartProcessCommitError> {
+    let actual = state.energy().revision();
+    if actual != expected {
+        return Err(StartProcessCommitError::StaleEnergyRevision { expected, actual });
+    }
+    Ok(())
+}
+
+fn validate_equipment_revision(
+    state: &AppState,
+    expected: u64,
+) -> Result<(), StartProcessCommitError> {
+    let actual = state.equipment().revision();
+    if actual != expected {
+        return Err(StartProcessCommitError::StaleEquipmentRevision { expected, actual });
+    }
+    Ok(())
+}
+
+fn validate_structure_revision(
+    state: &AppState,
+    expected: u64,
+) -> Result<(), StartProcessCommitError> {
+    let actual = state.structures().revision();
+    if actual != expected {
+        return Err(StartProcessCommitError::StaleStructureRevision { expected, actual });
+    }
+    Ok(())
+}
+
+fn map_inventory_commit_error(error: ReservationCommitError) -> StartProcessCommitError {
+    match error {
+        ReservationCommitError::StaleInventoryRevision { expected, actual } => {
+            StartProcessCommitError::StaleInventoryRevision { expected, actual }
+        }
+    }
+}
+
+fn map_energy_commit_error(error: EnergyCommitError) -> StartProcessCommitError {
+    match error {
+        EnergyCommitError::StaleRevision { expected, actual } => {
+            StartProcessCommitError::StaleEnergyRevision { expected, actual }
+        }
     }
 }

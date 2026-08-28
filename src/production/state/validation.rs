@@ -13,7 +13,7 @@ use crate::maintenance::Condition;
 use crate::material::{CommodityKey, CompositionError, MaterialId, MaterialLotSpec};
 
 use super::super::resolution::ProcessOutputStreamId;
-use super::{ProductionJobId, ProductionState, ProductionSuspensionReason};
+use super::{ProductionJobId, ProductionJobRecord, ProductionState, ProductionSuspensionReason};
 
 /// Persistent-state validation failure for production records or their due index.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -594,6 +594,15 @@ pub(crate) fn validate_loaded_production(
     state: &ProductionState,
     current: SimulationTick,
 ) -> Result<(), ProductionValidationError> {
+    validate_job_id_cursor(state)?;
+    for (id, job) in &state.jobs {
+        validate_job_record(state, *id, job, current)?;
+    }
+    validate_due_index(state)?;
+    validate_occupancy_indexes(state)
+}
+
+fn validate_job_id_cursor(state: &ProductionState) -> Result<(), ProductionValidationError> {
     if state.next_job_id == 0 {
         return Err(ProductionValidationError::ZeroNextJobId);
     }
@@ -605,315 +614,359 @@ pub(crate) fn validate_loaded_production(
             highest,
         });
     }
+    Ok(())
+}
 
-    for (id, job) in &state.jobs {
-        if id.value() == 0 || job.identity.id.value() == 0 {
-            return Err(ProductionValidationError::ZeroJobId);
-        }
-        if *id != job.identity.id {
-            return Err(ProductionValidationError::JobIdMismatch {
-                key: *id,
-                record: job.identity.id,
-            });
-        }
-        if job.schedule.started_at > current {
-            return Err(ProductionValidationError::JobStartedInFuture {
-                job: *id,
+fn validate_job_record(
+    state: &ProductionState,
+    id: ProductionJobId,
+    job: &ProductionJobRecord,
+    current: SimulationTick,
+) -> Result<(), ProductionValidationError> {
+    validate_job_schedule(id, job, current)?;
+    validate_job_suspension(id, job)?;
+    validate_consumed_resources(id, job)?;
+    validate_energy_traces(id, job)?;
+    validate_equipment_outcome(id, job)?;
+    validate_outputs(id, job)?;
+    validate_job_due_membership(state, id, job)
+}
+
+fn validate_job_schedule(
+    id: ProductionJobId,
+    job: &ProductionJobRecord,
+    current: SimulationTick,
+) -> Result<(), ProductionValidationError> {
+    if id.value() == 0 || job.identity.id.value() == 0 {
+        return Err(ProductionValidationError::ZeroJobId);
+    }
+    if id != job.identity.id {
+        return Err(ProductionValidationError::JobIdMismatch {
+            key: id,
+            record: job.identity.id,
+        });
+    }
+    if job.schedule.started_at > current {
+        return Err(ProductionValidationError::JobStartedInFuture {
+            job: id,
+            started_at: job.schedule.started_at,
+            current,
+        });
+    }
+    if job.schedule.completes_at <= job.schedule.started_at {
+        return Err(ProductionValidationError::CompletionNotAfterStart { job: id });
+    }
+    if job.schedule.active_duration.value() == 0 {
+        return Err(ProductionValidationError::ZeroActiveDuration { job: id });
+    }
+    let storage_transition = job.resources.material_storage_history.last_transition_at();
+    if storage_transition != job.schedule.started_at {
+        return Err(
+            ProductionValidationError::StorageHistoryTransitionMismatch {
+                job: id,
+                transition: storage_transition,
                 started_at: job.schedule.started_at,
-                current,
-            });
+            },
+        );
+    }
+    job.resources
+        .material_storage_history
+        .project(current, AMBIENT_PRESERVATION_MULTIPLIER_PPM)
+        .ok_or(ProductionValidationError::StorageHistoryOverflow {
+            job: id,
+            at: current,
+        })?;
+    job.resources
+        .material_storage_history
+        .project(
+            job.schedule.completes_at,
+            AMBIENT_PRESERVATION_MULTIPLIER_PPM,
+        )
+        .ok_or(ProductionValidationError::StorageHistoryOverflow {
+            job: id,
+            at: job.schedule.completes_at,
+        })?;
+    if job.equipment.requires_active_support && job.equipment.provider.is_none() {
+        return Err(ProductionValidationError::RequiredSupportWithoutEquipment { job: id });
+    }
+    Ok(())
+}
+
+fn validate_job_suspension(
+    id: ProductionJobId,
+    job: &ProductionJobRecord,
+) -> Result<(), ProductionValidationError> {
+    let Some(suspension) = job.schedule.suspension else {
+        return Ok(());
+    };
+    if suspension.remaining_active_time().value() == 0 {
+        return Err(ProductionValidationError::ZeroSuspensionRemaining { job: id });
+    }
+    if suspension.suspended_at() < job.schedule.started_at {
+        return Err(ProductionValidationError::SuspensionBeforeStart {
+            job: id,
+            started_at: job.schedule.started_at,
+            suspended_at: suspension.suspended_at(),
+        });
+    }
+    if suspension.remaining_active_time().value() > job.schedule.active_duration.value() {
+        return Err(
+            ProductionValidationError::SuspensionRemainingExceedsActiveDuration {
+                job: id,
+                remaining: suspension.remaining_active_time(),
+                active_duration: job.schedule.active_duration,
+            },
+        );
+    }
+    let expected_due = suspension
+        .suspended_at()
+        .checked_add_span(suspension.remaining_active_time())
+        .ok_or(ProductionValidationError::SuspensionScheduleOverflow { job: id })?;
+    if expected_due != job.schedule.completes_at {
+        return Err(ProductionValidationError::SuspensionScheduleMismatch {
+            job: id,
+            expected_due,
+            actual_due: job.schedule.completes_at,
+        });
+    }
+    match suspension.reason() {
+        ProductionSuspensionReason::EquipmentSupportUnavailable { equipment } => {
+            if !job.equipment.requires_active_support {
+                return Err(
+                    ProductionValidationError::SuspensionEquipmentSupportNotRequired { job: id },
+                );
+            }
+            let Some(provider) = job.equipment.provider else {
+                return Err(ProductionValidationError::RequiredSupportWithoutEquipment { job: id });
+            };
+            let expected = provider.equipment();
+            if equipment != expected {
+                return Err(ProductionValidationError::SuspensionEquipmentMismatch {
+                    job: id,
+                    expected,
+                    reason: equipment,
+                });
+            }
         }
-        if job.schedule.completes_at <= job.schedule.started_at {
-            return Err(ProductionValidationError::CompletionNotAfterStart { job: *id });
+        ProductionSuspensionReason::OutputSupportUnavailable { stockpile } => {
+            if !job
+                .output_streams
+                .iter()
+                .any(|stream| stream.destination == stockpile)
+            {
+                return Err(ProductionValidationError::SuspensionOutputMismatch {
+                    job: id,
+                    stockpile,
+                });
+            }
         }
-        if job.schedule.active_duration.value() == 0 {
-            return Err(ProductionValidationError::ZeroActiveDuration { job: *id });
+        ProductionSuspensionReason::PlayerLaborUnavailable => {}
+    }
+    Ok(())
+}
+
+fn validate_consumed_resources(
+    id: ProductionJobId,
+    job: &ProductionJobRecord,
+) -> Result<(), ProductionValidationError> {
+    if job.output_streams.is_empty() {
+        return Err(ProductionValidationError::NoOutputs { job: id });
+    }
+    if job.resources.consumed_inputs.is_empty() {
+        return Err(ProductionValidationError::NoConsumedInputs { job: id });
+    }
+    let mut traced_input_mass = Mass::ZERO;
+    for trace in &job.resources.consumed_inputs {
+        if trace.mass().is_zero() {
+            return Err(ProductionValidationError::ZeroConsumedInputMass { job: id });
         }
-        let storage_transition = job.resources.material_storage_history.last_transition_at();
-        if storage_transition != job.schedule.started_at {
+        trace.profile().composition().validate().map_err(|error| {
+            ProductionValidationError::InvalidConsumedInputComposition { job: id, error }
+        })?;
+        let host = trace.profile().commodity().material();
+        if trace.profile().composition().parts_per_million(host) == 0 {
             return Err(
-                ProductionValidationError::StorageHistoryTransitionMismatch {
-                    job: *id,
-                    transition: storage_transition,
-                    started_at: job.schedule.started_at,
-                },
+                ProductionValidationError::ConsumedInputCompositionMissingHost { job: id, host },
             );
         }
-        job.resources
-            .material_storage_history
-            .project(current, AMBIENT_PRESERVATION_MULTIPLIER_PPM)
-            .ok_or(ProductionValidationError::StorageHistoryOverflow {
-                job: *id,
-                at: current,
-            })?;
-        job.resources
-            .material_storage_history
-            .project(
-                job.schedule.completes_at,
-                AMBIENT_PRESERVATION_MULTIPLIER_PPM,
-            )
-            .ok_or(ProductionValidationError::StorageHistoryOverflow {
-                job: *id,
-                at: job.schedule.completes_at,
-            })?;
-        if job.equipment.requires_active_support && job.equipment.provider.is_none() {
-            return Err(ProductionValidationError::RequiredSupportWithoutEquipment { job: *id });
+        if trace.provenance().latest_created_at() < trace.provenance().earliest_created_at() {
+            return Err(ProductionValidationError::InvalidConsumedInputProvenance { job: id });
         }
-        if let Some(suspension) = job.schedule.suspension {
-            if suspension.remaining_active_time().value() == 0 {
-                return Err(ProductionValidationError::ZeroSuspensionRemaining { job: *id });
-            }
-            if suspension.suspended_at() < job.schedule.started_at {
-                return Err(ProductionValidationError::SuspensionBeforeStart {
-                    job: *id,
-                    started_at: job.schedule.started_at,
-                    suspended_at: suspension.suspended_at(),
-                });
-            }
-            if suspension.remaining_active_time().value() > job.schedule.active_duration.value() {
-                return Err(
-                    ProductionValidationError::SuspensionRemainingExceedsActiveDuration {
-                        job: *id,
-                        remaining: suspension.remaining_active_time(),
-                        active_duration: job.schedule.active_duration,
-                    },
-                );
-            }
-            let expected_due = suspension
-                .suspended_at()
-                .checked_add_span(suspension.remaining_active_time())
-                .ok_or(ProductionValidationError::SuspensionScheduleOverflow { job: *id })?;
-            if expected_due != job.schedule.completes_at {
-                return Err(ProductionValidationError::SuspensionScheduleMismatch {
-                    job: *id,
-                    expected_due,
-                    actual_due: job.schedule.completes_at,
-                });
-            }
-            match suspension.reason() {
-                ProductionSuspensionReason::EquipmentSupportUnavailable { equipment } => {
-                    if !job.equipment.requires_active_support {
-                        return Err(
-                            ProductionValidationError::SuspensionEquipmentSupportNotRequired {
-                                job: *id,
-                            },
-                        );
-                    }
-                    let expected = match job.equipment.provider {
-                        Some(provider) => provider.equipment(),
-                        None => {
-                            return Err(
-                                ProductionValidationError::RequiredSupportWithoutEquipment {
-                                    job: *id,
-                                },
-                            );
-                        }
-                    };
-                    if equipment != expected {
-                        return Err(ProductionValidationError::SuspensionEquipmentMismatch {
-                            job: *id,
-                            expected,
-                            reason: equipment,
-                        });
-                    }
-                }
-                ProductionSuspensionReason::OutputSupportUnavailable { stockpile } => {
-                    if !job
-                        .output_streams
-                        .iter()
-                        .any(|stream| stream.destination == stockpile)
-                    {
-                        return Err(ProductionValidationError::SuspensionOutputMismatch {
-                            job: *id,
-                            stockpile,
-                        });
-                    }
-                }
-                ProductionSuspensionReason::PlayerLaborUnavailable => {}
-            }
-        }
-        if job.output_streams.is_empty() {
-            return Err(ProductionValidationError::NoOutputs { job: *id });
-        }
-        if job.resources.consumed_inputs.is_empty() {
-            return Err(ProductionValidationError::NoConsumedInputs { job: *id });
-        }
-        let mut traced_input_mass = Mass::ZERO;
-        for trace in &job.resources.consumed_inputs {
-            if trace.mass().is_zero() {
-                return Err(ProductionValidationError::ZeroConsumedInputMass { job: *id });
-            }
-            trace.profile().composition().validate().map_err(|error| {
-                ProductionValidationError::InvalidConsumedInputComposition { job: *id, error }
-            })?;
-            let host = trace.profile().commodity().material();
-            if trace.profile().composition().parts_per_million(host) == 0 {
-                return Err(
-                    ProductionValidationError::ConsumedInputCompositionMissingHost {
-                        job: *id,
-                        host,
-                    },
-                );
-            }
-            if trace.provenance().latest_created_at() < trace.provenance().earliest_created_at() {
-                return Err(ProductionValidationError::InvalidConsumedInputProvenance { job: *id });
-            }
-            if trace.provenance().latest_created_at() > job.schedule.started_at {
-                return Err(ProductionValidationError::ConsumedInputCreatedAfterStart {
-                    job: *id,
-                    latest_created_at: trace.provenance().latest_created_at(),
-                    started_at: job.schedule.started_at,
-                });
-            }
-            traced_input_mass = traced_input_mass
-                .checked_add(trace.mass())
-                .ok_or(ProductionValidationError::ConsumedInputMassOverflow { job: *id })?;
-        }
-        if traced_input_mass != job.resources.consumed_mass {
-            return Err(ProductionValidationError::ConsumedInputMassMismatch {
-                job: *id,
-                traced: traced_input_mass,
-                consumed: job.resources.consumed_mass,
+        if trace.provenance().latest_created_at() > job.schedule.started_at {
+            return Err(ProductionValidationError::ConsumedInputCreatedAfterStart {
+                job: id,
+                latest_created_at: trace.provenance().latest_created_at(),
+                started_at: job.schedule.started_at,
             });
         }
-        if let Some(trace) = job.resources.consumed_energy {
-            if trace.energy().is_zero() {
-                return Err(ProductionValidationError::ZeroConsumedEnergy { job: *id });
-            }
-            if trace.source().value() == 0 {
-                return Err(ProductionValidationError::InvalidConsumedEnergySource { job: *id });
-            }
-            if trace.definition().value() == 0 {
-                return Err(ProductionValidationError::InvalidConsumedEnergyDefinition {
-                    job: *id,
+        traced_input_mass = traced_input_mass
+            .checked_add(trace.mass())
+            .ok_or(ProductionValidationError::ConsumedInputMassOverflow { job: id })?;
+    }
+    if traced_input_mass != job.resources.consumed_mass {
+        return Err(ProductionValidationError::ConsumedInputMassMismatch {
+            job: id,
+            traced: traced_input_mass,
+            consumed: job.resources.consumed_mass,
+        });
+    }
+    Ok(())
+}
+
+fn validate_energy_traces(
+    id: ProductionJobId,
+    job: &ProductionJobRecord,
+) -> Result<(), ProductionValidationError> {
+    if let Some(trace) = job.resources.consumed_energy {
+        if trace.energy().is_zero() {
+            return Err(ProductionValidationError::ZeroConsumedEnergy { job: id });
+        }
+        if trace.source().value() == 0 {
+            return Err(ProductionValidationError::InvalidConsumedEnergySource { job: id });
+        }
+        if trace.definition().value() == 0 {
+            return Err(ProductionValidationError::InvalidConsumedEnergyDefinition { job: id });
+        }
+    }
+    if let Some(trace) = job.resources.released_energy {
+        if trace.energy().is_zero() {
+            return Err(ProductionValidationError::ZeroReleasedEnergy { job: id });
+        }
+        if trace.destination().value() == 0 {
+            return Err(ProductionValidationError::InvalidReleasedEnergyDestination { job: id });
+        }
+        if trace.definition().value() == 0 {
+            return Err(ProductionValidationError::InvalidReleasedEnergyDefinition { job: id });
+        }
+    }
+    Ok(())
+}
+
+fn validate_equipment_outcome(
+    id: ProductionJobId,
+    job: &ProductionJobRecord,
+) -> Result<(), ProductionValidationError> {
+    match (job.equipment.provider, job.equipment.condition_after) {
+        (Some(provider), Some(after)) => {
+            if after > provider.condition() {
+                return Err(ProductionValidationError::EquipmentConditionImproved {
+                    job: id,
+                    before: provider.condition(),
+                    after,
                 });
             }
         }
-        if let Some(trace) = job.resources.released_energy {
-            if trace.energy().is_zero() {
-                return Err(ProductionValidationError::ZeroReleasedEnergy { job: *id });
-            }
-            if trace.destination().value() == 0 {
-                return Err(
-                    ProductionValidationError::InvalidReleasedEnergyDestination { job: *id },
-                );
-            }
-            if trace.definition().value() == 0 {
-                return Err(ProductionValidationError::InvalidReleasedEnergyDefinition {
-                    job: *id,
+        (Some(_), None) => {
+            return Err(ProductionValidationError::MissingEquipmentConditionOutcome { job: id });
+        }
+        (None, Some(_)) => {
+            return Err(ProductionValidationError::EquipmentConditionWithoutProvider { job: id });
+        }
+        (None, None) => {}
+    }
+    Ok(())
+}
+
+fn validate_outputs(
+    id: ProductionJobId,
+    job: &ProductionJobRecord,
+) -> Result<(), ProductionValidationError> {
+    let mut output_mass = Mass::ZERO;
+    let mut output_stream_ids = BTreeSet::new();
+    let mut previous_stream_id = None;
+    for stream in &job.output_streams {
+        if stream.id.value() == 0 {
+            return Err(ProductionValidationError::ZeroOutputStreamId { job: id });
+        }
+        if !output_stream_ids.insert(stream.id) {
+            return Err(ProductionValidationError::DuplicateOutputStreamId {
+                job: id,
+                stream: stream.id,
+            });
+        }
+        if previous_stream_id.is_some_and(|previous| previous > stream.id) {
+            return Err(ProductionValidationError::NonCanonicalOutputStreamOrder { job: id });
+        }
+        previous_stream_id = Some(stream.id);
+        if stream.outputs.is_empty() {
+            return Err(ProductionValidationError::EmptyOutputStream { job: id });
+        }
+        let mut seen_outputs = BTreeSet::new();
+        let mut previous_output = None;
+        for output in &stream.outputs {
+            if output.mass().is_zero() {
+                return Err(ProductionValidationError::ZeroOutputMass {
+                    job: id,
+                    commodity: output.commodity(),
                 });
             }
-        }
-        match (job.equipment.provider, job.equipment.condition_after) {
-            (Some(provider), Some(after)) => {
-                if after > provider.condition() {
-                    return Err(ProductionValidationError::EquipmentConditionImproved {
-                        job: *id,
-                        before: provider.condition(),
-                        after,
-                    });
+            output.composition().validate().map_err(|error| {
+                ProductionValidationError::InvalidOutputComposition {
+                    job: id,
+                    commodity: output.commodity(),
+                    error,
                 }
+            })?;
+            if output
+                .composition()
+                .parts_per_million(output.commodity().material())
+                == 0
+            {
+                return Err(ProductionValidationError::OutputCompositionMissingHost {
+                    job: id,
+                    host: output.commodity().material(),
+                });
             }
-            (Some(_), None) => {
-                return Err(
-                    ProductionValidationError::MissingEquipmentConditionOutcome { job: *id },
-                );
+            if !seen_outputs.insert(output.clone()) {
+                return Err(ProductionValidationError::DuplicateOutputSpecification { job: id });
             }
-            (None, Some(_)) => {
-                return Err(
-                    ProductionValidationError::EquipmentConditionWithoutProvider { job: *id },
-                );
-            }
-            (None, None) => {}
-        }
-        let mut output_mass = Mass::ZERO;
-        let mut output_stream_ids = BTreeSet::new();
-        let mut previous_stream_id = None;
-        for stream in &job.output_streams {
-            if stream.id.value() == 0 {
-                return Err(ProductionValidationError::ZeroOutputStreamId { job: *id });
-            }
-            if !output_stream_ids.insert(stream.id) {
-                return Err(ProductionValidationError::DuplicateOutputStreamId {
-                    job: *id,
+            if previous_output.is_some_and(|previous: &MaterialLotSpec| previous > output) {
+                return Err(ProductionValidationError::NonCanonicalOutputOrder {
+                    job: id,
                     stream: stream.id,
                 });
             }
-            if previous_stream_id.is_some_and(|previous| previous > stream.id) {
-                return Err(ProductionValidationError::NonCanonicalOutputStreamOrder { job: *id });
-            }
-            previous_stream_id = Some(stream.id);
-            if stream.outputs.is_empty() {
-                return Err(ProductionValidationError::EmptyOutputStream { job: *id });
-            }
-            let mut seen_outputs = BTreeSet::new();
-            let mut previous_output = None;
-            for output in &stream.outputs {
-                if output.mass().is_zero() {
-                    return Err(ProductionValidationError::ZeroOutputMass {
-                        job: *id,
-                        commodity: output.commodity(),
-                    });
-                }
-                output.composition().validate().map_err(|error| {
-                    ProductionValidationError::InvalidOutputComposition {
-                        job: *id,
-                        commodity: output.commodity(),
-                        error,
-                    }
-                })?;
-                if output
-                    .composition()
-                    .parts_per_million(output.commodity().material())
-                    == 0
-                {
-                    return Err(ProductionValidationError::OutputCompositionMissingHost {
-                        job: *id,
-                        host: output.commodity().material(),
-                    });
-                }
-                if !seen_outputs.insert(output.clone()) {
-                    return Err(ProductionValidationError::DuplicateOutputSpecification {
-                        job: *id,
-                    });
-                }
-                if previous_output.is_some_and(|previous: &MaterialLotSpec| previous > output) {
-                    return Err(ProductionValidationError::NonCanonicalOutputOrder {
-                        job: *id,
-                        stream: stream.id,
-                    });
-                }
-                previous_output = Some(output);
-                output_mass = output_mass
-                    .checked_add(output.mass())
-                    .ok_or(ProductionValidationError::OutputMassOverflow { job: *id })?;
-            }
-        }
-        if output_mass != job.resources.consumed_mass {
-            return Err(ProductionValidationError::OutputMassMismatch {
-                job: *id,
-                output: output_mass,
-                consumed: job.resources.consumed_mass,
-            });
-        }
-        let is_indexed = state
-            .due_jobs
-            .get(&job.schedule.completes_at)
-            .is_some_and(|ids| ids.contains(id));
-        if job.schedule.suspension.is_some() && is_indexed {
-            return Err(ProductionValidationError::SuspendedJobInDueIndex {
-                job: *id,
-                due: job.schedule.completes_at,
-            });
-        }
-        if job.schedule.suspension.is_none() && !is_indexed {
-            return Err(ProductionValidationError::MissingDueIndex {
-                job: *id,
-                due: job.schedule.completes_at,
-            });
+            previous_output = Some(output);
+            output_mass = output_mass
+                .checked_add(output.mass())
+                .ok_or(ProductionValidationError::OutputMassOverflow { job: id })?;
         }
     }
+    if output_mass != job.resources.consumed_mass {
+        return Err(ProductionValidationError::OutputMassMismatch {
+            job: id,
+            output: output_mass,
+            consumed: job.resources.consumed_mass,
+        });
+    }
+    Ok(())
+}
 
+fn validate_job_due_membership(
+    state: &ProductionState,
+    id: ProductionJobId,
+    job: &ProductionJobRecord,
+) -> Result<(), ProductionValidationError> {
+    let is_indexed = state
+        .due_jobs
+        .get(&job.schedule.completes_at)
+        .is_some_and(|ids| ids.contains(&id));
+    if job.schedule.suspension.is_some() && is_indexed {
+        return Err(ProductionValidationError::SuspendedJobInDueIndex {
+            job: id,
+            due: job.schedule.completes_at,
+        });
+    }
+    if job.schedule.suspension.is_none() && !is_indexed {
+        return Err(ProductionValidationError::MissingDueIndex {
+            job: id,
+            due: job.schedule.completes_at,
+        });
+    }
+    Ok(())
+}
+
+fn validate_due_index(state: &ProductionState) -> Result<(), ProductionValidationError> {
     for (due, ids) in &state.due_jobs {
         if ids.is_empty() {
             return Err(ProductionValidationError::EmptyDueIndex { due: *due });
@@ -939,6 +992,10 @@ pub(crate) fn validate_loaded_production(
             }
         }
     }
+    Ok(())
+}
+
+fn validate_occupancy_indexes(state: &ProductionState) -> Result<(), ProductionValidationError> {
     if let Some((store, indexed, expected)) = state
         .energy_occupancy_mismatch()
         .map_err(|store| ProductionValidationError::EnergyDoubleBooked { store })?

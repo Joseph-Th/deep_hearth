@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import ci  # noqa: E402
-from tools import check_authority_docs, run_test  # noqa: E402
+from tools import check_authority_docs, check_bca, run_test  # noqa: E402
 
 
 def gate_args(**overrides: object) -> argparse.Namespace:
@@ -55,9 +55,68 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn(
             (
                 "complexity ratchet",
-                [sys.executable, "tools/check_bca.py"],
+                [sys.executable, "tools/check_bca.py", "check"],
             ),
             ci.quick_plan(),
+        )
+
+    def test_bca_workflow_keeps_gate_and_advisory_modes_distinct(self) -> None:
+        self.assertEqual(
+            check_bca.command_for(check_bca.parse_args(["check"])),
+            ["bca", "check", "--no-suppress", "--no-remediation"],
+        )
+        self.assertEqual(
+            check_bca.command_for(
+                check_bca.parse_args(
+                    [
+                        "report",
+                        "--top",
+                        "12",
+                        "--path",
+                        "src/production",
+                        "--path",
+                        "src/inventory",
+                    ]
+                )
+            ),
+            [
+                "bca",
+                "report",
+                "--vcs",
+                "--top",
+                "12",
+                "--paths",
+                "src/production",
+                "--paths",
+                "src/inventory",
+            ],
+        )
+        self.assertEqual(
+            check_bca.command_for(
+                check_bca.parse_args(
+                    [
+                        "diff",
+                        "--since",
+                        "HEAD~1",
+                        "--metric",
+                        "cognitive",
+                        "--metric",
+                        "cyclomatic",
+                    ]
+                )
+            ),
+            [
+                "bca",
+                "diff",
+                "--since",
+                "HEAD~1",
+                "--format",
+                "markdown",
+                "--metric",
+                "cognitive",
+                "--metric",
+                "cyclomatic",
+            ],
         )
 
     def test_rust_test_summary_is_concise_and_aggregates_multiple_results(self) -> None:

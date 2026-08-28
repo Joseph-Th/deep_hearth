@@ -11,7 +11,10 @@ fn condition(value: u32) -> Condition {
 
 #[test]
 fn wear_clamps_at_failed_bound_without_destroying_records() {
-    assert_eq!(decide_wear(condition(10), 20).after(), Condition::FAILED);
+    assert_eq!(
+        calculate_condition_after_active_ticks(20, condition(10), TickSpan::new(1)),
+        Condition::FAILED
+    );
 }
 
 #[test]

@@ -34,7 +34,7 @@ ordinarily acquirable.
 | Core | Deterministic headless simulation, immutable versioned registries, generated `AppState`, persisted RNG streams, typed time, checked integer physical quantities, and explicit tick order. |
 | Persistence | Current save schema only. Trusted load rebuilds derived indexes and validates local and cross-owner invariants before returning state. Encoding/storage remain adapter concerns. |
 | Production | Timed closed-mass jobs with exact selected inputs, reserved outputs, persisted work-in-process, multi-stream routing, revision-bound completion, and support-aware suspension/resume. |
-| Energy and fluids | Finite typed-carrier energy stores with directional power limits and finite homogeneous fluid stores with exact withdrawal and support-aware load. No generic inter-store transfer exists. |
+| Energy and fluids | Finite typed-carrier energy stores with directional power limits, exact optional passive dissipation into unmodeled loss domains, and finite homogeneous fluid stores with exact withdrawal and support-aware load. No generic inter-store transfer exists. |
 | Structures | Material-backed members with contact-constrained support topology, axial analysis, source-owned loads, damage, and failure cascades. Controlled setup can materialize valid members; player construction is absent. |
 | Physical scalars | Typed throughput, mass, temperature, pressure, power, torque, speed, electrical, flow, volume, efficiency, transmission, and operating-limit calculations. |
 | Spatial and presentation | Checked chunk-independent voxel coordinates, deterministic renderer-neutral texture baking, and deterministic WGSL assembly. No graphics backend. |
@@ -48,7 +48,7 @@ acquisition path is not implemented.
 | --- | --- |
 | Workshop | Installed industrial machines operate under finite stored work, survival pressure, wear, maintenance, structural support, suspension/recovery, and policy-dependent choices. |
 | Ore preparation | Installed crushing, grinding, dry screening, oversize regrinding, and generalized copper concentration preserve exact constituent accounting and produce physical tailings. |
-| Foundry | Installed sensible heating, pure-material melting, and pure-material casting use finite energy, equipment limits, phase boundaries, latent heat, and finite heat recovery. |
+| Foundry | Installed sensible heating, pure-material melting, and pure-material casting use finite energy, equipment limits, phase boundaries, latent heat, finite heat recovery, and passive heat rejection from the workshop sink. |
 
 ## Not implemented
 
@@ -58,7 +58,7 @@ acquisition path is not implemented.
 | World representation | Voxel/chunk storage, terrain generation, streaming, world-scale spatial indexing, runtime discovery of clue locations. |
 | Logistics | Ordinary stockpile transport authorization, pathing, carrying/haulage time, transport labor/energy, world-space delivery. Controlled harness delivery is setup infrastructure only. |
 | Advanced geology/mining | Regional generation, voxel ore topology, sampling, drilling, assays, geophysics, mechanized excavation, access, haulage, drainage, ground control, recovery fractions, waste rock, tailings transport/impoundment. |
-| Thermal/chemical industry | Environmental heat transport, vaporization, combustion, fuels/emissions, mixed/alloy phase behavior, smelting/reduction, alloying, forging, machining, and separation beyond the current liberated-copper model. |
+| Thermal/chemical industry | Spatial/environmental heat transport beyond explicit passive sink loss, vaporization, combustion, fuels/emissions, mixed/alloy phase behavior, smelting/reduction, alloying, forging, machining, and separation beyond the current liberated-copper model. |
 | Rich maintenance/structures | Maintenance labor/tools/access, bespoke salvage, player construction/deconstruction, construction waste, demolition/salvage physics, bending, shear, torsion, buckling, joints, terrain support. |
 | Power networks | Generic store-to-store energy transfer, shaft/belt networks, inertia/slip/clutches, steam, electrical topology, generation, distribution, protection, spatial network integration. |
 | Hydrology | Generic inter-store fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, mixing, pressure/temperature-dependent fluid properties. |

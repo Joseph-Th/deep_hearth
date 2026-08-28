@@ -1,7 +1,7 @@
 //! Tests for the sibling definitions module; isolated so test-only edits do not invalidate production builds.
 
 use super::*;
-use crate::content::{FORM_FLYWHEEL, MATERIAL_STONE};
+use crate::content::{FORM_FLYWHEEL, MATERIAL_STONE, build_registries};
 use crate::core::quantity::Mass;
 use crate::material::{CommodityKey, MaterialInputSpec};
 
@@ -38,6 +38,33 @@ fn energy_store_definition_rejects_duplicate_assembly_profiles() {
         basic_definition(EnergyStoreDefinitionId::new(930_001))
             .with_assembly_profile(assembly_profile())
             .with_assembly_profile(assembly_profile())
+    });
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn energy_store_definition_rejects_duplicate_passive_dissipation() {
+    let result = std::panic::catch_unwind(|| {
+        basic_definition(EnergyStoreDefinitionId::new(930_004))
+            .with_passive_dissipation_power(Power::from_microwatts(1))
+            .with_passive_dissipation_power(Power::from_microwatts(1))
+    });
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn registry_rejects_passive_dissipation_that_would_discard_fractional_energy() {
+    let registries = build_registries();
+    let invalid = EnergyRegistry::new([basic_definition(EnergyStoreDefinitionId::new(930_005))
+        .with_passive_dissipation_power(Power::from_picowatts(1))]);
+
+    let result = std::panic::catch_unwind(|| {
+        invalid.validate_references(
+            registries.materials(),
+            registries.core().physical_tick_duration(),
+        )
     });
 
     assert!(result.is_err());

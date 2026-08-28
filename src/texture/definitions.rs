@@ -788,92 +788,118 @@ impl TextureRegistry {
 
     fn validate_local_references(&self) {
         for texture in self.textures.values() {
-            for ramp in texture.palette().ramps() {
-                assert!(
-                    self.ramps.contains_key(ramp),
-                    "texture {} references missing palette ramp {}",
-                    texture.id().value(),
-                    ramp.value()
-                );
-            }
-            for texel in texture.texels() {
-                let ramp = match texture.palette().get_ramp(texel.palette_slot()) {
-                    Some(ramp) => ramp,
-                    None => panic!(
+            self.validate_texture_local_references(texture);
+        }
+        for block in self.blocks.values() {
+            self.validate_block_texture_references(block);
+        }
+        for object in self.objects.values() {
+            self.validate_object_texture_references(object);
+        }
+        for binding in self.commodity_bindings.values() {
+            self.validate_commodity_binding_local_references(*binding);
+        }
+        for binding in self.equipment_bindings.values() {
+            self.validate_equipment_binding_local_references(*binding);
+        }
+    }
+
+    fn validate_texture_local_references(&self, texture: &TextureDefinition) {
+        for ramp in texture.palette().ramps() {
+            assert!(
+                self.ramps.contains_key(ramp),
+                "texture {} references missing palette ramp {}",
+                texture.id().value(),
+                ramp.value()
+            );
+        }
+        for texel in texture.texels() {
+            let ramp = texture
+                .palette()
+                .get_ramp(texel.palette_slot())
+                .unwrap_or_else(|| {
+                    panic!(
                         "texture {} contains an invalid local palette slot",
                         texture.id().value()
-                    ),
-                };
-                let alpha = match self.ramps.get(&ramp) {
-                    Some(definition) => definition.color(texel.shade()).alpha(),
-                    None => panic!(
+                    )
+                });
+            let alpha = self
+                .ramps
+                .get(&ramp)
+                .unwrap_or_else(|| {
+                    panic!(
                         "texture {} references missing palette ramp {}",
                         texture.id().value(),
                         ramp.value()
-                    ),
-                };
-                match texture.alpha_mode() {
-                    TextureAlphaMode::Opaque => assert_eq!(
-                        alpha,
-                        u8::MAX,
-                        "opaque texture {} resolves a nonopaque texel",
-                        texture.id().value()
-                    ),
-                    TextureAlphaMode::Cutout => assert!(
-                        alpha == 0 || alpha == u8::MAX,
-                        "cutout texture {} resolves a blended texel",
-                        texture.id().value()
-                    ),
-                    TextureAlphaMode::Blend => {}
-                }
+                    )
+                })
+                .color(texel.shade())
+                .alpha();
+            match texture.alpha_mode() {
+                TextureAlphaMode::Opaque => assert_eq!(
+                    alpha,
+                    u8::MAX,
+                    "opaque texture {} resolves a nonopaque texel",
+                    texture.id().value()
+                ),
+                TextureAlphaMode::Cutout => assert!(
+                    alpha == 0 || alpha == u8::MAX,
+                    "cutout texture {} resolves a blended texel",
+                    texture.id().value()
+                ),
+                TextureAlphaMode::Blend => {}
             }
         }
-        for block in self.blocks.values() {
-            for texture in block.textures() {
-                assert!(
-                    self.textures.contains_key(texture),
-                    "block appearance {} references missing texture {}",
-                    block.id().value(),
-                    texture.value()
-                );
-            }
-        }
-        for object in self.objects.values() {
-            for texture in object.textures() {
-                assert!(
-                    self.textures.contains_key(texture),
-                    "object appearance {} references missing texture {}",
-                    object.id().value(),
-                    texture.value()
-                );
-            }
-        }
-        for binding in self.commodity_bindings.values() {
-            if let Some(block) = binding.block() {
-                assert!(
-                    self.blocks.contains_key(&block),
-                    "commodity {} references missing block appearance {}",
-                    binding.commodity().value(),
-                    block.value()
-                );
-            }
-            if let Some(object) = binding.object() {
-                assert!(
-                    self.objects.contains_key(&object),
-                    "commodity {} references missing object appearance {}",
-                    binding.commodity().value(),
-                    object.value()
-                );
-            }
-        }
-        for binding in self.equipment_bindings.values() {
+    }
+
+    fn validate_block_texture_references(&self, block: &BlockAppearanceDefinition) {
+        for texture in block.textures() {
             assert!(
-                self.objects.contains_key(&binding.object()),
-                "equipment {} references missing object appearance {}",
-                binding.equipment().value(),
-                binding.object().value()
+                self.textures.contains_key(texture),
+                "block appearance {} references missing texture {}",
+                block.id().value(),
+                texture.value()
             );
         }
+    }
+
+    fn validate_object_texture_references(&self, object: &ObjectAppearanceDefinition) {
+        for texture in object.textures() {
+            assert!(
+                self.textures.contains_key(texture),
+                "object appearance {} references missing texture {}",
+                object.id().value(),
+                texture.value()
+            );
+        }
+    }
+
+    fn validate_commodity_binding_local_references(&self, binding: CommodityAppearanceBinding) {
+        if let Some(block) = binding.block() {
+            assert!(
+                self.blocks.contains_key(&block),
+                "commodity {} references missing block appearance {}",
+                binding.commodity().value(),
+                block.value()
+            );
+        }
+        if let Some(object) = binding.object() {
+            assert!(
+                self.objects.contains_key(&object),
+                "commodity {} references missing object appearance {}",
+                binding.commodity().value(),
+                object.value()
+            );
+        }
+    }
+
+    fn validate_equipment_binding_local_references(&self, binding: EquipmentAppearanceBinding) {
+        assert!(
+            self.objects.contains_key(&binding.object()),
+            "equipment {} references missing object appearance {}",
+            binding.equipment().value(),
+            binding.object().value()
+        );
     }
 
     pub(super) fn ramps_in_id_order(

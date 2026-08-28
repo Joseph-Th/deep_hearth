@@ -5,7 +5,10 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Energy, Power};
+use crate::core::time::{PhysicalTickDuration, TickSpan};
 use crate::material::{MaterialAssemblyProfile, MaterialRegistry};
+
+use super::integration::{PowerRemainder, integrate_power};
 
 /// Stable authored identity for one energy-store class.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -44,6 +47,7 @@ pub struct EnergyStoreDefinition {
     capacity: Energy,
     max_input_power: Power,
     max_output_power: Power,
+    passive_dissipation_power: Power,
     assembly_profile: Option<MaterialAssemblyProfile>,
 }
 
@@ -89,8 +93,27 @@ impl EnergyStoreDefinition {
             capacity,
             max_input_power,
             max_output_power,
+            passive_dissipation_power: Power::ZERO,
             assembly_profile: None,
         }
+    }
+
+    /// Adds an unavoidable loss rate from explicit storage into unmodeled environmental or loss
+    /// domains. Passive dissipation is not controllable output power and does not make this store
+    /// eligible as an operation energy supply.
+    #[must_use]
+    pub fn with_passive_dissipation_power(mut self, power: Power) -> Self {
+        assert!(
+            !power.is_zero(),
+            "passive energy dissipation power must be nonzero when declared"
+        );
+        assert!(
+            self.passive_dissipation_power.is_zero(),
+            "energy store definition {} cannot define passive dissipation more than once",
+            self.id.value()
+        );
+        self.passive_dissipation_power = power;
+        self
     }
 
     /// Adds the exact conserved matter required to construct this store in gameplay.
@@ -133,6 +156,12 @@ impl EnergyStoreDefinition {
     #[must_use]
     pub const fn max_output_power(&self) -> Power {
         self.max_output_power
+    }
+
+    /// Returns the unavoidable environmental/loss power removed from stored energy each tick.
+    #[must_use]
+    pub const fn passive_dissipation_power(&self) -> Power {
+        self.passive_dissipation_power
     }
 
     #[must_use]
@@ -183,7 +212,11 @@ impl EnergyRegistry {
         self.definitions.values()
     }
 
-    pub(crate) fn validate_references(&self, materials: &MaterialRegistry) {
+    pub(crate) fn validate_references(
+        &self,
+        materials: &MaterialRegistry,
+        physical_tick_duration: PhysicalTickDuration,
+    ) {
         for definition in self.definitions.values() {
             if let Some(assembly) = definition.assembly_profile() {
                 assert!(
@@ -194,6 +227,28 @@ impl EnergyRegistry {
                     definition.id().value()
                 );
             }
+            let dissipation_power = definition.passive_dissipation_power();
+            if dissipation_power.is_zero() {
+                continue;
+            }
+            let integration = integrate_power(
+                dissipation_power,
+                TickSpan::new(1),
+                physical_tick_duration,
+                PowerRemainder::ZERO,
+            )
+            .unwrap_or_else(|error| {
+                panic!(
+                    "energy store definition {} passive dissipation cannot be integrated for one authoritative tick: {error}",
+                    definition.id().value()
+                )
+            });
+            assert_eq!(
+                integration.remainder(),
+                PowerRemainder::ZERO,
+                "energy store definition {} passive dissipation must resolve to exact whole nanojoules per authoritative tick",
+                definition.id().value()
+            );
         }
     }
 }

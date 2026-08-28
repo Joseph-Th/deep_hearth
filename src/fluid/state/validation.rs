@@ -8,7 +8,7 @@ use crate::core::time::SimulationTick;
 use crate::structural::StructuralElementId;
 
 use super::super::definitions::{FluidDefinitionId, FluidRegistry};
-use super::{FluidState, FluidStoreId};
+use super::{FluidState, FluidStoreId, FluidStoreRecord};
 
 /// Invalid persisted fluid ownership discovered during exhaustive load validation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -172,61 +172,93 @@ pub(crate) fn validate_loaded_fluid(
         return Err(FluidValidationError::InvalidIdCursor);
     }
     for (key, record) in &state.records {
-        if *key != record.id {
-            return Err(FluidValidationError::RecordKeyMismatch {
-                key: *key,
-                record: record.id,
-            });
-        }
-        if record.capacity.is_zero() {
-            return Err(FluidValidationError::ZeroCapacity { store: record.id });
-        }
-        if let Some(contents) = record.contents {
-            if contents.volume.is_zero() {
-                return Err(FluidValidationError::ZeroStoredVolume { store: record.id });
-            }
-            if contents.temperature == Temperature::ZERO {
-                return Err(FluidValidationError::ZeroStoredTemperature { store: record.id });
-            }
-            if contents.volume > record.capacity {
-                return Err(FluidValidationError::CapacityExceeded {
-                    store: record.id,
-                    stored: contents.volume,
-                    capacity: record.capacity,
-                });
-            }
-            if registry.get_fluid(contents.fluid).is_none() {
-                return Err(FluidValidationError::UnknownDefinition {
-                    store: record.id,
-                    definition: contents.fluid,
-                });
-            }
-        }
-        if record
-            .supported_by
-            .is_some_and(|element| element.value() == 0)
-        {
-            return Err(FluidValidationError::ZeroSupportElementId { store: record.id });
-        }
-        if let Some(element) = record.supported_by
-            && !state
-                .stores_by_support
-                .get(&element)
-                .is_some_and(|stores| stores.contains(&record.id))
-        {
-            return Err(FluidValidationError::MissingSupportIndex {
-                store: record.id,
-                element,
-            });
-        }
-        if record.created_at > current {
-            return Err(FluidValidationError::CreatedInFuture {
-                store: record.id,
-                created_at: record.created_at,
-                current,
-            });
-        }
+        validate_fluid_store(registry, state, *key, record, current)?;
     }
+    validate_fluid_support_index(state)
+}
+
+fn validate_fluid_store(
+    registry: &FluidRegistry,
+    state: &FluidState,
+    key: FluidStoreId,
+    record: &FluidStoreRecord,
+    current: SimulationTick,
+) -> Result<(), FluidValidationError> {
+    if key != record.id {
+        return Err(FluidValidationError::RecordKeyMismatch {
+            key,
+            record: record.id,
+        });
+    }
+    if record.capacity.is_zero() {
+        return Err(FluidValidationError::ZeroCapacity { store: record.id });
+    }
+    validate_fluid_contents(registry, record)?;
+    validate_fluid_support_reference(state, record)?;
+    if record.created_at > current {
+        return Err(FluidValidationError::CreatedInFuture {
+            store: record.id,
+            created_at: record.created_at,
+            current,
+        });
+    }
+    Ok(())
+}
+
+fn validate_fluid_contents(
+    registry: &FluidRegistry,
+    record: &FluidStoreRecord,
+) -> Result<(), FluidValidationError> {
+    let Some(contents) = record.contents else {
+        return Ok(());
+    };
+    if contents.volume.is_zero() {
+        return Err(FluidValidationError::ZeroStoredVolume { store: record.id });
+    }
+    if contents.temperature == Temperature::ZERO {
+        return Err(FluidValidationError::ZeroStoredTemperature { store: record.id });
+    }
+    if contents.volume > record.capacity {
+        return Err(FluidValidationError::CapacityExceeded {
+            store: record.id,
+            stored: contents.volume,
+            capacity: record.capacity,
+        });
+    }
+    if registry.get_fluid(contents.fluid).is_none() {
+        return Err(FluidValidationError::UnknownDefinition {
+            store: record.id,
+            definition: contents.fluid,
+        });
+    }
+    Ok(())
+}
+
+fn validate_fluid_support_reference(
+    state: &FluidState,
+    record: &FluidStoreRecord,
+) -> Result<(), FluidValidationError> {
+    if record
+        .supported_by
+        .is_some_and(|element| element.value() == 0)
+    {
+        return Err(FluidValidationError::ZeroSupportElementId { store: record.id });
+    }
+    if let Some(element) = record.supported_by
+        && !state
+            .stores_by_support
+            .get(&element)
+            .is_some_and(|stores| stores.contains(&record.id))
+    {
+        return Err(FluidValidationError::MissingSupportIndex {
+            store: record.id,
+            element,
+        });
+    }
+    Ok(())
+}
+
+fn validate_fluid_support_index(state: &FluidState) -> Result<(), FluidValidationError> {
     for (element, stores) in &state.stores_by_support {
         if element.value() == 0 {
             return Err(FluidValidationError::ZeroIndexedSupportElementId);

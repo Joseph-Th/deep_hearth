@@ -14,8 +14,39 @@ use crate::material::{
 use crate::structural::StructuralElementId;
 
 use super::{
-    InventoryState, MaterialLotId, StockpileId, StockpileLotIndex, StockpileStorageProfileError,
+    InventoryState, MaterialLotId, MaterialLotRecord, StockpileId, StockpileLotIndex,
+    StockpileRecord, StockpileStorageProfileError,
 };
+
+#[derive(Default)]
+struct StockpileLotTotals {
+    total: Mass,
+    by_commodity: BTreeMap<CommodityKey, Mass>,
+}
+
+impl StockpileLotTotals {
+    fn add_lot(&mut self, lot: &MaterialLotRecord) -> Result<(), InventoryValidationError> {
+        self.total =
+            self.total
+                .checked_add(lot.mass)
+                .ok_or(InventoryValidationError::MassOverflow {
+                    stockpile: lot.stockpile,
+                })?;
+        let commodity = lot.commodity();
+        let current = self
+            .by_commodity
+            .get(&commodity)
+            .copied()
+            .unwrap_or(Mass::ZERO);
+        let next = current
+            .checked_add(lot.mass)
+            .ok_or(InventoryValidationError::MassOverflow {
+                stockpile: lot.stockpile,
+            })?;
+        self.by_commodity.insert(commodity, next);
+        Ok(())
+    }
+}
 
 /// Persistent-state validation failure for the inventory owner.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -410,6 +441,34 @@ pub(crate) fn validate_loaded_inventory(
     state: &InventoryState,
     current_tick: SimulationTick,
 ) -> Result<(), InventoryValidationError> {
+    validate_inventory_cursors(state)?;
+    validate_storage_profiles(state)?;
+
+    let mut expected_lot_indexes = BTreeMap::<StockpileId, StockpileLotIndex>::new();
+    let mut calculated_by_stockpile = BTreeMap::<StockpileId, StockpileLotTotals>::new();
+    for (key, lot) in &state.lots {
+        validate_material_lot(materials, state, *key, lot, current_tick)?;
+        expected_lot_indexes
+            .entry(lot.stockpile)
+            .or_default()
+            .insert(*key, lot.commodity());
+        calculated_by_stockpile
+            .entry(lot.stockpile)
+            .or_default()
+            .add_lot(lot)?;
+    }
+
+    for (key, record) in &state.stockpiles {
+        let calculated = calculated_by_stockpile.remove(key).unwrap_or_default();
+        validate_stockpile_record(state, *key, record, calculated)?;
+    }
+    validate_lot_indexes(state, expected_lot_indexes)?;
+    validate_stockpile_support_index(state)?;
+    debug_assert!(calculated_by_stockpile.is_empty());
+    Ok(())
+}
+
+fn validate_inventory_cursors(state: &InventoryState) -> Result<(), InventoryValidationError> {
     if state.next_stockpile_id == 0 {
         return Err(InventoryValidationError::ZeroNextStockpileId);
     }
@@ -433,7 +492,10 @@ pub(crate) fn validate_loaded_inventory(
             highest,
         });
     }
+    Ok(())
+}
 
+fn validate_storage_profiles(state: &InventoryState) -> Result<(), InventoryValidationError> {
     for (stockpile, record) in &state.stockpiles {
         record.storage_profile.validate().map_err(|error| {
             InventoryValidationError::InvalidStorageProfile {
@@ -442,240 +504,274 @@ pub(crate) fn validate_loaded_inventory(
             }
         })?;
     }
+    Ok(())
+}
 
-    let mut expected_lot_indexes = BTreeMap::<StockpileId, StockpileLotIndex>::new();
-    let mut calculated_by_stockpile =
-        BTreeMap::<StockpileId, (Mass, BTreeMap<CommodityKey, Mass>)>::new();
-    for (key, lot) in &state.lots {
-        if key.value() == 0 || lot.id.value() == 0 {
-            return Err(InventoryValidationError::ZeroLotId);
-        }
-        if *key != lot.id {
-            return Err(InventoryValidationError::LotIdMismatch {
-                key: *key,
-                record: lot.id,
-            });
-        }
-        if lot.mass.is_zero() {
-            return Err(InventoryValidationError::ZeroLotMass { lot: *key });
-        }
-        lot.composition().validate().map_err(|error| {
-            InventoryValidationError::InvalidLotComposition { lot: *key, error }
-        })?;
-        if lot
-            .composition()
-            .parts_per_million(lot.commodity().material())
-            == 0
-        {
-            return Err(InventoryValidationError::LotCompositionMissingHost {
-                lot: *key,
-                host: lot.commodity().material(),
-            });
-        }
-        if materials.get_material(lot.commodity().material()).is_some()
-            && materials.get_form(lot.commodity().form()).is_some()
-            && !materials.has_commodity(lot.commodity())
-        {
-            return Err(InventoryValidationError::UnsupportedLotCommodity {
-                lot: *key,
-                commodity: lot.commodity(),
-            });
-        }
-        validate_material_phase_state(
-            materials,
-            lot.commodity(),
-            lot.composition(),
-            lot.temperature(),
-        )
-        .map_err(|error| InventoryValidationError::InvalidLotPhaseState { lot: *key, error })?;
-        validate_material_particle_size_state(
-            materials,
-            lot.commodity(),
-            lot.particle_size_distribution(),
-        )
-        .map_err(
-            |error| InventoryValidationError::InvalidLotParticleSizeState { lot: *key, error },
-        )?;
-        if lot.latest_created_at() < lot.created_at() {
-            return Err(InventoryValidationError::InvalidLotProvenanceRange {
-                lot: *key,
-                earliest: lot.created_at(),
-                latest: lot.latest_created_at(),
-            });
-        }
-        if lot.latest_created_at() > current_tick {
-            return Err(InventoryValidationError::LotProvenanceInFuture {
-                lot: *key,
-                latest: lot.latest_created_at(),
-                current: current_tick,
-            });
-        }
-        let Some(owner) = state.stockpiles.get(&lot.stockpile) else {
-            return Err(InventoryValidationError::MissingLotOwner {
-                lot: *key,
-                stockpile: lot.stockpile,
-            });
-        };
-        let transition = lot.storage_history().last_transition_at();
-        if transition < lot.created_at() {
-            return Err(
-                InventoryValidationError::LotStorageTransitionBeforeCreation {
-                    lot: *key,
-                    transition,
-                    created: lot.created_at(),
-                },
-            );
-        }
-        if transition > current_tick {
-            return Err(InventoryValidationError::LotStorageTransitionInFuture {
-                lot: *key,
+fn validate_material_lot(
+    materials: &MaterialRegistry,
+    state: &InventoryState,
+    key: MaterialLotId,
+    lot: &MaterialLotRecord,
+    current_tick: SimulationTick,
+) -> Result<(), InventoryValidationError> {
+    if key.value() == 0 || lot.id.value() == 0 {
+        return Err(InventoryValidationError::ZeroLotId);
+    }
+    if key != lot.id {
+        return Err(InventoryValidationError::LotIdMismatch {
+            key,
+            record: lot.id,
+        });
+    }
+    if lot.mass.is_zero() {
+        return Err(InventoryValidationError::ZeroLotMass { lot: key });
+    }
+    validate_lot_material_state(materials, key, lot)?;
+    validate_lot_provenance(key, lot, current_tick)?;
+    let Some(owner) = state.stockpiles.get(&lot.stockpile) else {
+        return Err(InventoryValidationError::MissingLotOwner {
+            lot: key,
+            stockpile: lot.stockpile,
+        });
+    };
+    validate_lot_storage(materials, key, lot, owner, current_tick)
+}
+
+fn validate_lot_material_state(
+    materials: &MaterialRegistry,
+    key: MaterialLotId,
+    lot: &MaterialLotRecord,
+) -> Result<(), InventoryValidationError> {
+    lot.composition()
+        .validate()
+        .map_err(|error| InventoryValidationError::InvalidLotComposition { lot: key, error })?;
+    if lot
+        .composition()
+        .parts_per_million(lot.commodity().material())
+        == 0
+    {
+        return Err(InventoryValidationError::LotCompositionMissingHost {
+            lot: key,
+            host: lot.commodity().material(),
+        });
+    }
+    if materials.get_material(lot.commodity().material()).is_some()
+        && materials.get_form(lot.commodity().form()).is_some()
+        && !materials.has_commodity(lot.commodity())
+    {
+        return Err(InventoryValidationError::UnsupportedLotCommodity {
+            lot: key,
+            commodity: lot.commodity(),
+        });
+    }
+    validate_material_phase_state(
+        materials,
+        lot.commodity(),
+        lot.composition(),
+        lot.temperature(),
+    )
+    .map_err(|error| InventoryValidationError::InvalidLotPhaseState { lot: key, error })?;
+    validate_material_particle_size_state(
+        materials,
+        lot.commodity(),
+        lot.particle_size_distribution(),
+    )
+    .map_err(|error| InventoryValidationError::InvalidLotParticleSizeState { lot: key, error })?;
+    Ok(())
+}
+
+fn validate_lot_provenance(
+    key: MaterialLotId,
+    lot: &MaterialLotRecord,
+    current_tick: SimulationTick,
+) -> Result<(), InventoryValidationError> {
+    if lot.latest_created_at() < lot.created_at() {
+        return Err(InventoryValidationError::InvalidLotProvenanceRange {
+            lot: key,
+            earliest: lot.created_at(),
+            latest: lot.latest_created_at(),
+        });
+    }
+    if lot.latest_created_at() > current_tick {
+        return Err(InventoryValidationError::LotProvenanceInFuture {
+            lot: key,
+            latest: lot.latest_created_at(),
+            current: current_tick,
+        });
+    }
+    Ok(())
+}
+
+fn validate_lot_storage(
+    materials: &MaterialRegistry,
+    key: MaterialLotId,
+    lot: &MaterialLotRecord,
+    owner: &StockpileRecord,
+    current_tick: SimulationTick,
+) -> Result<(), InventoryValidationError> {
+    let transition = lot.storage_history().last_transition_at();
+    if transition < lot.created_at() {
+        return Err(
+            InventoryValidationError::LotStorageTransitionBeforeCreation {
+                lot: key,
                 transition,
-                current: current_tick,
-            });
-        }
-        if lot
-            .storage_history()
-            .project(
-                current_tick,
-                owner.storage_profile().preservation_multiplier_ppm(),
-            )
-            .is_none()
-        {
-            return Err(InventoryValidationError::LotStorageAgeOverflow { lot: *key });
-        }
-        let form_id = lot.commodity().form();
-        let Some(form) = materials.get_form(form_id) else {
-            return Err(InventoryValidationError::UnknownLotForm {
-                lot: *key,
-                form: form_id,
-            });
-        };
-        if !owner.storage_profile.can_store_phase(form.phase()) {
-            return Err(InventoryValidationError::LotPhaseNotAccepted {
-                lot: *key,
+                created: lot.created_at(),
+            },
+        );
+    }
+    if transition > current_tick {
+        return Err(InventoryValidationError::LotStorageTransitionInFuture {
+            lot: key,
+            transition,
+            current: current_tick,
+        });
+    }
+    if lot
+        .storage_history()
+        .project(
+            current_tick,
+            owner.storage_profile().preservation_multiplier_ppm(),
+        )
+        .is_none()
+    {
+        return Err(InventoryValidationError::LotStorageAgeOverflow { lot: key });
+    }
+    let form_id = lot.commodity().form();
+    let Some(form) = materials.get_form(form_id) else {
+        return Err(InventoryValidationError::UnknownLotForm {
+            lot: key,
+            form: form_id,
+        });
+    };
+    if !owner.storage_profile.can_store_phase(form.phase()) {
+        return Err(InventoryValidationError::LotPhaseNotAccepted {
+            lot: key,
+            stockpile: lot.stockpile,
+            phase: form.phase(),
+        });
+    }
+    if lot.temperature() > owner.storage_profile.maximum_temperature() {
+        return Err(
+            InventoryValidationError::LotTemperatureExceedsStorageMaximum {
+                lot: key,
                 stockpile: lot.stockpile,
-                phase: form.phase(),
+                temperature: lot.temperature(),
+                maximum: owner.storage_profile.maximum_temperature(),
+            },
+        );
+    }
+    Ok(())
+}
+
+fn validate_stockpile_record(
+    state: &InventoryState,
+    key: StockpileId,
+    record: &StockpileRecord,
+    calculated: StockpileLotTotals,
+) -> Result<(), InventoryValidationError> {
+    if key.value() == 0 || record.id.value() == 0 {
+        return Err(InventoryValidationError::ZeroStockpileId);
+    }
+    if key != record.id {
+        return Err(InventoryValidationError::IdMismatch {
+            key,
+            record: record.id,
+        });
+    }
+    if record.capacity.is_zero() {
+        return Err(InventoryValidationError::ZeroCapacity { stockpile: key });
+    }
+    validate_stockpile_support_reference(state, key, record)?;
+    validate_stockpile_cached_contents(key, record, &calculated)?;
+    if calculated.total != record.stored_mass {
+        return Err(InventoryValidationError::StoredMassMismatch {
+            stockpile: key,
+            cached: record.stored_mass,
+            calculated: calculated.total,
+        });
+    }
+    let committed = record
+        .stored_mass
+        .checked_add(record.reserved_inbound)
+        .ok_or(InventoryValidationError::MassOverflow { stockpile: key })?;
+    if committed > record.capacity {
+        return Err(InventoryValidationError::CapacityExceeded { stockpile: key });
+    }
+    Ok(())
+}
+
+fn validate_stockpile_support_reference(
+    state: &InventoryState,
+    key: StockpileId,
+    record: &StockpileRecord,
+) -> Result<(), InventoryValidationError> {
+    let Some(support) = record.supported_by else {
+        return Ok(());
+    };
+    if support.value() == 0 {
+        return Err(InventoryValidationError::ZeroSupportElementId { stockpile: key });
+    }
+    if !state
+        .stockpiles_by_support
+        .get(&support)
+        .is_some_and(|stockpiles| stockpiles.contains(&key))
+    {
+        return Err(InventoryValidationError::MissingSupportIndex {
+            stockpile: key,
+            element: support,
+        });
+    }
+    Ok(())
+}
+
+fn validate_stockpile_cached_contents(
+    key: StockpileId,
+    record: &StockpileRecord,
+    calculated: &StockpileLotTotals,
+) -> Result<(), InventoryValidationError> {
+    for (commodity, mass) in &record.contents {
+        if mass.is_zero() {
+            return Err(InventoryValidationError::ZeroCommodityMass {
+                stockpile: key,
+                commodity: *commodity,
             });
         }
-        if lot.temperature() > owner.storage_profile.maximum_temperature() {
-            return Err(
-                InventoryValidationError::LotTemperatureExceedsStorageMaximum {
-                    lot: *key,
-                    stockpile: lot.stockpile,
-                    temperature: lot.temperature(),
-                    maximum: owner.storage_profile.maximum_temperature(),
-                },
-            );
-        }
-        expected_lot_indexes
-            .entry(lot.stockpile)
-            .or_default()
-            .insert(*key, lot.commodity());
-
-        let aggregate = calculated_by_stockpile
-            .entry(lot.stockpile)
-            .or_insert((Mass::ZERO, BTreeMap::new()));
-        aggregate.0 =
-            aggregate
-                .0
-                .checked_add(lot.mass)
-                .ok_or(InventoryValidationError::MassOverflow {
-                    stockpile: lot.stockpile,
-                })?;
-        let commodity_mass = aggregate
-            .1
-            .get(&lot.commodity())
+        let lot_mass = calculated
+            .by_commodity
+            .get(commodity)
             .copied()
-            .unwrap_or(Mass::ZERO)
-            .checked_add(lot.mass)
-            .ok_or(InventoryValidationError::MassOverflow {
-                stockpile: lot.stockpile,
-            })?;
-        aggregate.1.insert(lot.commodity(), commodity_mass);
-    }
-
-    for (key, record) in &state.stockpiles {
-        if key.value() == 0 || record.id.value() == 0 {
-            return Err(InventoryValidationError::ZeroStockpileId);
-        }
-        if *key != record.id {
-            return Err(InventoryValidationError::IdMismatch {
-                key: *key,
-                record: record.id,
+            .unwrap_or(Mass::ZERO);
+        if lot_mass != *mass {
+            return Err(InventoryValidationError::CommodityMassMismatch {
+                stockpile: key,
+                commodity: *commodity,
+                cached: *mass,
+                calculated: lot_mass,
             });
         }
-        if record.capacity.is_zero() {
-            return Err(InventoryValidationError::ZeroCapacity { stockpile: *key });
-        }
-        if let Some(support) = record.supported_by {
-            if support.value() == 0 {
-                return Err(InventoryValidationError::ZeroSupportElementId { stockpile: *key });
-            }
-            if !state
-                .stockpiles_by_support
-                .get(&support)
-                .is_some_and(|stockpiles| stockpiles.contains(key))
-            {
-                return Err(InventoryValidationError::MissingSupportIndex {
-                    stockpile: *key,
-                    element: support,
-                });
-            }
-        }
-
-        let (calculated, calculated_contents) = calculated_by_stockpile
-            .remove(key)
-            .unwrap_or((Mass::ZERO, BTreeMap::new()));
-        for (commodity, mass) in &record.contents {
-            if mass.is_zero() {
-                return Err(InventoryValidationError::ZeroCommodityMass {
-                    stockpile: *key,
-                    commodity: *commodity,
-                });
-            }
-            let lot_mass = calculated_contents
-                .get(commodity)
-                .copied()
-                .unwrap_or(Mass::ZERO);
-            if lot_mass != *mass {
-                return Err(InventoryValidationError::CommodityMassMismatch {
-                    stockpile: *key,
-                    commodity: *commodity,
-                    cached: *mass,
-                    calculated: lot_mass,
-                });
-            }
-        }
-        for (commodity, lot_mass) in &calculated_contents {
-            let cached = record
-                .contents
-                .get(commodity)
-                .copied()
-                .unwrap_or(Mass::ZERO);
-            if cached != *lot_mass {
-                return Err(InventoryValidationError::CommodityMassMismatch {
-                    stockpile: *key,
-                    commodity: *commodity,
-                    cached,
-                    calculated: *lot_mass,
-                });
-            }
-        }
-        if calculated != record.stored_mass {
-            return Err(InventoryValidationError::StoredMassMismatch {
-                stockpile: *key,
-                cached: record.stored_mass,
-                calculated,
+    }
+    for (commodity, lot_mass) in &calculated.by_commodity {
+        let cached = record
+            .contents
+            .get(commodity)
+            .copied()
+            .unwrap_or(Mass::ZERO);
+        if cached != *lot_mass {
+            return Err(InventoryValidationError::CommodityMassMismatch {
+                stockpile: key,
+                commodity: *commodity,
+                cached,
+                calculated: *lot_mass,
             });
         }
-        let committed = record
-            .stored_mass
-            .checked_add(record.reserved_inbound)
-            .ok_or(InventoryValidationError::MassOverflow { stockpile: *key })?;
-        if committed > record.capacity {
-            return Err(InventoryValidationError::CapacityExceeded { stockpile: *key });
-        }
     }
+    Ok(())
+}
+
+fn validate_lot_indexes(
+    state: &InventoryState,
+    expected_lot_indexes: BTreeMap<StockpileId, StockpileLotIndex>,
+) -> Result<(), InventoryValidationError> {
     if state.lot_indexes != expected_lot_indexes {
         let stockpile = match state
             .lot_indexes
@@ -691,6 +787,12 @@ pub(crate) fn validate_loaded_inventory(
         };
         return Err(InventoryValidationError::LotIndexMismatch { stockpile });
     }
+    Ok(())
+}
+
+fn validate_stockpile_support_index(
+    state: &InventoryState,
+) -> Result<(), InventoryValidationError> {
     for (element, stockpiles) in &state.stockpiles_by_support {
         if element.value() == 0 {
             return Err(InventoryValidationError::ZeroIndexedSupportElementId);
@@ -714,6 +816,5 @@ pub(crate) fn validate_loaded_inventory(
             }
         }
     }
-    debug_assert!(calculated_by_stockpile.is_empty());
     Ok(())
 }

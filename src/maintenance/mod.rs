@@ -149,34 +149,6 @@ pub enum MaintenanceBand {
     Critical,
 }
 
-/// Pure condition transition plan; an owning runtime system decides when and where to persist it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ConditionPlan {
-    before: Condition,
-    after: Condition,
-}
-
-impl ConditionPlan {
-    #[must_use]
-    pub const fn before(self) -> Condition {
-        self.before
-    }
-
-    #[must_use]
-    pub const fn after(self) -> Condition {
-        self.after
-    }
-}
-
-#[must_use]
-pub fn decide_wear(current: Condition, wear_ppm: u32) -> ConditionPlan {
-    let after = Condition(current.0.saturating_sub(wear_ppm));
-    ConditionPlan {
-        before: current,
-        after,
-    }
-}
-
 /// Calculates condition after an operation remains active for an exact authoritative tick span.
 ///
 /// Per-tick wear is accumulated in `u128`, then clamped once at the normalized condition range so
@@ -189,7 +161,7 @@ pub(crate) fn calculate_condition_after_active_ticks(
 ) -> Condition {
     let total_wear = u128::from(wear_ppm_per_active_tick) * u128::from(duration.value());
     let bounded_wear = std::cmp::min(total_wear, u128::from(CONDITION_PARTS_PER_MILLION)) as u32;
-    decide_wear(before, bounded_wear).after()
+    Condition(before.0.saturating_sub(bounded_wear))
 }
 
 /// Failure to schedule productive active time entirely inside an equipment instance's remaining

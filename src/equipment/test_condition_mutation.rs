@@ -4,7 +4,8 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
-use crate::maintenance::{Condition, ConditionPlan, decide_wear};
+use crate::core::time::TickSpan;
+use crate::maintenance::{Condition, calculate_condition_after_active_ticks};
 use crate::mining::MiningJobId;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 
@@ -15,7 +16,8 @@ pub(crate) struct EquipmentConditionPlan {
     equipment: EquipmentId,
     expected_revision: u64,
     next_revision: u64,
-    transition: ConditionPlan,
+    before: Condition,
+    after: Condition,
 }
 
 impl EquipmentConditionPlan {
@@ -26,12 +28,12 @@ impl EquipmentConditionPlan {
 
     #[must_use]
     pub(crate) const fn before(self) -> Condition {
-        self.transition.before()
+        self.before
     }
 
     #[must_use]
     pub(crate) const fn after(self) -> Condition {
-        self.transition.after()
+        self.after
     }
 }
 
@@ -92,7 +94,7 @@ impl Error for EquipmentConditionPlanError {}
 fn decide_condition_change(
     state: &AppState,
     equipment: EquipmentId,
-    decide: impl FnOnce(Condition) -> ConditionPlan,
+    decide: impl FnOnce(Condition) -> Condition,
 ) -> Result<EquipmentConditionPlan, EquipmentConditionPlanError> {
     let equipment_state = state.equipment();
     let Some(record) = equipment_state.get_equipment(equipment) else {
@@ -119,11 +121,13 @@ fn decide_condition_change(
         .revision()
         .checked_add(1)
         .ok_or(EquipmentConditionPlanError::RevisionExhausted)?;
+    let before = record.condition();
     Ok(EquipmentConditionPlan {
         equipment,
         expected_revision: equipment_state.revision(),
         next_revision,
-        transition: decide(record.condition()),
+        before,
+        after: decide(before),
     })
 }
 
@@ -133,7 +137,7 @@ pub(crate) fn decide_equipment_wear(
     wear_ppm: u32,
 ) -> Result<EquipmentConditionPlan, EquipmentConditionPlanError> {
     decide_condition_change(state, equipment, |condition| {
-        decide_wear(condition, wear_ppm)
+        calculate_condition_after_active_ticks(wear_ppm, condition, TickSpan::new(1))
     })
 }
 
@@ -252,18 +256,18 @@ pub(crate) fn apply_equipment_condition_plan(
             equipment: plan.equipment,
         });
     };
-    if record.condition() != plan.transition.before() {
+    if record.condition() != plan.before {
         return Err(EquipmentConditionCommitError::ConditionChanged {
             equipment: plan.equipment,
-            expected: plan.transition.before(),
+            expected: plan.before,
             actual: record.condition(),
         });
     }
 
     state.equipment_state_mut().apply_condition_change(
         plan.equipment,
-        plan.transition.before(),
-        plan.transition.after(),
+        plan.before,
+        plan.after,
         plan.next_revision,
     );
     Ok(())

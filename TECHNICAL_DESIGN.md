@@ -235,10 +235,15 @@ rejected before finite resources are consumed.
 
 ### Energy and fluids
 
-Energy stores own carrier, capacity, directional power envelopes, stored energy, identity, revision, and
-optional embodied traces. Runtime owners consume or supply energy through their own validated reservations;
-direct manual power is an explicit generator. Generic store-to-store transfer is not authorized because no
-physical path, carrier conversion, or transfer consequence is modeled.
+Energy stores own carrier, capacity, directional power envelopes, stored energy, identity, revision,
+optional embodied traces, and an optional authored passive-dissipation rate. Runtime owners consume or
+supply energy through their own validated reservations; direct manual power is an explicit generator.
+Passive dissipation is an unavoidable loss into an unmodeled environmental/loss domain, not controllable
+output power. Registry construction requires the authored rate to integrate to exact whole nanojoules per
+authoritative tick. The canonical tick decides loss from the pre-tick stored-energy snapshot and applies it
+after same-tick ingress, so newly captured energy remains explicit until the following tick. Generic
+store-to-store transfer is not authorized because no physical path, carrier conversion, or transfer
+consequence is modeled.
 
 Fluid stores own identity, volume, temperature, capacity, revision, and optional support. One underlying
 material has at most one fluid identity while composition, contamination, concentration, and phase-mixture

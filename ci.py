@@ -112,7 +112,7 @@ def quick_plan() -> list[tuple[str, list[str]]]:
         ("format", ["cargo", "fmt", "--check"]),
         (
             "complexity ratchet",
-            [sys.executable, "tools/check_bca.py"],
+            [sys.executable, "tools/check_bca.py", "check"],
         ),
         (
             "repository contracts",

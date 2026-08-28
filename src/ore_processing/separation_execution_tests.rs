@@ -542,10 +542,14 @@ fn concentration_applies_authored_selectivity_without_losing_constituent_composi
         750_000,
         "concentrate grade must emerge from feed assay and target/gangue recovery"
     );
-    assert!(residue.outputs().iter().all(|output| {
-        output.commodity().form() == FORM_CRUSHED
-            && output.particle_size() == Some(liberated_particle_size())
-    }));
+    assert!(
+        residue.outputs().iter().all(|output| {
+            output.commodity().form() == FORM_CRUSHED
+                && output.commodity().material() == MATERIAL_STONE
+                && output.particle_size() == Some(liberated_particle_size())
+        }),
+        "concentration tailings commodity host must follow the dominant physical gangue instead of material-ID ordering"
+    );
     assert!(
         residue
             .outputs()

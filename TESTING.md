@@ -11,7 +11,8 @@ Choose the smallest command that completely proves the changed contract.
 | --- | --- |
 | Documentation/contracts only | `python tools/check_authority_docs.py` |
 | Build-free edit loop | `python ci.py quick` |
-| Complexity and change-risk report | `bca report --vcs` |
+| Complexity and change-risk report | `python tools/check_bca.py report` |
+| Changed-code complexity diff | `python tools/check_bca.py diff --since HEAD` |
 | Production compile | `cargo check-fast` |
 | Standard production gate | `python ci.py gate` |
 | One unit/integration test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
@@ -31,8 +32,9 @@ Choose the smallest command that completely proves the changed contract.
 | Human-readable gameplay report | `python ci.py report` |
 
 `python ci.py quick` checks formatting, the BCA cognitive-complexity ratchet, documentation/repository
-contracts, and the local CI plan without building Rust. The ratchet requires the exact BCA CLI version
-owned by `tools/check_bca.py`; install the current pin with
+contracts, and the local CI plan without building Rust. All repository-owned BCA commands go through
+`tools/check_bca.py` so both the mandatory ratchet and advisory review use the exact CLI version owned by
+the project; install the current pin with
 `cargo install big-code-analysis-cli --version 2.1.0 --locked`.
 [`bca.toml`](bca.toml) owns the analyzed source scope and threshold, while
 [`.bca-baseline.toml`](.bca-baseline.toml) pins current offenders so only new or worsened cognitive
@@ -41,10 +43,13 @@ body hashes so an unchanged over-threshold function can be renamed without creat
 failure should normally be repaired by simplifying the changed code; regenerating the baseline is reserved
 for a deliberate threshold-policy change or explicitly accepted debt, not routine failure repair. Cyclomatic
 complexity, file size, Halstead metrics, and other BCA signals remain advisory because they can over-penalize
-exhaustive Rust matches, explicit constructors, or cohesive owner modules. `bca report --vcs` combines those
-advisory metrics with repository churn and fix history to prioritize review; its aggregate scores are not
-completion gates. `python ci.py gate` adds the normal production compile. Specialized gate flags replace that
-compile with the selected focused lane. Audit lanes are the maintained broad runtime checks.
+exhaustive Rust matches, explicit constructors, or cohesive owner modules. `python tools/check_bca.py report`
+combines those advisory metrics with repository churn and fix history to prioritize review. Use repeated
+`--path` arguments to focus that report when a subsystem is already known. `python tools/check_bca.py diff`
+compares the working tree to a chosen revision and accepts repeated `--metric` arguments when a review needs
+a narrower signal. These reports are diagnostic evidence, not completion gates. `python ci.py gate` adds the
+normal production compile. Specialized gate flags replace that compile with the selected focused lane. Audit
+lanes are the maintained broad runtime checks.
 
 Do not run a compile-only command next to an executable lane that already compiles the same changed surface.
 
@@ -94,7 +99,7 @@ acquirable.
 | `progression` | Local evidence acquisition, primitive crafting/mining/power/processing, a materially consequential scarce-copper choice, autonomous work, second reinforcement, convergence, returned attention, and finite machine lifecycle. |
 | `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structure, hidden world pressure, and recovery. |
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow over variable gangue with selective recovery, full-batch industrial separation, exact constituent accounting, and physical tailings. Capability-only. |
-| `foundry` | Installed pure-copper heating, melting, casting, finite energy, and finite heat recovery. Capability-only. |
+| `foundry` | Installed pure-copper heating, melting, casting, finite energy, finite heat recovery, and passive sink cooling. Capability-only. |
 
 ### Progression probe requirements
 

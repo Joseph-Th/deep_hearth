@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::state::{AppState, apply_clock_advance, validate_invariants};
 use crate::core::time::{SimulationTick, TickSpan};
+use crate::energy::{apply_passive_energy_dissipation, decide_passive_energy_dissipation};
 use crate::geology::{
     FieldProspectingOutcome, FieldProspectingTickError, ProspectingCommitError,
     apply_field_prospecting_tick, decide_field_prospecting_tick,
@@ -96,7 +97,7 @@ pub enum TickError {
     ProductionRevisionExhausted,
     /// Equipment cannot advance its persisted revision for completed-operation wear.
     EquipmentRevisionExhausted,
-    /// Energy storage cannot advance its persisted revision for completed energy release.
+    /// Energy storage cannot advance its persisted revision for this tick's ingress or passive loss.
     EnergyRevisionExhausted,
     /// Player survival cannot advance its persisted revision for this tick.
     SurvivalRevisionExhausted,
@@ -424,7 +425,7 @@ pub fn advance_tick(
     if !has_revision_capacity(state.equipment().revision(), equipment_revision_steps) {
         return Err(TickError::EquipmentRevisionExhausted);
     }
-    let energy_revision_steps = completion_plan
+    let scheduled_energy_revision_steps = completion_plan
         .energy_revision_steps()
         .checked_add(
             manual_power_plan
@@ -432,6 +433,10 @@ pub fn advance_tick(
                 .map_or(0, |plan| plan.energy_revision_steps()),
         )
         .unwrap_or_else(|| panic!("fixed per-tick energy revision budget overflowed"));
+    let passive_energy_plan = decide_passive_energy_dissipation(registries, state);
+    let energy_revision_steps = scheduled_energy_revision_steps
+        .checked_add(passive_energy_plan.energy_revision_steps())
+        .unwrap_or_else(|| panic!("fixed per-tick passive energy revision budget overflowed"));
     if !has_revision_capacity(state.energy().revision(), energy_revision_steps) {
         return Err(TickError::EnergyRevisionExhausted);
     }
@@ -471,6 +476,7 @@ pub fn advance_tick(
     })?;
     let ready_mining_jobs = apply_mining_tick(state, mining_plan);
     let manual_power = apply_manual_power_tick(state, manual_power_plan);
+    apply_passive_energy_dissipation(state, passive_energy_plan);
     let field_prospecting = apply_field_prospecting_tick(state, field_prospecting_plan).map_err(
         |error| match error {
             ProspectingCommitError::StaleKnowledgeRevision { expected, actual } => {

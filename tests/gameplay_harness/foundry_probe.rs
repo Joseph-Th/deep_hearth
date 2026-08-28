@@ -7,16 +7,20 @@ use super::production_support::{
 use super::seed::mix64;
 use super::support::{ROOM_TEMPERATURE, nominal_equipment_mass_capability};
 use deep_hearth::content::{
-    ENERGY_ELECTRICAL_BUFFER, EQUIPMENT_CASTING_MOLD, EQUIPMENT_ELECTRIC_FURNACE, MATERIAL_COPPER,
-    PROCESS_CAST_PURE_COPPER, PROCESS_MELT_PURE_COPPER,
+    ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,
+    EQUIPMENT_ELECTRIC_FURNACE, MATERIAL_COPPER, PROCESS_CAST_PURE_COPPER,
+    PROCESS_MELT_PURE_COPPER,
 };
 use deep_hearth::core::quantity::{Energy, Mass, Temperature};
 use deep_hearth::core::state::validate_loaded_state;
+use deep_hearth::core::time::TickSpan;
+use deep_hearth::energy::{PowerRemainder, integrate_power};
 use deep_hearth::inventory::MaterialLotSelection;
 use deep_hearth::material::MaterialComposition;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::production::validate_start_process;
 use deep_hearth::registry::Registries;
+use deep_hearth::simulation::advance_tick;
 use deep_hearth::thermal::{
     CastingRequest, MeltingRequest, calculate_fusion_heat, calculate_sensible_heat,
     resolve_casting_process, resolve_melting_process,
@@ -235,9 +239,50 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
         Some(mass),
         "foundry capability probe must conserve cast output mass"
     );
+    let thermal_sink = registries
+        .energy()
+        .get_store(ENERGY_THERMAL_SINK)
+        .unwrap_or_else(|| panic!("foundry thermal-sink definition disappeared"));
+    let passive_dissipation = integrate_power(
+        thermal_sink.passive_dissipation_power(),
+        TickSpan::new(1),
+        registries.core().physical_tick_duration(),
+        PowerRemainder::ZERO,
+    )
+    .unwrap_or_else(|error| panic!("foundry passive thermal dissipation failed: {error}"));
+    assert_eq!(
+        passive_dissipation.remainder(),
+        PowerRemainder::ZERO,
+        "foundry thermal sink must dissipate exact whole nanojoules per tick"
+    );
+    assert!(
+        !passive_dissipation.energy().is_zero(),
+        "foundry thermal sink must have a nonzero passive cooling route"
+    );
+    let cooling_ticks = final_thermal
+        .nanojoules()
+        .div_ceil(passive_dissipation.energy().nanojoules());
+    let cooling_ticks = u64::try_from(cooling_ticks)
+        .unwrap_or_else(|_| panic!("foundry thermal cooling duration exceeded tick range"));
+    for _ in 0..cooling_ticks {
+        advance_tick(registries, &mut state)
+            .unwrap_or_else(|error| panic!("foundry thermal cooldown tick failed: {error}"));
+    }
+    let cooled_thermal = state
+        .energy()
+        .get_store(ids.heat_sink)
+        .map(|store| store.stored())
+        .unwrap_or_else(|| panic!("foundry heat sink disappeared during passive cooldown"));
+    assert_eq!(
+        cooled_thermal,
+        Energy::ZERO,
+        "foundry thermal sink must recover its full casting capacity without player micromanagement"
+    );
+    validate_loaded_state(registries, &state)
+        .unwrap_or_else(|error| panic!("foundry post-cooldown state audit failed: {error}"));
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
-            "CAPABILITY FOUNDRY seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[phase-change,finite-electrical-input,finite-thermal-recovery,wear] batch={}mg input={}mK initial-condition=[furnace:{} mold:{}ppm] electrical=[initial:{}nJ melt:{}nJ remaining:{}nJ] thermal=[released:{}nJ sink:{}nJ] melt={}t cast={}t matter=conserved",
+            "CAPABILITY FOUNDRY seed=0x{seed:016X} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[phase-change,finite-electrical-input,finite-thermal-recovery,passive-heat-rejection,wear] batch={}mg input={}mK initial-condition=[furnace:{} mold:{}ppm] electrical=[initial:{}nJ melt:{}nJ remaining:{}nJ] thermal=[released:{}nJ captured:{}nJ cooled:{}nJ cooldown:{}t] melt={}t cast={}t matter=conserved",
             mass.milligrams(),
             input_temperature.millikelvin(),
             initial_furnace_condition.parts_per_million(),
@@ -247,17 +292,21 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, seed: u64) {
             final_electrical.nanojoules(),
             released_heat.nanojoules(),
             final_thermal.nanojoules(),
+            cooled_thermal.nanojoules(),
+            cooling_ticks,
             melt_duration.value(),
             cast_duration.value(),
         );
     } else {
         std::println!(
-            "FOUNDRY REVIEW seed=0x{seed:016X} role=capability-only pipeline=heat->melt->cast batch={}mg input={}mK electrical=[used:{}nJ remaining:{}nJ] thermal-recovered={}nJ durations=[melt:{}t cast:{}t] matter=conserved",
+            "FOUNDRY REVIEW seed=0x{seed:016X} role=capability-only pipeline=heat->melt->cast->passive-cool batch={}mg input={}mK electrical=[used:{}nJ remaining:{}nJ] thermal=[captured:{}nJ cooldown:{}t remaining:{}nJ] durations=[melt:{}t cast:{}t] matter=conserved",
             mass.milligrams(),
             input_temperature.millikelvin(),
             melt.required_energy().nanojoules(),
             final_electrical.nanojoules(),
             final_thermal.nanojoules(),
+            cooling_ticks,
+            cooled_thermal.nanojoules(),
             melt_duration.value(),
             cast_duration.value(),
         );

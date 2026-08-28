@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::{Energy, Volume};
+use crate::core::quantity::{Energy, Power, Volume};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::energy::calculate_power_duration_ceiling;
@@ -13,15 +13,26 @@ use crate::maintenance::{
 };
 use crate::material::MaterialId;
 use crate::registry::Registries;
-use crate::survival::Vitality;
+use crate::survival::{SurvivalExertion, Vitality};
 
 use super::power_physics::{
     calculate_metabolic_duration, metabolic_output_per_tick, resolve_manual_power_exertion,
 };
 use super::{
-    PlayerWork, PlayerWorkResourceBudgetError, PlayerWorkState,
-    calculate_player_work_resource_budget,
+    ManualPowerDefinition, ManualPowerWork, PlayerWork, PlayerWorkResourceBudgetError,
+    PlayerWorkState, ProspectingWork, calculate_player_work_resource_budget,
 };
+
+struct ActivePlayerJobs {
+    manual_craft: Vec<crate::production::ProductionJobId>,
+    mining: Vec<crate::mining::MiningJobId>,
+}
+
+impl ActivePlayerJobs {
+    fn has_any(&self) -> bool {
+        !self.manual_craft.is_empty() || !self.mining.is_empty()
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerWorkValidationError {
@@ -243,30 +254,12 @@ pub(crate) fn validate_loaded_player_work(
     state: &AppState,
     work_state: &PlayerWorkState,
 ) -> Result<(), PlayerWorkValidationError> {
-    let crafting = registries.crafting();
-    let manual_jobs = state
-        .production()
-        .jobs()
-        .filter(|job| job.suspension().is_none() && crafting.get_manual(job.process()).is_some())
-        .map(|job| job.id())
-        .collect::<Vec<_>>();
-    let mining_jobs = state
-        .mining()
-        .jobs()
-        .filter(|job| job.is_working())
-        .map(|job| job.id())
-        .collect::<Vec<_>>();
-    if manual_jobs.len() + mining_jobs.len() > 1 {
+    let active_jobs = collect_active_player_jobs(registries, state);
+    if active_jobs.manual_craft.len() + active_jobs.mining.len() > 1 {
         return Err(PlayerWorkValidationError::MultiplePlayerJobs);
     }
     let Some(work) = work_state.active() else {
-        if !manual_jobs.is_empty() {
-            return Err(PlayerWorkValidationError::ManualCraftMissingWork);
-        }
-        if !mining_jobs.is_empty() {
-            return Err(PlayerWorkValidationError::MiningMissingWork);
-        }
-        return Ok(());
+        return validate_idle_player_work(&active_jobs);
     };
     let player = state
         .survival()
@@ -276,244 +269,357 @@ pub(crate) fn validate_loaded_player_work(
     if player.vitality() == Vitality::ZERO {
         return Err(PlayerWorkValidationError::PlayerDead);
     }
+    let available_energy = player.metabolic_energy();
+    let available_hydration = player.hydration();
     match work {
-        PlayerWork::ManualCraft { job } => {
-            let Some(record) = state.production().get_job(job) else {
-                return Err(PlayerWorkValidationError::ManualCraftJobMissing);
-            };
-            let Some(definition) = crafting.get_manual(record.process()) else {
-                return Err(PlayerWorkValidationError::ManualCraftProcessMismatch);
-            };
-            if manual_jobs.as_slice() != [job] {
-                return Err(PlayerWorkValidationError::ManualCraftMissingWork);
-            }
-            let remaining = record
-                .suspension()
-                .map(|suspension| suspension.remaining_active_time())
-                .unwrap_or_else(|| {
-                    TickSpan::new(
-                        record
-                            .completes_at()
-                            .value()
-                            .checked_sub(state.tick().value())
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "runtime invariant broken: running manual craft job is already due"
-                                )
-                            }),
-                    )
-                });
-            validate_remaining_resources(
-                registries,
-                player.metabolic_energy(),
-                player.hydration(),
-                definition.exertion(),
-                remaining,
-            )?;
-        }
-        PlayerWork::Mining { job } => {
-            let Some(record) = state.mining().get_job(job) else {
-                return Err(PlayerWorkValidationError::MiningJobMissing);
-            };
-            if !record.is_working() {
-                return Err(PlayerWorkValidationError::MiningJobNotWorking);
-            }
-            if mining_jobs.as_slice() != [job] {
-                return Err(PlayerWorkValidationError::MiningMissingWork);
-            }
-            let method = registries
-                .mining()
-                .get_method(record.method())
-                .ok_or(PlayerWorkValidationError::MiningMethodMissing)?;
-            validate_remaining_resources(
-                registries,
-                player.metabolic_energy(),
-                player.hydration(),
-                method.exertion(),
-                TickSpan::new(record.completes_at().value() - state.tick().value()),
-            )?;
-        }
-        PlayerWork::ManualPower { work } => {
-            if !manual_jobs.is_empty() || !mining_jobs.is_empty() {
-                return Err(PlayerWorkValidationError::MultiplePlayerJobs);
-            }
-            let method = registries
-                .labor()
-                .get_manual_power(work.method())
-                .copied()
-                .ok_or(PlayerWorkValidationError::ManualPowerMethodMissing)?;
-            let equipment = state
-                .equipment()
-                .get_equipment(work.equipment())
-                .ok_or(PlayerWorkValidationError::ManualPowerEquipmentMissing)?;
-            if equipment.definition() != work.equipment_trace().definition() {
-                return Err(PlayerWorkValidationError::ManualPowerEquipmentDefinitionMismatch);
-            }
-            if equipment.condition() != work.equipment_trace().condition() {
-                return Err(PlayerWorkValidationError::ManualPowerEquipmentConditionMismatch);
-            }
-            if equipment.supported_by().is_some() {
-                return Err(PlayerWorkValidationError::ManualPowerEquipmentMounted);
-            }
-            if state
-                .production()
-                .get_equipment_occupant(work.equipment())
-                .is_some()
-                || state
-                    .mining()
-                    .get_equipment_occupant(work.equipment())
-                    .is_some()
-                || state
-                    .production()
-                    .get_energy_occupant(work.destination())
-                    .is_some()
-            {
-                return Err(PlayerWorkValidationError::ManualPowerResourceDoubleBooked);
-            }
-            let destination = state
-                .energy()
-                .get_store(work.destination())
-                .ok_or(PlayerWorkValidationError::ManualPowerDestinationMissing)?;
-            if destination.definition() != work.output().definition() {
-                return Err(PlayerWorkValidationError::ManualPowerDestinationDefinitionMismatch);
-            }
-            let energy_definition = registries
-                .energy()
-                .get_store(destination.definition())
-                .ok_or(PlayerWorkValidationError::ManualPowerDestinationDefinitionMismatch)?;
-            if energy_definition.carrier() != method.carrier()
-                || work.output().carrier() != method.carrier()
-            {
-                return Err(PlayerWorkValidationError::ManualPowerCarrierMismatch);
-            }
-            if energy_definition.max_input_power().is_zero() {
-                return Err(PlayerWorkValidationError::ManualPowerDestinationCannotAcceptEnergy);
-            }
-            let stored_after = destination
-                .stored()
-                .checked_add(work.output().energy())
-                .ok_or(PlayerWorkValidationError::ManualPowerDestinationCapacityExceeded)?;
-            if stored_after > energy_definition.capacity() {
-                return Err(PlayerWorkValidationError::ManualPowerDestinationCapacityExceeded);
-            }
-            let equipment_definition = registries
-                .equipment()
-                .get_equipment(equipment.definition())
-                .ok_or(PlayerWorkValidationError::ManualPowerEquipmentDefinitionMismatch)?;
-            let capability = resolve_equipment_capability(
-                equipment_definition,
-                equipment.condition(),
-                method.power_capability(),
-            )
-            .ok_or(PlayerWorkValidationError::ManualPowerEquipmentCapabilityMissing)?;
-            let crate::capability::CapabilityValue::Power(equipment_power) = capability else {
-                return Err(PlayerWorkValidationError::ManualPowerEquipmentCapabilityKindMismatch);
-            };
-            let transfer_power =
-                std::cmp::min(equipment_power, energy_definition.max_input_power());
-            if transfer_power.is_zero() {
-                return Err(PlayerWorkValidationError::ManualPowerZeroPower);
-            }
-            if work.started_at() > state.tick()
-                || work.completes_at() <= state.tick()
-                || work.completes_at() <= work.started_at()
-            {
-                return Err(PlayerWorkValidationError::ManualPowerScheduleInvalid);
-            }
-            let stored_duration =
-                TickSpan::new(work.completes_at().value() - work.started_at().value());
-            let power_duration = calculate_power_duration_ceiling(
-                transfer_power,
-                work.output().energy(),
-                registries.core().physical_tick_duration(),
-            )
-            .map_err(|_error| PlayerWorkValidationError::ManualPowerDurationMismatch)?;
-            let metabolic_output = metabolic_output_per_tick(
-                method.maximum_exertion().energy_cost_per_tick(),
-                method.metabolic_efficiency_ppm(),
-            );
-            let metabolic_duration =
-                calculate_metabolic_duration(work.output().energy(), metabolic_output)
-                    .map_err(|_error| PlayerWorkValidationError::ManualPowerDurationMismatch)?;
-            let required_duration = std::cmp::max(power_duration, metabolic_duration);
-            if stored_duration != required_duration {
-                return Err(PlayerWorkValidationError::ManualPowerDurationMismatch);
-            }
-            let exertion = resolve_manual_power_exertion(
-                work.output().energy(),
-                stored_duration,
-                method.maximum_exertion(),
-                method.metabolic_efficiency_ppm(),
-            )
-            .map_err(|_error| PlayerWorkValidationError::ManualPowerDurationMismatch)?;
-            let required_condition = calculate_usable_condition_after_active_ticks(
-                method.condition_wear_ppm_per_active_tick(),
-                work.equipment_trace().condition(),
-                required_duration,
-            )
-            .map_err(PlayerWorkValidationError::ManualPowerConditionDuration)?;
-            if work.condition_after() != required_condition {
-                return Err(PlayerWorkValidationError::ManualPowerConditionMismatch);
-            }
-            let remaining_ticks = work.completes_at().value() - state.tick().value();
-            validate_remaining_resources(
-                registries,
-                player.metabolic_energy(),
-                player.hydration(),
-                exertion,
-                TickSpan::new(remaining_ticks),
-            )?;
-        }
-        PlayerWork::Prospecting { work } => {
-            if !manual_jobs.is_empty() || !mining_jobs.is_empty() {
-                return Err(PlayerWorkValidationError::MultiplePlayerJobs);
-            }
-            let method = registries
-                .labor()
-                .get_prospecting(work.method())
-                .copied()
-                .ok_or(PlayerWorkValidationError::ProspectingMethodMissing)?;
-            if registries
-                .materials()
-                .get_material(work.material())
-                .is_none()
-            {
-                return Err(PlayerWorkValidationError::ProspectingUnknownMaterial {
-                    material: work.material(),
-                });
-            }
-            let region_voxels = work
-                .region()
-                .voxel_count()
-                .ok_or(PlayerWorkValidationError::ProspectingRegionVolumeOverflow)?;
-            if region_voxels > method.maximum_region_voxels() {
-                return Err(PlayerWorkValidationError::ProspectingRegionTooLarge {
-                    actual: region_voxels,
-                    maximum: method.maximum_region_voxels(),
-                });
-            }
-            if work.started_at() > state.tick()
-                || work.completes_at() <= state.tick()
-                || work.completes_at() <= work.started_at()
-            {
-                return Err(PlayerWorkValidationError::ProspectingScheduleInvalid);
-            }
-            let stored_duration =
-                TickSpan::new(work.completes_at().value() - work.started_at().value());
-            if stored_duration != method.duration() {
-                return Err(PlayerWorkValidationError::ProspectingDurationMismatch);
-            }
-            let remaining_ticks = work.completes_at().value() - state.tick().value();
-            validate_remaining_resources(
-                registries,
-                player.metabolic_energy(),
-                player.hydration(),
-                method.exertion(),
-                TickSpan::new(remaining_ticks),
-            )?;
-        }
+        PlayerWork::ManualCraft { job } => validate_manual_craft_work(
+            registries,
+            state,
+            &active_jobs,
+            job,
+            available_energy,
+            available_hydration,
+        ),
+        PlayerWork::Mining { job } => validate_mining_work(
+            registries,
+            state,
+            &active_jobs,
+            job,
+            available_energy,
+            available_hydration,
+        ),
+        PlayerWork::ManualPower { work } => validate_manual_power_work(
+            registries,
+            state,
+            &active_jobs,
+            work,
+            available_energy,
+            available_hydration,
+        ),
+        PlayerWork::Prospecting { work } => validate_prospecting_work(
+            registries,
+            state,
+            &active_jobs,
+            work,
+            available_energy,
+            available_hydration,
+        ),
+    }
+}
+
+fn collect_active_player_jobs(registries: &Registries, state: &AppState) -> ActivePlayerJobs {
+    let crafting = registries.crafting();
+    let manual_craft = state
+        .production()
+        .jobs()
+        .filter(|job| job.suspension().is_none() && crafting.get_manual(job.process()).is_some())
+        .map(|job| job.id())
+        .collect::<Vec<_>>();
+    let mining = state
+        .mining()
+        .jobs()
+        .filter(|job| job.is_working())
+        .map(|job| job.id())
+        .collect::<Vec<_>>();
+    ActivePlayerJobs {
+        manual_craft,
+        mining,
+    }
+}
+
+fn validate_idle_player_work(
+    active_jobs: &ActivePlayerJobs,
+) -> Result<(), PlayerWorkValidationError> {
+    if !active_jobs.manual_craft.is_empty() {
+        return Err(PlayerWorkValidationError::ManualCraftMissingWork);
+    }
+    if !active_jobs.mining.is_empty() {
+        return Err(PlayerWorkValidationError::MiningMissingWork);
     }
     Ok(())
+}
+
+fn validate_manual_craft_work(
+    registries: &Registries,
+    state: &AppState,
+    active_jobs: &ActivePlayerJobs,
+    job: crate::production::ProductionJobId,
+    available_energy: Energy,
+    available_hydration: Volume,
+) -> Result<(), PlayerWorkValidationError> {
+    let Some(record) = state.production().get_job(job) else {
+        return Err(PlayerWorkValidationError::ManualCraftJobMissing);
+    };
+    let Some(definition) = registries.crafting().get_manual(record.process()) else {
+        return Err(PlayerWorkValidationError::ManualCraftProcessMismatch);
+    };
+    if active_jobs.manual_craft.as_slice() != [job] {
+        return Err(PlayerWorkValidationError::ManualCraftMissingWork);
+    }
+    let remaining = record
+        .suspension()
+        .map(|suspension| suspension.remaining_active_time())
+        .unwrap_or_else(|| {
+            TickSpan::new(
+                record
+                    .completes_at()
+                    .value()
+                    .checked_sub(state.tick().value())
+                    .unwrap_or_else(|| {
+                        panic!("runtime invariant broken: running manual craft job is already due")
+                    }),
+            )
+        });
+    validate_remaining_resources(
+        registries,
+        available_energy,
+        available_hydration,
+        definition.exertion(),
+        remaining,
+    )
+}
+
+fn validate_mining_work(
+    registries: &Registries,
+    state: &AppState,
+    active_jobs: &ActivePlayerJobs,
+    job: crate::mining::MiningJobId,
+    available_energy: Energy,
+    available_hydration: Volume,
+) -> Result<(), PlayerWorkValidationError> {
+    let Some(record) = state.mining().get_job(job) else {
+        return Err(PlayerWorkValidationError::MiningJobMissing);
+    };
+    if !record.is_working() {
+        return Err(PlayerWorkValidationError::MiningJobNotWorking);
+    }
+    if active_jobs.mining.as_slice() != [job] {
+        return Err(PlayerWorkValidationError::MiningMissingWork);
+    }
+    let method = registries
+        .mining()
+        .get_method(record.method())
+        .ok_or(PlayerWorkValidationError::MiningMethodMissing)?;
+    validate_remaining_resources(
+        registries,
+        available_energy,
+        available_hydration,
+        method.exertion(),
+        TickSpan::new(record.completes_at().value() - state.tick().value()),
+    )
+}
+
+fn validate_manual_power_work(
+    registries: &Registries,
+    state: &AppState,
+    active_jobs: &ActivePlayerJobs,
+    work: ManualPowerWork,
+    available_energy: Energy,
+    available_hydration: Volume,
+) -> Result<(), PlayerWorkValidationError> {
+    if active_jobs.has_any() {
+        return Err(PlayerWorkValidationError::MultiplePlayerJobs);
+    }
+    let method = registries
+        .labor()
+        .get_manual_power(work.method())
+        .copied()
+        .ok_or(PlayerWorkValidationError::ManualPowerMethodMissing)?;
+    let transfer_power = validate_manual_power_bindings(registries, state, work, method)?;
+    let (required_duration, exertion) =
+        validate_manual_power_schedule(registries, state, work, method, transfer_power)?;
+    let required_condition = calculate_usable_condition_after_active_ticks(
+        method.condition_wear_ppm_per_active_tick(),
+        work.equipment_trace().condition(),
+        required_duration,
+    )
+    .map_err(PlayerWorkValidationError::ManualPowerConditionDuration)?;
+    if work.condition_after() != required_condition {
+        return Err(PlayerWorkValidationError::ManualPowerConditionMismatch);
+    }
+    let remaining_ticks = work.completes_at().value() - state.tick().value();
+    validate_remaining_resources(
+        registries,
+        available_energy,
+        available_hydration,
+        exertion,
+        TickSpan::new(remaining_ticks),
+    )
+}
+
+fn validate_manual_power_bindings(
+    registries: &Registries,
+    state: &AppState,
+    work: ManualPowerWork,
+    method: ManualPowerDefinition,
+) -> Result<Power, PlayerWorkValidationError> {
+    let equipment = state
+        .equipment()
+        .get_equipment(work.equipment())
+        .ok_or(PlayerWorkValidationError::ManualPowerEquipmentMissing)?;
+    if equipment.definition() != work.equipment_trace().definition() {
+        return Err(PlayerWorkValidationError::ManualPowerEquipmentDefinitionMismatch);
+    }
+    if equipment.condition() != work.equipment_trace().condition() {
+        return Err(PlayerWorkValidationError::ManualPowerEquipmentConditionMismatch);
+    }
+    if equipment.supported_by().is_some() {
+        return Err(PlayerWorkValidationError::ManualPowerEquipmentMounted);
+    }
+    if state
+        .production()
+        .get_equipment_occupant(work.equipment())
+        .is_some()
+        || state
+            .mining()
+            .get_equipment_occupant(work.equipment())
+            .is_some()
+        || state
+            .production()
+            .get_energy_occupant(work.destination())
+            .is_some()
+    {
+        return Err(PlayerWorkValidationError::ManualPowerResourceDoubleBooked);
+    }
+    let destination = state
+        .energy()
+        .get_store(work.destination())
+        .ok_or(PlayerWorkValidationError::ManualPowerDestinationMissing)?;
+    if destination.definition() != work.output().definition() {
+        return Err(PlayerWorkValidationError::ManualPowerDestinationDefinitionMismatch);
+    }
+    let energy_definition = registries
+        .energy()
+        .get_store(destination.definition())
+        .ok_or(PlayerWorkValidationError::ManualPowerDestinationDefinitionMismatch)?;
+    if energy_definition.carrier() != method.carrier()
+        || work.output().carrier() != method.carrier()
+    {
+        return Err(PlayerWorkValidationError::ManualPowerCarrierMismatch);
+    }
+    if energy_definition.max_input_power().is_zero() {
+        return Err(PlayerWorkValidationError::ManualPowerDestinationCannotAcceptEnergy);
+    }
+    let stored_after = destination
+        .stored()
+        .checked_add(work.output().energy())
+        .ok_or(PlayerWorkValidationError::ManualPowerDestinationCapacityExceeded)?;
+    if stored_after > energy_definition.capacity() {
+        return Err(PlayerWorkValidationError::ManualPowerDestinationCapacityExceeded);
+    }
+    let equipment_definition = registries
+        .equipment()
+        .get_equipment(equipment.definition())
+        .ok_or(PlayerWorkValidationError::ManualPowerEquipmentDefinitionMismatch)?;
+    let capability = resolve_equipment_capability(
+        equipment_definition,
+        equipment.condition(),
+        method.power_capability(),
+    )
+    .ok_or(PlayerWorkValidationError::ManualPowerEquipmentCapabilityMissing)?;
+    let crate::capability::CapabilityValue::Power(equipment_power) = capability else {
+        return Err(PlayerWorkValidationError::ManualPowerEquipmentCapabilityKindMismatch);
+    };
+    let transfer_power = std::cmp::min(equipment_power, energy_definition.max_input_power());
+    if transfer_power.is_zero() {
+        return Err(PlayerWorkValidationError::ManualPowerZeroPower);
+    }
+    Ok(transfer_power)
+}
+
+fn validate_manual_power_schedule(
+    registries: &Registries,
+    state: &AppState,
+    work: ManualPowerWork,
+    method: ManualPowerDefinition,
+    transfer_power: Power,
+) -> Result<(TickSpan, SurvivalExertion), PlayerWorkValidationError> {
+    if work.started_at() > state.tick()
+        || work.completes_at() <= state.tick()
+        || work.completes_at() <= work.started_at()
+    {
+        return Err(PlayerWorkValidationError::ManualPowerScheduleInvalid);
+    }
+    let stored_duration = TickSpan::new(work.completes_at().value() - work.started_at().value());
+    let power_duration = calculate_power_duration_ceiling(
+        transfer_power,
+        work.output().energy(),
+        registries.core().physical_tick_duration(),
+    )
+    .map_err(|_error| PlayerWorkValidationError::ManualPowerDurationMismatch)?;
+    let metabolic_output = metabolic_output_per_tick(
+        method.maximum_exertion().energy_cost_per_tick(),
+        method.metabolic_efficiency_ppm(),
+    );
+    let metabolic_duration = calculate_metabolic_duration(work.output().energy(), metabolic_output)
+        .map_err(|_error| PlayerWorkValidationError::ManualPowerDurationMismatch)?;
+    let required_duration = std::cmp::max(power_duration, metabolic_duration);
+    if stored_duration != required_duration {
+        return Err(PlayerWorkValidationError::ManualPowerDurationMismatch);
+    }
+    let exertion = resolve_manual_power_exertion(
+        work.output().energy(),
+        stored_duration,
+        method.maximum_exertion(),
+        method.metabolic_efficiency_ppm(),
+    )
+    .map_err(|_error| PlayerWorkValidationError::ManualPowerDurationMismatch)?;
+    Ok((required_duration, exertion))
+}
+
+fn validate_prospecting_work(
+    registries: &Registries,
+    state: &AppState,
+    active_jobs: &ActivePlayerJobs,
+    work: ProspectingWork,
+    available_energy: Energy,
+    available_hydration: Volume,
+) -> Result<(), PlayerWorkValidationError> {
+    if active_jobs.has_any() {
+        return Err(PlayerWorkValidationError::MultiplePlayerJobs);
+    }
+    let method = registries
+        .labor()
+        .get_prospecting(work.method())
+        .copied()
+        .ok_or(PlayerWorkValidationError::ProspectingMethodMissing)?;
+    if registries
+        .materials()
+        .get_material(work.material())
+        .is_none()
+    {
+        return Err(PlayerWorkValidationError::ProspectingUnknownMaterial {
+            material: work.material(),
+        });
+    }
+    let region_voxels = work
+        .region()
+        .voxel_count()
+        .ok_or(PlayerWorkValidationError::ProspectingRegionVolumeOverflow)?;
+    if region_voxels > method.maximum_region_voxels() {
+        return Err(PlayerWorkValidationError::ProspectingRegionTooLarge {
+            actual: region_voxels,
+            maximum: method.maximum_region_voxels(),
+        });
+    }
+    if work.started_at() > state.tick()
+        || work.completes_at() <= state.tick()
+        || work.completes_at() <= work.started_at()
+    {
+        return Err(PlayerWorkValidationError::ProspectingScheduleInvalid);
+    }
+    let stored_duration = TickSpan::new(work.completes_at().value() - work.started_at().value());
+    if stored_duration != method.duration() {
+        return Err(PlayerWorkValidationError::ProspectingDurationMismatch);
+    }
+    let remaining_ticks = work.completes_at().value() - state.tick().value();
+    validate_remaining_resources(
+        registries,
+        available_energy,
+        available_hydration,
+        method.exertion(),
+        TickSpan::new(remaining_ticks),
+    )
 }
 
 fn validate_remaining_resources(

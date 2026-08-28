@@ -1,5 +1,6 @@
 //! Process-start admission and routing; child commit owns atomic mutation after validation.
 
+mod admission;
 mod commit;
 mod routing;
 pub use commit::StartProcessCommitError;
@@ -10,17 +11,11 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
-use crate::energy::{
-    EnergyConsumptionReservation, EnergyIngressReservation, EnergyIngressReservationError,
-    EnergyReservationError, validate_energy_consumption_reservation,
-    validate_energy_ingress_reservation,
-};
+use crate::energy::{EnergyConsumptionReservation, EnergyIngressReservation};
 use crate::equipment::{EquipmentId, ValidatedEquipmentUse};
 use crate::inventory::{
-    AMBIENT_PRESERVATION_MULTIPLIER_PPM, ConsumptionReservation, ReservationError, StockpileId,
-    StockpileStorageError, StockpileStoredMassChange, StockpileStructuralLoadError,
-    ValidatedStockpileStructuralLoad, validate_consumption_reservation_from_selection,
-    validate_stockpile_stored_mass_changes,
+    ConsumptionReservation, StockpileId, StockpileStorageError, StockpileStructuralLoadError,
+    ValidatedStockpileStructuralLoad,
 };
 use crate::material::{FormId, MaterialId};
 use crate::mining::MiningJobId;
@@ -28,10 +23,15 @@ use crate::registry::Registries;
 use crate::structural::{StructuralElementId, StructuralLifecycle};
 
 use super::super::definitions::ProcessId;
-use super::super::resolution::{ProcessOutputStreamId, ProcessResolution, sum_output_stream_mass};
+use super::super::resolution::{ProcessOutputStreamId, ProcessResolution};
 use super::super::state::{
     ProductionJobEquipment, ProductionJobId, ProductionJobIdentity, ProductionJobRecord,
     ProductionJobResources, ProductionJobSchedule, ProductionOccupancyRelease,
+};
+use admission::{
+    ValidatedEnergyReservations, ValidatedEquipmentResources, ValidatedJobAllocation,
+    ValidatedMaterialReservation, validate_energy_reservations, validate_equipment_resources,
+    validate_job_allocation, validate_material_reservation, validate_source_structural_load,
 };
 use routing::{ValidatedOutputRouting, validate_output_routing};
 
@@ -584,199 +584,31 @@ fn validate_start_process_routed_internal(
         inbound_by_destination,
         destination_structure_revision,
     } = validate_output_routing(registries, state, resolution, routes)?;
-
-    let current = state.tick();
-    let Some(completes_at) = current.checked_add_span(resolution.duration()) else {
-        return Err(StartProcessError::CompletionTickOverflow {
-            current,
-            duration_ticks: resolution.duration().value(),
-        });
-    };
-
-    let next_job_value = state.production().next_job_id();
-    let Some(next_after) = next_job_value.checked_add(1) else {
-        return Err(StartProcessError::JobIdExhausted);
-    };
-    let job_id = ProductionJobId::new(next_job_value);
-    let expected_production_revision = state.production().revision();
-    let Some(next_production_revision) = expected_production_revision.checked_add(1) else {
-        return Err(StartProcessError::ProductionRevisionExhausted);
-    };
-
-    let output_mass = match sum_output_stream_mass(resolution.output_streams()) {
-        Some(mass) => mass,
-        None => panic!("resolved process output mass overflowed after resolution validation"),
-    };
-    let input_mass = resolution.input_mass();
-    if output_mass != input_mass {
-        return Err(StartProcessError::MatterBalanceMismatch {
-            input_mass,
-            output_mass,
-        });
-    }
-    let reservation = validate_consumption_reservation_from_selection(
-        state.inventory(),
-        resolution.selection().clone(),
-        inbound_by_destination,
-    )
-    .map_err(map_reservation_error)?;
-    let material_storage_history = reservation
-        .oldest_storage_history_at(state.inventory(), current)
-        .ok_or(StartProcessError::InputStorageAgeOverflow { stockpile: source })?;
-    if material_storage_history
-        .project(completes_at, AMBIENT_PRESERVATION_MULTIPLIER_PPM)
-        .is_none()
-    {
-        return Err(StartProcessError::InputStorageAgeOverflow { stockpile: source });
-    }
+    let ValidatedJobAllocation {
+        current,
+        completes_at,
+        job_id,
+        next_job_id,
+        expected_production_revision,
+        next_production_revision,
+    } = validate_job_allocation(state, resolution)?;
+    let ValidatedMaterialReservation {
+        input_mass,
+        reservation,
+        storage_history: material_storage_history,
+    } = validate_material_reservation(state, resolution, inbound_by_destination, completes_at)?;
     let consumed_inputs = reservation.consumed_inputs().to_vec();
-    let energy_reservation = match resolution.energy_supply() {
-        Some(selection) => Some(
-            validate_energy_consumption_reservation(state.energy(), selection)
-                .map_err(map_energy_reservation_error)?,
-        ),
-        None => None,
-    };
-    let consumed_energy = energy_reservation.map(EnergyConsumptionReservation::trace);
-    let energy_ingress_reservation = match resolution.energy_sink() {
-        Some(selection) => Some(
-            validate_energy_ingress_reservation(registries, state.energy(), selection)
-                .map_err(map_energy_ingress_reservation_error)?,
-        ),
-        None => None,
-    };
-    let released_energy = energy_ingress_reservation.map(EnergyIngressReservation::trace);
-    for store in consumed_energy
-        .map(|trace| trace.source())
-        .into_iter()
-        .chain(released_energy.map(|trace| trace.destination()))
-    {
-        if let Some(job_id) = state.production().get_energy_occupant(store) {
-            let job = match state.production().get_job(job_id) {
-                Some(job) => job,
-                None => panic!(
-                    "runtime invariant broken: energy occupancy index references missing production job {}",
-                    job_id.value()
-                ),
-            };
-            return Err(StartProcessError::EnergyStoreBusy {
-                store,
-                job: job_id,
-                release: job.occupancy_release(),
-            });
-        }
-        if state
-            .player_work()
-            .get_manual_power_energy_occupant(store)
-            .is_some()
-        {
-            return Err(StartProcessError::EnergyStoreBusyManualPower { store });
-        }
-    }
-    let equipment_use = resolution.equipment_use();
-    let equipment_provider = match equipment_use {
-        Some(selection) => {
-            let expected = selection.expected_equipment_revision();
-            let actual = state.equipment().revision();
-            if actual != expected {
-                return Err(StartProcessError::StaleResolvedEquipment {
-                    expected_equipment_revision: expected,
-                    actual_equipment_revision: actual,
-                });
-            }
-            let trace = selection.trace();
-            let Some(record) = state.equipment().get_equipment(trace.equipment()) else {
-                return Err(StartProcessError::ResolvedEquipmentMissing {
-                    equipment: trace.equipment(),
-                });
-            };
-            if record.definition() != trace.definition() {
-                return Err(StartProcessError::ResolvedEquipmentDefinitionChanged {
-                    equipment: trace.equipment(),
-                });
-            }
-            if record.condition() != trace.condition() {
-                return Err(StartProcessError::ResolvedEquipmentConditionChanged {
-                    equipment: trace.equipment(),
-                });
-            }
-            let expected_support = selection.support();
-            let actual_support = record.supported_by();
-            if actual_support != expected_support {
-                return Err(StartProcessError::ResolvedEquipmentSupportChanged {
-                    equipment: trace.equipment(),
-                    expected: expected_support,
-                    actual: actual_support,
-                });
-            }
-            if let Some(expected_structure_revision) = selection.expected_structure_revision() {
-                let actual_structure_revision = state.structures().revision();
-                if actual_structure_revision != expected_structure_revision {
-                    return Err(StartProcessError::StaleResolvedStructure {
-                        expected_structure_revision,
-                        actual_structure_revision,
-                    });
-                }
-                let element = match expected_support {
-                    Some(element) => element,
-                    None => panic!(
-                        "validated equipment use has structural revision without a support element"
-                    ),
-                };
-                let Some(support) = state.structures().get_element(element) else {
-                    return Err(StartProcessError::ResolvedEquipmentSupportMissing {
-                        equipment: trace.equipment(),
-                        element,
-                    });
-                };
-                if support.lifecycle() != StructuralLifecycle::Active {
-                    return Err(StartProcessError::ResolvedEquipmentSupportNotActive {
-                        equipment: trace.equipment(),
-                        element,
-                        lifecycle: support.lifecycle(),
-                    });
-                }
-            }
-            if let Some(job) = state.production().get_equipment_occupant(trace.equipment()) {
-                return Err(StartProcessError::EquipmentBusy {
-                    equipment: trace.equipment(),
-                    job: job.id(),
-                    release: job.occupancy_release(),
-                });
-            }
-            if let Some(job) = state.mining().get_equipment_occupant(trace.equipment()) {
-                return Err(StartProcessError::EquipmentBusyMining {
-                    equipment: trace.equipment(),
-                    job,
-                });
-            }
-            if state
-                .player_work()
-                .get_manual_power_equipment_occupant(trace.equipment())
-                .is_some()
-            {
-                return Err(StartProcessError::EquipmentBusyManualPower {
-                    equipment: trace.equipment(),
-                });
-            }
-            Some(trace)
-        }
-        None => None,
-    };
-    let source_record = state
-        .inventory()
-        .get_stockpile(source)
-        .ok_or(StartProcessError::UnknownStockpile { stockpile: source })?;
-    let source_after = source_record
-        .stored_mass()
-        .checked_sub(input_mass)
-        .ok_or(StartProcessError::MassOverflow { stockpile: source })?;
-    let structural_load = validate_stockpile_stored_mass_changes(
-        registries,
-        state,
-        [StockpileStoredMassChange::new(source, source_after)],
-    )
-    .map_err(StartProcessError::StructuralLoad)?;
+    let ValidatedEnergyReservations {
+        consumption: energy_reservation,
+        ingress: energy_ingress_reservation,
+        consumed: consumed_energy,
+        released: released_energy,
+    } = validate_energy_reservations(registries, state, resolution)?;
+    let ValidatedEquipmentResources {
+        selection: equipment_use,
+        provider: equipment_provider,
+    } = validate_equipment_resources(state, resolution)?;
+    let structural_load = validate_source_structural_load(registries, state, resolution)?;
 
     Ok(ValidatedStartProcess {
         job: ProductionJobRecord {
@@ -806,7 +638,7 @@ fn validate_start_process_routed_internal(
             },
             output_streams,
         },
-        next_job_id: next_after,
+        next_job_id,
         expected_production_revision,
         next_production_revision,
         reservation,
@@ -816,76 +648,4 @@ fn validate_start_process_routed_internal(
         destination_structure_revision,
         structural_load,
     })
-}
-
-fn map_energy_ingress_reservation_error(error: EnergyIngressReservationError) -> StartProcessError {
-    match error {
-        EnergyIngressReservationError::StaleSelection { expected, actual } => {
-            StartProcessError::StaleResolvedEnergy {
-                expected_energy_revision: expected,
-                actual_energy_revision: actual,
-            }
-        }
-        EnergyIngressReservationError::UnknownStore { store: _store } => {
-            StartProcessError::ResolvedEnergySinkMissing
-        }
-        EnergyIngressReservationError::CapacityOverflow { store: _store } => {
-            StartProcessError::ResolvedEnergySinkCapacity
-        }
-        EnergyIngressReservationError::InsufficientCapacity {
-            store: _store,
-            stored: _stored,
-            requested: _requested,
-            capacity: _capacity,
-        } => StartProcessError::ResolvedEnergySinkCapacity,
-    }
-}
-
-fn map_energy_reservation_error(error: EnergyReservationError) -> StartProcessError {
-    match error {
-        EnergyReservationError::StaleSelection { expected, actual } => {
-            StartProcessError::StaleResolvedEnergy {
-                expected_energy_revision: expected,
-                actual_energy_revision: actual,
-            }
-        }
-        EnergyReservationError::UnknownStore { store: _store } => {
-            StartProcessError::ResolvedEnergyStoreMissing
-        }
-        EnergyReservationError::InsufficientEnergy {
-            store: _store,
-            available: _available,
-            requested: _requested,
-        } => StartProcessError::ResolvedEnergyInsufficient,
-        EnergyReservationError::RevisionExhausted => StartProcessError::EnergyRevisionExhausted,
-    }
-}
-
-fn map_reservation_error(error: ReservationError) -> StartProcessError {
-    match error {
-        ReservationError::UnknownStockpile { stockpile } => {
-            StartProcessError::UnknownStockpile { stockpile }
-        }
-        ReservationError::MassOverflow { stockpile } => {
-            StartProcessError::MassOverflow { stockpile }
-        }
-        ReservationError::CapacityExceeded {
-            stockpile,
-            capacity,
-            committed_after_consumption,
-            requested_inbound,
-        } => StartProcessError::CapacityExceeded {
-            stockpile,
-            capacity,
-            committed_after_consumption,
-            requested_inbound,
-        },
-        ReservationError::RevisionExhausted => StartProcessError::InventoryRevisionExhausted,
-        ReservationError::StaleSelection { expected, actual } => {
-            StartProcessError::StaleResolvedInputs {
-                expected_inventory_revision: expected,
-                actual_inventory_revision: actual,
-            }
-        }
-    }
 }

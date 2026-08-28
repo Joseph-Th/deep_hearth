@@ -5,6 +5,7 @@ mod construction_execution;
 mod definitions;
 mod disassembly_execution;
 mod integration;
+mod passive_dissipation;
 mod state;
 mod storage_execution;
 
@@ -40,6 +41,9 @@ pub(crate) use storage_execution::add_energy_store_with_initial_for_fixture as a
 #[cfg(test)]
 pub(crate) use storage_execution::{AddEnergyStoreError, add_energy_store};
 
+pub(crate) use passive_dissipation::{
+    apply_passive_energy_dissipation, decide_passive_energy_dissipation,
+};
 pub(crate) use state::validate_loaded_energy;
 pub(crate) use storage_execution::{
     EnergyCommitError, EnergyConsumptionReservation, EnergyIngressReservation,
