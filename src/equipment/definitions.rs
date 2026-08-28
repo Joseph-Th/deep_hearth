@@ -30,16 +30,21 @@ impl EquipmentDefinitionId {
     }
 }
 
-/// Authored replacement-material service for one equipment class.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EquipmentMaintenanceMaterialMode {
+    AggregateWearStock,
+    EmbodiedComponentReplacement,
+}
+
+/// Authored material-backed service for one equipment class.
 ///
-/// The profile deliberately models the physical consequence visible to the current game. Its
-/// full-service stock is the material cost of restoring failed equipment to the authored target;
-/// runtime service consumes the proportional share for the condition actually restored, reforms that
-/// exact matter into spent stock, and returns the maintained machine to the target. Labor/tool/time
-/// requirements can extend this resolver when those owners exist without reopening a free condition
-/// mutation path.
+/// Aggregate service consumes a proportional amount of external wear stock and reforms that exact
+/// matter into a spent form. Component service instead exchanges one complete authored embodied
+/// component for a fresh equivalent while the removed component becomes spent stock. Both routes
+/// keep condition recovery behind explicit matter movement rather than a free durability reset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EquipmentMaintenanceProfile {
+    material_mode: EquipmentMaintenanceMaterialMode,
     replacement: CommodityKey,
     full_service_replacement_mass: Mass,
     spent: CommodityKey,
@@ -72,11 +77,28 @@ impl EquipmentMaintenanceProfile {
             "equipment maintenance spent output must differ from reusable replacement stock"
         );
         Self {
+            material_mode: EquipmentMaintenanceMaterialMode::AggregateWearStock,
             replacement,
             full_service_replacement_mass,
             spent,
             restored_condition,
         }
+    }
+
+    /// Authors replacement of one complete embodied assembly component.
+    ///
+    /// `component_mass` must match the corresponding assembly input exactly; registry validation
+    /// enforces that relationship once the complete equipment definition is available.
+    #[must_use]
+    pub fn new_component_replacement(
+        replacement: CommodityKey,
+        component_mass: Mass,
+        spent: CommodityKey,
+        restored_condition: Condition,
+    ) -> Self {
+        let mut profile = Self::new(replacement, component_mass, spent, restored_condition);
+        profile.material_mode = EquipmentMaintenanceMaterialMode::EmbodiedComponentReplacement;
+        profile
     }
 
     #[must_use]
@@ -91,13 +113,17 @@ impl EquipmentMaintenanceProfile {
 
     /// Replacement stock required to restore `condition_before` to the authored service target.
     ///
-    /// The authored full-service mass represents recovery from failed condition. Partial service
-    /// consumes the same fraction of that stock as the fraction of target condition restored,
-    /// rounded upward to the nearest milligram so positive repair can never become free.
+    /// Aggregate wear stock scales with the fraction of target condition restored, rounded upward
+    /// so positive repair can never become free. Embodied-component replacement always requires the
+    /// complete authored component because a partial swap would fabricate an unmodeled component
+    /// condition state.
     #[must_use]
     pub fn required_replacement_mass(self, condition_before: Condition) -> Mass {
         if condition_before >= self.restored_condition {
             return Mass::ZERO;
+        }
+        if self.is_component_replacement() {
+            return self.full_service_replacement_mass;
         }
         let restored_parts = self
             .restored_condition
@@ -122,6 +148,14 @@ impl EquipmentMaintenanceProfile {
     #[must_use]
     pub const fn restored_condition(self) -> Condition {
         self.restored_condition
+    }
+
+    #[must_use]
+    pub const fn is_component_replacement(self) -> bool {
+        matches!(
+            self.material_mode,
+            EquipmentMaintenanceMaterialMode::EmbodiedComponentReplacement
+        )
     }
 }
 
@@ -391,8 +425,8 @@ impl EquipmentDefinition {
             self.id.value()
         );
         assert!(
-            self.assembly_profile.is_none(),
-            "equipment definition {} cannot combine exact assembly traces with aggregate maintenance until component replacement is modeled",
+            self.assembly_profile.is_none() || profile.is_component_replacement(),
+            "equipment definition {} cannot apply aggregate maintenance to exact assembly traces",
             self.id.value()
         );
         assert!(
@@ -413,8 +447,9 @@ impl EquipmentDefinition {
             self.id.value()
         );
         assert!(
-            self.maintenance_profile.is_none(),
-            "equipment definition {} cannot combine exact assembly traces with aggregate maintenance until component replacement is modeled",
+            self.maintenance_profile
+                .is_none_or(EquipmentMaintenanceProfile::is_component_replacement),
+            "equipment definition {} cannot apply aggregate maintenance to exact assembly traces",
             self.id.value()
         );
         self.assembly_profile = Some(profile);
@@ -558,11 +593,37 @@ fn validate_equipment_maintenance_references(
     let Some(maintenance) = definition.maintenance_profile() else {
         return;
     };
-    assert!(
-        definition.assembly_profile().is_none(),
-        "equipment definition {} cannot combine exact assembly traces with aggregate maintenance until component replacement is modeled",
-        definition.id().value()
-    );
+    if maintenance.is_component_replacement() {
+        let assembly = definition.assembly_profile().unwrap_or_else(|| {
+            panic!(
+                "equipment definition {} component maintenance requires an assembly profile",
+                definition.id().value()
+            )
+        });
+        let matching = assembly
+            .inputs()
+            .iter()
+            .filter(|input| input.commodity() == maintenance.replacement())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            matching.len(),
+            1,
+            "equipment definition {} component maintenance replacement must identify exactly one assembly input",
+            definition.id().value()
+        );
+        assert_eq!(
+            matching[0].mass(),
+            maintenance.full_service_replacement_mass(),
+            "equipment definition {} component maintenance mass must equal the complete authored assembly component mass",
+            definition.id().value()
+        );
+    } else {
+        assert!(
+            definition.assembly_profile().is_none(),
+            "equipment definition {} cannot apply aggregate maintenance to exact assembly traces",
+            definition.id().value()
+        );
+    }
     for commodity in [maintenance.replacement(), maintenance.spent()] {
         assert!(
             materials.has_commodity(commodity),

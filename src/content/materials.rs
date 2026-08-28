@@ -35,6 +35,7 @@ pub const FORM_FLYWHEEL: FormId = FormId::new(12);
 pub const FORM_REINFORCEMENT: FormId = FormId::new(13);
 pub const FORM_NATIVE_METAL: FormId = FormId::new(14);
 pub const FORM_SCRAP: FormId = FormId::new(15);
+pub const FORM_TAILINGS: FormId = FormId::new(16);
 
 fn consolidated_form(id: FormId, name: &'static str) -> FormDefinition {
     FormDefinition::new(
@@ -112,6 +113,12 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
         loose_form(
             FORM_CRUSHED,
             "crushed",
+            MaterialPhase::Solid,
+            ParticleSizeStatePolicy::Required,
+        ),
+        loose_form(
+            FORM_TAILINGS,
+            "tailings",
             MaterialPhase::Solid,
             ParticleSizeStatePolicy::Required,
         ),
@@ -206,6 +213,7 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
         CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
         CommodityKey::new(MATERIAL_SLAG, FORM_LUMP),
         CommodityKey::new(MATERIAL_SLAG, FORM_CRUSHED),
+        CommodityKey::new(MATERIAL_SLAG, FORM_TAILINGS),
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
         CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
         CommodityKey::new(MATERIAL_MEAT, FORM_FOOD),
@@ -216,7 +224,9 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
         CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
         CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
         CommodityKey::new(MATERIAL_STONE, FORM_CRUSHED),
+        CommodityKey::new(MATERIAL_STONE, FORM_TAILINGS),
         CommodityKey::new(MATERIAL_CLAY, FORM_CRUSHED),
+        CommodityKey::new(MATERIAL_CLAY, FORM_TAILINGS),
     ] {
         registry.register_commodity(commodity);
     }

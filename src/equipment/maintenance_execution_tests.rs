@@ -1,23 +1,29 @@
 //! Tests for the sibling maintenance execution module; isolated so test-only edits do not invalidate production builds.
 
+use super::super::maintenance_resolution::EquipmentMaintenanceMaterialResolution;
 use super::*;
 use crate::capability::{
     CapabilityDefinition, CapabilityId, CapabilityProfile, CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{
-    FORM_CHIP, FORM_LOG, MATERIAL_STONE, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-    make_test_registries_with_equipment, make_test_registries_with_sensible_heating,
+    EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_COPPER_REINFORCED_PICK,
+    EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
+    EQUIPMENT_STONE_SEPARATOR, FORM_CHIP, FORM_HANDLE, FORM_LOG, FORM_REINFORCEMENT, FORM_SCRAP,
+    FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries, make_test_registries_with_equipment,
+    make_test_registries_with_sensible_heating,
 };
 use crate::core::quantity::{AggregateMass, Area, Energy, Force, Length, Power, Temperature};
 use crate::core::state::validate_loaded_state;
-use crate::core::time::WorldSeed;
+use crate::core::time::{SimulationTick, WorldSeed};
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, ExplicitEnergyAccountingError,
-    add_energy_store_with_initial_for_test, calculate_explicit_energy_accounting,
+    add_energy_store_with_initial_for_fixture, calculate_explicit_energy_accounting,
 };
 use crate::equipment::{
     EquipmentDefinition, EquipmentDefinitionId, EquipmentMaintenanceProfile, add_equipment,
-    apply_equipment_condition_plan, decide_equipment_wear,
+    apply_equipment_condition_plan, decide_equipment_wear, validate_assemble_equipment,
+    validate_upgrade_equipment,
 };
 
 use crate::inventory::{
@@ -27,7 +33,9 @@ use crate::inventory::{
 use crate::maintenance::MaintenanceThresholds;
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
+use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{ProcessDefinition, ProcessId, validate_start_process};
+use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralLoadKind, add_structural_element, calculate_aggregate_weight_force_ceiling,
@@ -50,6 +58,309 @@ fn condition(parts_per_million: u32) -> Condition {
         Ok(condition) => condition,
         Err(error) => panic!("maintenance condition fixture failed: {error}"),
     }
+}
+
+#[test]
+fn every_builtin_primitive_component_service_executes_from_its_real_assembly_traces() {
+    let registries = build_registries();
+    for (case, definition_id) in [
+        EQUIPMENT_STONE_PICK,
+        EQUIPMENT_STONE_HAND_CRANK,
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+        EQUIPMENT_STONE_CRUSHER,
+        EQUIPMENT_STONE_SEPARATOR,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let definition = registries
+            .equipment()
+            .get_equipment(definition_id)
+            .unwrap_or_else(|| {
+                panic!(
+                    "primitive service definition {} disappeared",
+                    definition_id.value()
+                )
+            });
+        let assembly_profile = definition.assembly_profile().unwrap_or_else(|| {
+            panic!(
+                "primitive service definition {} lost assembly profile",
+                definition_id.value()
+            )
+        });
+        let maintenance = definition.maintenance_profile().unwrap_or_else(|| {
+            panic!(
+                "primitive service definition {} lost maintenance profile",
+                definition_id.value()
+            )
+        });
+        assert!(maintenance.is_component_replacement());
+
+        let mut state = AppState::new(WorldSeed::new(
+            0x8120_C100_u64
+                .checked_add(
+                    u64::try_from(case).unwrap_or_else(|_| unreachable!("bounded case fits u64")),
+                )
+                .unwrap_or_else(|| unreachable!("bounded primitive service seed cannot overflow")),
+        ));
+        let assembly = add_solid_stockpile_for_test(&mut state, definition.mass())
+            .unwrap_or_else(|error| panic!("primitive service assembly stockpile failed: {error}"));
+        for input in assembly_profile.inputs() {
+            deposit_lot_for_test(
+                &registries,
+                &mut state,
+                assembly,
+                input.commodity(),
+                input.mass(),
+                Temperature::from_millikelvin(300_000),
+            )
+            .unwrap_or_else(|error| panic!("primitive service assembly input failed: {error}"));
+        }
+        let equipment = validate_assemble_equipment(&registries, &state, definition_id, assembly)
+            .unwrap_or_else(|error| panic!("primitive service assembly failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("primitive service assembly commit failed: {error}"));
+        let wear = decide_equipment_wear(&state, equipment, 100_000)
+            .unwrap_or_else(|error| panic!("primitive service wear plan failed: {error}"));
+        apply_equipment_condition_plan(&mut state, wear)
+            .unwrap_or_else(|error| panic!("primitive service wear commit failed: {error}"));
+
+        let replacement_mass = maintenance.full_service_replacement_mass();
+        let replacement = add_solid_stockpile_for_test(&mut state, replacement_mass)
+            .unwrap_or_else(|error| {
+                panic!("primitive service replacement stockpile failed: {error}")
+            });
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            replacement,
+            maintenance.replacement(),
+            replacement_mass,
+            Temperature::from_millikelvin(310_000),
+        )
+        .unwrap_or_else(|error| panic!("primitive service replacement input failed: {error}"));
+        let spent = add_solid_stockpile_for_test(&mut state, replacement_mass)
+            .unwrap_or_else(|error| panic!("primitive service spent stockpile failed: {error}"));
+        let matter_before = calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("primitive service matter audit failed: {error}"))
+            .total();
+        let energy_before = explicit_energy(&registries, &state);
+
+        let resolution = resolve_equipment_maintenance(
+            &registries,
+            &state,
+            EquipmentMaintenanceRequest::new(equipment, replacement, spent),
+        )
+        .unwrap_or_else(|error| panic!("primitive service resolution failed: {error}"));
+        assert!(resolution.replaces_embodied_component());
+        assert_eq!(resolution.material_mass(), replacement_mass);
+        let outcome = validate_equipment_maintenance(&registries, &state, resolution)
+            .unwrap_or_else(|error| panic!("primitive service validation failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("primitive service commit failed: {error}"));
+        assert_eq!(outcome.equipment(), equipment);
+        assert_eq!(outcome.condition_after(), maintenance.restored_condition());
+
+        let record = state
+            .equipment()
+            .get_equipment(equipment)
+            .unwrap_or_else(|| panic!("primitive serviced equipment disappeared"));
+        assert_eq!(record.definition(), definition_id);
+        assert_eq!(record.embodied_mass(), definition.mass());
+        assert_eq!(record.condition(), maintenance.restored_condition());
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(spent)
+                .map(|stockpile| stockpile.get_mass(maintenance.spent())),
+            Some(replacement_mass),
+            "primitive service must emit exactly the replaced component mass as spent material"
+        );
+        assert_eq!(
+            calculate_matter_accounting(&state)
+                .unwrap_or_else(|error| panic!(
+                    "primitive service final matter audit failed: {error}"
+                ))
+                .total(),
+            matter_before
+        );
+        assert_eq!(explicit_energy(&registries, &state), energy_before);
+        validate_loaded_state(&registries, &state)
+            .unwrap_or_else(|error| panic!("primitive service state audit failed: {error}"));
+    }
+}
+
+#[test]
+fn component_maintenance_preserves_upgrade_and_exchanges_exact_embodied_trace() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x8120_C001));
+    let assembly = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("component service assembly stockpile failed: {error}"));
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            assembly,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(300_000),
+        )
+        .unwrap_or_else(|error| panic!("component service assembly material failed: {error}"));
+    }
+    let pick = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, assembly)
+        .unwrap_or_else(|error| panic!("component service pick assembly failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("component service pick assembly commit failed: {error}"));
+
+    let reinforcement = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
+        .unwrap_or_else(|error| {
+            panic!("component service reinforcement stockpile failed: {error}")
+        });
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        reinforcement,
+        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+        Mass::from_milligrams(20_000),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap_or_else(|error| panic!("component service reinforcement material failed: {error}"));
+    assert_eq!(
+        validate_upgrade_equipment(
+            &registries,
+            &state,
+            pick,
+            EQUIPMENT_COPPER_REINFORCED_PICK,
+            reinforcement,
+        )
+        .unwrap_or_else(|error| panic!("component service upgrade failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("component service upgrade commit failed: {error}")),
+        pick
+    );
+    let wear = decide_equipment_wear(&state, pick, 400_000)
+        .unwrap_or_else(|error| panic!("component service wear planning failed: {error}"));
+    apply_equipment_condition_plan(&mut state, wear)
+        .unwrap_or_else(|error| panic!("component service wear commit failed: {error}"));
+    advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("component service provenance tick failed: {error}"));
+
+    let old_stone_trace = state
+        .equipment()
+        .get_equipment(pick)
+        .unwrap_or_else(|| panic!("component service upgraded pick disappeared"))
+        .embodied_material()
+        .iter()
+        .find(|trace| trace.profile().commodity() == CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
+        .cloned()
+        .unwrap_or_else(|| panic!("component service old stone component disappeared"));
+    let replacement = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(800_000))
+        .unwrap_or_else(|error| panic!("component service replacement stockpile failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        replacement,
+        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+        Mass::from_milligrams(800_000),
+        Temperature::from_millikelvin(310_000),
+    )
+    .unwrap_or_else(|error| panic!("component service fresh component failed: {error}"));
+    let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(800_000))
+        .unwrap_or_else(|error| panic!("component service spent stockpile failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("component service matter before failed: {error}"))
+        .total();
+    let energy_before = explicit_energy(&registries, &state);
+
+    let resolution = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(pick, replacement, spent),
+    )
+    .unwrap_or_else(|error| panic!("component service resolution failed: {error}"));
+    assert!(resolution.replaces_embodied_component());
+    assert_eq!(resolution.material_mass(), Mass::from_milligrams(800_000));
+    let outcome = validate_equipment_maintenance(&registries, &state, resolution)
+        .unwrap_or_else(|error| panic!("component service validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("component service commit failed: {error}"));
+    assert_eq!(outcome.equipment(), pick);
+    assert_eq!(outcome.condition_after(), Condition::PRISTINE);
+
+    let record = state
+        .equipment()
+        .get_equipment(pick)
+        .unwrap_or_else(|| panic!("component service pick disappeared after repair"));
+    assert_eq!(record.definition(), EQUIPMENT_COPPER_REINFORCED_PICK);
+    assert_eq!(record.condition(), Condition::PRISTINE);
+    assert_eq!(record.embodied_mass(), Mass::from_milligrams(1_020_000));
+    assert!(record.embodied_material().iter().any(|trace| {
+        trace.profile().commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)
+            && trace.mass() == Mass::from_milligrams(20_000)
+    }));
+    let fresh_stone = record
+        .embodied_material()
+        .iter()
+        .find(|trace| trace.profile().commodity() == CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
+        .unwrap_or_else(|| panic!("component service fresh stone trace disappeared"));
+    assert_eq!(fresh_stone.mass(), Mass::from_milligrams(800_000));
+    assert_eq!(
+        fresh_stone.provenance().latest_created_at(),
+        SimulationTick::new(1),
+        "replacement component must remain distinguishably newer than the original equipment assembly"
+    );
+    assert_eq!(
+        fresh_stone.profile().temperature(),
+        Temperature::from_millikelvin(310_000)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(spent)
+            .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_SCRAP))),
+        Some(Mass::from_milligrams(800_000))
+    );
+    let spent_trace = state
+        .inventory()
+        .lots()
+        .find(|lot| lot.stockpile() == spent)
+        .unwrap_or_else(|| panic!("component service spent lot disappeared"));
+    assert_eq!(
+        spent_trace.temperature(),
+        old_stone_trace.profile().temperature()
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("component service matter after failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(explicit_energy(&registries, &state), energy_before);
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("component service final state audit failed: {error}"));
+    let encoded =
+        serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("component service persistence serialization failed: {error}")
+        });
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("component service persistence decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("component service trusted reload failed: {error}"));
+    assert_eq!(
+        loaded, state,
+        "component service must persist a newer replacement trace inside the older equipment identity"
+    );
 }
 
 fn registries() -> Registries {
@@ -133,11 +444,12 @@ fn occupied_registries() -> Registries {
             profile,
             thresholds,
         ),
-        EnergyStoreDefinition::new(
+        EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_DEFINITION,
             "maintenance occupancy battery",
             EnergyCarrier::Electrical,
             Energy::from_nanojoules(1_000_000_000),
+            Power::ZERO,
             Power::from_microwatts(500_000),
         ),
         ProcessDefinition::new_selected_batch(
@@ -227,6 +539,7 @@ fn bind_selections(
         material,
         spent: CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
         spent_destination,
+        material_mode: EquipmentMaintenanceMaterialResolution::AggregateWearStock,
     }
 }
 
@@ -1145,7 +1458,7 @@ fn maintenance_commit_rechecks_late_production_occupancy_before_moving_material(
         maintenance_source,
         Mass::from_milligrams(1),
     );
-    let energy_store = match add_energy_store_with_initial_for_test(
+    let energy_store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         ENERGY_DEFINITION,
@@ -1290,7 +1603,7 @@ fn maintenance_counts_reserved_inbound_as_capacity_but_not_structural_weight() {
     if let Err(error) = mount.commit(&mut state) {
         panic!("reserved-weight spent mount commit failed: {error}");
     }
-    let energy_store = match add_energy_store_with_initial_for_test(
+    let energy_store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         ENERGY_DEFINITION,

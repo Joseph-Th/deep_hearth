@@ -16,7 +16,7 @@ use crate::core::state::apply_clock_advance;
 use crate::core::time::{SimulationTick, WorldSeed};
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, EnergyValidationError,
-    add_energy_store_with_initial_for_test,
+    add_energy_store_with_initial_for_fixture,
 };
 use crate::equipment::{
     EquipmentDefinition, EquipmentDefinitionId, EquipmentValidationError, add_equipment,
@@ -61,11 +61,12 @@ const TEST_HEAT_ENERGY_DEFINITION: EnergyStoreDefinitionId = EnergyStoreDefiniti
 const TEST_HEAT_PROCESS: ProcessId = ProcessId::new(900_501);
 
 fn make_test_energy_registries() -> Registries {
-    make_test_registries_with_energy_store(EnergyStoreDefinition::new(
+    make_test_registries_with_energy_store(EnergyStoreDefinition::new_with_transfer_limits(
         TEST_ENERGY_DEFINITION,
         "persistence test electrical buffer",
         EnergyCarrier::Electrical,
         Energy::from_nanojoules(1_000_000),
+        Power::ZERO,
         Power::from_microwatts(100_000),
     ))
 }
@@ -248,11 +249,12 @@ fn make_test_heating_registries() -> Registries {
             profile,
             thresholds,
         ),
-        EnergyStoreDefinition::new(
+        EnergyStoreDefinition::new_with_transfer_limits(
             TEST_HEAT_ENERGY_DEFINITION,
             "persistence electrical buffer",
             EnergyCarrier::Electrical,
             Energy::from_nanojoules(1_000_000_000),
+            Power::ZERO,
             Power::from_microwatts(500_000),
         ),
         process,
@@ -1156,7 +1158,7 @@ fn tampered_stored_matter_load_is_rejected_on_load() {
 fn energy_store_round_trip_preserves_definition_energy_and_revision() {
     let registries = make_test_energy_registries();
     let mut state = AppState::new(WorldSeed::new(0xE900_0001));
-    let store = match add_energy_store_with_initial_for_test(
+    let store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         TEST_ENERGY_DEFINITION,
@@ -1345,7 +1347,7 @@ fn tampered_equipment_structural_load_is_rejected_on_load() {
 fn energy_store_with_unknown_definition_is_rejected_on_load() {
     let registries = make_test_energy_registries();
     let mut state = AppState::new(WorldSeed::new(0xE900_0002));
-    let store = match add_energy_store_with_initial_for_test(
+    let store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         TEST_ENERGY_DEFINITION,
@@ -1381,7 +1383,7 @@ fn energy_store_with_unknown_definition_is_rejected_on_load() {
 fn energy_store_above_authored_capacity_is_rejected_on_load() {
     let registries = make_test_energy_registries();
     let mut state = AppState::new(WorldSeed::new(0xE900_0003));
-    let store = match add_energy_store_with_initial_for_test(
+    let store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         TEST_ENERGY_DEFINITION,
@@ -1518,7 +1520,7 @@ fn in_flight_sensible_heating_round_trip_preserves_energy_trace_and_continuation
         Ok(id) => id,
         Err(error) => panic!("heating persistence equipment failed: {error}"),
     };
-    let energy_store = match add_energy_store_with_initial_for_test(
+    let energy_store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         TEST_HEAT_ENERGY_DEFINITION,

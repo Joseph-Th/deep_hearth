@@ -18,8 +18,9 @@ use super::equipment::{
 };
 use super::materials::{
     FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED, FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_LOG,
-    FORM_LUMP, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_SCRAP, FORM_TOOL,
-    MATERIAL_CHARCOAL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_LUMP, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_SCRAP,
+    FORM_TAILINGS, FORM_TOOL, MATERIAL_CHARCOAL, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_SLAG,
+    MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 const RAMP_WOOD: PaletteRampId = PaletteRampId::new(1);
@@ -86,6 +87,7 @@ pub const OBJECT_NATIVE_COPPER: ObjectAppearanceId = ObjectAppearanceId::new(25)
 pub const OBJECT_COPPER_SCRAP: ObjectAppearanceId = ObjectAppearanceId::new(26);
 pub const OBJECT_STONE_SEPARATOR: ObjectAppearanceId = ObjectAppearanceId::new(27);
 pub const OBJECT_GRAVITY_SEPARATOR: ObjectAppearanceId = ObjectAppearanceId::new(28);
+pub const OBJECT_TAILINGS: ObjectAppearanceId = ObjectAppearanceId::new(29);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(
@@ -441,6 +443,11 @@ fn build_object_appearances() -> Vec<ObjectAppearanceDefinition> {
             "copper scrap",
             &[TEXTURE_WORKING_METAL, TEXTURE_COPPER_HAMMERED],
         ),
+        object(
+            OBJECT_TAILINGS,
+            "mineral tailings",
+            &[TEXTURE_STONE, TEXTURE_SLAG],
+        ),
     ]
 }
 
@@ -515,6 +522,31 @@ fn build_commodity_bindings() -> Vec<CommodityAppearanceBinding> {
             Some(OBJECT_SLAG),
         ),
         CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_STONE, FORM_CRUSHED),
+            None,
+            Some(OBJECT_TAILINGS),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_CLAY, FORM_CRUSHED),
+            None,
+            Some(OBJECT_TAILINGS),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_SLAG, FORM_TAILINGS),
+            None,
+            Some(OBJECT_TAILINGS),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_STONE, FORM_TAILINGS),
+            None,
+            Some(OBJECT_TAILINGS),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_CLAY, FORM_TAILINGS),
+            None,
+            Some(OBJECT_TAILINGS),
+        ),
+        CommodityAppearanceBinding::new(
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             None,
             Some(OBJECT_STONE_LUMP),
@@ -530,6 +562,11 @@ fn build_commodity_bindings() -> Vec<CommodityAppearanceBinding> {
             Some(OBJECT_STONE_CHIP),
         ),
         CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+            None,
+            Some(OBJECT_STONE_CHIP),
+        ),
+        CommodityAppearanceBinding::new(
             CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
             None,
             Some(OBJECT_STONE_FLYWHEEL),
@@ -541,6 +578,11 @@ fn build_commodity_bindings() -> Vec<CommodityAppearanceBinding> {
         ),
         CommodityAppearanceBinding::new(
             CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+            None,
+            Some(OBJECT_WOOD_CHIP),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
             None,
             Some(OBJECT_WOOD_CHIP),
         ),

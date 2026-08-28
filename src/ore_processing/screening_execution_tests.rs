@@ -12,7 +12,7 @@ use crate::core::quantity::{Length, MassSpecificEnergy};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::energy::{
-    EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store_with_initial_for_test,
+    EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store_with_initial_for_fixture,
 };
 use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment};
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_spec_for_test};
@@ -105,11 +105,12 @@ fn registries_with_power(aperture: Length, max_output_power: Power) -> Registrie
             ),
         ],
         equipment,
-        EnergyStoreDefinition::new(
+        EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_STORE,
             "test screen mechanical buffer",
             EnergyCarrier::Mechanical,
             Energy::from_nanojoules(1_000_000),
+            Power::ZERO,
             max_output_power,
         ),
         process,
@@ -160,7 +161,7 @@ fn fixture_with_power(aperture: Length, max_output_power: Power) -> Fixture {
         .unwrap_or_else(|error| panic!("screening lot fixture failed: {error}"));
     let equipment = add_equipment(&registries, &mut state, SCREEN, Condition::PRISTINE)
         .unwrap_or_else(|error| panic!("screening equipment fixture failed: {error}"));
-    let energy = add_energy_store_with_initial_for_test(
+    let energy = add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         ENERGY_STORE,
@@ -450,7 +451,7 @@ fn run_screening_soak(seed: WorldSeed) -> AppState {
         .unwrap_or_else(|error| panic!("screening soak lot seed failed: {error}"));
     let equipment = add_equipment(&registries, &mut state, SCREEN, Condition::PRISTINE)
         .unwrap_or_else(|error| panic!("screening soak equipment failed: {error}"));
-    let energy = add_energy_store_with_initial_for_test(
+    let energy = add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         ENERGY_STORE,

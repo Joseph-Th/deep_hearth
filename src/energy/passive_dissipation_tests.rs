@@ -1,23 +1,42 @@
 //! Tests for passive finite-store energy loss and owner revision semantics.
 
 use super::*;
-use crate::content::{ENERGY_THERMAL_SINK, build_registries};
-use crate::core::quantity::Energy;
+use crate::content::make_test_registries_with_energy_store;
+use crate::core::quantity::{Energy, Power};
 use crate::core::state::AppState;
 use crate::core::time::WorldSeed;
 use crate::energy::{
-    add_energy_store_with_initial_for_test, apply_released_energy_outcomes, validate_energy_sink,
+    EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
+    add_energy_store_with_initial_for_fixture, apply_released_energy_outcomes,
+    validate_energy_sink,
 };
+use crate::registry::Registries;
+
+const DISSIPATIVE_STORE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(930_101);
+
+fn registries() -> Registries {
+    make_test_registries_with_energy_store(
+        EnergyStoreDefinition::new_with_transfer_limits(
+            DISSIPATIVE_STORE,
+            "passive dissipation fixture",
+            EnergyCarrier::Thermal,
+            Energy::from_nanojoules(10_000_000_000_000_000),
+            Power::from_microwatts(1_000_000_000_000),
+            Power::ZERO,
+        )
+        .with_passive_dissipation_power(Power::from_microwatts(1_000_000_000_000)),
+    )
+}
 
 #[test]
 fn passive_dissipation_removes_exact_pre_tick_energy_once() {
-    let registries = build_registries();
+    let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0xE930_0001));
     let initial = Energy::from_nanojoules(5_000_000_000_000_000);
-    let store = add_energy_store_with_initial_for_test(
+    let store = add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
-        ENERGY_THERMAL_SINK,
+        DISSIPATIVE_STORE,
         initial,
     )
     .unwrap_or_else(|error| panic!("thermal sink fixture failed: {error}"));
@@ -39,12 +58,12 @@ fn passive_dissipation_removes_exact_pre_tick_energy_once() {
 
 #[test]
 fn empty_dissipative_store_does_not_churn_energy_revision() {
-    let registries = build_registries();
+    let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0xE930_0002));
-    add_energy_store_with_initial_for_test(
+    add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
-        ENERGY_THERMAL_SINK,
+        DISSIPATIVE_STORE,
         Energy::ZERO,
     )
     .unwrap_or_else(|error| panic!("empty thermal sink fixture failed: {error}"));
@@ -59,19 +78,19 @@ fn empty_dissipative_store_does_not_churn_energy_revision() {
 
 #[test]
 fn passive_dissipation_batches_multiple_stores_under_one_owner_revision() {
-    let registries = build_registries();
+    let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0xE930_0003));
-    let first = add_energy_store_with_initial_for_test(
+    let first = add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
-        ENERGY_THERMAL_SINK,
+        DISSIPATIVE_STORE,
         Energy::from_nanojoules(5_000_000_000_000_000),
     )
     .unwrap_or_else(|error| panic!("first thermal sink fixture failed: {error}"));
-    let second = add_energy_store_with_initial_for_test(
+    let second = add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
-        ENERGY_THERMAL_SINK,
+        DISSIPATIVE_STORE,
         Energy::from_nanojoules(1_000_000_000_000_000),
     )
     .unwrap_or_else(|error| panic!("second thermal sink fixture failed: {error}"));
@@ -100,14 +119,14 @@ fn passive_dissipation_batches_multiple_stores_under_one_owner_revision() {
 
 #[test]
 fn same_tick_ingress_is_not_erased_by_pre_tick_passive_dissipation() {
-    let registries = build_registries();
+    let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0xE930_0004));
     let initial = Energy::from_nanojoules(1_000_000_000_000_000);
     let incoming = Energy::from_nanojoules(1_000_000_000_000_000);
-    let store = add_energy_store_with_initial_for_test(
+    let store = add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
-        ENERGY_THERMAL_SINK,
+        DISSIPATIVE_STORE,
         initial,
     )
     .unwrap_or_else(|error| panic!("same-tick passive-loss fixture failed: {error}"));

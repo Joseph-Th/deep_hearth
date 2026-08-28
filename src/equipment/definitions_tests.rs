@@ -12,6 +12,34 @@ fn assembly_profile() -> MaterialAssemblyProfile {
 }
 
 #[test]
+fn component_maintenance_requires_the_complete_component_at_any_wear_level() {
+    let profile = EquipmentMaintenanceProfile::new_component_replacement(
+        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+        Mass::from_milligrams(7),
+        CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+        Condition::PRISTINE,
+    );
+
+    assert!(profile.is_component_replacement());
+    assert_eq!(
+        profile.required_replacement_mass(Condition::FAILED),
+        Mass::from_milligrams(7)
+    );
+    assert_eq!(
+        profile.required_replacement_mass(
+            Condition::new(999_999)
+                .unwrap_or_else(|error| panic!("worn component condition failed: {error}"))
+        ),
+        Mass::from_milligrams(7),
+        "component service must not turn a partial component into a free condition reset"
+    );
+    assert_eq!(
+        profile.required_replacement_mass(Condition::PRISTINE),
+        Mass::ZERO
+    );
+}
+
+#[test]
 fn maintenance_replacement_mass_tracks_condition_restored_and_rounds_positive_repairs_up() {
     let profile = EquipmentMaintenanceProfile::new(
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
@@ -168,7 +196,7 @@ fn equipment_definition_rejects_duplicate_authoritative_profiles() {
 }
 
 #[test]
-fn equipment_definition_rejects_maintenance_on_exact_assembled_matter() {
+fn equipment_definition_rejects_aggregate_maintenance_on_exact_assembled_matter() {
     let maintenance = || {
         EquipmentMaintenanceProfile::new(
             CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
@@ -191,6 +219,43 @@ fn equipment_definition_rejects_maintenance_on_exact_assembled_matter() {
 
     assert!(assembly_then_maintenance.is_err());
     assert!(maintenance_then_assembly.is_err());
+}
+
+#[test]
+fn equipment_registry_accepts_component_replacement_that_matches_exact_assembly_input() {
+    let registries = crate::content::build_registries();
+    let definition = basic_definition(EquipmentDefinitionId::new(810_015))
+        .with_assembly_profile(assembly_profile())
+        .with_maintenance_profile(EquipmentMaintenanceProfile::new_component_replacement(
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(1),
+            CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+            Condition::PRISTINE,
+        ));
+    let registry = EquipmentRegistry::new([definition]);
+
+    registry.validate_references(registries.capabilities(), registries.materials());
+}
+
+#[test]
+fn equipment_registry_rejects_component_replacement_mass_that_is_not_whole_component() {
+    let registries = crate::content::build_registries();
+    let definition = basic_definition(EquipmentDefinitionId::new(810_016))
+        .with_assembly_profile(assembly_profile())
+        .with_maintenance_profile(EquipmentMaintenanceProfile::new_component_replacement(
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(2),
+            CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+            Condition::PRISTINE,
+        ));
+    let registry = EquipmentRegistry::new([definition]);
+
+    assert!(
+        std::panic::catch_unwind(|| {
+            registry.validate_references(registries.capabilities(), registries.materials());
+        })
+        .is_err()
+    );
 }
 
 #[test]

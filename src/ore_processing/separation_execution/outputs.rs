@@ -6,8 +6,8 @@ use crate::core::arithmetic::scale_u128_fraction_floor;
 use crate::core::quantity::{Mass, Temperature};
 use crate::inventory::ConsumedMaterialTrace;
 use crate::material::{
-    COMPOSITION_PARTS_PER_MILLION, CommodityKey, CompositionComponent, MaterialComposition,
-    MaterialId, MaterialLotSpec, ParticleSizeDistribution, ParticleSizeStatePolicy,
+    COMPOSITION_PARTS_PER_MILLION, CommodityKey, MaterialComposition, MaterialId, MaterialLotSpec,
+    MaterialRegistry, ParticleSizeDistribution, ParticleSizeStatePolicy,
 };
 use crate::ore_processing::ConstituentSeparationProcessDefinition;
 
@@ -16,8 +16,8 @@ use super::ConstituentSeparationBatchError;
 mod blending;
 
 use blending::{
-    ParticulateOutputKey, add_blended_concentration_residue, add_blended_particulate_stream,
-    add_particulate_mass, build_particulate_outputs,
+    ParticulateOutputKey, add_blended_particulate_stream, add_blended_residue,
+    build_particulate_outputs,
 };
 
 #[derive(Debug)]
@@ -158,6 +158,7 @@ struct OutputAccumulator {
 }
 
 fn validate_input_trace(
+    materials: &MaterialRegistry,
     definition: ConstituentSeparationProcessDefinition,
     trace: &ConsumedMaterialTrace,
 ) -> Result<SeparationInputKey, ConstituentSeparationBatchError> {
@@ -168,11 +169,13 @@ fn validate_input_trace(
             found: profile.commodity().form(),
         });
     }
-    if profile.commodity().material() != definition.target_material() {
-        return Err(ConstituentSeparationBatchError::InputHostMaterialMismatch {
-            expected: definition.target_material(),
-            found: profile.commodity().material(),
-        });
+    if definition.is_sorting() && profile.commodity().material() != definition.target_material() {
+        return Err(
+            ConstituentSeparationBatchError::SortingInputHostMaterialMismatch {
+                expected: definition.target_material(),
+                found: profile.commodity().material(),
+            },
+        );
     }
 
     let mut has_non_target = false;
@@ -181,12 +184,13 @@ fn validate_input_trace(
             continue;
         }
         has_non_target = true;
-        if definition
-            .residue_material()
-            .is_some_and(|residue| component.material() != residue)
-        {
-            return Err(ConstituentSeparationBatchError::UnsupportedConstituent {
+        if !materials.has_commodity(CommodityKey::new(
+            component.material(),
+            definition.residue_output_form(),
+        )) {
+            return Err(ConstituentSeparationBatchError::UnsupportedResidueForm {
                 material: component.material(),
+                form: definition.residue_output_form(),
             });
         }
     }
@@ -199,16 +203,8 @@ fn validate_input_trace(
             material: definition.target_material(),
         });
     }
-    match definition.residue_material() {
-        Some(residue) if profile.composition().parts_per_million(residue) == 0 => {
-            return Err(ConstituentSeparationBatchError::MissingResidueConstituent {
-                material: residue,
-            });
-        }
-        None if !has_non_target => {
-            return Err(ConstituentSeparationBatchError::MissingNonTargetConstituent);
-        }
-        Some(_) | None => {}
+    if !has_non_target {
+        return Err(ConstituentSeparationBatchError::MissingNonTargetConstituent);
     }
 
     let particle_size = profile
@@ -234,6 +230,7 @@ fn validate_input_trace(
 }
 
 fn collect_inputs(
+    materials: &MaterialRegistry,
     definition: ConstituentSeparationProcessDefinition,
     traces: &[ConsumedMaterialTrace],
 ) -> Result<CollectedInputs, ConstituentSeparationBatchError> {
@@ -244,7 +241,7 @@ fn collect_inputs(
     let mut selected_mass = Mass::ZERO;
     let mut grouped = BTreeMap::<SeparationInputKey, ExactInputProfile>::new();
     for trace in traces {
-        let key = validate_input_trace(definition, trace)?;
+        let key = validate_input_trace(materials, definition, trace)?;
         selected_mass = selected_mass
             .checked_add(trace.mass())
             .ok_or(ConstituentSeparationBatchError::MassOverflow)?;
@@ -287,7 +284,7 @@ fn recover_group(
             .insert(definition.target_material(), recovered_target_numerator);
     }
     let mut target_milligrams = recovered_target_milligrams;
-    if definition.residue_material().is_none() && recovered_target_milligrams != 0 {
+    if definition.is_concentration() && recovered_target_milligrams != 0 {
         for (material, numerator) in &mut input.constituent_numerators {
             if *material == definition.target_material() {
                 continue;
@@ -335,77 +332,6 @@ fn recover_group(
     })
 }
 
-fn add_binary_residue(
-    grouped: &mut BTreeMap<ParticulateOutputKey, Mass>,
-    definition: ConstituentSeparationProcessDefinition,
-    stream: ExactStreamGroup,
-) -> Result<(), ConstituentSeparationBatchError> {
-    let residue_material = definition
-        .residue_material()
-        .unwrap_or_else(|| unreachable!("binary residue projection requires a residue material"));
-    let denominator = u128::from(COMPOSITION_PARTS_PER_MILLION);
-    let mut whole_component_milligrams = 0_u64;
-    let mut remainders = Vec::with_capacity(stream.constituent_numerators.len());
-    for (material, numerator) in stream.constituent_numerators {
-        let whole = u64::try_from(numerator / denominator)
-            .map_err(|_| ConstituentSeparationBatchError::MassOverflow)?;
-        let remainder = numerator % denominator;
-        whole_component_milligrams = whole_component_milligrams
-            .checked_add(whole)
-            .ok_or(ConstituentSeparationBatchError::MassOverflow)?;
-        if whole != 0 {
-            add_particulate_mass(
-                grouped,
-                CommodityKey::new(material, definition.residue_output_form()),
-                stream.temperature,
-                MaterialComposition::pure(material),
-                stream.particle_size.clone(),
-                Mass::from_milligrams(whole),
-            )?;
-        }
-        remainders.push((material, remainder));
-    }
-
-    let boundary_milligrams = stream
-        .mass
-        .milligrams()
-        .checked_sub(whole_component_milligrams)
-        .unwrap_or_else(|| unreachable!("component floors cannot exceed selected mass"));
-    for _ in 0..boundary_milligrams {
-        let mut remaining_ppm = denominator;
-        let mut boundary_components = Vec::new();
-        for (material, remainder) in &mut remainders {
-            if *remainder == 0 || remaining_ppm == 0 {
-                continue;
-            }
-            let taken = (*remainder).min(remaining_ppm);
-            let ppm = u32::try_from(taken)
-                .unwrap_or_else(|_| unreachable!("boundary component is normalized ppm"));
-            boundary_components.push(CompositionComponent::new(*material, ppm));
-            *remainder -= taken;
-            remaining_ppm -= taken;
-        }
-        assert_eq!(
-            remaining_ppm, 0,
-            "composition remainders must exactly fill each boundary milligram"
-        );
-        let boundary_composition =
-            MaterialComposition::new(boundary_components).unwrap_or_else(|error| {
-                unreachable!("bounded separation boundary composition must be valid: {error}")
-            });
-        add_particulate_mass(
-            grouped,
-            CommodityKey::new(residue_material, definition.residue_output_form()),
-            stream.temperature,
-            boundary_composition,
-            stream.particle_size.clone(),
-            Mass::from_milligrams(1),
-        )?;
-    }
-    debug_assert!(remainders.iter().all(|(_, remainder)| *remainder == 0));
-    Ok(())
-}
-
 impl OutputAccumulator {
     fn add_group(
         &mut self,
@@ -420,7 +346,7 @@ impl OutputAccumulator {
         } = group;
 
         if !target.mass.is_zero() {
-            if definition.residue_material().is_none() {
+            if definition.is_concentration() {
                 match target_particle_size_policy {
                     ParticleSizeStatePolicy::Required => add_blended_particulate_stream(
                         &mut self.target_particulate_by_profile,
@@ -455,18 +381,14 @@ impl OutputAccumulator {
 
         let target_mass = target.mass;
         let residue_mass = residue.mass;
-        if definition.residue_material().is_some() {
-            add_binary_residue(&mut self.residue_by_profile, definition, residue)?;
-        } else {
-            add_blended_concentration_residue(
-                &mut self.residue_by_profile,
-                definition,
-                residue.temperature,
-                residue.particle_size,
-                residue.constituent_numerators,
-                residue.mass,
-            )?;
-        }
+        add_blended_residue(
+            &mut self.residue_by_profile,
+            definition,
+            residue.temperature,
+            residue.particle_size,
+            residue.constituent_numerators,
+            residue.mass,
+        )?;
         self.target_mass = self
             .target_mass
             .checked_add(target_mass)
@@ -493,7 +415,7 @@ impl OutputAccumulator {
                 selected: selected_mass,
             });
         }
-        let target = if definition.residue_material().is_some() {
+        let target = if definition.is_sorting() {
             build_target_outputs(
                 self.target_by_profile,
                 CommodityKey::new(
@@ -514,6 +436,7 @@ impl OutputAccumulator {
 }
 
 pub(super) fn resolve_separation_outputs(
+    materials: &MaterialRegistry,
     definition: ConstituentSeparationProcessDefinition,
     target_particle_size_policy: ParticleSizeStatePolicy,
     traces: &[ConsumedMaterialTrace],
@@ -521,7 +444,7 @@ pub(super) fn resolve_separation_outputs(
     let CollectedInputs {
         selected_mass,
         grouped,
-    } = collect_inputs(definition, traces)?;
+    } = collect_inputs(materials, definition, traces)?;
     let mut outputs = OutputAccumulator::default();
     for (key, input) in grouped {
         outputs.add_group(

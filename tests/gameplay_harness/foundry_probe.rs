@@ -108,10 +108,10 @@ pub(super) fn probe_setup(registries: &Registries, seed: u64) -> FoundrySetup {
         .get_store(ENERGY_THERMAL_SINK)
         .map(|definition| definition.capacity())
         .unwrap_or_else(|| panic!("foundry probe thermal-sink definition disappeared"));
-    // Existing heat competes with casting for finite sink capacity. Use a bimodal cool/saturated
-    // distribution instead of uniform pressure: otherwise passive rejection during melting clears
-    // most middling loads before they can affect a casting decision. The maintained anchor falls in
-    // the cool bucket through the mixer; organic seeds commonly begin near saturation.
+    // Existing heat competes with casting for finite sink capacity. A bimodal cool/saturated
+    // distribution keeps the probe focused on both unconstrained throughput and meaningful thermal
+    // recovery pressure. The maintained anchor falls in the cool bucket through the mixer; organic
+    // seeds commonly begin near saturation.
     let thermal_roll = mix64(seed ^ 0x5448_4552_4D53_494F);
     let thermal_pressure_ppm = if thermal_roll.is_multiple_of(5) {
         (thermal_roll % 250_001) as u32

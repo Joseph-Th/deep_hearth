@@ -1,12 +1,32 @@
 //! Tests for the sibling mod module; isolated so test-only edits do not invalidate production builds.
 
 use super::*;
-use crate::content::{ENERGY_THERMAL_SINK, build_registries};
-use crate::core::quantity::Energy;
+use crate::content::{build_registries, make_test_registries_with_energy_store};
+use crate::core::quantity::{Energy, Power};
 use crate::core::state::apply_clock_advance;
 use crate::core::time::WorldSeed;
-use crate::energy::add_energy_store_with_initial_for_test;
+use crate::energy::{
+    EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
+    add_energy_store_with_initial_for_fixture,
+};
+use crate::registry::Registries;
 use crate::survival::{Vitality, initialize_player_survival, player_record};
+
+const DISSIPATIVE_STORE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(510_001);
+
+fn passive_dissipation_registries() -> Registries {
+    make_test_registries_with_energy_store(
+        EnergyStoreDefinition::new_with_transfer_limits(
+            DISSIPATIVE_STORE,
+            "simulation passive dissipation fixture",
+            EnergyCarrier::Thermal,
+            Energy::from_nanojoules(10_000_000_000_000_000),
+            Power::from_microwatts(1_000_000_000_000),
+            Power::ZERO,
+        )
+        .with_passive_dissipation_power(Power::from_microwatts(1_000_000_000_000)),
+    )
+}
 
 #[test]
 fn canonical_tick_advances_exactly_once() {
@@ -25,12 +45,12 @@ fn canonical_tick_advances_exactly_once() {
 
 #[test]
 fn canonical_tick_applies_exact_passive_energy_dissipation() {
-    let registries = build_registries();
+    let registries = passive_dissipation_registries();
     let mut state = AppState::new(WorldSeed::new(0x5100_0001));
-    let store = add_energy_store_with_initial_for_test(
+    let store = add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
-        ENERGY_THERMAL_SINK,
+        DISSIPATIVE_STORE,
         Energy::from_nanojoules(5_000_000_000_000_000),
     )
     .unwrap_or_else(|error| panic!("passive-dissipation tick fixture failed: {error}"));

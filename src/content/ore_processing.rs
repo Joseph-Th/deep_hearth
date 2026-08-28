@@ -5,6 +5,8 @@ use crate::energy::EnergyCarrier;
 use crate::material::{
     CommodityKey, ParticleSizeClass, ParticleSizeDistribution, ParticleSizeRange,
 };
+
+const PRIMITIVE_NATIVE_COPPER_SORTING_RECOVERY_PPM: u32 = 900_000;
 use crate::ore_processing::{
     ComminutionProcessDefinition, ConstituentRecoveryProfile,
     ConstituentSeparationProcessDefinition, OreProcessingRegistry, PoweredOreProcessProfile,
@@ -17,7 +19,7 @@ use super::capabilities::{
     CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW,
 };
 use super::materials::{
-    FORM_CONCENTRATE, FORM_CRUSHED, FORM_NATIVE_METAL, FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE,
+    FORM_CONCENTRATE, FORM_CRUSHED, FORM_NATIVE_METAL, FORM_ORE, FORM_TAILINGS, MATERIAL_COPPER,
 };
 use super::processes::{
     PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
@@ -112,13 +114,13 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
             ),
         )],
         [
-            ConstituentSeparationProcessDefinition::new_binary(
+            ConstituentSeparationProcessDefinition::new_sorting(
                 PROCESS_SEPARATE_NATIVE_COPPER,
                 FORM_CRUSHED,
                 MATERIAL_COPPER,
                 FORM_NATIVE_METAL,
-                MATERIAL_STONE,
                 FORM_CRUSHED,
+                PRIMITIVE_NATIVE_COPPER_SORTING_RECOVERY_PPM,
                 PoweredOreProcessProfile::new(
                     CAPABILITY_SEPARATOR_FLOW,
                     CAPABILITY_SEPARATOR_BATCH,
@@ -132,7 +134,7 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                 FORM_CRUSHED,
                 liberated_concentration_range,
                 CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE),
-                FORM_CRUSHED,
+                FORM_TAILINGS,
                 ConstituentRecoveryProfile::new(900_000, 200_000),
                 PoweredOreProcessProfile::new(
                     CAPABILITY_SEPARATOR_FLOW,

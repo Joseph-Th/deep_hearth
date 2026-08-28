@@ -100,6 +100,15 @@ pub enum EquipmentMaintenanceMaterialError {
     },
     LotIdExhausted,
     InventoryRevisionExhausted,
+    EmbodiedComponentMismatch {
+        equipment: EquipmentId,
+        component: CommodityKey,
+        embodied: Mass,
+        required: Mass,
+    },
+    InvalidEmbodiedComponent {
+        equipment: EquipmentId,
+    },
     StructuralLoad(StockpileStructuralLoadError),
 }
 
@@ -176,6 +185,24 @@ impl Display for EquipmentMaintenanceMaterialError {
             ),
             Self::InventoryRevisionExhausted => formatter
                 .write_str("inventory revision space is exhausted during equipment maintenance"),
+            Self::EmbodiedComponentMismatch {
+                equipment,
+                component,
+                embodied,
+                required,
+            } => write!(
+                formatter,
+                "equipment {} contains {} mg of service component {} but {} mg must be exchanged",
+                equipment.value(),
+                embodied.milligrams(),
+                component.value(),
+                required.milligrams()
+            ),
+            Self::InvalidEmbodiedComponent { equipment } => write!(
+                formatter,
+                "equipment {} contains an invalid embodied component trace for maintenance exchange",
+                equipment.value()
+            ),
             Self::StructuralLoad(error) => write!(
                 formatter,
                 "maintenance material movement cannot update stored-matter load: {error}"
@@ -223,7 +250,10 @@ impl Error for EquipmentMaintenanceMaterialError {
                 committed: _committed,
                 requested: _requested,
             } => None,
-            Self::LotIdExhausted | Self::InventoryRevisionExhausted => None,
+            Self::LotIdExhausted
+            | Self::InventoryRevisionExhausted
+            | Self::EmbodiedComponentMismatch { .. }
+            | Self::InvalidEmbodiedComponent { .. } => None,
         }
     }
 }

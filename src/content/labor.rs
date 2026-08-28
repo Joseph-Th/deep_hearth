@@ -16,6 +16,7 @@ pub const MANUAL_POWER_HAND_CRANK: ManualPowerMethodId = ManualPowerMethodId::ne
 pub const PROSPECTING_FIELD_INSPECTION: ProspectingMethodId = ProspectingMethodId::new(1);
 pub const PROSPECTING_DETAILED_FIELD_SURVEY: ProspectingMethodId = ProspectingMethodId::new(2);
 pub const PROSPECTING_REGIONAL_RECONNAISSANCE: ProspectingMethodId = ProspectingMethodId::new(3);
+pub const PROSPECTING_LOCAL_TRANSECT: ProspectingMethodId = ProspectingMethodId::new(4);
 
 pub(crate) fn build_labor_registry() -> LaborRegistry {
     LaborRegistry::new(
@@ -62,6 +63,17 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 SurvivalExertion::new(
                     Energy::from_nanojoules(400_000_000_000),
                     Volume::from_microliters(100),
+                ),
+            ),
+            ProspectingDefinition::new(
+                PROSPECTING_LOCAL_TRANSECT,
+                GeologicalEvidenceKind::SurfaceExposure,
+                TickSpan::new(48),
+                4,
+                75_000,
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(550_000_000_000),
+                    Volume::from_microliters(150),
                 ),
             ),
         ],

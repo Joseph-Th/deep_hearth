@@ -52,17 +52,6 @@ pub struct EnergyStoreDefinition {
 }
 
 impl EnergyStoreDefinition {
-    #[must_use]
-    pub fn new(
-        id: EnergyStoreDefinitionId,
-        name: impl Into<String>,
-        carrier: EnergyCarrier,
-        capacity: Energy,
-        max_output_power: Power,
-    ) -> Self {
-        Self::new_with_transfer_limits(id, name, carrier, capacity, Power::ZERO, max_output_power)
-    }
-
     /// Builds a finite energy store with explicit independent input and output power envelopes.
     ///
     /// Either direction may be zero, allowing a pure source or pure sink. A store with no transfer

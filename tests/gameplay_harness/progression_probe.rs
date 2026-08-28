@@ -14,10 +14,10 @@ use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
     EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK,
     EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_SEPARATOR, FORM_NATIVE_METAL, FORM_ORE,
-    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE, MINING_METHOD_HAND_PICK,
-    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_CRUSH_ORE, PROCESS_KNAP_STONE_TOOL,
-    PROCESS_SEPARATE_NATIVE_COPPER, PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE,
-    PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
+    FORM_REINFORCEMENT, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE,
+    MINING_METHOD_HAND_PICK, PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_CRUSH_ORE,
+    PROCESS_KNAP_STONE_TOOL, PROCESS_SEPARATE_NATIVE_COPPER, PROCESS_SHAPE_STONE_FLYWHEEL,
+    PROCESS_SHAPE_WOOD_HANDLE, PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
     PROSPECTING_REGIONAL_RECONNAISSANCE,
 };
 use deep_hearth::core::quantity::{Energy, Mass, Power, Pressure};
@@ -27,7 +27,10 @@ use deep_hearth::crafting::{
     ManualCraftRequest, ManualCraftStartRequest, validate_start_manual_craft,
 };
 use deep_hearth::energy::{calculate_mass_specific_energy, validate_assemble_energy_store};
-use deep_hearth::equipment::{validate_assemble_equipment, validate_upgrade_equipment};
+use deep_hearth::equipment::{
+    EquipmentMaintenanceRequest, resolve_equipment_maintenance, validate_assemble_equipment,
+    validate_equipment_maintenance, validate_upgrade_equipment,
+};
 use deep_hearth::geology::{
     FieldProspectingRequest, GeologicalEvidenceConsistency, assess_geological_knowledge,
     validate_start_field_prospecting,
@@ -155,6 +158,13 @@ fn assert_progression_runtime_dependencies(registries: &Registries) {
         assert!(
             definition.has_runtime_acquisition_route(),
             "primitive progression equipment {} lost its runtime acquisition route",
+            equipment.value()
+        );
+        assert!(
+            definition
+                .maintenance_profile()
+                .is_some_and(|profile| profile.is_component_replacement()),
+            "primitive progression equipment {} lost its embodied-component service route",
             equipment.value()
         );
     }
@@ -352,6 +362,23 @@ fn primitive_material_plan(registries: &Registries) -> PrimitiveMaterialPlan {
     );
     add_profile_requirements(&mut requirements, pick_additions);
     add_profile_requirements(&mut requirements, crank_additions);
+    let pick_service = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_COPPER_REINFORCED_PICK)
+        .and_then(|definition| definition.maintenance_profile())
+        .unwrap_or_else(|| panic!("primitive reinforced pick lost its maintenance profile"));
+    assert!(
+        pick_service.is_component_replacement(),
+        "primitive reinforced pick service must exchange an embodied component"
+    );
+    let service_entry = requirements
+        .entry(pick_service.replacement())
+        .or_insert(Mass::ZERO);
+    add_mass(
+        service_entry,
+        pick_service.full_service_replacement_mass(),
+        "primitive pick service reserve",
+    );
 
     let mut process_batches: BTreeMap<deep_hearth::production::ProcessId, u64> = BTreeMap::new();
     for (commodity, required) in requirements {
@@ -398,6 +425,55 @@ fn primitive_material_plan(registries: &Registries) -> PrimitiveMaterialPlan {
     }
 }
 
+fn craft_requirement(
+    registries: &Registries,
+    state: &mut AppState,
+    raw_source: deep_hearth::inventory::StockpileId,
+    native_source: deep_hearth::inventory::StockpileId,
+    destination: deep_hearth::inventory::StockpileId,
+    commodity: CommodityKey,
+    required: Mass,
+) {
+    let available = state
+        .inventory()
+        .get_stockpile(destination)
+        .map(|stockpile| stockpile.get_mass(commodity))
+        .unwrap_or_else(|| panic!("primitive progression shaped stockpile disappeared"));
+    if available >= required {
+        return;
+    }
+    let missing = required
+        .checked_sub(available)
+        .unwrap_or_else(|| unreachable!("available component mass was already checked"));
+    let craft = manual_craft_for_output(registries, commodity);
+    let batches = batches_for_output(missing, output_mass_per_batch(craft, commodity));
+    let required_input = multiply_mass(craft.input_mass(), batches, "just-in-time craft input");
+    let source = [raw_source, native_source]
+        .into_iter()
+        .find(|source| {
+            state
+                .inventory()
+                .get_stockpile(*source)
+                .is_some_and(|stockpile| stockpile.get_mass(craft.input()) >= required_input)
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "primitive progression lacks {}mg of manual-process input {} for component {}",
+                required_input.milligrams(),
+                craft.input().value(),
+                commodity.value()
+            )
+        });
+    craft_batches(
+        registries,
+        state,
+        craft.process(),
+        source,
+        destination,
+        batches,
+    );
+}
+
 fn craft_for_profile(
     registries: &Registries,
     state: &mut AppState,
@@ -407,44 +483,14 @@ fn craft_for_profile(
     profile: &MaterialAssemblyProfile,
 ) {
     for input in profile.inputs() {
-        let available = state
-            .inventory()
-            .get_stockpile(destination)
-            .map(|stockpile| stockpile.get_mass(input.commodity()))
-            .unwrap_or_else(|| panic!("primitive progression shaped stockpile disappeared"));
-        if available >= input.mass() {
-            continue;
-        }
-        let missing = input
-            .mass()
-            .checked_sub(available)
-            .unwrap_or_else(|| unreachable!("available component mass was already checked"));
-        let craft = manual_craft_for_output(registries, input.commodity());
-        let batches = batches_for_output(missing, output_mass_per_batch(craft, input.commodity()));
-        let required_input = multiply_mass(craft.input_mass(), batches, "just-in-time craft input");
-        let source = [raw_source, native_source]
-            .into_iter()
-            .find(|source| {
-                state
-                    .inventory()
-                    .get_stockpile(*source)
-                    .is_some_and(|stockpile| stockpile.get_mass(craft.input()) >= required_input)
-            })
-            .unwrap_or_else(|| {
-                panic!(
-                    "primitive progression lacks {}mg of manual-process input {} for component {}",
-                    required_input.milligrams(),
-                    craft.input().value(),
-                    input.commodity().value()
-                )
-            });
-        craft_batches(
+        craft_requirement(
             registries,
             state,
-            craft.process(),
-            source,
+            raw_source,
+            native_source,
             destination,
-            batches,
+            input.commodity(),
+            input.mass(),
         );
     }
 }
@@ -840,6 +886,8 @@ struct PrimitiveProgressionExperience {
     separation_feed_mass: Mass,
     recovered_copper_mass: Mass,
     separation_required_energy: Energy,
+    flywheel_loss_before_reserve: Energy,
+    reserve_recharge_ticks: u64,
     separation_ticks: u64,
     separation_completed_at: u64,
     processed_output_enabled_second_upgrade: bool,
@@ -849,9 +897,122 @@ struct PrimitiveProgressionExperience {
     direct_second_upgrade_blocked: bool,
     initial_crank_reinforced: bool,
     crank_reinforced: bool,
+    component_service_ticks: u64,
+    component_service_mass: Mass,
+    component_service_condition_before_ppm: u32,
+    component_service_preserved_reinforcement: bool,
     final_pick_condition_ppm: u32,
     metabolic_energy_spent_nj: u128,
     hydration_spent_ul: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PrimitiveComponentService {
+    preparation_ticks: u64,
+    material_mass: Mass,
+    condition_before_ppm: u32,
+    preserved_reinforcement: bool,
+}
+
+fn service_reinforced_pick(
+    registries: &Registries,
+    state: &mut AppState,
+    raw: deep_hearth::inventory::StockpileId,
+    native_storage: deep_hearth::inventory::StockpileId,
+    shaped: deep_hearth::inventory::StockpileId,
+    pick: deep_hearth::equipment::EquipmentId,
+) -> PrimitiveComponentService {
+    let record = state
+        .equipment()
+        .get_equipment(pick)
+        .unwrap_or_else(|| panic!("primitive progression pick disappeared before service"));
+    assert_eq!(
+        record.definition(),
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        "primitive service must preserve the converged reinforced pick rather than replace it"
+    );
+    let condition_before = record.condition();
+    assert!(
+        condition_before < deep_hearth::maintenance::Condition::PRISTINE,
+        "primitive service demonstration requires real accumulated wear"
+    );
+    let profile = registries
+        .equipment()
+        .get_equipment(record.definition())
+        .and_then(|definition| definition.maintenance_profile())
+        .unwrap_or_else(|| panic!("primitive reinforced pick lost its service profile"));
+    assert!(profile.is_component_replacement());
+    let replacement = profile.replacement();
+    let replacement_mass = profile.required_replacement_mass(condition_before);
+    assert_eq!(replacement_mass, profile.full_service_replacement_mass());
+    let reinforcement = CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT);
+    let reinforcement_mass_before = record
+        .embodied_material()
+        .iter()
+        .filter(|trace| trace.profile().commodity() == reinforcement)
+        .fold(Mass::ZERO, |total, trace| {
+            total
+                .checked_add(trace.mass())
+                .unwrap_or_else(|| panic!("primitive reinforcement mass overflowed"))
+        });
+    assert!(!reinforcement_mass_before.is_zero());
+
+    let preparation_started_at = state.tick().value();
+    craft_requirement(
+        registries,
+        state,
+        raw,
+        native_storage,
+        shaped,
+        replacement,
+        replacement_mass,
+    );
+    let preparation_ticks = duration(preparation_started_at, state.tick().value());
+    let resolution = resolve_equipment_maintenance(
+        registries,
+        state,
+        EquipmentMaintenanceRequest::new(pick, shaped, raw),
+    )
+    .unwrap_or_else(|error| panic!("primitive pick service resolution failed: {error}"));
+    assert!(resolution.replaces_embodied_component());
+    assert_eq!(resolution.material_mass(), replacement_mass);
+    let outcome = validate_equipment_maintenance(registries, state, resolution)
+        .unwrap_or_else(|error| panic!("primitive pick service validation failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("primitive pick service commit failed: {error}"));
+    assert_eq!(outcome.equipment(), pick);
+    assert_eq!(outcome.material_mass(), replacement_mass);
+
+    let serviced = state
+        .equipment()
+        .get_equipment(pick)
+        .unwrap_or_else(|| panic!("primitive progression pick disappeared after service"));
+    assert_eq!(serviced.definition(), EQUIPMENT_COPPER_REINFORCED_PICK);
+    assert_eq!(
+        serviced.condition(),
+        deep_hearth::maintenance::Condition::PRISTINE
+    );
+    let reinforcement_mass_after = serviced
+        .embodied_material()
+        .iter()
+        .filter(|trace| trace.profile().commodity() == reinforcement)
+        .fold(Mass::ZERO, |total, trace| {
+            total
+                .checked_add(trace.mass())
+                .unwrap_or_else(|| panic!("primitive serviced reinforcement mass overflowed"))
+        });
+    let preserved_reinforcement = reinforcement_mass_after == reinforcement_mass_before;
+    assert!(
+        preserved_reinforcement,
+        "component service must retain the scarce copper reinforcement already invested in the pick"
+    );
+
+    PrimitiveComponentService {
+        preparation_ticks,
+        material_mass: replacement_mass,
+        condition_before_ppm: condition_before.parts_per_million(),
+        preserved_reinforcement,
+    }
 }
 
 fn native_input_for_upgrade(
@@ -882,21 +1043,32 @@ fn native_input_for_upgrade(
         .unwrap_or_else(|| panic!("primitive upgrade native-copper requirement overflowed"))
 }
 
-fn feed_mass_for_exact_constituent(target: Mass, constituent_ppm: u32) -> Mass {
+fn feed_mass_for_exact_recovered_constituent(
+    target: Mass,
+    constituent_ppm: u32,
+    target_recovery_ppm: u32,
+) -> Mass {
     assert!(!target.is_zero());
     assert!(constituent_ppm > 0 && constituent_ppm < 1_000_000);
+    assert!(target_recovery_ppm > 0 && target_recovery_ppm <= 1_000_000);
     let numerator = u128::from(target.milligrams())
-        .checked_mul(1_000_000)
+        .checked_mul(1_000_000_000_000)
         .unwrap_or_else(|| panic!("primitive separation target scaling overflowed"));
-    let feed_mg = numerator.div_ceil(u128::from(constituent_ppm));
+    let recovery_factor = u128::from(constituent_ppm)
+        .checked_mul(u128::from(target_recovery_ppm))
+        .unwrap_or_else(|| panic!("primitive separation recovery factor overflowed"));
+    let feed_mg = numerator.div_ceil(recovery_factor);
     let feed_mg = u64::try_from(feed_mg)
         .unwrap_or_else(|_| panic!("primitive separation feed mass exceeds authoritative range"));
     let feed = Mass::from_milligrams(feed_mg);
-    let recovered = u128::from(feed.milligrams()) * u128::from(constituent_ppm) / 1_000_000;
+    let recovered = u128::from(feed.milligrams())
+        .checked_mul(recovery_factor)
+        .map(|scaled| scaled / 1_000_000_000_000)
+        .unwrap_or_else(|| panic!("primitive recovered-target calculation overflowed"));
     assert_eq!(
         recovered,
         u128::from(target.milligrams()),
-        "primitive separation feed selection must recover exactly one second-upgrade copper parcel"
+        "primitive separation feed selection must recover exactly one second-upgrade copper parcel after authored sorting loss"
     );
     feed
 }
@@ -1264,13 +1436,18 @@ fn fill_primitive_accumulator(
     registries: &Registries,
     state: &mut AppState,
     machine: PrimitiveMachine,
+    required_energy: Energy,
 ) -> Result<u64, ManualPowerError> {
+    assert!(
+        required_energy <= machine.drive_capacity,
+        "primitive accumulator cannot prepare work above its authored capacity"
+    );
     let stored_before = state
         .energy()
         .get_store(machine.drive)
         .map(|store| store.stored())
         .unwrap_or_else(|| panic!("primitive progression flywheel disappeared before charging"));
-    if stored_before >= machine.required_energy {
+    if stored_before >= required_energy {
         return Ok(0);
     }
     let energy = machine
@@ -1294,13 +1471,14 @@ fn fill_primitive_accumulator(
         .commit(state)
         .unwrap_or_else(|error| panic!("primitive progression recharge commit failed: {error}"));
     advance_exact(registries, state, ticks);
-    assert_eq!(
-        state
-            .energy()
-            .get_store(machine.drive)
-            .map(|store| store.stored()),
-        Some(machine.drive_capacity),
-        "primitive accumulator fill must reach its authored capacity exactly"
+    let stored_after = state
+        .energy()
+        .get_store(machine.drive)
+        .map(|store| store.stored())
+        .unwrap_or_else(|| panic!("primitive progression flywheel disappeared after charging"));
+    assert!(
+        stored_after >= required_energy && stored_after <= machine.drive_capacity,
+        "primitive accumulator recharge must leave enough work for the selected operation without exceeding capacity"
     );
     Ok(ticks)
 }
@@ -1356,17 +1534,18 @@ fn run_steady_state_crushing(
     let mut totals = SteadyStateWork::default();
     let mut productive_payback_cycle = None;
     for cycle in 1..=MAX_STEADY_STATE_CRUSH_CYCLES {
-        let charge_ticks = match fill_primitive_accumulator(registries, state, machine) {
-            Ok(ticks) => ticks,
-            Err(
-                ManualPowerError::ConditionDuration(_)
-                | ManualPowerError::ZeroEquipmentPower { .. },
-            ) => {
-                totals.stop = PrimitiveSteadyStop::CrankCondition;
-                break;
-            }
-            Err(error) => panic!("primitive progression steady recharge failed: {error}"),
-        };
+        let charge_ticks =
+            match fill_primitive_accumulator(registries, state, machine, machine.required_energy) {
+                Ok(ticks) => ticks,
+                Err(
+                    ManualPowerError::ConditionDuration(_)
+                    | ManualPowerError::ZeroEquipmentPower { .. },
+                ) => {
+                    totals.stop = PrimitiveSteadyStop::CrankCondition;
+                    break;
+                }
+                Err(error) => panic!("primitive progression steady recharge failed: {error}"),
+            };
         totals.charge_ticks = totals
             .charge_ticks
             .checked_add(charge_ticks)
@@ -1549,6 +1728,7 @@ struct PrimitiveSeparationWork {
     target_mass: Mass,
     residue_mass: Mass,
     required_energy: Energy,
+    charge_ticks: u64,
     ticks: u64,
 }
 
@@ -1562,6 +1742,13 @@ fn separate_native_copper(
     feed_mass: Mass,
     expected_target: Mass,
 ) -> PrimitiveSeparationWork {
+    let charge_ticks = fill_primitive_accumulator(
+        registries,
+        state,
+        machine,
+        machine.separation_required_energy,
+    )
+    .unwrap_or_else(|error| panic!("primitive separation recharge failed: {error}"));
     let selections = select_stockpile_mass(state, crushed_storage, feed_mass);
     assert_eq!(
         selections.len(),
@@ -1627,6 +1814,7 @@ fn separate_native_copper(
         target_mass: resolved.target_mass(),
         residue_mass: resolved.residue_mass(),
         required_energy: resolved.required_energy(),
+        charge_ticks,
         ticks,
     }
 }

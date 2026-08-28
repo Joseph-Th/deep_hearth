@@ -43,6 +43,8 @@ struct PrimitiveProgressionReview {
     recovered_copper_mg: u64,
     extraction_separation_energy_nj: u128,
     mechanization_separation_energy_nj: u128,
+    flywheel_loss_before_reserve_nj: u128,
+    reserve_recharge_ticks: u64,
     extraction_separation_ticks: u64,
     mechanization_separation_ticks: u64,
     material_efficiency_tradeoff: bool,
@@ -79,6 +81,11 @@ struct PrimitiveProgressionReview {
     reserve_mining_jobs: u64,
     steady_mining_jobs: u64,
     steady_feed_buffer_limited_cycles: u64,
+    component_service_ticks: u64,
+    component_service_mass_mg: u64,
+    component_service_condition_before_ppm: u32,
+    component_service_preserved_reinforcement: bool,
+    final_pick_condition_ppm: u32,
     mechanization_player_free_delta_ticks: i128,
     mechanization_elapsed_delta_ticks: i128,
 }
@@ -464,6 +471,23 @@ fn evaluate_primitive_progression_probe(
         (Some(extraction), Some(mechanization)) => Some(extraction.max(mechanization)),
         _ => None,
     };
+    assert_eq!(
+        extraction.component_service_mass, mechanization.component_service_mass,
+        "matched progression branches must pay the same physical pick-component service mass"
+    );
+    assert!(
+        extraction.component_service_preserved_reinforcement
+            && mechanization.component_service_preserved_reinforcement,
+        "both progression branches must retain their scarce copper investment through component service"
+    );
+    assert_eq!(
+        extraction.final_pick_condition_ppm,
+        deep_hearth::maintenance::Condition::PRISTINE.parts_per_million()
+    );
+    assert_eq!(
+        mechanization.final_pick_condition_ppm,
+        deep_hearth::maintenance::Condition::PRISTINE.parts_per_million()
+    );
 
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
@@ -562,6 +586,8 @@ fn evaluate_primitive_progression_probe(
         recovered_copper_mg: extraction.recovered_copper_mass.milligrams(),
         extraction_separation_energy_nj: extraction.separation_required_energy.nanojoules(),
         mechanization_separation_energy_nj: mechanization.separation_required_energy.nanojoules(),
+        flywheel_loss_before_reserve_nj: natural.flywheel_loss_before_reserve.nanojoules(),
+        reserve_recharge_ticks: natural.reserve_recharge_ticks,
         extraction_separation_ticks: extraction.separation_ticks,
         mechanization_separation_ticks: mechanization.separation_ticks,
         material_efficiency_tradeoff,
@@ -600,6 +626,12 @@ fn evaluate_primitive_progression_probe(
         reserve_mining_jobs: natural.reserve_mining_jobs,
         steady_mining_jobs: natural.steady_mining_jobs,
         steady_feed_buffer_limited_cycles: natural.steady_feed_buffer_limited_cycles,
+        component_service_ticks: natural.component_service_ticks,
+        component_service_mass_mg: natural.component_service_mass.milligrams(),
+        component_service_condition_before_ppm: natural.component_service_condition_before_ppm,
+        component_service_preserved_reinforcement: natural
+            .component_service_preserved_reinforcement,
+        final_pick_condition_ppm: natural.final_pick_condition_ppm,
         mechanization_player_free_delta_ticks: tick_delta(
             extraction.machine_player_free_ticks,
             mechanization.machine_player_free_ticks,
@@ -659,7 +691,12 @@ fn evaluate_primitive_progression_probe(
         && choice_windows_are_consequential
         && review.extraction_hard_ore_before_convergence_mg > 0
         && review.mechanization_processed_before_pick_upgrade
-        && review.mechanization_useful_overlap_ticks > 0;
+        && review.mechanization_useful_overlap_ticks > 0
+        && review.component_service_ticks > 0
+        && review.flywheel_loss_before_reserve_nj > 0
+        && review.component_service_mass_mg > 0
+        && review.component_service_condition_before_ppm < review.final_pick_condition_ppm
+        && review.component_service_preserved_reinforcement;
     assert!(
         fantasy_captured,
         "primitive progression must turn uncertainty into a paid information choice, make an observation-grounded scarce-copper decision produce reciprocal physical leverage, and demonstrate useful work during delegated processing"
@@ -695,7 +732,7 @@ fn evaluate_primitive_progression_probe(
             "ranked"
         };
     std::println!(
-        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=observe->infer->prepare->extract->invest->delegate->reinvest captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t alternative-evidence:{}..{}ppm] actor-choice=[policy=hard-lower-bound-premium>={}ppm chosen:{} owned-bulk:{}ppm hard-evidence:{}..{}ppm] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[extraction-feed:{} extraction-grade:{}ppm mechanization-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} first-output-delta:{:+}t reciprocal:{} converged:{}] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
+        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=observe->infer->prepare->extract->invest->delegate->maintain->reinvest captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t alternative-evidence:{}..{}ppm] actor-choice=[policy=hard-lower-bound-premium>={}ppm chosen:{} owned-bulk:{}ppm hard-evidence:{}..{}ppm] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[extraction-feed:{} extraction-grade:{}ppm mechanization-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} first-output-delta:{:+}t reciprocal:{} converged:{}] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] stored-work=[passive-loss:{}nJ reserve-recharge:{}t] service=[pick:{}->{}ppm component:{}mg preparation:{}t copper-upgrade-preserved:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
         if review.information_refinement_required {
             "deferred-survey"
         } else {
@@ -753,6 +790,13 @@ fn evaluate_primitive_progression_probe(
         review.steady_state_cycles,
         MAX_STEADY_STATE_CRUSH_CYCLES,
         review.steady_state_stop.label(),
+        review.flywheel_loss_before_reserve_nj,
+        review.reserve_recharge_ticks,
+        review.component_service_condition_before_ppm,
+        review.final_pick_condition_ppm,
+        review.component_service_mass_mg,
+        review.component_service_ticks,
+        review.component_service_preserved_reinforcement,
         natural_energy_spent_ppm,
         natural_hydration_spent_ppm,
         natural.elapsed_ticks,

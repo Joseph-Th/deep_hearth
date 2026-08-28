@@ -5,7 +5,8 @@ use crate::capability::{
     CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityRegistry,
     CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
-use crate::core::quantity::{Length, Mass, MassSpecificEnergy, Temperature};
+use crate::core::quantity::{Energy, Length, Mass, MassSpecificEnergy, Power, Temperature};
+use crate::core::time::TickSpan;
 use crate::energy::EnergyCarrier;
 use crate::material::{CommodityKey, MaterialInputSpec, ParticleSizeRange};
 use crate::ore_processing::{
@@ -59,6 +60,74 @@ fn assert_thermal_reference_validation_rejects(thermal: ThermalRegistry) {
     });
 
     assert!(result.is_err());
+}
+
+#[test]
+fn primitive_flywheel_loses_stored_rotation_without_erasing_short_work_windows() {
+    let registries = build_registries();
+    let flywheel = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .unwrap_or_else(|| panic!("built-in stone flywheel definition disappeared"));
+    let loss = flywheel.passive_dissipation_power();
+
+    assert_eq!(loss, Power::from_microwatts(50_000));
+    assert!(
+        !loss.is_zero(),
+        "a physical flywheel must not retain rotation forever"
+    );
+    assert!(
+        loss < flywheel.max_input_power() && loss < flywheel.max_output_power(),
+        "passive flywheel drag must remain a background loss rather than dominate active transfer"
+    );
+    let loss_per_tick = crate::energy::integrate_power(
+        loss,
+        TickSpan::new(1),
+        registries.core().physical_tick_duration(),
+        crate::energy::PowerRemainder::ZERO,
+    )
+    .unwrap_or_else(|error| panic!("stone flywheel loss integration failed: {error}"));
+    assert_eq!(
+        loss_per_tick.remainder(),
+        crate::energy::PowerRemainder::ZERO
+    );
+    assert_eq!(loss_per_tick.energy(), Energy::from_nanojoules(180_000_000));
+    assert!(
+        flywheel.capacity().nanojoules() / loss_per_tick.energy().nanojoules() > 2_000,
+        "full charge must survive long enough for near-term primitive work instead of becoming a reaction-time tax"
+    );
+}
+
+#[test]
+fn built_in_workshop_energy_buffers_have_coherent_transfer_and_recovery_rates() {
+    let registries = build_registries();
+    let electrical = registries
+        .energy()
+        .get_store(ENERGY_ELECTRICAL_BUFFER)
+        .unwrap_or_else(|| panic!("built-in electrical buffer disappeared"));
+    let thermal = registries
+        .energy()
+        .get_store(ENERGY_THERMAL_SINK)
+        .unwrap_or_else(|| panic!("built-in thermal sink disappeared"));
+
+    assert_eq!(
+        electrical.max_input_power(),
+        Power::from_microwatts(1_000_000_000_000),
+        "an electrical buffer must accept recharge as well as provide stored power"
+    );
+    assert_eq!(electrical.max_output_power(), electrical.max_input_power());
+    assert_eq!(
+        thermal.max_input_power(),
+        Power::from_microwatts(1_000_000_000_000)
+    );
+    assert_eq!(
+        thermal.passive_dissipation_power(),
+        Power::from_microwatts(100_000_000_000)
+    );
+    assert!(
+        thermal.passive_dissipation_power() < thermal.max_input_power(),
+        "passive heat rejection must recover the finite sink more slowly than active casting can fill it"
+    );
 }
 
 #[test]
@@ -258,6 +327,79 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
 }
 
 #[test]
+fn retained_primitive_residue_has_one_coherent_later_concentration_route() {
+    let registries = build_registries();
+    let ore = registries.ore_processing();
+    let sorting = ore
+        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("built-in primitive sorting definition disappeared"));
+    let grinding = ore
+        .get_comminution(PROCESS_GRIND_CRUSHED_ORE)
+        .unwrap_or_else(|| panic!("built-in grinding definition disappeared"));
+    let screening = ore
+        .get_screening(PROCESS_SCREEN_CRUSHED_ORE)
+        .unwrap_or_else(|| panic!("built-in screening definition disappeared"));
+    let regrinding = ore
+        .get_comminution(PROCESS_FINE_GRIND_SCREEN_OVERSIZE)
+        .unwrap_or_else(|| panic!("built-in fine-grinding definition disappeared"));
+    let concentration = ore
+        .get_constituent_separation(PROCESS_CONCENTRATE_COPPER)
+        .unwrap_or_else(|| panic!("built-in concentration definition disappeared"));
+
+    assert_eq!(sorting.residue_output_form(), grinding.input_form());
+    assert_eq!(grinding.output_form(), screening.input_form());
+    assert_eq!(screening.output_form(), regrinding.input_form());
+    assert_eq!(regrinding.output_form(), concentration.input_form());
+    assert_ne!(
+        concentration.residue_output_form(),
+        concentration.input_form(),
+        "concentration must terminate the current-tier reprocessing route instead of feeding itself"
+    );
+
+    let concentration_range = concentration
+        .input_particle_size_range()
+        .unwrap_or_else(|| panic!("built-in concentration lost its liberation envelope"));
+    assert_eq!(
+        regrinding.output_particle_size(),
+        concentration_range,
+        "screen oversize must have a real regrind route into concentration-sized feed"
+    );
+    let regrind_feed = regrinding
+        .input_particle_size_range()
+        .unwrap_or_else(|| panic!("built-in fine grinding lost its oversize feed envelope"));
+    assert!(
+        regrind_feed.minimum_diameter() > screening.aperture(),
+        "fine grinding must consume only screen oversize rather than repeating work on accepted fines"
+    );
+
+    let mut has_direct_fines = false;
+    let mut has_regrind_oversize = false;
+    for class in grinding.output_particle_size_distribution().classes() {
+        let range = class.range();
+        if range.maximum_diameter() <= screening.aperture() {
+            has_direct_fines = true;
+            assert!(
+                range.minimum_diameter() >= concentration_range.minimum_diameter()
+                    && range.maximum_diameter() <= concentration_range.maximum_diameter(),
+                "screen undersize from ordinary grinding must already fit concentration's authored feed envelope"
+            );
+        } else {
+            has_regrind_oversize = true;
+            assert!(range.minimum_diameter() > screening.aperture());
+            assert!(
+                range.minimum_diameter() >= regrind_feed.minimum_diameter()
+                    && range.maximum_diameter() <= regrind_feed.maximum_diameter(),
+                "screen oversize must fit the authored fine-grinding feed envelope"
+            );
+        }
+    }
+    assert!(
+        has_direct_fines && has_regrind_oversize,
+        "ordinary grinding must create both immediately usable fines and physically necessary oversize rework"
+    );
+}
+
+#[test]
 fn copper_melting_capability_requires_the_authored_fusion_temperature() {
     let registries = build_registries();
     let melting_point = registries
@@ -335,6 +477,31 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
             OBJECT_SLAG,
         ),
         (
+            CommodityKey::new(MATERIAL_STONE, FORM_CRUSHED),
+            None,
+            OBJECT_TAILINGS,
+        ),
+        (
+            CommodityKey::new(MATERIAL_CLAY, FORM_CRUSHED),
+            None,
+            OBJECT_TAILINGS,
+        ),
+        (
+            CommodityKey::new(MATERIAL_SLAG, FORM_TAILINGS),
+            None,
+            OBJECT_TAILINGS,
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TAILINGS),
+            None,
+            OBJECT_TAILINGS,
+        ),
+        (
+            CommodityKey::new(MATERIAL_CLAY, FORM_TAILINGS),
+            None,
+            OBJECT_TAILINGS,
+        ),
+        (
             CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
             None,
             OBJECT_STONE_LUMP,
@@ -345,6 +512,11 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
             OBJECT_STONE_TOOL,
         ),
         (
+            CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+            None,
+            OBJECT_STONE_CHIP,
+        ),
+        (
             CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
             None,
             OBJECT_STONE_FLYWHEEL,
@@ -353,6 +525,11 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
             CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
             None,
             OBJECT_WOOD_HANDLE,
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
+            None,
+            OBJECT_WOOD_CHIP,
         ),
     ] {
         let binding = match textures.get_commodity_appearance(commodity) {
@@ -410,6 +587,55 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
             None => panic!("missing baked object appearance {}", object.value()),
         };
         assert_eq!(baked_object.textures().len(), appearance.textures().len());
+    }
+}
+
+#[test]
+fn every_supported_separation_residue_host_has_legible_crushed_and_tailings_appearances() {
+    let registries = build_registries();
+    let textures = registries.textures();
+
+    for material in [MATERIAL_STONE, MATERIAL_CLAY, MATERIAL_SLAG] {
+        for form in [FORM_CRUSHED, FORM_TAILINGS] {
+            let commodity = CommodityKey::new(material, form);
+            assert!(
+                registries.materials().has_commodity(commodity),
+                "supported separation residue host {} lost authored form {}",
+                material.value(),
+                form.value()
+            );
+            assert!(
+                textures
+                    .get_commodity_appearance(commodity)
+                    .and_then(|binding| binding.object())
+                    .is_some(),
+                "supported separation residue host {} form {} must remain player-legible",
+                material.value(),
+                form.value()
+            );
+        }
+    }
+}
+
+#[test]
+fn every_builtin_maintenance_spent_output_has_a_player_legible_appearance() {
+    let registries = build_registries();
+    let textures = registries.textures();
+
+    for definition in registries.equipment().definitions() {
+        let Some(maintenance) = definition.maintenance_profile() else {
+            continue;
+        };
+        let spent = maintenance.spent();
+        assert!(
+            textures
+                .get_commodity_appearance(spent)
+                .and_then(|binding| binding.object())
+                .is_some(),
+            "equipment {} maintenance spent commodity {} must remain player-legible",
+            definition.id().value(),
+            spent.value()
+        );
     }
 }
 

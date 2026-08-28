@@ -1,38 +1,24 @@
 //! Tests for the sibling storage execution module; isolated so test-only edits do not invalidate production builds.
 
 use super::*;
-use crate::content::{FORM_FLYWHEEL, MATERIAL_STONE, make_test_registries_with_energy_store};
-use crate::core::quantity::Mass;
+use crate::content::make_test_registries_with_energy_store;
 use crate::core::time::WorldSeed;
-use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
+use crate::energy::{
+    EnergyStoreRecord, add_energy_store, add_energy_store_with_initial_for_fixture,
+};
 
 const STORE_DEFINITION: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(930_001);
 
 fn registries() -> Registries {
-    make_test_registries_with_energy_store(super::super::EnergyStoreDefinition::new(
-        STORE_DEFINITION,
-        "energy execution fixture",
-        EnergyCarrier::Electrical,
-        Energy::from_nanojoules(1_000),
-        Power::from_microwatts(25),
-    ))
-}
-
-fn assembly_registries() -> Registries {
     make_test_registries_with_energy_store(
-        super::super::EnergyStoreDefinition::new(
+        super::super::EnergyStoreDefinition::new_with_transfer_limits(
             STORE_DEFINITION,
-            "assembled energy execution fixture",
-            EnergyCarrier::Mechanical,
+            "energy execution fixture",
+            EnergyCarrier::Electrical,
             Energy::from_nanojoules(1_000),
+            Power::ZERO,
             Power::from_microwatts(25),
-        )
-        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
-            MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
-                Mass::from_milligrams(1),
-            ),
-        ])),
+        ),
     )
 }
 
@@ -47,67 +33,6 @@ fn sink_registries() -> Registries {
             Power::ZERO,
         ),
     )
-}
-
-#[test]
-fn fixture_allocation_rejects_store_that_requires_material_assembly() {
-    let registries = assembly_registries();
-    let mut state = AppState::new(WorldSeed::new(0x9300_000A));
-    let before = state.clone();
-
-    assert_eq!(
-        add_energy_store_with_initial_for_fixture(
-            &registries,
-            &mut state,
-            STORE_DEFINITION,
-            Energy::from_nanojoules(500),
-        ),
-        Err(AddEnergyStoreError::RequiresAssembly {
-            definition: STORE_DEFINITION,
-        })
-    );
-    assert_eq!(state, before);
-}
-
-#[test]
-fn allocation_rejects_energy_above_authored_capacity_without_mutation() {
-    let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9300_0001));
-    let before = state.clone();
-
-    assert_eq!(
-        add_energy_store_with_initial_for_fixture(
-            &registries,
-            &mut state,
-            STORE_DEFINITION,
-            Energy::from_nanojoules(1_001),
-        ),
-        Err(AddEnergyStoreError::InitialEnergyExceedsCapacity {
-            initial: Energy::from_nanojoules(1_001),
-            capacity: Energy::from_nanojoules(1_000),
-        })
-    );
-    assert_eq!(state, before);
-}
-
-#[test]
-fn runtime_allocation_creates_empty_store_without_free_energy() {
-    let registries = registries();
-    let mut state = AppState::new(WorldSeed::new(0x9300_0005));
-
-    let store = match add_energy_store(&registries, &mut state, STORE_DEFINITION) {
-        Ok(store) => store,
-        Err(error) => panic!("runtime energy-store allocation failed: {error}"),
-    };
-
-    assert_eq!(
-        state
-            .energy()
-            .get_store(store)
-            .map(EnergyStoreRecord::stored),
-        Some(Energy::ZERO)
-    );
-    assert_eq!(state.energy().revision(), 1);
 }
 
 #[test]

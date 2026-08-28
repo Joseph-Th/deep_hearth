@@ -1,20 +1,16 @@
-//! Canonical finite-energy store allocation and revision-bound consumption.
+//! Canonical revision-bound finite-energy supply, sink, reservation, and commit transactions.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(any(test, feature = "test-gameplay"))]
-use crate::core::quantity::Mass;
 use crate::core::quantity::{Energy, Power};
 use crate::core::state::AppState;
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 
 use super::definitions::{EnergyCarrier, EnergyStoreDefinitionId};
-#[cfg(any(test, feature = "test-gameplay"))]
-use super::state::EnergyStoreRecord;
 use super::state::{EnergyState, EnergyStoreId};
 
 fn get_energy_store_occupant(
@@ -30,111 +26,6 @@ fn get_energy_store_occupant(
         ),
     };
     Some((job_id, job.occupancy_release()))
-}
-
-/// Failure while allocating an authoritative finite energy store for controlled fixtures.
-#[cfg(any(test, feature = "test-gameplay"))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum AddEnergyStoreError {
-    UnknownDefinition { definition: EnergyStoreDefinitionId },
-    RequiresAssembly { definition: EnergyStoreDefinitionId },
-    InitialEnergyExceedsCapacity { initial: Energy, capacity: Energy },
-    IdExhausted,
-    RevisionExhausted,
-}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-impl Display for AddEnergyStoreError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownDefinition { definition } => write!(
-                formatter,
-                "unknown energy store definition {}",
-                definition.value()
-            ),
-            Self::RequiresAssembly { definition } => write!(
-                formatter,
-                "energy store definition {} requires conserved material construction",
-                definition.value()
-            ),
-            Self::InitialEnergyExceedsCapacity { initial, capacity } => write!(
-                formatter,
-                "initial energy {} nJ exceeds store capacity {} nJ",
-                initial.nanojoules(),
-                capacity.nanojoules()
-            ),
-            Self::IdExhausted => formatter.write_str("energy store identifier space is exhausted"),
-            Self::RevisionExhausted => {
-                formatter.write_str("energy state revision space is exhausted")
-            }
-        }
-    }
-}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-impl Error for AddEnergyStoreError {}
-
-/// Allocates one empty finite energy store for unit tests only.
-#[cfg(test)]
-pub(crate) fn add_energy_store(
-    registries: &Registries,
-    state: &mut AppState,
-    definition: EnergyStoreDefinitionId,
-) -> Result<EnergyStoreId, AddEnergyStoreError> {
-    allocate_energy_store(registries, state, definition, Energy::ZERO)
-}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-fn allocate_energy_store(
-    registries: &Registries,
-    state: &mut AppState,
-    definition: EnergyStoreDefinitionId,
-    initial: Energy,
-) -> Result<EnergyStoreId, AddEnergyStoreError> {
-    let Some(authored) = registries.energy().get_store(definition) else {
-        return Err(AddEnergyStoreError::UnknownDefinition { definition });
-    };
-    if authored.assembly_profile().is_some() {
-        return Err(AddEnergyStoreError::RequiresAssembly { definition });
-    }
-    if initial > authored.capacity() {
-        return Err(AddEnergyStoreError::InitialEnergyExceedsCapacity {
-            initial,
-            capacity: authored.capacity(),
-        });
-    }
-    let energy = state.energy();
-    let id = EnergyStoreId::new(energy.next_store_id());
-    let next_store_id = energy
-        .next_store_id()
-        .checked_add(1)
-        .ok_or(AddEnergyStoreError::IdExhausted)?;
-    let next_revision = energy
-        .revision()
-        .checked_add(1)
-        .ok_or(AddEnergyStoreError::RevisionExhausted)?;
-    let record = EnergyStoreRecord {
-        id,
-        definition,
-        stored: initial,
-        embodied_mass: Mass::ZERO,
-        embodied_material: Vec::new(),
-        created_at: state.tick(),
-    };
-
-    let energy = state.energy_state_mut();
-    energy.insert_store(record, next_store_id, next_revision);
-    Ok(id)
-}
-
-#[cfg(any(test, feature = "test-gameplay"))]
-pub(crate) fn add_energy_store_with_initial_for_fixture(
-    registries: &Registries,
-    state: &mut AppState,
-    definition: EnergyStoreDefinitionId,
-    initial: Energy,
-) -> Result<EnergyStoreId, AddEnergyStoreError> {
-    allocate_energy_store(registries, state, definition, initial)
 }
 
 /// Exact energy/provenance snapshot moved from a finite store into an operation.

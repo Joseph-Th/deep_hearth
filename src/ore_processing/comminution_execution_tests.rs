@@ -7,13 +7,13 @@ use crate::capability::{
 };
 use crate::content::{
     FORM_CONCENTRATE, FORM_CRUSHED, FORM_INGOT, FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG,
-    make_test_registries_with_comminution,
+    MATERIAL_STONE, make_test_registries_with_comminution,
 };
 use crate::core::quantity::{AggregateMass, Length, MassSpecificEnergy};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::{TickSpan, WorldSeed};
 use crate::energy::{
-    EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store_with_initial_for_test,
+    EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store_with_initial_for_fixture,
 };
 use crate::equipment::{
     CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
@@ -50,11 +50,89 @@ fn crushed_particle_size() -> ParticleSizeRange {
     }
 }
 
+fn copper_bearing_tailings_composition() -> MaterialComposition {
+    MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_COPPER, 130_435),
+        CompositionComponent::new(MATERIAL_STONE, 869_565),
+    ])
+    .unwrap_or_else(|error| panic!("tailings composition fixture failed: {error}"))
+}
+
 fn ground_particle_size() -> ParticleSizeRange {
     match ParticleSizeRange::new(Length::from_micrometers(1), Length::from_micrometers(5_000)) {
         Ok(range) => range,
         Err(error) => panic!("grinding particle-size fixture failed: {error}"),
     }
+}
+
+#[test]
+fn comminution_preserves_gangue_host_and_copper_content_while_preparing_tailings() {
+    let registries = make_registries_with_definition(
+        EnergyCarrier::Mechanical,
+        Power::from_microwatts(100),
+        ComminutionProcessDefinition::new_with_input_particle_size_range(
+            PROCESS,
+            FORM_CRUSHED,
+            FORM_CRUSHED,
+            crushed_particle_size(),
+            ground_particle_size(),
+            PoweredOreProcessProfile::new(
+                MASS_FLOW_CAPABILITY,
+                MAX_BATCH_MASS_CAPABILITY,
+                EnergyCarrier::Mechanical,
+                SPECIFIC_WORK,
+                1_000,
+            ),
+        ),
+    );
+    let mut state = AppState::new(WorldSeed::new(0x9700_0009));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("tailings grinding source failed: {error}"));
+    let input = MaterialLotSpec::with_composition_and_particle_size(
+        CommodityKey::new(MATERIAL_STONE, FORM_CRUSHED),
+        Mass::from_milligrams(20),
+        INPUT_TEMPERATURE,
+        copper_bearing_tailings_composition(),
+        crushed_particle_size(),
+    )
+    .unwrap_or_else(|error| panic!("tailings grinding input failed: {error}"));
+    let lot = deposit_lot_spec_for_test(&registries, &mut state, source, input)
+        .unwrap_or_else(|error| panic!("tailings grinding lot failed: {error}"));
+    let equipment = add_equipment(&registries, &mut state, CRUSHER, Condition::PRISTINE)
+        .unwrap_or_else(|error| panic!("tailings grinding equipment failed: {error}"));
+    let energy_store = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_STORE_DEFINITION,
+        Energy::from_nanojoules(1_000_000),
+    )
+    .unwrap_or_else(|error| panic!("tailings grinding energy failed: {error}"));
+
+    let resolved = resolve_comminution_process(
+        &registries,
+        &state,
+        ComminutionRequest::new(
+            PROCESS,
+            source,
+            &[MaterialLotSelection::new(lot, Mass::from_milligrams(20))],
+            equipment,
+            energy_store,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("tailings grinding resolution failed: {error}"));
+    let outputs = resolved.process_resolution().outputs();
+    assert_eq!(outputs.len(), 1);
+    assert_eq!(
+        outputs[0].commodity(),
+        CommodityKey::new(MATERIAL_STONE, FORM_CRUSHED),
+        "particle-size reduction must not relabel gangue-hosted tailings as target-hosted feed"
+    );
+    assert_eq!(
+        outputs[0].composition(),
+        &copper_bearing_tailings_composition(),
+        "comminution must preserve exact recoverable copper content while changing particle state"
+    );
+    assert_eq!(outputs[0].particle_size(), Some(ground_particle_size()));
 }
 
 fn selective_feed_particle_size() -> ParticleSizeRange {
@@ -164,11 +242,12 @@ fn make_registries_with_definition(
             ),
         ],
         equipment,
-        EnergyStoreDefinition::new(
+        EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_STORE_DEFINITION,
             "test crusher work buffer",
             carrier,
             Energy::from_nanojoules(1_000_000),
+            Power::ZERO,
             max_output_power,
         ),
         process,
@@ -230,7 +309,7 @@ fn comminution_can_reduce_particle_size_without_relabeling_the_material_form() {
         Ok(equipment) => equipment,
         Err(error) => panic!("grinding equipment fixture failed: {error}"),
     };
-    let energy_store = match add_energy_store_with_initial_for_test(
+    let energy_store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         ENERGY_STORE_DEFINITION,
@@ -300,7 +379,7 @@ fn constrained_comminution_rejects_out_of_range_feed_without_mutation() {
         .unwrap_or_else(|error| panic!("constrained grinding lot seed failed: {error}"));
     let equipment = add_equipment(&registries, &mut state, CRUSHER, Condition::PRISTINE)
         .unwrap_or_else(|error| panic!("constrained grinding equipment failed: {error}"));
-    let energy_store = add_energy_store_with_initial_for_test(
+    let energy_store = add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         ENERGY_STORE_DEFINITION,
@@ -372,7 +451,7 @@ fn constrained_comminution_persistence_rejects_forged_feed_size_trace() {
         .unwrap_or_else(|error| panic!("constrained persistence lot seed failed: {error}"));
     let equipment = add_equipment(&registries, &mut state, CRUSHER, Condition::PRISTINE)
         .unwrap_or_else(|error| panic!("constrained persistence equipment failed: {error}"));
-    let energy_store = add_energy_store_with_initial_for_test(
+    let energy_store = add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         ENERGY_STORE_DEFINITION,
@@ -470,7 +549,7 @@ fn make_fixture_with_registries(
         Ok(equipment) => equipment,
         Err(error) => panic!("comminution equipment fixture failed: {error}"),
     };
-    let energy_store = match add_energy_store_with_initial_for_test(
+    let energy_store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         ENERGY_STORE_DEFINITION,
@@ -696,7 +775,7 @@ fn comminution_rejects_wrong_form_and_oversized_batch_without_mutation() {
         Ok(equipment) => equipment,
         Err(error) => panic!("comminution rejection equipment failed: {error}"),
     };
-    let energy_store = match add_energy_store_with_initial_for_test(
+    let energy_store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         ENERGY_STORE_DEFINITION,

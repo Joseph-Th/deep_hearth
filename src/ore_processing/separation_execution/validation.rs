@@ -83,6 +83,7 @@ pub(crate) fn validate_loaded_constituent_separation_job(
         })
         .particle_size_policy();
     let expected = resolve_separation_outputs(
+        registries.materials(),
         definition,
         target_particle_size_policy,
         job.consumed_inputs(),

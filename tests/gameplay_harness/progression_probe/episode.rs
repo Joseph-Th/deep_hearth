@@ -610,8 +610,20 @@ pub(super) fn run_primitive_progression_case(
         )
     };
     let natural_priority = observed_primitive_priority(bulk_sample.copper_ppm, hard_clue);
-    let soft_separation_feed_mass =
-        feed_mass_for_exact_constituent(crank_upgrade_native, bulk_sample.copper_ppm);
+    let primitive_sorting_recovery_ppm = registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
+        .map(ConstituentSeparationProcessDefinition::target_recovery_ppm)
+        .unwrap_or_else(|| panic!("primitive native-copper sorting definition disappeared"));
+    assert!(
+        primitive_sorting_recovery_ppm < COMPOSITION_PARTS_PER_MILLION,
+        "primitive separator must leave some recoverable copper in its physical residue"
+    );
+    let soft_separation_feed_mass = feed_mass_for_exact_recovered_constituent(
+        crank_upgrade_native,
+        bulk_sample.copper_ppm,
+        primitive_sorting_recovery_ppm,
+    );
     assert!(
         soft_separation_feed_mass <= mined_mass,
         "inventory-visible bulk ore must contain enough represented copper for the second upgrade"
@@ -672,7 +684,11 @@ pub(super) fn run_primitive_progression_case(
                     hard_ore_storage,
                     hard_sample.copper_ppm,
                     true,
-                    feed_mass_for_exact_constituent(crank_upgrade_native, hard_sample.copper_ppm),
+                    feed_mass_for_exact_recovered_constituent(
+                        crank_upgrade_native,
+                        hard_sample.copper_ppm,
+                        primitive_sorting_recovery_ppm,
+                    ),
                 )
             } else {
                 (
@@ -910,11 +926,25 @@ pub(super) fn run_primitive_progression_case(
         .unwrap_or_else(|| {
             unreachable!("actual separation energy is bounded by the conservative charge plan")
         });
-    assert_eq!(
-        banked_energy.checked_sub(planned_reserve_energy),
-        Some(separation_energy_saved),
-        "higher-grade feed must remain visible as conserved stored work after the same conservative charge"
+    let ideal_banked_energy = planned_reserve_energy
+        .checked_add(separation_energy_saved)
+        .unwrap_or_else(|| panic!("primitive ideal banked energy overflowed"));
+    assert!(
+        banked_energy < ideal_banked_energy,
+        "nonzero flywheel drag must make elapsed time consume some otherwise banked work"
     );
+    let flywheel_loss_before_reserve = ideal_banked_energy
+        .checked_sub(banked_energy)
+        .unwrap_or_else(|| unreachable!("passive loss cannot create stored work"));
+    let reserve_recharge_ticks =
+        fill_primitive_accumulator(registries, &mut state, machine, planned_reserve_energy)
+            .unwrap_or_else(|error| panic!("primitive reserve recharge failed: {error}"));
+    let drive_before_reserve = state
+        .energy()
+        .get_store(machine.drive)
+        .map(|store| store.stored())
+        .unwrap_or_else(|| panic!("primitive flywheel disappeared before reserve crushing"));
+    assert!(drive_before_reserve >= planned_reserve_energy);
     let reserve_work = crush_while_mining(
         registries,
         &mut state,
@@ -945,9 +975,12 @@ pub(super) fn run_primitive_progression_case(
         .unwrap_or_else(|| {
             panic!("primitive progression flywheel disappeared after reserve crushing")
         });
-    assert_eq!(
-        drive_after_reserve, separation_energy_saved,
-        "material-quality savings must survive the fixed follow-up crusher workload as reusable stored work"
+    assert!(
+        drive_after_reserve
+            <= drive_before_reserve
+                .checked_sub(planned_reserve_energy)
+                .unwrap_or_else(|| unreachable!("validated reserve energy exceeds stored work")),
+        "follow-up work and passive drag must not create residual flywheel energy"
     );
     let required_steady_state_productive_ticks = machine
         .automation_preparation_ticks
@@ -964,6 +997,8 @@ pub(super) fn run_primitive_progression_case(
         mined_mass,
         required_steady_state_productive_ticks,
     );
+    let component_service =
+        service_reinforced_pick(registries, &mut state, raw, native_storage, shaped, pick);
     let drive_remaining = state
         .energy()
         .get_store(machine.drive)
@@ -1081,7 +1116,9 @@ pub(super) fn run_primitive_progression_case(
         .unwrap_or_else(|| panic!("primitive player-free autonomous duration overflowed"));
     let total_charge_ticks = machine
         .charge_ticks
-        .checked_add(steady_state.charge_ticks)
+        .checked_add(separation.charge_ticks)
+        .and_then(|ticks| ticks.checked_add(reserve_recharge_ticks))
+        .and_then(|ticks| ticks.checked_add(steady_state.charge_ticks))
         .unwrap_or_else(|| panic!("primitive charging attention overflowed"));
     let experience = PrimitiveProgressionExperience {
         natural_priority,
@@ -1152,6 +1189,8 @@ pub(super) fn run_primitive_progression_case(
         separation_feed_mass: separation.feed_mass,
         recovered_copper_mass: separation.target_mass,
         separation_required_energy: separation.required_energy,
+        flywheel_loss_before_reserve,
+        reserve_recharge_ticks,
         separation_ticks: separation.ticks,
         separation_completed_at,
         processed_output_enabled_second_upgrade: separation.target_mass == crank_upgrade_native
@@ -1163,6 +1202,10 @@ pub(super) fn run_primitive_progression_case(
         direct_second_upgrade_blocked,
         initial_crank_reinforced,
         crank_reinforced: machine.crank_reinforced,
+        component_service_ticks: component_service.preparation_ticks,
+        component_service_mass: component_service.material_mass,
+        component_service_condition_before_ppm: component_service.condition_before_ppm,
+        component_service_preserved_reinforcement: component_service.preserved_reinforcement,
         final_pick_condition_ppm,
         metabolic_energy_spent_nj,
         hydration_spent_ul,
@@ -1243,7 +1286,7 @@ pub(super) fn run_primitive_progression_case(
             reinforced_hardness_limit.pascals(),
         );
         std::println!(
-            "PROGRESSION SYSTEMS knowledge=[surface:{}t refinement:{}t refined-extraction:{}mg/{}t] ore=[batch:{}mg stone-mining:{}t reinforced-mining:{:?} concurrent-bulk:{}mg total-mined:{}mg hard-before-convergence:{}mg hard-mined:{}mg remaining:{}mg] copper=[strongest-clue-mining:{}t direct-invested:{}mg direct-follow-up-blocked:{} separation-feed:{}mg recovered:{}mg residue:{}mg separation:{}t] infrastructure=[drive:{}mg crusher:{}mg separator:{}mg automation-preparation:{}t separator-preparation:{}t full-line-preparation:{}t] stored-work=[fill:{}ppm initial-charge:{}nJ primary-crush:{}nJ separation-plan:{}nJ separation-actual:{}nJ banked:{}nJ follow-up:{}mg:{}t steady-cycles:{} steady-stop:{} crusher-condition:{}ppm productive-setup-payback:{:?} steady-charge:{}t final:{}nJ] charge=[crank-reinforced-initial:{} final:{} full-accumulator:{}t initial:{}t total:{}t] mechanization=[primary:{}t concurrent-plan:{} work:{}t jobs:{} mined:{}mg stop:{} initial-overlap:{}t primary-productive-overlap:{}t primary-unfilled:{}t reserve:{}t reserve-mining:{}t/{}jobs stop:{} reserve-productive-overlap:{}t reserve-unfilled:{}t steady-machine:{}t steady-mining:{}jobs buffer-limited:{}cycles steady-productive-overlap:{}t steady-unfilled:{}t total-productive-overlap:{}t total-unfilled:{}t crushed-total:{}mg crushed-remaining:{}mg] durability=[pick:{}ppm] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
+            "PROGRESSION SYSTEMS knowledge=[surface:{}t refinement:{}t refined-extraction:{}mg/{}t] ore=[batch:{}mg stone-mining:{}t reinforced-mining:{:?} concurrent-bulk:{}mg total-mined:{}mg hard-before-convergence:{}mg hard-mined:{}mg remaining:{}mg] copper=[strongest-clue-mining:{}t direct-invested:{}mg direct-follow-up-blocked:{} separation-feed:{}mg recovered:{}mg residue:{}mg separation:{}t] infrastructure=[drive:{}mg crusher:{}mg separator:{}mg automation-preparation:{}t separator-preparation:{}t full-line-preparation:{}t] stored-work=[fill:{}ppm initial-charge:{}nJ primary-crush:{}nJ separation-plan:{}nJ separation-actual:{}nJ passive-loss-before-reserve:{}nJ reserve-recharge:{}t banked:{}nJ follow-up:{}mg:{}t steady-cycles:{} steady-stop:{} crusher-condition:{}ppm productive-setup-payback:{:?} steady-charge:{}t final:{}nJ] charge=[crank-reinforced-initial:{} final:{} full-accumulator:{}t initial:{}t total:{}t] mechanization=[primary:{}t concurrent-plan:{} work:{}t jobs:{} mined:{}mg stop:{} initial-overlap:{}t primary-productive-overlap:{}t primary-unfilled:{}t reserve:{}t reserve-mining:{}t/{}jobs stop:{} reserve-productive-overlap:{}t reserve-unfilled:{}t steady-machine:{}t steady-mining:{}jobs buffer-limited:{}cycles steady-productive-overlap:{}t steady-unfilled:{}t total-productive-overlap:{}t total-unfilled:{}t crushed-total:{}mg crushed-remaining:{}mg] durability=[pick-service:condition:{}->{}ppm component:{}mg prep:{}t reinforcement-preserved:{}] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
             surface_prospecting_ticks,
             detailed_survey_ticks,
             refined_clue_sample_mass.milligrams(),
@@ -1274,6 +1317,8 @@ pub(super) fn run_primitive_progression_case(
             machine.required_energy.nanojoules(),
             machine.separation_required_energy.nanojoules(),
             separation.required_energy.nanojoules(),
+            flywheel_loss_before_reserve.nanojoules(),
+            reserve_recharge_ticks,
             banked_energy.nanojoules(),
             machine.reserve_mass.milligrams(),
             reserve_work.crush_ticks,
@@ -1312,7 +1357,11 @@ pub(super) fn run_primitive_progression_case(
             total_player_free_ticks,
             processed_mass.milligrams(),
             remaining_crushed_mass.milligrams(),
+            component_service.condition_before_ppm,
             final_pick_condition_ppm,
+            component_service.material_mass.milligrams(),
+            component_service.preparation_ticks,
+            component_service.preserved_reinforcement,
             metabolic_energy_spent_nj,
             hydration_spent_ul,
             survival_after.metabolic_energy().nanojoules(),

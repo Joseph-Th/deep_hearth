@@ -1,7 +1,7 @@
 //! Tests for the sibling mod module; isolated so test-only edits do not invalidate production builds.
 
 use crate::content::{
-    FORM_CRUSHED, FORM_REINFORCEMENT, MATERIAL_COPPER, MATERIAL_STONE,
+    FORM_CONCENTRATE, FORM_CRUSHED, FORM_NATIVE_METAL, FORM_REINFORCEMENT, MATERIAL_COPPER,
     PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
 };
 use crate::core::quantity::{Mass, MassFlow};
@@ -22,13 +22,13 @@ fn separation_registry_rejects_free_consolidation_of_particulate_feed() {
     let registry = OreProcessingRegistry::new_with_processes(
         std::iter::empty(),
         std::iter::empty(),
-        [ConstituentSeparationProcessDefinition::new_binary(
+        [ConstituentSeparationProcessDefinition::new_sorting(
             authored.process(),
             FORM_CRUSHED,
             MATERIAL_COPPER,
             FORM_REINFORCEMENT,
-            MATERIAL_STONE,
             FORM_CRUSHED,
+            authored.target_recovery_ppm(),
             PoweredOreProcessProfile::new(
                 authored.mass_flow_capability(),
                 authored.max_batch_mass_capability(),
@@ -48,6 +48,47 @@ fn separation_registry_rejects_free_consolidation_of_particulate_feed() {
     });
 
     assert!(result.is_err());
+}
+
+#[test]
+fn separation_registry_requires_a_usable_non_target_residue_commodity() {
+    let registries = build_registries();
+    let authored = registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("built-in native-copper separation definition disappeared"));
+    let registry = OreProcessingRegistry::new_with_processes(
+        std::iter::empty(),
+        std::iter::empty(),
+        [ConstituentSeparationProcessDefinition::new_sorting(
+            authored.process(),
+            FORM_CRUSHED,
+            MATERIAL_COPPER,
+            FORM_NATIVE_METAL,
+            FORM_CONCENTRATE,
+            authored.target_recovery_ppm(),
+            PoweredOreProcessProfile::new(
+                authored.mass_flow_capability(),
+                authored.max_batch_mass_capability(),
+                authored.energy_carrier(),
+                authored.specific_energy(),
+                authored.condition_wear_ppm_per_active_tick(),
+            ),
+        )],
+    );
+
+    let result = std::panic::catch_unwind(|| {
+        registry.validate_references(
+            registries.production(),
+            registries.capabilities(),
+            registries.materials(),
+        );
+    });
+
+    assert!(
+        result.is_err(),
+        "registry assembly must reject a separation residue form usable only by the target material"
+    );
 }
 
 #[test]

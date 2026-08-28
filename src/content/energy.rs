@@ -14,6 +14,19 @@ pub const ENERGY_ELECTRICAL_BUFFER: EnergyStoreDefinitionId = EnergyStoreDefinit
 pub const ENERGY_THERMAL_SINK: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(4);
 pub const ENERGY_STONE_FLYWHEEL_DRIVE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(5);
 
+const WORKSHOP_ELECTRICAL_BUFFER_CAPACITY: Energy = Energy::from_nanojoules(25_000_000_000_000_000);
+const WORKSHOP_ELECTRICAL_BUFFER_TRANSFER_POWER: Power = Power::from_microwatts(1_000_000_000_000);
+const WORKSHOP_THERMAL_SINK_CAPACITY: Energy = Energy::from_nanojoules(20_000_000_000_000_000);
+const WORKSHOP_THERMAL_SINK_INPUT_POWER: Power = Power::from_microwatts(1_000_000_000_000);
+const WORKSHOP_THERMAL_SINK_PASSIVE_DISSIPATION_POWER: Power =
+    Power::from_microwatts(100_000_000_000);
+/// Low but nonzero bearing/windage loss for the crude mechanical accumulator.
+///
+/// At the authoritative 3.6-second tick this rejects exactly 180 mJ per tick. A full 500 J charge
+/// therefore cannot function as permanent stored work, while freshly charged workshop-scale
+/// operations still have a useful multi-minute physical window.
+const STONE_FLYWHEEL_PASSIVE_DISSIPATION_POWER: Power = Power::from_microwatts(50_000);
+
 pub(crate) fn build_energy_registry() -> EnergyRegistry {
     EnergyRegistry::new([
         EnergyStoreDefinition::new_with_transfer_limits(
@@ -32,22 +45,23 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             Power::from_microwatts(500_000_000),
             Power::from_microwatts(20_000_000_000),
         ),
-        EnergyStoreDefinition::new(
+        EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_ELECTRICAL_BUFFER,
             "workshop electrical buffer",
             EnergyCarrier::Electrical,
-            Energy::from_nanojoules(25_000_000_000_000_000),
-            Power::from_microwatts(1_000_000_000_000),
+            WORKSHOP_ELECTRICAL_BUFFER_CAPACITY,
+            WORKSHOP_ELECTRICAL_BUFFER_TRANSFER_POWER,
+            WORKSHOP_ELECTRICAL_BUFFER_TRANSFER_POWER,
         ),
         EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_THERMAL_SINK,
             "workshop thermal sink",
             EnergyCarrier::Thermal,
-            Energy::from_nanojoules(20_000_000_000_000_000),
-            Power::from_microwatts(1_000_000_000_000),
+            WORKSHOP_THERMAL_SINK_CAPACITY,
+            WORKSHOP_THERMAL_SINK_INPUT_POWER,
             Power::ZERO,
         )
-        .with_passive_dissipation_power(Power::from_microwatts(1_000_000_000_000)),
+        .with_passive_dissipation_power(WORKSHOP_THERMAL_SINK_PASSIVE_DISSIPATION_POWER),
         EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_STONE_FLYWHEEL_DRIVE,
             "stone flywheel accumulator",
@@ -56,6 +70,7 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             Power::from_microwatts(150_000_000),
             Power::from_microwatts(500_000_000),
         )
+        .with_passive_dissipation_power(STONE_FLYWHEEL_PASSIVE_DISSIPATION_POWER)
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),

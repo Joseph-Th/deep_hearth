@@ -51,6 +51,18 @@ fn condition(parts_per_million: u32) -> Condition {
     }
 }
 
+fn component_maintenance(
+    replacement: CommodityKey,
+    component_mass: Mass,
+) -> EquipmentMaintenanceProfile {
+    EquipmentMaintenanceProfile::new_component_replacement(
+        replacement,
+        component_mass,
+        CommodityKey::new(replacement.material(), FORM_SCRAP),
+        Condition::PRISTINE,
+    )
+}
+
 fn industrial_maintenance(equipment_mass: Mass) -> EquipmentMaintenanceProfile {
     // A failed-to-target overhaul represents replacement of one tenth of one percent of machine
     // mass in wear components. Runtime maintenance scales this full-service stock by the actual
@@ -317,6 +329,10 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 Mass::from_milligrams(200_000),
             ),
         ]))
+        .with_maintenance_profile(component_maintenance(
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ))
         .with_worn_recovery_form(FORM_SCRAP),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_STONE_HAND_CRANK,
@@ -339,6 +355,10 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 Mass::from_milligrams(200_000),
             ),
         ]))
+        .with_maintenance_profile(component_maintenance(
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ))
         .with_worn_recovery_form(FORM_SCRAP),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_COPPER_REINFORCED_PICK,
@@ -375,6 +395,10 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 Mass::from_milligrams(20_000),
             ),
         ]))
+        .with_maintenance_profile(component_maintenance(
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ))
         .with_worn_recovery_form(FORM_SCRAP)
         .with_upgrade_profile(EquipmentUpgradeProfile::new(
             EQUIPMENT_STONE_PICK,
@@ -408,6 +432,10 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 Mass::from_milligrams(20_000),
             ),
         ]))
+        .with_maintenance_profile(component_maintenance(
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ))
         .with_worn_recovery_form(FORM_SCRAP)
         .with_upgrade_profile(EquipmentUpgradeProfile::new(
             EQUIPMENT_STONE_HAND_CRANK,
@@ -443,6 +471,10 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 Mass::from_milligrams(400_000),
             ),
         ]))
+        .with_maintenance_profile(component_maintenance(
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(1_600_000),
+        ))
         .with_worn_recovery_form(FORM_SCRAP),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_STONE_SEPARATOR,
@@ -471,6 +503,10 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 Mass::from_milligrams(400_000),
             ),
         ]))
+        .with_maintenance_profile(component_maintenance(
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ))
         .with_worn_recovery_form(FORM_SCRAP),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_GRAVITY_SEPARATOR,

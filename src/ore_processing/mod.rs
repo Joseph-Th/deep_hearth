@@ -269,7 +269,7 @@ fn validate_separation_references(
         definition.process().value(),
         target_form.value()
     );
-    if definition.residue_material().is_none() {
+    if definition.is_concentration() {
         assert_eq!(
             target_output.particle_size_policy(),
             ParticleSizeStatePolicy::Required,
@@ -293,19 +293,15 @@ fn validate_separation_references(
         "constituent-separation process {} residue output must retain particle-size state",
         definition.process().value()
     );
-    if let Some(residue_material) = definition.residue_material() {
-        assert!(
-            materials.has_commodity(CommodityKey::new(residue_material, residue_form)),
-            "constituent-separation process {} references invalid residue material/form {}:{}",
-            definition.process().value(),
-            residue_material.value(),
-            residue_form.value()
-        );
-        assert_ne!(
-            residue_material, target_material,
-            "binary constituent separation must use a residue material distinct from its target"
-        );
-    }
+    assert!(
+        materials.definitions().any(|material| {
+            material.id() != target_material
+                && materials.has_commodity(CommodityKey::new(material.id(), residue_form))
+        }),
+        "constituent-separation process {} residue form {} has no authored non-target material commodity",
+        definition.process().value(),
+        residue_form.value()
+    );
 }
 
 impl OreProcessingRegistry {

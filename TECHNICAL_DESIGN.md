@@ -123,12 +123,15 @@ assessment combines only acquired evidence and preserves contradiction or spatia
 ### Prospecting and mining
 
 Field prospecting is exclusive `PlayerWorkState` labor over a method-bounded region. Regional reconnaissance
-covers a broader footprint with loose, high-uncertainty evidence; field inspection is a one-voxel local
-observation; detailed field survey costs more time and survival reserve for narrower one-voxel evidence. Start
-validation checks method, known material, authored spatial limit, duration, and survival budget. Completion
-uses hidden geology internally to derive authored uncertainty bounds, records one observation, and exposes no
-deposit identity or count. Overlapping observations combine through `GeologicalKnowledgeState`; empty ground
-also produces bounded evidence. In-progress prospecting persists and validates as player work.
+covers a broader footprint with loose, high-uncertainty evidence. A local transect provides intermediate
+surface-exposure evidence over a small multi-voxel region at lower active-time cost than independently
+inspecting every covered voxel; because it records one area observation, it cannot identify which voxel owns
+the hidden deposit. Field inspection is a one-voxel local observation, while detailed field survey costs more
+time and survival reserve for narrower one-voxel evidence. Start validation checks method, known material,
+authored spatial limit, duration, and survival budget. Completion uses hidden geology internally to derive
+authored uncertainty bounds, records one observation, and exposes no deposit identity or count. Overlapping
+observations combine through `GeologicalKnowledgeState`; empty ground also produces bounded evidence.
+In-progress prospecting persists and validates as player work.
 
 Mining target resolution converts compatible acquired evidence into an opaque deposit-bound authorization.
 Resolution fails when evidence is absent, contradictory, spatially incomparable, excludes the material,
@@ -183,17 +186,27 @@ Implemented resolvers:
   finite work energy, power-limited duration, and active-tick wear;
 - **Dry screening:** partitions fully resolved particle classes around an authored aperture without
   inventing fractional or unresolved splits;
-- **Constituent separation:** handles physically liberated particulate feed. Binary definitions may restrict feed
-  to one authored target plus one authored residue material; concentration definitions additionally own an
-  admissible input particle-size range and reject unresolved/coarse feed outside that liberation envelope.
-  Concentration accepts arbitrary non-target gangue within that prepared feed without composition-specific
-  recipes. Output mass is derived from exact selected
-  composition rather than a fixed yield. Concentration authors distinct target and lower non-target
-  recoveries, so product grade emerges from feed assay and separator selectivity rather than perfect
-  gangue rejection. Fractional component remainders are deterministically distributed across blended
-  particulate lots so represented constituent content remains exact. Separation cannot consolidate matter:
-  target outputs remain loose, while concentrate and residue retain input particulate state. Persisted jobs
-  replay composition, streams, energy, duration, and wear;
+- **Constituent separation:** handles physically liberated particulate feed. Sorting definitions author a
+  finite target recovery with zero gangue carry into the recovered target stream. Unrecovered target and every
+  non-target constituent remain in a blended particulate residue, provided each constituent authors the
+  required residue form. The residue commodity host is derived from the dominant physical gangue rather than
+  baking a gangue identity into the process, so mixed stone/clay/slag feed does not require composition-specific
+  sorting recipes. Sorting requires the input commodity host to be the target material, so its gangue-hosted
+  residue cannot be fed back through the same primitive operation for asymptotic recovery. The built-in
+  primitive native-copper sorter recovers 900,000 ppm of liberated copper, leaving the remainder physically
+  represented in crushed gangue. Concentration definitions instead operate on composition-bearing particulate
+  feed: the commodity host may be gangue when the target constituent is actually present, but the full feed must
+  lie inside the authored particle-size liberation envelope. Comminution preserves host identity and exact
+  composition while changing particle state, allowing retained primitive residue to become eligible only after
+  real preparation rather than relabeling. Concentration authors distinct target and lower non-target recoveries,
+  so product grade emerges from feed assay and separator selectivity rather than perfect gangue rejection. Its
+  residue uses an authored particulate `tailings` form distinct from the `crushed` input form, preventing the
+  identical concentration operation from being repeated indefinitely on its own output. Output mass is
+  derived from exact selected composition rather than a fixed yield. Fractional component remainders are
+  deterministically distributed across blended particulate lots so represented constituent content remains
+  exact. Separation cannot consolidate matter: target outputs remain loose, while concentrate and residue
+  retain input particulate state. Persisted jobs replay composition, commodity/form identity, streams, energy,
+  duration, and wear;
 - **Thermal processing:** sensible heating, pure-material melting, and pure-material casting use real
   selected matter, finite energy sources/sinks, equipment limits, phase boundaries, and latent heat. Melting
   and casting definitions bind authored input and output forms; admission and persisted replay cannot
@@ -227,7 +240,14 @@ component traces; traced component replacement requires a trace-level swap.
 Maintenance consumes an exact replacement commodity, produces a distinct conserved spent form with the same
 material phase and particle-state policy, and restores the authored condition target. For machinery using
 aggregate replacement stock, maintenance is a physical material reform rather than condition-only mutation;
-phase or particle transformations require their owning processes.
+phase or particle transformations require their owning processes. Equipment with exact assembly traces may
+instead author whole-component replacement. Registry validation binds that service commodity and mass to
+exactly one assembly input. Runtime service consumes fresh exact traces from inventory, removes every embodied
+trace belonging to that component, reforms the removed traces into the same material's authored spent form,
+and installs the fresh traces without changing equipment identity, unrelated component traces, additive
+upgrades, or embodied mass. Partial component replacement is not modeled: any positive repair below the
+authored target consumes one complete component, preventing an implicit durability currency from bypassing
+physical component ownership.
 
 ### Player work and survival
 
@@ -258,7 +278,10 @@ output power. Registry construction requires the authored rate to integrate to e
 authoritative tick. The canonical tick decides loss from the pre-tick stored-energy snapshot and applies it
 after same-tick ingress, so newly captured energy remains explicit until the following tick. Generic
 store-to-store transfer is not authorized because no physical path, carrier conversion, or transfer
-consequence is modeled.
+consequence is modeled. The primitive stone flywheel authors nonzero bearing/windage loss: its finite rotation
+therefore supports short-horizon delegated work but is not a lossless long-term battery. Player logic must read
+the actual stored-energy state when planning subsequent work and generate only the required shortfall through
+the canonical manual-power path.
 
 Fluid stores own identity, volume, temperature, capacity, revision, and optional support. One underlying
 material has at most one fluid identity while composition, contamination, concentration, and phase-mixture

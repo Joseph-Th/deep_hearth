@@ -10,7 +10,7 @@ use super::seed::mix64;
 use super::support::nominal_equipment_mass_capability;
 use deep_hearth::content::{
     ENERGY_MECHANICAL_LARGE_DRIVE, EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRAVITY_SEPARATOR,
-    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, FORM_CONCENTRATE, MATERIAL_CLAY,
+    EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, FORM_CONCENTRATE, FORM_TAILINGS, MATERIAL_CLAY,
     MATERIAL_COPPER, MATERIAL_STONE, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
     PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_SCREEN_CRUSHED_ORE,
 };
@@ -975,15 +975,16 @@ pub(super) fn evaluate_ore_preparation_capability_probe(
         });
     let tailings_distribution_is_fine =
         state.inventory().lot_ids(ids.tailings_storage).all(|lot| {
-            state
-                .inventory()
-                .get_lot(lot)
-                .and_then(|lot| lot.particle_size_distribution())
-                .is_some_and(|distribution| {
-                    distribution.classes().iter().all(|class| {
-                        class.range().maximum_diameter() <= screen_definition.aperture()
-                    })
-                })
+            state.inventory().get_lot(lot).is_some_and(|lot| {
+                lot.commodity().form() == FORM_TAILINGS
+                    && lot
+                        .particle_size_distribution()
+                        .is_some_and(|distribution| {
+                            distribution.classes().iter().all(|class| {
+                                class.range().maximum_diameter() <= screen_definition.aperture()
+                            })
+                        })
+            })
         });
     let represented_copper =
         represented_copper_ppm_mg(&state, &[ids.concentrate_storage, ids.tailings_storage]);
@@ -1110,7 +1111,7 @@ pub(super) fn evaluate_ore_preparation_capability_probe(
             tailings_retain_unrecovered_copper,
         ),
         (
-            "tailings retain the physically prepared fine particle state",
+            "tailings retain the physically prepared fine particle state in a terminal current-tier form",
             tailings_distribution_is_fine,
         ),
         (

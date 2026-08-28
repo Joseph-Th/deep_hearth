@@ -13,7 +13,7 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::{SimulationTick, TickSpan, WorldSeed};
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, EnergyStoreId,
-    EnergySupplyError, add_energy_store, add_energy_store_with_initial_for_test,
+    EnergySupplyError, add_energy_store, add_energy_store_with_initial_for_fixture,
     calculate_explicit_energy_accounting, calculate_power_duration_ceiling, validate_energy_supply,
 };
 use crate::equipment::{
@@ -100,7 +100,7 @@ fn sensible_heating_can_superheat_liquid_without_reapplying_fusion_energy() {
         Ok(equipment) => equipment,
         Err(error) => panic!("liquid heating equipment failed: {error}"),
     };
-    let energy_store = match add_energy_store_with_initial_for_test(
+    let energy_store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         BATTERY,
@@ -266,11 +266,12 @@ fn make_registries_with_energy_output_power_and_condition_curves(
         thresholds,
         curves,
     );
-    let energy = EnergyStoreDefinition::new(
+    let energy = EnergyStoreDefinition::new_with_transfer_limits(
         BATTERY,
         "test finite battery",
         carrier,
         Energy::from_nanojoules(1_000_000_000),
+        Power::ZERO,
         energy_output_power,
     );
     let process =
@@ -426,7 +427,7 @@ fn make_loaded_fixture_with_registries(
         Ok(id) => id,
         Err(error) => panic!("thermal equipment fixture failed: {error}"),
     };
-    let energy = match add_energy_store_with_initial_for_test(
+    let energy = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         BATTERY,
@@ -1078,7 +1079,7 @@ fn sensible_heating_stops_at_material_phase_boundary() {
         Ok(equipment) => equipment,
         Err(error) => panic!("phase-boundary heater allocation failed: {error}"),
     };
-    let energy_store = match add_energy_store_with_initial_for_test(
+    let energy_store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         BATTERY,
@@ -1280,7 +1281,7 @@ fn run_sensible_heating_soak(seed: WorldSeed) -> AppState {
         Ok(id) => id,
         Err(error) => panic!("heating soak equipment allocation failed: {error}"),
     };
-    let energy_store = match add_energy_store_with_initial_for_test(
+    let energy_store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         BATTERY,
@@ -1454,7 +1455,7 @@ fn same_tick_heating_completions_apply_all_wear_under_one_equipment_revision() {
         Ok(equipment) => equipment,
         Err(error) => panic!("same-tick wear second equipment fixture failed: {error}"),
     };
-    let second_energy = match add_energy_store_with_initial_for_test(
+    let second_energy = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         BATTERY,
@@ -2044,7 +2045,7 @@ fn heater_is_exclusive_while_job_runs_and_releases_on_completion() {
     ) {
         panic!("second heater occupancy input failed: {error}");
     }
-    let second_energy_store = match add_energy_store_with_initial_for_test(
+    let second_energy_store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         BATTERY,

@@ -4,6 +4,8 @@ mod accounting;
 mod construction_execution;
 mod definitions;
 mod disassembly_execution;
+#[cfg(any(test, feature = "test-gameplay"))]
+mod fixture_execution;
 mod integration;
 mod passive_dissipation;
 mod state;
@@ -34,12 +36,10 @@ pub use storage_execution::{
     ValidatedEnergySink, ValidatedEnergySupply, validate_energy_sink, validate_energy_supply,
 };
 
-#[cfg(feature = "test-gameplay")]
-pub(crate) use storage_execution::add_energy_store_with_initial_for_fixture;
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) use fixture_execution::add_energy_store_with_initial_for_fixture;
 #[cfg(test)]
-pub(crate) use storage_execution::add_energy_store_with_initial_for_fixture as add_energy_store_with_initial_for_test;
-#[cfg(test)]
-pub(crate) use storage_execution::{AddEnergyStoreError, add_energy_store};
+pub(crate) use fixture_execution::{AddEnergyStoreError, add_energy_store};
 
 pub(crate) use passive_dissipation::{
     apply_passive_energy_dissipation, decide_passive_energy_dissipation,

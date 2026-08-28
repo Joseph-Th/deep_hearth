@@ -34,6 +34,13 @@ pub struct EquipmentMaintenanceResolution {
     pub(super) material: ConsumptionSelection,
     pub(super) spent: CommodityKey,
     pub(super) spent_destination: StockpileId,
+    pub(super) material_mode: EquipmentMaintenanceMaterialResolution,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EquipmentMaintenanceMaterialResolution {
+    AggregateWearStock,
+    EmbodiedComponentReplacement { component: CommodityKey },
 }
 
 /// Player/system request to service one idle equipment instance from explicit replacement stock.
@@ -226,6 +233,13 @@ pub fn resolve_equipment_maintenance(
         material,
         spent: profile.spent(),
         spent_destination: request.spent_destination,
+        material_mode: if profile.is_component_replacement() {
+            EquipmentMaintenanceMaterialResolution::EmbodiedComponentReplacement {
+                component: profile.replacement(),
+            }
+        } else {
+            EquipmentMaintenanceMaterialResolution::AggregateWearStock
+        },
     })
 }
 
@@ -273,5 +287,13 @@ impl EquipmentMaintenanceResolution {
     #[must_use]
     pub const fn material_mass(&self) -> Mass {
         self.material.total_consumed()
+    }
+
+    #[must_use]
+    pub const fn replaces_embodied_component(&self) -> bool {
+        matches!(
+            self.material_mode,
+            EquipmentMaintenanceMaterialResolution::EmbodiedComponentReplacement { .. }
+        )
     }
 }

@@ -36,11 +36,6 @@ pub struct ConstituentRecoveryProfile {
 }
 
 impl ConstituentRecoveryProfile {
-    const PERFECT_BINARY: Self = Self {
-        target_ppm: COMPOSITION_PARTS_PER_MILLION,
-        non_target_ppm: 0,
-    };
-
     #[must_use]
     pub const fn new(target_ppm: u32, non_target_ppm: u32) -> Self {
         assert!(
@@ -145,15 +140,23 @@ pub struct ScreeningProcessDefinition {
 /// Immutable declaration that one selected-batch process separates an authored target constituent
 /// from physically liberated particulate feed.
 ///
-/// A binary definition names the only admissible residue material. A concentration definition
-/// accepts any non-target constituents, allowing one authored physical separation method to handle
-/// variable gangue without proliferating composition-specific recipes. Concentration authors both
-/// target recovery and lower non-target recovery, so concentrate grade emerges from feed assay and
-/// separator selectivity instead of assuming perfect gangue rejection. Binary separation represents
-/// deterministic sorting of already liberated target particles and therefore uses complete target
-/// recovery with zero non-target recovery. The resolver derives output masses from exact selected
-/// composition. Unrecovered constituents remain represented in particulate residue, and both
-/// concentration streams retain the selected feed's particle-size state.
+/// Sorting represents deterministic recovery of already liberated target particles with authored
+/// finite target recovery and zero non-target recovery. Every non-target constituent remains in a blended
+/// particulate residue when that material authors the required residue form, allowing one physical
+/// sorting operation to handle variable gangue without composition-specific recipes. Sorting requires
+/// the selected commodity host to be the target material because it represents recognizable,
+/// independently sortable target pieces. Concentration instead operates on prepared composition-bearing
+/// particulate feed and may accept a gangue-hosted commodity when the target constituent is actually
+/// present. It additionally authors lower non-target recovery, so concentrate grade emerges from feed
+/// assay and separator selectivity instead of assuming perfect gangue rejection. The resolver derives
+/// output masses from exact selected composition. Unrecovered constituents remain represented in
+/// particulate residue, and concentration streams retain the selected feed's particle-size state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ConstituentSeparationMode {
+    Sorting,
+    Concentration,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConstituentSeparationProcessDefinition {
     process: ProcessId,
@@ -161,7 +164,7 @@ pub struct ConstituentSeparationProcessDefinition {
     input_particle_size_range: Option<ParticleSizeRange>,
     target_material: MaterialId,
     target_output_form: FormId,
-    residue_material: Option<MaterialId>,
+    mode: ConstituentSeparationMode,
     residue_output_form: FormId,
     recovery: ConstituentRecoveryProfile,
     operating: PoweredOreProcessProfile,
@@ -173,29 +176,30 @@ impl ConstituentSeparationProcessDefinition {
     pub const RESIDUE_STREAM: crate::production::ProcessOutputStreamId =
         crate::production::ProcessOutputStreamId::new(2);
 
+    /// Authors finite-recovery sorting of an already liberated target constituent from arbitrary gangue.
+    ///
+    /// Every non-target constituent remains physically represented in the particulate residue
+    /// stream. The residue commodity host is derived from its dominant non-target material rather
+    /// than baking one gangue identity into the process definition.
     #[must_use]
-    pub const fn new_binary(
+    pub const fn new_sorting(
         process: ProcessId,
         input_form: FormId,
         target_material: MaterialId,
         target_output_form: FormId,
-        residue_material: MaterialId,
         residue_output_form: FormId,
+        target_recovery_ppm: u32,
         operating: PoweredOreProcessProfile,
     ) -> Self {
-        assert!(
-            target_material.value() != residue_material.value(),
-            "constituent separation target and residue materials must differ"
-        );
         Self {
             process,
             input_form,
             input_particle_size_range: None,
             target_material,
             target_output_form,
-            residue_material: Some(residue_material),
+            mode: ConstituentSeparationMode::Sorting,
             residue_output_form,
-            recovery: ConstituentRecoveryProfile::PERFECT_BINARY,
+            recovery: ConstituentRecoveryProfile::new(target_recovery_ppm, 0),
             operating,
         }
     }
@@ -218,7 +222,7 @@ impl ConstituentSeparationProcessDefinition {
             input_particle_size_range: Some(input_particle_size_range),
             target_material: target_output.material(),
             target_output_form: target_output.form(),
-            residue_material: None,
+            mode: ConstituentSeparationMode::Concentration,
             residue_output_form,
             recovery,
             operating,
@@ -236,7 +240,7 @@ impl ConstituentSeparationProcessDefinition {
     }
 
     /// Complete particulate feed envelope that is physically liberated enough for this separation.
-    /// Binary sorting may omit this when the target occurs as independently sortable coarse pieces.
+    /// Sorting may omit this when the target occurs as independently sortable coarse pieces.
     #[must_use]
     pub const fn input_particle_size_range(self) -> Option<ParticleSizeRange> {
         self.input_particle_size_range
@@ -253,8 +257,13 @@ impl ConstituentSeparationProcessDefinition {
     }
 
     #[must_use]
-    pub const fn residue_material(self) -> Option<MaterialId> {
-        self.residue_material
+    pub(crate) const fn is_sorting(self) -> bool {
+        matches!(self.mode, ConstituentSeparationMode::Sorting)
+    }
+
+    #[must_use]
+    pub(crate) const fn is_concentration(self) -> bool {
+        matches!(self.mode, ConstituentSeparationMode::Concentration)
     }
 
     #[must_use]
@@ -272,7 +281,7 @@ impl ConstituentSeparationProcessDefinition {
     }
 
     /// Returns the fraction of each non-target constituent carried into a concentration target
-    /// stream. Binary sorting always returns zero here.
+    /// stream. Sorting always returns zero here.
     #[must_use]
     pub const fn non_target_recovery_ppm(self) -> u32 {
         self.recovery.non_target_ppm()

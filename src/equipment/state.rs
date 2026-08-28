@@ -39,6 +39,15 @@ pub(super) struct EquipmentUpgradeMutation {
     pub(super) additions: Vec<ConsumedMaterialTrace>,
 }
 
+/// Complete owner-local payload for one prevalidated embodied-component service.
+pub(super) struct EquipmentComponentMaintenanceMutation {
+    pub(super) equipment: EquipmentId,
+    pub(super) component: crate::material::CommodityKey,
+    pub(super) condition_before: Condition,
+    pub(super) condition_after: Condition,
+    pub(super) replacement: Vec<ConsumedMaterialTrace>,
+}
+
 /// Persistent mutable state of one maintainable equipment instance.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -225,6 +234,80 @@ impl EquipmentState {
             "prechecked equipment insertion unexpectedly replaced a record"
         );
         self.next_equipment_id = next_equipment_id;
+        self.revision = next_revision;
+    }
+
+    /// Exchanges every trace belonging to one authored component for exact fresh traces while
+    /// preserving equipment identity, all unrelated embodied matter, and total embodied mass.
+    pub(super) fn apply_component_maintenance(
+        &mut self,
+        mutation: EquipmentComponentMaintenanceMutation,
+        expected_revision: u64,
+        next_revision: u64,
+    ) {
+        let EquipmentComponentMaintenanceMutation {
+            equipment,
+            component,
+            condition_before,
+            condition_after,
+            replacement,
+        } = mutation;
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        assert!(
+            !replacement.is_empty(),
+            "component replacement traces must be nonempty"
+        );
+        assert!(
+            replacement
+                .iter()
+                .all(|trace| trace.profile().commodity() == component),
+            "component replacement traces must match the authored component commodity"
+        );
+
+        let record = self.records.get_mut(&equipment).unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: equipment {} disappeared before component maintenance",
+                equipment.value()
+            )
+        });
+        assert_eq!(record.condition, condition_before);
+        let replaced_mass = record
+            .embodied_material
+            .iter()
+            .filter(|trace| trace.profile().commodity() == component)
+            .fold(Mass::ZERO, |total, trace| {
+                total.checked_add(trace.mass()).unwrap_or_else(|| {
+                    panic!("validated embodied component mass overflowed during maintenance")
+                })
+            });
+        let replacement_mass = replacement.iter().fold(Mass::ZERO, |total, trace| {
+            total.checked_add(trace.mass()).unwrap_or_else(|| {
+                panic!("validated replacement component mass overflowed during maintenance")
+            })
+        });
+        assert!(
+            !replaced_mass.is_zero(),
+            "validated component must exist in equipment"
+        );
+        assert_eq!(replaced_mass, replacement_mass);
+
+        let mut inserted = false;
+        let mut next_embodied =
+            Vec::with_capacity(record.embodied_material.len() + replacement.len());
+        for trace in record.embodied_material.drain(..) {
+            if trace.profile().commodity() == component {
+                if !inserted {
+                    next_embodied.extend(replacement.iter().cloned());
+                    inserted = true;
+                }
+            } else {
+                next_embodied.push(trace);
+            }
+        }
+        assert!(inserted);
+        record.embodied_material = next_embodied;
+        record.condition = condition_after;
         self.revision = next_revision;
     }
 

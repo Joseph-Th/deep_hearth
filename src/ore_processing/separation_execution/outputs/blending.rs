@@ -239,10 +239,10 @@ fn dominant_non_target_material(
             },
         )
         .map(|(material, _)| *material)
-        .unwrap_or_else(|| unreachable!("concentration residue must retain non-target gangue"))
+        .unwrap_or_else(|| unreachable!("separation residue must retain non-target gangue"))
 }
 
-pub(super) fn add_blended_concentration_residue(
+pub(super) fn add_blended_residue(
     grouped: &mut BTreeMap<ParticulateOutputKey, Mass>,
     definition: ConstituentSeparationProcessDefinition,
     temperature: Temperature,

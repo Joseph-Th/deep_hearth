@@ -1,15 +1,11 @@
 //! Conserved equipment-maintenance transaction boundary.
 //!
 //! Maintenance resolution is read-only and lives in `maintenance_resolution`. This module consumes
-//! that opaque result, validates every mutable owner, reforms exact replacement matter into the
-//! authored spent form, and commits the material and condition changes atomically.
+//! that opaque result, validates every mutable owner, performs the authored exact material service,
+//! and commits the material and condition changes atomically.
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::inventory::{
-    MaterialReformCommitError, MaterialReformError, ValidatedMaterialReform,
-    validate_material_reform_from_selection,
-};
 use crate::maintenance::Condition;
 use crate::registry::Registries;
 
@@ -17,6 +13,9 @@ use super::maintenance_resolution::{EquipmentMaintenanceResolution, impure_repla
 use super::state::EquipmentId;
 
 mod errors;
+mod material;
+
+use material::{ValidatedMaintenanceMaterial, validate_maintenance_material};
 
 pub use errors::{
     EquipmentMaintenanceCommitError, EquipmentMaintenanceError, EquipmentMaintenanceMaterialError,
@@ -27,7 +26,7 @@ use super::maintenance_resolution::{
     EquipmentMaintenanceRequest, EquipmentMaintenanceResolutionError, resolve_equipment_maintenance,
 };
 
-/// Successful maintenance outcome after exact maintenance matter is reformed into its spent output.
+/// Successful maintenance outcome after exact maintenance matter is consumed or exchanged.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EquipmentMaintenanceOutcome {
@@ -68,13 +67,13 @@ pub struct ValidatedEquipmentMaintenance {
     condition_after: Condition,
     expected_equipment_revision: u64,
     next_equipment_revision: u64,
-    material: ValidatedMaterialReform,
+    material: ValidatedMaintenanceMaterial,
 }
 
 impl ValidatedEquipmentMaintenance {
     #[must_use]
     pub const fn material_mass(&self) -> Mass {
-        self.material.total_mass()
+        self.material.material_mass()
     }
 
     pub fn commit(
@@ -123,17 +122,15 @@ impl ValidatedEquipmentMaintenance {
             });
         }
 
-        let material_mass = self.material.total_mass();
-        self.material
-            .commit(state)
-            .map_err(map_material_commit_error)?;
-
-        state.equipment_state_mut().apply_condition_change(
+        let material_mass = self.material.material_mass();
+        self.material.commit(
+            state,
             self.equipment,
             self.condition_before,
             self.condition_after,
+            self.expected_equipment_revision,
             self.next_equipment_revision,
-        );
+        )?;
 
         Ok(EquipmentMaintenanceOutcome {
             equipment: self.equipment,
@@ -141,73 +138,6 @@ impl ValidatedEquipmentMaintenance {
             condition_after: self.condition_after,
             material_mass,
         })
-    }
-}
-
-fn map_material_error(error: MaterialReformError) -> EquipmentMaintenanceMaterialError {
-    match error {
-        MaterialReformError::StaleSelection { expected, actual } => {
-            EquipmentMaintenanceMaterialError::StaleSelection { expected, actual }
-        }
-        MaterialReformError::UnknownSource { stockpile } => {
-            EquipmentMaintenanceMaterialError::UnknownSource { stockpile }
-        }
-        MaterialReformError::UnknownDestination { stockpile } => {
-            EquipmentMaintenanceMaterialError::UnknownSpentDestination { stockpile }
-        }
-        MaterialReformError::UnknownTargetMaterial { material } => {
-            EquipmentMaintenanceMaterialError::UnknownSpentMaterial { material }
-        }
-        MaterialReformError::UnknownTargetForm { form } => {
-            EquipmentMaintenanceMaterialError::UnknownSpentForm { form }
-        }
-        MaterialReformError::MaterialChanged { source, target } => {
-            EquipmentMaintenanceMaterialError::SpentMaterialChanged { source, target }
-        }
-        MaterialReformError::PhaseChanged { source, target } => {
-            EquipmentMaintenanceMaterialError::SpentPhaseChanged {
-                replacement: source,
-                spent: target,
-            }
-        }
-        MaterialReformError::TargetUnchanged { commodity } => {
-            EquipmentMaintenanceMaterialError::SpentFormUnchanged { commodity }
-        }
-        MaterialReformError::DestinationStorage(error) => {
-            EquipmentMaintenanceMaterialError::SpentStorage(error)
-        }
-        MaterialReformError::DestinationMassOverflow { stockpile } => {
-            EquipmentMaintenanceMaterialError::SpentMassOverflow { stockpile }
-        }
-        MaterialReformError::DestinationCapacityExceeded {
-            stockpile,
-            capacity,
-            committed,
-            requested,
-        } => EquipmentMaintenanceMaterialError::SpentCapacityExceeded {
-            stockpile,
-            capacity,
-            committed,
-            requested,
-        },
-        MaterialReformError::LotIdExhausted => EquipmentMaintenanceMaterialError::LotIdExhausted,
-        MaterialReformError::RevisionExhausted => {
-            EquipmentMaintenanceMaterialError::InventoryRevisionExhausted
-        }
-        MaterialReformError::StructuralLoad(error) => {
-            EquipmentMaintenanceMaterialError::StructuralLoad(error)
-        }
-    }
-}
-
-fn map_material_commit_error(error: MaterialReformCommitError) -> EquipmentMaintenanceCommitError {
-    match error {
-        MaterialReformCommitError::StaleInventoryRevision { expected, actual } => {
-            EquipmentMaintenanceCommitError::StaleInventoryRevision { expected, actual }
-        }
-        MaterialReformCommitError::Structure(error) => {
-            EquipmentMaintenanceCommitError::Structure(error)
-        }
     }
 }
 
@@ -265,11 +195,12 @@ pub fn validate_equipment_maintenance(
         });
     }
     let condition_before = resolution.condition_before;
-    if resolution.condition_after <= condition_before {
+    let condition_after = resolution.condition_after;
+    if condition_after <= condition_before {
         return Err(EquipmentMaintenanceError::ConditionNotImproved {
             equipment,
             before: condition_before,
-            after: resolution.condition_after,
+            after: condition_after,
         });
     }
     if let Some(commodity) = impure_replacement_commodity(&resolution.material) {
@@ -280,21 +211,15 @@ pub fn validate_equipment_maintenance(
         .revision()
         .checked_add(1)
         .ok_or(EquipmentMaintenanceError::EquipmentRevisionExhausted)?;
-    let material = validate_material_reform_from_selection(
-        registries,
-        state,
-        resolution.spent_destination,
-        resolution.spent,
-        resolution.material,
-    )
-    .map_err(map_material_error)
-    .map_err(EquipmentMaintenanceError::Material)?;
+    let expected_equipment_revision = state.equipment().revision();
+    let material = validate_maintenance_material(registries, state, record, resolution)
+        .map_err(EquipmentMaintenanceError::Material)?;
 
     Ok(ValidatedEquipmentMaintenance {
         equipment,
         condition_before,
-        condition_after: resolution.condition_after,
-        expected_equipment_revision: state.equipment().revision(),
+        condition_after,
+        expected_equipment_revision,
         next_equipment_revision,
         material,
     })

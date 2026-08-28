@@ -13,11 +13,12 @@ fn assembly_profile() -> MaterialAssemblyProfile {
 }
 
 fn basic_definition(id: EnergyStoreDefinitionId) -> EnergyStoreDefinition {
-    EnergyStoreDefinition::new(
+    EnergyStoreDefinition::new_with_transfer_limits(
         id,
         "energy definition fixture",
         EnergyCarrier::Mechanical,
         Energy::from_nanojoules(1),
+        Power::ZERO,
         Power::from_microwatts(1),
     )
 }

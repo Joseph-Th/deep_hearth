@@ -89,10 +89,10 @@ After setup, actor code must:
 
 | Target | Contract |
 | --- | --- |
-| `survival` | Hunger/thirst pressure, exact authored food-option availability, food-category coverage, preservation, diet tradeoffs, provisioning, varied prospecting-work cost, reserve recovery, actual diet-supported vitality recovery. |
-| `progression` | Coarse-to-fine evidence acquisition and information-value decisions, primitive crafting/mining/power/processing, scarce-copper choice, delegated work, second reinforcement, convergence, finite machine lifecycle. |
+| `survival` | Hunger/thirst pressure, exact authored food-option availability, food-category coverage, preservation-state effects, diet tradeoffs, provisioning, varied prospecting-work cost, reserve recovery, actual diet-supported vitality recovery. |
+| `progression` | Coarse-to-fine evidence acquisition and information-value decisions, primitive crafting/mining/power/processing, scarce-copper choice, delegated work, finite-recovery sorting, flywheel self-discharge/recharge, second reinforcement, convergence, finite machine lifecycle, and material-backed service that preserves prior scarce upgrades. |
 | `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structural pressure, hidden world change, and recovery. |
-| `ore` | Installed crush/grind/screen/regrind/concentrate flow with selective recovery, exact constituent accounting, physical tailings. Capability-only. |
+| `ore` | Installed crush/grind/screen/regrind/concentrate flow with selective recovery, exact constituent accounting, gangue-hosted prepared-feed acceptance, and terminal current-tier tailings. Capability-only. |
 | `foundry` | Installed pure-copper heating/melting/casting, finite electrical and thermal capacity, adaptive batches, molten remainder, passive sink recovery. Capability-only. |
 
 ### Gameplay evidence contract
@@ -109,7 +109,15 @@ world seeds. Set `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` to replay the same physic
 
 The progression probe must demonstrate player-visible evidence, an observable scarce-copper choice, physical
 consequences for both branches, useful concurrent work during delegated processing, convergence on the next
-capability, and bounded wear/lifecycle evidence. It first performs authored regional reconnaissance over
+capability, bounded wear/lifecycle evidence, and a normal-play maintenance recovery after real wear. The
+maintenance demonstration must craft the authored replacement component through the ordinary manual process,
+service the same reinforced equipment identity, conserve matter, and retain its already-invested copper
+reinforcement instead of rebuilding the whole tool. Primitive sorting must use the authored finite target
+recovery when selecting feed, leave unrecovered target matter in physical residue, and still obtain the exact
+usable copper parcel through ordinary processing rather than fixture compensation. The stone flywheel must lose
+stored work through canonical passive dissipation during elapsed time; the actor must plan from observable
+remaining energy and perform canonical just-in-time recharge when the next selected operation would otherwise
+lack work. It first performs authored regional reconnaissance over
 bounded clue zones, then uses those acquired abundance bounds to prioritize local inspections. Regional
 evidence is allowed to tie or remain too broad to resolve a target; the report says so rather than fabricating
 information value. Maintained regression worlds retain the deferred-survey archetype where a direct-source

@@ -23,6 +23,61 @@ fn failed_thermal_equipment_exposes_no_heat_transfer_capability() {
 }
 
 #[test]
+fn primitive_equipment_services_replace_authored_embodied_components() {
+    let registry = build_equipment_registry();
+    for (equipment, component, mass) in [
+        (
+            EQUIPMENT_STONE_PICK,
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            EQUIPMENT_STONE_HAND_CRANK,
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_PICK,
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+        (
+            EQUIPMENT_STONE_CRUSHER,
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(1_600_000),
+        ),
+        (
+            EQUIPMENT_STONE_SEPARATOR,
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+    ] {
+        let maintenance = registry
+            .get_equipment(equipment)
+            .and_then(|definition| definition.maintenance_profile())
+            .unwrap_or_else(|| {
+                panic!(
+                    "primitive equipment {} lost service route",
+                    equipment.value()
+                )
+            });
+        assert!(maintenance.is_component_replacement());
+        assert_eq!(maintenance.replacement(), component);
+        assert_eq!(maintenance.full_service_replacement_mass(), mass);
+        assert_eq!(maintenance.restored_condition(), Condition::PRISTINE);
+        assert_eq!(
+            maintenance.spent(),
+            CommodityKey::new(component.material(), FORM_SCRAP)
+        );
+    }
+}
+
+#[test]
 fn industrial_maintenance_replacement_mass_scales_with_machine_mass() {
     let registry = build_equipment_registry();
     for equipment in [

@@ -13,7 +13,7 @@ use crate::core::quantity::Length;
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::energy::{
-    EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store_with_initial_for_test,
+    EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store_with_initial_for_fixture,
     calculate_explicit_energy_accounting,
 };
 use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment};
@@ -91,11 +91,12 @@ fn make_registries(maximum_temperature: Temperature, carrier: EnergyCarrier) -> 
         profile,
         thresholds,
     );
-    let energy = EnergyStoreDefinition::new(
+    let energy = EnergyStoreDefinition::new_with_transfer_limits(
         ENERGY_STORE,
         "test melting electrical buffer",
         carrier,
         Energy::from_nanojoules(2_000_000_000_000),
+        Power::ZERO,
         Power::from_microwatts(10_000_000),
     );
     let process = ProcessDefinition::new_selected_batch(
@@ -241,7 +242,7 @@ fn make_fixture(
         Ok(equipment) => equipment,
         Err(error) => panic!("melting equipment fixture failed: {error}"),
     };
-    let energy_store = match add_energy_store_with_initial_for_test(
+    let energy_store = match add_energy_store_with_initial_for_fixture(
         &registries,
         &mut state,
         ENERGY_STORE,

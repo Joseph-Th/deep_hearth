@@ -3,7 +3,8 @@
 use super::*;
 use crate::content::{
     FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE, PROSPECTING_DETAILED_FIELD_SURVEY,
-    PROSPECTING_FIELD_INSPECTION, PROSPECTING_REGIONAL_RECONNAISSANCE, build_registries,
+    PROSPECTING_FIELD_INSPECTION, PROSPECTING_LOCAL_TRANSECT, PROSPECTING_REGIONAL_RECONNAISSANCE,
+    build_registries,
 };
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
@@ -20,6 +21,81 @@ use crate::survival::{assess_survival, initialize_player_survival};
 fn one_voxel(x: i64) -> VoxelBounds {
     VoxelBounds::new(VoxelCoord::new(x, -1, 0), VoxelCoord::new(x + 1, 0, 1))
         .unwrap_or_else(|error| panic!("field prospecting bounds fixture failed: {error}"))
+}
+
+#[test]
+fn local_transect_reduces_repeated_point_work_without_revealing_an_exact_target() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_2011));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("local-transect survival setup failed: {error}"));
+    let region = horizontal_region(50, 4);
+    let target_region = one_voxel(52);
+    insert_copper(&registries, &mut state, target_region);
+
+    let transect = registries
+        .labor()
+        .get_prospecting(PROSPECTING_LOCAL_TRANSECT)
+        .copied()
+        .unwrap_or_else(|| panic!("local-transect definition disappeared"));
+    let inspection = registries
+        .labor()
+        .get_prospecting(PROSPECTING_FIELD_INSPECTION)
+        .copied()
+        .unwrap_or_else(|| panic!("field-inspection definition disappeared"));
+    assert_eq!(transect.maximum_region_voxels(), 4);
+    assert_eq!(transect.abundance_uncertainty_ppm(), 75_000);
+    assert!(
+        transect.duration().value() < inspection.duration().value() * 4,
+        "one bounded transect should cost less active time than four independent point inspections"
+    );
+    assert!(matches!(
+        validate_start_field_prospecting(
+            &registries,
+            &state,
+            FieldProspectingRequest::new(PROSPECTING_FIELD_INSPECTION, region, MATERIAL_COPPER),
+        ),
+        Err(FieldProspectingStartError::RegionTooLarge {
+            actual: 4,
+            maximum: 1,
+        })
+    ));
+
+    start_prospecting(&registries, &mut state, PROSPECTING_LOCAL_TRANSECT, region);
+    let mut completed = None;
+    for _ in 0..transect.duration().value() {
+        completed = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("local-transect tick failed: {error}"))
+            .field_prospecting();
+    }
+    let observation = completed.unwrap_or_else(|| panic!("local transect did not complete"));
+    assert_eq!(observation.method(), PROSPECTING_LOCAL_TRANSECT);
+    assert_eq!(observation.region(), region);
+    assert_eq!(
+        observation.evidence(),
+        GeologicalEvidenceKind::SurfaceExposure
+    );
+    let finding = state
+        .geological_knowledge()
+        .get_observation(observation.observation())
+        .and_then(|record| record.finding(MATERIAL_COPPER))
+        .unwrap_or_else(|| panic!("local-transect finding disappeared"));
+    assert_eq!((finding.lower_ppm(), finding.upper_ppm()), (0, 1_000_000));
+    assert_eq!(
+        resolve_mining_target(
+            &state,
+            MiningTargetRequest::new(target_region, MATERIAL_COPPER),
+        ),
+        Err(
+            MiningTargetResolutionError::EvidenceInsufficientToResolveTarget {
+                material: MATERIAL_COPPER,
+                region: target_region,
+            }
+        ),
+        "area evidence must narrow search effort without leaking the exact occupied voxel"
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("local-transect final audit failed: {error}"));
 }
 
 fn horizontal_region(start_x: i64, width: i64) -> VoxelBounds {

@@ -75,17 +75,15 @@ pub enum ConstituentSeparationBatchError {
         required: ParticleSizeRange,
         found: ParticleSizeRange,
     },
-    InputHostMaterialMismatch {
+    SortingInputHostMaterialMismatch {
         expected: MaterialId,
         found: MaterialId,
     },
-    UnsupportedConstituent {
+    UnsupportedResidueForm {
         material: MaterialId,
+        form: FormId,
     },
     MissingTargetConstituent {
-        material: MaterialId,
-    },
-    MissingResidueConstituent {
         material: MaterialId,
     },
     MissingNonTargetConstituent,
@@ -117,30 +115,25 @@ impl Display for ConstituentSeparationBatchError {
                 found.minimum_diameter().micrometers(),
                 found.maximum_diameter().micrometers()
             ),
-            Self::InputHostMaterialMismatch { expected, found } => write!(
+            Self::SortingInputHostMaterialMismatch { expected, found } => write!(
                 formatter,
-                "constituent separation requires host material {} but selected commodity uses {}",
+                "constituent sorting requires target host material {} but selected commodity uses {}",
                 expected.value(),
                 found.value()
             ),
-            Self::UnsupportedConstituent { material } => write!(
+            Self::UnsupportedResidueForm { material, form } => write!(
                 formatter,
-                "constituent separation cannot classify un-authored material {}",
-                material.value()
+                "constituent separation cannot preserve material {} in residue form {}",
+                material.value(),
+                form.value()
             ),
             Self::MissingTargetConstituent { material } => write!(
                 formatter,
                 "constituent separation feed contains no authored target material {}",
                 material.value()
             ),
-            Self::MissingResidueConstituent { material } => write!(
-                formatter,
-                "constituent separation feed contains no authored residue material {}",
-                material.value()
-            ),
-            Self::MissingNonTargetConstituent => formatter.write_str(
-                "constituent concentration requires at least one non-target constituent",
-            ),
+            Self::MissingNonTargetConstituent => formatter
+                .write_str("constituent separation requires at least one non-target constituent"),
             Self::TargetBelowMassResolution { material, selected } => write!(
                 formatter,
                 "selected {} mg contains less than one authoritative milligram of recoverable target material {}",
@@ -165,10 +158,9 @@ impl Error for ConstituentSeparationBatchError {
             Self::EmptyInput
             | Self::InputFormMismatch { .. }
             | Self::InputParticleSizeOutsideOperatingRange { .. }
-            | Self::InputHostMaterialMismatch { .. }
-            | Self::UnsupportedConstituent { .. }
+            | Self::SortingInputHostMaterialMismatch { .. }
+            | Self::UnsupportedResidueForm { .. }
             | Self::MissingTargetConstituent { .. }
-            | Self::MissingResidueConstituent { .. }
             | Self::MissingNonTargetConstituent
             | Self::TargetBelowMassResolution { .. }
             | Self::MassOverflow => None,
@@ -418,6 +410,7 @@ pub fn resolve_constituent_separation_process(
         })
         .particle_size_policy();
     let outputs = resolve_separation_outputs(
+        registries.materials(),
         definition,
         target_particle_size_policy,
         inputs.consumed_inputs(),
