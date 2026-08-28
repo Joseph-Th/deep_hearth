@@ -86,6 +86,84 @@ class LocalCiPlanTests(unittest.TestCase):
             ["src/production/state/validation.rs"],
         )
 
+    def test_bca_changed_review_selects_maintained_source_inside_requested_scope(self) -> None:
+        self.assertEqual(
+            check_bca.select_changed_review_paths(
+                [
+                    "README.md",
+                    "src/labor/power_execution.rs",
+                    "src/labor/power_execution/start.rs",
+                    "src/production/state.rs",
+                    "tests/gameplay_harness/workshop.rs",
+                ],
+                ["src/labor/power_execution"],
+            ),
+            [
+                "src/labor/power_execution.rs",
+                "src/labor/power_execution/start.rs",
+            ],
+        )
+
+    def test_bca_changed_review_builds_exact_report_and_base_compatible_diff_scope(self) -> None:
+        args = check_bca.parse_args(
+            ["review", "--changed", "--since", "HEAD", "--path", "src/production/state"]
+        )
+        commands = check_bca.execution_commands_for(
+            args,
+            changed_paths=[
+                "src/production/state.rs",
+                "src/production/state/indexes.rs",
+                "src/labor/power_execution.rs",
+            ],
+            exists_at_revision={
+                "src/production/state.rs",
+                "src/production/state",
+            }.__contains__,
+        )
+        self.assertEqual(
+            commands,
+            [
+                [
+                    "bca",
+                    "report",
+                    "--vcs",
+                    "--top",
+                    "30",
+                    "--paths",
+                    "src/production/state.rs",
+                    "--paths",
+                    "src/production/state/indexes.rs",
+                ],
+                [
+                    "bca",
+                    "diff",
+                    "--since",
+                    "HEAD",
+                    "--format",
+                    "markdown",
+                    "--metric",
+                    "cognitive",
+                    "--metric",
+                    "cyclomatic",
+                    "--metric",
+                    "sloc",
+                    "--paths",
+                    "src/production/state.rs",
+                    "--paths",
+                    "src/production/state",
+                ],
+            ],
+        )
+
+    def test_bca_changed_review_is_a_clean_noop_without_changed_source(self) -> None:
+        args = check_bca.parse_args(["review", "--changed", "--path", "src/production"])
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(
+                check_bca.execution_commands_for(args, changed_paths=["README.md"]),
+                [],
+            )
+        self.assertIn("no changed maintained Rust source", output.getvalue())
+
     def test_bca_workflow_keeps_gate_and_advisory_modes_distinct(self) -> None:
         self.assertEqual(
             check_bca.commands_for(check_bca.parse_args(["check"])),
@@ -271,12 +349,12 @@ class LocalCiPlanTests(unittest.TestCase):
             "python tools/run_test.py mining::execution::tests::missing_capability",
         )
 
-    def test_gameplay_failure_points_to_one_exact_repair(self) -> None:
+    def test_gameplay_audit_failure_reuses_the_already_built_audit_target(self) -> None:
         output = "failures:\n    configuration::tests::broken_contract\n"
         error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_workshop configuration::tests::broken_contract",
+            "python tools/run_test.py --target gameplay_audit configuration::tests::broken_contract",
         )
 
     def test_gameplay_failure_without_test_name_falls_back_to_focused_target(self) -> None:
@@ -286,20 +364,20 @@ class LocalCiPlanTests(unittest.TestCase):
             "python ci.py gate --gameplay workshop",
         )
 
-    def test_consolidated_gameplay_failure_points_back_to_narrow_focused_target(self) -> None:
+    def test_consolidated_focused_failure_stays_on_the_warm_audit_target(self) -> None:
         output = "failures:\n    focused::gameplay_ore_preparation_probe\n"
         error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_ore gameplay_ore_preparation_probe",
+            "python tools/run_test.py --target gameplay_audit focused::gameplay_ore_preparation_probe",
         )
 
     def test_agency_failure_reuses_the_aggregate_target_instead_of_linking_another_binary(self) -> None:
-        output = "failures:\n    agency::gameplay_maintained_agency_counterfactuals\n"
+        output = "failures:\n    agency::gameplay_agency_counterfactuals\n"
         error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit agency::gameplay_maintained_agency_counterfactuals",
+            "python tools/run_test.py --target gameplay_audit agency::gameplay_agency_counterfactuals",
         )
 
     def test_global_catalog_failure_reuses_the_aggregate_target(self) -> None:
@@ -340,6 +418,37 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("test-gameplay", command)
         self.assertIn("gameplay_ore", command)
 
+    def test_library_check_command_avoids_codegen_and_linking(self) -> None:
+        args = argparse.Namespace(
+            target="lib",
+            features=None,
+            list=False,
+        )
+        self.assertEqual(
+            run_test.cargo_check_command(args),
+            ["cargo", "check", "--quiet", "--locked", "--lib", "--tests"],
+        )
+
+    def test_integration_check_command_infers_required_features_without_linking(self) -> None:
+        args = argparse.Namespace(
+            target="gameplay_ore",
+            features=None,
+            list=False,
+        )
+        self.assertEqual(
+            run_test.cargo_check_command(args),
+            [
+                "cargo",
+                "check",
+                "--quiet",
+                "--locked",
+                "--test",
+                "gameplay_ore",
+                "--features",
+                "test-gameplay",
+            ],
+        )
+
     def test_report_reuses_ordinary_gameplay_feature_shape(self) -> None:
         plan = ci.report_plan()
         commands = [command for _label, command in plan]
@@ -378,6 +487,39 @@ class LocalCiPlanTests(unittest.TestCase):
                 explicit, randbits=lambda _bits: self.fail("explicit replay roots must not consume entropy")
             ),
             ("0xAA", "0xBB"),
+        )
+
+    def test_default_gameplay_report_filters_probe_noise_but_verbose_keeps_it(self) -> None:
+        output = "\n".join(
+            [
+                "running 1 test",
+                "HARNESS INPUT plan=anchor+variation",
+                "AGENCY INPUT mode=explore organic=3 variation_root=0x1234",
+                "WORKSHOP CAPABILITY mode=exploratory scenarios=9",
+                "PROBE INPUT name=ore-preparation mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,organic:0x00000000000000AA,organic:0x00000000000000BB",
+                "ORE REVIEW seed=0x0000000000000001 anchor-detail",
+                "ORE REVIEW seed=0x00000000000000AA organic-representative",
+                "ORE REVIEW seed=0x00000000000000BB second-organic-detail",
+                "test result: ok. 1 passed",
+            ]
+        )
+        self.assertEqual(
+            ci.concise_gameplay_report(output, {}),
+            "\n".join(
+                [
+                    "HARNESS INPUT plan=anchor+variation",
+                    "AGENCY INPUT mode=explore organic=3 variation_root=0x1234",
+                    "WORKSHOP CAPABILITY mode=exploratory scenarios=9",
+                    "PROBE INPUT name=ore-preparation mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,organic:0x00000000000000AA,organic:0x00000000000000BB",
+                    "ORE REVIEW seed=0x0000000000000001 anchor-detail",
+                    "ORE REVIEW seed=0x00000000000000AA organic-representative",
+                    "ORE REVIEW seed=0x00000000000000BB second-organic-detail",
+                ]
+            ),
+        )
+        self.assertEqual(
+            ci.concise_gameplay_report(output, {"DEEP_HEARTH_GAMEPLAY_VERBOSE": "1"}),
+            output,
         )
 
     def test_git_wizard_validation_levels_match_iteration_policy(self) -> None:
@@ -562,7 +704,7 @@ class ExactTestCommandTests(unittest.TestCase):
         ore = run_test.source_test_catalog("gameplay_ore", None)
         audit = run_test.source_test_catalog("gameplay_audit", None)
         self.assertIn("workshop_contract_tests::gameplay_harness_gate", workshop)
-        self.assertNotIn("agency::gameplay_maintained_agency_counterfactuals", workshop)
+        self.assertNotIn("agency::gameplay_agency_counterfactuals", workshop)
         self.assertNotIn(
             "catalog_contract_tests::gameplay_catalog_is_discovered_from_runtime_owners",
             workshop,
@@ -572,7 +714,7 @@ class ExactTestCommandTests(unittest.TestCase):
             workshop,
         )
         self.assertIn(
-            "configuration::tests::default_gate_keeps_maintained_anchors_and_adds_a_bounded_variation_sample",
+            "configuration::tests::default_gate_keeps_maintained_anchors_and_adds_one_organic_case",
             workshop,
         )
         self.assertEqual(ore, ["gameplay_ore_preparation_probe"])
@@ -583,7 +725,7 @@ class ExactTestCommandTests(unittest.TestCase):
                 "focused::gameplay_ore_preparation_probe",
                 "focused::gameplay_foundry_probe",
                 "workshop_contract_tests::gameplay_harness_gate",
-                "agency::gameplay_maintained_agency_counterfactuals",
+                "agency::gameplay_agency_counterfactuals",
                 "gameplay_report",
             }.issubset(set(audit))
         )
@@ -591,7 +733,7 @@ class ExactTestCommandTests(unittest.TestCase):
         self.assertEqual(
             set(audit) - set(workshop),
             {
-                "agency::gameplay_maintained_agency_counterfactuals",
+                "agency::gameplay_agency_counterfactuals",
                 "catalog_contract_tests::gameplay_catalog_is_discovered_from_runtime_owners",
                 "catalog_contract_tests::gameplay_generators_retain_meaningful_physical_variation",
                 "focused::gameplay_survival_provisioning_probe",
@@ -600,7 +742,7 @@ class ExactTestCommandTests(unittest.TestCase):
                 "focused::gameplay_foundry_probe",
                 "gameplay_report",
             },
-            "every broad-audit-only maintained test must be an explicit counterfactual, focused probe, or report",
+            "every broad-audit-only test must be an explicit counterfactual, focused probe, or report",
         )
 
     def test_source_catalog_listing_never_builds_through_cargo_command(self) -> None:

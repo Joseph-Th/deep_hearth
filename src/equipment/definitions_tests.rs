@@ -11,6 +11,47 @@ fn assembly_profile() -> MaterialAssemblyProfile {
     )])
 }
 
+#[test]
+fn maintenance_replacement_mass_tracks_condition_restored_and_rounds_positive_repairs_up() {
+    let profile = EquipmentMaintenanceProfile::new(
+        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+        Mass::from_milligrams(7),
+        CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+        Condition::new(700_000)
+            .unwrap_or_else(|error| panic!("maintenance target fixture failed: {error}")),
+    );
+
+    assert_eq!(
+        profile.required_replacement_mass(Condition::FAILED),
+        Mass::from_milligrams(7),
+        "failed-to-target service must consume the authored full-service mass"
+    );
+    assert_eq!(
+        profile.required_replacement_mass(
+            Condition::new(500_000)
+                .unwrap_or_else(|error| panic!("partial condition fixture failed: {error}"))
+        ),
+        Mass::from_milligrams(2),
+        "partial service must scale with the condition actually restored"
+    );
+    assert_eq!(
+        profile.required_replacement_mass(
+            Condition::new(699_999)
+                .unwrap_or_else(|error| panic!("near-target condition fixture failed: {error}"))
+        ),
+        Mass::from_milligrams(1),
+        "positive repair must never round down to free maintenance"
+    );
+    assert_eq!(
+        profile.required_replacement_mass(
+            Condition::new(700_000)
+                .unwrap_or_else(|error| panic!("target condition fixture failed: {error}"))
+        ),
+        Mass::ZERO,
+        "service at the target must require no replacement stock"
+    );
+}
+
 fn basic_definition(id: EquipmentDefinitionId) -> EquipmentDefinition {
     let thresholds = MaintenanceThresholds::new(
         Condition::new(600_000)

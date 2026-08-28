@@ -10,7 +10,7 @@ use crate::core::time::TickSpan;
 use crate::equipment::{
     EquipmentId, EquipmentOperationTrace, EquipmentProviderError, resolve_equipment_provider,
 };
-use crate::geology::{GeologicalDepositId, GeologicalDepositLifecycle};
+use crate::geology::GeologicalDepositId;
 use crate::inventory::{
     InboundReservationError, StockpileId, StockpileStorageError, StockpileStructuralLoadError,
     ValidatedInboundReservation, validate_inbound_reservation, validate_stockpile_storage,
@@ -37,16 +37,7 @@ pub enum MiningStartError {
     UnknownMethod {
         method: MiningMethodId,
     },
-    TargetUnavailable,
-    StaleTargetGeology {
-        expected: u64,
-        actual: u64,
-    },
-    StaleTargetKnowledge {
-        expected: u64,
-        actual: u64,
-    },
-    TargetDepleted,
+    TargetNoLongerResolved,
     ZeroMass,
     InsufficientTargetMass {
         requested: Mass,
@@ -110,16 +101,9 @@ impl Display for MiningStartError {
             Self::UnknownMethod { method } => {
                 write!(formatter, "unknown mining method {}", method.value())
             }
-            Self::TargetUnavailable => formatter.write_str("resolved mining target is unavailable"),
-            Self::StaleTargetGeology { expected, actual } => write!(
-                formatter,
-                "resolved mining target expected geology revision {expected} but current revision is {actual}"
+            Self::TargetNoLongerResolved => formatter.write_str(
+                "resolved mining target is no longer uniquely supported by current local evidence and geology",
             ),
-            Self::StaleTargetKnowledge { expected, actual } => write!(
-                formatter,
-                "resolved mining target expected geological-knowledge revision {expected} but current revision is {actual}"
-            ),
-            Self::TargetDepleted => formatter.write_str("resolved mining target is depleted"),
             Self::ZeroMass => formatter.write_str("mining request mass must be nonzero"),
             Self::InsufficientTargetMass { requested } => write!(
                 formatter,
@@ -233,7 +217,6 @@ impl Display for MiningStartError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MiningTargetPlan {
     deposit: GeologicalDepositId,
-    expected_knowledge_revision: u64,
     excavation_hardness: Pressure,
     deposit_mass_before: Mass,
 }
@@ -255,32 +238,19 @@ fn validate_mining_target(
     target: MiningTargetResolution,
     mass: Mass,
 ) -> Result<MiningTargetPlan, MiningStartError> {
-    if state.geology().revision() != target.expected_geology_revision {
-        return Err(MiningStartError::StaleTargetGeology {
-            expected: target.expected_geology_revision,
-            actual: state.geology().revision(),
-        });
-    }
-    if state.geological_knowledge().revision() != target.expected_knowledge_revision {
-        return Err(MiningStartError::StaleTargetKnowledge {
-            expected: target.expected_knowledge_revision,
-            actual: state.geological_knowledge().revision(),
-        });
+    if !target.still_resolves(state) {
+        return Err(MiningStartError::TargetNoLongerResolved);
     }
     let deposit = target.deposit;
     let record = state
         .geology()
         .get_deposit(deposit)
-        .ok_or(MiningStartError::TargetUnavailable)?;
-    if record.lifecycle() == GeologicalDepositLifecycle::Depleted {
-        return Err(MiningStartError::TargetDepleted);
-    }
+        .unwrap_or_else(|| panic!("re-resolved mining target deposit disappeared"));
     if mass > record.remaining_mass() {
         return Err(MiningStartError::InsufficientTargetMass { requested: mass });
     }
     Ok(MiningTargetPlan {
         deposit,
-        expected_knowledge_revision: target.expected_knowledge_revision,
         excavation_hardness: record.excavation_hardness(),
         deposit_mass_before: record.remaining_mass(),
     })
@@ -337,7 +307,7 @@ fn resolve_mining_output(
     let record = state
         .geology()
         .get_deposit(target.deposit)
-        .ok_or(MiningStartError::TargetUnavailable)?;
+        .unwrap_or_else(|| panic!("validated mining target deposit disappeared"));
     MaterialLotSpec::with_composition(
         record.commodity(),
         mass,
@@ -414,10 +384,7 @@ impl Error for MiningStartError {
             Self::DestinationSupport(error) => Some(error),
             Self::Work(error) => Some(error),
             Self::UnknownMethod { .. }
-            | Self::TargetUnavailable
-            | Self::StaleTargetGeology { .. }
-            | Self::StaleTargetKnowledge { .. }
-            | Self::TargetDepleted
+            | Self::TargetNoLongerResolved
             | Self::ZeroMass
             | Self::InsufficientTargetMass { .. }
             | Self::EquipmentMounted { .. }
@@ -470,13 +437,10 @@ impl From<MiningPhysicsError> for MiningStartError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MiningStartCommitError {
-    StaleGeology {
-        expected: u64,
-        actual: u64,
-    },
-    StaleKnowledge {
-        expected: u64,
-        actual: u64,
+    TargetNoLongerResolved,
+    TargetMassChanged {
+        expected: Mass,
+        actual: Mass,
     },
     StaleInventory {
         expected: u64,
@@ -508,13 +472,14 @@ pub enum MiningStartCommitError {
 impl Display for MiningStartCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::StaleGeology { expected, actual } => write!(
-                formatter,
-                "validated mining start expected geology revision {expected} but current revision is {actual}"
+            Self::TargetNoLongerResolved => formatter.write_str(
+                "validated mining target is no longer uniquely supported by current local evidence and geology",
             ),
-            Self::StaleKnowledge { expected, actual } => write!(
+            Self::TargetMassChanged { expected, actual } => write!(
                 formatter,
-                "validated mining start expected geological-knowledge revision {expected} but current revision is {actual}"
+                "validated mining target source mass changed from {} mg to {} mg before commit",
+                expected.milligrams(),
+                actual.milligrams()
             ),
             Self::StaleInventory { expected, actual } => write!(
                 formatter,
@@ -556,8 +521,8 @@ impl Error for MiningStartCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Work(error) => Some(error),
-            Self::StaleGeology { .. }
-            | Self::StaleKnowledge { .. }
+            Self::TargetNoLongerResolved
+            | Self::TargetMassChanged { .. }
             | Self::StaleInventory { .. }
             | Self::StaleEquipment { .. }
             | Self::StaleMining { .. }
@@ -570,6 +535,7 @@ impl Error for MiningStartCommitError {
 
 #[must_use]
 pub struct ValidatedMiningStart {
+    target: MiningTargetResolution,
     revisions: MiningStartRevisions,
     next_mining_job_id: u64,
     reservation: ValidatedInboundReservation,
@@ -585,27 +551,30 @@ struct RevisionTransition {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MiningStartRevisions {
-    geology: u64,
-    knowledge: u64,
     equipment: u64,
     mining: RevisionTransition,
     structure: Option<u64>,
 }
 
 impl ValidatedMiningStart {
+    fn precheck_target(&self, state: &AppState) -> Result<(), MiningStartCommitError> {
+        if !self.target.still_resolves(state) {
+            return Err(MiningStartCommitError::TargetNoLongerResolved);
+        }
+        let record = state
+            .geology()
+            .get_deposit(self.record.deposit())
+            .unwrap_or_else(|| panic!("re-resolved mining target deposit disappeared"));
+        if record.remaining_mass() != self.record.deposit_mass_before() {
+            return Err(MiningStartCommitError::TargetMassChanged {
+                expected: self.record.deposit_mass_before(),
+                actual: record.remaining_mass(),
+            });
+        }
+        Ok(())
+    }
+
     fn precheck_owner_revisions(&self, state: &AppState) -> Result<(), MiningStartCommitError> {
-        if state.geology().revision() != self.revisions.geology {
-            return Err(MiningStartCommitError::StaleGeology {
-                expected: self.revisions.geology,
-                actual: state.geology().revision(),
-            });
-        }
-        if state.geological_knowledge().revision() != self.revisions.knowledge {
-            return Err(MiningStartCommitError::StaleKnowledge {
-                expected: self.revisions.knowledge,
-                actual: state.geological_knowledge().revision(),
-            });
-        }
         if state.inventory().revision() != self.reservation.expected_revision() {
             return Err(MiningStartCommitError::StaleInventory {
                 expected: self.reservation.expected_revision(),
@@ -661,6 +630,7 @@ impl ValidatedMiningStart {
         self.work
             .precheck(state)
             .map_err(MiningStartCommitError::Work)?;
+        self.precheck_target(state)?;
         self.precheck_owner_revisions(state)?;
         self.precheck_equipment_occupancy(state)?;
         let id = self.record.id();
@@ -709,7 +679,6 @@ pub fn validate_start_mining(
     let destination_plan =
         validate_mining_destination(registries, state, destination, &output, mass)?;
 
-    let expected_geology_revision = state.geology().revision();
     let expected_equipment_revision = state.equipment().revision();
     let expected_mining_revision = state.mining().revision();
     let next_mining_revision = expected_mining_revision
@@ -730,9 +699,8 @@ pub fn validate_start_mining(
     .map_err(MiningStartError::Work)?;
 
     Ok(ValidatedMiningStart {
+        target,
         revisions: MiningStartRevisions {
-            geology: expected_geology_revision,
-            knowledge: target_plan.expected_knowledge_revision,
             equipment: expected_equipment_revision,
             mining: RevisionTransition {
                 expected: expected_mining_revision,

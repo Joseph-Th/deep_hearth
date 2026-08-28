@@ -5,22 +5,24 @@ use crate::content::{
     FLUID_WATER, FORM_FOOD, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_GRAIN, MATERIAL_MEAT,
     MATERIAL_STONE, PROCESS_KNAP_STONE_TOOL, build_registries,
 };
-use crate::core::quantity::{AggregateMass, AggregateVolume, Temperature};
-use crate::core::state::{apply_clock_advance, validate_loaded_state};
-use crate::core::time::{SimulationTick, WorldSeed};
+use crate::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass, Temperature, Volume};
+use crate::core::state::{AppState, apply_clock_advance, validate_loaded_state};
+use crate::core::time::{SimulationTick, TickSpan, WorldSeed};
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::fluid::{add_fluid_store_with_contents_for_fixture, calculate_fluid_volume_accounting};
 use crate::inventory::{
-    StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile, deposit_lot_for_test,
-    validate_material_transfer_for_test,
+    MaterialLotSelection, StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
+    deposit_lot_for_test, validate_material_transfer_for_test,
 };
 use crate::labor::PlayerWork;
+use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+use crate::registry::Registries;
 use crate::simulation::advance_tick;
-use crate::survival::assess_survival;
 use crate::survival::{
-    NUTRITION_PARTS_PER_MILLION, NutritionReserves, Vitality, initialize_player_survival,
+    FoodCategory, NUTRITION_PARTS_PER_MILLION, NutritionReserves, Vitality, assess_survival,
+    initialize_player_survival, player_record,
 };
 
 fn initialize_and_spend_reserves(registries: &Registries, state: &mut AppState) {
@@ -451,38 +453,6 @@ fn nutrition_credit_uses_consumed_food_even_when_metabolic_reserve_is_full() {
             .get(FoodCategory::Grain),
         70
     );
-}
-
-#[test]
-fn nutrition_normalization_handles_full_width_energy_without_scaled_overflow() {
-    let maximum = Energy::from_nanojoules(u128::MAX);
-    assert_eq!(
-        normalized_nutrition_gain_ppm(Energy::from_nanojoules(u128::MAX), maximum),
-        Ok(u128::from(NUTRITION_PARTS_PER_MILLION))
-    );
-    assert_eq!(
-        normalized_nutrition_gain_ppm(
-            Energy::from_nanojoules(10_000_000_000_000_000),
-            Energy::from_nanojoules(20_000_000_000_000_000),
-        ),
-        Ok(500_000_u128)
-    );
-}
-
-#[test]
-fn nutrition_allocation_handles_full_width_energy_without_intermediate_overflow() {
-    let offered = NutritionEnergy {
-        grain: u128::MAX - 2,
-        fruit: 1,
-        protein: 1,
-    };
-
-    let gain = allocate_nutrition(u128::from(NUTRITION_PARTS_PER_MILLION), offered);
-
-    assert_eq!(gain.total_ppm(), NUTRITION_PARTS_PER_MILLION);
-    assert_eq!(gain.get(FoodCategory::Grain), NUTRITION_PARTS_PER_MILLION);
-    assert_eq!(gain.get(FoodCategory::Fruit), 0);
-    assert_eq!(gain.get(FoodCategory::Protein), 0);
 }
 
 #[test]

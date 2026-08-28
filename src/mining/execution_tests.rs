@@ -140,7 +140,7 @@ fn validate_known_mining(
 }
 
 #[test]
-fn resolved_mining_target_is_invalidated_by_new_geological_knowledge() {
+fn resolved_mining_target_survives_unrelated_remote_geological_knowledge() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xA11E_0030));
     initialize_player_survival(&registries, &mut state)
@@ -162,7 +162,6 @@ fn resolved_mining_target_is_invalidated_by_new_geological_knowledge() {
         ),
     )
     .unwrap_or_else(|error| panic!("stale-target knowledge resolution failed: {error}"));
-    let expected = state.geological_knowledge().revision();
     let remote = VoxelBounds::new(VoxelCoord::new(100, -8, 0), VoxelCoord::new(101, -7, 1))
         .unwrap_or_else(|error| panic!("stale-target knowledge evidence bounds failed: {error}"));
     let estimate = MaterialAbundanceEstimate::new(MATERIAL_STONE, 1, 1_000_000)
@@ -179,10 +178,50 @@ fn resolved_mining_target_is_invalidated_by_new_geological_knowledge() {
     .unwrap_or_else(|error| panic!("stale-target knowledge evidence validation failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("stale-target knowledge evidence commit failed: {error}"));
-    let actual = state.geological_knowledge().revision();
     let before = state.clone();
 
-    assert!(matches!(
+    let _validated = super::validate_start_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        target,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("remote knowledge should not stale local target: {error}"));
+    assert_eq!(state, before);
+}
+
+#[test]
+fn resolved_mining_target_is_invalidated_by_new_local_ambiguity() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_0033));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("ambiguous-target survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+        .unwrap_or_else(|error| panic!("ambiguous-target destination failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("ambiguous-target deposit failed: {error}"));
+    let deposit_record = state
+        .geology()
+        .get_deposit(deposit)
+        .unwrap_or_else(|| panic!("ambiguous-target deposit disappeared"));
+    let target = resolve_mining_target(
+        &state,
+        MiningTargetRequest::new(
+            deposit_record.bounds(),
+            deposit_record.commodity().material(),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("ambiguous-target initial resolution failed: {error}"));
+
+    crate::geology::insert_generated_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("ambiguous-target second deposit failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
         super::validate_start_mining(
             &registries,
             &state,
@@ -191,12 +230,10 @@ fn resolved_mining_target_is_invalidated_by_new_geological_knowledge() {
             destination,
             pick,
             Mass::from_milligrams(100_000),
-        ),
-        Err(MiningStartError::StaleTargetKnowledge {
-            expected: found_expected,
-            actual: found_actual,
-        }) if found_expected == expected && found_actual == actual
-    ));
+        )
+        .err(),
+        Some(MiningStartError::TargetNoLongerResolved)
+    );
     assert_eq!(state, before);
 }
 
@@ -233,7 +270,6 @@ fn validated_mining_start_is_invalidated_by_new_geological_knowledge() {
         Mass::from_milligrams(100_000),
     )
     .unwrap_or_else(|error| panic!("stale-start knowledge mining validation failed: {error}"));
-    let expected = state.geological_knowledge().revision();
     let contradiction = MaterialAbundanceEstimate::new(MATERIAL_COPPER, 0, 0)
         .unwrap_or_else(|error| panic!("stale-start knowledge estimate failed: {error}"));
     validate_record_prospecting(
@@ -248,12 +284,11 @@ fn validated_mining_start_is_invalidated_by_new_geological_knowledge() {
     .unwrap_or_else(|error| panic!("stale-start knowledge evidence validation failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("stale-start knowledge evidence commit failed: {error}"));
-    let actual = state.geological_knowledge().revision();
     let before = state.clone();
 
     assert_eq!(
         start.commit(&mut state),
-        Err(MiningStartCommitError::StaleKnowledge { expected, actual })
+        Err(MiningStartCommitError::TargetNoLongerResolved)
     );
     assert_eq!(state, before);
     assert_eq!(state.player_work().active(), None);
@@ -267,7 +302,7 @@ fn validated_mining_start_is_invalidated_by_new_geological_knowledge() {
 }
 
 #[test]
-fn resolved_mining_target_is_invalidated_by_geology_change() {
+fn validated_mining_start_survives_unrelated_remote_geology_change() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xA11E_0031));
     initialize_player_survival(&registries, &mut state)
@@ -289,7 +324,16 @@ fn resolved_mining_target_is_invalidated_by_geology_change() {
         ),
     )
     .unwrap_or_else(|error| panic!("stale-target geology resolution failed: {error}"));
-    let expected = state.geology().revision();
+    let start = super::validate_start_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        target,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("remote-geology mining validation failed: {error}"));
     let remote_bounds = VoxelBounds::new(VoxelCoord::new(100, -8, 0), VoxelCoord::new(101, -7, 1))
         .unwrap_or_else(|error| panic!("stale-target geology deposit bounds failed: {error}"));
     let remote = GeneratedDepositSpec::new(
@@ -303,25 +347,14 @@ fn resolved_mining_target_is_invalidated_by_geology_change() {
     .unwrap_or_else(|error| panic!("stale-target geology deposit spec failed: {error}"));
     crate::geology::insert_generated_deposit(&registries, &mut state, remote)
         .unwrap_or_else(|error| panic!("stale-target geology mutation failed: {error}"));
-    let actual = state.geology().revision();
-    let before = state.clone();
 
+    start.commit(&mut state).unwrap_or_else(|error| {
+        panic!("remote geology should not stale validated mining: {error}")
+    });
     assert!(matches!(
-        super::validate_start_mining(
-            &registries,
-            &state,
-            MINING_METHOD_HAND_PICK,
-            target,
-            destination,
-            pick,
-            Mass::from_milligrams(100_000),
-        ),
-        Err(MiningStartError::StaleTargetGeology {
-            expected: found_expected,
-            actual: found_actual,
-        }) if found_expected == expected && found_actual == actual
+        state.player_work().active(),
+        Some(PlayerWork::Mining { .. })
     ));
-    assert_eq!(state, before);
 }
 
 #[test]

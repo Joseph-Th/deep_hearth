@@ -117,9 +117,6 @@ impl ProductionOutputStream {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ProductionJobId(u64);
 
-type ProductionOccupancyMismatch<Resource> =
-    (Resource, Option<ProductionJobId>, Option<ProductionJobId>);
-
 impl ProductionJobId {
     #[must_use]
     pub const fn new(value: u64) -> Self {
@@ -295,37 +292,6 @@ impl ProductionJobRecord {
         };
         Some(stream)
     }
-
-    fn index_projection(&self) -> ProductionJobIndexProjection {
-        ProductionJobIndexProjection {
-            due_tick: (!self.is_suspended()).then_some(self.completes_at()),
-            energy_stores: self
-                .resources
-                .consumed_energy
-                .map(|trace| trace.source())
-                .into_iter()
-                .chain(
-                    self.resources
-                        .released_energy
-                        .map(|trace| trace.destination()),
-                )
-                .collect(),
-            equipment: self.equipment.provider.map(|provider| provider.equipment()),
-            output_stockpiles: self
-                .output_streams
-                .iter()
-                .map(|stream| stream.destination)
-                .collect(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct ProductionJobIndexProjection {
-    due_tick: Option<SimulationTick>,
-    energy_stores: Vec<EnergyStoreId>,
-    equipment: Option<EquipmentId>,
-    output_stockpiles: BTreeSet<StockpileId>,
 }
 
 /// Runtime owner for active process jobs and deterministic scheduling/resource indexes.
@@ -337,13 +303,7 @@ pub struct ProductionState {
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     jobs: BTreeMap<ProductionJobId, ProductionJobRecord>,
     #[serde(skip)]
-    due_jobs: BTreeMap<SimulationTick, BTreeSet<ProductionJobId>>,
-    #[serde(skip)]
-    energy_occupancy: BTreeMap<EnergyStoreId, ProductionJobId>,
-    #[serde(skip)]
-    equipment_occupancy: BTreeMap<EquipmentId, ProductionJobId>,
-    #[serde(skip)]
-    output_stockpile_occupancy: BTreeMap<StockpileId, BTreeSet<ProductionJobId>>,
+    indexes: ProductionIndexes,
 }
 
 impl ProductionState {
@@ -353,10 +313,7 @@ impl ProductionState {
             revision: 0,
             next_job_id: 1,
             jobs: BTreeMap::new(),
-            due_jobs: BTreeMap::new(),
-            energy_occupancy: BTreeMap::new(),
-            equipment_occupancy: BTreeMap::new(),
-            output_stockpile_occupancy: BTreeMap::new(),
+            indexes: ProductionIndexes::new(),
         }
     }
 
@@ -373,137 +330,15 @@ impl ProductionState {
     }
 
     pub(crate) fn rebuild_derived_indexes(&mut self) {
-        let mut due_jobs = BTreeMap::<SimulationTick, BTreeSet<ProductionJobId>>::new();
-        let mut energy_occupancy = BTreeMap::<EnergyStoreId, ProductionJobId>::new();
-        let mut equipment_occupancy = BTreeMap::<EquipmentId, ProductionJobId>::new();
-        let mut output_stockpile_occupancy =
-            BTreeMap::<StockpileId, BTreeSet<ProductionJobId>>::new();
-        for job in self.jobs.values() {
-            let projection = job.index_projection();
-            if let Some(due_tick) = projection.due_tick {
-                due_jobs.entry(due_tick).or_default().insert(job.id());
-            }
-            for store in projection.energy_stores {
-                energy_occupancy.entry(store).or_insert(job.id());
-            }
-            if let Some(equipment) = projection.equipment {
-                equipment_occupancy.entry(equipment).or_insert(job.id());
-            }
-            for stockpile in projection.output_stockpiles {
-                output_stockpile_occupancy
-                    .entry(stockpile)
-                    .or_default()
-                    .insert(job.id());
-            }
-        }
-        self.due_jobs = due_jobs;
-        self.energy_occupancy = energy_occupancy;
-        self.equipment_occupancy = equipment_occupancy;
-        self.output_stockpile_occupancy = output_stockpile_occupancy;
-    }
-
-    fn expected_energy_occupancy(
-        &self,
-    ) -> Result<BTreeMap<EnergyStoreId, ProductionJobId>, EnergyStoreId> {
-        let mut occupied = BTreeMap::new();
-        for job in self.jobs.values() {
-            for store in job.index_projection().energy_stores {
-                if occupied.insert(store, job.identity.id).is_some() {
-                    return Err(store);
-                }
-            }
-        }
-        Ok(occupied)
-    }
-
-    fn energy_occupancy_mismatch(
-        &self,
-    ) -> Result<Option<ProductionOccupancyMismatch<EnergyStoreId>>, EnergyStoreId> {
-        let expected = self.expected_energy_occupancy()?;
-        let stores = self
-            .energy_occupancy
-            .keys()
-            .chain(expected.keys())
-            .copied()
-            .collect::<BTreeSet<_>>();
-        for store in stores {
-            let indexed = self.energy_occupancy.get(&store).copied();
-            let expected = expected.get(&store).copied();
-            if indexed != expected {
-                return Ok(Some((store, indexed, expected)));
-            }
-        }
-        Ok(None)
-    }
-
-    fn expected_equipment_occupancy(
-        &self,
-    ) -> Result<BTreeMap<EquipmentId, ProductionJobId>, EquipmentId> {
-        let mut occupied = BTreeMap::new();
-        for job in self.jobs.values() {
-            if let Some(equipment) = job.index_projection().equipment
-                && occupied.insert(equipment, job.identity.id).is_some()
-            {
-                return Err(equipment);
-            }
-        }
-        Ok(occupied)
-    }
-
-    fn equipment_occupancy_mismatch(
-        &self,
-    ) -> Result<Option<ProductionOccupancyMismatch<EquipmentId>>, EquipmentId> {
-        let expected = self.expected_equipment_occupancy()?;
-        let equipment_ids = self
-            .equipment_occupancy
-            .keys()
-            .chain(expected.keys())
-            .copied()
-            .collect::<BTreeSet<_>>();
-        for equipment in equipment_ids {
-            let indexed = self.equipment_occupancy.get(&equipment).copied();
-            let expected = expected.get(&equipment).copied();
-            if indexed != expected {
-                return Ok(Some((equipment, indexed, expected)));
-            }
-        }
-        Ok(None)
-    }
-
-    fn expected_output_stockpile_occupancy(
-        &self,
-    ) -> BTreeMap<StockpileId, BTreeSet<ProductionJobId>> {
-        let mut occupied = BTreeMap::<StockpileId, BTreeSet<ProductionJobId>>::new();
-        for job in self.jobs.values() {
-            for stockpile in job.index_projection().output_stockpiles {
-                occupied
-                    .entry(stockpile)
-                    .or_default()
-                    .insert(job.identity.id);
-            }
-        }
-        occupied
-    }
-
-    fn output_stockpile_occupancy_mismatch(&self) -> Option<StockpileId> {
-        let expected = self.expected_output_stockpile_occupancy();
-        let stockpiles = self
-            .output_stockpile_occupancy
-            .keys()
-            .chain(expected.keys())
-            .copied()
-            .collect::<BTreeSet<_>>();
-        stockpiles.into_iter().find(|stockpile| {
-            self.output_stockpile_occupancy.get(stockpile) != expected.get(stockpile)
-        })
+        self.indexes.rebuild(self.jobs.values());
     }
 
     pub(crate) fn earliest_due_tick(&self) -> Option<SimulationTick> {
-        self.due_jobs.keys().next().copied()
+        self.indexes.earliest_due_tick()
     }
 
     pub(super) fn jobs_due_at(&self, tick: SimulationTick) -> BTreeSet<ProductionJobId> {
-        self.due_jobs.get(&tick).cloned().unwrap_or_default()
+        self.indexes.jobs_due_at(tick)
     }
 
     /// Returns one active process job by stable runtime ID.
@@ -520,7 +355,7 @@ impl ProductionState {
     /// Returns the active production job that exclusively reserves one finite energy store.
     #[must_use]
     pub(crate) fn get_energy_occupant(&self, store: EnergyStoreId) -> Option<ProductionJobId> {
-        self.energy_occupancy.get(&store).copied()
+        self.indexes.energy_occupant(store)
     }
 
     /// Returns the active production job that exclusively occupies one equipment instance.
@@ -529,8 +364,8 @@ impl ProductionState {
         &self,
         equipment: EquipmentId,
     ) -> Option<&ProductionJobRecord> {
-        self.equipment_occupancy
-            .get(&equipment)
+        self.indexes
+            .equipment_occupant(equipment)
             .and_then(|job| self.jobs.get(job))
     }
 
@@ -541,164 +376,12 @@ impl ProductionState {
         &self,
         stockpile: StockpileId,
     ) -> Option<&ProductionJobRecord> {
-        self.output_stockpile_occupancy
-            .get(&stockpile)
+        self.indexes
+            .output_stockpile_occupants(stockpile)
             .and_then(|jobs| {
                 jobs.iter()
                     .find_map(|job| self.jobs.get(job).filter(|record| !record.is_suspended()))
             })
-    }
-
-    fn assert_job_indexes_available(
-        &self,
-        id: ProductionJobId,
-        projection: &ProductionJobIndexProjection,
-    ) {
-        assert_eq!(
-            projection.energy_stores.len(),
-            projection
-                .energy_stores
-                .iter()
-                .copied()
-                .collect::<BTreeSet<_>>()
-                .len(),
-            "validated production job cannot reserve one energy store more than once"
-        );
-        for store in &projection.energy_stores {
-            assert!(
-                !self.energy_occupancy.contains_key(store),
-                "validated production job cannot replace an existing energy-store reservation"
-            );
-        }
-        if let Some(equipment) = projection.equipment {
-            assert!(
-                !self.equipment_occupancy.contains_key(&equipment),
-                "validated production job cannot replace an existing equipment reservation"
-            );
-        }
-        assert!(
-            self.due_jobs.values().all(|jobs| !jobs.contains(&id)),
-            "runtime invariant broken: production due index already contains job {}",
-            id.value()
-        );
-        for stockpile in &projection.output_stockpiles {
-            assert!(
-                !self
-                    .output_stockpile_occupancy
-                    .get(stockpile)
-                    .is_some_and(|occupants| occupants.contains(&id)),
-                "runtime invariant broken: production output-stockpile occupancy already contains job {}",
-                id.value()
-            );
-        }
-    }
-
-    fn insert_due_job(&mut self, id: ProductionJobId, due: SimulationTick) {
-        assert!(
-            self.due_jobs.entry(due).or_default().insert(id),
-            "runtime invariant broken: production due index already contains job {}",
-            id.value()
-        );
-    }
-
-    fn remove_due_job(&mut self, id: ProductionJobId, due: SimulationTick) {
-        let remove_bucket = {
-            let due_jobs = self.due_jobs.get_mut(&due).unwrap_or_else(|| {
-                panic!(
-                    "runtime invariant broken: production due index is missing job {}",
-                    id.value()
-                )
-            });
-            assert!(
-                due_jobs.remove(&id),
-                "runtime invariant broken: production due index is missing job {}",
-                id.value()
-            );
-            due_jobs.is_empty()
-        };
-        if remove_bucket {
-            self.due_jobs.remove(&due);
-        }
-    }
-
-    fn insert_job_indexes(
-        &mut self,
-        id: ProductionJobId,
-        projection: &ProductionJobIndexProjection,
-    ) {
-        if let Some(due_tick) = projection.due_tick {
-            self.insert_due_job(id, due_tick);
-        }
-        for store in projection.energy_stores.iter().copied() {
-            assert!(
-                self.energy_occupancy.insert(store, id).is_none(),
-                "runtime invariant broken: production energy occupancy replaced an existing job"
-            );
-        }
-        if let Some(equipment) = projection.equipment {
-            assert!(
-                self.equipment_occupancy.insert(equipment, id).is_none(),
-                "runtime invariant broken: production equipment occupancy replaced an existing job"
-            );
-        }
-        for stockpile in &projection.output_stockpiles {
-            assert!(
-                self.output_stockpile_occupancy
-                    .entry(*stockpile)
-                    .or_default()
-                    .insert(id),
-                "runtime invariant broken: production output-stockpile occupancy already contains job {}",
-                id.value()
-            );
-        }
-    }
-
-    fn remove_job_indexes(
-        &mut self,
-        id: ProductionJobId,
-        projection: &ProductionJobIndexProjection,
-    ) {
-        if let Some(due_tick) = projection.due_tick {
-            self.remove_due_job(id, due_tick);
-        }
-        for store in &projection.energy_stores {
-            assert_eq!(
-                self.energy_occupancy.remove(store),
-                Some(id),
-                "runtime invariant broken: energy occupancy index disagrees with production job {}",
-                id.value()
-            );
-        }
-        if let Some(equipment) = projection.equipment {
-            assert_eq!(
-                self.equipment_occupancy.remove(&equipment),
-                Some(id),
-                "runtime invariant broken: equipment occupancy index disagrees with production job {}",
-                id.value()
-            );
-        }
-        for stockpile in &projection.output_stockpiles {
-            let remove_bucket = {
-                let occupants = self
-                    .output_stockpile_occupancy
-                    .get_mut(stockpile)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "runtime invariant broken: output-stockpile occupancy index missing production job {}",
-                            id.value()
-                        )
-                    });
-                assert!(
-                    occupants.remove(&id),
-                    "runtime invariant broken: output-stockpile occupancy index disagrees with production job {}",
-                    id.value()
-                );
-                occupants.is_empty()
-            };
-            if remove_bucket {
-                self.output_stockpile_occupancy.remove(stockpile);
-            }
-        }
     }
 
     pub(super) fn insert_job(
@@ -708,18 +391,18 @@ impl ProductionState {
         next_revision: u64,
     ) {
         let id = job.identity.id;
-        let projection = job.index_projection();
+        let projection = ProductionJobIndexProjection::from_job(&job);
         assert!(
             !self.jobs.contains_key(&id),
             "validated production job ID must be unique"
         );
-        self.assert_job_indexes_available(id, &projection);
+        self.indexes.assert_job_available(id, &projection);
         let replaced = self.jobs.insert(id, job);
         assert!(
             replaced.is_none(),
             "prechecked production job ID was replaced"
         );
-        self.insert_job_indexes(id, &projection);
+        self.indexes.insert_job(id, &projection);
         self.next_job_id = next_job_id;
         self.revision = next_revision;
     }
@@ -738,7 +421,7 @@ impl ProductionState {
                 id.value()
             ),
         };
-        self.remove_due_job(id, due);
+        self.indexes.remove_due_job(id, due);
         let record = match self.jobs.get_mut(&id) {
             Some(record) => record,
             None => unreachable!("production job existence was checked before due-index mutation"),
@@ -768,7 +451,7 @@ impl ProductionState {
         );
         record.schedule.completes_at = scheduled_completion;
         record.schedule.suspension = None;
-        self.insert_due_job(id, scheduled_completion);
+        self.indexes.insert_due_job(id, scheduled_completion);
     }
 
     pub(super) fn change_suspension_reason(
@@ -814,13 +497,15 @@ impl ProductionState {
                 id.value()
             ),
         };
-        let projection = job.index_projection();
-        self.remove_job_indexes(id, &projection);
+        let projection = ProductionJobIndexProjection::from_job(&job);
+        self.indexes.remove_job(id, &projection);
         job
     }
 }
 
+mod indexes;
 mod validation;
 
+use indexes::{ProductionIndexes, ProductionJobIndexProjection};
 pub use validation::ProductionValidationError;
 pub(crate) use validation::validate_loaded_production;

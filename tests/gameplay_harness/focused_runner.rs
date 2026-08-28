@@ -6,7 +6,8 @@ use deep_hearth::content::build_registries;
 use deep_hearth::registry::Registries;
 
 use super::focused_seeds::{
-    FocusedProbeCase, FocusedProbeRole, MAINTAINED_VARIATION_ROOT, focused_probe_cases_from,
+    EXPLORATORY_VARIATION_COUNT, FocusedProbeCase, FocusedProbeRole, GATE_VARIATION_COUNT,
+    MAINTAINED_VARIATION_ROOT, focused_probe_cases_from,
 };
 use super::fresh_seed::fresh_root;
 
@@ -34,20 +35,32 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
 pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, FocusedProbeCase)) {
     let registries = build_registries();
     let (_, _, salt) = probe_seed_spec(name);
-    let default_variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(13));
-    run_focused_probe_with_registries(&registries, name, probe, default_variation_root);
+    run_focused_probe_with_registries(
+        &registries,
+        name,
+        probe,
+        false,
+        fresh_root(MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(13)),
+    );
 }
 
 pub(super) fn run_focused_probe_with_registries(
     registries: &Registries,
     name: &str,
     probe: fn(&Registries, FocusedProbeCase),
+    explore: bool,
     default_variation_root: u64,
 ) {
     let (maintained_seed, maintained_coverage_seeds, salt) = probe_seed_spec(name);
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
+    let variation_count = if explore {
+        EXPLORATORY_VARIATION_COUNT
+    } else {
+        GATE_VARIATION_COUNT
+    };
     let cases = focused_probe_cases_from(
+        variation_count,
         scenario_raw.as_deref(),
         variation_raw.as_deref(),
         maintained_seed,
@@ -68,8 +81,13 @@ pub(super) fn run_focused_probe_with_registries(
         .collect::<Vec<_>>()
         .join(",");
     std::println!(
-        "PROBE INPUT name={name} samples={} replay={replay}",
-        cases.len()
+        "PROBE INPUT name={name} mode={} samples={} organic={} replay={replay}",
+        if explore { "explore" } else { "gate" },
+        cases.len(),
+        cases
+            .iter()
+            .filter(|case| case.role() == FocusedProbeRole::OrganicVariation)
+            .count(),
     );
 
     for case in cases {

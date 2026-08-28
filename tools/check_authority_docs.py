@@ -31,6 +31,8 @@ AUTHORITY_FILES = (
 IGNORED_DOCUMENTATION_ROOTS = {".git", "target"}
 
 REQUIRED_LINKS = {
+    # README is the routing hub. Other authority pages link back to it instead of reproducing
+    # the complete authority graph.
     "README.md": {
         "AGENTS.md",
         "ARCHITECTURE.md",
@@ -39,14 +41,12 @@ REQUIRED_LINKS = {
         "STATUS.md",
         "TESTING.md",
     },
-    "STATUS.md": {
-        "README.md",
-        "ARCHITECTURE.md",
-        "TECHNICAL_DESIGN.md",
-        "GAME_DESIGN.md",
-        "TESTING.md",
-    },
-    "TESTING.md": {"README.md", "STATUS.md"},
+    "AGENTS.md": {"README.md"},
+    "ARCHITECTURE.md": {"README.md"},
+    "GAME_DESIGN.md": {"README.md"},
+    "TECHNICAL_DESIGN.md": {"README.md"},
+    "STATUS.md": {"README.md"},
+    "TESTING.md": {"README.md"},
 }
 
 MARKDOWN_LINK = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")

@@ -1,8 +1,11 @@
 # Architecture
 
-This page owns project-wide engineering rules. [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) owns subsystem
-contracts, [`STATUS.md`](STATUS.md) owns capability presence, and [`TESTING.md`](TESTING.md) owns
-verification.
+This page owns project-wide implementation rules. Use [`README.md`](README.md) for routing,
+[`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md) for subsystem semantics, [`STATUS.md`](STATUS.md) for runtime
+scope, and [`TESTING.md`](TESTING.md) for verification.
+
+The default shape is one authoritative owner, one canonical consequential mutation path, deterministic
+replay from persisted state, and explicit adapter boundaries.
 
 ## State model
 
@@ -89,8 +92,8 @@ Validate authoritative relationships where applicable:
 - serialization completeness and derived-data consistency;
 - external-effect boundaries.
 
-Cheap invariants belong in ordinary runtime boundaries. Exhaustive graph and physics validation belongs at
-trusted load and explicit audit boundaries.
+Cheap invariants run at ordinary runtime boundaries. Exhaustive graph and physics validation runs at trusted
+load and explicit audit boundaries.
 
 ## API and representation rules
 

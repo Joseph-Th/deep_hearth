@@ -156,7 +156,9 @@ pub(super) fn run_scenario(
         variation.crusher.large_drive_batch_budget,
         variation.crusher.large_drive_partial_batch_ppm,
         variation.crusher.maintenance_replacement_units,
-        maintenance_profile.replacement_mass().milligrams(),
+        maintenance_profile
+            .full_service_replacement_mass()
+            .milligrams(),
         maintenance_profile.restored_condition().parts_per_million(),
     );
     println!(
@@ -793,8 +795,8 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
     let behavior_raw = env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok();
     let mode_salt = match mode {
-        ScenarioPlanMode::Gate => 0x4741_5445_5EED_2026,
-        ScenarioPlanMode::Explore => 0x4558_504C_5EED_2026,
+        ScenarioPlanMode::Gate => 0x4741_5445_5EED_2026_u64,
+        ScenarioPlanMode::Explore => 0x4558_504C_5EED_2026_u64,
     };
     let default_world_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ mode_salt);
     let default_behavior_root =
@@ -820,7 +822,7 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     );
     print_content_summary(&registries, verbose);
     std::println!(
-        "EVIDENCE SCOPE ordinary-play-probes=[survival,local-prospecting,hand-mining,manual-crafting,primitive-power,primitive-processing] controlled-capability-probes=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] registry-route-discovery=CONTENT-PROCESS-ROUTES world-bootstrap-boundary=STATUS.md"
+        "EVIDENCE SCOPE reachable-runtime-after-controlled-bootstrap=[survival,local-prospecting,hand-mining,manual-crafting,primitive-power,primitive-processing] controlled-capability-probes=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] bootstrap=[starting-food+drink+raw-gathered-matter+visible-local-clue-regions] registry-route-discovery=CONTENT-PROCESS-ROUTES global-reachability-boundary=STATUS.md"
     );
     if verbose {
         std::println!(
@@ -873,7 +875,7 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
         assert_anchor_diversity(&anchor_reports);
     }
     let evidence_mode = match mode {
-        ScenarioPlanMode::Gate => "anchored+organic",
+        ScenarioPlanMode::Gate => "gate+organic",
         ScenarioPlanMode::Explore => "exploratory",
     };
     print_harness_summary(evidence_mode, &reports, verbose);

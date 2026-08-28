@@ -28,6 +28,7 @@ pub(super) fn validate_job_due_membership(
     job: &ProductionJobRecord,
 ) -> Result<(), ProductionValidationError> {
     let is_indexed = state
+        .indexes
         .due_jobs
         .get(&job.schedule.completes_at)
         .is_some_and(|ids| ids.contains(&id));
@@ -47,7 +48,7 @@ pub(super) fn validate_job_due_membership(
 }
 
 pub(super) fn validate_due_index(state: &ProductionState) -> Result<(), ProductionValidationError> {
-    for (due, ids) in &state.due_jobs {
+    for (due, ids) in &state.indexes.due_jobs {
         if ids.is_empty() {
             return Err(ProductionValidationError::EmptyDueIndex { due: *due });
         }
@@ -79,7 +80,8 @@ pub(super) fn validate_occupancy_indexes(
     state: &ProductionState,
 ) -> Result<(), ProductionValidationError> {
     if let Some((store, indexed, expected)) = state
-        .energy_occupancy_mismatch()
+        .indexes
+        .energy_occupancy_mismatch(state.jobs.values())
         .map_err(|store| ProductionValidationError::EnergyDoubleBooked { store })?
     {
         return Err(ProductionValidationError::EnergyOccupancyIndexMismatch {
@@ -89,7 +91,8 @@ pub(super) fn validate_occupancy_indexes(
         });
     }
     if let Some((equipment, indexed, expected)) = state
-        .equipment_occupancy_mismatch()
+        .indexes
+        .equipment_occupancy_mismatch(state.jobs.values())
         .map_err(|equipment| ProductionValidationError::EquipmentDoubleBooked { equipment })?
     {
         return Err(ProductionValidationError::EquipmentOccupancyIndexMismatch {
@@ -98,7 +101,10 @@ pub(super) fn validate_occupancy_indexes(
             expected,
         });
     }
-    if let Some(stockpile) = state.output_stockpile_occupancy_mismatch() {
+    if let Some(stockpile) = state
+        .indexes
+        .output_stockpile_occupancy_mismatch(state.jobs.values())
+    {
         return Err(ProductionValidationError::OutputStockpileOccupancyIndexMismatch { stockpile });
     }
     Ok(())

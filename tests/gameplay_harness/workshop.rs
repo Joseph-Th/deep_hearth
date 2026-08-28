@@ -330,7 +330,7 @@ fn setup_workshop(
         .get_equipment(EQUIPMENT_JAW_CRUSHER)
         .and_then(|definition| definition.maintenance_profile())
         .unwrap_or_else(|| panic!("canonical crusher maintenance profile disappeared"));
-    let replacement_unit = maintenance_profile.replacement_mass();
+    let replacement_unit = maintenance_profile.full_service_replacement_mass();
     let replacement_total_milligrams = replacement_unit
         .milligrams()
         .checked_mul(u64::from(variation.crusher.maintenance_replacement_units))

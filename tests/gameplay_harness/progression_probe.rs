@@ -1667,7 +1667,7 @@ fn crush_while_mining(
                     MiningStartError::DestinationCapacityExceeded { .. } => {
                         AutonomousWorkStop::FeedBufferCapacity
                     }
-                    MiningStartError::TargetDepleted
+                    MiningStartError::TargetNoLongerResolved
                     | MiningStartError::InsufficientTargetMass { .. } => {
                         AutonomousWorkStop::TargetSupply
                     }

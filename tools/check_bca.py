@@ -71,6 +71,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=[],
         help="restrict both report and diff to a path; repeat for multiple paths",
     )
+    review.add_argument(
+        "--changed",
+        action="store_true",
+        help=(
+            "review only maintained Rust source changed from --since, including untracked files; "
+            "repeated --path values become scope filters"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -113,6 +121,81 @@ def resolve_review_diff_paths(
     return compact_scopes(resolved)
 
 
+def normalize_path(path: str) -> str:
+    return PurePosixPath(path.replace("\\", "/")).as_posix()
+
+
+def is_maintained_rust_source(path: str) -> bool:
+    normalized = normalize_path(path)
+    return normalized.startswith("src/") and normalized.endswith(".rs")
+
+
+def path_is_within_scope(path: str, scope: str) -> bool:
+    normalized_path = normalize_path(path)
+    normalized_scope = normalize_path(scope)
+    return (
+        normalized_scope == "."
+        or normalized_path == normalized_scope
+        or normalized_path == f"{normalized_scope}.rs"
+        or normalized_path.startswith(f"{normalized_scope}/")
+    )
+
+
+def select_changed_review_paths(changed_paths: list[str], scopes: list[str]) -> list[str]:
+    """Select current maintained Rust files, optionally constrained to requested scopes."""
+
+    normalized_scopes = [normalize_path(scope) for scope in scopes]
+    selected = {
+        normalize_path(path)
+        for path in changed_paths
+        if is_maintained_rust_source(path)
+        and (
+            not normalized_scopes
+            or any(path_is_within_scope(path, scope) for scope in normalized_scopes)
+        )
+    }
+    return sorted(selected)
+
+
+def git_output_paths(command: list[str], description: str) -> list[str]:
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        error = result.stderr.decode(errors="replace").strip()
+        raise RuntimeError(f"could not {description}: {error or 'git command failed'}")
+    return [
+        path.decode(errors="surrogateescape")
+        for path in result.stdout.split(b"\0")
+        if path
+    ]
+
+
+def git_changed_paths_since(revision: str) -> list[str]:
+    """Return tracked and untracked working-tree paths relevant to a base-relative review."""
+
+    tracked = git_output_paths(
+        [
+            "git",
+            "diff",
+            "--name-only",
+            "--diff-filter=ACMR",
+            "-z",
+            revision,
+            "--",
+            "src",
+        ],
+        f"list source changes relative to {revision}",
+    )
+    untracked = git_output_paths(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z", "--", "src"],
+        "list untracked source files",
+    )
+    return tracked + untracked
+
+
 def git_path_exists_at_revision(revision: str, path: str) -> bool:
     object_name = f"{revision}:{'' if path == '.' else path}"
     result = subprocess.run(
@@ -124,21 +207,56 @@ def git_path_exists_at_revision(revision: str, path: str) -> bool:
     return result.returncode == 0
 
 
-def execution_commands_for(args: argparse.Namespace) -> list[list[str]]:
+def execution_commands_for(
+    args: argparse.Namespace,
+    *,
+    changed_paths: list[str] | None = None,
+    exists_at_revision=None,
+) -> list[list[str]]:
     """Resolve runtime-only review scope details without changing the public command contract."""
 
-    if args.mode != "review" or not args.path:
+    if args.mode != "review":
         return commands_for(args)
+    if args.changed:
+        current_paths = select_changed_review_paths(
+            git_changed_paths_since(args.since) if changed_paths is None else changed_paths,
+            args.path,
+        )
+        if not current_paths:
+            print("BCA review found no changed maintained Rust source in the requested scope.")
+            return []
+        path_exists = exists_at_revision or (
+            lambda path: git_path_exists_at_revision(args.since, path)
+        )
+        diff_paths = resolve_review_diff_paths(current_paths, path_exists)
+        print(f"BCA review changed source: {', '.join(current_paths)}", flush=True)
+        if diff_paths != compact_scopes(current_paths):
+            print(
+                "BCA review widened changed-code diff scope to "
+                f"{', '.join(diff_paths)} because one or more changed paths do not exist at {args.since}.",
+                flush=True,
+            )
+        metrics = args.metric or list(DEFAULT_REVIEW_METRICS)
+        return [
+            report_command(args.top, current_paths),
+            diff_command(args.since, metrics, diff_paths),
+        ]
+    if not args.path:
+        return commands_for(args)
+    path_exists = exists_at_revision or (
+        lambda path: git_path_exists_at_revision(args.since, path)
+    )
     diff_paths = resolve_review_diff_paths(
         args.path,
-        lambda path: git_path_exists_at_revision(args.since, path),
+        path_exists,
     )
     if diff_paths != compact_scopes(
-        [PurePosixPath(path.replace("\\", "/")).as_posix() for path in args.path]
+        [normalize_path(path) for path in args.path]
     ):
         print(
             "BCA review widened changed-code diff scope to "
-            f"{', '.join(diff_paths)} because one or more requested paths do not exist at {args.since}."
+            f"{', '.join(diff_paths)} because one or more requested paths do not exist at {args.since}.",
+            flush=True,
         )
     metrics = args.metric or list(DEFAULT_REVIEW_METRICS)
     return [
@@ -206,7 +324,12 @@ def main(argv: list[str] | None = None) -> int:
     version_result = verify_version()
     if version_result != 0:
         return version_result
-    for command in execution_commands_for(args):
+    try:
+        commands = execution_commands_for(args)
+    except RuntimeError as error:
+        print(f"BCA review scope error: {error}", file=sys.stderr)
+        return 1
+    for command in commands:
         result = subprocess.run(command, check=False)
         if result.returncode != 0:
             return result.returncode

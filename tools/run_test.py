@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Discover or run exact Rust tests without paying build cost for catalog mistakes."""
+"""Discover, type-check, or run exact Rust tests without paying for selector mistakes."""
 
 from __future__ import annotations
 
@@ -278,11 +278,27 @@ def cargo_command(args: argparse.Namespace) -> list[str]:
     return command
 
 
+def cargo_check_command(args: argparse.Namespace) -> list[str]:
+    """Type-check the exact test's owning target without code generation or linking."""
+
+    if args.list:
+        raise ValueError("source catalog listing does not invoke Cargo")
+    command = ["cargo", "check", "--quiet", "--locked"]
+    if args.target == "lib":
+        command.extend(("--lib", "--tests"))
+    else:
+        command.extend(("--test", args.target))
+    requested_features = requested_target_features(args.target, args.features)
+    if requested_features:
+        command.extend(("--features", ",".join(sorted(requested_features))))
+    return command
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Run one exact cached Rust test from an exact or uniquely matching source selector, "
-            "or inspect the build-free source catalog."
+            "type-check its owning target without linking, or inspect the build-free source catalog."
         )
     )
     parser.add_argument(
@@ -295,6 +311,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="list exact source test names without compiling or linking",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="type-check the selected test target without linking or executing tests",
+    )
     parser.add_argument("--target", default="lib", help="Cargo test target name; defaults to lib")
     parser.add_argument(
         "--features",
@@ -305,7 +326,9 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if not args.list and not args.name:
         parser.error("an exact test name is required unless --list is used")
-    if args.list and (args.ignored or args.nocapture):
+    if args.list and args.check:
+        parser.error("--list and --check are mutually exclusive")
+    if (args.list or args.check) and (args.ignored or args.nocapture):
         parser.error("--ignored and --nocapture apply only to exact execution")
     return args
 
@@ -340,7 +363,7 @@ def main() -> int:
             print(f"candidate: {candidate}", file=sys.stderr)
         return 2
 
-    command = cargo_command(args)
+    command = cargo_check_command(args) if args.check else cargo_command(args)
     environment = os.environ.copy()
     environment["CARGO_TERM_COLOR"] = "never"
     started = time.perf_counter()
@@ -362,14 +385,15 @@ def main() -> int:
             print(result.stderr.rstrip(), file=sys.stderr)
         return result.returncode
 
-    if ZERO_TESTS.search(result.stdout):
+    if not args.check and ZERO_TESTS.search(result.stdout):
         print(f"FAIL Cargo did not execute cataloged exact test: {args.name}", file=sys.stderr)
         print(f"catalog: python tools/run_test.py --list {args.name}", file=sys.stderr)
         return 2
 
-    if args.nocapture and result.stdout.strip():
+    if not args.check and args.nocapture and result.stdout.strip():
         print(result.stdout.rstrip())
-    print(f"PASS {args.target}::{args.name} ({elapsed:.1f}s)")
+    action = "check " if args.check else ""
+    print(f"PASS {action}{args.target}::{args.name} ({elapsed:.1f}s)")
     return 0
 
 

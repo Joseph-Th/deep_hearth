@@ -133,15 +133,28 @@ fn relative_power_gain_ppm(base: Power, upgraded: Power) -> u32 {
 
 fn evaluate_primitive_progression_probe(
     registries: &Registries,
-    seed: u64,
+    case: FocusedProbeCase,
 ) -> PrimitiveProgressionReview {
     assert_progression_runtime_dependencies(registries);
-    let extraction =
-        run_primitive_progression_case(registries, seed, PrimitivePriority::ExtractionFirst, true);
+    let seed = case.seed();
+    let deferred_trace_refinement = match case.role() {
+        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => true,
+        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
+            mix64(seed ^ 0x494E_464F_5F504154).is_multiple_of(2)
+        }
+    };
+    let extraction = run_primitive_progression_case(
+        registries,
+        seed,
+        PrimitivePriority::ExtractionFirst,
+        deferred_trace_refinement,
+        true,
+    );
     let mechanization = run_primitive_progression_case(
         registries,
         seed,
         PrimitivePriority::MechanizationFirst,
+        deferred_trace_refinement,
         true,
     );
     assert_eq!(
@@ -268,7 +281,7 @@ fn evaluate_primitive_progression_probe(
             mechanization.refined_sample_copper_ppm,
             mechanization.refined_sample_is_ore,
         ),
-        "matched-world priorities must see the same deferred geological refinement and sample"
+        "matched-world priorities must see the same geological information path and any resulting sample"
     );
     assert_eq!(
         (
@@ -587,20 +600,31 @@ fn evaluate_primitive_progression_probe(
         .productive_payback_cycles
         .and_then(|payback| review.steady_state_cycles.checked_sub(payback))
         .unwrap_or(0);
-    let fantasy_captured = review.surface_resolved_clue_count < review.surface_clue_count
-        && review.surface_resolved_clue_count > 0
-        && review.information_refinement_required
-        && review.refinement_triggered_by_direct_shortage
-        && review.refined_detailed_lower_ppm > review.refined_coarse_lower_ppm
-        && review.refined_detailed_upper_ppm < review.refined_coarse_upper_ppm
-        && review.refined_sample_is_ore
-        && review.bulk_sample_copper_ppm > review.refined_sample_copper_ppm
+    let information_path_captured = if review.information_refinement_required {
+        review.surface_resolved_clue_count < review.surface_clue_count
+            && review.surface_resolved_clue_count > 0
+            && review.refinement_triggered_by_direct_shortage
+            && review.refined_detailed_lower_ppm > review.refined_coarse_lower_ppm
+            && review.refined_detailed_upper_ppm < review.refined_coarse_upper_ppm
+            && review.refined_sample_is_ore
+            && review.bulk_sample_copper_ppm > review.refined_sample_copper_ppm
+            && review.detailed_survey_ticks > 0
+            && review.refined_clue_sample_mg > 0
+    } else {
+        review.surface_resolved_clue_count == review.surface_clue_count
+            && !review.refinement_triggered_by_direct_shortage
+            && review.refined_detailed_lower_ppm == review.refined_coarse_lower_ppm
+            && review.refined_detailed_upper_ppm == review.refined_coarse_upper_ppm
+            && review.refined_coarse_upper_ppm < review.bulk_ore_evidence_lower_ppm
+            && !review.refined_sample_is_ore
+            && review.detailed_survey_ticks == 0
+            && review.refined_clue_sample_mg == 0
+    };
+    let fantasy_captured = information_path_captured
         && review.processing_feed_selected_from_bulk
         && review.stone_mineable_clue_count > 0
         && review.hardness_blocked_clue_count > 0
         && review.direct_second_upgrade_blocked
-        && review.detailed_survey_ticks > 0
-        && review.refined_clue_sample_mg > 0
         && review.sequencing_tradeoff
         && (review.material_efficiency_tradeoff
             || review.extraction_reassessment_avoided_worse_feed)
@@ -644,18 +668,28 @@ fn evaluate_primitive_progression_probe(
         .checked_sub(review.surface_resolved_clue_count)
         .unwrap_or_else(|| unreachable!("resolved clue count cannot exceed observed clue count"));
     std::println!(
-        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=observe->infer->prepare->extract->invest->delegate->reinvest captured:{fantasy_captured} knowledge=[surface:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t] actor-choice=[policy=hard-lower-bound-premium>={}ppm chosen:{} owned-bulk:{}ppm hard-evidence:{}..{}ppm] tradeoff=[extraction-feed:{} extraction-grade:{}ppm mechanization-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} first-output-delta:{:+}t reciprocal:{} converged:{}] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
+        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=observe->infer->prepare->extract->invest->delegate->reinvest captured:{fantasy_captured} knowledge=[path:{} surface:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t alternative-evidence:{}..{}ppm] actor-choice=[policy=hard-lower-bound-premium>={}ppm chosen:{} owned-bulk:{}ppm hard-evidence:{}..{}ppm] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[extraction-feed:{} extraction-grade:{}ppm mechanization-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} first-output-delta:{:+}t reciprocal:{} converged:{}] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
+        if review.information_refinement_required {
+            "deferred-survey"
+        } else {
+            "surface-resolved"
+        },
         review.surface_prospecting_ticks,
         review.surface_clue_count,
         review.surface_resolved_clue_count,
         unresolved_surface_clues,
         review.refinement_triggered_by_direct_shortage,
         review.detailed_survey_ticks,
+        review.refined_coarse_lower_ppm,
+        review.refined_coarse_upper_ppm,
         EXTRACTION_GUARANTEED_GRADE_PREMIUM_PPM,
         review.natural_priority.label(),
         review.bulk_sample_copper_ppm,
         review.hard_ore_evidence_lower_ppm,
         review.hard_ore_evidence_upper_ppm,
+        review.tool_attention_reduction_ppm,
+        review.crank_power_gain_ppm,
+        review.crank_attention_reduction_ppm,
         if review.extraction_selected_hard_feed {
             "hard-sample"
         } else {
@@ -744,7 +778,7 @@ fn evaluate_primitive_progression_probe(
 }
 
 pub(crate) fn run_primitive_progression_probe(registries: &Registries, case: FocusedProbeCase) {
-    let review = evaluate_primitive_progression_probe(registries, case.seed());
+    let review = evaluate_primitive_progression_probe(registries, case);
     if case.role() == FocusedProbeRole::MaintainedCoverage {
         assert_eq!(
             case.seed(),

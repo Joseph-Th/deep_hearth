@@ -122,7 +122,7 @@ fn gameplay_report() {
     use fresh_seed::fresh_root;
 
     workshop::run_gameplay_harness(ScenarioPlanMode::Explore);
-    agency::run_maintained_agency_counterfactuals();
+    agency::run_exploratory_agency_counterfactuals();
 
     let registries = build_registries();
     let focused_variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_464F);
@@ -131,24 +131,28 @@ fn gameplay_report() {
         &registries,
         "survival-provisioning",
         survival_probe::run_survival_provisioning_probe,
+        true,
         focused_variation_root,
     );
     run_focused_probe_with_registries(
         &registries,
         "primitive-progression",
         progression_probe::run_primitive_progression_probe,
+        true,
         focused_variation_root,
     );
     run_focused_probe_with_registries(
         &registries,
         "ore-preparation",
         ore_probe::run_ore_preparation_capability_probe,
+        true,
         focused_variation_root,
     );
     run_focused_probe_with_registries(
         &registries,
         "foundry",
         foundry_probe::run_foundry_capability_probe,
+        true,
         focused_variation_root,
     );
 }

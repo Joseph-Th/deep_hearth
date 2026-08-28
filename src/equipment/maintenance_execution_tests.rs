@@ -16,12 +16,12 @@ use crate::energy::{
     add_energy_store_with_initial_for_test, calculate_explicit_energy_accounting,
 };
 use crate::equipment::{
-    EquipmentDefinition, EquipmentMaintenanceProfile, add_equipment,
+    EquipmentDefinition, EquipmentDefinitionId, EquipmentMaintenanceProfile, add_equipment,
     apply_equipment_condition_plan, decide_equipment_wear,
 };
 
 use crate::inventory::{
-    MaterialLotSelection, add_solid_stockpile_for_test, deposit_composed_lot_for_test,
+    MaterialLotSelection, StockpileId, add_solid_stockpile_for_test, deposit_composed_lot_for_test,
     deposit_lot_for_test, validate_explicit_consumption_selection, validate_mount_stockpile,
 };
 use crate::maintenance::MaintenanceThresholds;
@@ -259,7 +259,11 @@ fn authored_maintenance_resolution_binds_exact_replacement_stock_and_service_tar
         resolution.spent_commodity(),
         CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)
     );
-    assert_eq!(resolution.material_mass(), Mass::from_milligrams(7));
+    assert_eq!(
+        resolution.material_mass(),
+        Mass::from_milligrams(2),
+        "partial maintenance must scale replacement stock with restored condition"
+    );
     assert_eq!(resolution.condition_before(), condition(500_000));
     assert_eq!(resolution.condition_after(), condition(700_000));
 
@@ -269,20 +273,20 @@ fn authored_maintenance_resolution_binds_exact_replacement_stock_and_service_tar
         .unwrap_or_else(|error| panic!("maintenance transaction commit failed: {error}"));
     assert_eq!(outcome.condition_before(), condition(500_000));
     assert_eq!(outcome.condition_after(), condition(700_000));
-    assert_eq!(outcome.material_mass(), Mass::from_milligrams(7));
+    assert_eq!(outcome.material_mass(), Mass::from_milligrams(2));
     assert_eq!(
         state
             .inventory()
             .get_stockpile(source)
             .map(|record| record.stored_mass()),
-        Some(Mass::from_milligrams(13))
+        Some(Mass::from_milligrams(18))
     );
     assert_eq!(
         state
             .inventory()
             .get_stockpile(spent)
             .map(|record| record.stored_mass()),
-        Some(Mass::from_milligrams(7))
+        Some(Mass::from_milligrams(2))
     );
     assert_eq!(
         state
@@ -297,7 +301,7 @@ fn authored_maintenance_resolution_binds_exact_replacement_stock_and_service_tar
             .inventory()
             .get_stockpile(spent)
             .map(|record| record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP))),
-        Some(Mass::from_milligrams(7)),
+        Some(Mass::from_milligrams(2)),
         "maintenance must conserve the selected matter in the authored spent form"
     );
     assert_eq!(
@@ -311,7 +315,7 @@ fn authored_maintenance_resolution_binds_exact_replacement_stock_and_service_tar
                 stockpile: spent,
                 commodity: CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
                 available: Mass::ZERO,
-                required: Mass::from_milligrams(7),
+                required: Mass::from_milligrams(2),
             }
         ),
         "spent maintenance output must not service another worn machine"
@@ -330,7 +334,7 @@ fn authored_maintenance_resolution_rejects_unneeded_or_understocked_service() {
         .unwrap_or_else(|error| panic!("maintenance stock fixture failed: {error}"));
     let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
         .unwrap_or_else(|error| panic!("maintenance spent fixture failed: {error}"));
-    add_material(&registries, &mut state, source, Mass::from_milligrams(6));
+    add_material(&registries, &mut state, source, Mass::from_milligrams(1));
 
     assert_eq!(
         resolve_equipment_maintenance(
@@ -356,8 +360,8 @@ fn authored_maintenance_resolution_rejects_unneeded_or_understocked_service() {
             EquipmentMaintenanceResolutionError::InsufficientReplacementMaterial {
                 stockpile: source,
                 commodity: CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-                available: Mass::from_milligrams(6),
-                required: Mass::from_milligrams(7),
+                available: Mass::from_milligrams(1),
+                required: Mass::from_milligrams(2),
             }
         )
     );
@@ -402,7 +406,7 @@ fn maintenance_filters_contaminated_stock_and_rejects_forged_impure_selection() 
                 stockpile: source,
                 commodity: replacement,
                 available: Mass::ZERO,
-                required: Mass::from_milligrams(7),
+                required: Mass::from_milligrams(2),
             }
         )
     );
@@ -425,7 +429,7 @@ fn maintenance_filters_contaminated_stock_and_rejects_forged_impure_selection() 
     );
     assert_eq!(state, before);
 
-    add_material(&registries, &mut state, source, Mass::from_milligrams(7));
+    add_material(&registries, &mut state, source, Mass::from_milligrams(2));
     let resolved = resolve_equipment_maintenance(
         &registries,
         &state,
@@ -434,7 +438,7 @@ fn maintenance_filters_contaminated_stock_and_rejects_forged_impure_selection() 
     .unwrap_or_else(|error| {
         panic!("maintenance should skip contaminated replacement stock: {error}")
     });
-    assert_eq!(resolved.material_mass(), Mass::from_milligrams(7));
+    assert_eq!(resolved.material_mass(), Mass::from_milligrams(2));
 }
 
 #[test]
@@ -578,7 +582,7 @@ fn maintenance_rejects_non_improvement_and_allows_spent_material_to_return_to_so
         .unwrap_or_else(|error| panic!("same-stockpile maintenance validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("same-stockpile maintenance commit failed: {error}"));
-    assert_eq!(outcome.material_mass(), Mass::from_milligrams(7));
+    assert_eq!(outcome.material_mass(), Mass::from_milligrams(2));
     assert_eq!(
         state
             .equipment()
@@ -593,11 +597,11 @@ fn maintenance_rejects_non_improvement_and_allows_spent_material_to_return_to_so
     assert_eq!(source_record.stored_mass(), Mass::from_milligrams(10));
     assert_eq!(
         source_record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_LOG)),
-        Mass::from_milligrams(3)
+        Mass::from_milligrams(8)
     );
     assert_eq!(
         source_record.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)),
-        Mass::from_milligrams(7)
+        Mass::from_milligrams(2)
     );
 }
 

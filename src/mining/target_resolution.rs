@@ -38,14 +38,13 @@ impl MiningTargetRequest {
 
 /// Opaque proof that acquired evidence identifies one currently available geological owner.
 ///
-/// The exact deposit identity remains crate-private. Mining consumes this proof and rechecks the
-/// geology and knowledge revisions so stale evidence cannot silently authorize a different world.
+/// The exact deposit identity remains crate-private. Mining re-resolves the evidence locality when
+/// this proof is consumed so unrelated geological or knowledge changes do not invalidate it while
+/// new local ambiguity or contradiction still does.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MiningTargetResolution {
     pub(super) deposit: GeologicalDepositId,
-    pub(super) expected_geology_revision: u64,
-    pub(super) expected_knowledge_revision: u64,
     region: VoxelBounds,
     material: MaterialId,
 }
@@ -59,6 +58,11 @@ impl MiningTargetResolution {
     #[must_use]
     pub const fn material(self) -> MaterialId {
         self.material
+    }
+
+    pub(super) fn still_resolves(self, state: &AppState) -> bool {
+        resolve_mining_target(state, MiningTargetRequest::new(self.region, self.material))
+            .is_ok_and(|current| current.deposit == self.deposit)
     }
 }
 
@@ -228,8 +232,6 @@ pub fn resolve_mining_target(
 
     Ok(MiningTargetResolution {
         deposit: deposit.id(),
-        expected_geology_revision: state.geology().revision(),
-        expected_knowledge_revision: state.geological_knowledge().revision(),
         region: evidence_region,
         material: request.material,
     })

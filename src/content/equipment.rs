@@ -36,6 +36,14 @@ pub const EQUIPMENT_STONE_CRUSHER: EquipmentDefinitionId = EquipmentDefinitionId
 pub const EQUIPMENT_STONE_SEPARATOR: EquipmentDefinitionId = EquipmentDefinitionId::new(11);
 pub const EQUIPMENT_GRAVITY_SEPARATOR: EquipmentDefinitionId = EquipmentDefinitionId::new(12);
 
+const JAW_CRUSHER_MASS: Mass = Mass::from_milligrams(3_600_000_000);
+const ELECTRIC_FURNACE_MASS: Mass = Mass::from_milligrams(500_000_000);
+const CASTING_MOLD_MASS: Mass = Mass::from_milligrams(100_000_000);
+const DRY_SCREEN_MASS: Mass = Mass::from_milligrams(1_200_000_000);
+const GRINDING_MILL_MASS: Mass = Mass::from_milligrams(2_400_000_000);
+const GRAVITY_SEPARATOR_MASS: Mass = Mass::from_milligrams(1_600_000_000);
+const INDUSTRIAL_MAINTENANCE_MASS_DIVISOR: u64 = 1_000;
+
 fn condition(parts_per_million: u32) -> Condition {
     match Condition::new(parts_per_million) {
         Ok(condition) => condition,
@@ -43,10 +51,18 @@ fn condition(parts_per_million: u32) -> Condition {
     }
 }
 
-fn workshop_maintenance() -> EquipmentMaintenanceProfile {
+fn industrial_maintenance(equipment_mass: Mass) -> EquipmentMaintenanceProfile {
+    // A failed-to-target overhaul represents replacement of one tenth of one percent of machine
+    // mass in wear components. Runtime maintenance scales this full-service stock by the actual
+    // condition restored, so preventive service consumes less material than deep repair.
+    let replacement_mass = Mass::from_milligrams(
+        equipment_mass
+            .milligrams()
+            .div_ceil(INDUSTRIAL_MAINTENANCE_MASS_DIVISOR),
+    );
     EquipmentMaintenanceProfile::new(
         CommodityKey::new(MATERIAL_COPPER, FORM_INGOT),
-        Mass::from_milligrams(50_000),
+        replacement_mass,
         CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
         condition(900_000),
     )
@@ -170,7 +186,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_JAW_CRUSHER,
             "workshop jaw crusher",
-            Mass::from_milligrams(3_600_000_000),
+            JAW_CRUSHER_MASS,
             profile([
                 (
                     CAPABILITY_CRUSHER_FLOW,
@@ -185,11 +201,11 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             vec![crusher_curve],
         )
         .with_required_structural_support()
-        .with_maintenance_profile(workshop_maintenance()),
+        .with_maintenance_profile(industrial_maintenance(JAW_CRUSHER_MASS)),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_ELECTRIC_FURNACE,
             "workshop electric furnace",
-            Mass::from_milligrams(500_000_000),
+            ELECTRIC_FURNACE_MASS,
             profile([
                 (
                     CAPABILITY_HEATING_POWER,
@@ -208,11 +224,11 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             vec![furnace_curve],
         )
         .with_required_structural_support()
-        .with_maintenance_profile(workshop_maintenance()),
+        .with_maintenance_profile(industrial_maintenance(ELECTRIC_FURNACE_MASS)),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_CASTING_MOLD,
             "workshop cooled casting mold",
-            Mass::from_milligrams(100_000_000),
+            CASTING_MOLD_MASS,
             profile([
                 (
                     CAPABILITY_COOLING_POWER,
@@ -231,11 +247,11 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             vec![casting_mold_curve],
         )
         .with_required_structural_support()
-        .with_maintenance_profile(workshop_maintenance()),
+        .with_maintenance_profile(industrial_maintenance(CASTING_MOLD_MASS)),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_DRY_SCREEN,
             "workshop dry screen",
-            Mass::from_milligrams(1_200_000_000),
+            DRY_SCREEN_MASS,
             profile([
                 (
                     CAPABILITY_SCREEN_FLOW,
@@ -250,11 +266,11 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             vec![screen_curve],
         )
         .with_required_structural_support()
-        .with_maintenance_profile(workshop_maintenance()),
+        .with_maintenance_profile(industrial_maintenance(DRY_SCREEN_MASS)),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_GRINDING_MILL,
             "workshop grinding mill",
-            Mass::from_milligrams(2_400_000_000),
+            GRINDING_MILL_MASS,
             profile([
                 (
                     CAPABILITY_GRINDER_FLOW,
@@ -269,7 +285,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             vec![grinder_curve],
         )
         .with_required_structural_support()
-        .with_maintenance_profile(workshop_maintenance()),
+        .with_maintenance_profile(industrial_maintenance(GRINDING_MILL_MASS)),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_STONE_PICK,
             "knapped stone pick",
@@ -459,7 +475,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_GRAVITY_SEPARATOR,
             "workshop gravity separator",
-            Mass::from_milligrams(1_600_000_000),
+            GRAVITY_SEPARATOR_MASS,
             profile([
                 (
                     CAPABILITY_SEPARATOR_FLOW,
@@ -474,7 +490,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             vec![gravity_separator_curve],
         )
         .with_required_structural_support()
-        .with_maintenance_profile(workshop_maintenance()),
+        .with_maintenance_profile(industrial_maintenance(GRAVITY_SEPARATOR_MASS)),
     ])
 }
 

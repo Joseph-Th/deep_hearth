@@ -37,6 +37,8 @@ use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::seed::mix64;
 
 const ROOM_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
+const DIET_RECOVERY_TARGET_VITALITY_PPM: u32 = 950_000;
+const DIET_RECOVERY_OBSERVATION_TICKS: u64 = 1_000;
 
 fn mass_for_target_energy(food: FoodDefinition, target: u128) -> Mass {
     let per_milligram = u128::from(food.dietary_energy().nanojoules_per_milligram());
@@ -164,6 +166,35 @@ struct SurvivalCaseReview {
     provisioning_priority: ProvisioningPriority,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DietRecoveryReview {
+    actionable: bool,
+    deprivation_ticks: u64,
+    observation_ticks: u64,
+    vitality_before_ppm: u32,
+    compact_vitality_after_ppm: u32,
+    balanced_vitality_after_ppm: u32,
+    vitality_advantage_ppm: u32,
+    compact_diet_quality_ppm: u32,
+    balanced_diet_quality_ppm: u32,
+}
+
+impl DietRecoveryReview {
+    const fn supply_collapsed() -> Self {
+        Self {
+            actionable: false,
+            deprivation_ticks: 0,
+            observation_ticks: 0,
+            vitality_before_ppm: 0,
+            compact_vitality_after_ppm: 0,
+            balanced_vitality_after_ppm: 0,
+            vitality_advantage_ppm: 0,
+            compact_diet_quality_ppm: 0,
+            balanced_diet_quality_ppm: 0,
+        }
+    }
+}
+
 fn selected_food_indices(foods: &[FoodDefinition], policy: DietProvisioningPolicy) -> Vec<usize> {
     let mut indices = (0..foods.len()).collect::<Vec<_>>();
     match policy {
@@ -179,6 +210,250 @@ fn selected_food_indices(foods: &[FoodDefinition], policy: DietProvisioningPolic
             indices.truncate(indices.len().min(2));
             indices
         }
+    }
+}
+
+fn run_diet_recovery_branch(
+    registries: &Registries,
+    prepared: &AppState,
+    foods: &[FoodDefinition],
+    food_store: StockpileId,
+    food_lots: &[MaterialLotId],
+    drink: DrinkDefinition,
+    drink_store: FluidStoreId,
+    policy: DietProvisioningPolicy,
+    matter_total: AggregateMass,
+    fluid_total: AggregateVolume,
+) -> (u32, u32) {
+    let mut state = prepared.clone();
+    let physiology = registries.survival().physiology();
+    let before = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("diet-recovery player disappeared before provisioning"));
+    let selected_indices = selected_food_indices(foods, policy);
+    let energy_deficit = physiology
+        .maximum_metabolic_energy()
+        .checked_sub(before.metabolic_energy())
+        .unwrap_or_else(|| panic!("diet-recovery metabolic reserve exceeded authored maximum"));
+    let per_category_target = energy_deficit
+        .nanojoules()
+        .div_ceil(selected_indices.len() as u128)
+        .max(1);
+    let selections = selected_indices
+        .iter()
+        .map(|index| {
+            MaterialLotSelection::new(
+                food_lots[*index],
+                mass_for_target_energy(foods[*index], per_category_target),
+            )
+        })
+        .collect::<Vec<_>>();
+    let _meal = validate_eat(registries, &state, food_store, &selections)
+        .unwrap_or_else(|error| panic!("diet-recovery meal validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("diet-recovery meal commit failed: {error}"));
+
+    let after_meal = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("diet-recovery player disappeared after meal"));
+    let hydration_deficit = physiology
+        .maximum_hydration()
+        .checked_sub(after_meal.hydration())
+        .unwrap_or_else(|| panic!("diet-recovery hydration exceeded authored maximum"));
+    if !hydration_deficit.is_zero() {
+        let drink_volume = Volume::from_microliters(
+            u64::try_from(
+                u128::from(hydration_deficit.microliters())
+                    .checked_mul(1_000_000)
+                    .unwrap_or_else(|| panic!("diet-recovery drink scaling overflowed"))
+                    .div_ceil(u128::from(drink.hydration_multiplier_ppm())),
+            )
+            .unwrap_or_else(|_| panic!("diet-recovery drink volume exceeds authoritative range")),
+        );
+        let _drink = validate_drink(registries, &state, drink_store, drink_volume)
+            .unwrap_or_else(|error| panic!("diet-recovery drink validation failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("diet-recovery drink commit failed: {error}"));
+    }
+    let restored = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("diet-recovery player disappeared after provisioning"));
+    assert_eq!(
+        restored.metabolic_energy(),
+        physiology.maximum_metabolic_energy(),
+        "diet-recovery meal must restore the finite metabolic reserve before observing vitality recovery"
+    );
+    assert_eq!(
+        restored.hydration(),
+        physiology.maximum_hydration(),
+        "diet-recovery provisioning must restore hydration before observing vitality recovery"
+    );
+    let diet_quality_ppm = restored.diet_quality_ppm();
+    advance_exact(registries, &mut state, DIET_RECOVERY_OBSERVATION_TICKS);
+    let recovered = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("diet-recovery player disappeared during recovery"));
+    assert!(
+        recovered.vitality() > restored.vitality(),
+        "fed and hydrated player must regain real vitality during the diet-recovery observation window"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("diet-recovery matter audit failed: {error}"))
+            .total(),
+        matter_total,
+        "diet-recovery eating must conserve represented matter"
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state)
+            .unwrap_or_else(|error| panic!("diet-recovery fluid audit failed: {error}"))
+            .total(),
+        fluid_total,
+        "diet-recovery drinking must conserve represented fluid"
+    );
+    validate_loaded_state(registries, &state)
+        .unwrap_or_else(|error| panic!("diet-recovery persistence audit failed: {error}"));
+    (diet_quality_ppm, recovered.vitality().parts_per_million())
+}
+
+fn evaluate_diet_recovery_consequence(
+    registries: &Registries,
+    seed: u64,
+    world: &ProvisioningWorld,
+) -> DietRecoveryReview {
+    let authored_category_count = registries
+        .survival()
+        .foods()
+        .map(|food| food.category())
+        .collect::<BTreeSet<_>>()
+        .len();
+    if world.foods.len() < authored_category_count {
+        return DietRecoveryReview::supply_collapsed();
+    }
+
+    let mut state = AppState::new(WorldSeed::new(seed ^ 0x4449_4554_5F524543));
+    initialize_player_survival(registries, &mut state)
+        .unwrap_or_else(|error| panic!("diet-recovery player initialization failed: {error}"));
+    let maximum_deprivation_ticks = registries
+        .core()
+        .calendar()
+        .ticks_per_day()
+        .checked_mul(2)
+        .unwrap_or_else(|| panic!("diet-recovery setup horizon overflowed"));
+    let mut deprivation_ticks = 0_u64;
+    loop {
+        let assessment = assess_survival(registries, &state)
+            .unwrap_or_else(|| panic!("diet-recovery player disappeared during deprivation"));
+        if assessment.vitality().parts_per_million() <= DIET_RECOVERY_TARGET_VITALITY_PPM {
+            break;
+        }
+        assert!(
+            deprivation_ticks < maximum_deprivation_ticks,
+            "diet-recovery setup could not create a bounded real vitality deficit within two authored world days"
+        );
+        advance_tick(registries, &mut state)
+            .unwrap_or_else(|error| panic!("diet-recovery deprivation tick failed: {error}"));
+        deprivation_ticks += 1;
+    }
+    let vitality_before_ppm = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("diet-recovery player disappeared at decision point"))
+        .vitality()
+        .parts_per_million();
+
+    let physiology = registries.survival().physiology();
+    let offered_masses = world
+        .foods
+        .iter()
+        .map(|food| {
+            mass_for_target_energy(*food, physiology.maximum_metabolic_energy().nanojoules())
+        })
+        .collect::<Vec<_>>();
+    let food_capacity = offered_masses
+        .iter()
+        .try_fold(Mass::ZERO, |total, mass| total.checked_add(*mass))
+        .unwrap_or_else(|| panic!("diet-recovery food capacity overflowed"));
+    let food_store = seed_stockpile(
+        &mut state,
+        food_capacity,
+        StockpileStorageProfile::solid_only(),
+    );
+    let food_lots = world
+        .foods
+        .iter()
+        .zip(&offered_masses)
+        .map(|(food, mass)| {
+            seed_lot(
+                registries,
+                &mut state,
+                food_store,
+                food.commodity(),
+                *mass,
+                ROOM_TEMPERATURE,
+            )
+        })
+        .collect::<Vec<_>>();
+    let drink_supply = Volume::from_microliters(
+        u64::try_from(
+            u128::from(physiology.maximum_hydration().microliters())
+                .checked_mul(1_000_000)
+                .unwrap_or_else(|| panic!("diet-recovery fluid supply scaling overflowed"))
+                .div_ceil(u128::from(world.drink.hydration_multiplier_ppm())),
+        )
+        .unwrap_or_else(|_| panic!("diet-recovery fluid supply exceeds authoritative range")),
+    );
+    let drink_store = seed_fluid_store(
+        registries,
+        &mut state,
+        drink_supply,
+        world.drink.fluid(),
+        drink_supply,
+        ROOM_TEMPERATURE,
+    );
+    let matter_total = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("diet-recovery initial matter audit failed: {error}"))
+        .total();
+    let fluid_total = calculate_fluid_volume_accounting(&state)
+        .unwrap_or_else(|error| panic!("diet-recovery initial fluid audit failed: {error}"))
+        .total();
+
+    let (compact_diet_quality_ppm, compact_vitality_after_ppm) = run_diet_recovery_branch(
+        registries,
+        &state,
+        &world.foods,
+        food_store,
+        &food_lots,
+        world.drink,
+        drink_store,
+        DietProvisioningPolicy::CompactCalories,
+        matter_total,
+        fluid_total,
+    );
+    let (balanced_diet_quality_ppm, balanced_vitality_after_ppm) = run_diet_recovery_branch(
+        registries,
+        &state,
+        &world.foods,
+        food_store,
+        &food_lots,
+        world.drink,
+        drink_store,
+        DietProvisioningPolicy::BalancedRecovery,
+        matter_total,
+        fluid_total,
+    );
+    assert!(
+        balanced_diet_quality_ppm > compact_diet_quality_ppm,
+        "all-category provisioning must create stronger diet quality in the real recovery challenge"
+    );
+    assert!(
+        balanced_vitality_after_ppm > compact_vitality_after_ppm,
+        "balanced provisioning must produce more actual vitality recovery over the same physical horizon"
+    );
+    DietRecoveryReview {
+        actionable: true,
+        deprivation_ticks,
+        observation_ticks: DIET_RECOVERY_OBSERVATION_TICKS,
+        vitality_before_ppm,
+        compact_vitality_after_ppm,
+        balanced_vitality_after_ppm,
+        vitality_advantage_ppm: balanced_vitality_after_ppm - compact_vitality_after_ppm,
+        compact_diet_quality_ppm,
+        balanced_diet_quality_ppm,
     }
 }
 
@@ -1190,8 +1465,24 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, seed: u64) {
         .recovery_rate_after_ppm_per_tick
         .saturating_sub(compact.recovery_rate_after_ppm_per_tick);
     let reserve_recovered = compact.reserve_recovered && balanced.reserve_recovered;
+    let diet_recovery = evaluate_diet_recovery_consequence(registries, seed, &world);
+    let recovery_consequence = if diet_recovery.actionable {
+        format!(
+            "choice:actionable deprivation:{}t observe:{}t vitality:{}->[compact:{} balanced:{} advantage:+{}ppm] diet:[compact:{} balanced:{}ppm]",
+            diet_recovery.deprivation_ticks,
+            diet_recovery.observation_ticks,
+            diet_recovery.vitality_before_ppm,
+            diet_recovery.compact_vitality_after_ppm,
+            diet_recovery.balanced_vitality_after_ppm,
+            diet_recovery.vitality_advantage_ppm,
+            diet_recovery.compact_diet_quality_ppm,
+            diet_recovery.balanced_diet_quality_ppm,
+        )
+    } else {
+        "choice:supply-collapsed reason=available-categories-below-authored-diet-set".to_string()
+    };
     std::println!(
-        "SURVIVAL REVIEW seed=0x{seed:016X} fantasy=prepare+provision episode=[start:{} wait:{provisioning_wait_ticks}t available-categories:{}] activity-pressure=[prospecting:{}t energy:{}ppm hydration:{}ppm dominant:hydration; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:energy stored-work:{}nJ] matched-world-choice=[compact-calories:[selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t] balanced:[selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t]] tradeoff=[meal-mass-delta:+{}mg water-saved:+{}uL diet-quality-advantage:+{}ppm recovery-advantage:+{}ppm/t] decision-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] preservation=[age-saved:{}t retained:{}mg] reserve-recovered:{}",
+        "SURVIVAL REVIEW seed=0x{seed:016X} fantasy=prepare+provision episode=[start:{} wait:{provisioning_wait_ticks}t available-categories:{}] activity-pressure=[prospecting:{}t energy:{}ppm hydration:{}ppm dominant:hydration; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:energy stored-work:{}nJ] matched-world-choice=[compact-calories:[selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t] balanced:[selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t]] tradeoff=[meal-mass-delta:+{}mg water-saved:+{}uL diet-quality-advantage:+{}ppm recovery-advantage:+{}ppm/t] recovery-consequence=[{recovery_consequence}] decision-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] preservation=[age-saved:{}t retained:{}mg] reserve-recovered:{}",
         world.start_profile.label(),
         foods.len(),
         work_pressure.prospecting_ticks,

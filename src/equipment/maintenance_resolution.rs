@@ -190,12 +190,13 @@ pub fn resolve_equipment_maintenance(
             },
         );
     }
+    let required_replacement_mass = profile.required_replacement_mass(condition_before);
     let material = validate_consumption_selection(
         state.inventory(),
         request.material_source,
         &[MaterialInputSpec::pure(
             profile.replacement(),
-            profile.replacement_mass(),
+            required_replacement_mass,
         )],
     )
     .map_err(|error| match error {

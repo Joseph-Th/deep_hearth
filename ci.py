@@ -46,49 +46,33 @@ def configure_report_replay_environment(
 GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
 GAMEPLAY_SCOPES = ("all", *GAMEPLAY_TARGETS)
 GAMEPLAY_SCOPE_BY_TARGET = {target: scope for scope, target in GAMEPLAY_TARGETS.items()}
-GAMEPLAY_AUDIT_REPAIRS = {
-    "agency::gameplay_maintained_agency_counterfactuals": (
-        "gameplay_audit",
-        "agency::gameplay_maintained_agency_counterfactuals",
-    ),
-    "catalog_contract_tests::gameplay_catalog_is_discovered_from_runtime_owners": (
-        "gameplay_audit",
-        "catalog_contract_tests::gameplay_catalog_is_discovered_from_runtime_owners",
-    ),
-    "catalog_contract_tests::gameplay_generators_retain_meaningful_physical_variation": (
-        "gameplay_audit",
-        "catalog_contract_tests::gameplay_generators_retain_meaningful_physical_variation",
-    ),
-    "focused::gameplay_survival_provisioning_probe": (
-        "gameplay_survival",
-        "gameplay_survival_provisioning_probe",
-    ),
-    "focused::gameplay_primitive_progression_probe": (
-        "gameplay_progression",
-        "gameplay_primitive_progression_probe",
-    ),
-    "focused::gameplay_ore_preparation_probe": (
-        "gameplay_ore",
-        "gameplay_ore_preparation_probe",
-    ),
-    "focused::gameplay_foundry_probe": (
-        "gameplay_foundry",
-        "gameplay_foundry_probe",
-    ),
-}
-GAMEPLAY_WORKSHOP_TEST_PREFIXES = (
-    "configuration::",
-    "scenario::",
-    "seed_contract_tests::",
-    "workshop::",
-    "workshop_contract_tests::",
-)
 FAILED_TEST = re.compile(r"^    (?P<name>[A-Za-z0-9_:]+)$", re.MULTILINE)
 FAILED_GAMEPLAY_TARGET = re.compile(r"to rerun pass `--test (?P<target>gameplay_[a-z_]+)`")
 RUST_TEST_RESULT = re.compile(
     r"test result: ok\. (?P<passed>\d+) passed; (?P<failed>\d+) failed; "
     r"(?P<ignored>\d+) ignored;"
 )
+GAMEPLAY_REPORT_PREFIXES = (
+    "HARNESS INPUT ",
+    "CONTENT ",
+    "EVIDENCE SCOPE ",
+    "CAPABILITY HIGHLIGHT ",
+    "SAMPLE ",
+    "WORKSHOP CAPABILITY ",
+    "CAPABILITY SYSTEMS ",
+    "WORKSHOP EXPERIENCE REVIEW ",
+    "AGENCY INPUT ",
+    "AGENCY SUMMARY ",
+    "FOCUSED REPORT INPUT ",
+    "PROBE INPUT ",
+)
+FOCUSED_REVIEW_PREFIXES = (
+    "SURVIVAL REVIEW ",
+    "PROGRESSION REVIEW ",
+    "ORE REVIEW ",
+    "FOUNDRY REVIEW ",
+)
+FOCUSED_VISIBLE_REPLAY_SEED = re.compile(r"\b(?:anchor|organic):(0x[0-9A-Fa-f]+)")
 
 
 def cargo(alias: str) -> list[str]:
@@ -107,6 +91,35 @@ def rust_test_summary(stdout: str) -> str | None:
     if ignored:
         detail += f", {ignored} ignored"
     return detail
+
+
+def concise_gameplay_report(stdout: str, environ=None) -> str:
+    """Keep high-signal aggregates plus the focused reference and organic outcomes."""
+
+    environment = os.environ if environ is None else environ
+    if environment.get("DEEP_HEARTH_GAMEPLAY_VERBOSE") is not None or environment.get(
+        "DEEP_HEARTH_GAMEPLAY_TRACE"
+    ) is not None:
+        return stdout.rstrip()
+    lines = stdout.splitlines()
+    focused_visible_seeds = {
+        match.group(1).upper()
+        for line in lines
+        if line.startswith("PROBE INPUT ")
+        for match in FOCUSED_VISIBLE_REPLAY_SEED.finditer(line)
+    }
+    return "\n".join(
+        line
+        for line in lines
+        if line.startswith(GAMEPLAY_REPORT_PREFIXES)
+        or (
+            line.startswith(FOCUSED_REVIEW_PREFIXES)
+            and any(
+                f"SEED={seed}" in line.upper()
+                for seed in focused_visible_seeds
+            )
+        )
+    )
 
 
 def quick_plan() -> list[tuple[str, list[str]]]:
@@ -141,22 +154,9 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
             failed = FAILED_TEST.findall(combined)
             if failed:
                 if target == GAMEPLAY_AUDIT_TARGET:
-                    failed_test = failed[-1]
-                    repair = GAMEPLAY_AUDIT_REPAIRS.get(failed_test)
-                    if repair is not None:
-                        focused_target, focused_test = repair
-                        return (
-                            "python tools/run_test.py "
-                            f"--target {focused_target} {focused_test}"
-                        )
-                    if failed_test.startswith(GAMEPLAY_WORKSHOP_TEST_PREFIXES):
-                        return (
-                            "python tools/run_test.py "
-                            f"--target {GAMEPLAY_TARGETS['workshop']} {failed_test}"
-                        )
                     return (
                         "python tools/run_test.py "
-                        f"--target {GAMEPLAY_AUDIT_TARGET} {failed_test}"
+                        f"--target {GAMEPLAY_AUDIT_TARGET} {failed[-1]}"
                     )
                 return f"python tools/run_test.py --target {target} {failed[-1]}"
             scope = GAMEPLAY_SCOPE_BY_TARGET.get(target)
@@ -328,7 +328,13 @@ def report_stage(
         suffix = f"; {detail}" if detail is not None else ""
         print(f"PASS ({elapsed:.1f}s{suffix})")
         if echo_success and result.stdout.strip():
-            print(result.stdout.rstrip())
+            output = (
+                concise_gameplay_report(result.stdout)
+                if label == "gameplay report"
+                else result.stdout.rstrip()
+            )
+            if output:
+                print(output)
         return elapsed
 
     print(f"FAIL ({elapsed:.1f}s)")

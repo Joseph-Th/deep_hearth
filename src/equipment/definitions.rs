@@ -34,14 +34,16 @@ impl EquipmentDefinitionId {
 
 /// Authored replacement-material service for one equipment class.
 ///
-/// The profile deliberately models the physical consequence visible to the current game: exact
-/// replacement stock leaves inventory and the maintained machine returns to an authored condition.
-/// Labor/tool/time requirements can extend this resolver when those owners exist without reopening a
-/// free condition mutation path.
+/// The profile deliberately models the physical consequence visible to the current game. Its
+/// full-service stock is the material cost of restoring failed equipment to the authored target;
+/// runtime service consumes the proportional share for the condition actually restored, reforms that
+/// exact matter into spent stock, and returns the maintained machine to the target. Labor/tool/time
+/// requirements can extend this resolver when those owners exist without reopening a free condition
+/// mutation path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EquipmentMaintenanceProfile {
     replacement: CommodityKey,
-    replacement_mass: Mass,
+    full_service_replacement_mass: Mass,
     spent: CommodityKey,
     restored_condition: Condition,
 }
@@ -50,13 +52,13 @@ impl EquipmentMaintenanceProfile {
     #[must_use]
     pub fn new(
         replacement: CommodityKey,
-        replacement_mass: Mass,
+        full_service_replacement_mass: Mass,
         spent: CommodityKey,
         restored_condition: Condition,
     ) -> Self {
         assert!(
-            !replacement_mass.is_zero(),
-            "equipment maintenance replacement mass must be nonzero"
+            !full_service_replacement_mass.is_zero(),
+            "equipment maintenance full-service replacement mass must be nonzero"
         );
         assert!(
             restored_condition > Condition::FAILED,
@@ -73,7 +75,7 @@ impl EquipmentMaintenanceProfile {
         );
         Self {
             replacement,
-            replacement_mass,
+            full_service_replacement_mass,
             spent,
             restored_condition,
         }
@@ -85,8 +87,33 @@ impl EquipmentMaintenanceProfile {
     }
 
     #[must_use]
-    pub const fn replacement_mass(self) -> Mass {
-        self.replacement_mass
+    pub const fn full_service_replacement_mass(self) -> Mass {
+        self.full_service_replacement_mass
+    }
+
+    /// Replacement stock required to restore `condition_before` to the authored service target.
+    ///
+    /// The authored full-service mass represents recovery from failed condition. Partial service
+    /// consumes the same fraction of that stock as the fraction of target condition restored,
+    /// rounded upward to the nearest milligram so positive repair can never become free.
+    #[must_use]
+    pub fn required_replacement_mass(self, condition_before: Condition) -> Mass {
+        if condition_before >= self.restored_condition {
+            return Mass::ZERO;
+        }
+        let restored_parts = self
+            .restored_condition
+            .parts_per_million()
+            .checked_sub(condition_before.parts_per_million())
+            .unwrap_or_else(|| unreachable!("lower condition must leave a positive repair delta"));
+        let numerator = u128::from(self.full_service_replacement_mass.milligrams())
+            * u128::from(restored_parts);
+        let denominator = u128::from(self.restored_condition.parts_per_million());
+        let required = numerator.div_ceil(denominator);
+        let required = u64::try_from(required).unwrap_or_else(|_| {
+            unreachable!("partial maintenance mass cannot exceed authored full-service mass")
+        });
+        Mass::from_milligrams(required)
     }
 
     #[must_use]

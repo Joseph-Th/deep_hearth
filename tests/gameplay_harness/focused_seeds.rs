@@ -4,7 +4,8 @@ use super::seed::{mix64, unique_mixed_seed};
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 
 pub(super) const MAINTAINED_VARIATION_ROOT: u64 = 0xE7A1_0A7E_5EED_2026;
-pub(super) const FOCUSED_VARIATION_COUNT: usize = 4;
+pub(super) const GATE_VARIATION_COUNT: usize = 1;
+pub(super) const EXPLORATORY_VARIATION_COUNT: usize = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum FocusedProbeSeedError {
@@ -40,14 +41,14 @@ impl FocusedProbeCase {
     }
 }
 
-/// Resolves a maintained anchor, stable alternate-path coverage, and a small fresh variation sample.
+/// Resolves maintained regression cases plus a bounded replayable variation sample.
 ///
-/// `DEEP_HEARTH_GAMEPLAY_SEEDS` remains the exact override for deliberate replay/sweeps. Otherwise
-/// the caller supplies a bounded variation root. Normal focused runners supply a fresh replayable
-/// root while explicit replay inputs can provide one directly. A probe-specific salt keeps concerns
-/// independent.
-/// `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` selects the exact replayable sample root.
+/// `DEEP_HEARTH_GAMEPLAY_SEEDS` remains the exact override for deliberate replay/sweeps. Routine
+/// focused gates add one organic world to the maintained anchor/coverage set; reports use a slightly
+/// larger sample. A probe-specific salt keeps concerns independent. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED`
+/// selects the exact variation root.
 pub(super) fn focused_probe_cases_from(
+    variation_count: usize,
     scenario_raw: Option<&str>,
     variation_raw: Option<&str>,
     maintained_seed: u64,
@@ -65,15 +66,9 @@ pub(super) fn focused_probe_cases_from(
             })
             .map_err(FocusedProbeSeedError::SeedList);
     }
-    let root = match variation_raw {
-        Some(raw) => parse_seed(raw).ok_or(FocusedProbeSeedError::InvalidVariationSeed)?,
-        None => default_variation_root,
-    };
-    let mut raw_seeds =
-        Vec::with_capacity(1 + maintained_coverage_seeds.len() + FOCUSED_VARIATION_COUNT);
+    let mut raw_seeds = Vec::with_capacity(1 + maintained_coverage_seeds.len() + variation_count);
     raw_seeds.push(maintained_seed);
-    let mut cases =
-        Vec::with_capacity(1 + maintained_coverage_seeds.len() + FOCUSED_VARIATION_COUNT);
+    let mut cases = Vec::with_capacity(1 + maintained_coverage_seeds.len() + variation_count);
     cases.push(FocusedProbeCase::new(
         maintained_seed,
         FocusedProbeRole::MaintainedAnchor,
@@ -89,8 +84,15 @@ pub(super) fn focused_probe_cases_from(
             FocusedProbeRole::MaintainedCoverage,
         ));
     }
+    if variation_count == 0 {
+        return Ok(cases);
+    }
+    let root = match variation_raw {
+        Some(raw) => parse_seed(raw).ok_or(FocusedProbeSeedError::InvalidVariationSeed)?,
+        None => default_variation_root,
+    };
     let mut variation = root ^ probe_salt;
-    for index in 0..FOCUSED_VARIATION_COUNT {
+    for index in 0..variation_count {
         variation = mix64(
             variation
                 ^ u64::try_from(index + 1)

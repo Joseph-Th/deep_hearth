@@ -23,6 +23,45 @@ fn failed_thermal_equipment_exposes_no_heat_transfer_capability() {
 }
 
 #[test]
+fn industrial_maintenance_replacement_mass_scales_with_machine_mass() {
+    let registry = build_equipment_registry();
+    for equipment in [
+        EQUIPMENT_JAW_CRUSHER,
+        EQUIPMENT_ELECTRIC_FURNACE,
+        EQUIPMENT_CASTING_MOLD,
+        EQUIPMENT_DRY_SCREEN,
+        EQUIPMENT_GRINDING_MILL,
+        EQUIPMENT_GRAVITY_SEPARATOR,
+    ] {
+        let definition = registry
+            .get_equipment(equipment)
+            .unwrap_or_else(|| panic!("industrial equipment {} disappeared", equipment.value()));
+        let maintenance = definition.maintenance_profile().unwrap_or_else(|| {
+            panic!(
+                "industrial equipment {} lost its maintenance profile",
+                equipment.value()
+            )
+        });
+        assert_eq!(
+            maintenance.full_service_replacement_mass().milligrams(),
+            definition
+                .mass()
+                .milligrams()
+                .div_ceil(INDUSTRIAL_MAINTENANCE_MASS_DIVISOR),
+            "industrial full-service maintenance stock must scale with machine mass"
+        );
+        assert_eq!(
+            maintenance.replacement(),
+            CommodityKey::new(MATERIAL_COPPER, FORM_INGOT)
+        );
+        assert_eq!(
+            maintenance.spent(),
+            CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)
+        );
+    }
+}
+
+#[test]
 fn every_builtin_equipment_definition_has_a_condition_recovery_route() {
     let registry = build_equipment_registry();
     for definition in registry.definitions() {

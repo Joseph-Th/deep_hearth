@@ -1,185 +1,157 @@
 # Testing
 
 This page owns test organization, gameplay-harness contracts, and local verification. Use
-[`README.md`](README.md) for routing and [`STATUS.md`](STATUS.md) for runtime reachability.
+[`README.md`](README.md) for routing and [`STATUS.md`](STATUS.md) for runtime scope.
 
-Choose the smallest command that completely proves the changed contract.
+Use the smallest lane that completely proves the changed contract.
 
-## Verification commands
+## Fast path
 
 | Need | Command |
 | --- | --- |
-| Documentation/contracts only | `python tools/check_authority_docs.py` |
+| Documentation/contracts | `python tools/check_authority_docs.py` |
 | Build-free edit loop | `python ci.py quick` |
-| Complexity and change-risk report | `python tools/check_bca.py report` |
-| Changed-code complexity diff | `python tools/check_bca.py diff --since HEAD` |
-| Nontrivial refactor BCA review | `python tools/check_bca.py review --since HEAD [--path <path>]` |
 | Production compile | `cargo check-fast` |
 | Standard production gate | `python ci.py gate` |
-| One unit/integration test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
 | List tests without building | `python tools/run_test.py --list [substring]` |
-| Survival gameplay | `python ci.py gate --gameplay survival` |
-| Primitive progression gameplay | `python ci.py gate --gameplay progression` |
-| Workshop gameplay | `python ci.py gate --gameplay workshop` |
-| Ore-preparation gameplay | `python ci.py gate --gameplay ore` |
-| Foundry gameplay | `python ci.py gate --gameplay foundry` |
-| All core tests | `python ci.py audit --core` |
-| All gameplay concerns | `python ci.py audit --gameplay` |
+| Type-check a test target without linking | `python tools/run_test.py --check <qualified-name-or-unique-substring>` |
+| Run one exact unit/integration test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
+| Focused gameplay | `python ci.py gate --gameplay {workshop,survival,progression,ore,foundry}` |
+| Core audit | `python ci.py audit --core` |
+| Gameplay audit | `python ci.py audit --gameplay` |
 | Core + gameplay audit | `python ci.py audit --all` |
-| Long-horizon soak | `python ci.py gate --soak` |
+| Clippy | `python ci.py gate --lint` |
 | Shader validation | `python ci.py gate --shaders` |
-| Rust API documentation | `python ci.py gate --rustdoc` |
-| Clippy with warnings denied | `python ci.py gate --lint` |
-| Human-readable gameplay report | `python ci.py report` |
+| Rustdoc | `python ci.py gate --rustdoc` |
+| Long-horizon soak | `python ci.py gate --soak` |
+| Gameplay exploration report | `python ci.py report` |
+| Changed-source BCA review | `python tools/check_bca.py review --changed --since HEAD [--path <scope>]` |
 
-`python ci.py quick` checks formatting, the BCA cognitive-complexity ratchet, documentation/repository
-contracts, and the local CI plan without building Rust. All repository-owned BCA commands go through
-`tools/check_bca.py` so both the mandatory ratchet and advisory review use the exact CLI version owned by
-the project; install the current pin with
-`cargo install big-code-analysis-cli --version 2.1.0 --locked`.
-[`bca.toml`](bca.toml) owns the analyzed source scope and threshold, while
-[`.bca-baseline.toml`](.bca-baseline.toml) pins current offenders so only new or worsened cognitive
-complexity fails the routine gate. The gate ignores BCA suppression comments, and baseline entries carry
-body hashes so an unchanged over-threshold function can be renamed without creating artificial debt. A BCA
-failure should normally be repaired by simplifying the changed code; regenerating the baseline is reserved
-for a deliberate threshold-policy change or explicitly accepted debt, not routine failure repair. Cyclomatic
-complexity, file size, Halstead metrics, and other BCA signals remain advisory because they can over-penalize
-exhaustive Rust matches, explicit constructors, or cohesive owner modules. `python tools/check_bca.py report`
-combines those advisory metrics with repository churn and fix history to prioritize review. Use repeated
-`--path` arguments to focus that report when a subsystem is already known. `python tools/check_bca.py diff`
-compares the working tree to a chosen revision and accepts repeated `--path` and `--metric` arguments when a
-review needs a narrower signal. For a nontrivial refactor, use the history-aware report before choosing the
-target, then use a focused diff after the change to verify that the intended complexity moved rather than
-merely being redistributed. `python tools/check_bca.py review` packages those two views into one reusable
-command for an in-progress review: it reports current history-aware hotspots and then compares the working
-tree to `--since`, defaulting the diff to cognitive, cyclomatic, and SLOC metrics. Repeated `--path` filters
-apply to both phases. When a requested path is new relative to `--since`, the report stays focused on that
-current path while the diff widens only to its nearest ancestor that exists at the base revision; this keeps
-module splits and newly extracted files reviewable without silently falling back to a repository-wide diff.
-Use the separate commands when their scopes or metrics should differ. For example,
-mining work can be reviewed with
-`python tools/check_bca.py report --path src/mining/execution.rs`, followed by
-`python tools/check_bca.py diff --since HEAD --path src/mining/execution.rs --metric cognitive --metric cyclomatic --metric sloc`.
-Do not split cohesive code, add forwarding helpers, or refresh the baseline merely to improve these numbers.
-These reports are diagnostic evidence, not completion gates. `python ci.py gate` adds the normal production
-compile. Specialized gate flags replace that compile with the selected focused lane. Audit lanes are the
-maintained broad runtime checks.
+`python ci.py quick` runs formatting, the cognitive-complexity ratchet, documentation contracts, and local CI
+contracts without building Rust. Do not pair a compile-only command with an executable lane that already
+compiles the same surface.
 
-Do not run a compile-only command next to an executable lane that already compiles the same changed surface.
+For Rust test iteration, use `--check` while code is changing, then run the exact test for behavioral proof.
+The selector is resolved from source before Cargo runs, so missing or ambiguous test names fail without a
+build. After a broad gameplay failure, rerun the exact failing test on `gameplay_audit` first to reuse the
+already-linked target.
+
+## Complexity review
+
+`bca.toml` and `.bca-baseline.toml` own the cognitive-complexity ratchet used by `python ci.py quick`.
+New or worsened over-threshold cognitive complexity fails the ratchet. Other BCA metrics are advisory.
+
+Use `python tools/check_bca.py review --changed --since HEAD` for nontrivial refactors. Add repeated `--path`
+filters when the task is already scoped. `report` and `diff` remain available for custom analysis. Treat BCA as
+diagnostic evidence: simplify code when the result supports a clearer design; do not split cohesive code or
+refresh the baseline only to improve a score.
 
 ## Unit tests
 
 Unit-test bodies live beside their owner in `*_tests.rs` or `mod_tests.rs` and are included with
 `#[cfg(test)] #[path = "..."] mod tests;`.
 
-`python tools/run_test.py` resolves an exact or unique source test before invoking Cargo. Missing or
-ambiguous selectors fail closed. Integration targets receive their Cargo-declared required features.
-
-Assertions should prove durable contracts:
+Assertions prove durable contracts:
 
 - rejection: typed error and unchanged authoritative state when atomicity matters;
 - success: resulting identity, quantity, lifecycle, relationship, ownership, or other durable state;
 - conservation: totals across authoritative owners;
-- persistence: serialized continuation and trusted-load admission where the changed state survives load;
-- authored values: read them from registries rather than copying balance constants into tests.
+- persistence: serialized continuation and trusted-load admission for state that survives load;
+- authored values: read from registries instead of duplicating balance constants.
 
-Do not assert error prose, wall-clock time, incidental ordering, transient implementation counts, or
-balance values outside the test's owned contract.
+Avoid assertions on error prose, wall-clock duration, incidental ordering, transient implementation counts,
+or balance values outside the test's owned contract.
 
 Soak tests are ignored tests whose qualified name includes `soak`. Use them only when repeated ownership,
-persistence, conservation, or numerical accumulation provides evidence a focused test cannot.
+persistence, conservation, or numerical accumulation adds evidence that focused tests cannot provide.
 
 ## Gameplay harness
 
 `tests/gameplay_harness/` evaluates player-facing behavior through production APIs. Controlled setup may
-create state that [`STATUS.md`](STATUS.md) marks capability-only; setup does not make that state ordinarily
-acquirable.
+create capability-only state; setup does not make that state ordinarily reachable.
 
 ### Actor boundary
 
-`src/content/gameplay_fixture.rs` owns setup-only helpers. After setup, actor code must:
+After setup, actor code must:
 
 - use production validators, resolvers, commits, and simulation ticks;
 - read only observable runtime state, actor policy, and canonical projections;
-- never inspect hidden geology, hidden future events, setup-only authorization, or cloned-state previews;
+- never inspect hidden geology, future controlled events, setup authorization, or cloned-state previews;
 - preserve normal ownership, persistence, conservation, capability, and survival rules;
 - keep balance-sensitive measurements observational unless a test explicitly owns the threshold.
 
-### Gameplay targets
+`src/content/gameplay_fixture.rs` owns setup-only helpers.
 
-| Target | Contract proved |
+### Targets
+
+| Target | Contract |
 | --- | --- |
-| `survival` | Distinct hunger-, thirst-, and passive-pressure worlds, variable food-category availability, activity-dependent reserve pressure, preservation, diet tradeoffs, provisioning, and reserve recovery through canonical eating/drinking/work. |
-| `progression` | Local evidence acquisition, primitive crafting/mining/power/processing, a materially consequential scarce-copper choice, autonomous work, second reinforcement, convergence, returned attention, and finite machine lifecycle. |
-| `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structure, hidden world pressure, and recovery. |
-| `ore` | Installed crush/grind/screen/regrind/concentrate flow over variable gangue with selective recovery, full-batch industrial separation, exact constituent accounting, and physical tailings. Capability-only. |
-| `foundry` | Installed pure-copper heating, melting, casting, finite electrical supply, pre-existing finite thermal load, adaptive partial batches, retained molten remainder, and passive sink recovery. Capability-only. |
+| `survival` | Hunger/thirst pressure, food-category availability, preservation, diet tradeoffs, provisioning, activity cost, reserve recovery, actual diet-supported vitality recovery. |
+| `progression` | Evidence acquisition and information-value decisions, primitive crafting/mining/power/processing, scarce-copper choice, delegated work, second reinforcement, convergence, finite machine lifecycle. |
+| `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structural pressure, hidden world change, and recovery. |
+| `ore` | Installed crush/grind/screen/regrind/concentrate flow with selective recovery, exact constituent accounting, physical tailings. Capability-only. |
+| `foundry` | Installed pure-copper heating/melting/casting, finite electrical and thermal capacity, adaptive batches, molten remainder, passive sink recovery. Capability-only. |
 
-### Progression probe requirements
+### Gameplay evidence contract
 
-The progression actor starts with visible local clue regions, gathered matter, storage, and hidden geology.
-World-scale clue discovery is outside scope. The probe must show that the actor:
+Routine gameplay gates combine stable maintained cases with one fresh bounded organic world per evaluated
+concern. Maintained anchors and named coverage cases own strict regression claims. Organic cases keep the
+harness exposed to nearby legal game states and player choices; they may complete, adapt, or stop on a
+recognized canonical constraint without inheriting an anchor's balance-specific success requirement.
 
-- acquires and reasons from persisted evidence rather than hidden deposit truth;
-- refines unresolved evidence only when an observed constraint makes that refinement useful;
-- resolves opaque mining targets and learns extracted form/composition from owned output;
-- encounters direct-source insufficiency through a canonical rejected action;
-- makes the same-state scarce-copper choice between extraction capability and stored-work rate;
-- chooses its natural branch from player-visible evidence and explicit actor policy rather than behavior-seed coin flips or counterfactual outcomes;
-- treats hard-seam access as an uncertain opportunity rather than a guaranteed grade upgrade, then reassesses the extracted sample against already-owned processable ore before choosing both processing feed and subsequent extraction target;
-- obtains reciprocal physical benefit before both branches converge on the same final capabilities;
-- delegates crushing while performing other useful work and recovers the second reinforcement from processed ore;
-- reports demonstrated productive overlap separately from autonomous time the episode does not fill with useful work; construction-time equivalence is observational, not a required success claim;
-- samples repeated primitive-machine wear over a bounded player-facing horizon without turning dozens of identical cycles into the gameplay experience itself.
+Fresh sampling is reproducible rather than fixed: every gate prints the realized variation root and/or exact
+world seeds. Set `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` to replay the same physical sample and
+`DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` to replay workshop policy variation. Explicit
+`DEEP_HEARTH_GAMEPLAY_SEEDS` values run exactly the requested focused worlds.
 
-Matched branches use the same post-convergence workload. Reported choice effects must be downstream material,
-energy, labor, capability, or timing consequences of different physical actions, not counters alone.
+The progression probe must demonstrate player-visible evidence, an observable scarce-copper choice, physical
+consequences for both branches, useful concurrent work during delegated processing, convergence on the next
+capability, and bounded wear/lifecycle evidence. Maintained regression worlds retain the deferred-survey
+archetype where a direct-source shortage makes better information worth acquiring. Organic/replay worlds may
+instead receive enough cheap surface evidence to rule out a dominated occurrence and skip a redundant survey
+and extraction sample. Both paths must make that decision from acquired evidence; the actor must not read
+hidden geology or choose from counterfactual outcomes. The review reports both the pick's mining-attention
+reduction and the crank's power/charge-attention effect so the scarce investment is evaluated by its physical
+consequences rather than only by branch labels.
 
-### Workshop probe requirements
+The survival probe treats food availability as part of the world rather than forcing every world to contain a
+meaningful diet choice. If the available supply lacks part of the authored diet set, the review labels that
+choice `supply-collapsed`. When the full diet set is available, matched compact and balanced provisioning
+branches recover from a real vitality deficit through normal simulation ticks and must demonstrate the
+resulting vitality difference, not merely a projected recovery-rate difference.
 
-Workshop scenarios start with installed equipment and finite resources. The actor may observe condition,
-stored work, survival reserve, structural margin, and process projections, then choose power source, batch
-size, maintenance timing, manual recovery, and support policy.
+Workshop regression starts from installed finite infrastructure. The actor chooses from observable condition,
+stored work, survival reserve, structural margin, and process projections. Controlled world events remain
+hidden until they occur. The gameplay audit adds matched-policy counterfactuals with the physical world and
+behavior RNG held fixed.
 
-A controlled hidden delivery may change the world during a live scenario. Actor logic cannot inspect it
-before it occurs. The focused workshop gate proves the operational scenario without paying to compile the
-broader agency experiment. `python ci.py audit --gameplay` adds matched-policy counterfactuals that hold the
-physical world and behavior RNG fixed while changing one policy. Distinct agency paths require distinct
-physical outcomes; no-effect comparisons are classified by observed cause rather than forced into a pass/fail
-agency claim.
+All recognized partial/blocked outcomes must leave trusted-load-valid state and preserve relevant
+conservation invariants. Unexpected resolver, commit, ownership, or persistence failures are hard failures.
+Harness logic asks production resolvers for feasible actions rather than duplicating capability, energy, wear,
+timing, or yield calculations.
 
-## Report and replay
+### Exploration and replay
 
-`python ci.py report` prints capability/reachability summaries, representative workshop decisions and
-consequences, matched-policy agency results, and focused survival/progression/ore/foundry reviews.
+`python ci.py report` expands the organic sample beyond the routine gate and prints aggregate behavioral
+evidence plus exact replay inputs. It is an exploration/diagnostic surface, not an additional required gate.
+The compact report retains the maintained anchor plus every bounded organic focused outcome (currently two
+organic worlds per focused concern). The anchor gives the cold agent a stable reference capability while the
+organic worlds show whether choices, blockers, and information paths actually vary; named coverage-only
+diagnostics remain filtered. Use verbose or trace output only when needed.
 
 | Variable | Meaning |
 | --- | --- |
 | `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` | physical variation root |
 | `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` | workshop policy root |
 | `DEEP_HEARTH_GAMEPLAY_SEEDS` | exact comma-separated world seeds |
-| `DEEP_HEARTH_GAMEPLAY_VERBOSE` | expanded high-signal decisions, blockers, physical tradeoffs, and focused-probe diagnostics |
-| `DEEP_HEARTH_GAMEPLAY_TRACE` | full per-operation workshop narration plus verbose diagnostics; use only when the compact/verbose evidence identifies a scenario that needs step-by-step replay |
+| `DEEP_HEARTH_GAMEPLAY_VERBOSE` | expanded decisions, blockers, tradeoffs, focused-probe diagnostics |
+| `DEEP_HEARTH_GAMEPLAY_TRACE` | operation-level workshop narration plus verbose diagnostics |
 
-Gameplay gates and audits keep a stable primary anchor plus small stable coverage worlds for important
-alternative paths, then add a fresh variation sample on each run. The maintained coverage set currently
-guarantees food-category shortage plus hunger/thirst pressure, a worse sampled hard seam, finite-work ore
-exhaustion, and thermal-limited casting with cooldown recovery. Variation contracts must still prove that
-generated worlds retain structurally different decisions or blockers, not merely different numeric inputs.
-Focused samples are labeled `anchor`, `coverage`, `organic`, or `replay` in the printed input plan. The primary
-anchor owns the full capability contract; coverage worlds own their named alternate path without inheriting
-the anchor's success expectation. Organic and explicit-replay samples recreate their physical world
-from the seed alone and may adapt, partially complete, or stop only on explicitly recognized canonical
-runtime constraints. A recognized stop is still required to leave trusted-load-valid state and preserve the
-relevant conservation invariants; unexpected resolver, commit, ownership, or persistence failures remain hard
-failures. Harness code must prefer asking production resolvers for feasible actions over copying capability,
-energy, wear, timing, or yield calculations into actor logic. Every realized variation root and world seed is
-printed before execution, so any surprising run is exactly replayable with the variables above. Explicit
-replay values suppress fresh sampling. Unit tests for the seed planner itself remain deterministic. Malformed
-explicit seeds fail configuration.
+Generated samples are deliberately small so routine gameplay still has one build-producing lane and fast
+runtime. Increase sample breadth in the report or explicit replay/sweep inputs rather than turning the edit
+loop into a multi-seed soak.
 
 ## Completion
 
-Use the smallest lane that covers the changed contract. Add soak, shader, Rustdoc, or lint lanes only when
-the changed surface requires them. Do not rerun narrower checks after a broader selected lane already covers
-them. Verification is local; hosted CI is not part of the project contract.
+Run only the lanes required by the changed contract. Broad audits are explicit checkpoints, not default edit
+loops. Verification is local; hosted CI is outside the project contract.

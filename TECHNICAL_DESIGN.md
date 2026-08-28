@@ -1,8 +1,8 @@
 # Technical Design
 
-This document owns implemented, project-specific runtime contracts. [`ARCHITECTURE.md`](ARCHITECTURE.md)
-owns general engineering rules. [`STATUS.md`](STATUS.md) owns capability presence. Source and adjacent
-tests own concrete edge cases and typed errors.
+This page owns implemented subsystem and physical contracts. Use [`README.md`](README.md) for routing,
+[`ARCHITECTURE.md`](ARCHITECTURE.md) for cross-cutting engineering rules, and [`STATUS.md`](STATUS.md) for
+runtime scope. Source and adjacent tests own concrete edge cases and typed errors.
 
 Read only the section for the subsystem being changed.
 
@@ -138,7 +138,9 @@ also produces bounded evidence. In-progress prospecting persists and validates a
 Mining target resolution converts compatible acquired evidence into an opaque deposit-bound authorization.
 Resolution fails when evidence is absent, contradictory, spatially incomparable, excludes the material,
 remains too uncertain, or still matches multiple live deposits. Hidden geology is never used as a public
-tie-break. A resolution binds geology and knowledge revisions, and mining rechecks them before admission.
+tie-break. Mining re-resolves the authorized evidence locality before admission and again before commit, so
+unrelated remote geology or knowledge changes do not invalidate the target while local contradiction,
+ambiguity, depletion, or source-mass change still does.
 Public mining state does not expose deposit identity, exact hidden remaining mass, pre-claim composition, or
 exact target hardness.
 
@@ -174,14 +176,13 @@ consumes no exertion or active process time.
 
 ### Physical resolvers
 
-Implemented resolvers are:
+Powered ore-processing definitions share one `PoweredOreProcessProfile` for throughput capability, batch
+limit, energy carrier, mass-specific work, and active-tick wear. Runtime admission and trusted-load replay
+derive equipment, energy, timing, and condition physics from that profile; each process owner adds only its
+material/output transformation. Comminution, screening, and separation therefore use one authored operating
+envelope.
 
-Powered ore-processing definitions share one `PoweredOreProcessProfile` for throughput capability,
-batch limit, energy carrier, mass-specific work, and active-tick wear. Runtime admission and trusted-load
-replay both derive their common equipment, energy, timing, and condition physics from that same profile;
-each process owner validates only its process-specific material/output transformation between those shared
-replay phases. This prevents comminution, screening, and separation saves from drifting into different
-interpretations of the same authored operating envelope.
+Implemented resolvers:
 
 - **Comminution:** authored feed/output particle state, condition-sensitive throughput, batch limits,
   finite work energy, power-limited duration, and active-tick wear;
@@ -207,8 +208,8 @@ interpretations of the same authored operating envelope.
   three contributions enter the finite thermal sink. Completed cast lots therefore do not remain
   indefinitely at the melting boundary. Registry validation requires each casting form pair to apply to at
   least one authored material and requires its completed-solid temperature to remain in the solid range for
-  every material that authors both forms. Casting outputs are non-particulate solids because the current
-  casting resolver does not invent a particle-size distribution.
+  every material that authors both forms. Casting outputs are non-particulate solids; casting does not author
+  a particle-size distribution.
 
 ## Equipment, labor, survival, energy, and fluids
 
@@ -222,17 +223,16 @@ Equipment owns persistent identity, condition, embodied traces, occupancy, and o
 installation. Fixed machinery requires an active support before it can authorize new work; portable tools
 remain usable without one. Mounted equipment contributes equipment-owned structural load.
 
-Assembly consumes exact material traces. Additive upgrades preserve identity, condition, and existing
-traces while adding authored matter. Pristine idle unmounted equipment may disassemble to exact traces;
-worn recovery, where authored, reforms traces into a same-material recovery form that cannot immediately
-reset wear through reassembly. Exact assembled equipment does not currently author aggregate maintenance:
-component replacement would need to swap the corresponding embodied traces rather than convert incoming
-replacement stock directly into spent material.
+Assembly consumes exact material traces. Additive upgrades preserve identity, condition, and existing traces
+while adding authored matter. Pristine idle unmounted equipment may disassemble to exact traces; worn
+recovery, where authored, reforms traces into a same-material recovery form that cannot immediately reset wear
+through reassembly. Aggregate maintenance applies only where replacement material is not represented as exact
+component traces; traced component replacement requires a trace-level swap.
 
-Maintenance consumes an exact replacement commodity, produces a distinct conserved spent form with the
-same material phase and particle-state policy, and restores the authored condition target. It is a physical
-material reform for the currently untraced maintainable machinery, not condition-only mutation; phase or
-particle transformations require their owning processes.
+Maintenance consumes an exact replacement commodity, produces a distinct conserved spent form with the same
+material phase and particle-state policy, and restores the authored condition target. For machinery using
+aggregate replacement stock, maintenance is a physical material reform rather than condition-only mutation;
+phase or particle transformations require their owning processes.
 
 ### Player work and survival
 
@@ -270,9 +270,9 @@ material has at most one fluid identity while composition, contamination, concen
 state are absent; distinct IDs cannot stand in for unmodeled fluid properties. Runtime operations support
 exact finite withdrawal and support changes. There is no generic inter-store transfer, pumping, or mixing
 path, so cross-store movement and mixing require an explicit owning system. Supported fluid load derives
-from authored material density; canonical withdrawal updates that load. Fluid temperature prevents
-thermally incompatible contents from being treated as interchangeable, but finite-fluid thermal transport
-and the thermal fate of consumed fluid are not yet modeled in the explicit-energy conservation ledger.
+from authored material density; canonical withdrawal updates that load. Fluid temperature prevents thermally
+incompatible contents from being treated as interchangeable. Finite-fluid thermal transport and the thermal
+fate of consumed fluid are outside the explicit-energy conservation ledger.
 
 ## Structures
 

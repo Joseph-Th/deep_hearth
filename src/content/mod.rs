@@ -94,7 +94,7 @@ const DEFAULT_TICKS_PER_DAY: u64 = 24_000;
 const DEFAULT_PHYSICAL_SECONDS_PER_DAY: u32 = 86_400;
 const DEFAULT_DAYS_PER_MONTH: u16 = 8;
 const DEFAULT_MONTHS_PER_YEAR: u16 = 12;
-const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(53);
+const REGISTRY_SCHEMA_VERSION: RegistrySchemaVersion = RegistrySchemaVersion::new(54);
 
 fn build_core_definitions() -> CoreDefinitions {
     CoreDefinitions::new(

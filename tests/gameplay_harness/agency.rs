@@ -559,27 +559,65 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
     );
 }
 
-fn organic_agency_worlds(variation_root: u64) -> [AgencyWorld; 3] {
-    let first = mix64(variation_root ^ 0xA63E_4E43_594F_5247);
-    let second = mix64(first ^ 0xD1B5_4A32_D192_ED03);
-    let third = mix64(second ^ 0xD1B5_4A32_D192_ED03);
-    [first, second, third].map(|world_seed| AgencyWorld {
-        focus: AgencyFocus::OrganicVariation,
-        world_seed,
-        anchor: None,
-    })
+fn organic_agency_worlds(variation_root: u64, count: usize) -> Vec<AgencyWorld> {
+    let mut worlds = Vec::with_capacity(count);
+    let mut world_seed = variation_root ^ 0xA63E_4E43_594F_5247;
+    for index in 0..count {
+        world_seed = mix64(
+            world_seed
+                ^ (u64::try_from(index + 1)
+                    .unwrap_or_else(|_| unreachable!("bounded agency sample index fits u64"))
+                    .wrapping_mul(0xD1B5_4A32_D192_ED03)),
+        );
+        worlds.push(AgencyWorld {
+            focus: AgencyFocus::OrganicVariation,
+            world_seed,
+            anchor: None,
+        });
+    }
+    worlds
 }
 
-pub(super) fn run_maintained_agency_counterfactuals() {
-    let registries = build_registries();
-    let variation_root = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED")
+fn replayable_agency_root() -> u64 {
+    env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED")
         .ok()
         .map(|raw| {
             parse_seed(&raw)
                 .unwrap_or_else(|| panic!("agency gameplay variation seed is invalid: {raw:?}"))
         })
-        .unwrap_or_else(|| fresh_root(MAINTAINED_VARIATION_ROOT ^ 0xA63E_4E43_595F_4652));
-    let organic = organic_agency_worlds(variation_root);
+        .unwrap_or_else(|| fresh_root(MAINTAINED_VARIATION_ROOT ^ 0xA63E_4E43_595F_4652))
+}
+
+pub(super) fn run_gameplay_agency_counterfactuals() {
+    let registries = build_registries();
+    let variation_root = replayable_agency_root();
+    std::println!("AGENCY INPUT mode=gate organic=1 variation_root=0x{variation_root:016X}");
+    let mut worlds = vec![
+        AgencyWorld {
+            focus: AgencyFocus::PowerAndStructure,
+            world_seed: 1,
+            anchor: Some(MaintainedAnchor::NormalBaseline),
+        },
+        AgencyWorld {
+            focus: AgencyFocus::SurvivalRecovery,
+            world_seed: 0x1F65_DBFE_4A87_A054,
+            anchor: Some(MaintainedAnchor::SurvivalRecovery),
+        },
+        AgencyWorld {
+            focus: AgencyFocus::MaintenanceTiming,
+            world_seed: 4,
+            anchor: Some(MaintainedAnchor::WarningMaintenance),
+        },
+    ];
+    worlds.extend(organic_agency_worlds(variation_root, 1));
+    run_agency_probe(&registries, &worlds);
+}
+
+pub(super) fn run_exploratory_agency_counterfactuals() {
+    let registries = build_registries();
+    let variation_root = replayable_agency_root();
+    std::println!("AGENCY INPUT mode=explore organic=3 variation_root=0x{variation_root:016X}");
+    let organic = organic_agency_worlds(variation_root, 3);
     let mut worlds = vec![
         AgencyWorld {
             focus: AgencyFocus::PowerAndStructure,
@@ -602,6 +640,6 @@ pub(super) fn run_maintained_agency_counterfactuals() {
 }
 
 #[test]
-fn gameplay_maintained_agency_counterfactuals() {
-    run_maintained_agency_counterfactuals();
+fn gameplay_agency_counterfactuals() {
+    run_gameplay_agency_counterfactuals();
 }

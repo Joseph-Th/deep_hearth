@@ -660,12 +660,30 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
             "a recovery cast started from an empty sink must capture exactly its released heat"
         );
     }
-    let outcome = if molten_remaining.is_zero() {
-        "completed"
-    } else if final_molten_remaining.is_zero() {
-        "recovered-after-cooldown"
-    } else {
-        "partial-after-recovery"
+    let unmelted_mass = mass.checked_sub(processed_mass).unwrap_or_else(|| {
+        unreachable!("adaptive melt cannot process more than the offered batch")
+    });
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(ids.pure_copper_source)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(unmelted_mass),
+        "adaptive melting must leave the unprocessed portion of the offered order physically owned"
+    );
+    let outcome = match (
+        unmelted_mass.is_zero(),
+        molten_remaining.is_zero(),
+        final_molten_remaining.is_zero(),
+    ) {
+        (true, true, true) => "full-order-complete",
+        (true, false, true) => "full-order-recovered-after-cooldown",
+        (true, false, false) => "partial-order-cast-limited",
+        (false, _, true) => "partial-order-melt-limited",
+        (false, _, false) => "partial-order-melt-and-cast-limited",
+        (true, true, false) => {
+            unreachable!("no first-cast remainder cannot create a later molten remainder")
+        }
     };
     if case.role() == FocusedProbeRole::MaintainedCoverage {
         assert_eq!(case.seed(), 2, "unknown maintained foundry coverage seed");
@@ -690,10 +708,11 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
     }
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
-            "CAPABILITY FOUNDRY seed=0x{seed:016X} sample={} outcome={outcome} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[phase-change,finite-electrical-input,finite-thermal-recovery,passive-heat-rejection,wear] offered={}mg melted={}mg melt-limit={} first-cast={}mg cast-limit={} molten-after-first={}mg recovery-cast={}mg recovery-limit={} molten-final={}mg input={}mK initial-condition=[furnace:{} mold:{}ppm] electrical=[initial:{}nJ melt:{}nJ remaining:{}nJ] thermal=[initial:{}nJ pre-cast:{}nJ no-cast-baseline:{}nJ released:{}nJ captured:{}nJ cooled:{}nJ cooldown:{}t recovery-heat:{}nJ] durations=[melt:{}t cast:{}t recovery-cast:{}t] matter=conserved",
+            "CAPABILITY FOUNDRY seed=0x{seed:016X} sample={} outcome={outcome} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[phase-change,finite-electrical-input,finite-thermal-recovery,passive-heat-rejection,wear] offered={}mg melted={}mg unmelted={}mg melt-limit={} first-cast={}mg cast-limit={} molten-after-first={}mg recovery-cast={}mg recovery-limit={} molten-final={}mg input={}mK initial-condition=[furnace:{} mold:{}ppm] electrical=[initial:{}nJ melt:{}nJ remaining:{}nJ] thermal=[initial:{}nJ pre-cast:{}nJ no-cast-baseline:{}nJ released:{}nJ captured:{}nJ cooled:{}nJ cooldown:{}t recovery-heat:{}nJ] durations=[melt:{}t cast:{}t recovery-cast:{}t] matter=conserved",
             focused_probe_role_label(case.role()),
             mass.milligrams(),
             processed_mass.milligrams(),
+            unmelted_mass.milligrams(),
             melt_limit.label(),
             cast_mass.milligrams(),
             cast_limit.label(),
@@ -721,10 +740,11 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
         );
     } else {
         std::println!(
-            "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome={outcome} pipeline=heat->melt->cast->passive-cool->retry offered={}mg melted={}mg melt-limit={} first-cast={}mg cast-limit={} molten-after-first={}mg recovery-cast={}mg recovery-limit={} molten-final={}mg input={}mK electrical=[used:{}nJ remaining:{}nJ] thermal=[initial:{}nJ pre-cast:{}nJ no-cast-baseline:{}nJ captured:{}nJ cooldown:{}t cooled:{}nJ recovery-heat:{}nJ] durations=[melt:{}t cast:{}t recovery-cast:{}t] matter=conserved",
+            "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome={outcome} pipeline=heat->melt->cast->passive-cool->retry offered={}mg melted={}mg unmelted={}mg melt-limit={} first-cast={}mg cast-limit={} molten-after-first={}mg recovery-cast={}mg recovery-limit={} molten-final={}mg input={}mK electrical=[used:{}nJ remaining:{}nJ] thermal=[initial:{}nJ pre-cast:{}nJ no-cast-baseline:{}nJ captured:{}nJ cooldown:{}t cooled:{}nJ recovery-heat:{}nJ] durations=[melt:{}t cast:{}t recovery-cast:{}t] matter=conserved",
             focused_probe_role_label(case.role()),
             mass.milligrams(),
             processed_mass.milligrams(),
+            unmelted_mass.milligrams(),
             melt_limit.label(),
             cast_mass.milligrams(),
             cast_limit.label(),

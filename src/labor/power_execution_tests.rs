@@ -9,10 +9,12 @@ use crate::content::{
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Length, Mass, Temperature};
-use crate::core::state::{StateValidationError, validate_loaded_state};
+use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
-use crate::energy::{EnergySupplyError, add_energy_store, validate_energy_supply};
+use crate::energy::{
+    EnergyStoreRecord, EnergySupplyError, add_energy_store, validate_energy_supply,
+};
 use crate::equipment::{
     EquipmentConditionPlanError, decide_equipment_wear, validate_assemble_equipment,
     validate_mount_equipment, validate_unmount_equipment,
@@ -21,6 +23,7 @@ use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::PlayerWorkValidationError;
 use crate::material::CommodityKey;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::registry::Registries;
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{

@@ -3,7 +3,7 @@
 use super::seed::{mix64, unique_mixed_seed};
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 
-const GATE_VARIATION_SCENARIO_COUNT: usize = 2;
+const GATE_VARIATION_SCENARIO_COUNT: usize = 1;
 const EXPLORATORY_VARIATION_SCENARIO_COUNT: usize = 4;
 const SEED_STRIDE: u64 = 0xD1B5_4A32_D192_ED03;
 
@@ -237,9 +237,8 @@ pub(super) fn scenario_seeds_from(
     default_variation_seed: u64,
     default_behavior_seed: u64,
 ) -> Result<ScenarioSeedPlan, GameplayHarnessConfigError> {
-    let behavior_seed_root = resolve_behavior_seed(behavior_raw, default_behavior_seed)?;
-
     if let Some(raw) = scenario_raw {
+        let behavior_seed_root = resolve_behavior_seed(behavior_raw, default_behavior_seed)?;
         let world_seeds = parse_scenario_seed_list(raw)?;
         return Ok(ScenarioSeedPlan {
             source: ScenarioSeedSource::Custom,
@@ -249,15 +248,16 @@ pub(super) fn scenario_seeds_from(
         });
     }
 
-    let mut world_seeds = MAINTAINED_ANCHORS
-        .iter()
-        .map(|(_, world_seed)| *world_seed)
-        .collect::<Vec<_>>();
+    let behavior_seed_root = resolve_behavior_seed(behavior_raw, default_behavior_seed)?;
     let variation_seed = resolve_variation_seed(variation_raw, default_variation_seed)?;
     let variation_count = match mode {
         ScenarioPlanMode::Gate => GATE_VARIATION_SCENARIO_COUNT,
         ScenarioPlanMode::Explore => EXPLORATORY_VARIATION_SCENARIO_COUNT,
     };
+    let mut world_seeds = MAINTAINED_ANCHORS
+        .iter()
+        .map(|(_, world_seed)| *world_seed)
+        .collect::<Vec<_>>();
     append_variation_seeds(&mut world_seeds, variation_seed, variation_count);
     let mut cases = maintained_cases();
     cases.extend(
@@ -351,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn default_gate_keeps_maintained_anchors_and_adds_a_bounded_variation_sample() {
+    fn default_gate_keeps_maintained_anchors_and_adds_one_organic_case() {
         let plan = plan(ScenarioPlanMode::Gate, None, None, None)
             .unwrap_or_else(|error| panic!("default gate seed plan failed: {error:?}"));
 
@@ -370,40 +370,44 @@ mod tests {
     }
 
     #[test]
-    fn gate_keeps_anchors_stable_while_generated_cases_follow_supplied_roots() {
-        let first = scenario_seeds_from(ScenarioPlanMode::Gate, None, None, None, 0x1111, 0x2222)
-            .unwrap_or_else(|error| panic!("first gate-default plan failed: {error:?}"));
-        let second = scenario_seeds_from(ScenarioPlanMode::Gate, None, None, None, 0xAAAA, 0xBBBB)
-            .unwrap_or_else(|error| panic!("second gate-default plan failed: {error:?}"));
+    fn gate_and_explore_use_replay_roots_with_different_bounded_sample_sizes() {
+        let first = scenario_seeds_from(
+            ScenarioPlanMode::Gate,
+            None,
+            Some("0x1111"),
+            Some("0x2222"),
+            0x1111,
+            0x2222,
+        )
+        .unwrap_or_else(|error| panic!("first gate-default plan failed: {error:?}"));
+        let second = scenario_seeds_from(
+            ScenarioPlanMode::Gate,
+            None,
+            Some("0xAAAA"),
+            Some("0xBBBB"),
+            0xAAAA,
+            0xBBBB,
+        )
+        .unwrap_or_else(|error| panic!("second gate-default plan failed: {error:?}"));
 
-        assert_eq!(
-            first
-                .cases()
-                .iter()
-                .filter(|case| case.anchor.is_some())
-                .collect::<Vec<_>>(),
-            second
-                .cases()
-                .iter()
-                .filter(|case| case.anchor.is_some())
-                .collect::<Vec<_>>()
-        );
-        assert_ne!(
-            first
-                .cases()
-                .iter()
-                .filter(|case| case.anchor.is_none())
-                .collect::<Vec<_>>(),
-            second
-                .cases()
-                .iter()
-                .filter(|case| case.anchor.is_none())
-                .collect::<Vec<_>>()
-        );
+        assert_eq!(first.anchor_seed_count(), MAINTAINED_ANCHORS.len());
+        assert_eq!(second.anchor_seed_count(), MAINTAINED_ANCHORS.len());
+        assert_eq!(first.variation_seed_count(), GATE_VARIATION_SCENARIO_COUNT);
+        assert_eq!(second.variation_seed_count(), GATE_VARIATION_SCENARIO_COUNT);
+        assert_ne!(first.cases().last(), second.cases().last());
         assert_eq!(first.variation_seed, Some(0x1111));
         assert_eq!(first.behavior_seed_root, 0x2222);
-        assert_eq!(second.variation_seed, Some(0xAAAA));
-        assert_eq!(second.behavior_seed_root, 0xBBBB);
+
+        let exploratory =
+            scenario_seeds_from(ScenarioPlanMode::Explore, None, None, None, 0x1111, 0x2222)
+                .unwrap_or_else(|error| panic!("exploratory plan failed: {error:?}"));
+        assert_eq!(exploratory.source, ScenarioSeedSource::AnchorVariation);
+        assert_eq!(
+            exploratory.variation_seed_count(),
+            EXPLORATORY_VARIATION_SCENARIO_COUNT
+        );
+        assert_eq!(exploratory.variation_seed, Some(0x1111));
+        assert_eq!(exploratory.behavior_seed_root, 0x2222);
     }
 
     #[test]
