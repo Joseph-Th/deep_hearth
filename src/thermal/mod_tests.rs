@@ -136,6 +136,48 @@ fn sensible_heat_reaches_but_does_not_cross_a_melting_point() {
 }
 
 #[test]
+fn sensible_heat_cools_to_but_does_not_cross_a_melting_point() {
+    let registries = build_registries();
+    let composition = MaterialComposition::pure(MATERIAL_COPPER);
+    let copper = registries
+        .materials()
+        .get_material(MATERIAL_COPPER)
+        .unwrap_or_else(|| panic!("built-in copper disappeared"));
+    let melting_point = copper
+        .properties()
+        .thermal()
+        .melting_point()
+        .unwrap_or_else(|| panic!("built-in copper has no melting point"));
+    let above = Temperature::from_millikelvin(melting_point.millikelvin() + 1_000);
+    let below = Temperature::from_millikelvin(melting_point.millikelvin() - 1_000);
+
+    let to_boundary = calculate_sensible_heat(
+        registries.materials(),
+        Mass::from_milligrams(1_000),
+        &composition,
+        above,
+        melting_point,
+    )
+    .unwrap_or_else(|error| panic!("cooling exactly to the phase boundary failed: {error}"));
+    assert_eq!(to_boundary.direction(), HeatDirection::OutOfMaterial);
+    assert!(!to_boundary.energy().is_zero());
+
+    assert_eq!(
+        calculate_sensible_heat(
+            registries.materials(),
+            Mass::from_milligrams(1_000),
+            &composition,
+            above,
+            below,
+        ),
+        Err(SensibleHeatError::PhaseBoundaryCrossed {
+            material: MATERIAL_COPPER,
+            melting_point,
+        })
+    );
+}
+
+#[test]
 fn copper_fusion_heat_uses_authored_latent_energy_exactly() {
     let registries = build_registries();
     let fusion = match calculate_fusion_heat(

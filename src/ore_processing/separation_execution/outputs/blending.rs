@@ -37,31 +37,21 @@ pub(super) fn add_particulate_mass(
     Ok(())
 }
 
-/// Reconstructs one blended particulate stream without fabricating purified constituent lots.
-///
-/// Constituent numerators use ppm-mg units. Dividing each exact numerator by the stream mass gives
-/// a common integer-ppm base composition plus a bounded set of per-ppm remainders. The remainder
-/// schedule below distributes those +1 ppm corrections over deterministic mass intervals. This
-/// preserves every constituent numerator exactly while keeping every output lot at, or within one
-/// ppm of, the aggregate stream assay.
-pub(super) fn add_blended_particulate_stream<F>(
-    grouped: &mut BTreeMap<ParticulateOutputKey, Mass>,
-    temperature: Temperature,
-    particle_size: ParticleSizeDistribution,
+struct BlendedPpmProjection {
+    base_ppm: BTreeMap<MaterialId, u32>,
+    remainders: Vec<(MaterialId, u64)>,
+    missing_ppm: u64,
+}
+
+fn project_blended_ppm(
     constituent_numerators: BTreeMap<MaterialId, u128>,
-    stream_mass: Mass,
-    commodity_for_composition: F,
-) -> Result<(), ConstituentSeparationBatchError>
-where
-    F: Fn(&MaterialComposition) -> CommodityKey,
-{
-    let stream_milligrams = stream_mass.milligrams();
+    stream_milligrams: u64,
+) -> Result<BlendedPpmProjection, ConstituentSeparationBatchError> {
     let stream_milligrams_u128 = u128::from(stream_milligrams);
-    let mut base_ppm = BTreeMap::<MaterialId, u32>::new();
-    let mut remainders = Vec::<(MaterialId, u64)>::new();
+    let mut base_ppm = BTreeMap::new();
+    let mut remainders = Vec::new();
     let mut base_total = 0_u64;
     let mut remainder_total = 0_u128;
-
     for (material, numerator) in constituent_numerators {
         let base = u32::try_from(numerator / stream_milligrams_u128)
             .map_err(|_| ConstituentSeparationBatchError::MassOverflow)?;
@@ -80,7 +70,6 @@ where
             .checked_add(u128::from(remainder))
             .ok_or(ConstituentSeparationBatchError::MassOverflow)?;
     }
-
     let missing_ppm = u64::from(COMPOSITION_PARTS_PER_MILLION)
         .checked_sub(base_total)
         .unwrap_or_else(|| unreachable!("exact residue averages cannot exceed normalized ppm"));
@@ -89,47 +78,44 @@ where
         stream_milligrams_u128 * u128::from(missing_ppm),
         "exact stream remainders must equal the normalized ppm deficit"
     );
+    Ok(BlendedPpmProjection {
+        base_ppm,
+        remainders,
+        missing_ppm,
+    })
+}
 
-    let mut emit_interval = |active: &BTreeSet<MaterialId>, interval_mass: u64| {
-        if interval_mass == 0 {
-            return Ok(());
-        }
-        let mut components = Vec::with_capacity(base_ppm.len() + active.len());
-        let materials = base_ppm
-            .keys()
-            .copied()
-            .chain(active.iter().copied())
-            .collect::<BTreeSet<_>>();
-        for material in materials {
+fn interval_composition(
+    base_ppm: &BTreeMap<MaterialId, u32>,
+    active: &BTreeSet<MaterialId>,
+) -> MaterialComposition {
+    let materials = base_ppm
+        .keys()
+        .copied()
+        .chain(active.iter().copied())
+        .collect::<BTreeSet<_>>();
+    let components = materials
+        .into_iter()
+        .filter_map(|material| {
             let ppm = base_ppm.get(&material).copied().unwrap_or(0)
                 + u32::from(active.contains(&material));
-            if ppm != 0 {
-                components.push(CompositionComponent::new(material, ppm));
-            }
-        }
-        let composition = MaterialComposition::new(components).unwrap_or_else(|error| {
-            unreachable!("exact blended particulate stream must be normalized: {error}")
-        });
-        add_particulate_mass(
-            grouped,
-            commodity_for_composition(&composition),
-            temperature,
-            composition,
-            particle_size.clone(),
-            Mass::from_milligrams(interval_mass),
-        )
-    };
+            (ppm != 0).then_some(CompositionComponent::new(material, ppm))
+        })
+        .collect();
+    MaterialComposition::new(components).unwrap_or_else(|error| {
+        unreachable!("exact blended particulate stream must be normalized: {error}")
+    })
+}
 
-    if missing_ppm == 0 {
-        return emit_interval(&BTreeSet::new(), stream_milligrams);
-    }
+type CorrectionEvents = BTreeMap<u64, Vec<(MaterialId, bool)>>;
 
-    // Concatenating each constituent's remainder over `missing_ppm` complete stream-mass laps and
-    // projecting those positions modulo the stream mass yields a 0/1 correction matrix with exact
-    // column sums and exactly `missing_ppm` corrections on every represented milligram. Sweeping
-    // interval boundaries compresses that matrix to O(constituent-count) lots rather than one lot
-    // per milligram.
-    let mut events = BTreeMap::<u64, Vec<(MaterialId, bool)>>::new();
+fn build_correction_events(
+    remainders: Vec<(MaterialId, u64)>,
+    stream_milligrams: u64,
+    missing_ppm: u64,
+) -> Result<CorrectionEvents, ConstituentSeparationBatchError> {
+    let stream_milligrams_u128 = u128::from(stream_milligrams);
+    let mut events = CorrectionEvents::new();
     events.entry(0).or_default();
     events.entry(stream_milligrams).or_default();
     let mut cursor = 0_u128;
@@ -162,7 +148,59 @@ where
         stream_milligrams_u128 * u128::from(missing_ppm),
         "stream correction schedule must cover an exact number of mass laps"
     );
+    Ok(events)
+}
 
+/// Reconstructs one blended particulate stream without fabricating purified constituent lots.
+///
+/// Constituent numerators use ppm-mg units. Dividing each exact numerator by the stream mass gives
+/// a common integer-ppm base composition plus a bounded set of per-ppm remainders. The remainder
+/// schedule below distributes those +1 ppm corrections over deterministic mass intervals. This
+/// preserves every constituent numerator exactly while keeping every output lot at, or within one
+/// ppm of, the aggregate stream assay.
+pub(super) fn add_blended_particulate_stream<F>(
+    grouped: &mut BTreeMap<ParticulateOutputKey, Mass>,
+    temperature: Temperature,
+    particle_size: ParticleSizeDistribution,
+    constituent_numerators: BTreeMap<MaterialId, u128>,
+    stream_mass: Mass,
+    commodity_for_composition: F,
+) -> Result<(), ConstituentSeparationBatchError>
+where
+    F: Fn(&MaterialComposition) -> CommodityKey,
+{
+    let stream_milligrams = stream_mass.milligrams();
+    let BlendedPpmProjection {
+        base_ppm,
+        remainders,
+        missing_ppm,
+    } = project_blended_ppm(constituent_numerators, stream_milligrams)?;
+
+    let mut emit_interval = |active: &BTreeSet<MaterialId>, interval_mass: u64| {
+        if interval_mass == 0 {
+            return Ok(());
+        }
+        let composition = interval_composition(&base_ppm, active);
+        add_particulate_mass(
+            grouped,
+            commodity_for_composition(&composition),
+            temperature,
+            composition,
+            particle_size.clone(),
+            Mass::from_milligrams(interval_mass),
+        )
+    };
+
+    if missing_ppm == 0 {
+        return emit_interval(&BTreeSet::new(), stream_milligrams);
+    }
+
+    // Concatenating each constituent's remainder over `missing_ppm` complete stream-mass laps and
+    // projecting those positions modulo the stream mass yields a 0/1 correction matrix with exact
+    // column sums and exactly `missing_ppm` corrections on every represented milligram. Sweeping
+    // interval boundaries compresses that matrix to O(constituent-count) lots rather than one lot
+    // per milligram.
+    let events = build_correction_events(remainders, stream_milligrams, missing_ppm)?;
     let positions = events.keys().copied().collect::<Vec<_>>();
     let mut active = BTreeSet::<MaterialId>::new();
     for window in positions.windows(2) {

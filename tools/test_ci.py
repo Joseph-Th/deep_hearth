@@ -60,13 +60,39 @@ class LocalCiPlanTests(unittest.TestCase):
             ci.quick_plan(),
         )
 
-    def test_bca_workflow_keeps_gate_and_advisory_modes_distinct(self) -> None:
+    def test_bca_review_widens_new_paths_to_the_nearest_base_scope(self) -> None:
+        base_paths = {
+            "src",
+            "src/production",
+            "src/production/state",
+            "src/production/state/validation.rs",
+        }
         self.assertEqual(
-            check_bca.command_for(check_bca.parse_args(["check"])),
-            ["bca", "check", "--no-suppress", "--no-remediation"],
+            check_bca.resolve_review_diff_paths(
+                [
+                    "src/production/state/validation.rs",
+                    "src/production/state/validation/job.rs",
+                    "src/production/state/validation/indexes.rs",
+                ],
+                base_paths.__contains__,
+            ),
+            ["src/production/state"],
         )
         self.assertEqual(
-            check_bca.command_for(
+            check_bca.resolve_review_diff_paths(
+                ["src/production/state/validation.rs"],
+                base_paths.__contains__,
+            ),
+            ["src/production/state/validation.rs"],
+        )
+
+    def test_bca_workflow_keeps_gate_and_advisory_modes_distinct(self) -> None:
+        self.assertEqual(
+            check_bca.commands_for(check_bca.parse_args(["check"])),
+            [["bca", "check", "--no-suppress", "--no-remediation"]],
+        )
+        self.assertEqual(
+            check_bca.commands_for(
                 check_bca.parse_args(
                     [
                         "report",
@@ -80,19 +106,21 @@ class LocalCiPlanTests(unittest.TestCase):
                 )
             ),
             [
-                "bca",
-                "report",
-                "--vcs",
-                "--top",
-                "12",
-                "--paths",
-                "src/production",
-                "--paths",
-                "src/inventory",
+                [
+                    "bca",
+                    "report",
+                    "--vcs",
+                    "--top",
+                    "12",
+                    "--paths",
+                    "src/production",
+                    "--paths",
+                    "src/inventory",
+                ]
             ],
         )
         self.assertEqual(
-            check_bca.command_for(
+            check_bca.commands_for(
                 check_bca.parse_args(
                     [
                         "diff",
@@ -108,18 +136,62 @@ class LocalCiPlanTests(unittest.TestCase):
                 )
             ),
             [
-                "bca",
-                "diff",
-                "--since",
-                "HEAD~1",
-                "--format",
-                "markdown",
-                "--metric",
-                "cognitive",
-                "--metric",
-                "cyclomatic",
-                "--paths",
-                "src/mining/execution.rs",
+                [
+                    "bca",
+                    "diff",
+                    "--since",
+                    "HEAD~1",
+                    "--format",
+                    "markdown",
+                    "--metric",
+                    "cognitive",
+                    "--metric",
+                    "cyclomatic",
+                    "--paths",
+                    "src/mining/execution.rs",
+                ]
+            ],
+        )
+        self.assertEqual(
+            check_bca.commands_for(
+                check_bca.parse_args(
+                    [
+                        "review",
+                        "--since",
+                        "HEAD~2",
+                        "--top",
+                        "15",
+                        "--path",
+                        "src/structural/analysis.rs",
+                    ]
+                )
+            ),
+            [
+                [
+                    "bca",
+                    "report",
+                    "--vcs",
+                    "--top",
+                    "15",
+                    "--paths",
+                    "src/structural/analysis.rs",
+                ],
+                [
+                    "bca",
+                    "diff",
+                    "--since",
+                    "HEAD~2",
+                    "--format",
+                    "markdown",
+                    "--metric",
+                    "cognitive",
+                    "--metric",
+                    "cyclomatic",
+                    "--metric",
+                    "sloc",
+                    "--paths",
+                    "src/structural/analysis.rs",
+                ],
             ],
         )
 

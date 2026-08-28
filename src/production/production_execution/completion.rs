@@ -191,6 +191,50 @@ impl DueCompletionPlanning {
     }
 }
 
+fn planned_revision(
+    expected: u64,
+    changed: bool,
+    exhausted: CompletionPlanError,
+) -> Result<u64, CompletionPlanError> {
+    if !changed {
+        return Ok(expected);
+    }
+    expected.checked_add(1).ok_or(exhausted)
+}
+
+fn build_completion_revision_plan(
+    state: &AppState,
+    production_changed: bool,
+    planning: &DueCompletionPlanning,
+    player_labor_dependencies: Option<PlayerLaborRevisionDependencies>,
+) -> Result<CompletionRevisionPlan, CompletionPlanError> {
+    let expected_production_revision = state.production().revision();
+    let expected_equipment_revision = state.equipment().revision();
+    let expected_energy_revision = state.energy().revision();
+    Ok(CompletionRevisionPlan {
+        expected_production_revision,
+        next_production_revision: planned_revision(
+            expected_production_revision,
+            production_changed,
+            CompletionPlanError::ProductionRevision,
+        )?,
+        expected_equipment_revision,
+        next_equipment_revision: planned_revision(
+            expected_equipment_revision,
+            !planning.equipment_outcomes.is_empty(),
+            CompletionPlanError::EquipmentRevision,
+        )?,
+        expected_energy_revision,
+        next_energy_revision: planned_revision(
+            expected_energy_revision,
+            !planning.released_energy_outcomes.is_empty(),
+            CompletionPlanError::EnergyRevision,
+        )?,
+        expected_structure_revision: state.structures().revision(),
+        player_labor_dependencies,
+    })
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CompletionPlanError {
     MaterialLotIds,
@@ -448,22 +492,10 @@ pub(crate) fn decide_due_completions(
     state: &AppState,
     tick: SimulationTick,
 ) -> Result<CompletionPlan, CompletionPlanError> {
-    let expected_production_revision = state.production().revision();
-    let expected_equipment_revision = state.equipment().revision();
-    let expected_energy_revision = state.energy().revision();
-    let expected_structure_revision = state.structures().revision();
     let (availability_changes, player_labor_dependencies) =
         decide_availability_changes(registries, state)?;
     let mut due_ids = state.production().jobs_due_at(tick);
     adjust_due_ids_for_availability(&mut due_ids, &availability_changes, tick);
-
-    let next_production_revision = if due_ids.is_empty() && availability_changes.is_empty() {
-        expected_production_revision
-    } else {
-        expected_production_revision
-            .checked_add(1)
-            .ok_or(CompletionPlanError::ProductionRevision)?
-    };
     let mut planning = DueCompletionPlanning::new(due_ids.len());
     for job_id in &due_ids {
         let job = match state.production().get_job(*job_id) {
@@ -475,21 +507,12 @@ pub(crate) fn decide_due_completions(
         };
         plan_due_job(state, tick, job, &mut planning)?;
     }
-
-    let next_equipment_revision = if planning.equipment_outcomes.is_empty() {
-        expected_equipment_revision
-    } else {
-        expected_equipment_revision
-            .checked_add(1)
-            .ok_or(CompletionPlanError::EquipmentRevision)?
-    };
-    let next_energy_revision = if planning.released_energy_outcomes.is_empty() {
-        expected_energy_revision
-    } else {
-        expected_energy_revision
-            .checked_add(1)
-            .ok_or(CompletionPlanError::EnergyRevision)?
-    };
+    let revisions = build_completion_revision_plan(
+        state,
+        !due_ids.is_empty() || !availability_changes.is_empty(),
+        &planning,
+        player_labor_dependencies,
+    )?;
     let structural_load =
         plan_completion_structural_load(registries, state, planning.deposited_mass_by_destination)?;
     let inventory_deposits = decide_reserved_deposits(
@@ -504,16 +527,7 @@ pub(crate) fn decide_due_completions(
     })?;
 
     Ok(CompletionPlan {
-        revisions: CompletionRevisionPlan {
-            expected_production_revision,
-            next_production_revision,
-            expected_equipment_revision,
-            next_equipment_revision,
-            expected_energy_revision,
-            next_energy_revision,
-            expected_structure_revision,
-            player_labor_dependencies,
-        },
+        revisions,
         inventory_deposits,
         availability_changes,
         entries: planning.entries,

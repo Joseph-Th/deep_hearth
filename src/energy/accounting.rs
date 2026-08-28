@@ -158,17 +158,11 @@ fn add_trace_thermal_energy(
     )
 }
 
-/// Projects explicit energy ownership without mutating state.
-///
-/// Material thermal energy uses absolute zero as the accounting reference. Liquid forms include
-/// authored latent heat; unsupported mixed liquid phases fail explicitly rather than inventing an
-/// alloy phase diagram.
-pub fn calculate_explicit_energy_accounting(
+fn account_energy_stores(
     registries: &Registries,
     state: &AppState,
-) -> Result<ExplicitEnergyAccounting, ExplicitEnergyAccountingError> {
-    let mut accounting = ExplicitEnergyAccounting::default();
-
+    accounting: &mut ExplicitEnergyAccounting,
+) -> Result<(), ExplicitEnergyAccountingError> {
     for store in state.energy().stores() {
         add_energy(&mut accounting.stored, store.stored())?;
         for trace in store.embodied_material() {
@@ -179,7 +173,14 @@ pub fn calculate_explicit_energy_accounting(
             )?;
         }
     }
+    Ok(())
+}
 
+fn account_geological_material(
+    registries: &Registries,
+    state: &AppState,
+    accounting: &mut ExplicitEnergyAccounting,
+) -> Result<(), ExplicitEnergyAccountingError> {
     for deposit in state.geology().deposits() {
         if deposit.remaining_mass().is_zero() {
             continue;
@@ -193,7 +194,14 @@ pub fn calculate_explicit_energy_accounting(
             deposit.temperature(),
         )?;
     }
+    Ok(())
+}
 
+fn account_inventory_material(
+    registries: &Registries,
+    state: &AppState,
+    accounting: &mut ExplicitEnergyAccounting,
+) -> Result<(), ExplicitEnergyAccountingError> {
     for lot in state.inventory().lots() {
         add_material_thermal_energy(
             registries,
@@ -204,7 +212,14 @@ pub fn calculate_explicit_energy_accounting(
             lot.temperature(),
         )?;
     }
+    Ok(())
+}
 
+fn account_embodied_material(
+    registries: &Registries,
+    state: &AppState,
+    accounting: &mut ExplicitEnergyAccounting,
+) -> Result<(), ExplicitEnergyAccountingError> {
     for element in state.structures().elements() {
         for trace in element.embodied_material() {
             add_trace_thermal_energy(
@@ -214,7 +229,6 @@ pub fn calculate_explicit_energy_accounting(
             )?;
         }
     }
-
     for equipment in state.equipment().equipment() {
         for trace in equipment.embodied_material() {
             add_trace_thermal_energy(
@@ -224,7 +238,14 @@ pub fn calculate_explicit_energy_accounting(
             )?;
         }
     }
+    Ok(())
+}
 
+fn account_in_flight_material(
+    registries: &Registries,
+    state: &AppState,
+    accounting: &mut ExplicitEnergyAccounting,
+) -> Result<(), ExplicitEnergyAccountingError> {
     for job in state.mining().jobs() {
         let output = job.output();
         add_material_thermal_energy(
@@ -236,7 +257,6 @@ pub fn calculate_explicit_energy_accounting(
             output.temperature(),
         )?;
     }
-
     for job in state.production().jobs() {
         for trace in job.consumed_inputs() {
             add_trace_thermal_energy(
@@ -249,6 +269,23 @@ pub fn calculate_explicit_energy_accounting(
             add_energy(&mut accounting.in_process_supplied, energy.energy())?;
         }
     }
+    Ok(())
+}
 
+/// Projects explicit energy ownership without mutating state.
+///
+/// Material thermal energy uses absolute zero as the accounting reference. Liquid forms include
+/// authored latent heat; unsupported mixed liquid phases fail explicitly rather than inventing an
+/// alloy phase diagram.
+pub fn calculate_explicit_energy_accounting(
+    registries: &Registries,
+    state: &AppState,
+) -> Result<ExplicitEnergyAccounting, ExplicitEnergyAccountingError> {
+    let mut accounting = ExplicitEnergyAccounting::default();
+    account_energy_stores(registries, state, &mut accounting)?;
+    account_geological_material(registries, state, &mut accounting)?;
+    account_inventory_material(registries, state, &mut accounting)?;
+    account_embodied_material(registries, state, &mut accounting)?;
+    account_in_flight_material(registries, state, &mut accounting)?;
     Ok(accounting)
 }

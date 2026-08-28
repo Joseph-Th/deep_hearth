@@ -214,16 +214,13 @@ pub(crate) fn validate_consumption_selection(
     let mut lot_slices = Vec::new();
     let mut selected_by_lot = BTreeMap::<MaterialLotId, Mass>::new();
     for input in inputs {
-        let (selected, available) =
-            select_input_lot_slices(state, source_record, input, &mut selected_by_lot);
-        let Some(selected) = selected else {
-            return Err(ConsumptionSelectionError::InsufficientMass {
-                stockpile: source,
-                commodity: input.commodity(),
-                available,
-                requested: input.mass(),
-            });
-        };
+        let selected = select_input_lot_slices(state, source_record, input, &mut selected_by_lot)
+            .map_err(|available| ConsumptionSelectionError::InsufficientMass {
+            stockpile: source,
+            commodity: input.commodity(),
+            available,
+            requested: input.mass(),
+        })?;
         total_consumed = total_consumed
             .checked_add(input.mass())
             .ok_or(ConsumptionSelectionError::MassOverflow { stockpile: source })?;
@@ -459,58 +456,52 @@ fn select_input_lot_slices(
     source: &StockpileRecord,
     input: &MaterialInputSpec,
     selected_by_lot: &mut BTreeMap<MaterialLotId, Mass>,
-) -> (Option<Vec<LotSlice>>, Mass) {
+) -> Result<Vec<LotSlice>, Mass> {
     let mut remaining = input.mass();
     let mut available = Mass::ZERO;
     let mut slices = Vec::new();
 
     for lot_id in inventories.lot_ids_for_commodity(source.id, input.commodity()) {
-        let lot = match inventories.get_lot(lot_id) {
-            Some(lot) => lot,
-            None => panic!(
+        let lot = inventories.get_lot(lot_id).unwrap_or_else(|| {
+            panic!(
                 "runtime invariant broken: stockpile {} indexes missing lot {}",
                 source.id.value(),
                 lot_id.value()
-            ),
-        };
+            )
+        });
         if !input.is_satisfied_by(lot.composition()) {
             continue;
         }
 
         let already_selected = selected_by_lot.get(&lot_id).copied().unwrap_or(Mass::ZERO);
-        let free = match lot.mass.checked_sub(already_selected) {
-            Some(value) => value,
-            None => panic!("input allocator selected more mass than material lot contains"),
-        };
-        available = match available.checked_add(free) {
-            Some(value) => value,
-            None => panic!("eligible input mass overflowed stockpile mass accounting"),
-        };
-        if remaining.is_zero() || free.is_zero() {
+        let free = lot.mass.checked_sub(already_selected).unwrap_or_else(|| {
+            panic!("input allocator selected more mass than material lot contains")
+        });
+        available = available
+            .checked_add(free)
+            .unwrap_or_else(|| panic!("eligible input mass overflowed stockpile mass accounting"));
+        if free.is_zero() {
             continue;
         }
 
-        let take = if free <= remaining { free } else { remaining };
+        let take = free.min(remaining);
         slices.push(LotSlice {
             lot: lot_id,
             mass: take,
         });
-        let selected_after = match already_selected.checked_add(take) {
-            Some(value) => value,
-            None => panic!("input allocator selection overflowed material lot mass"),
-        };
+        let selected_after = already_selected
+            .checked_add(take)
+            .unwrap_or_else(|| panic!("input allocator selection overflowed material lot mass"));
         selected_by_lot.insert(lot_id, selected_after);
-        remaining = match remaining.checked_sub(take) {
-            Some(value) => value,
-            None => panic!("input allocator underflowed remaining requested mass"),
-        };
+        remaining = remaining
+            .checked_sub(take)
+            .unwrap_or_else(|| panic!("input allocator underflowed remaining requested mass"));
+        if remaining.is_zero() {
+            return Ok(slices);
+        }
     }
 
-    if remaining.is_zero() {
-        (Some(slices), available)
-    } else {
-        (None, available)
-    }
+    Err(available)
 }
 
 #[cfg(test)]

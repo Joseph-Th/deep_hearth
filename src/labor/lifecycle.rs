@@ -336,65 +336,80 @@ pub(crate) fn decide_manual_craft_player_work_start(
     }
 }
 
-pub(crate) fn decide_player_work_tick(
+fn decide_resumed_manual_craft_start(
     registries: &Registries,
     state: &AppState,
     next_tick: SimulationTick,
     production_availability: &[ProductionAvailabilityChange],
 ) -> Result<Option<PlayerWorkTickPlan>, PlayerWorkTickError> {
-    let Some(work) = state.player_work().active() else {
-        for change in production_availability {
-            let ProductionAvailabilityChange::Resumed {
-                job,
-                scheduled_completion,
-                ..
-            } = *change
-            else {
-                continue;
-            };
-            let record = state.production().get_job(job).unwrap_or_else(|| {
-                panic!("runtime invariant broken: resumed production job is missing")
-            });
-            if registries.crafting().get_manual(record.process()).is_none() {
-                continue;
-            }
-            if scheduled_completion == next_tick {
-                return Ok(None);
-            }
-            let remaining = record
-                .suspension()
-                .unwrap_or_else(|| {
-                    panic!("runtime invariant broken: resumed manual craft was not suspended")
-                })
-                .remaining_active_time();
-            let start = decide_manual_craft_player_work_start(registries, state, job, remaining)?
-                .unwrap_or_else(|| {
-                    panic!(
-                        "runtime invariant broken: production resumed manual craft without available player labor"
-                    )
-                });
-            return Ok(Some(PlayerWorkTickPlan::Start(start)));
+    for change in production_availability {
+        let ProductionAvailabilityChange::Resumed {
+            job,
+            scheduled_completion,
+            ..
+        } = *change
+        else {
+            continue;
+        };
+        let record = state.production().get_job(job).unwrap_or_else(|| {
+            panic!("runtime invariant broken: resumed production job is missing")
+        });
+        if registries.crafting().get_manual(record.process()).is_none() {
+            continue;
         }
-        return Ok(None);
-    };
-    let releases_now = match work {
-        PlayerWork::ManualCraft { job } => {
-            let record = state.production().get_job(job).unwrap_or_else(|| {
-                panic!("runtime invariant broken: player work references missing craft job")
+        if scheduled_completion == next_tick {
+            return Ok(None);
+        }
+        let remaining = record
+            .suspension()
+            .unwrap_or_else(|| {
+                panic!("runtime invariant broken: resumed manual craft was not suspended")
+            })
+            .remaining_active_time();
+        let start = decide_manual_craft_player_work_start(registries, state, job, remaining)?
+            .unwrap_or_else(|| {
+                panic!(
+                    "runtime invariant broken: production resumed manual craft without available player labor"
+                )
             });
-            match production_availability
-                .iter()
-                .copied()
-                .find(|change| change.job() == job)
-            {
-                Some(ProductionAvailabilityChange::Suspended { .. }) => true,
-                Some(ProductionAvailabilityChange::SuspensionReasonChanged { .. }) => false,
-                Some(ProductionAvailabilityChange::Resumed {
-                    scheduled_completion,
-                    ..
-                }) => scheduled_completion == next_tick,
-                None => !record.is_suspended() && record.completes_at() == next_tick,
-            }
+        return Ok(Some(PlayerWorkTickPlan::Start(start)));
+    }
+    Ok(None)
+}
+
+fn manual_craft_releases_now(
+    state: &AppState,
+    job: crate::production::ProductionJobId,
+    next_tick: SimulationTick,
+    production_availability: &[ProductionAvailabilityChange],
+) -> bool {
+    let record = state.production().get_job(job).unwrap_or_else(|| {
+        panic!("runtime invariant broken: player work references missing craft job")
+    });
+    match production_availability
+        .iter()
+        .copied()
+        .find(|change| change.job() == job)
+    {
+        Some(ProductionAvailabilityChange::Suspended { .. }) => true,
+        Some(ProductionAvailabilityChange::SuspensionReasonChanged { .. }) => false,
+        Some(ProductionAvailabilityChange::Resumed {
+            scheduled_completion,
+            ..
+        }) => scheduled_completion == next_tick,
+        None => !record.is_suspended() && record.completes_at() == next_tick,
+    }
+}
+
+fn active_work_releases_now(
+    state: &AppState,
+    work: PlayerWork,
+    next_tick: SimulationTick,
+    production_availability: &[ProductionAvailabilityChange],
+) -> bool {
+    match work {
+        PlayerWork::ManualCraft { job } => {
+            manual_craft_releases_now(state, job, next_tick, production_availability)
         }
         PlayerWork::Mining { job } => {
             let record = state.mining().get_job(job).unwrap_or_else(|| {
@@ -404,8 +419,24 @@ pub(crate) fn decide_player_work_tick(
         }
         PlayerWork::ManualPower { work } => work.completes_at() == next_tick,
         PlayerWork::Prospecting { work } => work.completes_at() == next_tick,
+    }
+}
+
+pub(crate) fn decide_player_work_tick(
+    registries: &Registries,
+    state: &AppState,
+    next_tick: SimulationTick,
+    production_availability: &[ProductionAvailabilityChange],
+) -> Result<Option<PlayerWorkTickPlan>, PlayerWorkTickError> {
+    let Some(work) = state.player_work().active() else {
+        return decide_resumed_manual_craft_start(
+            registries,
+            state,
+            next_tick,
+            production_availability,
+        );
     };
-    if !releases_now {
+    if !active_work_releases_now(state, work, next_tick, production_availability) {
         return Ok(None);
     }
     let expected_revision = state.player_work().revision();

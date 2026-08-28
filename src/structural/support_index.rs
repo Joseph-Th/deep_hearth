@@ -27,6 +27,52 @@ pub(crate) enum SupportIndexValidationFault<Id> {
     },
 }
 
+fn validate_indexed_item<Id>(
+    item: Id,
+    element: StructuralElementId,
+    invalid_item_id: &impl Fn(Id) -> bool,
+    actual_support: &impl Fn(Id) -> Option<Option<StructuralElementId>>,
+) -> Result<(), SupportIndexValidationFault<Id>>
+where
+    Id: Copy,
+{
+    if invalid_item_id(item) {
+        return Err(SupportIndexValidationFault::InvalidItemId { item, element });
+    }
+    let Some(actual) = actual_support(item) else {
+        return Err(SupportIndexValidationFault::UnknownIndexedItem { item, element });
+    };
+    if actual != Some(element) {
+        return Err(SupportIndexValidationFault::SupportMismatch {
+            item,
+            indexed: element,
+            actual,
+        });
+    }
+    Ok(())
+}
+
+fn validate_support_bucket<Id>(
+    element: StructuralElementId,
+    items: &BTreeSet<Id>,
+    invalid_item_id: &impl Fn(Id) -> bool,
+    actual_support: &impl Fn(Id) -> Option<Option<StructuralElementId>>,
+) -> Result<(), SupportIndexValidationFault<Id>>
+where
+    Id: Copy + Ord,
+{
+    if element.value() == 0 {
+        return Err(SupportIndexValidationFault::ZeroSupportElementId);
+    }
+    if items.is_empty() {
+        return Err(SupportIndexValidationFault::EmptySupportBucket { element });
+    }
+    for item in items.iter().copied() {
+        validate_indexed_item(item, element, invalid_item_id, actual_support)?;
+    }
+    Ok(())
+}
+
 /// Validates one owner's derived structural-support reverse index against authoritative records.
 pub(crate) fn validate_support_index<Id>(
     index: &BTreeMap<StructuralElementId, BTreeSet<Id>>,
@@ -37,33 +83,7 @@ where
     Id: Copy + Ord,
 {
     for (element, items) in index {
-        if element.value() == 0 {
-            return Err(SupportIndexValidationFault::ZeroSupportElementId);
-        }
-        if items.is_empty() {
-            return Err(SupportIndexValidationFault::EmptySupportBucket { element: *element });
-        }
-        for item in items.iter().copied() {
-            if invalid_item_id(item) {
-                return Err(SupportIndexValidationFault::InvalidItemId {
-                    item,
-                    element: *element,
-                });
-            }
-            let Some(actual) = actual_support(item) else {
-                return Err(SupportIndexValidationFault::UnknownIndexedItem {
-                    item,
-                    element: *element,
-                });
-            };
-            if actual != Some(*element) {
-                return Err(SupportIndexValidationFault::SupportMismatch {
-                    item,
-                    indexed: *element,
-                    actual,
-                });
-            }
-        }
+        validate_support_bucket(*element, items, &invalid_item_id, &actual_support)?;
     }
     Ok(())
 }

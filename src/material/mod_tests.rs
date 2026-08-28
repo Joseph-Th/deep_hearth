@@ -12,6 +12,19 @@ fn make_test_properties() -> MaterialProperties {
     )
 }
 
+fn make_fusible_properties(melting_point: Temperature) -> MaterialProperties {
+    MaterialProperties::new(
+        1_000,
+        ThermalProperties::new(
+            1_000,
+            Some(FusionProperties::new(melting_point, 200_000)),
+            100,
+        ),
+        MechanicalProperties::new(10, 10, 10),
+        ElectricalProperties::new(None),
+    )
+}
+
 #[test]
 fn liquid_commodity_requires_fusion_properties() {
     let mut registry = MaterialRegistry::new();
@@ -37,6 +50,120 @@ fn liquid_commodity_requires_fusion_properties() {
         .is_err()
     );
     assert!(!registry.has_commodity(CommodityKey::new(material, liquid)));
+}
+
+#[test]
+fn solid_phase_validation_checks_every_constituent_against_its_own_fusion_boundary() {
+    let low_melting = MaterialId::new(3);
+    let high_melting = MaterialId::new(4);
+    let solid = FormId::new(7);
+    let low_boundary = Temperature::from_millikelvin(400_000);
+    let high_boundary = Temperature::from_millikelvin(800_000);
+    let temperature = Temperature::from_millikelvin(500_000);
+    let mut registry = MaterialRegistry::new();
+    registry.register_material(MaterialDefinition::new(
+        low_melting,
+        "low-melting fixture",
+        make_fusible_properties(low_boundary),
+    ));
+    registry.register_material(MaterialDefinition::new(
+        high_melting,
+        "high-melting fixture",
+        make_fusible_properties(high_boundary),
+    ));
+    registry.register_form(FormDefinition::new(
+        solid,
+        "solid fixture",
+        MaterialPhase::Solid,
+        ParticleSizeStatePolicy::Untracked,
+        MaterialFormCohesion::Consolidated,
+    ));
+    let composition = MaterialComposition::new(vec![
+        CompositionComponent::new(low_melting, 500_000),
+        CompositionComponent::new(high_melting, 500_000),
+    ])
+    .unwrap_or_else(|error| panic!("phase composition fixture failed: {error}"));
+
+    assert_eq!(
+        validate_material_phase_state(
+            &registry,
+            CommodityKey::new(high_melting, solid),
+            &composition,
+            temperature,
+        ),
+        Err(MaterialPhaseStateError::SolidAboveMeltingPoint {
+            material: low_melting,
+            temperature,
+            melting_point: low_boundary,
+        })
+    );
+}
+
+#[test]
+fn liquid_phase_validation_enforces_purity_host_identity_and_fusion_boundary() {
+    let material = MaterialId::new(3);
+    let other = MaterialId::new(4);
+    let liquid = FormId::new(8);
+    let melting_point = Temperature::from_millikelvin(700_000);
+    let mut registry = MaterialRegistry::new();
+    registry.register_material(MaterialDefinition::new(
+        material,
+        "liquid fixture",
+        make_fusible_properties(melting_point),
+    ));
+    registry.register_material(MaterialDefinition::new(
+        other,
+        "other fixture",
+        make_fusible_properties(melting_point),
+    ));
+    registry.register_form(FormDefinition::new(
+        liquid,
+        "liquid fixture form",
+        MaterialPhase::Liquid,
+        ParticleSizeStatePolicy::Untracked,
+        MaterialFormCohesion::Loose,
+    ));
+    let impure = MaterialComposition::new(vec![
+        CompositionComponent::new(material, 900_000),
+        CompositionComponent::new(other, 100_000),
+    ])
+    .unwrap_or_else(|error| panic!("liquid composition fixture failed: {error}"));
+    let pure = MaterialComposition::pure(material);
+    let hot = Temperature::from_millikelvin(800_000);
+
+    assert_eq!(
+        validate_material_phase_state(&registry, CommodityKey::new(material, liquid), &impure, hot,),
+        Err(MaterialPhaseStateError::LiquidRequiresPureComposition)
+    );
+    assert_eq!(
+        validate_material_phase_state(&registry, CommodityKey::new(other, liquid), &pure, hot,),
+        Err(MaterialPhaseStateError::LiquidHostMismatch {
+            host: other,
+            pure: material,
+        })
+    );
+    assert_eq!(
+        validate_material_phase_state(
+            &registry,
+            CommodityKey::new(material, liquid),
+            &pure,
+            Temperature::from_millikelvin(699_999),
+        ),
+        Err(MaterialPhaseStateError::LiquidBelowMeltingPoint {
+            material,
+            temperature: Temperature::from_millikelvin(699_999),
+            melting_point,
+        })
+    );
+    assert_eq!(
+        validate_material_phase_state(
+            &registry,
+            CommodityKey::new(material, liquid),
+            &pure,
+            melting_point,
+        ),
+        Ok(())
+    );
 }
 
 #[test]

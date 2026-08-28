@@ -13,6 +13,7 @@ Choose the smallest command that completely proves the changed contract.
 | Build-free edit loop | `python ci.py quick` |
 | Complexity and change-risk report | `python tools/check_bca.py report` |
 | Changed-code complexity diff | `python tools/check_bca.py diff --since HEAD` |
+| Nontrivial refactor BCA review | `python tools/check_bca.py review --since HEAD [--path <path>]` |
 | Production compile | `cargo check-fast` |
 | Standard production gate | `python ci.py gate` |
 | One unit/integration test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
@@ -49,7 +50,14 @@ combines those advisory metrics with repository churn and fix history to priorit
 compares the working tree to a chosen revision and accepts repeated `--path` and `--metric` arguments when a
 review needs a narrower signal. For a nontrivial refactor, use the history-aware report before choosing the
 target, then use a focused diff after the change to verify that the intended complexity moved rather than
-merely being redistributed. For example, mining work can be reviewed with
+merely being redistributed. `python tools/check_bca.py review` packages those two views into one reusable
+command for an in-progress review: it reports current history-aware hotspots and then compares the working
+tree to `--since`, defaulting the diff to cognitive, cyclomatic, and SLOC metrics. Repeated `--path` filters
+apply to both phases. When a requested path is new relative to `--since`, the report stays focused on that
+current path while the diff widens only to its nearest ancestor that exists at the base revision; this keeps
+module splits and newly extracted files reviewable without silently falling back to a repository-wide diff.
+Use the separate commands when their scopes or metrics should differ. For example,
+mining work can be reviewed with
 `python tools/check_bca.py report --path src/mining/execution.rs`, followed by
 `python tools/check_bca.py diff --since HEAD --path src/mining/execution.rs --metric cognitive --metric cyclomatic --metric sloc`.
 Do not split cohesive code, add forwarding helpers, or refresh the baseline merely to improve these numbers.

@@ -22,8 +22,8 @@ use crate::maintenance::MaintenanceThresholds;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{
-    CompletionCommitError, ProcessDefinition, apply_completion_plan, decide_due_completions,
-    validate_start_process,
+    CompletionCommitError, ProcessDefinition, ProductionJobRecord, apply_completion_plan,
+    decide_due_completions, validate_start_process,
 };
 use crate::simulation::advance_tick;
 use crate::thermal::ThermalJobValidationError;
@@ -158,9 +158,21 @@ fn make_registries(
 }
 
 fn make_fixture(input_mass: Mass, input_temperature: Temperature) -> CastingFixture {
+    make_fixture_with_sink_capacity(
+        input_mass,
+        input_temperature,
+        Energy::from_nanojoules(100_000_000_000),
+    )
+}
+
+fn make_fixture_with_sink_capacity(
+    input_mass: Mass,
+    input_temperature: Temperature,
+    sink_capacity: Energy,
+) -> CastingFixture {
     let registries = make_registries(
         EnergyCarrier::Thermal,
-        Energy::from_nanojoules(100_000_000_000),
+        sink_capacity,
         Power::from_microwatts(10_000_000),
     );
     let mut state = AppState::new(WorldSeed::new(0x9600_0001));
@@ -696,7 +708,11 @@ fn casting_save_resume_preserves_exact_completion_and_rejects_tampered_heat() {
 #[test]
 #[ignore = "long-horizon soak"]
 fn casting_soak_preserves_conservation_and_replay() {
-    let fixture = make_fixture(Mass::from_milligrams(300), MELTING_POINT);
+    let fixture = make_fixture_with_sink_capacity(
+        Mass::from_milligrams(300),
+        MELTING_POINT,
+        Energy::from_nanojoules(1_000_000_000_000),
+    );
     let initial_matter = matter_total(&fixture.state);
     let initial_energy = energy_total(&fixture.registries, &fixture.state);
     let mut first = fixture.state.clone();

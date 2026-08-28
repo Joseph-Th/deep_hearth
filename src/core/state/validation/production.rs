@@ -13,7 +13,7 @@ use crate::ore_processing::{
     validate_loaded_comminution_job, validate_loaded_constituent_separation_job,
     validate_loaded_screening_job,
 };
-use crate::production::{ProductionJobRecord, sum_lot_spec_mass};
+use crate::production::{ProductionJobRecord, ProductionOutputStream, sum_lot_spec_mass};
 use crate::registry::Registries;
 use crate::thermal::validate_loaded_thermal_job;
 
@@ -314,51 +314,71 @@ fn validate_job_outputs(
     expected_reservations: &mut ExpectedReservations,
 ) -> Result<(), StateValidationError> {
     for stream in job.output_streams() {
-        let destination = stream.destination();
-        let Some(destination_record) = state.systems.inventory.get_stockpile(destination) else {
-            return Err(StateValidationError::UnknownJobDestination {
-                job: job.id(),
-                stockpile: destination,
-            });
-        };
-        for output in stream.outputs() {
-            if !registries.materials().has_commodity(output.commodity()) {
-                return Err(StateValidationError::UnknownJobOutputCommodity {
-                    job: job.id(),
-                    commodity: output.commodity(),
-                });
-            }
-            for component in output.composition().components() {
-                if registries
-                    .materials()
-                    .get_material(component.material())
-                    .is_none()
-                {
-                    return Err(StateValidationError::UnknownJobOutputCompositionMaterial {
-                        job: job.id(),
-                        material: component.material(),
-                    });
-                }
-            }
-            validate_stockpile_storage(
-                registries,
-                destination_record,
-                destination,
-                output.commodity(),
-                output.composition(),
-                output.temperature(),
-                output.particle_size_distribution(),
-            )
-            .map_err(|error| StateValidationError::JobOutputStorage {
-                job: job.id(),
-                error,
-            })?;
-        }
-        let output_mass = sum_lot_spec_mass(stream.outputs())
-            .ok_or(StateValidationError::JobOutputMassOverflow { job: job.id() })?;
-        expected_reservations.add(destination, output_mass)?;
+        validate_job_output_stream(registries, state, job, stream, expected_reservations)?;
     }
     Ok(())
+}
+
+fn validate_job_output_stream(
+    registries: &Registries,
+    state: &AppState,
+    job: &ProductionJobRecord,
+    stream: &ProductionOutputStream,
+    expected_reservations: &mut ExpectedReservations,
+) -> Result<(), StateValidationError> {
+    let destination = stream.destination();
+    let Some(destination_record) = state.systems.inventory.get_stockpile(destination) else {
+        return Err(StateValidationError::UnknownJobDestination {
+            job: job.id(),
+            stockpile: destination,
+        });
+    };
+    for output in stream.outputs() {
+        validate_job_output(registries, job, destination_record, destination, output)?;
+    }
+    let output_mass = sum_lot_spec_mass(stream.outputs())
+        .ok_or(StateValidationError::JobOutputMassOverflow { job: job.id() })?;
+    expected_reservations.add(destination, output_mass)
+}
+
+fn validate_job_output(
+    registries: &Registries,
+    job: &ProductionJobRecord,
+    destination_record: &crate::inventory::StockpileRecord,
+    destination: StockpileId,
+    output: &crate::material::MaterialLotSpec,
+) -> Result<(), StateValidationError> {
+    if !registries.materials().has_commodity(output.commodity()) {
+        return Err(StateValidationError::UnknownJobOutputCommodity {
+            job: job.id(),
+            commodity: output.commodity(),
+        });
+    }
+    for component in output.composition().components() {
+        if registries
+            .materials()
+            .get_material(component.material())
+            .is_none()
+        {
+            return Err(StateValidationError::UnknownJobOutputCompositionMaterial {
+                job: job.id(),
+                material: component.material(),
+            });
+        }
+    }
+    validate_stockpile_storage(
+        registries,
+        destination_record,
+        destination,
+        output.commodity(),
+        output.composition(),
+        output.temperature(),
+        output.particle_size_distribution(),
+    )
+    .map_err(|error| StateValidationError::JobOutputStorage {
+        job: job.id(),
+        error,
+    })
 }
 
 fn validate_reserved_inbound(

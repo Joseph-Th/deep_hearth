@@ -90,15 +90,41 @@ impl Error for ComminutionBatchError {
     }
 }
 
-pub(super) fn resolve_comminution_outputs(
+type ComminutionOutputKey = (CommodityKey, Temperature, MaterialComposition);
+
+fn validate_input_particle_size(
+    definition: &ComminutionProcessDefinition,
+    trace: &ConsumedMaterialTrace,
+) -> Result<(), ComminutionBatchError> {
+    let profile = trace.profile();
+    if let Some(required) = definition.input_particle_size_range() {
+        let found = profile
+            .particle_size()
+            .ok_or(ComminutionBatchError::MissingInputParticleSize { required })?;
+        if found.minimum_diameter() < required.minimum_diameter()
+            || found.maximum_diameter() > required.maximum_diameter()
+        {
+            return Err(
+                ComminutionBatchError::InputParticleSizeOutsideOperatingRange { required, found },
+            );
+        }
+    }
+    if let Some(input) = profile.particle_size() {
+        let output = definition.output_particle_size();
+        if output.minimum_diameter() > input.minimum_diameter()
+            || output.maximum_diameter() >= input.maximum_diameter()
+        {
+            return Err(ComminutionBatchError::ParticleSizeNotReduced { input, output });
+        }
+    }
+    Ok(())
+}
+
+fn group_comminution_inputs(
     definition: &ComminutionProcessDefinition,
     traces: &[ConsumedMaterialTrace],
-) -> Result<Vec<MaterialLotSpec>, ComminutionBatchError> {
-    if traces.is_empty() {
-        return Err(ComminutionBatchError::EmptyInput);
-    }
-
-    let mut grouped = BTreeMap::<(CommodityKey, Temperature, MaterialComposition), Mass>::new();
+) -> Result<BTreeMap<ComminutionOutputKey, Mass>, ComminutionBatchError> {
+    let mut grouped = BTreeMap::new();
     for trace in traces {
         let profile = trace.profile();
         let input_form = profile.commodity().form();
@@ -108,32 +134,7 @@ pub(super) fn resolve_comminution_outputs(
                 found: input_form,
             });
         }
-        if let Some(required) = definition.input_particle_size_range() {
-            let found = profile
-                .particle_size()
-                .ok_or(ComminutionBatchError::MissingInputParticleSize { required })?;
-            if found.minimum_diameter() < required.minimum_diameter()
-                || found.maximum_diameter() > required.maximum_diameter()
-            {
-                return Err(
-                    ComminutionBatchError::InputParticleSizeOutsideOperatingRange {
-                        required,
-                        found,
-                    },
-                );
-            }
-        }
-        if let Some(input_particle_size) = profile.particle_size() {
-            let output_particle_size = definition.output_particle_size();
-            if output_particle_size.minimum_diameter() > input_particle_size.minimum_diameter()
-                || output_particle_size.maximum_diameter() >= input_particle_size.maximum_diameter()
-            {
-                return Err(ComminutionBatchError::ParticleSizeNotReduced {
-                    input: input_particle_size,
-                    output: output_particle_size,
-                });
-            }
-        }
+        validate_input_particle_size(definition, trace)?;
         let commodity = CommodityKey::new(profile.commodity().material(), definition.output_form());
         let key = (
             commodity,
@@ -146,7 +147,13 @@ pub(super) fn resolve_comminution_outputs(
             .ok_or(ComminutionBatchError::MassOverflow)?;
         grouped.insert(key, next);
     }
+    Ok(grouped)
+}
 
+fn build_comminution_outputs(
+    definition: &ComminutionProcessDefinition,
+    grouped: BTreeMap<ComminutionOutputKey, Mass>,
+) -> Result<Vec<MaterialLotSpec>, ComminutionBatchError> {
     let mut outputs = grouped
         .into_iter()
         .map(|((commodity, temperature, composition), mass)| {
@@ -162,4 +169,14 @@ pub(super) fn resolve_comminution_outputs(
         .collect::<Result<Vec<_>, _>>()?;
     outputs.sort();
     Ok(outputs)
+}
+
+pub(super) fn resolve_comminution_outputs(
+    definition: &ComminutionProcessDefinition,
+    traces: &[ConsumedMaterialTrace],
+) -> Result<Vec<MaterialLotSpec>, ComminutionBatchError> {
+    if traces.is_empty() {
+        return Err(ComminutionBatchError::EmptyInput);
+    }
+    build_comminution_outputs(definition, group_comminution_inputs(definition, traces)?)
 }

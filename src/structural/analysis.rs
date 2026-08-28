@@ -237,6 +237,94 @@ struct LoadProjection {
     carried: BTreeMap<StructuralElementId, Force>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RelationChange {
+    #[cfg(any(test, feature = "test-gameplay"))]
+    Insert(StructuralElementId),
+    #[cfg(any(test, feature = "test-gameplay"))]
+    Remove(StructuralElementId),
+}
+
+struct LoadPropagation {
+    carried: BTreeMap<StructuralElementId, Force>,
+    remaining_dependents: BTreeMap<StructuralElementId, usize>,
+    ready: BTreeSet<StructuralElementId>,
+    processed: usize,
+}
+
+impl LoadPropagation {
+    fn new(
+        state: &StructureState,
+        overlay: &StructuralAnalysisOverlay,
+        active: &BTreeSet<StructuralElementId>,
+    ) -> Result<Self, StructuralAnalysisError> {
+        let mut carried = BTreeMap::new();
+        let mut remaining_dependents = BTreeMap::new();
+        let mut ready = BTreeSet::new();
+        for element in active {
+            let record = &state.element_map()[element];
+            let load = overlay
+                .sum_applied_load(record)
+                .ok_or(StructuralAnalysisError::AppliedLoadOverflow { element: *element })?;
+            carried.insert(*element, load);
+            let dependent_count = overlay
+                .dependents(state, *element)
+                .iter()
+                .filter(|dependent| active.contains(dependent))
+                .count();
+            remaining_dependents.insert(*element, dependent_count);
+            if dependent_count == 0 {
+                ready.insert(*element);
+            }
+        }
+        Ok(Self {
+            carried,
+            remaining_dependents,
+            ready,
+            processed: 0,
+        })
+    }
+
+    fn next_ready(&mut self) -> Option<StructuralElementId> {
+        let element = self.ready.pop_first()?;
+        self.processed += 1;
+        Some(element)
+    }
+
+    fn add_support_load(
+        &mut self,
+        support: StructuralElementId,
+        share: Force,
+    ) -> Result<(), StructuralAnalysisError> {
+        let current = self.carried[&support];
+        let next = current
+            .checked_add(share)
+            .ok_or(StructuralAnalysisError::LoadOverflow { support })?;
+        self.carried.insert(support, next);
+
+        let remaining = self
+            .remaining_dependents
+            .get_mut(&support)
+            .ok_or(StructuralAnalysisError::ActiveGraphCycle)?;
+        *remaining = remaining
+            .checked_sub(1)
+            .ok_or(StructuralAnalysisError::ActiveGraphCycle)?;
+        if *remaining == 0 {
+            self.ready.insert(support);
+        }
+        Ok(())
+    }
+
+    fn finish(self, active_count: usize) -> Result<LoadProjection, StructuralAnalysisError> {
+        if self.processed != active_count {
+            return Err(StructuralAnalysisError::ActiveGraphCycle);
+        }
+        Ok(LoadProjection {
+            carried: self.carried,
+        })
+    }
+}
+
 #[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StructuralSupportOverlay {
@@ -347,49 +435,36 @@ impl StructuralAnalysisOverlay {
         }
     }
 
-    fn supports<'state>(
+    fn overlay_relation<'state>(
         &self,
-        state: &'state StructureState,
-        element: StructuralElementId,
+        base: Option<&'state BTreeSet<StructuralElementId>>,
+        owner: StructuralElementId,
+        changed_neighbor: Option<RelationChange>,
     ) -> Cow<'state, BTreeSet<StructuralElementId>> {
-        let Some(base) = state.support_set(element) else {
+        let Some(base) = base else {
             return Cow::Owned(BTreeSet::new());
         };
-        #[cfg(any(test, feature = "test-gameplay"))]
-        let support_change_applies = matches!(
-            self.support,
-            Some(StructuralSupportOverlay::Link { element: changed, .. })
-                | Some(StructuralSupportOverlay::Remove { element: changed, .. })
-                if changed == element
-        );
-        #[cfg(not(any(test, feature = "test-gameplay")))]
-        let support_change_applies = false;
         let removal_applies = self
             .removed
-            .is_some_and(|removed| removed == element || base.contains(&removed));
-        if !support_change_applies && !removal_applies {
+            .is_some_and(|removed| removed == owner || base.contains(&removed));
+        if changed_neighbor.is_none() && !removal_applies {
             return Cow::Borrowed(base);
         }
 
         let mut owned = base.clone();
-        #[cfg(any(test, feature = "test-gameplay"))]
-        match self.support {
-            Some(StructuralSupportOverlay::Link {
-                element: changed,
-                support,
-            }) if changed == element => {
-                owned.insert(support);
+        match changed_neighbor {
+            #[cfg(any(test, feature = "test-gameplay"))]
+            Some(RelationChange::Insert(neighbor)) => {
+                owned.insert(neighbor);
             }
-            Some(StructuralSupportOverlay::Remove {
-                element: changed,
-                support,
-            }) if changed == element => {
-                owned.remove(&support);
+            #[cfg(any(test, feature = "test-gameplay"))]
+            Some(RelationChange::Remove(neighbor)) => {
+                owned.remove(&neighbor);
             }
-            Some(_) | None => {}
+            None => {}
         }
         if let Some(removed) = self.removed {
-            if removed == element {
+            if removed == owner {
                 owned.clear();
             } else {
                 owned.remove(&removed);
@@ -398,55 +473,48 @@ impl StructuralAnalysisOverlay {
         Cow::Owned(owned)
     }
 
+    fn supports<'state>(
+        &self,
+        state: &'state StructureState,
+        element: StructuralElementId,
+    ) -> Cow<'state, BTreeSet<StructuralElementId>> {
+        #[cfg(any(test, feature = "test-gameplay"))]
+        let changed_neighbor = match self.support {
+            Some(StructuralSupportOverlay::Link {
+                element: changed,
+                support,
+            }) if changed == element => Some(RelationChange::Insert(support)),
+            Some(StructuralSupportOverlay::Remove {
+                element: changed,
+                support,
+            }) if changed == element => Some(RelationChange::Remove(support)),
+            Some(_) | None => None,
+        };
+        #[cfg(not(any(test, feature = "test-gameplay")))]
+        let changed_neighbor = None;
+        self.overlay_relation(state.support_set(element), element, changed_neighbor)
+    }
+
     fn dependents<'state>(
         &self,
         state: &'state StructureState,
         support: StructuralElementId,
     ) -> Cow<'state, BTreeSet<StructuralElementId>> {
-        let Some(base) = state.dependent_set(support) else {
-            return Cow::Owned(BTreeSet::new());
-        };
         #[cfg(any(test, feature = "test-gameplay"))]
-        let support_change_applies = matches!(
-            self.support,
-            Some(StructuralSupportOverlay::Link { support: changed, .. })
-                | Some(StructuralSupportOverlay::Remove { support: changed, .. })
-                if changed == support
-        );
-        #[cfg(not(any(test, feature = "test-gameplay")))]
-        let support_change_applies = false;
-        let removal_applies = self
-            .removed
-            .is_some_and(|removed| removed == support || base.contains(&removed));
-        if !support_change_applies && !removal_applies {
-            return Cow::Borrowed(base);
-        }
-
-        let mut owned = base.clone();
-        #[cfg(any(test, feature = "test-gameplay"))]
-        match self.support {
+        let changed_neighbor = match self.support {
             Some(StructuralSupportOverlay::Link {
                 element,
                 support: changed,
-            }) if changed == support => {
-                owned.insert(element);
-            }
+            }) if changed == support => Some(RelationChange::Insert(element)),
             Some(StructuralSupportOverlay::Remove {
                 element,
                 support: changed,
-            }) if changed == support => {
-                owned.remove(&element);
-            }
-            Some(_) | None => {}
-        }
-        if let Some(removed) = self.removed {
-            if removed == support {
-                owned.clear();
-            } else {
-                owned.remove(&removed);
-            }
-        }
-        Cow::Owned(owned)
+            }) if changed == support => Some(RelationChange::Remove(element)),
+            Some(_) | None => None,
+        };
+        #[cfg(not(any(test, feature = "test-gameplay")))]
+        let changed_neighbor = None;
+        self.overlay_relation(state.dependent_set(support), support, changed_neighbor)
     }
 
     fn sum_applied_load(&self, record: &StructuralElementRecord) -> Option<Force> {
@@ -514,32 +582,10 @@ fn project_loads(
     scope: &BTreeSet<StructuralElementId>,
 ) -> Result<LoadProjection, StructuralAnalysisError> {
     let active = active_ids(state, failed, overlay, scope);
-    let mut carried = BTreeMap::new();
-    let mut remaining_dependents = BTreeMap::new();
-    let mut ready = BTreeSet::new();
-
-    for element in &active {
-        let record = &state.element_map()[element];
-        let load = overlay
-            .sum_applied_load(record)
-            .ok_or(StructuralAnalysisError::AppliedLoadOverflow { element: *element })?;
-        carried.insert(*element, load);
-        let dependent_count = overlay
-            .dependents(state, *element)
-            .iter()
-            .filter(|dependent| active.contains(dependent))
-            .count();
-        remaining_dependents.insert(*element, dependent_count);
-        if dependent_count == 0 {
-            ready.insert(*element);
-        }
-    }
-
-    let mut processed = 0_usize;
-    while let Some(element) = ready.pop_first() {
-        processed += 1;
+    let mut propagation = LoadPropagation::new(state, overlay, &active)?;
+    while let Some(element) = propagation.next_ready() {
         let record = &state.element_map()[&element];
-        let load = carried[&element];
+        let load = propagation.carried[&element];
         let active_supports: Vec<_> = overlay
             .supports(state, element)
             .iter()
@@ -560,27 +606,10 @@ fn project_loads(
         for (index, support) in active_supports.into_iter().enumerate() {
             let extra = u128::from((index as u128) < remainder);
             let share = Force::from_millinewtons(base + extra);
-            let current = carried[&support];
-            let next = current
-                .checked_add(share)
-                .ok_or(StructuralAnalysisError::LoadOverflow { support })?;
-            carried.insert(support, next);
-
-            let Some(remaining) = remaining_dependents.get_mut(&support) else {
-                return Err(StructuralAnalysisError::ActiveGraphCycle);
-            };
-            *remaining -= 1;
-            if *remaining == 0 {
-                ready.insert(support);
-            }
+            propagation.add_support_load(support, share)?;
         }
     }
-
-    if processed != active.len() {
-        return Err(StructuralAnalysisError::ActiveGraphCycle);
-    }
-
-    Ok(LoadProjection { carried })
+    propagation.finish(active.len())
 }
 
 fn initialize_support_failure_frontier(

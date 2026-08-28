@@ -120,6 +120,96 @@ impl Display for MatterAccountingError {
 
 impl Error for MatterAccountingError {}
 
+fn calculate_geological_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
+    let mut total = AggregateMass::ZERO;
+    for deposit in state.geology().deposits() {
+        total = total
+            .checked_add(AggregateMass::from_mass(deposit.remaining_mass()))
+            .ok_or(MatterAccountingError::GeologicalMassOverflow)?;
+    }
+    Ok(total)
+}
+
+fn calculate_structural_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
+    let mut total = AggregateMass::ZERO;
+    for element in state.structures().elements() {
+        total = total
+            .checked_add(AggregateMass::from_mass(element.embodied_mass()))
+            .ok_or(MatterAccountingError::StructuralMassOverflow)?;
+    }
+    Ok(total)
+}
+
+fn calculate_equipment_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
+    let mut total = AggregateMass::ZERO;
+    for record in state.equipment().equipment() {
+        total = total
+            .checked_add(AggregateMass::from_mass(record.embodied_mass()))
+            .ok_or(MatterAccountingError::EquipmentMassOverflow)?;
+    }
+    Ok(total)
+}
+
+fn calculate_energy_storage_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
+    let mut total = AggregateMass::ZERO;
+    for record in state.energy().stores() {
+        total = total
+            .checked_add(AggregateMass::from_mass(record.embodied_mass()))
+            .ok_or(MatterAccountingError::EnergyStorageMassOverflow)?;
+    }
+    Ok(total)
+}
+
+fn calculate_stored_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
+    let mut total = AggregateMass::ZERO;
+    for lot in state.inventory().lots() {
+        total = total
+            .checked_add(AggregateMass::from_mass(lot.mass()))
+            .ok_or(MatterAccountingError::StoredMassOverflow)?;
+    }
+    Ok(total)
+}
+
+fn calculate_in_process_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
+    let mut total = AggregateMass::ZERO;
+    for job in state.production().jobs() {
+        for stream in job.output_streams() {
+            for output in stream.outputs() {
+                total = total
+                    .checked_add(AggregateMass::from_mass(output.mass()))
+                    .ok_or(MatterAccountingError::InProcessMassOverflow)?;
+            }
+        }
+    }
+    for job in state.mining().jobs() {
+        total = total
+            .checked_add(AggregateMass::from_mass(job.output().mass()))
+            .ok_or(MatterAccountingError::InProcessMassOverflow)?;
+    }
+    Ok(total)
+}
+
+fn calculate_consumed_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
+    let mut total = AggregateMass::ZERO;
+    for (_, mass) in state.survival().consumed_matter() {
+        total = total
+            .checked_add(mass)
+            .ok_or(MatterAccountingError::ConsumedMassOverflow)?;
+    }
+    Ok(total)
+}
+
+fn calculate_total_mass(parts: &[AggregateMass]) -> Result<AggregateMass, MatterAccountingError> {
+    parts
+        .iter()
+        .copied()
+        .try_fold(AggregateMass::ZERO, |total, part| {
+            total
+                .checked_add(part)
+                .ok_or(MatterAccountingError::TotalMassOverflow)
+        })
+}
+
 /// Recomputes matter ownership from authoritative records without trusting stockpile caches.
 ///
 /// Finite geological deposits own their remaining extractable matter until a canonical extraction
@@ -132,77 +222,22 @@ impl Error for MatterAccountingError {}
 pub fn calculate_matter_accounting(
     state: &AppState,
 ) -> Result<MatterAccounting, MatterAccountingError> {
-    let mut geological = AggregateMass::ZERO;
-    for deposit in state.geology().deposits() {
-        geological = geological
-            .checked_add(AggregateMass::from_mass(deposit.remaining_mass()))
-            .ok_or(MatterAccountingError::GeologicalMassOverflow)?;
-    }
-
-    let mut structural = AggregateMass::ZERO;
-    for element in state.structures().elements() {
-        structural = structural
-            .checked_add(AggregateMass::from_mass(element.embodied_mass()))
-            .ok_or(MatterAccountingError::StructuralMassOverflow)?;
-    }
-
-    let mut equipment = AggregateMass::ZERO;
-    for record in state.equipment().equipment() {
-        equipment = equipment
-            .checked_add(AggregateMass::from_mass(record.embodied_mass()))
-            .ok_or(MatterAccountingError::EquipmentMassOverflow)?;
-    }
-
-    let mut energy_storage = AggregateMass::ZERO;
-    for record in state.energy().stores() {
-        energy_storage = energy_storage
-            .checked_add(AggregateMass::from_mass(record.embodied_mass()))
-            .ok_or(MatterAccountingError::EnergyStorageMassOverflow)?;
-    }
-
-    let mut stored = AggregateMass::ZERO;
-    for lot in state.inventory().lots() {
-        stored = stored
-            .checked_add(AggregateMass::from_mass(lot.mass()))
-            .ok_or(MatterAccountingError::StoredMassOverflow)?;
-    }
-
-    let mut in_process = AggregateMass::ZERO;
-    for job in state.production().jobs() {
-        for stream in job.output_streams() {
-            for output in stream.outputs() {
-                in_process = in_process
-                    .checked_add(AggregateMass::from_mass(output.mass()))
-                    .ok_or(MatterAccountingError::InProcessMassOverflow)?;
-            }
-        }
-    }
-    for job in state.mining().jobs() {
-        in_process = in_process
-            .checked_add(AggregateMass::from_mass(job.output().mass()))
-            .ok_or(MatterAccountingError::InProcessMassOverflow)?;
-    }
-
-    let mut consumed = AggregateMass::ZERO;
-    for (_, mass) in state.survival().consumed_matter() {
-        consumed = consumed
-            .checked_add(mass)
-            .ok_or(MatterAccountingError::ConsumedMassOverflow)?;
-    }
-
-    let total = geological
-        .checked_add(structural)
-        .ok_or(MatterAccountingError::TotalMassOverflow)?
-        .checked_add(equipment)
-        .ok_or(MatterAccountingError::TotalMassOverflow)?
-        .checked_add(energy_storage)
-        .ok_or(MatterAccountingError::TotalMassOverflow)?
-        .checked_add(stored)
-        .ok_or(MatterAccountingError::TotalMassOverflow)?
-        .checked_add(in_process)
-        .ok_or(MatterAccountingError::TotalMassOverflow)?
-        .checked_add(consumed)
-        .ok_or(MatterAccountingError::TotalMassOverflow)?;
+    let geological = calculate_geological_mass(state)?;
+    let structural = calculate_structural_mass(state)?;
+    let equipment = calculate_equipment_mass(state)?;
+    let energy_storage = calculate_energy_storage_mass(state)?;
+    let stored = calculate_stored_mass(state)?;
+    let in_process = calculate_in_process_mass(state)?;
+    let consumed = calculate_consumed_mass(state)?;
+    let total = calculate_total_mass(&[
+        geological,
+        structural,
+        equipment,
+        energy_storage,
+        stored,
+        in_process,
+        consumed,
+    ])?;
     Ok(MatterAccounting {
         geological,
         structural,

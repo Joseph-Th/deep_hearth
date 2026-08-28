@@ -19,7 +19,7 @@ use crate::maintenance::{
 use crate::material::{CommodityKey, FormId, MaterialComposition, MaterialId, MaterialLotSpec};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
-    ProcessResolutionError, ProductionJobId, ProductionJobRecord, validate_selected_process_inputs,
+    ProcessResolutionError, ProductionJobId, validate_selected_process_inputs,
 };
 use crate::registry::Registries;
 
@@ -797,144 +797,9 @@ impl Error for CastingJobValidationError {
     }
 }
 
-pub(super) fn validate_loaded_casting_job(
-    registries: &Registries,
-    job: &ProductionJobRecord,
-    definition: CastingProcessDefinition,
-) -> Result<(), CastingJobValidationError> {
-    if job.consumed_energy().is_some() {
-        return Err(CastingJobValidationError::UnexpectedConsumedEnergy { job: job.id() });
-    }
-    let Some(released_energy) = job.released_energy() else {
-        return Err(CastingJobValidationError::MissingReleasedEnergy { job: job.id() });
-    };
-    let Some(provider) = job.equipment_provider() else {
-        return Err(CastingJobValidationError::MissingEquipmentProvider { job: job.id() });
-    };
-    let Some(equipment_definition) = registries.equipment().get_equipment(provider.definition())
-    else {
-        return Err(CastingJobValidationError::UnknownEquipmentDefinition { job: job.id() });
-    };
-    let Some(energy_definition) = registries.energy().get_store(released_energy.definition())
-    else {
-        return Err(CastingJobValidationError::UnknownEnergyDefinition { job: job.id() });
-    };
-    let limits = resolve_thermal_power_temperature_limits(
-        equipment_definition,
-        provider.condition(),
-        definition.cooling_power_capability(),
-        definition.max_temperature_capability(),
-    )
-    .map_err(|error| match error {
-        ThermalPowerTemperatureError::MissingTransferPower => {
-            CastingJobValidationError::MissingCoolingPowerCapability { job: job.id() }
-        }
-        ThermalPowerTemperatureError::MissingMaximumTemperature => {
-            CastingJobValidationError::MissingMaximumTemperatureCapability { job: job.id() }
-        }
-    })?;
-    validate_thermal_batch_mass(
-        equipment_definition,
-        provider.condition(),
-        definition.max_batch_mass_capability(),
-        job.consumed_mass(),
-    )
-    .map_err(|error| match error {
-        ThermalBatchLimitError::MissingMaximumBatchMass => {
-            CastingJobValidationError::MissingMaximumBatchMassCapability { job: job.id() }
-        }
-        ThermalBatchLimitError::BatchMassExceeded { selected, maximum } => {
-            CastingJobValidationError::BatchMassExceedsEquipmentCapacity {
-                job: job.id(),
-                selected,
-                maximum,
-            }
-        }
-    })?;
-    let batch = resolve_casting_batch(
-        registries.materials(),
-        definition.liquid_form(),
-        definition.solid_form(),
-        definition.output_temperature(),
-        job.consumed_inputs(),
-    )
-    .map_err(|error| CastingJobValidationError::Batch {
-        job: job.id(),
-        error,
-    })?;
-    if batch.hottest_input > limits.maximum_temperature() {
-        return Err(
-            CastingJobValidationError::InputTemperatureExceedsEquipmentMaximum {
-                job: job.id(),
-                input: batch.hottest_input,
-                maximum: limits.maximum_temperature(),
-            },
-        );
-    }
-    if released_energy.carrier() != definition.energy_carrier() {
-        return Err(CastingJobValidationError::WrongEnergyCarrier {
-            job: job.id(),
-            required: definition.energy_carrier(),
-            provided: released_energy.carrier(),
-        });
-    }
-    if released_energy.energy() != batch.transfer_energy {
-        return Err(CastingJobValidationError::ReleasedEnergyMismatch {
-            job: job.id(),
-            traced: released_energy.energy(),
-            required: batch.transfer_energy,
-        });
-    }
-    let timing = resolve_thermal_transfer_timing(
-        registries,
-        limits.transfer_power(),
-        energy_definition.max_input_power(),
-        batch.transfer_energy,
-        definition.condition_wear_ppm_per_active_tick(),
-        provider.condition(),
-    )
-    .map_err(|error| match error {
-        ThermalTransferTimingError::Duration(error) => CastingJobValidationError::Duration {
-            job: job.id(),
-            error,
-        },
-        ThermalTransferTimingError::ConditionDuration(error) => {
-            CastingJobValidationError::ConditionDuration {
-                job: job.id(),
-                error,
-            }
-        }
-    })?;
-    let required_duration = timing.duration();
-    let stored_duration = job.active_duration();
-    if stored_duration != required_duration {
-        return Err(CastingJobValidationError::DurationMismatch {
-            job: job.id(),
-            stored: stored_duration,
-            required: required_duration,
-        });
-    }
-    let required_condition_after = timing.condition_after();
-    let Some(stored_condition_after) = job.equipment_condition_after() else {
-        return Err(CastingJobValidationError::MissingEquipmentConditionOutcome { job: job.id() });
-    };
-    if stored_condition_after != required_condition_after {
-        return Err(
-            CastingJobValidationError::EquipmentConditionOutcomeMismatch {
-                job: job.id(),
-                stored: stored_condition_after,
-                required: required_condition_after,
-            },
-        );
-    }
-    let Some(output_stream) = job.single_output_stream() else {
-        return Err(CastingJobValidationError::OutputMismatch { job: job.id() });
-    };
-    if output_stream.outputs() != [batch.output] {
-        return Err(CastingJobValidationError::OutputMismatch { job: job.id() });
-    }
-    Ok(())
-}
+mod validation;
+
+pub(super) use validation::validate_loaded_casting_job;
 
 #[cfg(test)]
 #[path = "casting_execution_tests.rs"]

@@ -202,6 +202,44 @@ fn calculate_linear_sensible_heat(
 /// The calculation integrates each constituent's authored specific heat by integer ppm. Latent
 /// heat is deliberately not approximated. Reaching a melting point from the solid side is allowed;
 /// moving beyond it requires a dedicated phase-change resolver.
+fn crosses_phase_boundary(
+    current: Temperature,
+    target: Temperature,
+    melting_point: Temperature,
+) -> bool {
+    if target > current {
+        current <= melting_point && melting_point < target
+    } else if target < current {
+        target < melting_point && melting_point <= current
+    } else {
+        false
+    }
+}
+
+fn validate_sensible_heat_interval(
+    materials: &MaterialRegistry,
+    composition: &MaterialComposition,
+    current: Temperature,
+    target: Temperature,
+) -> Result<(), SensibleHeatError> {
+    for component in composition.components() {
+        let Some(definition) = materials.get_material(component.material()) else {
+            return Err(SensibleHeatError::UnknownMaterial {
+                material: component.material(),
+            });
+        };
+        if let Some(melting_point) = definition.properties().thermal().melting_point()
+            && crosses_phase_boundary(current, target, melting_point)
+        {
+            return Err(SensibleHeatError::PhaseBoundaryCrossed {
+                material: component.material(),
+                melting_point,
+            });
+        }
+    }
+    Ok(())
+}
+
 pub fn calculate_sensible_heat(
     materials: &MaterialRegistry,
     mass: Mass,
@@ -212,28 +250,7 @@ pub fn calculate_sensible_heat(
     composition
         .validate()
         .map_err(SensibleHeatError::InvalidComposition)?;
-    for component in composition.components() {
-        let Some(definition) = materials.get_material(component.material()) else {
-            return Err(SensibleHeatError::UnknownMaterial {
-                material: component.material(),
-            });
-        };
-        if let Some(melting_point) = definition.properties().thermal().melting_point() {
-            let crosses = if target > current {
-                current <= melting_point && melting_point < target
-            } else if target < current {
-                target < melting_point && melting_point <= current
-            } else {
-                false
-            };
-            if crosses {
-                return Err(SensibleHeatError::PhaseBoundaryCrossed {
-                    material: component.material(),
-                    melting_point,
-                });
-            }
-        }
-    }
+    validate_sensible_heat_interval(materials, composition, current, target)?;
     calculate_linear_sensible_heat(materials, mass, composition, current, target)
 }
 

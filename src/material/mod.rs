@@ -494,6 +494,60 @@ impl Display for MaterialPhaseStateError {
 
 impl Error for MaterialPhaseStateError {}
 
+fn validate_solid_phase_state(
+    materials: &MaterialRegistry,
+    composition: &MaterialComposition,
+    temperature: Temperature,
+) -> Result<(), MaterialPhaseStateError> {
+    for component in composition.components() {
+        let material = component.material();
+        let Some(definition) = materials.get_material(material) else {
+            return Err(MaterialPhaseStateError::UnknownMaterial { material });
+        };
+        if let Some(melting_point) = definition.properties().thermal().melting_point()
+            && temperature > melting_point
+        {
+            return Err(MaterialPhaseStateError::SolidAboveMeltingPoint {
+                material,
+                temperature,
+                melting_point,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_liquid_phase_state(
+    materials: &MaterialRegistry,
+    commodity: CommodityKey,
+    composition: &MaterialComposition,
+    temperature: Temperature,
+) -> Result<(), MaterialPhaseStateError> {
+    let Some(material) = composition.pure_material() else {
+        return Err(MaterialPhaseStateError::LiquidRequiresPureComposition);
+    };
+    if commodity.material() != material {
+        return Err(MaterialPhaseStateError::LiquidHostMismatch {
+            host: commodity.material(),
+            pure: material,
+        });
+    }
+    let Some(definition) = materials.get_material(material) else {
+        return Err(MaterialPhaseStateError::UnknownMaterial { material });
+    };
+    let Some(fusion) = definition.properties().thermal().fusion() else {
+        return Err(MaterialPhaseStateError::LiquidMaterialHasNoFusionProperties { material });
+    };
+    if temperature < fusion.melting_point() {
+        return Err(MaterialPhaseStateError::LiquidBelowMeltingPoint {
+            material,
+            temperature,
+            melting_point: fusion.melting_point(),
+        });
+    }
+    Ok(())
+}
+
 /// Validates that a material lot's authored form, composition, and temperature are physically
 /// consistent with the currently represented solid/liquid phase model.
 ///
@@ -511,50 +565,9 @@ pub fn validate_material_phase_state(
         return Err(MaterialPhaseStateError::UnknownForm { form: form_id });
     };
     match form.phase() {
-        MaterialPhase::Solid => {
-            for component in composition.components() {
-                let material = component.material();
-                let Some(definition) = materials.get_material(material) else {
-                    return Err(MaterialPhaseStateError::UnknownMaterial { material });
-                };
-                if let Some(melting_point) = definition.properties().thermal().melting_point()
-                    && temperature > melting_point
-                {
-                    return Err(MaterialPhaseStateError::SolidAboveMeltingPoint {
-                        material,
-                        temperature,
-                        melting_point,
-                    });
-                }
-            }
-            Ok(())
-        }
+        MaterialPhase::Solid => validate_solid_phase_state(materials, composition, temperature),
         MaterialPhase::Liquid => {
-            let Some(material) = composition.pure_material() else {
-                return Err(MaterialPhaseStateError::LiquidRequiresPureComposition);
-            };
-            if commodity.material() != material {
-                return Err(MaterialPhaseStateError::LiquidHostMismatch {
-                    host: commodity.material(),
-                    pure: material,
-                });
-            }
-            let Some(definition) = materials.get_material(material) else {
-                return Err(MaterialPhaseStateError::UnknownMaterial { material });
-            };
-            let Some(fusion) = definition.properties().thermal().fusion() else {
-                return Err(
-                    MaterialPhaseStateError::LiquidMaterialHasNoFusionProperties { material },
-                );
-            };
-            if temperature < fusion.melting_point() {
-                return Err(MaterialPhaseStateError::LiquidBelowMeltingPoint {
-                    material,
-                    temperature,
-                    melting_point: fusion.melting_point(),
-                });
-            }
-            Ok(())
+            validate_liquid_phase_state(materials, commodity, composition, temperature)
         }
     }
 }

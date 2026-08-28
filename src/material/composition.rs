@@ -1,5 +1,6 @@
 //! Canonical material composition values and composition constraints.
 
+use std::cmp::Ordering;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -93,6 +94,33 @@ impl Display for CompositionError {
 
 impl Error for CompositionError {}
 
+fn validate_component(component: CompositionComponent) -> Result<(), CompositionError> {
+    if component.material().value() == 0 {
+        return Err(CompositionError::ZeroMaterialId);
+    }
+    if component.parts_per_million() == 0 {
+        return Err(CompositionError::ZeroFraction {
+            material: component.material(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_component_order(
+    previous: Option<MaterialId>,
+    current: MaterialId,
+) -> Result<(), CompositionError> {
+    match previous.map(|previous| (previous, current.cmp(&previous))) {
+        Some((_previous, Ordering::Equal)) => {
+            Err(CompositionError::DuplicateMaterial { material: current })
+        }
+        Some((previous, Ordering::Less)) => {
+            Err(CompositionError::UnsortedMaterials { previous, current })
+        }
+        Some((_, Ordering::Greater)) | None => Ok(()),
+    }
+}
+
 /// Canonical normalized composition for one homogeneous material lot.
 ///
 /// Components are mass fractions sorted by stable material ID and sum to exactly one million parts
@@ -156,27 +184,8 @@ impl MaterialComposition {
         let mut total = 0_u64;
         let mut previous = None;
         for component in &self.components {
-            if component.material().value() == 0 {
-                return Err(CompositionError::ZeroMaterialId);
-            }
-            if component.parts_per_million() == 0 {
-                return Err(CompositionError::ZeroFraction {
-                    material: component.material(),
-                });
-            }
-            if let Some(previous_material) = previous {
-                if component.material() == previous_material {
-                    return Err(CompositionError::DuplicateMaterial {
-                        material: component.material(),
-                    });
-                }
-                if component.material() < previous_material {
-                    return Err(CompositionError::UnsortedMaterials {
-                        previous: previous_material,
-                        current: component.material(),
-                    });
-                }
-            }
+            validate_component(*component)?;
+            validate_component_order(previous, component.material())?;
             total = total
                 .checked_add(u64::from(component.parts_per_million()))
                 .ok_or(CompositionError::FractionSumOverflow)?;
