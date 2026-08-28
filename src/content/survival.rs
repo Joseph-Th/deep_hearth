@@ -10,7 +10,8 @@ use crate::survival::{
 };
 
 use super::{
-    DEFAULT_TICKS_PER_DAY, FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES, MATERIAL_GRAIN, MATERIAL_MEAT,
+    DEFAULT_TICKS_PER_DAY, FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES, MATERIAL_GRAIN,
+    MATERIAL_LEGUMES, MATERIAL_MEAT,
 };
 
 const MINIMUM_CONSUMPTION_TEMPERATURE_MK: u32 = 273_150;
@@ -41,7 +42,7 @@ fn physiology() -> PhysiologyDefinition {
     )
 }
 
-fn foods() -> [FoodDefinition; 3] {
+fn foods() -> [FoodDefinition; 4] {
     [
         FoodDefinition::new(
             CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
@@ -65,6 +66,14 @@ fn foods() -> [FoodDefinition; 3] {
             MassSpecificEnergy::from_nanojoules_per_milligram(10_000_000_000),
             1,
             TickSpan::new(DEFAULT_TICKS_PER_DAY * 3),
+            direct_consumption_temperature(),
+        ),
+        FoodDefinition::new(
+            CommodityKey::new(MATERIAL_LEGUMES, FORM_FOOD),
+            FoodCategory::Protein,
+            MassSpecificEnergy::from_nanojoules_per_milligram(8_000_000_000),
+            0,
+            TickSpan::new(DEFAULT_TICKS_PER_DAY * 24),
             direct_consumption_temperature(),
         ),
     ]

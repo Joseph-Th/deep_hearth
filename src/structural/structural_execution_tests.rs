@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::content::{
-    FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    FORM_LOG, MATERIAL_WATER, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Length};
 use crate::core::time::WorldSeed;
@@ -73,6 +73,33 @@ fn allocation_revalidates_geometry_before_mutating_state() {
         Err(AddStructuralElementError::Geometry(
             crate::structural::StructuralGeometryError::ZeroLength
         ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn allocation_rejects_material_without_authored_structural_strength() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5700_1003));
+    let geometry = crate::structural::make_test_structural_geometry(
+        make_test_bounds(0, 0),
+        Length::from_micrometers(1_000),
+        MEMBER_AREA,
+    );
+    let before = state.clone();
+
+    assert_eq!(
+        add_structural_element(
+            &registries,
+            &mut state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WATER,
+            geometry,
+            true,
+        ),
+        Err(AddStructuralElementError::NonStructuralMaterial {
+            material: MATERIAL_WATER,
+        })
     );
     assert_eq!(state, before);
 }

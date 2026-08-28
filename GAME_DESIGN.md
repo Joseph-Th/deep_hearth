@@ -17,15 +17,31 @@ Responsibility expands through:
 
 Depth comes from interacting causes and constraints, not recipe nesting or repetitive input.
 
+## Design lineage
+
+The original project brief names TerraFirmaCraft, Vintage Story, GregTech, and Don't Starve as direct
+inspirations. Deep Hearth borrows their strongest systemic ideas without treating their friction as a feature:
+
+| Inspiration | Preserve | Avoid |
+| --- | --- | --- |
+| TerraFirmaCraft | Geology, materials, food, preservation, and survival that constrain one another. | Prospecting dominated by dense repetitive sampling or knowledge that effectively requires an external guide. |
+| Vintage Story | Embodied production, coarse-to-fine prospecting, seasonal preparation, preservation, and physical automation. | Opaque information whose optimal use is repetitive grid work rather than inference and targeted follow-up. |
+| GregTech | Differentiated processing, finite power, automation, scaling, byproducts, and factory optimization. | Extra recipe stages, microcrafting, or waiting that do not create a new physical or economic decision. |
+| Don't Starve | Strong competing survival sinks, preparation, disruption, and resources with multiple urgent uses. | Permanent chore loops that remain equally attention-intensive after the player has demonstrably solved them. |
+
+These are design filters, not implementation claims. Current reachable scope remains defined by
+[`STATUS.md`](STATUS.md).
+
 ## Design laws
 
 - **Model legible consequences.** Simulate detail when the player can observe, predict, exploit, avoid, or recover from it.
 - **Progress transforms constraints.** Improvements replace pressures with new costs, obligations, or risks instead of deleting the system.
-- **Solved repetition becomes delegable.** Tools, batching, labor, machinery, and automation should reduce attention cost while preserving matter, energy, time, maintenance, and logistics costs.
+- **Solved repetition becomes delegable.** Tools, batching, labor, machinery, and automation should reduce attention cost while preserving matter, energy, time, maintenance, and logistics costs. Preparation, preservation, and storage should likewise turn repeated emergencies into planned supply rather than permanent meter babysitting.
 - **Technology is physical capability.** Materials, tools, heat, pressure, power, precision, infrastructure, labor, control, and knowledge make processes possible; abstract unlocks do not substitute for missing capability.
 - **Infrastructure is embodied investment.** Buildings, machines, stores, networks, and transport occupy space, contain matter, require construction, and create operating obligations.
 - **Materials matter across systems.** Better materials change tools, structures, storage, transport, machines, and controls; upgrades preserve object history unless a physical process changes it.
-- **Information is progression.** Observation, prospecting, instruments, experiments, and specialists narrow uncertainty and expose tradeoffs.
+- **Information is progression.** Observation, prospecting, instruments, experiments, and specialists narrow uncertainty and expose tradeoffs. Broad observations should guide where attention is spent; local observation and better instruments then buy precision. Higher precision costs more, but discovery should not depend on dense repeated probing or hidden-state revelation.
+- **Process depth needs physical purpose.** Add a process stage only when it changes material state, recovery, purity, byproduct flow, energy demand, throughput, safety, maintenance, precision, or automation. Recipe nesting and extra handling are not depth by themselves.
 - **Systems interlock.** Major systems exchange matter, energy, labor, information, risk, or environmental consequences.
 - **Failure is readable and recoverable.** Important failures have understandable causes, useful warning signs where plausible, and a repair/adaptation/replacement path.
 - **Fallbacks remain physical.** Earlier methods may remain usable, but later infrastructure should make them relatively expensive in attention, throughput, safety, or survival reserve.
@@ -110,11 +126,13 @@ processed matter and better information should open the next physical capability
 Pacing constraints:
 
 - Critical resources have legible clues and reliable first uses; richer/deeper resources require better information, access, or infrastructure rather than search randomness.
+- Geological search should move coarse-to-fine: regional or low-resolution evidence narrows where to investigate, while local evidence resolves actionable targets. Broad evidence may guide attention but must not identify hidden owners by oracle.
 - Repeated manual input becomes delegable before it dominates play.
-- Survival and industry overlap: infrastructure reduces some survival burdens while survival still constrains work.
+- Survival and industry overlap: infrastructure reduces some survival burdens while survival still constrains work. Stable supply, preservation, and storage should replace repeated emergency acquisition with preparation decisions, finite reserves, and recoverable failure risks.
 - Long processes leave room for useful parallel work, preparation, observation, or logistics.
 - Earlier infrastructure remains useful as a component, backup, branch, or lower-scale solution when physics permits.
 - Complexity comes from interacting physical constraints, routing, quality, energy, maintenance, and information.
+- A longer process chain is justified only when each added stage creates a measurable physical or economic consequence; otherwise prefer the shorter canonical route.
 
 ## Player information
 

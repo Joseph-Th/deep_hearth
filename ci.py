@@ -232,9 +232,27 @@ def report_plan() -> list[tuple[str, list[str]]]:
     ]
 
 
+def bca_review_plan(since: str, paths: list[str]) -> list[tuple[str, list[str]]]:
+    """Run the pinned history-aware BCA review over maintained source changed from a base revision."""
+
+    command = [
+        sys.executable,
+        "tools/check_bca.py",
+        "review",
+        "--changed",
+        "--since",
+        since,
+    ]
+    for path in paths:
+        command.extend(("--path", path))
+    return [("BCA changed-source review", command)]
+
+
 def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
     if args.preset == "quick":
         return quick_plan()
+    if args.preset == "bca":
+        return bca_review_plan(args.since, args.path)
     if args.preset == "audit":
         if args.all:
             return audit_plan("all")
@@ -396,11 +414,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "preset",
         nargs="?",
-        choices=("quick", "gate", "audit", "report"),
+        choices=("quick", "gate", "audit", "report", "bca"),
         default="quick",
         help=(
             "build-free edit-loop check, coherent compile/test gate, broad maintained checkpoint, "
-            "or explicit gameplay report"
+            "explicit gameplay report, or advisory changed-source BCA review"
         ),
     )
     lane = parser.add_mutually_exclusive_group()
@@ -450,6 +468,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="print the resolved stages without executing them",
     )
+    parser.add_argument(
+        "--since",
+        default="HEAD",
+        help="git revision used as the BCA changed-source comparison base",
+    )
+    parser.add_argument(
+        "--path",
+        action="append",
+        default=[],
+        help="restrict BCA review to a source scope; repeat for multiple scopes",
+    )
     args = parser.parse_args(argv)
     if args.preset == "quick" and any(
         (args.all, args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)
@@ -477,6 +506,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         (args.all, args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)
     ):
         parser.error("report is a fixed exploratory lane and does not accept gate flags")
+    if args.preset == "bca" and any(
+        (args.all, args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)
+    ):
+        parser.error("bca review is build-free and does not accept build-producing flags")
+    if args.preset != "bca" and (args.since != "HEAD" or args.path):
+        parser.error("--since and --path are valid only with the bca preset")
     return args
 
 
@@ -512,7 +547,7 @@ def main() -> int:
                 len(plan),
                 label,
                 command,
-                echo_success=args.preset == "report",
+                echo_success=args.preset in ("report", "bca"),
             )
             if elapsed is None:
                 return 1

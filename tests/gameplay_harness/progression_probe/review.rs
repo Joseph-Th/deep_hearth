@@ -6,6 +6,8 @@ use super::*;
 struct PrimitiveProgressionReview {
     natural_priority: PrimitivePriority,
     prospecting_ticks: u64,
+    regional_recon_ticks: u64,
+    regional_upper_bounds_ppm: [u32; PROGRESSION_REGIONAL_ZONE_COUNT],
     surface_prospecting_ticks: u64,
     detailed_survey_ticks: u64,
     surface_clue_count: u8,
@@ -245,6 +247,17 @@ fn evaluate_primitive_progression_probe(
     assert_eq!(
         extraction.prospecting_ticks, mechanization.prospecting_ticks,
         "matched-world priorities must pay the same geological-information acquisition cost"
+    );
+    assert_eq!(
+        (
+            extraction.regional_recon_ticks,
+            extraction.regional_upper_bounds_ppm,
+        ),
+        (
+            mechanization.regional_recon_ticks,
+            mechanization.regional_upper_bounds_ppm,
+        ),
+        "matched-world priorities must acquire and act from the same regional geological evidence"
     );
     assert_eq!(
         extraction.surface_prospecting_ticks, mechanization.surface_prospecting_ticks,
@@ -512,6 +525,8 @@ fn evaluate_primitive_progression_probe(
     let review = PrimitiveProgressionReview {
         natural_priority,
         prospecting_ticks: extraction.prospecting_ticks,
+        regional_recon_ticks: extraction.regional_recon_ticks,
+        regional_upper_bounds_ppm: extraction.regional_upper_bounds_ppm,
         surface_prospecting_ticks: extraction.surface_prospecting_ticks,
         detailed_survey_ticks: extraction.detailed_survey_ticks,
         surface_clue_count: extraction.surface_clue_count,
@@ -620,7 +635,13 @@ fn evaluate_primitive_progression_probe(
             && review.detailed_survey_ticks == 0
             && review.refined_clue_sample_mg == 0
     };
-    let fantasy_captured = information_path_captured
+    let regional_information_captured = review.regional_recon_ticks > 0
+        && review
+            .regional_upper_bounds_ppm
+            .iter()
+            .all(|upper_ppm| *upper_ppm > 0);
+    let fantasy_captured = regional_information_captured
+        && information_path_captured
         && review.processing_feed_selected_from_bulk
         && review.stone_mineable_clue_count > 0
         && review.hardness_blocked_clue_count > 0
@@ -667,13 +688,24 @@ fn evaluate_primitive_progression_probe(
         .surface_clue_count
         .checked_sub(review.surface_resolved_clue_count)
         .unwrap_or_else(|| unreachable!("resolved clue count cannot exceed observed clue count"));
+    let regional_priority =
+        if review.regional_upper_bounds_ppm[0] == review.regional_upper_bounds_ppm[1] {
+            "tied"
+        } else {
+            "ranked"
+        };
     std::println!(
-        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=observe->infer->prepare->extract->invest->delegate->reinvest captured:{fantasy_captured} knowledge=[path:{} surface:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t alternative-evidence:{}..{}ppm] actor-choice=[policy=hard-lower-bound-premium>={}ppm chosen:{} owned-bulk:{}ppm hard-evidence:{}..{}ppm] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[extraction-feed:{} extraction-grade:{}ppm mechanization-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} first-output-delta:{:+}t reciprocal:{} converged:{}] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
+        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=observe->infer->prepare->extract->invest->delegate->reinvest captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t alternative-evidence:{}..{}ppm] actor-choice=[policy=hard-lower-bound-premium>={}ppm chosen:{} owned-bulk:{}ppm hard-evidence:{}..{}ppm] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[extraction-feed:{} extraction-grade:{}ppm mechanization-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} first-output-delta:{:+}t reciprocal:{} converged:{}] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
         if review.information_refinement_required {
             "deferred-survey"
         } else {
             "surface-resolved"
         },
+        review.regional_recon_ticks,
+        PROGRESSION_REGIONAL_ZONE_COUNT,
+        review.regional_upper_bounds_ppm[0],
+        review.regional_upper_bounds_ppm[1],
+        regional_priority,
         review.surface_prospecting_ticks,
         review.surface_clue_count,
         review.surface_resolved_clue_count,

@@ -37,7 +37,8 @@ fn support_area_meets_utilization(
         .materials()
         .get_material(material)
         .unwrap_or_else(|| panic!("gameplay harness support material disappeared"));
-    let capacity = calculate_pristine_member_capacity(profile, material_definition, area);
+    let capacity = calculate_pristine_member_capacity(profile, material_definition, area)
+        .unwrap_or_else(|| panic!("gameplay harness support material has no structural strengths"));
     calculate_structural_utilization_ppm(Force::from_millinewtons(total_load), capacity)
         <= u128::from(target_utilization_ppm)
 }

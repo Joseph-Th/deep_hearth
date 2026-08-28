@@ -8,13 +8,13 @@ implemented for controlled evaluation, or absent. Product direction does not est
 
 Current progression:
 
-`local clues -> prospect -> stone tools -> evidence-gated hand mining -> scarce-copper choice -> primitive power and processing -> second reinforcement`
+`local clues -> coarse-to-fine prospecting -> stone tools -> evidence-gated hand mining -> scarce-copper choice -> primitive power and processing -> second reinforcement`
 
 | Area | Reachable capability |
 | --- | --- |
-| Survival and labor | Metabolic energy, hydration, vitality, Grain/Fruit/Protein nutrition, perishable food, preservation, finite drinking water, activity-dependent exertion, and exclusive player work. |
+| Survival and labor | Metabolic energy, hydration, vitality, Grain/Fruit/Protein nutrition, perishable food, preservation, multiple Protein foods that trade dietary energy/hydration against shelf life, finite drinking water, activity-dependent exertion, and exclusive player work. |
 | Materials and inventory | Typed materials/forms, exact composition and particle state, finite stockpiles/lots, containment, preservation, reservations, provenance, temperature, deterministic coalescing, and represented-matter accounting. |
-| Prospecting and knowledge | Survival-costed field inspection and detailed survey produce persisted bounded evidence without exposing hidden deposit identity or exact hidden state. |
+| Prospecting and knowledge | Survival-costed regional reconnaissance, field inspection, and detailed survey trade footprint, time, and precision to produce persisted bounded evidence without exposing hidden deposit identity or exact hidden state. |
 | Mining | Evidence-gated hand mining through opaque targets with tool capability, hardness/batch/throughput limits, wear, reserved output capacity, geology-owned work-in-process, and explicit terminal output claim. |
 | Crafting and equipment | Production-backed shaping, persistent equipment, assembly, additive upgrades, condition-dependent capability, occupancy, installation, disassembly/recovery, and material-consuming maintenance. |
 | Primitive power | Material-backed finite energy storage and survival-costed manual power through portable equipment. |
@@ -31,7 +31,7 @@ These systems are authoritative runtime support even where ordinary acquisition 
 | Production | Timed closed-mass jobs, exact selected inputs, reserved outputs, persisted work-in-process, multi-stream routing, revision-bound completion, support-aware suspension/resume. |
 | Energy and fluids | Finite typed-carrier energy stores with directional power limits and optional passive loss; finite homogeneous fluid stores with exact withdrawal and support-aware load. No generic inter-store transfer. |
 | Structures | Material-backed members, contact-constrained support topology, axial analysis, source-owned loads, damage, and failure cascades. Player construction is absent. |
-| Physical scalars | Typed throughput, mass, temperature, pressure, power, torque, speed, electrical, flow, volume, efficiency, transmission, and operating limits. |
+| Physical scalars | Typed mass, temperature, pressure, area, length, acceleration, force, power, energy, volume, mass-specific energy, and mass flow with checked integer arithmetic. |
 | Spatial and presentation | Checked chunk-independent voxel coordinates, deterministic renderer-neutral texture baking, deterministic WGSL assembly. No graphics backend. |
 
 ## Capability-only evaluation

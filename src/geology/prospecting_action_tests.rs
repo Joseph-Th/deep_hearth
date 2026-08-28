@@ -3,7 +3,7 @@
 use super::*;
 use crate::content::{
     FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE, PROSPECTING_DETAILED_FIELD_SURVEY,
-    PROSPECTING_FIELD_INSPECTION, build_registries,
+    PROSPECTING_FIELD_INSPECTION, PROSPECTING_REGIONAL_RECONNAISSANCE, build_registries,
 };
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
@@ -22,6 +22,14 @@ fn one_voxel(x: i64) -> VoxelBounds {
         .unwrap_or_else(|error| panic!("field prospecting bounds fixture failed: {error}"))
 }
 
+fn horizontal_region(start_x: i64, width: i64) -> VoxelBounds {
+    VoxelBounds::new(
+        VoxelCoord::new(start_x, -1, 0),
+        VoxelCoord::new(start_x + width, 0, 1),
+    )
+    .unwrap_or_else(|error| panic!("regional prospecting bounds fixture failed: {error}"))
+}
+
 fn insert_copper(registries: &Registries, state: &mut AppState, region: VoxelBounds) {
     let spec = GeneratedDepositSpec::new(
         region,
@@ -34,6 +42,86 @@ fn insert_copper(registries: &Registries, state: &mut AppState, region: VoxelBou
     .unwrap_or_else(|error| panic!("field prospecting deposit fixture failed: {error}"));
     insert_generated_deposit(registries, state, spec)
         .unwrap_or_else(|error| panic!("field prospecting deposit insertion failed: {error}"));
+}
+
+#[test]
+fn regional_reconnaissance_trades_precision_for_footprint_then_local_inspection_resolves_target() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_2010));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("regional prospecting survival setup failed: {error}"));
+    let region = horizontal_region(40, 4);
+    let target_region = one_voxel(42);
+    insert_copper(&registries, &mut state, target_region);
+
+    assert!(matches!(
+        validate_start_field_prospecting(
+            &registries,
+            &state,
+            FieldProspectingRequest::new(PROSPECTING_FIELD_INSPECTION, region, MATERIAL_COPPER),
+        ),
+        Err(FieldProspectingStartError::RegionTooLarge {
+            actual: 4,
+            maximum: 1,
+        })
+    ));
+
+    start_prospecting(
+        &registries,
+        &mut state,
+        PROSPECTING_REGIONAL_RECONNAISSANCE,
+        region,
+    );
+    let regional_duration = prospecting_duration(&registries, PROSPECTING_REGIONAL_RECONNAISSANCE);
+    assert!(
+        regional_duration > prospecting_duration(&registries, PROSPECTING_DETAILED_FIELD_SURVEY),
+        "regional reconnaissance should trade more elapsed field time for broader coverage"
+    );
+    let mut completed = None;
+    for _ in 0..regional_duration {
+        completed = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("regional prospecting tick failed: {error}"))
+            .field_prospecting();
+    }
+    let observation = completed.unwrap_or_else(|| panic!("regional prospecting did not complete"));
+    assert_eq!(observation.method(), PROSPECTING_REGIONAL_RECONNAISSANCE);
+    assert_eq!(observation.region(), region);
+    assert_eq!(
+        observation.evidence(),
+        GeologicalEvidenceKind::LooseIndicator
+    );
+    let finding = state
+        .geological_knowledge()
+        .get_observation(observation.observation())
+        .and_then(|record| record.finding(MATERIAL_COPPER))
+        .unwrap_or_else(|| panic!("regional prospecting finding disappeared"));
+    assert_eq!((finding.lower_ppm(), finding.upper_ppm()), (0, 1_000_000));
+    assert_eq!(
+        resolve_mining_target(
+            &state,
+            MiningTargetRequest::new(target_region, MATERIAL_COPPER),
+        ),
+        Err(
+            MiningTargetResolutionError::EvidenceInsufficientToResolveTarget {
+                material: MATERIAL_COPPER,
+                region: target_region,
+            }
+        )
+    );
+
+    start_inspection(&registries, &mut state, target_region);
+    for _ in 0..prospecting_duration(&registries, PROSPECTING_FIELD_INSPECTION) {
+        advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("local refinement tick failed: {error}"));
+    }
+    let target = resolve_mining_target(
+        &state,
+        MiningTargetRequest::new(target_region, MATERIAL_COPPER),
+    )
+    .unwrap_or_else(|error| panic!("local refinement did not resolve target: {error}"));
+    assert_eq!(target.region(), target_region);
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("regional refinement final audit failed: {error}"));
 }
 
 fn insert_low_grade_copper(registries: &Registries, state: &mut AppState, region: VoxelBounds) {
@@ -174,7 +262,7 @@ fn regional_abundance_includes_uncovered_ground_in_lower_bound() {
     insert_copper(&registries, &mut state, west);
 
     assert_eq!(
-        resolve_local_abundance_bounds(&state, region, MATERIAL_COPPER, 25_000),
+        resolve_region_abundance_bounds(&state, region, MATERIAL_COPPER, 25_000),
         (0, 1_000_000)
     );
 }
@@ -189,7 +277,7 @@ fn adjacent_deposits_jointly_cover_regional_abundance() {
     insert_copper(&registries, &mut state, one_voxel(1));
 
     assert_eq!(
-        resolve_local_abundance_bounds(&state, region, MATERIAL_COPPER, 25_000),
+        resolve_region_abundance_bounds(&state, region, MATERIAL_COPPER, 25_000),
         (50_000, 1_000_000)
     );
 }
@@ -203,7 +291,7 @@ fn overlapping_deposits_all_contribute_to_regional_abundance_range() {
     insert_copper(&registries, &mut state, region);
 
     assert_eq!(
-        resolve_local_abundance_bounds(&state, region, MATERIAL_COPPER, 25_000),
+        resolve_region_abundance_bounds(&state, region, MATERIAL_COPPER, 25_000),
         (50_000, 1_000_000)
     );
 }

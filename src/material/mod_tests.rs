@@ -6,22 +6,16 @@ use crate::core::quantity::Length;
 fn make_test_properties() -> MaterialProperties {
     MaterialProperties::new(
         1_000,
-        ThermalProperties::new(1_000, None, 100),
-        MechanicalProperties::new(10, 10, 10),
-        ElectricalProperties::new(None),
+        ThermalProperties::new(1_000, None),
+        Some(StructuralProperties::new(10, 10)),
     )
 }
 
 fn make_fusible_properties(melting_point: Temperature) -> MaterialProperties {
     MaterialProperties::new(
         1_000,
-        ThermalProperties::new(
-            1_000,
-            Some(FusionProperties::new(melting_point, 200_000)),
-            100,
-        ),
-        MechanicalProperties::new(10, 10, 10),
-        ElectricalProperties::new(None),
+        ThermalProperties::new(1_000, Some(FusionProperties::new(melting_point, 200_000))),
+        Some(StructuralProperties::new(10, 10)),
     )
 }
 

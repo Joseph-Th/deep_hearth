@@ -6,7 +6,7 @@ networking, platform integration, and save-file storage are adapter concerns.
 
 Current ordinary play reaches:
 
-`local clues -> prospect -> stone tools -> evidence-gated hand mining -> scarce-copper choice -> primitive machinery -> ore processing -> second reinforcement`
+`local clues -> coarse-to-fine prospecting -> stone tools -> evidence-gated hand mining -> scarce-copper choice -> primitive power and processing -> second reinforcement`
 
 Industrial workshop, ore-preparation, and foundry behavior is executable through controlled harness setup but
 is not ordinarily acquirable. [`STATUS.md`](STATUS.md) is the authority for reachability.
@@ -53,7 +53,7 @@ is not ordinarily acquirable. [`STATUS.md`](STATUS.md) is the authority for reac
 | Geology, knowledge, mining | `src/geology/`, `src/mining/`; prospecting, target resolution, mining validation | [Materials, inventory, and geology](TECHNICAL_DESIGN.md#materials-inventory-and-geology) | adjacent test; progression lane for player behavior |
 | Production and processing | `src/production/`, `src/crafting/`, `src/ore_processing/`, `src/thermal/`; resolver -> validate -> commit | [Production and processing](TECHNICAL_DESIGN.md#production-and-processing) | adjacent test or focused gameplay lane |
 | Equipment, labor, maintenance, survival | `src/equipment/`, `src/labor/`, `src/maintenance/`, `src/survival/`; provider resolution and validators | [Equipment, labor, survival, energy, and fluids](TECHNICAL_DESIGN.md#equipment-labor-survival-energy-and-fluids) | adjacent test or survival/workshop lane |
-| Energy, electrical, mechanical, fluids | `src/energy/`, `src/electrical/`, `src/mechanical/`, `src/fluid/`; typed calculations and owner validators | [Equipment, labor, survival, energy, and fluids](TECHNICAL_DESIGN.md#equipment-labor-survival-energy-and-fluids) | adjacent unit test |
+| Energy and fluids | `src/energy/`, `src/fluid/`; finite stores, exact integration/withdrawal, and owner validators | [Equipment, labor, survival, energy, and fluids](TECHNICAL_DESIGN.md#equipment-labor-survival-energy-and-fluids) | adjacent unit test or focused gameplay lane |
 | Structures and spatial support | `src/structural/`, `src/spatial/`; structural validators and analysis | [Structures](TECHNICAL_DESIGN.md#structures) | adjacent test or workshop lane |
 | Textures and shaders | `src/texture/`, `src/shader/`, `src/content/textures.rs`, `src/content/shaders.rs`, `assets/shaders/` | [Spatial and presentation boundaries](TECHNICAL_DESIGN.md#spatial-and-presentation-boundaries), [`assets/shaders/README.md`](assets/shaders/README.md) | shader lane |
 | Gameplay evaluation | `tests/gameplay_harness/`; production APIs after controlled setup | [`TESTING.md`](TESTING.md) | matching gameplay lane |

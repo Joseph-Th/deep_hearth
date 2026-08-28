@@ -184,19 +184,6 @@ unsigned_quantity!(
 );
 unsigned_quantity!(Power, u128, from_picowatts, picowatts);
 unsigned_quantity!(Force, u128, from_millinewtons, millinewtons);
-// Rotational torque uses micronewton-meters. Together with microradians/second this multiplies
-// exactly into picowatts, avoiding floating-point angular conversions in authoritative physics.
-unsigned_quantity!(Torque, u64, from_micronewton_meters, micronewton_meters);
-// Angular speed uses microradians per second. Radians are dimensionless for power calculation.
-unsigned_quantity!(
-    AngularSpeed,
-    u64,
-    from_microradians_per_second,
-    microradians_per_second
-);
-unsigned_quantity!(ElectricPotential, u64, from_microvolts, microvolts);
-unsigned_quantity!(ElectricCurrent, u64, from_microamperes, microamperes);
-unsigned_quantity!(ElectricalResistance, u64, from_microohms, microohms);
 unsigned_quantity!(Volume, u64, from_microliters, microliters);
 unsigned_quantity!(
     MassSpecificEnergy,
@@ -211,12 +198,6 @@ unsigned_quantity!(
     u64,
     from_milligrams_per_second,
     milligrams_per_second
-);
-unsigned_quantity!(
-    VolumetricFlow,
-    u64,
-    from_microliters_per_second,
-    microliters_per_second
 );
 
 impl Power {

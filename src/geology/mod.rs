@@ -1,5 +1,5 @@
 //! Finite geological truth, acquired prospecting knowledge, and canonical geological transfers.
-//! World generation and advanced survey resolvers remain separate; local field inspection acquires
+//! World generation and advanced survey resolvers remain separate; field prospecting acquires
 //! bounded evidence, while mining authorization and timed excavation remain owned by mining.
 
 #[cfg(any(test, feature = "test-gameplay"))]

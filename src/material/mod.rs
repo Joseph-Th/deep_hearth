@@ -4,7 +4,7 @@ mod assembly;
 mod composition;
 mod lot;
 mod particle;
-mod volume;
+mod properties;
 
 pub use assembly::MaterialAssemblyProfile;
 pub use composition::{
@@ -16,7 +16,9 @@ pub use particle::{
     ParticleSizeClass, ParticleSizeClassError, ParticleSizeDistribution,
     ParticleSizeDistributionError, ParticleSizeRange, ParticleSizeRangeError,
 };
-pub use volume::{MaterialVolumeError, calculate_volume_ceiling};
+pub use properties::{
+    FusionProperties, MaterialProperties, StructuralProperties, ThermalProperties,
+};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
@@ -92,197 +94,6 @@ impl CommodityKey {
     #[must_use]
     pub const fn value(self) -> u64 {
         self.0
-    }
-}
-
-/// Authored solid/liquid fusion boundary and latent-energy requirement for one material.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FusionProperties {
-    melting_point: Temperature,
-    latent_heat_j_per_kg: u32,
-}
-
-impl FusionProperties {
-    #[must_use]
-    pub const fn new(melting_point: Temperature, latent_heat_j_per_kg: u32) -> Self {
-        assert!(
-            melting_point.millikelvin() != 0,
-            "material melting point must be above absolute zero"
-        );
-        assert!(
-            latent_heat_j_per_kg > 0,
-            "material latent heat of fusion must be nonzero"
-        );
-        Self {
-            melting_point,
-            latent_heat_j_per_kg,
-        }
-    }
-
-    #[must_use]
-    pub const fn melting_point(self) -> Temperature {
-        self.melting_point
-    }
-
-    #[must_use]
-    pub const fn latent_heat_j_per_kg(self) -> u32 {
-        self.latent_heat_j_per_kg
-    }
-}
-
-/// Thermal properties used by heat transfer and phase-change systems.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ThermalProperties {
-    specific_heat_j_per_kg_k: u32,
-    fusion: Option<FusionProperties>,
-    conductivity_milli_w_per_m_k: u32,
-}
-
-impl ThermalProperties {
-    #[must_use]
-    pub const fn new(
-        specific_heat_j_per_kg_k: u32,
-        fusion: Option<FusionProperties>,
-        conductivity_milli_w_per_m_k: u32,
-    ) -> Self {
-        assert!(
-            specific_heat_j_per_kg_k > 0,
-            "material specific heat must be nonzero"
-        );
-        Self {
-            specific_heat_j_per_kg_k,
-            fusion,
-            conductivity_milli_w_per_m_k,
-        }
-    }
-
-    #[must_use]
-    pub const fn specific_heat_j_per_kg_k(&self) -> u32 {
-        self.specific_heat_j_per_kg_k
-    }
-
-    #[must_use]
-    pub const fn melting_point(&self) -> Option<Temperature> {
-        match self.fusion {
-            Some(fusion) => Some(fusion.melting_point()),
-            None => None,
-        }
-    }
-
-    #[must_use]
-    pub const fn fusion(&self) -> Option<FusionProperties> {
-        self.fusion
-    }
-
-    #[must_use]
-    pub const fn conductivity_milli_w_per_m_k(&self) -> u32 {
-        self.conductivity_milli_w_per_m_k
-    }
-}
-
-/// Mechanical properties used by structural, wear, and tooling systems.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MechanicalProperties {
-    compressive_strength_kpa: u32,
-    tensile_strength_kpa: u32,
-    hardness_mpa: u32,
-}
-
-impl MechanicalProperties {
-    #[must_use]
-    pub const fn new(
-        compressive_strength_kpa: u32,
-        tensile_strength_kpa: u32,
-        hardness_mpa: u32,
-    ) -> Self {
-        Self {
-            compressive_strength_kpa,
-            tensile_strength_kpa,
-            hardness_mpa,
-        }
-    }
-
-    #[must_use]
-    pub const fn compressive_strength_kpa(&self) -> u32 {
-        self.compressive_strength_kpa
-    }
-
-    #[must_use]
-    pub const fn tensile_strength_kpa(&self) -> u32 {
-        self.tensile_strength_kpa
-    }
-
-    #[must_use]
-    pub const fn hardness_mpa(&self) -> u32 {
-        self.hardness_mpa
-    }
-}
-
-/// Electrical properties used by future circuit and resistive-heating systems.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ElectricalProperties {
-    resistivity_nano_ohm_m: Option<u64>,
-}
-
-impl ElectricalProperties {
-    #[must_use]
-    pub const fn new(resistivity_nano_ohm_m: Option<u64>) -> Self {
-        Self {
-            resistivity_nano_ohm_m,
-        }
-    }
-
-    #[must_use]
-    pub const fn resistivity_nano_ohm_m(&self) -> Option<u64> {
-        self.resistivity_nano_ohm_m
-    }
-}
-
-/// Authoritative material properties represented in integer engineering units.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MaterialProperties {
-    density_kg_per_m3: u32,
-    thermal: ThermalProperties,
-    mechanical: MechanicalProperties,
-    electrical: ElectricalProperties,
-}
-
-impl MaterialProperties {
-    /// Builds a complete immutable material property profile from coherent subprofiles.
-    #[must_use]
-    pub const fn new(
-        density_kg_per_m3: u32,
-        thermal: ThermalProperties,
-        mechanical: MechanicalProperties,
-        electrical: ElectricalProperties,
-    ) -> Self {
-        assert!(density_kg_per_m3 > 0, "material density must be nonzero");
-        Self {
-            density_kg_per_m3,
-            thermal,
-            mechanical,
-            electrical,
-        }
-    }
-
-    #[must_use]
-    pub const fn density_kg_per_m3(&self) -> u32 {
-        self.density_kg_per_m3
-    }
-
-    #[must_use]
-    pub const fn thermal(&self) -> &ThermalProperties {
-        &self.thermal
-    }
-
-    #[must_use]
-    pub const fn mechanical(&self) -> &MechanicalProperties {
-        &self.mechanical
-    }
-
-    #[must_use]
-    pub const fn electrical(&self) -> &ElectricalProperties {
-        &self.electrical
     }
 }
 

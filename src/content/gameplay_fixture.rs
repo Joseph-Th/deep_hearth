@@ -167,8 +167,8 @@ pub fn seed_composed_lot(
 ///
 /// Call this during scenario setup, before the acting policy starts. The fixture does not move matter
 /// or reveal event timing to the actor. Inventory still validates and commits the canonical transfer;
-/// this only stands in for the not-yet-implemented world logistics owner that would authorize the
-/// physical movement in production gameplay.
+/// this is a controlled audit authorization because world logistics is outside current production
+/// scope and ordinary runtime cannot create pathless transfers.
 pub const fn authorize_controlled_material_delivery(
     source: StockpileId,
     destination: StockpileId,

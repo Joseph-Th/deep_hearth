@@ -13,8 +13,9 @@ use super::super::coalescing::LotMergePolicy;
 use super::super::lot_identity::LotIdentityPlanner;
 use super::super::selection::ConsumptionSelection;
 use super::super::state::{
-    LotSlice, LotStorageTransition, MaterialLotId, StockpileId, apply_aggregate_deposit,
-    apply_aggregate_withdraw, apply_move_full_lot, apply_split_lot,
+    ConsumedMaterialTrace, InventoryState, LotSlice, LotStorageTransition, MaterialLotId,
+    StockpileId, StockpileRecord, apply_aggregate_deposit, apply_aggregate_withdraw,
+    apply_move_full_lot, apply_split_lot,
 };
 use super::super::storage_validation::{StockpileStorageError, validate_stockpile_storage};
 use super::super::structural_integration::{
@@ -35,12 +36,17 @@ pub(crate) struct ValidatedMaterialRelocation {
     source: StockpileId,
     destination: StockpileId,
     inputs: Vec<MaterialInputSpec>,
-    lot_slices: Vec<LotSlice>,
-    split_lot_ids: Vec<Option<MaterialLotId>>,
-    merge_policies: Vec<LotMergePolicy>,
+    transfers: Vec<RelocationLotTransfer>,
     next_lot_id_after: Option<u64>,
     total_mass: Mass,
     structural: Option<ValidatedStockpileStructuralLoad>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RelocationLotTransfer {
+    slice: LotSlice,
+    split_lot_id: Option<MaterialLotId>,
+    merge_policy: LotMergePolicy,
 }
 
 impl ValidatedMaterialRelocation {
@@ -91,61 +97,72 @@ impl ValidatedMaterialRelocation {
                 input.mass(),
             );
         }
-        let transfers = self
-            .lot_slices
-            .into_iter()
-            .zip(self.split_lot_ids)
-            .zip(self.merge_policies)
-            .map(|((slice, split_lot_id), merge_policy)| (slice, split_lot_id, merge_policy))
-            .collect::<Vec<_>>();
-        for (slice, _split_lot_id, merge_policy) in transfers
-            .iter()
-            .copied()
-            .filter(|(_, split_lot_id, _)| split_lot_id.is_none())
-        {
-            let lot_mass = match inventories.get_lot(slice.lot) {
-                Some(lot) => lot.mass,
-                None => panic!(
-                    "validated material relocation references missing lot {}",
-                    slice.lot.value()
-                ),
-            };
-            assert_eq!(
-                slice.mass, lot_mass,
-                "validated full material relocation no longer covers its complete lot"
-            );
-            apply_move_full_lot(
-                inventories,
-                slice.lot,
-                self.source,
-                self.destination,
-                storage_transition,
-                merge_policy,
-            );
-        }
-        for (slice, split_lot_id, merge_policy) in transfers
-            .into_iter()
-            .filter(|(_, split_lot_id, _)| split_lot_id.is_some())
-        {
-            let split_lot_id = split_lot_id.unwrap_or_else(|| {
-                unreachable!("partial relocation filter requires a planned lot identity")
-            });
-            apply_split_lot(
-                inventories,
-                slice.lot,
-                split_lot_id,
-                self.destination,
-                slice.mass,
-                storage_transition,
-                merge_policy,
-            );
-        }
+        apply_lot_transfers(
+            inventories,
+            self.source,
+            self.destination,
+            storage_transition,
+            self.transfers,
+        );
         if let Some(next_lot_id) = self.next_lot_id_after {
             inventories.apply_lot_cursor_and_revision(next_lot_id, self.next_revision);
         } else {
             inventories.apply_revision(self.next_revision);
         }
         Ok(())
+    }
+}
+
+fn apply_lot_transfers(
+    inventories: &mut InventoryState,
+    source: StockpileId,
+    destination: StockpileId,
+    storage_transition: LotStorageTransition,
+    transfers: Vec<RelocationLotTransfer>,
+) {
+    for transfer in transfers
+        .iter()
+        .copied()
+        .filter(|transfer| transfer.split_lot_id.is_none())
+    {
+        let lot_mass = inventories
+            .get_lot(transfer.slice.lot)
+            .unwrap_or_else(|| {
+                panic!(
+                    "validated material relocation references missing lot {}",
+                    transfer.slice.lot.value()
+                )
+            })
+            .mass;
+        assert_eq!(
+            transfer.slice.mass, lot_mass,
+            "validated full material relocation no longer covers its complete lot"
+        );
+        apply_move_full_lot(
+            inventories,
+            transfer.slice.lot,
+            source,
+            destination,
+            storage_transition,
+            transfer.merge_policy,
+        );
+    }
+    for transfer in transfers
+        .into_iter()
+        .filter(|transfer| transfer.split_lot_id.is_some())
+    {
+        let split_lot_id = transfer.split_lot_id.unwrap_or_else(|| {
+            unreachable!("partial relocation filter requires a planned lot identity")
+        });
+        apply_split_lot(
+            inventories,
+            transfer.slice.lot,
+            split_lot_id,
+            destination,
+            transfer.slice.mass,
+            storage_transition,
+            transfer.merge_policy,
+        );
     }
 }
 
@@ -299,81 +316,16 @@ pub(crate) fn validate_material_relocation_from_selection(
         total_consumed,
     } = selection;
     let inventories = state.inventory();
-    if inventories.revision() != expected_revision {
-        return Err(MaterialRelocationError::StaleSelection {
-            expected: expected_revision,
-            actual: inventories.revision(),
-        });
-    }
-    let source_record = inventories
-        .get_stockpile(source)
-        .ok_or(MaterialRelocationError::UnknownSource { stockpile: source })?;
-    let destination_record = inventories.get_stockpile(destination).ok_or(
-        MaterialRelocationError::UnknownDestination {
-            stockpile: destination,
-        },
+    let (source_record, destination_record) =
+        validate_relocation_endpoints(inventories, expected_revision, source, destination)?;
+    validate_destination_storage(
+        registries,
+        destination_record,
+        destination,
+        &consumed_inputs,
     )?;
-    if source == destination {
-        return Err(MaterialRelocationError::SameStockpile { stockpile: source });
-    }
-
-    for trace in &consumed_inputs {
-        validate_stockpile_storage(
-            registries,
-            destination_record,
-            destination,
-            trace.profile().commodity(),
-            trace.profile().composition(),
-            trace.profile().temperature(),
-            trace.profile().particle_size_distribution(),
-        )
-        .map_err(MaterialRelocationError::DestinationStorage)?;
-    }
-    let source_preservation_multiplier_ppm = source_record
-        .storage_profile()
-        .preservation_multiplier_ppm();
-    debug_assert!(lot_slices.iter().all(|slice| {
-        inventories
-            .get_lot(slice.lot)
-            .and_then(|lot| {
-                lot.storage_history()
-                    .rebase(state.tick(), source_preservation_multiplier_ppm)
-            })
-            .is_some()
-    }));
-    let committed = destination_record
-        .stored_mass
-        .checked_add(destination_record.reserved_inbound)
-        .ok_or(MaterialRelocationError::DestinationMassOverflow {
-            stockpile: destination,
-        })?;
-    let capacity_after = committed.checked_add(total_consumed).ok_or(
-        MaterialRelocationError::DestinationMassOverflow {
-            stockpile: destination,
-        },
-    )?;
-    if capacity_after > destination_record.capacity {
-        return Err(MaterialRelocationError::DestinationCapacityExceeded {
-            stockpile: destination,
-            capacity: destination_record.capacity,
-            committed,
-            requested: total_consumed,
-        });
-    }
-    let destination_stored_after = destination_record
-        .stored_mass()
-        .checked_add(total_consumed)
-        .ok_or(MaterialRelocationError::DestinationMassOverflow {
-            stockpile: destination,
-        })?;
-    for input in &inputs {
-        destination_record
-            .get_mass(input.commodity())
-            .checked_add(input.mass())
-            .ok_or(MaterialRelocationError::DestinationMassOverflow {
-                stockpile: destination,
-            })?;
-    }
+    let destination_stored_after =
+        validate_destination_mass(destination_record, destination, &inputs, total_consumed)?;
 
     let source_after = source_record
         .stored_mass()
@@ -391,80 +343,14 @@ pub(crate) fn validate_material_relocation_from_selection(
         ],
     )
     .map_err(MaterialRelocationError::StructuralLoad)?;
-
-    let merge_policies = lot_slices
-        .iter()
-        .map(|slice| {
-            let lot = inventories.get_lot(slice.lot).unwrap_or_else(|| {
-                panic!(
-                    "validated exact selection references missing lot {}",
-                    slice.lot.value()
-                )
-            });
-            LotMergePolicy::for_commodity(registries, lot.commodity())
-        })
-        .collect::<Vec<_>>();
-    let destination_preservation_multiplier_ppm = destination_record
-        .storage_profile()
-        .preservation_multiplier_ppm();
-    let mut identity_planner = LotIdentityPlanner::new(inventories, std::iter::empty());
-    for slice in &lot_slices {
-        let lot = match inventories.get_lot(slice.lot) {
-            Some(lot) => lot,
-            None => panic!(
-                "validated exact selection references missing lot {}",
-                slice.lot.value()
-            ),
-        };
-        if slice.mass == lot.mass {
-            let storage_history = lot
-                .storage_history()
-                .rebase(state.tick(), source_preservation_multiplier_ppm)
-                .unwrap_or_else(|| {
-                    panic!("valid full-lot relocation storage history could not be rebased")
-                });
-            identity_planner.note_preserved_arrival(
-                lot.id(),
-                destination,
-                &lot.profile,
-                storage_history,
-            );
-        }
-    }
-    let mut split_lot_ids = Vec::with_capacity(lot_slices.len());
-    for (slice, merge_policy) in lot_slices.iter().zip(&merge_policies) {
-        let lot = inventories.get_lot(slice.lot).unwrap_or_else(|| {
-            panic!(
-                "validated exact selection references missing lot {}",
-                slice.lot.value()
-            )
-        });
-        if slice.mass == lot.mass() {
-            split_lot_ids.push(None);
-            continue;
-        }
-        let storage_history = lot
-            .storage_history()
-            .rebase(state.tick(), source_preservation_multiplier_ppm)
-            .unwrap_or_else(|| {
-                panic!("valid partial relocation storage history could not be rebased")
-            });
-        split_lot_ids.push(Some(
-            identity_planner
-                .plan(
-                    destination,
-                    &lot.profile,
-                    storage_history,
-                    state.tick(),
-                    destination_preservation_multiplier_ppm,
-                    *merge_policy,
-                )
-                .ok_or(MaterialRelocationError::LotIdExhausted)?,
-        ));
-    }
-    let next_lot_id_after = identity_planner
-        .allocated_any()
-        .then_some(identity_planner.next_lot_id());
+    let (transfers, next_lot_id_after) = plan_lot_transfers(
+        registries,
+        state,
+        destination,
+        source_record,
+        destination_record,
+        &lot_slices,
+    )?;
     let next_revision = inventories
         .revision()
         .checked_add(1)
@@ -476,11 +362,174 @@ pub(crate) fn validate_material_relocation_from_selection(
         source,
         destination,
         inputs,
-        lot_slices,
-        split_lot_ids,
-        merge_policies,
+        transfers,
         next_lot_id_after,
         total_mass: total_consumed,
         structural,
     })
+}
+
+fn validate_relocation_endpoints<'a>(
+    inventories: &'a InventoryState,
+    expected_revision: u64,
+    source: StockpileId,
+    destination: StockpileId,
+) -> Result<(&'a StockpileRecord, &'a StockpileRecord), MaterialRelocationError> {
+    if inventories.revision() != expected_revision {
+        return Err(MaterialRelocationError::StaleSelection {
+            expected: expected_revision,
+            actual: inventories.revision(),
+        });
+    }
+    let source_record = inventories
+        .get_stockpile(source)
+        .ok_or(MaterialRelocationError::UnknownSource { stockpile: source })?;
+    let destination_record = inventories.get_stockpile(destination).ok_or(
+        MaterialRelocationError::UnknownDestination {
+            stockpile: destination,
+        },
+    )?;
+    if source == destination {
+        return Err(MaterialRelocationError::SameStockpile { stockpile: source });
+    }
+    Ok((source_record, destination_record))
+}
+
+fn validate_destination_storage(
+    registries: &Registries,
+    destination_record: &StockpileRecord,
+    destination: StockpileId,
+    consumed_inputs: &[ConsumedMaterialTrace],
+) -> Result<(), MaterialRelocationError> {
+    for trace in consumed_inputs {
+        validate_stockpile_storage(
+            registries,
+            destination_record,
+            destination,
+            trace.profile().commodity(),
+            trace.profile().composition(),
+            trace.profile().temperature(),
+            trace.profile().particle_size_distribution(),
+        )
+        .map_err(MaterialRelocationError::DestinationStorage)?;
+    }
+    Ok(())
+}
+
+fn validate_destination_mass(
+    destination_record: &StockpileRecord,
+    destination: StockpileId,
+    inputs: &[MaterialInputSpec],
+    total_consumed: Mass,
+) -> Result<Mass, MaterialRelocationError> {
+    let overflow = || MaterialRelocationError::DestinationMassOverflow {
+        stockpile: destination,
+    };
+    let committed = destination_record
+        .stored_mass
+        .checked_add(destination_record.reserved_inbound)
+        .ok_or_else(overflow)?;
+    let capacity_after = committed.checked_add(total_consumed).ok_or_else(overflow)?;
+    if capacity_after > destination_record.capacity {
+        return Err(MaterialRelocationError::DestinationCapacityExceeded {
+            stockpile: destination,
+            capacity: destination_record.capacity,
+            committed,
+            requested: total_consumed,
+        });
+    }
+    for input in inputs {
+        destination_record
+            .get_mass(input.commodity())
+            .checked_add(input.mass())
+            .ok_or_else(overflow)?;
+    }
+    destination_record
+        .stored_mass()
+        .checked_add(total_consumed)
+        .ok_or_else(overflow)
+}
+
+fn plan_lot_transfers(
+    registries: &Registries,
+    state: &AppState,
+    destination: StockpileId,
+    source_record: &StockpileRecord,
+    destination_record: &StockpileRecord,
+    lot_slices: &[LotSlice],
+) -> Result<(Vec<RelocationLotTransfer>, Option<u64>), MaterialRelocationError> {
+    let inventories = state.inventory();
+    let source_preservation_multiplier_ppm = source_record
+        .storage_profile()
+        .preservation_multiplier_ppm();
+    let destination_preservation_multiplier_ppm = destination_record
+        .storage_profile()
+        .preservation_multiplier_ppm();
+    let mut identity_planner = LotIdentityPlanner::new(inventories, std::iter::empty());
+
+    for slice in lot_slices {
+        let lot = inventories.get_lot(slice.lot).unwrap_or_else(|| {
+            panic!(
+                "validated exact selection references missing lot {}",
+                slice.lot.value()
+            )
+        });
+        if slice.mass != lot.mass() {
+            continue;
+        }
+        let storage_history = lot
+            .storage_history()
+            .rebase(state.tick(), source_preservation_multiplier_ppm)
+            .unwrap_or_else(|| {
+                panic!("valid full-lot relocation storage history could not be rebased")
+            });
+        identity_planner.note_preserved_arrival(
+            lot.id(),
+            destination,
+            &lot.profile,
+            storage_history,
+        );
+    }
+
+    let mut transfers = Vec::with_capacity(lot_slices.len());
+    for slice in lot_slices {
+        let lot = inventories.get_lot(slice.lot).unwrap_or_else(|| {
+            panic!(
+                "validated exact selection references missing lot {}",
+                slice.lot.value()
+            )
+        });
+        let merge_policy = LotMergePolicy::for_commodity(registries, lot.commodity());
+        let split_lot_id = if slice.mass == lot.mass() {
+            None
+        } else {
+            let storage_history = lot
+                .storage_history()
+                .rebase(state.tick(), source_preservation_multiplier_ppm)
+                .unwrap_or_else(|| {
+                    panic!("valid partial relocation storage history could not be rebased")
+                });
+            Some(
+                identity_planner
+                    .plan(
+                        destination,
+                        &lot.profile,
+                        storage_history,
+                        state.tick(),
+                        destination_preservation_multiplier_ppm,
+                        merge_policy,
+                    )
+                    .ok_or(MaterialRelocationError::LotIdExhausted)?,
+            )
+        };
+        transfers.push(RelocationLotTransfer {
+            slice: *slice,
+            split_lot_id,
+            merge_policy,
+        });
+    }
+    let next_lot_id_after = identity_planner
+        .allocated_any()
+        .then_some(identity_planner.next_lot_id());
+    Ok((transfers, next_lot_id_after))
 }

@@ -195,9 +195,8 @@ impl SurvivalState {
     /// Iterates food matter transferred out of inventory into the terminal survival-consumption
     /// conservation boundary.
     ///
-    /// This is cumulative consumed matter, not live body mass. A future digestion/excretion owner
-    /// may split this boundary into explicit biological and waste streams without changing the
-    /// conservation history represented here.
+    /// This is cumulative consumed matter, not live body mass. Biological transformation and waste
+    /// streams are outside the current simulation scope, so this terminal owner closes accounting.
     pub(crate) fn consumed_matter(&self) -> impl Iterator<Item = (MaterialId, AggregateMass)> + '_ {
         self.consumed_matter
             .iter()

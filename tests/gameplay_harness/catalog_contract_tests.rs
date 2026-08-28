@@ -8,7 +8,7 @@ use super::foundry_probe::probe_setup as foundry_probe_setup;
 use super::ore_probe::probe_parameters;
 use super::progression_probe::varied_four_way_order;
 use super::report::{ProcessResolverKind, process_catalog_entries};
-use super::survival_probe::provisioning_world;
+use super::survival_probe::{prospecting_method_for_work_pressure, provisioning_world};
 
 #[test]
 fn gameplay_catalog_is_discovered_from_runtime_owners() {
@@ -136,7 +136,11 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
                     world.age_ticks,
                     world.preservation_multiplier_ppm,
                     world.witness_index,
-                    world.foods.len(),
+                    world
+                        .foods
+                        .iter()
+                        .map(|food| food.commodity().value())
+                        .collect::<Vec<_>>(),
                 )
             })
             .collect::<BTreeSet<_>>()
@@ -156,7 +160,14 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
     assert!(
         survival_worlds
             .iter()
-            .map(|world| world.foods.len())
+            .map(|world| {
+                world
+                    .foods
+                    .iter()
+                    .map(|food| food.category())
+                    .collect::<BTreeSet<_>>()
+                    .len()
+            })
             .collect::<BTreeSet<_>>()
             .len()
             > 1,
@@ -176,5 +187,32 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
             .len()
             > 1,
         "gameplay survival probe variation collapsed to one offered meal"
+    );
+
+    let authored_food_options = registries
+        .survival()
+        .foods()
+        .map(|food| food.commodity())
+        .collect::<BTreeSet<_>>();
+    let sampled_food_options = (1_u64..=32)
+        .flat_map(|seed| provisioning_world(&registries, seed).foods)
+        .map(|food| food.commodity())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        sampled_food_options, authored_food_options,
+        "bounded organic survival worlds must expose every authored food option to the cold-agent harness"
+    );
+
+    let authored_prospecting_methods = registries
+        .labor()
+        .prospecting_definitions()
+        .map(|definition| definition.id())
+        .collect::<BTreeSet<_>>();
+    let sampled_prospecting_methods = (1_u64..=32)
+        .map(|seed| prospecting_method_for_work_pressure(&registries, seed))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        sampled_prospecting_methods, authored_prospecting_methods,
+        "bounded organic survival work must exercise every authored prospecting method"
     );
 }

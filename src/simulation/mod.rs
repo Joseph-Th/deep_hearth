@@ -71,7 +71,7 @@ impl TickOutcome {
         self.manual_power
     }
 
-    /// Returns the geological observation acquired by field inspection on this tick, if any.
+    /// Returns the geological observation acquired by field prospecting on this tick, if any.
     #[must_use]
     pub const fn field_prospecting(&self) -> Option<FieldProspectingOutcome> {
         self.field_prospecting

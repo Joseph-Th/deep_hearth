@@ -30,6 +30,8 @@ def gate_args(**overrides: object) -> argparse.Namespace:
         "rustdoc": False,
         "lint": False,
         "dry_run": False,
+        "since": "HEAD",
+        "path": [],
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -58,6 +60,40 @@ class LocalCiPlanTests(unittest.TestCase):
                 [sys.executable, "tools/check_bca.py", "check"],
             ),
             ci.quick_plan(),
+        )
+
+    def test_bca_preset_reuses_the_pinned_changed_source_review(self) -> None:
+        plan = ci.bca_review_plan("HEAD~1", ["src/inventory", "src/production"])
+        self.assertEqual(
+            plan,
+            [
+                (
+                    "BCA changed-source review",
+                    [
+                        sys.executable,
+                        "tools/check_bca.py",
+                        "review",
+                        "--changed",
+                        "--since",
+                        "HEAD~1",
+                        "--path",
+                        "src/inventory",
+                        "--path",
+                        "src/production",
+                    ],
+                )
+            ],
+        )
+        self.assertEqual(cargo_build_commands(plan), [])
+        self.assertEqual(
+            ci.plan_for(
+                gate_args(
+                    preset="bca",
+                    since="HEAD~1",
+                    path=["src/inventory", "src/production"],
+                )
+            ),
+            plan,
         )
 
     def test_bca_review_widens_new_paths_to_the_nearest_base_scope(self) -> None:

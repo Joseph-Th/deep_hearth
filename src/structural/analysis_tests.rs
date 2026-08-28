@@ -15,16 +15,16 @@ fn pristine_member_capacity_uses_the_authored_load_axis_and_exact_units() {
         .get_material(MATERIAL_WOOD)
         .unwrap_or_else(|| panic!("wood material fixture disappeared"));
     let area = Area::from_square_millimeters(1_234);
-    let expected = u128::from(
-        material
-            .properties()
-            .mechanical()
-            .compressive_strength_kpa(),
-    ) * u128::from(area.square_millimeters());
+    let structural = material
+        .properties()
+        .structural()
+        .unwrap_or_else(|| panic!("wood structural properties disappeared"));
+    let expected =
+        u128::from(structural.compressive_strength_kpa()) * u128::from(area.square_millimeters());
 
     assert_eq!(
         calculate_pristine_member_capacity(profile, material, area),
-        Force::from_millinewtons(expected)
+        Some(Force::from_millinewtons(expected))
     );
 }
 

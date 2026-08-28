@@ -25,7 +25,7 @@ Use the smallest lane that completely proves the changed contract.
 | Rustdoc | `python ci.py gate --rustdoc` |
 | Long-horizon soak | `python ci.py gate --soak` |
 | Gameplay exploration report | `python ci.py report` |
-| Changed-source BCA review | `python tools/check_bca.py review --changed --since HEAD [--path <scope>]` |
+| Changed-source BCA review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 
 `python ci.py quick` runs formatting, the cognitive-complexity ratchet, documentation contracts, and local CI
 contracts without building Rust. Do not pair a compile-only command with an executable lane that already
@@ -41,10 +41,13 @@ already-linked target.
 `bca.toml` and `.bca-baseline.toml` own the cognitive-complexity ratchet used by `python ci.py quick`.
 New or worsened over-threshold cognitive complexity fails the ratchet. Other BCA metrics are advisory.
 
-Use `python tools/check_bca.py review --changed --since HEAD` for nontrivial refactors. Add repeated `--path`
-filters when the task is already scoped. `report` and `diff` remain available for custom analysis. Treat BCA as
-diagnostic evidence: simplify code when the result supports a clearer design; do not split cohesive code or
-refresh the baseline only to improve a score.
+Use `python ci.py bca` for nontrivial refactors. It delegates to the repository-pinned BCA wrapper, reviews
+only maintained Rust source changed from `HEAD`, joins current hotspots to version-control history, and shows
+cognitive/cyclomatic/SLOC changes against the base revision. Add repeated `--path` filters when the task is
+already scoped or `--since <revision>` when the comparison base is different. Direct
+`python tools/check_bca.py report` and `diff` commands remain available for custom analysis. Treat BCA as
+diagnostic evidence: simplify code when the result supports a clearer design; do not split cohesive code,
+optimize exhaustive error formatting, or refresh the baseline only to improve a score.
 
 ## Unit tests
 
@@ -86,8 +89,8 @@ After setup, actor code must:
 
 | Target | Contract |
 | --- | --- |
-| `survival` | Hunger/thirst pressure, food-category availability, preservation, diet tradeoffs, provisioning, activity cost, reserve recovery, actual diet-supported vitality recovery. |
-| `progression` | Evidence acquisition and information-value decisions, primitive crafting/mining/power/processing, scarce-copper choice, delegated work, second reinforcement, convergence, finite machine lifecycle. |
+| `survival` | Hunger/thirst pressure, exact authored food-option availability, food-category coverage, preservation, diet tradeoffs, provisioning, varied prospecting-work cost, reserve recovery, actual diet-supported vitality recovery. |
+| `progression` | Coarse-to-fine evidence acquisition and information-value decisions, primitive crafting/mining/power/processing, scarce-copper choice, delegated work, second reinforcement, convergence, finite machine lifecycle. |
 | `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structural pressure, hidden world change, and recovery. |
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with selective recovery, exact constituent accounting, physical tailings. Capability-only. |
 | `foundry` | Installed pure-copper heating/melting/casting, finite electrical and thermal capacity, adaptive batches, molten remainder, passive sink recovery. Capability-only. |
@@ -106,19 +109,26 @@ world seeds. Set `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` to replay the same physic
 
 The progression probe must demonstrate player-visible evidence, an observable scarce-copper choice, physical
 consequences for both branches, useful concurrent work during delegated processing, convergence on the next
-capability, and bounded wear/lifecycle evidence. Maintained regression worlds retain the deferred-survey
-archetype where a direct-source shortage makes better information worth acquiring. Organic/replay worlds may
-instead receive enough cheap surface evidence to rule out a dominated occurrence and skip a redundant survey
-and extraction sample. Both paths must make that decision from acquired evidence; the actor must not read
-hidden geology or choose from counterfactual outcomes. The review reports both the pick's mining-attention
-reduction and the crank's power/charge-attention effect so the scarce investment is evaluated by its physical
-consequences rather than only by branch labels.
+capability, and bounded wear/lifecycle evidence. It first performs authored regional reconnaissance over
+bounded clue zones, then uses those acquired abundance bounds to prioritize local inspections. Regional
+evidence is allowed to tie or remain too broad to resolve a target; the report says so rather than fabricating
+information value. Maintained regression worlds retain the deferred-survey archetype where a direct-source
+shortage makes better local information worth acquiring. Organic/replay worlds may instead receive enough
+cheap local evidence to rule out a dominated occurrence and skip a redundant detailed survey and extraction
+sample. Every path must make decisions from acquired evidence; the actor must not read hidden geology or
+choose from counterfactual outcomes. The review reports regional evidence, local/refinement costs, the pick's
+mining-attention reduction, and the crank's power/charge-attention effect so information and scarce investment
+are evaluated by physical consequences rather than only by branch labels.
 
 The survival probe treats food availability as part of the world rather than forcing every world to contain a
-meaningful diet choice. If the available supply lacks part of the authored diet set, the review labels that
-choice `supply-collapsed`. When the full diet set is available, matched compact and balanced provisioning
-branches recover from a real vitality deficit through normal simulation ticks and must demonstrate the
-resulting vitality difference, not merely a projected recovery-rate difference.
+meaningful diet choice. Food identities and their energy, hydration, category, and shelf-life traits are
+reported explicitly; category completeness is computed from categories rather than assuming one authored food
+per category. If the available supply lacks part of the authored diet set, the review labels that choice
+`supply-collapsed`. When the full diet set is available, matched compact and balanced provisioning branches
+recover from a real vitality deficit through normal simulation ticks and must demonstrate the resulting
+vitality difference, not merely a projected recovery-rate difference. Work-pressure worlds select among the
+authored prospecting methods from the replayable world seed and use a legal bounded footprint for the selected
+method, so new prospecting content cannot remain invisible behind one hard-coded action.
 
 Workshop regression starts from installed finite infrastructure. The actor chooses from observable condition,
 stored work, survival reserve, structural margin, and process projections. Controlled world events remain
@@ -134,10 +144,14 @@ timing, or yield calculations.
 
 `python ci.py report` expands the organic sample beyond the routine gate and prints aggregate behavioral
 evidence plus exact replay inputs. It is an exploration/diagnostic surface, not an additional required gate.
-The compact report retains the maintained anchor plus every bounded organic focused outcome (currently two
-organic worlds per focused concern). The anchor gives the cold agent a stable reference capability while the
-organic worlds show whether choices, blockers, and information paths actually vary; named coverage-only
-diagnostics remain filtered. Use verbose or trace output only when needed.
+Exploratory mode always includes the registry-derived equipment, energy, process, prospecting, food, and drink
+catalogs so a cold agent can see what exists before interpreting the sampled episodes. The compact report
+retains the maintained anchor plus every bounded organic focused outcome (currently two organic worlds per
+focused concern). The anchor gives the cold agent a stable reference capability while the organic worlds show
+whether choices, blockers, food options, work methods, and information paths actually vary; named
+coverage-only diagnostics remain filtered. Cheap generator contracts additionally require bounded seed samples
+to expose every currently authored food option and prospecting method without adding simulation ticks. Use
+verbose or trace output only when operation-level detail is needed.
 
 | Variable | Meaning |
 | --- | --- |

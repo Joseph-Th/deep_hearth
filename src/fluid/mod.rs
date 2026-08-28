@@ -1,11 +1,10 @@
-//! Finite fluid ownership, withdrawal, structural loads, and exact flow integration.
+//! Finite fluid ownership, withdrawal, structural loads, and conservation accounting.
 
 mod accounting;
 mod definitions;
 mod egress;
 #[cfg(any(test, feature = "test-gameplay"))]
 mod fixture_execution;
-mod integration;
 mod state;
 mod structural_integration;
 
@@ -13,7 +12,6 @@ pub use accounting::{
     FluidVolumeAccounting, FluidVolumeAccountingError, calculate_fluid_volume_accounting,
 };
 pub use definitions::{FluidDefinition, FluidDefinitionId, FluidRegistry};
-pub use integration::{FlowIntegration, FlowIntegrationError, FlowRemainder, integrate_flow};
 pub use state::{FluidContents, FluidState, FluidStoreId, FluidStoreRecord, FluidValidationError};
 pub use structural_integration::{
     FluidStructuralLoadError, FluidSupportCommitError, FluidSupportError, FluidSupportOutcome,

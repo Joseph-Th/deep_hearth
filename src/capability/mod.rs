@@ -8,11 +8,7 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 
 use crate::core::arithmetic::scale_u128_fraction_floor;
-use crate::core::quantity::{
-    AngularSpeed, Area, ElectricCurrent, ElectricPotential, ElectricalResistance, Energy, Force,
-    Mass, MassFlow, Power, Pressure, Temperature, Torque, Volume, VolumetricFlow,
-};
-use crate::maintenance::Condition;
+use crate::core::quantity::{Mass, MassFlow, Power, Pressure, Temperature};
 
 /// Stable authored identifier for one named capability dimension.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -32,95 +28,45 @@ impl CapabilityId {
 }
 
 /// Physical/value dimension carried by one authored capability.
-///
-/// New dimensions such as pressure, power, voltage, or precision must become explicit enum variants
-/// backed by typed quantities. The capability layer intentionally has no generic numeric "tier".
+/// Capability dimensions are explicit typed variants rather than generic numeric tiers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CapabilityValueKind {
-    Presence,
     Mass,
     Temperature,
-    Energy,
     Pressure,
-    Area,
-    Force,
     Power,
-    Torque,
-    AngularSpeed,
-    ElectricPotential,
-    ElectricCurrent,
-    ElectricalResistance,
-    Volume,
     MassFlow,
-    VolumetricFlow,
-    Condition,
 }
 
 /// Typed value exposed by a capability provider or required by an operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum CapabilityValue {
-    Present,
     Mass(Mass),
     Temperature(Temperature),
-    Energy(Energy),
     Pressure(Pressure),
-    Area(Area),
-    Force(Force),
     Power(Power),
-    Torque(Torque),
-    AngularSpeed(AngularSpeed),
-    ElectricPotential(ElectricPotential),
-    ElectricCurrent(ElectricCurrent),
-    ElectricalResistance(ElectricalResistance),
-    Volume(Volume),
     MassFlow(MassFlow),
-    VolumetricFlow(VolumetricFlow),
-    Condition(Condition),
 }
 
 impl CapabilityValue {
     #[must_use]
     pub const fn kind(self) -> CapabilityValueKind {
         match self {
-            Self::Present => CapabilityValueKind::Presence,
             Self::Mass(_) => CapabilityValueKind::Mass,
             Self::Temperature(_) => CapabilityValueKind::Temperature,
-            Self::Energy(_) => CapabilityValueKind::Energy,
             Self::Pressure(_) => CapabilityValueKind::Pressure,
-            Self::Area(_) => CapabilityValueKind::Area,
-            Self::Force(_) => CapabilityValueKind::Force,
             Self::Power(_) => CapabilityValueKind::Power,
-            Self::Torque(_) => CapabilityValueKind::Torque,
-            Self::AngularSpeed(_) => CapabilityValueKind::AngularSpeed,
-            Self::ElectricPotential(_) => CapabilityValueKind::ElectricPotential,
-            Self::ElectricCurrent(_) => CapabilityValueKind::ElectricCurrent,
-            Self::ElectricalResistance(_) => CapabilityValueKind::ElectricalResistance,
-            Self::Volume(_) => CapabilityValueKind::Volume,
             Self::MassFlow(_) => CapabilityValueKind::MassFlow,
-            Self::VolumetricFlow(_) => CapabilityValueKind::VolumetricFlow,
-            Self::Condition(_) => CapabilityValueKind::Condition,
         }
     }
 
     fn magnitude(self) -> u128 {
         match self {
-            Self::Present => 1,
             Self::Mass(value) => u128::from(value.milligrams()),
             Self::Temperature(value) => u128::from(value.millikelvin()),
-            Self::Energy(value) => value.nanojoules(),
             Self::Pressure(value) => u128::from(value.pascals()),
-            Self::Area(value) => u128::from(value.square_millimeters()),
-            Self::Force(value) => value.millinewtons(),
             Self::Power(value) => value.picowatts(),
-            Self::Torque(value) => u128::from(value.micronewton_meters()),
-            Self::AngularSpeed(value) => u128::from(value.microradians_per_second()),
-            Self::ElectricPotential(value) => u128::from(value.microvolts()),
-            Self::ElectricCurrent(value) => u128::from(value.microamperes()),
-            Self::ElectricalResistance(value) => u128::from(value.microohms()),
-            Self::Volume(value) => u128::from(value.microliters()),
             Self::MassFlow(value) => u128::from(value.milligrams_per_second()),
-            Self::VolumetricFlow(value) => u128::from(value.microliters_per_second()),
-            Self::Condition(value) => u128::from(value.parts_per_million()),
         }
     }
 
@@ -174,7 +120,6 @@ pub(crate) fn interpolate_capability_value(
     );
 
     match degraded {
-        CapabilityValue::Present => None,
         CapabilityValue::Mass(_) => u64::try_from(magnitude)
             .ok()
             .map(Mass::from_milligrams)
@@ -183,57 +128,15 @@ pub(crate) fn interpolate_capability_value(
             .ok()
             .map(Temperature::from_millikelvin)
             .map(CapabilityValue::Temperature),
-        CapabilityValue::Energy(_) => {
-            Some(CapabilityValue::Energy(Energy::from_nanojoules(magnitude)))
-        }
         CapabilityValue::Pressure(_) => u64::try_from(magnitude)
             .ok()
             .map(Pressure::from_pascals)
             .map(CapabilityValue::Pressure),
-        CapabilityValue::Area(_) => u64::try_from(magnitude)
-            .ok()
-            .map(Area::from_square_millimeters)
-            .map(CapabilityValue::Area),
-        CapabilityValue::Force(_) => {
-            Some(CapabilityValue::Force(Force::from_millinewtons(magnitude)))
-        }
         CapabilityValue::Power(_) => Some(CapabilityValue::Power(Power::from_picowatts(magnitude))),
-        CapabilityValue::Torque(_) => u64::try_from(magnitude)
-            .ok()
-            .map(Torque::from_micronewton_meters)
-            .map(CapabilityValue::Torque),
-        CapabilityValue::AngularSpeed(_) => u64::try_from(magnitude)
-            .ok()
-            .map(AngularSpeed::from_microradians_per_second)
-            .map(CapabilityValue::AngularSpeed),
-        CapabilityValue::ElectricPotential(_) => u64::try_from(magnitude)
-            .ok()
-            .map(ElectricPotential::from_microvolts)
-            .map(CapabilityValue::ElectricPotential),
-        CapabilityValue::ElectricCurrent(_) => u64::try_from(magnitude)
-            .ok()
-            .map(ElectricCurrent::from_microamperes)
-            .map(CapabilityValue::ElectricCurrent),
-        CapabilityValue::ElectricalResistance(_) => u64::try_from(magnitude)
-            .ok()
-            .map(ElectricalResistance::from_microohms)
-            .map(CapabilityValue::ElectricalResistance),
-        CapabilityValue::Volume(_) => u64::try_from(magnitude)
-            .ok()
-            .map(Volume::from_microliters)
-            .map(CapabilityValue::Volume),
         CapabilityValue::MassFlow(_) => u64::try_from(magnitude)
             .ok()
             .map(MassFlow::from_milligrams_per_second)
             .map(CapabilityValue::MassFlow),
-        CapabilityValue::VolumetricFlow(_) => u64::try_from(magnitude)
-            .ok()
-            .map(VolumetricFlow::from_microliters_per_second)
-            .map(CapabilityValue::VolumetricFlow),
-        CapabilityValue::Condition(_) => {
-            let value = u32::try_from(magnitude).ok()?;
-            Condition::new(value).ok().map(CapabilityValue::Condition)
-        }
     }
 }
 

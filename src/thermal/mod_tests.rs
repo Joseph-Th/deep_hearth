@@ -3,8 +3,8 @@
 use super::*;
 use crate::content::{MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
 use crate::material::{
-    CompositionComponent, ElectricalProperties, MaterialComposition, MaterialDefinition,
-    MaterialProperties, MechanicalProperties, ThermalProperties,
+    CompositionComponent, MaterialComposition, MaterialDefinition, MaterialProperties,
+    ThermalProperties,
 };
 
 #[test]
@@ -69,12 +69,7 @@ fn sensible_heat_accepts_full_width_representable_energy_without_ppm_intermediat
     materials.register_material(MaterialDefinition::new(
         material,
         "full-width thermal fixture",
-        MaterialProperties::new(
-            1,
-            ThermalProperties::new(u32::MAX, None, 1),
-            MechanicalProperties::new(0, 0, 0),
-            ElectricalProperties::new(None),
-        ),
+        MaterialProperties::new(1, ThermalProperties::new(u32::MAX, None), None),
     ));
     let mass = Mass::from_milligrams(u64::MAX);
     let current = Temperature::ZERO;

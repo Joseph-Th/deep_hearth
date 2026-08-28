@@ -1,4 +1,4 @@
-//! Timed player field inspection that converts bounded local observation into geological knowledge.
+//! Timed player field prospecting that converts bounded regional observation into geological knowledge.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -20,7 +20,7 @@ use super::{
     RecordProspectingError, ValidatedGeologicalObservation,
 };
 
-/// One player-selected local geological inspection.
+/// One player-selected geological prospecting action over an authored-bounded region.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FieldProspectingRequest {
@@ -204,7 +204,7 @@ pub fn validate_start_field_prospecting(
     Ok(ValidatedFieldProspectingStart { work_start, work })
 }
 
-/// Observable completion of one field inspection. The hidden geological owner is intentionally absent.
+/// Observable completion of one field-prospecting action. The hidden geological owner is intentionally absent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FieldProspectingOutcome {
     observation: GeologicalObservationId,
@@ -253,7 +253,7 @@ pub(crate) struct FieldProspectingTickPlan {
     observation: ValidatedGeologicalObservation,
 }
 
-fn resolve_local_abundance_bounds(
+fn resolve_region_abundance_bounds(
     state: &AppState,
     region: VoxelBounds,
     material: MaterialId,
@@ -359,7 +359,7 @@ pub(crate) fn decide_field_prospecting_tick(
         .unwrap_or_else(|| {
             panic!("runtime invariant broken: due prospecting work has no authored method")
         });
-    let (lower_ppm, upper_ppm) = resolve_local_abundance_bounds(
+    let (lower_ppm, upper_ppm) = resolve_region_abundance_bounds(
         state,
         work.region(),
         work.material(),

@@ -68,7 +68,7 @@ fn wrong_physical_dimension_is_rejected_before_threshold_comparison() {
     let requirement = CapabilityRequirement::new(
         CHAMBER_TEMPERATURE,
         CapabilityComparison::AtLeast,
-        CapabilityValue::Energy(Energy::from_nanojoules(1)),
+        CapabilityValue::Power(Power::from_picowatts(1)),
     );
 
     assert_eq!(
@@ -76,7 +76,7 @@ fn wrong_physical_dimension_is_rejected_before_threshold_comparison() {
         Err(CapabilityEvaluationError::RequirementKindMismatch {
             capability: CHAMBER_TEMPERATURE,
             expected: CapabilityValueKind::Temperature,
-            found: CapabilityValueKind::Energy,
+            found: CapabilityValueKind::Power,
         })
     );
 }
@@ -132,22 +132,6 @@ fn capability_interpolation_handles_full_width_and_decreasing_ranges() {
             2,
         ),
         None
-    );
-    assert_eq!(
-        interpolate_capability_value(CapabilityValue::Present, CapabilityValue::Present, 1, 2,),
-        None
-    );
-}
-
-#[test]
-fn rotational_capabilities_keep_torque_and_speed_as_distinct_dimensions() {
-    assert_eq!(
-        CapabilityValue::Torque(Torque::from_micronewton_meters(12)).kind(),
-        CapabilityValueKind::Torque
-    );
-    assert_eq!(
-        CapabilityValue::AngularSpeed(AngularSpeed::from_microradians_per_second(12)).kind(),
-        CapabilityValueKind::AngularSpeed
     );
 }
 

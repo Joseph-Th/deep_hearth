@@ -76,7 +76,7 @@ fn aggregate_mass_accumulates_beyond_single_record_range() {
 }
 
 #[test]
-fn physical_rate_and_electrical_quantities_use_explicit_units() {
+fn physical_quantities_use_explicit_units() {
     assert_eq!(Pressure::from_pascals(101_325).pascals(), 101_325);
     assert_eq!(Area::from_square_millimeters(250).square_millimeters(), 250);
     assert_eq!(Length::from_micrometers(2_500).micrometers(), 2_500);
@@ -87,17 +87,6 @@ fn physical_rate_and_electrical_quantities_use_explicit_units() {
     );
     assert_eq!(Force::from_millinewtons(4_000).millinewtons(), 4_000);
     assert_eq!(Power::from_microwatts(3).picowatts(), 3_000_000);
-    assert_eq!(
-        Torque::from_micronewton_meters(2_000_000).micronewton_meters(),
-        2_000_000
-    );
-    assert_eq!(
-        AngularSpeed::from_microradians_per_second(3_000_000).microradians_per_second(),
-        3_000_000
-    );
-    assert_eq!(ElectricPotential::from_microvolts(12).microvolts(), 12);
-    assert_eq!(ElectricCurrent::from_microamperes(5).microamperes(), 5);
-    assert_eq!(ElectricalResistance::from_microohms(7).microohms(), 7);
     assert_eq!(Volume::from_microliters(9).microliters(), 9);
     assert_eq!(
         MassSpecificEnergy::from_nanojoules_per_milligram(17).nanojoules_per_milligram(),
@@ -106,9 +95,5 @@ fn physical_rate_and_electrical_quantities_use_explicit_units() {
     assert_eq!(
         MassFlow::from_milligrams_per_second(13).milligrams_per_second(),
         13
-    );
-    assert_eq!(
-        VolumetricFlow::from_microliters_per_second(11).microliters_per_second(),
-        11
     );
 }

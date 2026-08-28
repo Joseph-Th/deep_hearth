@@ -19,6 +19,7 @@ use super::state::{
 pub enum AddStructuralElementError {
     UnknownProfile { profile: StructuralProfileId },
     UnknownMaterial { material: MaterialId },
+    NonStructuralMaterial { material: MaterialId },
     Geometry(StructuralGeometryError),
     IdExhausted,
     RevisionExhausted,
@@ -37,6 +38,11 @@ impl Display for AddStructuralElementError {
                     material.value()
                 )
             }
+            Self::NonStructuralMaterial { material } => write!(
+                formatter,
+                "material {} has no authored structural strengths",
+                material.value()
+            ),
             Self::Geometry(error) => write!(formatter, "invalid structural geometry: {error}"),
             Self::IdExhausted => {
                 formatter.write_str("structural element identifier space is exhausted")
@@ -53,7 +59,7 @@ impl Error for AddStructuralElementError {
         match self {
             Self::Geometry(error) => Some(error),
             Self::UnknownProfile { profile: _profile } => None,
-            Self::UnknownMaterial { .. } => None,
+            Self::UnknownMaterial { .. } | Self::NonStructuralMaterial { .. } => None,
             Self::IdExhausted | Self::RevisionExhausted => None,
         }
     }
@@ -72,8 +78,12 @@ pub fn add_structural_element(
         .structural()
         .get_profile(profile)
         .ok_or(AddStructuralElementError::UnknownProfile { profile })?;
-    if registries.materials().get_material(material).is_none() {
-        return Err(AddStructuralElementError::UnknownMaterial { material });
+    let material_definition = registries
+        .materials()
+        .get_material(material)
+        .ok_or(AddStructuralElementError::UnknownMaterial { material })?;
+    if material_definition.properties().structural().is_none() {
+        return Err(AddStructuralElementError::NonStructuralMaterial { material });
     }
     geometry
         .validate()

@@ -54,17 +54,17 @@ pub fn calculate_pristine_member_capacity(
     profile: &StructuralProfileDefinition,
     material: &MaterialDefinition,
     cross_section: Area,
-) -> Force {
-    let mechanical = material.properties().mechanical();
+) -> Option<Force> {
+    let structural = material.properties().structural()?;
     let strength_kpa = match profile.load_mode() {
-        StructuralLoadMode::Compression => mechanical.compressive_strength_kpa(),
-        StructuralLoadMode::Tension => mechanical.tensile_strength_kpa(),
+        StructuralLoadMode::Compression => structural.compressive_strength_kpa(),
+        StructuralLoadMode::Tension => structural.tensile_strength_kpa(),
     };
 
     // 1 kPa * 1 mm^2 = 1 mN, so authored strength and cross-section multiply exactly.
-    Force::from_millinewtons(
+    Some(Force::from_millinewtons(
         u128::from(strength_kpa) * u128::from(cross_section.square_millimeters()),
-    )
+    ))
 }
 
 /// Why a structural member crossed into irreversible failure during one analysis.
@@ -181,6 +181,10 @@ pub enum StructuralAnalysisError {
         element: StructuralElementId,
         material: MaterialId,
     },
+    NonStructuralMaterial {
+        element: StructuralElementId,
+        material: MaterialId,
+    },
     LoadOverflow {
         support: StructuralElementId,
     },
@@ -205,6 +209,12 @@ impl Display for StructuralAnalysisError {
             Self::UnknownMaterial { element, material } => write!(
                 formatter,
                 "structural element {} references unknown material {} during analysis",
+                element.value(),
+                material.value()
+            ),
+            Self::NonStructuralMaterial { element, material } => write!(
+                formatter,
+                "structural element {} uses material {} without authored structural strengths",
                 element.value(),
                 material.value()
             ),
@@ -700,11 +710,12 @@ fn pristine_capacity(
             material: record.material(),
         });
     };
-    Ok(calculate_pristine_member_capacity(
-        profile,
-        material,
-        record.cross_section(),
-    ))
+    calculate_pristine_member_capacity(profile, material, record.cross_section()).ok_or(
+        StructuralAnalysisError::NonStructuralMaterial {
+            element,
+            material: record.material(),
+        },
+    )
 }
 
 fn scale_capacity(capacity: Force, ppm: u32) -> Force {

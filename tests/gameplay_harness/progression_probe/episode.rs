@@ -253,8 +253,8 @@ pub(super) fn run_primitive_progression_case(
         native_target,
         trace_target,
     ];
-    let clue_requests = observation_order.map(|index| clue_roles[index]);
-    for request in clue_requests {
+    let initial_clue_requests = observation_order.map(|index| clue_roles[index]);
+    for request in initial_clue_requests {
         assert_eq!(
             resolve_mining_target(&state, request),
             Err(MiningTargetResolutionError::NoEvidence {
@@ -264,21 +264,54 @@ pub(super) fn run_primitive_progression_case(
             "hidden geological truth must not authorize mining before the player performs prospecting"
         );
     }
-    let surface_prospecting_ticks = clue_requests
-        .into_iter()
+
+    let regional_zones = std::array::from_fn(progression_regional_bounds);
+    let regional_recon_ticks = regional_zones
+        .iter()
+        .copied()
         .try_fold(0_u64, |total, region| {
-            total.checked_add(inspect_local_copper_evidence(
+            total.checked_add(acquire_copper_evidence(
+                registries,
+                &mut state,
+                PROSPECTING_REGIONAL_RECONNAISSANCE,
+                region,
+            ))
+        })
+        .unwrap_or_else(|| panic!("primitive progression regional-recon duration overflowed"));
+    let regional_upper_bounds_ppm = regional_zones.map(|region| {
+        let (lower_ppm, upper_ppm) = observed_copper_bounds(
+            &state,
+            MiningTargetRequest::new(region, MATERIAL_COPPER),
+        );
+        assert_eq!(
+            lower_ppm, 0,
+            "regional reconnaissance must remain broad evidence rather than directly authorizing extraction"
+        );
+        upper_ppm
+    });
+    let mut clue_requests = initial_clue_requests.to_vec();
+    clue_requests.sort_by(|left, right| {
+        let left_zone = regional_zone_for_clue(left.region(), &regional_zones);
+        let right_zone = regional_zone_for_clue(right.region(), &regional_zones);
+        regional_upper_bounds_ppm[right_zone].cmp(&regional_upper_bounds_ppm[left_zone])
+    });
+
+    let surface_prospecting_ticks = clue_requests
+        .iter()
+        .copied()
+        .try_fold(0_u64, |total, request| {
+            total.checked_add(acquire_copper_evidence(
                 registries,
                 &mut state,
                 PROSPECTING_FIELD_INSPECTION,
-                region.region(),
+                request.region(),
             ))
         })
-        .unwrap_or_else(|| panic!("primitive progression surface-prospecting duration overflowed"));
+        .unwrap_or_else(|| panic!("primitive progression local-inspection duration overflowed"));
     let mut surface_resolved_clues = 0_u8;
     let mut surface_clues = Vec::new();
     let mut refinement = None;
-    for request in clue_requests {
+    for request in clue_requests.iter().copied() {
         let (lower_ppm, upper_ppm) = observed_copper_bounds(&state, request);
         match resolve_mining_target(&state, request) {
             Ok(target) => {
@@ -502,7 +535,7 @@ pub(super) fn run_primitive_progression_case(
             refinement_started_at, direct_supply_blocked_at,
             "the actor should revisit unresolved evidence as the immediate response to exhausting the clear direct-copper option"
         );
-        let detailed_survey_ticks = inspect_local_copper_evidence(
+        let detailed_survey_ticks = acquire_copper_evidence(
             registries,
             &mut state,
             PROSPECTING_DETAILED_FIELD_SURVEY,
@@ -583,8 +616,9 @@ pub(super) fn run_primitive_progression_case(
         soft_separation_feed_mass <= mined_mass,
         "inventory-visible bulk ore must contain enough represented copper for the second upgrade"
     );
-    let prospecting_ticks = surface_prospecting_ticks
-        .checked_add(detailed_survey_ticks)
+    let prospecting_ticks = regional_recon_ticks
+        .checked_add(surface_prospecting_ticks)
+        .and_then(|ticks| ticks.checked_add(detailed_survey_ticks))
         .unwrap_or_else(|| panic!("primitive progression prospecting duration overflowed"));
     let base_machine = build_primitive_machine(
         registries,
@@ -1052,6 +1086,8 @@ pub(super) fn run_primitive_progression_case(
     let experience = PrimitiveProgressionExperience {
         natural_priority,
         prospecting_ticks,
+        regional_recon_ticks,
+        regional_upper_bounds_ppm,
         surface_prospecting_ticks,
         detailed_survey_ticks,
         surface_clue_count: u8::try_from(clue_requests.len())
@@ -1157,9 +1193,12 @@ pub(super) fn run_primitive_progression_case(
             "surface-resolved"
         };
         std::println!(
-            "PLAYABLE PROGRESSION seed=0x{seed:016X} priority={} world-bootstrap=[raw-gathered-matter-surplus:{}mg,visible-local-geological-clue-regions,empty-storage] discovery=[path:{information_path} surface-inspection:{}t clues:{} coarse-resolved:{} refinement-triggered-by-direct-shortage:{} detailed-survey:{}t alternative-bounds:{}..{}->{}..{}ppm alternative-sample:{}mg/{}t sample-observed:{} sample-grade:{}ppm bulk-grade:{}ppm evidence-persisted:true evidence-gated-target-resolution:true hidden-deposit-id:unavailable-to-actor] episode-scope=[all-authored-manual-actions-useful] canonical=inspect-local-clues->act-on-resolved-evidence->shape+assemble-pick->preview-resolved-mining-affordances->mine-best-bulk-feed->encounter-hardness-gate->mine-strongest-copper-clue->observe-native-metal->attempt-second-direct-parcel->observe-insufficient-target-mass->revisit-alternative-evidence->refine+sample-only-if-still-ambiguous->choose-best-supported-feed->build-processing-line->choose-first-copper-upgrade:[pick|crank]->exercise-affordance+reassess-feed->charge+autonomous-crush+mine-while-waiting->separate-crushed-ore->forge-second-upgrade->converge->repeat fantasy=read-world->infer-affordances->respond-to-constraints-with-information->survive->craft-tools->sequence-competing-investments->turn-investment-into-affordance->store-work->delegate-repetition->convert-processed-matter-into-next-capability",
+            "PLAYABLE PROGRESSION seed=0x{seed:016X} priority={} world-bootstrap=[raw-gathered-matter-surplus:{}mg,visible-regional-geological-clue-zones+local-follow-up-regions,empty-storage] discovery=[path:{information_path} regional-recon:{}t regional-upper:[{},{}]ppm local-inspection:{}t clues:{} coarse-resolved:{} refinement-triggered-by-direct-shortage:{} detailed-survey:{}t alternative-bounds:{}..{}->{}..{}ppm alternative-sample:{}mg/{}t sample-observed:{} sample-grade:{}ppm bulk-grade:{}ppm evidence-persisted:true evidence-gated-target-resolution:true hidden-deposit-id:unavailable-to-actor] episode-scope=[current-primitive-route-actions-useful] canonical=recon-regional-clue-zones->prioritize-local-inspection->act-on-resolved-evidence->shape+assemble-pick->preview-resolved-mining-affordances->mine-best-bulk-feed->encounter-hardness-gate->mine-strongest-copper-clue->observe-native-metal->attempt-second-direct-parcel->observe-insufficient-target-mass->revisit-alternative-evidence->refine+sample-only-if-still-ambiguous->choose-best-supported-feed->build-processing-line->choose-first-copper-upgrade:[pick|crank]->exercise-affordance+reassess-feed->charge+autonomous-crush+mine-while-waiting->separate-crushed-ore->forge-second-upgrade->converge->repeat fantasy=read-world->infer-affordances->respond-to-constraints-with-information->survive->craft-tools->sequence-competing-investments->turn-investment-into-affordance->store-work->delegate-repetition->convert-processed-matter-into-next-capability",
             priority.label(),
             raw_surplus.milligrams(),
+            regional_recon_ticks,
+            regional_upper_bounds_ppm[0],
+            regional_upper_bounds_ppm[1],
             surface_prospecting_ticks,
             clue_requests.len(),
             surface_resolved_clues,

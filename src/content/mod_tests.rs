@@ -12,6 +12,7 @@ use crate::ore_processing::{
     ComminutionProcessDefinition, OreProcessingRegistry, PoweredOreProcessProfile,
 };
 use crate::production::{ProcessDefinition, ProcessId, ProductionRegistry};
+use crate::survival::FoodCategory;
 use crate::thermal::{
     CastingPhaseChange, CastingProcessDefinition, MeltingProcessDefinition, PhaseChangeForms,
     SensibleHeatingProcessDefinition, ThermalRegistry,
@@ -58,6 +59,26 @@ fn assert_thermal_reference_validation_rejects(thermal: ThermalRegistry) {
     });
 
     assert!(result.is_err());
+}
+
+#[test]
+fn built_in_protein_options_trade_immediate_density_for_storage_resilience() {
+    let registries = build_registries();
+    let meat = *registries
+        .survival()
+        .get_food(CommodityKey::new(MATERIAL_MEAT, FORM_FOOD))
+        .unwrap_or_else(|| panic!("built-in meat food definition disappeared"));
+    let legumes = *registries
+        .survival()
+        .get_food(CommodityKey::new(MATERIAL_LEGUMES, FORM_FOOD))
+        .unwrap_or_else(|| panic!("built-in legume food definition disappeared"));
+
+    assert_eq!(meat.category(), FoodCategory::Protein);
+    assert_eq!(legumes.category(), FoodCategory::Protein);
+    assert!(meat.dietary_energy() > legumes.dietary_energy());
+    assert!(meat.hydration_microliters_per_milligram() > 0);
+    assert_eq!(legumes.hydration_microliters_per_milligram(), 0);
+    assert!(legumes.shelf_life() > meat.shelf_life());
 }
 
 #[test]

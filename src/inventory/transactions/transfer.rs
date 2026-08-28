@@ -24,7 +24,7 @@ use super::{
 ///
 /// This type is compiled only for tests and the gameplay-audit feature. Inventory still validates and
 /// commits exact custody and structural-load consequences, but ordinary runtime cannot manufacture a
-/// pathless logistics event. A future logistics owner must resolve path, timing, and transport costs.
+/// pathless logistics event because world logistics is outside the current production scope.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub struct MaterialTransferResolution {

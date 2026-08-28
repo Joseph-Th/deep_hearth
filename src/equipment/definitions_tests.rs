@@ -107,22 +107,6 @@ fn assert_invalid_maintenance_reform(spent: CommodityKey) {
 }
 
 #[test]
-fn continuous_condition_curve_rejects_presence_capability() {
-    let capability = CapabilityId::new(810_001);
-    let result = std::panic::catch_unwind(|| {
-        CapabilityConditionCurve::new(
-            capability,
-            vec![CapabilityConditionPoint::new(
-                Condition::FAILED,
-                CapabilityValue::Present,
-            )],
-        )
-    });
-
-    assert!(result.is_err());
-}
-
-#[test]
 fn maintenance_registry_rejects_phase_change_without_thermal_process() {
     assert_invalid_maintenance_reform(CommodityKey::new(
         crate::content::MATERIAL_COPPER,

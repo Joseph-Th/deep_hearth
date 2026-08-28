@@ -137,8 +137,8 @@ pub fn resolve_structural_material_requirement(
 
 /// Immutable fixture materialization selection for a planned member.
 ///
-/// There is no runtime/public constructor. A future player construction system must resolve geometry,
-/// joinery, wastage, tooling, labor, and duration rather than reusing this setup-only binding.
+/// There is no runtime/public constructor. Player construction is outside current production scope;
+/// this setup-only binding intentionally omits joinery, wastage, tooling, labor, and duration.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub struct StructuralConstructionResolution {
@@ -290,7 +290,7 @@ impl Display for StructuralConstructionError {
             ),
             Self::UnsupportedComposition { element, material } => write!(
                 formatter,
-                "structural element {} currently requires pure material {} because mixed-composition strength is not yet modeled",
+                "structural element {} requires pure material {} because the structural strength model is single-material",
                 element.value(),
                 material.value()
             ),

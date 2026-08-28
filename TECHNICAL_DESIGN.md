@@ -66,15 +66,9 @@ Cross-owner operations coordinate these owners; no owner reaches into another ow
 | `Acceleration` | micrometer/second² | `u64` |
 | `Force` | millinewton | `u128` |
 | `Power` | picowatt | `u128` |
-| `Torque` | micronewton-meter | `u64` |
-| `AngularSpeed` | microradian/second | `u64` |
-| `ElectricPotential` | microvolt | `u64` |
-| `ElectricCurrent` | microampere | `u64` |
-| `ElectricalResistance` | microohm | `u64` |
 | `Volume` / `AggregateVolume` | microliter | `u64` / `u128` |
 | `MassSpecificEnergy` | nanojoule/milligram | `u64` |
 | `MassFlow` | milligram/second | `u64` |
-| `VolumetricFlow` | microliter/second | `u64` |
 
 Potentially overflowing arithmetic is checked. Conservation-sensitive systems account from authoritative
 owners rather than cached totals.
@@ -128,9 +122,10 @@ assessment combines only acquired evidence and preserves contradiction or spatia
 
 ### Prospecting and mining
 
-Local prospecting is exclusive `PlayerWorkState` labor over one voxel. Field inspection produces coarse
-surface-abundance evidence. Detailed field survey costs more time and survival reserve for narrower evidence.
-Start validation checks method, known material, spatial limit, duration, and survival budget. Completion
+Field prospecting is exclusive `PlayerWorkState` labor over a method-bounded region. Regional reconnaissance
+covers a broader footprint with loose, high-uncertainty evidence; field inspection is a one-voxel local
+observation; detailed field survey costs more time and survival reserve for narrower one-voxel evidence. Start
+validation checks method, known material, authored spatial limit, duration, and survival budget. Completion
 uses hidden geology internally to derive authored uncertainty bounds, records one observation, and exposes no
 deposit identity or count. Overlapping observations combine through `GeologicalKnowledgeState`; empty ground
 also produces bounded evidence. In-progress prospecting persists and validates as player work.

@@ -25,10 +25,7 @@ pub use geometry::{
     StructuralGeometryError, calculate_prismatic_material_mass_ceiling,
     calculate_prismatic_volume_ceiling,
 };
-pub use load::{
-    calculate_aggregate_weight_force_ceiling, calculate_pressure_force_ceiling,
-    calculate_weight_force_ceiling,
-};
+pub use load::{calculate_aggregate_weight_force_ceiling, calculate_weight_force_ceiling};
 pub use state::{
     StructuralElementGeometry, StructuralElementId, StructuralElementRecord, StructuralLifecycle,
     StructuralLoadKind, StructureState, StructureValidationError,

@@ -7,7 +7,7 @@ use crate::core::time::TickSpan;
 use crate::fluid::{FluidDefinitionId, FluidRegistry};
 use crate::material::{CommodityKey, MaterialId, MaterialRegistry};
 
-/// Broad dietary identity used for planning and later nutrition systems.
+/// Broad dietary identity used for dietary balance and planning.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum FoodCategory {
     Grain,

@@ -15,6 +15,7 @@ use super::capabilities::CAPABILITY_MANUAL_POWER_OUTPUT;
 pub const MANUAL_POWER_HAND_CRANK: ManualPowerMethodId = ManualPowerMethodId::new(1);
 pub const PROSPECTING_FIELD_INSPECTION: ProspectingMethodId = ProspectingMethodId::new(1);
 pub const PROSPECTING_DETAILED_FIELD_SURVEY: ProspectingMethodId = ProspectingMethodId::new(2);
+pub const PROSPECTING_REGIONAL_RECONNAISSANCE: ProspectingMethodId = ProspectingMethodId::new(3);
 
 pub(crate) fn build_labor_registry() -> LaborRegistry {
     LaborRegistry::new(
@@ -50,6 +51,17 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 SurvivalExertion::new(
                     Energy::from_nanojoules(650_000_000_000),
                     Volume::from_microliters(160),
+                ),
+            ),
+            ProspectingDefinition::new(
+                PROSPECTING_REGIONAL_RECONNAISSANCE,
+                GeologicalEvidenceKind::LooseIndicator,
+                TickSpan::new(96),
+                16,
+                250_000,
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(400_000_000_000),
+                    Volume::from_microliters(100),
                 ),
             ),
         ],

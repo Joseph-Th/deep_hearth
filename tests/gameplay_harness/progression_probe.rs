@@ -18,6 +18,7 @@ use deep_hearth::content::{
     PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_CRUSH_ORE, PROCESS_KNAP_STONE_TOOL,
     PROCESS_SEPARATE_NATIVE_COPPER, PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE,
     PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
+    PROSPECTING_REGIONAL_RECONNAISSANCE,
 };
 use deep_hearth::core::quantity::{Energy, Mass, Power, Pressure};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -59,6 +60,7 @@ use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 const MAX_STEADY_STATE_CRUSH_CYCLES: u64 = 12;
 const EXTRACTION_GUARANTEED_GRADE_PREMIUM_PPM: u32 = 100_000;
+const PROGRESSION_REGIONAL_ZONE_COUNT: usize = 2;
 
 pub(super) fn varied_four_way_order(seed: u64) -> [usize; 4] {
     let mut order = [0, 1, 2, 3];
@@ -70,6 +72,32 @@ pub(super) fn varied_four_way_order(seed: u64) -> [usize; 4] {
         order.swap(upper, selected);
     }
     order
+}
+
+fn progression_regional_bounds(zone: usize) -> VoxelBounds {
+    assert!(zone < PROGRESSION_REGIONAL_ZONE_COUNT);
+    let x = i64::try_from(zone)
+        .unwrap_or_else(|_| unreachable!("bounded progression regional zone fits i64"))
+        .checked_mul(4)
+        .unwrap_or_else(|| unreachable!("bounded regional clue coordinate cannot overflow"));
+    VoxelBounds::new(VoxelCoord::new(x, -4, 0), VoxelCoord::new(x + 3, -3, 1))
+        .unwrap_or_else(|error| panic!("primitive progression regional bounds failed: {error}"))
+}
+
+fn regional_zone_for_clue(region: VoxelBounds, zones: &[VoxelBounds]) -> usize {
+    let mut matches = zones
+        .iter()
+        .enumerate()
+        .filter(|(_, zone)| zone.has_intersection(region))
+        .map(|(index, _)| index);
+    let zone = matches
+        .next()
+        .unwrap_or_else(|| panic!("primitive progression clue lies outside regional search zones"));
+    assert!(
+        matches.next().is_none(),
+        "primitive progression clue overlaps multiple regional search zones"
+    );
+    zone
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -150,6 +178,7 @@ fn assert_progression_runtime_dependencies(registries: &Registries) {
         );
     }
     for method in [
+        PROSPECTING_REGIONAL_RECONNAISSANCE,
         PROSPECTING_FIELD_INSPECTION,
         PROSPECTING_DETAILED_FIELD_SURVEY,
     ] {
@@ -614,7 +643,7 @@ fn resolve_progression_mining_target(
         .unwrap_or_else(|error| panic!("primitive progression mining evidence failed: {error}"))
 }
 
-fn inspect_local_copper_evidence(
+fn acquire_copper_evidence(
     registries: &Registries,
     state: &mut AppState,
     method: ProspectingMethodId,
@@ -748,6 +777,8 @@ fn observed_primitive_priority(
 struct PrimitiveProgressionExperience {
     natural_priority: PrimitivePriority,
     prospecting_ticks: u64,
+    regional_recon_ticks: u64,
+    regional_upper_bounds_ppm: [u32; PROGRESSION_REGIONAL_ZONE_COUNT],
     surface_prospecting_ticks: u64,
     detailed_survey_ticks: u64,
     surface_clue_count: u8,

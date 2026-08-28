@@ -7,9 +7,9 @@ use crate::core::time::SimulationTick;
 use crate::material::{CommodityKey, MaterialInputSpec};
 
 use super::state::{
-    ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, MaterialStorageHistory,
-    StockpileId, StockpileRecord, apply_aggregate_withdraw, apply_consume_lot_slice,
-    get_stockpile_mut_or_panic,
+    ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, MaterialLotRecord,
+    MaterialStorageHistory, StockpileId, StockpileRecord, apply_aggregate_withdraw,
+    apply_consume_lot_slice, get_stockpile_mut_or_panic,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -263,43 +263,14 @@ pub(crate) fn validate_explicit_consumption_selection(
     if state.get_stockpile(source).is_none() {
         return Err(ExplicitConsumptionSelectionError::UnknownStockpile { stockpile: source });
     }
-    if selections.is_empty() {
-        return Err(ExplicitConsumptionSelectionError::EmptySelection);
-    }
-
-    let mut ordered = selections.to_vec();
-    ordered.sort();
-    for pair in ordered.windows(2) {
-        if pair[0].lot == pair[1].lot {
-            return Err(ExplicitConsumptionSelectionError::DuplicateLot { lot: pair[0].lot });
-        }
-    }
+    let ordered = order_explicit_selections(selections)?;
 
     let mut total_consumed = Mass::ZERO;
     let mut lot_slices = Vec::with_capacity(ordered.len());
     let mut consumed_inputs = Vec::with_capacity(ordered.len());
     let mut aggregate_inputs = BTreeMap::<CommodityKey, Mass>::new();
     for selection in ordered {
-        if selection.mass.is_zero() {
-            return Err(ExplicitConsumptionSelectionError::ZeroMass { lot: selection.lot });
-        }
-        let Some(lot) = state.get_lot(selection.lot) else {
-            return Err(ExplicitConsumptionSelectionError::UnknownLot { lot: selection.lot });
-        };
-        if lot.stockpile() != source {
-            return Err(ExplicitConsumptionSelectionError::LotOwnedElsewhere {
-                lot: selection.lot,
-                requested_source: source,
-                actual_source: lot.stockpile(),
-            });
-        }
-        if lot.mass() < selection.mass {
-            return Err(ExplicitConsumptionSelectionError::InsufficientLotMass {
-                lot: selection.lot,
-                available: lot.mass(),
-                requested: selection.mass,
-            });
-        }
+        let lot = validate_explicit_lot_selection(state, source, selection)?;
         total_consumed = total_consumed
             .checked_add(selection.mass)
             .ok_or(ExplicitConsumptionSelectionError::MassOverflow { stockpile: source })?;
@@ -336,6 +307,48 @@ pub(crate) fn validate_explicit_consumption_selection(
         consumed_inputs,
         total_consumed,
     })
+}
+
+fn order_explicit_selections(
+    selections: &[MaterialLotSelection],
+) -> Result<Vec<MaterialLotSelection>, ExplicitConsumptionSelectionError> {
+    if selections.is_empty() {
+        return Err(ExplicitConsumptionSelectionError::EmptySelection);
+    }
+    let mut ordered = selections.to_vec();
+    ordered.sort();
+    if let Some(pair) = ordered.windows(2).find(|pair| pair[0].lot == pair[1].lot) {
+        return Err(ExplicitConsumptionSelectionError::DuplicateLot { lot: pair[0].lot });
+    }
+    Ok(ordered)
+}
+
+fn validate_explicit_lot_selection(
+    state: &InventoryState,
+    source: StockpileId,
+    selection: MaterialLotSelection,
+) -> Result<&MaterialLotRecord, ExplicitConsumptionSelectionError> {
+    if selection.mass.is_zero() {
+        return Err(ExplicitConsumptionSelectionError::ZeroMass { lot: selection.lot });
+    }
+    let lot = state
+        .get_lot(selection.lot)
+        .ok_or(ExplicitConsumptionSelectionError::UnknownLot { lot: selection.lot })?;
+    if lot.stockpile() != source {
+        return Err(ExplicitConsumptionSelectionError::LotOwnedElsewhere {
+            lot: selection.lot,
+            requested_source: source,
+            actual_source: lot.stockpile(),
+        });
+    }
+    if lot.mass() < selection.mass {
+        return Err(ExplicitConsumptionSelectionError::InsufficientLotMass {
+            lot: selection.lot,
+            available: lot.mass(),
+            requested: selection.mass,
+        });
+    }
+    Ok(lot)
 }
 
 pub(crate) fn validate_consumption_reservation_from_selection(

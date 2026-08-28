@@ -42,6 +42,10 @@ pub enum StructureValidationError {
         element: StructuralElementId,
         material: MaterialId,
     },
+    NonStructuralMaterial {
+        element: StructuralElementId,
+        material: MaterialId,
+    },
     ZeroCrossSection {
         element: StructuralElementId,
     },
@@ -218,6 +222,12 @@ impl Display for StructureValidationError {
             Self::UnknownMaterial { element, material } => write!(
                 formatter,
                 "structural element {} references unknown material {}",
+                element.value(),
+                material.value()
+            ),
+            Self::NonStructuralMaterial { element, material } => write!(
+                formatter,
+                "structural element {} uses material {} without authored structural strengths",
                 element.value(),
                 material.value()
             ),
@@ -430,6 +440,7 @@ impl Error for StructureValidationError {
                 profile: _profile,
             } => None,
             Self::UnknownMaterial { .. }
+            | Self::NonStructuralMaterial { .. }
             | Self::UnsupportedEmbodiedComposition { .. }
             | Self::UnknownEmbodiedCompositionMaterial { .. } => None,
             Self::ZeroCrossSection { element: _element }

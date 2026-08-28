@@ -5,9 +5,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::capability::{
-    CapabilityId, CapabilityProfile, CapabilityRegistry, CapabilityValue, CapabilityValueKind,
-};
+use crate::capability::{CapabilityId, CapabilityProfile, CapabilityRegistry, CapabilityValue};
 use crate::core::quantity::Mass;
 use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::material::{
@@ -179,12 +177,6 @@ impl CapabilityConditionCurve {
             capability.value()
         );
         let kind = points[0].value().kind();
-        assert_ne!(
-            kind,
-            CapabilityValueKind::Presence,
-            "equipment capability condition curve {} cannot interpolate a Presence capability; discrete capability availability requires an explicit policy",
-            capability.value()
-        );
         for point in &points {
             assert!(
                 point.condition() < Condition::PRISTINE,

@@ -571,6 +571,69 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
     std::println!(
         "CONTENT CATALOG equipment=[{equipment}] energy=[{energy}] processes=[{processes}]"
     );
+    let prospecting = registries
+        .labor()
+        .prospecting_definitions()
+        .map(|definition| {
+            let exertion = definition.exertion();
+            format!(
+                "{}:{:?}:duration={}t:max-region={}vox:uncertainty={}ppm:exertion={}nJ+{}uL/t",
+                definition.id().value(),
+                definition.evidence(),
+                definition.duration().value(),
+                definition.maximum_region_voxels(),
+                definition.abundance_uncertainty_ppm(),
+                exertion.energy_cost_per_tick().nanojoules(),
+                exertion.hydration_loss_per_tick().microliters(),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let foods = registries
+        .survival()
+        .foods()
+        .map(|food| {
+            let commodity = food.commodity();
+            let material = registries
+                .materials()
+                .get_material(commodity.material())
+                .unwrap_or_else(|| unreachable!("validated food commodity has a material"));
+            let form = registries
+                .materials()
+                .get_form(commodity.form())
+                .unwrap_or_else(|| unreachable!("validated food commodity has a form"));
+            format!(
+                "{}:{}/{}:{:?}:energy={}nJ/mg:hydration={}uL/mg:shelf={}t",
+                commodity.value(),
+                material.name(),
+                form.name(),
+                food.category(),
+                food.dietary_energy().nanojoules_per_milligram(),
+                food.hydration_microliters_per_milligram(),
+                food.shelf_life().value(),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let drinks = registries
+        .survival()
+        .drinks()
+        .map(|drink| {
+            let fluid = registries
+                .fluid()
+                .get_fluid(drink.fluid())
+                .unwrap_or_else(|| unreachable!("validated drink has a fluid definition"));
+            format!(
+                "{}:{}:hydration={}ppm",
+                drink.fluid().value(),
+                fluid.name(),
+                drink.hydration_multiplier_ppm(),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    std::println!("CONTENT PROSPECTING [{prospecting}]");
+    std::println!("CONTENT SURVIVAL foods=[{foods}] drinks=[{drinks}]");
     let process_routes = process_catalog_entries(registries)
         .into_iter()
         .map(|entry| {

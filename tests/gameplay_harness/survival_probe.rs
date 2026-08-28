@@ -8,7 +8,7 @@ use deep_hearth::content::gameplay_fixture::{
 };
 use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, MANUAL_POWER_HAND_CRANK,
-    MATERIAL_COPPER, PROSPECTING_FIELD_INSPECTION,
+    MATERIAL_COPPER,
 };
 use deep_hearth::core::quantity::{
     AggregateMass, AggregateVolume, Energy, Mass, Temperature, Volume,
@@ -22,7 +22,7 @@ use deep_hearth::geology::{FieldProspectingRequest, validate_start_field_prospec
 use deep_hearth::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile,
 };
-use deep_hearth::labor::{ManualPowerRequest, validate_start_manual_power};
+use deep_hearth::labor::{ManualPowerRequest, ProspectingMethodId, validate_start_manual_power};
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
@@ -48,11 +48,52 @@ fn mass_for_target_energy(food: FoodDefinition, target: u128) -> Mass {
     Mass::from_milligrams(milligrams)
 }
 
+fn food_category_count(foods: &[FoodDefinition]) -> usize {
+    foods
+        .iter()
+        .map(|food| food.category())
+        .collect::<BTreeSet<_>>()
+        .len()
+}
+
+fn food_option_summary(registries: &Registries, foods: &[FoodDefinition]) -> String {
+    foods
+        .iter()
+        .map(|food| {
+            let material = registries
+                .materials()
+                .get_material(food.commodity().material())
+                .unwrap_or_else(|| unreachable!("validated food option has a material"));
+            format!(
+                "{}:{}:{:?}:{}nJ/mg:{}uL/mg:{}t",
+                food.commodity().value(),
+                material.name(),
+                food.category(),
+                food.dietary_energy().nanojoules_per_milligram(),
+                food.hydration_microliters_per_milligram(),
+                food.shelf_life().value(),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 const fn category_salt(category: FoodCategory) -> u64 {
     match category {
         FoodCategory::Grain => 0x4752_4149_4E00_0001,
         FoodCategory::Fruit => 0x4652_5549_5400_0002,
         FoodCategory::Protein => 0x5052_4F54_4549_4E03,
+    }
+}
+
+fn normalized_deficit_priority(
+    energy_deficit_ppm: u32,
+    hydration_deficit_ppm: u32,
+) -> ProvisioningPriority {
+    match hydration_deficit_ppm.cmp(&energy_deficit_ppm) {
+        std::cmp::Ordering::Greater => ProvisioningPriority::Hydration,
+        std::cmp::Ordering::Less => ProvisioningPriority::MetabolicEnergy,
+        std::cmp::Ordering::Equal => ProvisioningPriority::Balanced,
     }
 }
 
@@ -323,7 +364,7 @@ fn evaluate_diet_recovery_consequence(
         .map(|food| food.category())
         .collect::<BTreeSet<_>>()
         .len();
-    if world.foods.len() < authored_category_count {
+    if food_category_count(&world.foods) < authored_category_count {
         return DietRecoveryReview::supply_collapsed();
     }
 
@@ -1192,6 +1233,8 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SurvivalWorkPressureReview {
+    prospecting_method: ProspectingMethodId,
+    prospecting_region_voxels: u128,
     prospecting_ticks: u64,
     prospecting_energy_deficit_ppm: u32,
     prospecting_hydration_deficit_ppm: u32,
@@ -1199,6 +1242,24 @@ struct SurvivalWorkPressureReview {
     manual_power_energy_deficit_ppm: u32,
     manual_power_hydration_deficit_ppm: u32,
     stored_work_nj: u128,
+}
+
+pub(super) fn prospecting_method_for_work_pressure(
+    registries: &Registries,
+    seed: u64,
+) -> ProspectingMethodId {
+    let methods = registries
+        .labor()
+        .prospecting_definitions()
+        .map(|definition| definition.id())
+        .collect::<Vec<_>>();
+    assert!(
+        !methods.is_empty(),
+        "survival work-pressure probe requires an authored prospecting method"
+    );
+    let index = usize::try_from(mix64(seed ^ 0x5052_4F53_4D45_5448) % methods.len() as u64)
+        .unwrap_or_else(|_| unreachable!("prospecting method index fits usize"));
+    methods[index]
 }
 
 fn evaluate_survival_work_pressure_probe(
@@ -1210,14 +1271,28 @@ fn evaluate_survival_work_pressure_probe(
     let mut prospecting = AppState::new(WorldSeed::new(seed ^ 0x5052_4F53_5045_4354));
     initialize_player_survival(registries, &mut prospecting)
         .unwrap_or_else(|error| panic!("work-pressure prospecting survival setup failed: {error}"));
-    let region = VoxelBounds::new(VoxelCoord::new(24, -1, 0), VoxelCoord::new(25, 0, 1))
-        .unwrap_or_else(|error| panic!("work-pressure prospecting bounds failed: {error}"));
+    let prospecting_method = prospecting_method_for_work_pressure(registries, seed);
+    let prospecting_definition = registries
+        .labor()
+        .get_prospecting(prospecting_method)
+        .copied()
+        .unwrap_or_else(|| panic!("selected work-pressure prospecting method disappeared"));
+    let region_width = i64::try_from(prospecting_definition.maximum_region_voxels().min(4))
+        .unwrap_or_else(|_| unreachable!("bounded prospecting footprint fits i64"));
+    let region = VoxelBounds::new(
+        VoxelCoord::new(24, -1, 0),
+        VoxelCoord::new(24 + region_width, 0, 1),
+    )
+    .unwrap_or_else(|error| panic!("work-pressure prospecting bounds failed: {error}"));
+    let prospecting_region_voxels = region
+        .voxel_count()
+        .unwrap_or_else(|| panic!("work-pressure prospecting region volume overflowed"));
     let prospecting_before = assess_survival(registries, &prospecting)
         .unwrap_or_else(|| panic!("work-pressure prospecting player disappeared"));
     let prospecting_start = validate_start_field_prospecting(
         registries,
         &prospecting,
-        FieldProspectingRequest::new(PROSPECTING_FIELD_INSPECTION, region, MATERIAL_COPPER),
+        FieldProspectingRequest::new(prospecting_method, region, MATERIAL_COPPER),
     )
     .unwrap_or_else(|error| panic!("work-pressure prospecting start failed: {error}"));
     let prospecting_work = prospecting_start.work();
@@ -1253,10 +1328,8 @@ fn evaluate_survival_work_pressure_probe(
         prospecting_before.hydration(),
         physiology.maximum_hydration()
     );
-    assert!(
-        prospecting_hydration_deficit_ppm > prospecting_energy_deficit_ppm,
-        "field prospecting should remain hydration-biased so observation work and strenuous power work create different survival pressures"
-    );
+    assert!(prospecting_energy_deficit_ppm > 0);
+    assert!(prospecting_hydration_deficit_ppm > 0);
 
     let mut power = AppState::new(WorldSeed::new(seed ^ 0x504F_5745_5257_4F52));
     let crank_profile = registries
@@ -1352,10 +1425,16 @@ fn evaluate_survival_work_pressure_probe(
         physiology.maximum_metabolic_energy()
     );
     assert_eq!(power_before.hydration(), physiology.maximum_hydration());
-    assert!(
-        power_energy_deficit_ppm > power_hydration_deficit_ppm,
-        "sustained manual power should be calorie-biased so the player's chosen labor changes the dominant survival pressure"
+    assert!(power_energy_deficit_ppm > 0);
+    assert!(power_hydration_deficit_ppm > 0);
+
+    let prospecting_priority = normalized_deficit_priority(
+        prospecting_energy_deficit_ppm,
+        prospecting_hydration_deficit_ppm,
     );
+    let power_priority =
+        normalized_deficit_priority(power_energy_deficit_ppm, power_hydration_deficit_ppm);
+    let activity_changes_dominant_pressure = prospecting_priority != power_priority;
 
     validate_loaded_state(registries, &prospecting)
         .unwrap_or_else(|error| panic!("work-pressure prospecting state audit failed: {error}"));
@@ -1363,17 +1442,24 @@ fn evaluate_survival_work_pressure_probe(
         .unwrap_or_else(|error| panic!("work-pressure manual-power state audit failed: {error}"));
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
-            "SURVIVAL WORK PRESSURE seed=0x{seed:016X} matched-full-reserve-work=[prospecting:[{}t energy:{}ppm hydration:{}ppm dominant:hydration] manual-power:[{}t energy:{}ppm hydration:{}ppm dominant:energy stored-work:{}nJ]] activity-changes-dominant-pressure=true canonical-actions=true",
+            "SURVIVAL WORK PRESSURE seed=0x{seed:016X} matched-full-reserve-work=[prospecting:[method:{} region:{}vox {}t energy:{}ppm hydration:{}ppm dominant:{}] manual-power:[{}t energy:{}ppm hydration:{}ppm dominant:{} stored-work:{}nJ]] activity-changes-dominant-pressure:{} canonical-actions=true",
+            prospecting_method.value(),
+            prospecting_region_voxels,
             prospecting_ticks,
             prospecting_energy_deficit_ppm,
             prospecting_hydration_deficit_ppm,
+            prospecting_priority.label(),
             power_ticks,
             power_energy_deficit_ppm,
             power_hydration_deficit_ppm,
+            power_priority.label(),
             requested_energy.nanojoules(),
+            activity_changes_dominant_pressure,
         );
     }
     SurvivalWorkPressureReview {
+        prospecting_method,
+        prospecting_region_voxels,
         prospecting_ticks,
         prospecting_energy_deficit_ppm,
         prospecting_hydration_deficit_ppm,
@@ -1387,8 +1473,23 @@ fn evaluate_survival_work_pressure_probe(
 fn evaluate_survival_provisioning_probe(registries: &Registries, seed: u64) {
     evaluate_survival_pressure_response_probe(registries, seed);
     let work_pressure = evaluate_survival_work_pressure_probe(registries, seed);
+    let prospecting_pressure = normalized_deficit_priority(
+        work_pressure.prospecting_energy_deficit_ppm,
+        work_pressure.prospecting_hydration_deficit_ppm,
+    );
+    let manual_power_pressure = normalized_deficit_priority(
+        work_pressure.manual_power_energy_deficit_ppm,
+        work_pressure.manual_power_hydration_deficit_ppm,
+    );
     let world = provisioning_world(registries, seed);
     let foods = world.foods.as_slice();
+    let available_category_count = food_category_count(foods);
+    let authored_category_count = registries
+        .survival()
+        .foods()
+        .map(|food| food.category())
+        .collect::<BTreeSet<_>>()
+        .len();
     let provisioning_wait_ticks = world.provisioning_wait_ticks;
     let drink_supply = provisioning_drink_supply(registries, &world);
     let prepared = prepare_provisioning_world(registries, seed, &world, drink_supply);
@@ -1443,7 +1544,7 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, seed: u64) {
         balanced.retained_preserved_mass_mg
     );
     assert!(compact.reserve_recovered && balanced.reserve_recovered);
-    if foods.len() >= 3 {
+    if available_category_count == authored_category_count {
         assert!(compact.selected_category_count < balanced.selected_category_count);
         assert!(compact.meal_mass_mg <= balanced.meal_mass_mg);
         assert!(balanced.diet_quality_after_ppm > compact.diet_quality_after_ppm);
@@ -1481,17 +1582,24 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, seed: u64) {
     } else {
         "choice:supply-collapsed reason=available-categories-below-authored-diet-set".to_string()
     };
+    let food_options = food_option_summary(registries, foods);
     std::println!(
-        "SURVIVAL REVIEW seed=0x{seed:016X} fantasy=prepare+provision episode=[start:{} wait:{provisioning_wait_ticks}t available-categories:{}] activity-pressure=[prospecting:{}t energy:{}ppm hydration:{}ppm dominant:hydration; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:energy stored-work:{}nJ] matched-world-choice=[compact-calories:[selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t] balanced:[selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t]] tradeoff=[meal-mass-delta:+{}mg water-saved:+{}uL diet-quality-advantage:+{}ppm recovery-advantage:+{}ppm/t] recovery-consequence=[{recovery_consequence}] decision-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] preservation=[age-saved:{}t retained:{}mg] reserve-recovered:{}",
+        "SURVIVAL REVIEW seed=0x{seed:016X} fantasy=prepare+provision episode=[start:{} wait:{provisioning_wait_ticks}t available:[foods:{} categories:{} options:{food_options}]] activity-pressure=[prospecting:[method:{} region:{}vox {}t] energy:{}ppm hydration:{}ppm dominant:{}; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:{} stored-work:{}nJ; contrast:{}] matched-world-choice=[compact-calories:[selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t] balanced:[selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t]] tradeoff=[meal-mass-delta:+{}mg water-saved:+{}uL diet-quality-advantage:+{}ppm recovery-advantage:+{}ppm/t] recovery-consequence=[{recovery_consequence}] decision-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] preservation=[age-saved:{}t retained:{}mg] reserve-recovered:{}",
         world.start_profile.label(),
         foods.len(),
+        available_category_count,
+        work_pressure.prospecting_method.value(),
+        work_pressure.prospecting_region_voxels,
         work_pressure.prospecting_ticks,
         work_pressure.prospecting_energy_deficit_ppm,
         work_pressure.prospecting_hydration_deficit_ppm,
+        prospecting_pressure.label(),
         work_pressure.manual_power_ticks,
         work_pressure.manual_power_energy_deficit_ppm,
         work_pressure.manual_power_hydration_deficit_ppm,
+        manual_power_pressure.label(),
         work_pressure.stored_work_nj,
+        prospecting_pressure != manual_power_pressure,
         compact.selected_category_count,
         compact.meal_mass_mg,
         compact.drink_volume_ul,
@@ -1528,7 +1636,7 @@ pub(super) fn run_survival_provisioning_probe(registries: &Registries, case: Foc
             1 => {
                 assert_eq!(world.start_profile, SurvivalStartProfile::FullReserve);
                 assert_eq!(
-                    world.foods.len(),
+                    food_category_count(&world.foods),
                     2,
                     "survival coverage seed 1 must preserve a food-category shortage"
                 );

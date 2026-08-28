@@ -2,9 +2,9 @@
 
 use crate::core::quantity::Temperature;
 use crate::material::{
-    CommodityKey, ElectricalProperties, FormDefinition, FormId, FusionProperties,
-    MaterialDefinition, MaterialFormCohesion, MaterialId, MaterialPhase, MaterialProperties,
-    MaterialRegistry, MechanicalProperties, ParticleSizeStatePolicy, ThermalProperties,
+    CommodityKey, FormDefinition, FormId, FusionProperties, MaterialDefinition,
+    MaterialFormCohesion, MaterialId, MaterialPhase, MaterialProperties, MaterialRegistry,
+    ParticleSizeStatePolicy, StructuralProperties, ThermalProperties,
 };
 
 pub const MATERIAL_WOOD: MaterialId = MaterialId::new(1);
@@ -17,6 +17,7 @@ pub const MATERIAL_BERRIES: MaterialId = MaterialId::new(7);
 pub const MATERIAL_MEAT: MaterialId = MaterialId::new(8);
 pub const MATERIAL_STONE: MaterialId = MaterialId::new(9);
 pub const MATERIAL_CLAY: MaterialId = MaterialId::new(10);
+pub const MATERIAL_LEGUMES: MaterialId = MaterialId::new(11);
 pub(crate) const COPPER_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_357_770);
 
 pub const FORM_LOG: FormId = FormId::new(1);
@@ -123,20 +124,14 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
         "wood",
         MaterialProperties::new(
             650,
-            ThermalProperties::new(1_700, None, 120),
-            MechanicalProperties::new(40_000, 70_000, 30),
-            ElectricalProperties::new(None),
+            ThermalProperties::new(1_700, None),
+            Some(StructuralProperties::new(40_000, 70_000)),
         ),
     ));
     registry.register_material(MaterialDefinition::new(
         MATERIAL_CHARCOAL,
         "charcoal",
-        MaterialProperties::new(
-            250,
-            ThermalProperties::new(1_000, None, 200),
-            MechanicalProperties::new(2_000, 500, 5),
-            ElectricalProperties::new(None),
-        ),
+        MaterialProperties::new(250, ThermalProperties::new(1_000, None), None),
     ));
     registry.register_material(MaterialDefinition::new(
         MATERIAL_COPPER,
@@ -146,81 +141,53 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
             ThermalProperties::new(
                 385,
                 Some(FusionProperties::new(COPPER_MELTING_POINT, 205_000)),
-                401_000,
             ),
-            MechanicalProperties::new(70_000, 210_000, 369),
-            ElectricalProperties::new(Some(17)),
+            Some(StructuralProperties::new(70_000, 210_000)),
         ),
     ));
     registry.register_material(MaterialDefinition::new(
         MATERIAL_SLAG,
         "slag",
-        MaterialProperties::new(
-            2_700,
-            ThermalProperties::new(900, None, 1_000),
-            MechanicalProperties::new(20_000, 2_000, 50),
-            ElectricalProperties::new(None),
-        ),
+        MaterialProperties::new(2_700, ThermalProperties::new(900, None), None),
     ));
     registry.register_material(MaterialDefinition::new(
         MATERIAL_WATER,
         "water",
-        MaterialProperties::new(
-            1_000,
-            ThermalProperties::new(4_184, None, 600),
-            MechanicalProperties::new(1, 1, 1),
-            ElectricalProperties::new(None),
-        ),
+        MaterialProperties::new(1_000, ThermalProperties::new(4_184, None), None),
     ));
     registry.register_material(MaterialDefinition::new(
         MATERIAL_GRAIN,
         "grain",
-        MaterialProperties::new(
-            750,
-            ThermalProperties::new(1_500, None, 150),
-            MechanicalProperties::new(2_000, 1_000, 10),
-            ElectricalProperties::new(None),
-        ),
+        MaterialProperties::new(750, ThermalProperties::new(1_500, None), None),
     ));
     registry.register_material(MaterialDefinition::new(
         MATERIAL_BERRIES,
         "berries",
-        MaterialProperties::new(
-            1_000,
-            ThermalProperties::new(3_800, None, 500),
-            MechanicalProperties::new(500, 100, 2),
-            ElectricalProperties::new(None),
-        ),
+        MaterialProperties::new(1_000, ThermalProperties::new(3_800, None), None),
     ));
     registry.register_material(MaterialDefinition::new(
         MATERIAL_MEAT,
         "meat",
-        MaterialProperties::new(
-            1_050,
-            ThermalProperties::new(3_300, None, 450),
-            MechanicalProperties::new(1_000, 500, 5),
-            ElectricalProperties::new(None),
-        ),
+        MaterialProperties::new(1_050, ThermalProperties::new(3_300, None), None),
     ));
     registry.register_material(MaterialDefinition::new(
         MATERIAL_STONE,
         "stone",
         MaterialProperties::new(
             2_650,
-            ThermalProperties::new(800, None, 700),
-            MechanicalProperties::new(100_000, 10_000, 50_000),
-            ElectricalProperties::new(None),
+            ThermalProperties::new(800, None),
+            Some(StructuralProperties::new(100_000, 10_000)),
         ),
     ));
     registry.register_material(MaterialDefinition::new(
         MATERIAL_CLAY,
         "clay",
-        MaterialProperties::new(
-            1_900,
-            ThermalProperties::new(900, None, 500),
-            MechanicalProperties::new(5_000, 1_000, 50),
-            ElectricalProperties::new(None),
-        ),
+        MaterialProperties::new(1_900, ThermalProperties::new(900, None), None),
+    ));
+    registry.register_material(MaterialDefinition::new(
+        MATERIAL_LEGUMES,
+        "roasted legumes",
+        MaterialProperties::new(800, ThermalProperties::new(1_600, None), None),
     ));
 
     for commodity in [
@@ -242,6 +209,7 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
         CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
         CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
         CommodityKey::new(MATERIAL_MEAT, FORM_FOOD),
+        CommodityKey::new(MATERIAL_LEGUMES, FORM_FOOD),
         CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
         CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
         CommodityKey::new(MATERIAL_STONE, FORM_CHIP),

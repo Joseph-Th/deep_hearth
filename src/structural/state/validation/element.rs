@@ -37,8 +37,14 @@ pub(super) fn validate_structural_element(
             element: record.id,
             profile: record.profile(),
         })?;
-    if materials.get_material(record.material()).is_none() {
-        return Err(StructureValidationError::UnknownMaterial {
+    let material = materials.get_material(record.material()).ok_or(
+        StructureValidationError::UnknownMaterial {
+            element: record.id,
+            material: record.material(),
+        },
+    )?;
+    if material.properties().structural().is_none() {
+        return Err(StructureValidationError::NonStructuralMaterial {
             element: record.id,
             material: record.material(),
         });

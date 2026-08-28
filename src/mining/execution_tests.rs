@@ -19,6 +19,8 @@ use crate::equipment::{
     apply_equipment_condition_plan, decide_equipment_wear, validate_assemble_equipment,
     validate_upgrade_equipment,
 };
+#[cfg(feature = "test-soak")]
+use crate::geology::GeologicalDepositLifecycle;
 use crate::geology::{
     GeneratedDepositSpec, GeologicalDepositId, GeologicalEvidenceKind, MaterialAbundanceEstimate,
     ProspectingResolution, validate_record_prospecting,

@@ -14,8 +14,8 @@ const PICOWATT_MICROSECONDS_PER_NANOJOULE: u128 = 1_000_000_000;
 /// Fractional nanojoule numerator retained between power-integration steps.
 ///
 /// Because power is stored in picowatts and elapsed world-time in microseconds, one nanojoule is
-/// exactly one billion picowatt-microseconds. A future energy owner that repeatedly integrates
-/// power must persist this remainder alongside its own runtime state to avoid rounding loss.
+/// exactly one billion picowatt-microseconds. Repeated integration must persist this remainder in
+/// the owning runtime state to avoid rounding loss.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PowerRemainder(u64);
 

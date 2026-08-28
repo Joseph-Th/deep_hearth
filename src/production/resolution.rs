@@ -229,6 +229,112 @@ pub struct ValidatedProcessInputs {
     selection: ConsumptionSelection,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProcessResourceResolution {
+    None,
+    SupplyAndEquipment {
+        energy_supply: ValidatedEnergySupply,
+        equipment: ProcessEquipmentResolution,
+    },
+    SinkAndEquipment {
+        energy_sink: ValidatedEnergySink,
+        equipment: ProcessEquipmentResolution,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ProcessEquipmentResolution {
+    equipment_use: ValidatedEquipmentUse,
+    condition_after: Condition,
+}
+
+struct ResolvedProcessResources {
+    energy_supply: Option<ValidatedEnergySupply>,
+    energy_sink: Option<ValidatedEnergySink>,
+    equipment_use: Option<ValidatedEquipmentUse>,
+    equipment_condition_after: Option<Condition>,
+}
+
+impl ProcessEquipmentResolution {
+    fn validate(self) -> Result<Self, ProcessResolutionError> {
+        let before = self.equipment_use.trace().condition();
+        if self.condition_after > before {
+            return Err(ProcessResolutionError::EquipmentConditionImproved {
+                before,
+                after: self.condition_after,
+            });
+        }
+        Ok(self)
+    }
+}
+
+impl ProcessResourceResolution {
+    const NONE: Self = Self::None;
+
+    const fn with_supply_and_equipment(
+        energy_supply: ValidatedEnergySupply,
+        equipment_use: ValidatedEquipmentUse,
+        condition_after: Condition,
+    ) -> Self {
+        Self::SupplyAndEquipment {
+            energy_supply,
+            equipment: ProcessEquipmentResolution {
+                equipment_use,
+                condition_after,
+            },
+        }
+    }
+
+    const fn with_sink_and_equipment(
+        energy_sink: ValidatedEnergySink,
+        equipment_use: ValidatedEquipmentUse,
+        condition_after: Condition,
+    ) -> Self {
+        Self::SinkAndEquipment {
+            energy_sink,
+            equipment: ProcessEquipmentResolution {
+                equipment_use,
+                condition_after,
+            },
+        }
+    }
+
+    fn resolve(self) -> Result<ResolvedProcessResources, ProcessResolutionError> {
+        match self {
+            Self::None => Ok(ResolvedProcessResources {
+                energy_supply: None,
+                energy_sink: None,
+                equipment_use: None,
+                equipment_condition_after: None,
+            }),
+            Self::SupplyAndEquipment {
+                energy_supply,
+                equipment,
+            } => {
+                let equipment = equipment.validate()?;
+                Ok(ResolvedProcessResources {
+                    energy_supply: Some(energy_supply),
+                    energy_sink: None,
+                    equipment_use: Some(equipment.equipment_use),
+                    equipment_condition_after: Some(equipment.condition_after),
+                })
+            }
+            Self::SinkAndEquipment {
+                energy_sink,
+                equipment,
+            } => {
+                let equipment = equipment.validate()?;
+                Ok(ResolvedProcessResources {
+                    energy_supply: None,
+                    energy_sink: Some(energy_sink),
+                    equipment_use: Some(equipment.equipment_use),
+                    equipment_condition_after: Some(equipment.condition_after),
+                })
+            }
+        }
+    }
+}
+
 impl ValidatedProcessInputs {
     #[must_use]
     pub const fn process(&self) -> ProcessId {
@@ -261,10 +367,7 @@ impl ValidatedProcessInputs {
                 ProcessOutputStreamId::PRIMARY,
                 outputs,
             )],
-            None,
-            None,
-            None,
-            None,
+            ProcessResourceResolution::NONE,
         )
     }
 
@@ -279,10 +382,11 @@ impl ValidatedProcessInputs {
         self.resolve_inner(
             duration,
             output_streams,
-            Some(energy_supply),
-            None,
-            Some(equipment_use),
-            Some(equipment_condition_after),
+            ProcessResourceResolution::with_supply_and_equipment(
+                energy_supply,
+                equipment_use,
+                equipment_condition_after,
+            ),
         )
     }
 
@@ -297,75 +401,63 @@ impl ValidatedProcessInputs {
         self.resolve_inner(
             duration,
             output_streams,
-            None,
-            Some(energy_sink),
-            Some(equipment_use),
-            Some(equipment_condition_after),
+            ProcessResourceResolution::with_sink_and_equipment(
+                energy_sink,
+                equipment_use,
+                equipment_condition_after,
+            ),
         )
     }
 
     fn resolve_inner(
         self,
         duration: TickSpan,
-        mut output_streams: Vec<ProcessOutputStream>,
-        energy_supply: Option<ValidatedEnergySupply>,
-        energy_sink: Option<ValidatedEnergySink>,
-        equipment_use: Option<ValidatedEquipmentUse>,
-        equipment_condition_after: Option<Condition>,
+        output_streams: Vec<ProcessOutputStream>,
+        resources: ProcessResourceResolution,
     ) -> Result<ProcessResolution, ProcessResolutionError> {
         if duration.is_zero() {
             return Err(ProcessResolutionError::ZeroDuration);
         }
-        if output_streams.is_empty() {
-            return Err(ProcessResolutionError::NoOutputs);
-        }
-        let mut stream_ids = BTreeSet::new();
-        for stream in &mut output_streams {
-            if stream.id.value() == 0 {
-                return Err(ProcessResolutionError::ZeroOutputStreamId);
-            }
-            if !stream_ids.insert(stream.id) {
-                return Err(ProcessResolutionError::DuplicateOutputStreamId { stream: stream.id });
-            }
-            if stream.outputs.is_empty() {
-                return Err(ProcessResolutionError::EmptyOutputStream);
-            }
-            stream.outputs.sort();
-            validate_outputs(&stream.outputs)?;
-        }
-        output_streams.sort_by_key(|stream| stream.id);
-        if sum_output_stream_mass(&output_streams).is_none() {
-            return Err(ProcessResolutionError::OutputMassOverflow);
-        }
-        match (equipment_use, equipment_condition_after) {
-            (Some(equipment), Some(after)) => {
-                let before = equipment.trace().condition();
-                if after > before {
-                    return Err(ProcessResolutionError::EquipmentConditionImproved {
-                        before,
-                        after,
-                    });
-                }
-            }
-            (Some(_), None) => {
-                return Err(ProcessResolutionError::MissingEquipmentConditionOutcome);
-            }
-            (None, Some(_)) => {
-                return Err(ProcessResolutionError::EquipmentConditionWithoutEquipment);
-            }
-            (None, None) => {}
-        }
+        let output_streams = validate_and_order_output_streams(output_streams)?;
+        let resources = resources.resolve()?;
         Ok(ProcessResolution {
             process: self.process,
             selection: self.selection,
-            energy_supply,
-            energy_sink,
-            equipment_use,
-            equipment_condition_after,
+            energy_supply: resources.energy_supply,
+            energy_sink: resources.energy_sink,
+            equipment_use: resources.equipment_use,
+            equipment_condition_after: resources.equipment_condition_after,
             duration,
             output_streams,
         })
     }
+}
+
+fn validate_and_order_output_streams(
+    mut output_streams: Vec<ProcessOutputStream>,
+) -> Result<Vec<ProcessOutputStream>, ProcessResolutionError> {
+    if output_streams.is_empty() {
+        return Err(ProcessResolutionError::NoOutputs);
+    }
+    let mut stream_ids = BTreeSet::new();
+    for stream in &mut output_streams {
+        if stream.id.value() == 0 {
+            return Err(ProcessResolutionError::ZeroOutputStreamId);
+        }
+        if !stream_ids.insert(stream.id) {
+            return Err(ProcessResolutionError::DuplicateOutputStreamId { stream: stream.id });
+        }
+        if stream.outputs.is_empty() {
+            return Err(ProcessResolutionError::EmptyOutputStream);
+        }
+        stream.outputs.sort();
+        validate_outputs(&stream.outputs)?;
+    }
+    output_streams.sort_by_key(|stream| stream.id);
+    if sum_output_stream_mass(&output_streams).is_none() {
+        return Err(ProcessResolutionError::OutputMassOverflow);
+    }
+    Ok(output_streams)
 }
 
 #[cfg(test)]
@@ -381,10 +473,7 @@ pub(crate) fn make_test_process_resolution_with_streams(
     match inputs.resolve_inner(
         TickSpan::new(duration_ticks),
         output_streams,
-        None,
-        None,
-        None,
-        None,
+        ProcessResourceResolution::NONE,
     ) {
         Ok(resolution) => resolution,
         Err(error) => panic!("multi-stream test process resolution fixture failed: {error}"),
@@ -577,8 +666,6 @@ pub enum ProcessResolutionError {
         commodity: CommodityKey,
     },
     OutputMassOverflow,
-    MissingEquipmentConditionOutcome,
-    EquipmentConditionWithoutEquipment,
     EquipmentConditionImproved {
         before: Condition,
         after: Condition,
@@ -629,12 +716,6 @@ impl Display for ProcessResolutionError {
             Self::OutputMassOverflow => {
                 formatter.write_str("resolved process output mass overflows authoritative storage")
             }
-            Self::MissingEquipmentConditionOutcome => formatter.write_str(
-                "resolved equipment-backed process must commit an explicit post-operation condition",
-            ),
-            Self::EquipmentConditionWithoutEquipment => formatter.write_str(
-                "resolved process cannot commit equipment condition without an equipment provider",
-            ),
             Self::EquipmentConditionImproved { before, after } => write!(
                 formatter,
                 "production operation cannot improve equipment condition from {} ppm to {} ppm",
@@ -656,9 +737,7 @@ impl Error for ProcessResolutionError {
             | Self::NoOutputs
             | Self::ZeroOutputStreamId
             | Self::EmptyOutputStream
-            | Self::OutputMassOverflow
-            | Self::MissingEquipmentConditionOutcome
-            | Self::EquipmentConditionWithoutEquipment => None,
+            | Self::OutputMassOverflow => None,
             Self::DuplicateOutputStreamId { stream: _stream } => None,
             Self::ZeroOutputMass {
                 commodity: _commodity,

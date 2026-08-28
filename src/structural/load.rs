@@ -1,6 +1,6 @@
 //! Exact force conversions for structural load providers; sibling analysis consumes force contributions without owning their causes.
 
-use crate::core::quantity::{Acceleration, AggregateMass, Area, Force, Mass, Pressure};
+use crate::core::quantity::{Acceleration, AggregateMass, Force, Mass};
 
 /// Converts a world-scale aggregate mass under explicit acceleration into structural force.
 ///
@@ -36,16 +36,6 @@ pub fn calculate_weight_force_ceiling(mass: Mass, acceleration: Acceleration) ->
     let numerator =
         u128::from(mass.milligrams()) * u128::from(acceleration.micrometers_per_second_squared());
     Force::from_millinewtons(numerator.div_ceil(1_000_000_000))
-}
-
-/// Converts uniform pressure over explicit area into conservative whole-millinewton force.
-///
-/// `1 Pa * 1 mm^2 = 0.001 mN`, supporting future wind, water, soil, and contact-pressure providers
-/// without duplicating unit conversion or rounding policy in each subsystem.
-#[must_use]
-pub fn calculate_pressure_force_ceiling(pressure: Pressure, area: Area) -> Force {
-    let numerator = u128::from(pressure.pascals()) * u128::from(area.square_millimeters());
-    Force::from_millinewtons(numerator.div_ceil(1_000))
 }
 
 #[cfg(test)]
