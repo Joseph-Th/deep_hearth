@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::core::arithmetic::scale_u128_fraction_floor;
+use crate::core::arithmetic::{greatest_common_divisor_u32, scale_u128_fraction_floor};
 use crate::core::quantity::{AngularSpeed, Power, Torque};
 
 /// Normalization scale for authored mechanical transfer efficiency.
@@ -314,7 +314,7 @@ impl TransmissionRatio {
         if denominator == 0 {
             return Err(TransmissionRatioError::ZeroDenominator);
         }
-        let divisor = greatest_common_divisor(numerator, denominator);
+        let divisor = greatest_common_divisor_u32(numerator, denominator);
         Ok(Self {
             numerator: numerator / divisor,
             denominator: denominator / divisor,
@@ -330,15 +330,6 @@ impl TransmissionRatio {
     pub const fn denominator(self) -> u32 {
         self.denominator
     }
-}
-
-fn greatest_common_divisor(mut left: u32, mut right: u32) -> u32 {
-    while right != 0 {
-        let remainder = left % right;
-        left = right;
-        right = remainder;
-    }
-    left
 }
 
 /// Invalid authored rotational ratio.

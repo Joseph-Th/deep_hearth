@@ -15,7 +15,6 @@ pub(super) fn run_primitive_progression_case(
     let three_mining_batches = two_mining_batches
         .checked_add(mined_mass)
         .unwrap_or_else(|| panic!("primitive progression ore fixture mass overflowed"));
-    let ore_storage_capacity = three_mining_batches;
     let crushed_storage_capacity = multiply_mass(
         mined_mass,
         MAX_STEADY_STATE_CRUSH_CYCLES + 2,
@@ -38,12 +37,18 @@ pub(super) fn run_primitive_progression_case(
     )
     .checked_add(hard_ore_surplus)
     .unwrap_or_else(|| panic!("primitive progression hard-ore reserve mass overflowed"));
+    // The progression episode asks the actor to keep mining while the crusher works. Size the
+    // staging stockpile from the bounded world reserve so useful concurrency is not accidentally
+    // disabled by the old single-job fixture capacity. Logistics/haulage are outside this slice;
+    // buffer pressure should come from authored world limits, not stale harness assumptions.
+    let ore_storage_capacity = soft_ore_deposit_mass
+        .checked_add(hard_ore_deposit_mass)
+        .unwrap_or_else(|| panic!("primitive progression ore staging capacity overflowed"));
     let ore_copper_ppm = 450_000 + (mix64(seed ^ 0x5052_4F47_4752_4144) % 300_001) as u32;
-    let hard_ore_copper_ppm = 800_000 + (mix64(seed ^ 0x4841_5244_5F47_5244) % 100_001) as u32;
-    assert!(
-        hard_ore_copper_ppm > ore_copper_ppm,
-        "hard-seam progression fixture must reward improved extraction capability with richer processable ore"
-    );
+    // Hardness is an access constraint, not a promise of grade. A difficult seam can be excellent,
+    // mediocre, or disappointing relative to easier ore. The player must buy access from bounded
+    // evidence, then reassess the extracted sample instead of receiving a guaranteed jackpot.
+    let hard_ore_copper_ppm = 500_000 + (mix64(seed ^ 0x4841_5244_5F47_5244) % 400_001) as u32;
     let trace_copper_ppm = 50_000 + (mix64(seed ^ 0x5452_4143_455F_4752) % 40_001) as u32;
     let PrimitiveMaterialPlan {
         raw_inputs,
@@ -488,6 +493,7 @@ pub(super) fn run_primitive_progression_case(
     let processing_feed_selected_from_bulk = bulk_sample.commodity.form() == FORM_ORE
         && refined_sample.commodity.form() == FORM_ORE
         && bulk_sample.copper_ppm > refined_sample.copper_ppm;
+    let natural_priority = observed_primitive_priority(bulk_sample.copper_ppm, hard_clue);
     let soft_separation_feed_mass =
         feed_mass_for_exact_constituent(crank_upgrade_native, bulk_sample.copper_ppm);
     assert!(
@@ -537,17 +543,32 @@ pub(super) fn run_primitive_progression_case(
             let hard_sample =
                 observe_single_material_sample(&state, hard_ore_storage, "hard-seam ore");
             assert_eq!(hard_sample.commodity.form(), FORM_ORE);
-            assert!(
-                hard_sample.copper_ppm > bulk_sample.copper_ppm,
-                "reinforced-pick access should reveal a richer processing opportunity than the easy seam"
-            );
-            let separation_feed_mass =
-                feed_mass_for_exact_constituent(crank_upgrade_native, hard_sample.copper_ppm);
+            let hard_feed_is_better = hard_sample.copper_ppm > bulk_sample.copper_ppm;
+            let (
+                primary_source,
+                selected_processing_feed_copper_ppm,
+                selected_processing_feed_is_hard,
+                separation_feed_mass,
+            ) = if hard_feed_is_better {
+                (
+                    hard_ore_storage,
+                    hard_sample.copper_ppm,
+                    true,
+                    feed_mass_for_exact_constituent(crank_upgrade_native, hard_sample.copper_ppm),
+                )
+            } else {
+                (
+                    ore_storage,
+                    bulk_sample.copper_ppm,
+                    false,
+                    soft_separation_feed_mass,
+                )
+            };
             let machine = charge_primitive_machine(registries, &mut state, base_machine);
             let concurrent_work = crush_while_mining(
                 registries,
                 &mut state,
-                hard_ore_storage,
+                primary_source,
                 crushed_storage,
                 machine,
                 mined_mass,
@@ -572,8 +593,8 @@ pub(super) fn run_primitive_progression_case(
                 pick_upgraded_at,
                 mined_mass,
                 false,
-                hard_sample.copper_ppm,
-                true,
+                selected_processing_feed_copper_ppm,
+                selected_processing_feed_is_hard,
                 separation_feed_mass,
             )
         }
@@ -633,18 +654,18 @@ pub(super) fn run_primitive_progression_case(
         .checked_add(concurrent_work.crush_ticks)
         .unwrap_or_else(|| panic!("primitive processed-output milestone overflowed"));
     assert!(
-        state.tick().value() < first_processed_output_at,
-        "primary autonomous crushing must leave player time for additional world interaction before output is ready"
+        concurrent_work.overlap_ticks > 0,
+        "primary autonomous crushing must overlap useful player work before its output milestone"
     );
 
     let primary_player_free_ticks =
         finish_autonomous_crush(registries, &mut state, concurrent_work);
-    let machine_useful_overlap_ticks = concurrent_work
-        .crush_ticks
-        .checked_sub(primary_player_free_ticks)
-        .unwrap_or_else(|| {
-            panic!("primitive machine player-free time exceeded active process time")
-        });
+    let machine_useful_overlap_ticks = concurrent_work.overlap_ticks;
+    assert_eq!(
+        machine_useful_overlap_ticks.checked_add(primary_player_free_ticks),
+        Some(concurrent_work.crush_ticks),
+        "primary crusher window must partition into productive overlap and unfilled autonomous time"
+    );
     let separation = separate_native_copper(
         registries,
         &mut state,
@@ -780,13 +801,11 @@ pub(super) fn run_primitive_progression_case(
     )
     .unwrap_or_else(|error| panic!("primitive progression reserve crushing failed: {error}"));
     let reserve_player_free_ticks = finish_autonomous_crush(registries, &mut state, reserve_work);
-    let reserve_useful_overlap_ticks = reserve_work
-        .crush_ticks
-        .checked_sub(reserve_player_free_ticks)
-        .unwrap_or_else(|| panic!("reserve crusher player-free time exceeded active process time"));
-    assert!(
-        reserve_useful_overlap_ticks > 0,
-        "banked mechanical work must support another cycle while the player performs useful extraction"
+    let reserve_useful_overlap_ticks = reserve_work.overlap_ticks;
+    assert_eq!(
+        reserve_useful_overlap_ticks.checked_add(reserve_player_free_ticks),
+        Some(reserve_work.crush_ticks),
+        "reserve crusher window must partition into productive overlap and unfilled autonomous time"
     );
     let drive_after_reserve = state
         .energy()
@@ -799,10 +818,10 @@ pub(super) fn run_primitive_progression_case(
         drive_after_reserve, separation_energy_saved,
         "material-quality savings must survive the fixed follow-up crusher workload as reusable stored work"
     );
-    let required_steady_state_free_ticks = machine
+    let required_steady_state_productive_ticks = machine
         .automation_preparation_ticks
-        .saturating_sub(primary_player_free_ticks)
-        .saturating_sub(reserve_player_free_ticks);
+        .saturating_sub(machine_useful_overlap_ticks)
+        .saturating_sub(reserve_useful_overlap_ticks);
     let steady_state = run_steady_state_crushing(
         registries,
         &mut state,
@@ -812,7 +831,7 @@ pub(super) fn run_primitive_progression_case(
         hard_clue.request,
         pick,
         mined_mass,
-        required_steady_state_free_ticks,
+        required_steady_state_productive_ticks,
     );
     let drive_remaining = state
         .energy()
@@ -827,13 +846,13 @@ pub(super) fn run_primitive_progression_case(
     let total_ore_reserve = soft_ore_deposit_mass
         .checked_add(hard_ore_deposit_mass)
         .unwrap_or_else(|| panic!("primitive progression combined ore reserve overflowed"));
-    let steady_mined = multiply_mass(mined_mass, steady_state.cycles, "steady-state mined");
-    let hard_ore_mined = two_mining_batches
-        .checked_add(steady_mined)
+    let hard_ore_mined = mined_mass
+        .checked_add(reserve_work.mined_mass)
+        .and_then(|mass| mass.checked_add(steady_state.mined_mass))
         .unwrap_or_else(|| panic!("primitive hard-ore accounting overflowed"));
-    let total_ore_mined = three_mining_batches
-        .checked_add(concurrent_soft_mass)
-        .and_then(|mass| mass.checked_add(steady_mined))
+    let total_ore_mined = mined_mass
+        .checked_add(concurrent_work.mined_mass)
+        .and_then(|mass| mass.checked_add(hard_ore_mined))
         .unwrap_or_else(|| panic!("primitive total-ore accounting overflowed"));
     let unmined_ore_reserve = total_ore_reserve
         .checked_sub(total_ore_mined)
@@ -851,7 +870,13 @@ pub(super) fn run_primitive_progression_case(
     );
     let processed_mass = mined_mass
         .checked_add(machine.reserve_mass)
-        .and_then(|mass| mass.checked_add(steady_mined))
+        .and_then(|mass| {
+            mass.checked_add(multiply_mass(
+                mined_mass,
+                steady_state.cycles,
+                "steady-state processed mass",
+            ))
+        })
         .unwrap_or_else(|| panic!("primitive progression processed mass overflowed"));
     let remaining_crushed_mass = processed_mass
         .checked_sub(separation.feed_mass)
@@ -920,7 +945,7 @@ pub(super) fn run_primitive_progression_case(
         .checked_add(steady_state.charge_ticks)
         .unwrap_or_else(|| panic!("primitive charging attention overflowed"));
     let experience = PrimitiveProgressionExperience {
-        priority,
+        natural_priority,
         prospecting_ticks,
         surface_prospecting_ticks,
         detailed_survey_ticks,
@@ -943,6 +968,8 @@ pub(super) fn run_primitive_progression_case(
         direct_copper_evidence_upper_ppm: direct_copper_clue.upper_ppm,
         bulk_ore_evidence_lower_ppm: bulk_ore_clue.lower_ppm,
         bulk_ore_evidence_upper_ppm: bulk_ore_clue.upper_ppm,
+        hard_ore_evidence_lower_ppm: hard_clue.lower_ppm,
+        hard_ore_evidence_upper_ppm: hard_clue.upper_ppm,
         bulk_sample_copper_ppm: bulk_sample.copper_ppm,
         selected_processing_feed_copper_ppm,
         selected_processing_feed_is_hard,
@@ -958,7 +985,7 @@ pub(super) fn run_primitive_progression_case(
         automation_preparation_ticks: machine.automation_preparation_ticks,
         separator_preparation_ticks: machine.separator_preparation_ticks,
         processing_line_preparation_ticks: machine.processing_line_preparation_ticks,
-        attention_payback_cycles: steady_state.payback_cycle,
+        productive_payback_cycles: steady_state.productive_payback_cycle,
         steady_state_cycles: steady_state.cycles,
         steady_state_stop: steady_state.stop,
         final_crusher_condition_ppm: steady_state.terminal_crusher_condition_ppm,
@@ -974,6 +1001,12 @@ pub(super) fn run_primitive_progression_case(
         machine_useful_overlap_ticks: total_useful_overlap_ticks,
         reserve_useful_overlap_ticks,
         machine_player_free_ticks: total_player_free_ticks,
+        primary_autonomous_stop: concurrent_work.autonomous_stop,
+        reserve_autonomous_stop: reserve_work.autonomous_stop,
+        primary_mining_jobs: concurrent_work.mining_jobs,
+        reserve_mining_jobs: reserve_work.mining_jobs,
+        steady_mining_jobs: steady_state.mining_jobs,
+        steady_feed_buffer_limited_cycles: steady_state.feed_buffer_limited_cycles,
         separation_feed_mass: separation.feed_mass,
         recovered_copper_mass: separation.target_mass,
         separation_required_energy: separation.required_energy,
@@ -1008,7 +1041,10 @@ pub(super) fn run_primitive_progression_case(
         "bulk"
     };
 
-    if emit_detail && std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
+    if emit_detail
+        && priority == natural_priority
+        && std::env::var_os("DEEP_HEARTH_GAMEPLAY_TRACE").is_some()
+    {
         std::println!(
             "PLAYABLE PROGRESSION seed=0x{seed:016X} priority={} world-bootstrap=[raw-gathered-matter-surplus:{}mg,visible-local-geological-clue-regions,empty-storage] discovery=[surface-inspection:{}t clues:{} coarse-resolved:{} unresolved-deferred:true refinement-triggered-by-direct-shortage:{} detailed-survey:{}t refined-bounds:{}..{}->{}..{}ppm refined-sample:{}mg/{}t sample-form:ore sample-grade:{}ppm bulk-grade:{}ppm evidence-persisted:true evidence-gated-target-resolution:true hidden-deposit-id:unavailable-to-actor] episode-scope=[all-authored-manual-actions-useful] canonical=inspect-local-clues->act-on-resolved-evidence+defer-unresolved-clue->shape+assemble-pick->preview-resolved-mining-affordances->mine-best-bulk-feed->encounter-hardness-gate->mine-strongest-copper-clue->observe-native-metal->attempt-second-direct-parcel->observe-insufficient-target-mass->return-to-unresolved-clue->detailed-survey->extract-sample->observe-ore+lower-grade->choose-richer-current-feed->build-processing-line->choose-first-copper-upgrade:[pick|crank]->exercise-affordance+reassess-feed->charge+autonomous-crush+mine-while-waiting->separate-crushed-ore->forge-second-upgrade->converge->repeat fantasy=read-world->infer-affordances->respond-to-constraints-with-information->survive->craft-tools->sequence-competing-investments->turn-investment-into-affordance->store-work->delegate-repetition->convert-processed-matter-into-next-capability",
             priority.label(),
@@ -1055,7 +1091,7 @@ pub(super) fn run_primitive_progression_case(
             reinforced_hardness_limit.pascals(),
         );
         std::println!(
-            "PROGRESSION SYSTEMS knowledge=[surface:{}t refinement:{}t refined-extraction:{}mg/{}t] ore=[batch:{}mg stone-mining:{}t reinforced-mining:{:?} concurrent-bulk:{}mg total-mined:{}mg hard-before-convergence:{}mg hard-mined:{}mg remaining:{}mg] copper=[strongest-clue-mining:{}t direct-invested:{}mg direct-follow-up-blocked:{} separation-feed:{}mg recovered:{}mg residue:{}mg separation:{}t] infrastructure=[drive:{}mg crusher:{}mg separator:{}mg automation-preparation:{}t separator-preparation:{}t full-line-preparation:{}t] stored-work=[fill:{}ppm initial-charge:{}nJ primary-crush:{}nJ separation-plan:{}nJ separation-actual:{}nJ banked:{}nJ follow-up:{}mg:{}t steady-cycles:{} steady-stop:{} crusher-condition:{}ppm automation-attention-break-even:{:?} steady-charge:{}t final:{}nJ] charge=[crank-reinforced-initial:{} final:{} full-accumulator:{}t initial:{}t total:{}t] mechanization=[primary:{}t concurrent-task:{}:{}t initial-overlap:{}t primary-productive-overlap:{}t primary-player-free:{}t reserve:{}t reserve-mining:{}t reserve-productive-overlap:{}t reserve-player-free:{}t steady-machine:{}t steady-productive-overlap:{}t steady-player-free:{}t total-productive-overlap:{}t total-player-free:{}t crushed-total:{}mg crushed-remaining:{}mg] durability=[pick:{}ppm] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
+            "PROGRESSION SYSTEMS knowledge=[surface:{}t refinement:{}t refined-extraction:{}mg/{}t] ore=[batch:{}mg stone-mining:{}t reinforced-mining:{:?} concurrent-bulk:{}mg total-mined:{}mg hard-before-convergence:{}mg hard-mined:{}mg remaining:{}mg] copper=[strongest-clue-mining:{}t direct-invested:{}mg direct-follow-up-blocked:{} separation-feed:{}mg recovered:{}mg residue:{}mg separation:{}t] infrastructure=[drive:{}mg crusher:{}mg separator:{}mg automation-preparation:{}t separator-preparation:{}t full-line-preparation:{}t] stored-work=[fill:{}ppm initial-charge:{}nJ primary-crush:{}nJ separation-plan:{}nJ separation-actual:{}nJ banked:{}nJ follow-up:{}mg:{}t steady-cycles:{} steady-stop:{} crusher-condition:{}ppm productive-setup-payback:{:?} steady-charge:{}t final:{}nJ] charge=[crank-reinforced-initial:{} final:{} full-accumulator:{}t initial:{}t total:{}t] mechanization=[primary:{}t concurrent-plan:{} work:{}t jobs:{} mined:{}mg stop:{} initial-overlap:{}t primary-productive-overlap:{}t primary-unfilled:{}t reserve:{}t reserve-mining:{}t/{}jobs stop:{} reserve-productive-overlap:{}t reserve-unfilled:{}t steady-machine:{}t steady-mining:{}jobs buffer-limited:{}cycles steady-productive-overlap:{}t steady-unfilled:{}t total-productive-overlap:{}t total-unfilled:{}t crushed-total:{}mg crushed-remaining:{}mg] durability=[pick:{}ppm] survival=[spent:{}nJ/{}uL remaining:{}nJ/{}uL warning:{}nJ/{}uL state:{:?}/{:?} elapsed:{}t] matter=conserved",
             surface_prospecting_ticks,
             detailed_survey_ticks,
             refined_clue_sample_mass.milligrams(),
@@ -1092,7 +1128,7 @@ pub(super) fn run_primitive_progression_case(
             steady_state.cycles,
             steady_state.stop.label(),
             steady_state.terminal_crusher_condition_ppm,
-            steady_state.payback_cycle,
+            steady_state.productive_payback_cycle,
             steady_state.charge_ticks,
             drive_remaining.nanojoules(),
             initial_crank_reinforced,
@@ -1103,14 +1139,21 @@ pub(super) fn run_primitive_progression_case(
             concurrent_work.crush_ticks,
             concurrent_task,
             concurrent_work.player_work_ticks,
+            concurrent_work.mining_jobs,
+            concurrent_work.mined_mass.milligrams(),
+            concurrent_work.autonomous_stop.label(),
             concurrent_work.overlap_ticks,
             machine_useful_overlap_ticks,
             primary_player_free_ticks,
             reserve_work.crush_ticks,
             reserve_work.player_work_ticks,
+            reserve_work.mining_jobs,
+            reserve_work.autonomous_stop.label(),
             reserve_useful_overlap_ticks,
             reserve_player_free_ticks,
             steady_state.machine_ticks,
+            steady_state.mining_jobs,
+            steady_state.feed_buffer_limited_cycles,
             steady_state.useful_overlap_ticks,
             steady_state.player_free_ticks,
             total_useful_overlap_ticks,

@@ -32,15 +32,24 @@ fn liberated_particle_size() -> ParticleSizeRange {
     .unwrap_or_else(|error| panic!("separation particle-size fixture failed: {error}"))
 }
 
+fn concentration_particle_size() -> ParticleSizeRange {
+    ParticleSizeRange::new(
+        Length::from_micrometers(500),
+        Length::from_micrometers(2_000),
+    )
+    .unwrap_or_else(|error| panic!("concentration particle-size fixture failed: {error}"))
+}
+
 #[test]
 fn concentration_recovery_is_invariant_to_feed_assay_lot_fragmentation() {
-    let mut fixture = fixture(Mass::from_milligrams(1), copper_stone_composition(700_000));
+    let mut fixture =
+        concentration_fixture(Mass::from_milligrams(1), copper_stone_composition(700_000));
     let second_input = MaterialLotSpec::with_composition_and_particle_size(
         CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
         Mass::from_milligrams(1),
         TEMPERATURE,
         copper_stone_composition(500_000),
-        liberated_particle_size(),
+        concentration_particle_size(),
     )
     .unwrap_or_else(|error| panic!("second concentration input specification failed: {error}"));
     let second_lot = deposit_lot_spec_for_test(
@@ -101,6 +110,18 @@ struct Fixture {
 }
 
 fn fixture(mass: Mass, composition: MaterialComposition) -> Fixture {
+    fixture_with_particle_size(mass, composition, liberated_particle_size())
+}
+
+fn concentration_fixture(mass: Mass, composition: MaterialComposition) -> Fixture {
+    fixture_with_particle_size(mass, composition, concentration_particle_size())
+}
+
+fn fixture_with_particle_size(
+    mass: Mass,
+    composition: MaterialComposition,
+    particle_size: ParticleSizeRange,
+) -> Fixture {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x9720_0001));
     let source_capacity = mass
@@ -117,7 +138,7 @@ fn fixture(mass: Mass, composition: MaterialComposition) -> Fixture {
         mass,
         TEMPERATURE,
         composition,
-        liberated_particle_size(),
+        particle_size,
     )
     .unwrap_or_else(|error| panic!("separation input specification failed: {error}"));
     let lot = deposit_lot_spec_for_test(&registries, &mut state, source, input)
@@ -476,6 +497,41 @@ fn constituent_separation_rejects_unmodeled_third_constituent_without_mutation()
 }
 
 #[test]
+fn concentration_rejects_coarse_crusher_feed_until_liberation_is_authored() {
+    let mass = Mass::from_milligrams(1_000);
+    let composition = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_COPPER, 400_000),
+        CompositionComponent::new(MATERIAL_STONE, 350_000),
+        CompositionComponent::new(MATERIAL_SLAG, 250_000),
+    ])
+    .unwrap_or_else(|error| panic!("coarse concentration composition failed: {error}"));
+    let fixture = fixture(mass, composition);
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        resolve_constituent_separation_process(
+            &fixture.registries,
+            &fixture.state,
+            ConstituentSeparationRequest::new(
+                PROCESS_CONCENTRATE_COPPER,
+                fixture.source,
+                &[MaterialLotSelection::new(fixture.lot, mass)],
+                fixture.separator,
+                fixture.energy,
+            ),
+        )
+        .err(),
+        Some(ConstituentSeparationResolutionError::Batch(
+            ConstituentSeparationBatchError::InputParticleSizeOutsideOperatingRange {
+                required: concentration_particle_size(),
+                found: liberated_particle_size(),
+            }
+        ))
+    );
+    assert_eq!(fixture.state, before);
+}
+
+#[test]
 fn concentration_applies_authored_selectivity_without_losing_constituent_composition() {
     let mass = Mass::from_milligrams(1_000);
     let composition = MaterialComposition::new(vec![
@@ -484,7 +540,7 @@ fn concentration_applies_authored_selectivity_without_losing_constituent_composi
         CompositionComponent::new(MATERIAL_SLAG, 250_000),
     ])
     .unwrap_or_else(|error| panic!("concentration composition fixture failed: {error}"));
-    let fixture = fixture(mass, composition.clone());
+    let fixture = concentration_fixture(mass, composition.clone());
     let resolved = resolve_process(&fixture, PROCESS_CONCENTRATE_COPPER, mass);
 
     assert_eq!(
@@ -519,7 +575,7 @@ fn concentration_applies_authored_selectivity_without_losing_constituent_composi
         .unwrap_or_else(|| panic!("concentration residue stream disappeared"));
     assert!(target.outputs().iter().all(|output| {
         output.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE)
-            && output.particle_size() == Some(liberated_particle_size())
+            && output.particle_size() == Some(concentration_particle_size())
     }));
     assert!(
         target
@@ -546,7 +602,7 @@ fn concentration_applies_authored_selectivity_without_losing_constituent_composi
         residue.outputs().iter().all(|output| {
             output.commodity().form() == FORM_CRUSHED
                 && output.commodity().material() == MATERIAL_STONE
-                && output.particle_size() == Some(liberated_particle_size())
+                && output.particle_size() == Some(concentration_particle_size())
         }),
         "concentration tailings commodity host must follow the dominant physical gangue instead of material-ID ordering"
     );
@@ -584,7 +640,7 @@ fn concentration_applies_authored_selectivity_without_losing_constituent_composi
 #[test]
 fn concentration_requires_actual_gangue_instead_of_relabeling_pure_target() {
     let mass = Mass::from_milligrams(10);
-    let fixture = fixture(mass, MaterialComposition::pure(MATERIAL_COPPER));
+    let fixture = concentration_fixture(mass, MaterialComposition::pure(MATERIAL_COPPER));
     let before = fixture.state.clone();
 
     assert_eq!(
@@ -616,9 +672,9 @@ fn persisted_concentration_replays_multi_gangue_outputs() {
         CompositionComponent::new(MATERIAL_SLAG, 220_000),
     ])
     .unwrap_or_else(|error| panic!("persisted concentration composition failed: {error}"));
-    let mut fixture = fixture(mass, composition);
+    let mut fixture = concentration_fixture(mass, composition);
     let resolved = resolve_process(&fixture, PROCESS_CONCENTRATE_COPPER, mass);
-    validate_start_process_routed(
+    let job = validate_start_process_routed(
         &fixture.registries,
         &fixture.state,
         resolved.process_resolution(),
@@ -646,6 +702,29 @@ fn persisted_concentration_replays_multi_gangue_outputs() {
         .into_state(&fixture.registries)
         .unwrap_or_else(|error| panic!("concentration load validation failed: {error}"));
     assert_eq!(loaded, fixture.state);
+
+    let mut tampered = serde_json::to_value(SaveEnvelope::new(&fixture.registries, &fixture.state))
+        .unwrap_or_else(|error| panic!("concentration tamper serialization failed: {error}"));
+    tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["resources"]["consumed_inputs"]
+        [0]["profile"]["particle_size"]["classes"][0]["range"]["maximum_diameter"] =
+        serde_json::json!(10_000_u64);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+        .unwrap_or_else(|error| panic!("concentration tamper decode failed: {error}"));
+    assert_eq!(
+        tampered.into_state(&fixture.registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::ConstituentSeparationJob(
+                ConstituentSeparationJobValidationError::Batch {
+                    job,
+                    error:
+                        ConstituentSeparationBatchError::InputParticleSizeOutsideOperatingRange {
+                            required: concentration_particle_size(),
+                            found: liberated_particle_size(),
+                        },
+                }
+            )
+        ))
+    );
 }
 
 #[cfg(feature = "test-soak")]
@@ -660,7 +739,7 @@ fn run_concentration_soak() -> AppState {
         CompositionComponent::new(MATERIAL_SLAG, 220_000),
     ])
     .unwrap_or_else(|error| panic!("concentration soak composition failed: {error}"));
-    let mut fixture = fixture(total_mass, composition);
+    let mut fixture = concentration_fixture(total_mass, composition);
     let initial_matter = calculate_matter_accounting(&fixture.state)
         .unwrap_or_else(|error| panic!("concentration soak matter accounting failed: {error}"))
         .total();

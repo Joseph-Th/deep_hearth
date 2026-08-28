@@ -51,9 +51,13 @@ GAMEPLAY_AUDIT_REPAIRS = {
         "gameplay_audit",
         "agency::gameplay_maintained_agency_counterfactuals",
     ),
-    "catalog_contract_tests::gameplay_machine_process_catalog_has_evidence": (
+    "catalog_contract_tests::gameplay_catalog_is_discovered_from_runtime_owners": (
         "gameplay_audit",
-        "catalog_contract_tests::gameplay_machine_process_catalog_has_evidence",
+        "catalog_contract_tests::gameplay_catalog_is_discovered_from_runtime_owners",
+    ),
+    "catalog_contract_tests::gameplay_generators_retain_meaningful_physical_variation": (
+        "gameplay_audit",
+        "catalog_contract_tests::gameplay_generators_retain_meaningful_physical_variation",
     ),
     "focused::gameplay_survival_provisioning_probe": (
         "gameplay_survival",

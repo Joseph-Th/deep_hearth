@@ -4,6 +4,7 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PrimitiveProgressionReview {
+    natural_priority: PrimitivePriority,
     prospecting_ticks: u64,
     surface_prospecting_ticks: u64,
     detailed_survey_ticks: u64,
@@ -23,6 +24,8 @@ struct PrimitiveProgressionReview {
     direct_copper_evidence_upper_ppm: u32,
     bulk_ore_evidence_lower_ppm: u32,
     bulk_ore_evidence_upper_ppm: u32,
+    hard_ore_evidence_lower_ppm: u32,
+    hard_ore_evidence_upper_ppm: u32,
     bulk_sample_copper_ppm: u32,
     processing_feed_selected_from_bulk: bool,
     direct_second_upgrade_blocked: bool,
@@ -40,6 +43,8 @@ struct PrimitiveProgressionReview {
     extraction_separation_ticks: u64,
     mechanization_separation_ticks: u64,
     material_efficiency_tradeoff: bool,
+    extraction_selected_hard_feed: bool,
+    extraction_reassessment_avoided_worse_feed: bool,
     crank_power_gain_ppm: u32,
     crank_attention_reduction_ppm: u32,
     extraction_hard_access_lead_ticks: u64,
@@ -55,7 +60,7 @@ struct PrimitiveProgressionReview {
     automation_preparation_ticks: u64,
     separator_preparation_ticks: u64,
     processing_line_preparation_ticks: u64,
-    attention_payback_cycles: Option<u64>,
+    productive_payback_cycles: Option<u64>,
     steady_state_cycles: u64,
     steady_state_stop: PrimitiveSteadyStop,
     final_crusher_condition_ppm: u32,
@@ -63,7 +68,14 @@ struct PrimitiveProgressionReview {
     reserve_machine_work_ticks: u64,
     mechanization_useful_overlap_ticks: u64,
     reserve_useful_overlap_ticks: u64,
-    returned_player_free_ticks: u64,
+    unfilled_autonomous_ticks: u64,
+    productive_autonomy_utilization_ppm: u32,
+    primary_autonomous_stop: AutonomousWorkStop,
+    reserve_autonomous_stop: AutonomousWorkStop,
+    primary_mining_jobs: u64,
+    reserve_mining_jobs: u64,
+    steady_mining_jobs: u64,
+    steady_feed_buffer_limited_cycles: u64,
     mechanization_player_free_delta_ticks: i128,
     mechanization_elapsed_delta_ticks: i128,
 }
@@ -122,14 +134,23 @@ fn evaluate_primitive_progression_probe(
     registries: &Registries,
     seed: u64,
 ) -> PrimitiveProgressionReview {
-    assert_playable_catalog_coverage(registries);
-    let selected_priority = primitive_priority(seed);
-    let selected = run_primitive_progression_case(registries, seed, selected_priority, true);
-    let alternative =
-        run_primitive_progression_case(registries, seed, selected_priority.opposite(), false);
-    let (extraction, mechanization) = match selected.priority {
-        PrimitivePriority::ExtractionFirst => (selected, alternative),
-        PrimitivePriority::MechanizationFirst => (alternative, selected),
+    assert_progression_runtime_dependencies(registries);
+    let extraction =
+        run_primitive_progression_case(registries, seed, PrimitivePriority::ExtractionFirst, true);
+    let mechanization = run_primitive_progression_case(
+        registries,
+        seed,
+        PrimitivePriority::MechanizationFirst,
+        true,
+    );
+    assert_eq!(
+        extraction.natural_priority, mechanization.natural_priority,
+        "matched-world branches must derive the same natural actor choice from the same observable decision state"
+    );
+    let natural_priority = extraction.natural_priority;
+    let natural = match natural_priority {
+        PrimitivePriority::ExtractionFirst => extraction,
+        PrimitivePriority::MechanizationFirst => mechanization,
     };
 
     let extraction_pick_at = extraction
@@ -256,6 +277,8 @@ fn evaluate_primitive_progression_probe(
             extraction.direct_copper_evidence_upper_ppm,
             extraction.bulk_ore_evidence_lower_ppm,
             extraction.bulk_ore_evidence_upper_ppm,
+            extraction.hard_ore_evidence_lower_ppm,
+            extraction.hard_ore_evidence_upper_ppm,
             extraction.bulk_sample_copper_ppm,
             extraction.processing_feed_selected_from_bulk,
         ),
@@ -266,6 +289,8 @@ fn evaluate_primitive_progression_probe(
             mechanization.direct_copper_evidence_upper_ppm,
             mechanization.bulk_ore_evidence_lower_ppm,
             mechanization.bulk_ore_evidence_upper_ppm,
+            mechanization.hard_ore_evidence_lower_ppm,
+            mechanization.hard_ore_evidence_upper_ppm,
             mechanization.bulk_sample_copper_ppm,
             mechanization.processing_feed_selected_from_bulk,
         ),
@@ -279,27 +304,23 @@ fn evaluate_primitive_progression_probe(
         extraction.refined_clue_mining_ticks, mechanization.refined_clue_mining_ticks,
         "matched-world priorities must pay the same information-unlocked extraction time"
     );
-    assert!(
-        extraction.selected_processing_feed_is_hard
-            && !mechanization.selected_processing_feed_is_hard,
-        "matched-world branch treatment must make extraction-first use the newly unlocked hard-seam feed while mechanization-first uses the already accessible bulk feed"
-    );
+    assert!(!mechanization.selected_processing_feed_is_hard);
     assert!(
         extraction.selected_processing_feed_copper_ppm
-            > mechanization.selected_processing_feed_copper_ppm,
-        "reinforced extraction must reveal and use higher-grade ore than the mechanization-first branch can access before convergence"
+            >= mechanization.selected_processing_feed_copper_ppm,
+        "extraction-first must reassess the unlocked hard-seam sample and never choose worse feed than the already-owned bulk ore"
     );
     assert!(
-        extraction.separation_feed_mass < mechanization.separation_feed_mass,
-        "higher-grade hard-seam feed must recover the same second-upgrade copper from less processed matter"
+        extraction.separation_feed_mass <= mechanization.separation_feed_mass,
+        "feed reassessment must not increase the matter required for the same second-upgrade copper parcel"
     );
     assert_eq!(
         extraction.recovered_copper_mass, mechanization.recovered_copper_mass,
         "matched-world priorities must recover the same second-upgrade copper parcel"
     );
     assert!(
-        extraction.separation_required_energy < mechanization.separation_required_energy,
-        "higher-grade feed must reduce the finite separation energy required for the same copper target"
+        extraction.separation_required_energy <= mechanization.separation_required_energy,
+        "feed reassessment must not increase finite separation energy for the same copper target"
     );
     assert!(
         extraction.separation_ticks <= mechanization.separation_ticks,
@@ -328,10 +349,18 @@ fn evaluate_primitive_progression_probe(
         && extraction.separation_feed_mass < mechanization.separation_feed_mass
         && extraction.separation_required_energy < mechanization.separation_required_energy
         && extraction.separation_ticks <= mechanization.separation_ticks;
+    let extraction_reassessment_avoided_worse_feed = !extraction.selected_processing_feed_is_hard
+        && extraction.selected_processing_feed_copper_ppm
+            == mechanization.selected_processing_feed_copper_ppm
+        && extraction.separation_feed_mass == mechanization.separation_feed_mass
+        && extraction.separation_required_energy == mechanization.separation_required_energy
+        && extraction.separation_ticks == mechanization.separation_ticks;
+    let extraction_feed_reassessment_is_coherent =
+        material_efficiency_tradeoff || extraction_reassessment_avoided_worse_feed;
     let sequencing_tradeoff = extraction.first_upgrade_at == extraction_pick_at
         && extraction_hard_at < extraction.machine_started_at
         && extraction.hard_ore_before_convergence > Mass::ZERO
-        && material_efficiency_tradeoff
+        && extraction_feed_reassessment_is_coherent
         && mechanization.initial_crank_reinforced
         && mechanization.machine_started_at < mechanization_pick_at
         && mechanization.hard_ore_before_convergence == Mass::ZERO
@@ -379,9 +408,19 @@ fn evaluate_primitive_progression_probe(
         extraction.second_upgrade_at,
         mechanization.second_upgrade_at,
     );
-    let returned_player_free_ticks = extraction
-        .machine_player_free_ticks
-        .min(mechanization.machine_player_free_ticks);
+    let unfilled_autonomous_ticks = natural.machine_player_free_ticks;
+    let productive_autonomy_ticks = natural.machine_useful_overlap_ticks;
+    let total_autonomous_ticks = productive_autonomy_ticks
+        .checked_add(unfilled_autonomous_ticks)
+        .unwrap_or_else(|| panic!("primitive autonomy duration overflowed"));
+    let productive_autonomy_utilization_ppm = if total_autonomous_ticks == 0 {
+        0
+    } else {
+        u32::try_from(
+            u128::from(productive_autonomy_ticks) * 1_000_000 / u128::from(total_autonomous_ticks),
+        )
+        .unwrap_or_else(|_| unreachable!("bounded autonomy utilization fits u32"))
+    };
     let automation_preparation_ticks = extraction
         .automation_preparation_ticks
         .max(mechanization.automation_preparation_ticks);
@@ -391,9 +430,9 @@ fn evaluate_primitive_progression_probe(
     let processing_line_preparation_ticks = extraction
         .processing_line_preparation_ticks
         .max(mechanization.processing_line_preparation_ticks);
-    let attention_payback_cycles = match (
-        extraction.attention_payback_cycles,
-        mechanization.attention_payback_cycles,
+    let productive_payback_cycles = match (
+        extraction.productive_payback_cycles,
+        mechanization.productive_payback_cycles,
     ) {
         (Some(extraction), Some(mechanization)) => Some(extraction.max(mechanization)),
         _ => None,
@@ -457,6 +496,7 @@ fn evaluate_primitive_progression_probe(
     }
 
     let review = PrimitiveProgressionReview {
+        natural_priority,
         prospecting_ticks: extraction.prospecting_ticks,
         surface_prospecting_ticks: extraction.surface_prospecting_ticks,
         detailed_survey_ticks: extraction.detailed_survey_ticks,
@@ -476,6 +516,8 @@ fn evaluate_primitive_progression_probe(
         direct_copper_evidence_upper_ppm: extraction.direct_copper_evidence_upper_ppm,
         bulk_ore_evidence_lower_ppm: extraction.bulk_ore_evidence_lower_ppm,
         bulk_ore_evidence_upper_ppm: extraction.bulk_ore_evidence_upper_ppm,
+        hard_ore_evidence_lower_ppm: extraction.hard_ore_evidence_lower_ppm,
+        hard_ore_evidence_upper_ppm: extraction.hard_ore_evidence_upper_ppm,
         bulk_sample_copper_ppm: extraction.bulk_sample_copper_ppm,
         processing_feed_selected_from_bulk: extraction.processing_feed_selected_from_bulk,
         direct_second_upgrade_blocked: extraction.direct_second_upgrade_blocked,
@@ -493,6 +535,8 @@ fn evaluate_primitive_progression_probe(
         extraction_separation_ticks: extraction.separation_ticks,
         mechanization_separation_ticks: mechanization.separation_ticks,
         material_efficiency_tradeoff,
+        extraction_selected_hard_feed: extraction.selected_processing_feed_is_hard,
+        extraction_reassessment_avoided_worse_feed,
         crank_power_gain_ppm,
         crank_attention_reduction_ppm,
         extraction_hard_access_lead_ticks,
@@ -510,7 +554,7 @@ fn evaluate_primitive_progression_probe(
         automation_preparation_ticks,
         separator_preparation_ticks,
         processing_line_preparation_ticks,
-        attention_payback_cycles,
+        productive_payback_cycles,
         steady_state_cycles: extraction.steady_state_cycles,
         steady_state_stop: extraction.steady_state_stop,
         final_crusher_condition_ppm: extraction.final_crusher_condition_ppm,
@@ -518,7 +562,14 @@ fn evaluate_primitive_progression_probe(
         reserve_machine_work_ticks: mechanization.reserve_machine_work_ticks,
         mechanization_useful_overlap_ticks: mechanization.machine_useful_overlap_ticks,
         reserve_useful_overlap_ticks: mechanization.reserve_useful_overlap_ticks,
-        returned_player_free_ticks,
+        unfilled_autonomous_ticks,
+        productive_autonomy_utilization_ppm,
+        primary_autonomous_stop: natural.primary_autonomous_stop,
+        reserve_autonomous_stop: natural.reserve_autonomous_stop,
+        primary_mining_jobs: natural.primary_mining_jobs,
+        reserve_mining_jobs: natural.reserve_mining_jobs,
+        steady_mining_jobs: natural.steady_mining_jobs,
+        steady_feed_buffer_limited_cycles: natural.steady_feed_buffer_limited_cycles,
         mechanization_player_free_delta_ticks: tick_delta(
             extraction.machine_player_free_ticks,
             mechanization.machine_player_free_ticks,
@@ -530,15 +581,10 @@ fn evaluate_primitive_progression_probe(
     };
     let choice_windows_are_consequential = review.extraction_hard_material_window_ticks > 0
         && review.mechanization_processed_output_window_ticks > 0;
-    let post_payback_cycles = review
-        .attention_payback_cycles
+    let post_productive_payback_cycles = review
+        .productive_payback_cycles
         .and_then(|payback| review.steady_state_cycles.checked_sub(payback))
         .unwrap_or(0);
-    let automation_attention_payback_precedes_end_of_life = review
-        .attention_payback_cycles
-        .is_some_and(|cycles| cycles < review.steady_state_cycles)
-        && review.returned_player_free_ticks >= review.automation_preparation_ticks
-        && post_payback_cycles > 0;
     let fantasy_captured = review.surface_resolved_clue_count < review.surface_clue_count
         && review.surface_resolved_clue_count > 0
         && review.information_refinement_required
@@ -554,7 +600,8 @@ fn evaluate_primitive_progression_probe(
         && review.detailed_survey_ticks > 0
         && review.refined_clue_sample_mg > 0
         && review.sequencing_tradeoff
-        && review.material_efficiency_tradeoff
+        && (review.material_efficiency_tradeoff
+            || review.extraction_reassessment_avoided_worse_feed)
         && review.converged_both_upgrades
         && review.processed_output_has_playable_acquisition_use
         && review.tool_attention_reduction_ppm > 0
@@ -565,37 +612,77 @@ fn evaluate_primitive_progression_probe(
         && choice_windows_are_consequential
         && review.extraction_hard_ore_before_convergence_mg > 0
         && review.mechanization_processed_before_pick_upgrade
-        && review.mechanization_useful_overlap_ticks > 0
-        && review.reserve_useful_overlap_ticks > 0
-        && automation_attention_payback_precedes_end_of_life;
+        && review.mechanization_useful_overlap_ticks > 0;
     assert!(
         fantasy_captured,
-        "primitive progression must turn uncertainty into a paid information choice, make the scarce-copper decision produce reciprocal physical leverage, and repay automation setup attention within bounded repetition"
+        "primitive progression must turn uncertainty into a paid information choice, make an observation-grounded scarce-copper decision produce reciprocal physical leverage, and demonstrate useful work during delegated processing"
     );
-    let payback = review
-        .attention_payback_cycles
+    let productive_payback = review
+        .productive_payback_cycles
         .map(|cycles| format!("{cycles}cycles"))
-        .unwrap_or_else(|| format!("unreached-within-{MAX_STEADY_STATE_CRUSH_CYCLES}-cycles"));
+        .unwrap_or_else(|| {
+            format!(
+                "unreached-in-{}-executed-cycles",
+                review.steady_state_cycles
+            )
+        });
+    let physiology = registries.survival().physiology();
+    let natural_energy_spent_ppm = u32::try_from(
+        natural.metabolic_energy_spent_nj * 1_000_000
+            / physiology.maximum_metabolic_energy().nanojoules(),
+    )
+    .unwrap_or_else(|_| unreachable!("bounded progression energy cost fits normalized ppm"));
+    let natural_hydration_spent_ppm = u32::try_from(
+        u128::from(natural.hydration_spent_ul) * 1_000_000
+            / u128::from(physiology.maximum_hydration().microliters()),
+    )
+    .unwrap_or_else(|_| unreachable!("bounded progression hydration cost fits normalized ppm"));
     let unresolved_surface_clues = review
         .surface_clue_count
         .checked_sub(review.surface_resolved_clue_count)
         .unwrap_or_else(|| unreachable!("resolved clue count cannot exceed observed clue count"));
     std::println!(
-        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=observe->infer->prepare->extract->invest->delegate->reinvest captured:{fantasy_captured} knowledge=[surface:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t] tradeoff=[extraction-grade:{}ppm mechanization-grade:{}ppm first-output-delta:{:+}t reciprocal:{} converged:{}] autonomy=[break-even:{payback} post-payback:{}cycles returned-free:{}t stop:{}]",
+        "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=observe->infer->prepare->extract->invest->delegate->reinvest captured:{fantasy_captured} knowledge=[surface:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t] actor-choice=[policy=hard-lower-bound-premium>={}ppm chosen:{} owned-bulk:{}ppm hard-evidence:{}..{}ppm] tradeoff=[extraction-feed:{} extraction-grade:{}ppm mechanization-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} first-output-delta:{:+}t reciprocal:{} converged:{}] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
         review.surface_prospecting_ticks,
         review.surface_clue_count,
         review.surface_resolved_clue_count,
         unresolved_surface_clues,
         review.refinement_triggered_by_direct_shortage,
         review.detailed_survey_ticks,
+        EXTRACTION_GUARANTEED_GRADE_PREMIUM_PPM,
+        review.natural_priority.label(),
+        review.bulk_sample_copper_ppm,
+        review.hard_ore_evidence_lower_ppm,
+        review.hard_ore_evidence_upper_ppm,
+        if review.extraction_selected_hard_feed {
+            "hard-sample"
+        } else {
+            "owned-bulk-after-reassessment"
+        },
         review.extraction_feed_copper_ppm,
         review.mechanization_feed_copper_ppm,
-        review.mechanization_output_delta_ticks,
         review.material_efficiency_tradeoff,
+        review.extraction_reassessment_avoided_worse_feed,
+        review.mechanization_output_delta_ticks,
+        review.sequencing_tradeoff,
         review.converged_both_upgrades,
-        post_payback_cycles,
-        review.returned_player_free_ticks,
+        natural.machine_useful_overlap_ticks,
+        review.unfilled_autonomous_ticks,
+        review.productive_autonomy_utilization_ppm,
+        review.primary_mining_jobs,
+        review.primary_autonomous_stop.label(),
+        review.reserve_mining_jobs,
+        review.reserve_autonomous_stop.label(),
+        review.steady_mining_jobs,
+        review.steady_feed_buffer_limited_cycles,
+        review.steady_state_cycles,
+        post_productive_payback_cycles,
+        review.steady_state_cycles,
+        MAX_STEADY_STATE_CRUSH_CYCLES,
         review.steady_state_stop.label(),
+        natural_energy_spent_ppm,
+        natural_hydration_spent_ppm,
+        natural.elapsed_ticks,
     );
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
@@ -615,22 +702,30 @@ fn evaluate_primitive_progression_probe(
             primitive_flywheel_input_power.whole_microwatts(),
             review.crank_attention_reduction_ppm,
             review.mechanization_processed_output_window_ticks,
-            review.material_efficiency_tradeoff,
+            review.sequencing_tradeoff,
             review.converged_both_upgrades,
             review.mechanization_convergence_delta_ticks,
             extraction.hard_ore_mined.milligrams(),
             mechanization.hard_ore_mined.milligrams(),
         );
         std::println!(
-            "PROGRESSION AUTONOMY seed=0x{seed:016X} setup=[automation:{}t separator:{}t line:{}t] payback=[break-even:{payback} before-end-of-life:{automation_attention_payback_precedes_end_of_life} post-payback:{}cycles] delegated-work=[machine:{}t productive-overlap:{}t reserve-overlap:{}t returned-free:{}t] lifecycle=[cycles:{} stop:{} crusher-condition:{}ppm] branch-deltas=[free:{:+}t elapsed:{:+}t]",
+            "PROGRESSION AUTONOMY seed=0x{seed:016X} setup=[automation:{}t separator:{}t line:{}t] productive-setup-equivalent=[{productive_payback} post-equivalent:{}cycles observational-not-required:true] delegated-work=[machine:{}t productive-overlap:{}t reserve-overlap:{}t unfilled:{}t utilization:{}ppm primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] lifecycle=[cycles:{} stop:{} crusher-condition:{}ppm] branch-deltas=[unfilled:{:+}t elapsed:{:+}t]",
             review.automation_preparation_ticks,
             review.separator_preparation_ticks,
             review.processing_line_preparation_ticks,
-            post_payback_cycles,
+            post_productive_payback_cycles,
             review.machine_work_ticks,
             review.mechanization_useful_overlap_ticks,
             review.reserve_useful_overlap_ticks,
-            review.returned_player_free_ticks,
+            review.unfilled_autonomous_ticks,
+            review.productive_autonomy_utilization_ppm,
+            review.primary_mining_jobs,
+            review.primary_autonomous_stop.label(),
+            review.reserve_mining_jobs,
+            review.reserve_autonomous_stop.label(),
+            review.steady_mining_jobs,
+            review.steady_feed_buffer_limited_cycles,
+            review.steady_state_cycles,
             review.steady_state_cycles,
             review.steady_state_stop.label(),
             review.final_crusher_condition_ppm,

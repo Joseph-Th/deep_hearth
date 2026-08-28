@@ -169,6 +169,25 @@ pub(super) enum PoweredOreTimingError {
     Condition(ActiveConditionDurationError),
 }
 
+/// Physical rate constraint that determines one powered ore-processing duration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PoweredOreBottleneck {
+    Throughput,
+    EnergyDelivery,
+    Balanced,
+}
+
+pub(super) fn classify_powered_ore_bottleneck(
+    throughput_duration: TickSpan,
+    energy_duration: TickSpan,
+) -> PoweredOreBottleneck {
+    match throughput_duration.cmp(&energy_duration) {
+        std::cmp::Ordering::Greater => PoweredOreBottleneck::Throughput,
+        std::cmp::Ordering::Less => PoweredOreBottleneck::EnergyDelivery,
+        std::cmp::Ordering::Equal => PoweredOreBottleneck::Balanced,
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct PoweredOreJobReplay {
     processing_rate: MassFlow,

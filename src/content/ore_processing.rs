@@ -2,7 +2,9 @@
 
 use crate::core::quantity::{Length, MassSpecificEnergy};
 use crate::energy::EnergyCarrier;
-use crate::material::{ParticleSizeClass, ParticleSizeDistribution, ParticleSizeRange};
+use crate::material::{
+    CommodityKey, ParticleSizeClass, ParticleSizeDistribution, ParticleSizeRange,
+};
 use crate::ore_processing::{
     ComminutionProcessDefinition, ConstituentRecoveryProfile,
     ConstituentSeparationProcessDefinition, OreProcessingRegistry, PoweredOreProcessProfile,
@@ -52,6 +54,7 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
     .unwrap_or_else(|error| panic!("built-in screen oversize range is invalid: {error}"));
     let fine_particle_size = ParticleSizeDistribution::new(vec![particle_size_class(500, 2_000)])
         .unwrap_or_else(|error| panic!("built-in fine particle distribution is invalid: {error}"));
+    let liberated_concentration_range = fine_particle_size.envelope();
     OreProcessingRegistry::new_with_processes(
         [
             ComminutionProcessDefinition::new(
@@ -127,8 +130,8 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
             ConstituentSeparationProcessDefinition::new_concentration(
                 PROCESS_CONCENTRATE_COPPER,
                 FORM_CRUSHED,
-                MATERIAL_COPPER,
-                FORM_CONCENTRATE,
+                liberated_concentration_range,
+                CommodityKey::new(MATERIAL_COPPER, FORM_CONCENTRATE),
                 FORM_CRUSHED,
                 ConstituentRecoveryProfile::new(900_000, 200_000),
                 PoweredOreProcessProfile::new(

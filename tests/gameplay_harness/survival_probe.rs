@@ -825,7 +825,21 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
     }
 }
 
-fn evaluate_survival_work_pressure_probe(registries: &Registries, seed: u64) {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SurvivalWorkPressureReview {
+    prospecting_ticks: u64,
+    prospecting_energy_deficit_ppm: u32,
+    prospecting_hydration_deficit_ppm: u32,
+    manual_power_ticks: u64,
+    manual_power_energy_deficit_ppm: u32,
+    manual_power_hydration_deficit_ppm: u32,
+    stored_work_nj: u128,
+}
+
+fn evaluate_survival_work_pressure_probe(
+    registries: &Registries,
+    seed: u64,
+) -> SurvivalWorkPressureReview {
     let physiology = registries.survival().physiology();
 
     let mut prospecting = AppState::new(WorldSeed::new(seed ^ 0x5052_4F53_5045_4354));
@@ -994,11 +1008,20 @@ fn evaluate_survival_work_pressure_probe(registries: &Registries, seed: u64) {
             requested_energy.nanojoules(),
         );
     }
+    SurvivalWorkPressureReview {
+        prospecting_ticks,
+        prospecting_energy_deficit_ppm,
+        prospecting_hydration_deficit_ppm,
+        manual_power_ticks: power_ticks,
+        manual_power_energy_deficit_ppm: power_energy_deficit_ppm,
+        manual_power_hydration_deficit_ppm: power_hydration_deficit_ppm,
+        stored_work_nj: requested_energy.nanojoules(),
+    }
 }
 
 fn evaluate_survival_provisioning_probe(registries: &Registries, seed: u64) {
     evaluate_survival_pressure_response_probe(registries, seed);
-    evaluate_survival_work_pressure_probe(registries, seed);
+    let work_pressure = evaluate_survival_work_pressure_probe(registries, seed);
     let world = provisioning_world(registries, seed);
     let foods = world.foods.as_slice();
     let provisioning_wait_ticks = world.provisioning_wait_ticks;
@@ -1064,8 +1087,15 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, seed: u64) {
         .saturating_sub(compact.recovery_rate_after_ppm_per_tick);
     let reserve_recovered = compact.reserve_recovered && balanced.reserve_recovered;
     std::println!(
-        "SURVIVAL REVIEW seed=0x{seed:016X} fantasy=prepare+provision episode=[wait:{provisioning_wait_ticks}t available-categories:{}] matched-world-choice=[compact-calories:[selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t] balanced:[selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t]] tradeoff=[meal-mass-delta:+{}mg water-saved:+{}uL diet-quality-advantage:+{}ppm recovery-advantage:+{}ppm/t] pressure=[energy:{}ppm hydration:{}ppm dominant:{}] preservation=[age-saved:{}t retained:{}mg] reserve-recovered:{}",
+        "SURVIVAL REVIEW seed=0x{seed:016X} fantasy=prepare+provision episode=[wait:{provisioning_wait_ticks}t available-categories:{}] activity-pressure=[prospecting:{}t energy:{}ppm hydration:{}ppm dominant:hydration; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:energy stored-work:{}nJ] matched-world-choice=[compact-calories:[selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t] balanced:[selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t]] tradeoff=[meal-mass-delta:+{}mg water-saved:+{}uL diet-quality-advantage:+{}ppm recovery-advantage:+{}ppm/t] passive-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] preservation=[age-saved:{}t retained:{}mg] reserve-recovered:{}",
         foods.len(),
+        work_pressure.prospecting_ticks,
+        work_pressure.prospecting_energy_deficit_ppm,
+        work_pressure.prospecting_hydration_deficit_ppm,
+        work_pressure.manual_power_ticks,
+        work_pressure.manual_power_energy_deficit_ppm,
+        work_pressure.manual_power_hydration_deficit_ppm,
+        work_pressure.stored_work_nj,
         compact.selected_category_count,
         compact.meal_mass_mg,
         compact.drink_volume_ul,

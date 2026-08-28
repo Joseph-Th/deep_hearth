@@ -529,13 +529,13 @@ pub(super) fn run_scenario(
             }
         }
         match outcome.bottleneck {
-            ComminutionBottleneck::Throughput => {
+            PoweredOreBottleneck::Throughput => {
                 report.limits.throughput_bottleneck_batches += 1;
             }
-            ComminutionBottleneck::EnergyDelivery => {
+            PoweredOreBottleneck::EnergyDelivery => {
                 report.limits.energy_bottleneck_batches += 1;
             }
-            ComminutionBottleneck::Balanced => {
+            PoweredOreBottleneck::Balanced => {
                 report.limits.balanced_bottleneck_batches += 1;
             }
         }
@@ -792,18 +792,13 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
     let behavior_raw = env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok();
-    let (default_world_root, default_behavior_root) = match mode {
-        ScenarioPlanMode::Gate => (MAINTAINED_VARIATION_ROOT, MAINTAINED_BEHAVIOR_ROOT),
-        ScenarioPlanMode::Explore => {
-            let mode_salt = 0x4558_504C_5EED_2026;
-            (
-                fresh_root(MAINTAINED_VARIATION_ROOT ^ mode_salt),
-                fresh_root(
-                    MAINTAINED_BEHAVIOR_ROOT ^ mode_salt.rotate_left(17) ^ 0xB3A4_7102_5EED_2026,
-                ),
-            )
-        }
+    let mode_salt = match mode {
+        ScenarioPlanMode::Gate => 0x4741_5445_5EED_2026,
+        ScenarioPlanMode::Explore => 0x4558_504C_5EED_2026,
     };
+    let default_world_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ mode_salt);
+    let default_behavior_root =
+        fresh_root(MAINTAINED_BEHAVIOR_ROOT ^ mode_salt.rotate_left(17) ^ 0xB3A4_7102_5EED_2026);
     let plan = scenario_seeds_from(
         mode,
         scenario_raw.as_deref(),
@@ -825,7 +820,7 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     );
     print_content_summary(&registries, verbose);
     std::println!(
-        "EVIDENCE SCOPE ordinary-play-probes=[survival,local-prospecting,hand-mining,manual-crafting,primitive-power,primitive-processing] controlled-capability-probes=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] authority-for-global-runtime-scope=STATUS.md"
+        "EVIDENCE SCOPE ordinary-play-probes=[survival,local-prospecting,hand-mining,manual-crafting,primitive-power,primitive-processing] controlled-capability-probes=[industrial-workshop,industrial-ore-preparation,pure-copper-foundry] registry-route-discovery=CONTENT-PROCESS-ROUTES world-bootstrap-boundary=STATUS.md"
     );
     if verbose {
         std::println!(
@@ -878,7 +873,7 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
         assert_anchor_diversity(&anchor_reports);
     }
     let evidence_mode = match mode {
-        ScenarioPlanMode::Gate => "controlled",
+        ScenarioPlanMode::Gate => "anchored+organic",
         ScenarioPlanMode::Explore => "exploratory",
     };
     print_harness_summary(evidence_mode, &reports, verbose);

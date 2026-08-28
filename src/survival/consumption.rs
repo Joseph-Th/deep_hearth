@@ -412,7 +412,7 @@ impl NutritionEnergy {
     }
 }
 
-fn allocate_nutrition(total_ppm: u32, offered: NutritionEnergy) -> NutritionGain {
+fn allocate_nutrition(total_ppm: u128, offered: NutritionEnergy) -> NutritionGain {
     let offered_total = offered.total();
     if total_ppm == 0 || offered_total == 0 {
         return NutritionGain::default();
@@ -422,37 +422,36 @@ fn allocate_nutrition(total_ppm: u32, offered: NutritionEnergy) -> NutritionGain
         FoodCategory::Fruit,
         FoodCategory::Protein,
     ];
-    let mut allocated = [0_u32; 3];
+    let mut allocated = [0_u128; 3];
     let mut remainders = [(0_u128, 0_usize); 3];
-    let mut allocated_total = 0_u32;
+    let mut allocated_total = 0_u128;
     for (index, category) in categories.into_iter().enumerate() {
-        let (share, remainder) = checked_mul_div_with_remainder(
-            offered.get(category),
-            u128::from(total_ppm),
-            offered_total,
-            0,
-        )
-        .unwrap_or_else(|| panic!("bounded nutrition allocation overflowed"));
-        allocated[index] = u32::try_from(share)
-            .unwrap_or_else(|_| panic!("nutrition category allocation exceeded total gain"));
+        let (share, remainder) =
+            checked_mul_div_with_remainder(offered.get(category), total_ppm, offered_total, 0)
+                .unwrap_or_else(|| panic!("bounded nutrition allocation overflowed"));
+        allocated[index] = share;
         remainders[index] = (remainder, index);
         allocated_total += allocated[index];
     }
     remainders.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
-    for (_, index) in remainders
-        .into_iter()
-        .take((total_ppm - allocated_total) as usize)
-    {
+    let remainder_units = usize::try_from(total_ppm - allocated_total)
+        .unwrap_or_else(|_| panic!("three-category nutrition remainder exceeded usize"));
+    for (_, index) in remainders.into_iter().take(remainder_units) {
         allocated[index] += 1;
     }
+    let reserve_maximum = u128::from(super::NUTRITION_PARTS_PER_MILLION);
+    let bounded = allocated.map(|gain| {
+        u32::try_from(gain.min(reserve_maximum))
+            .unwrap_or_else(|_| unreachable!("bounded nutrition gain always fits u32"))
+    });
     NutritionGain {
-        grain_ppm: allocated[0],
-        fruit_ppm: allocated[1],
-        protein_ppm: allocated[2],
+        grain_ppm: bounded[0],
+        fruit_ppm: bounded[1],
+        protein_ppm: bounded[2],
     }
 }
 
-fn normalized_nutrition_gain_ppm(offered: Energy, maximum: Energy) -> Result<u32, EatError> {
+fn normalized_nutrition_gain_ppm(offered: Energy, maximum: Energy) -> Result<u128, EatError> {
     debug_assert!(!maximum.is_zero());
     let (gain, _) = checked_mul_div_with_remainder(
         offered.nanojoules(),
@@ -461,7 +460,7 @@ fn normalized_nutrition_gain_ppm(offered: Energy, maximum: Energy) -> Result<u32
         0,
     )
     .ok_or(EatError::NutritionOverflow)?;
-    u32::try_from(gain).map_err(|_| EatError::NutritionOverflow)
+    Ok(gain)
 }
 
 #[derive(Debug)]

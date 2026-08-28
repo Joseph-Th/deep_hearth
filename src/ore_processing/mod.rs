@@ -12,13 +12,12 @@ use crate::material::{
     CommodityKey, MaterialFormCohesion, MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy,
 };
 use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
-pub use powered_physics::PoweredOreJobValidationError;
+pub use powered_physics::{PoweredOreBottleneck, PoweredOreJobValidationError};
 use std::collections::BTreeMap;
 
 pub use comminution_execution::{
-    ComminutionBatchError, ComminutionBottleneck, ComminutionJobValidationError,
-    ComminutionRequest, ComminutionResolutionError, ResolvedComminution,
-    resolve_comminution_process,
+    ComminutionBatchError, ComminutionJobValidationError, ComminutionRequest,
+    ComminutionResolutionError, ResolvedComminution, resolve_comminution_process,
 };
 
 pub(crate) use comminution_execution::validate_loaded_comminution_job;
@@ -29,17 +28,16 @@ pub use definitions::{
 };
 
 pub use separation_execution::{
-    ConstituentSeparationBatchError, ConstituentSeparationBottleneck,
-    ConstituentSeparationJobValidationError, ConstituentSeparationRequest,
-    ConstituentSeparationResolutionError, ResolvedConstituentSeparation,
-    resolve_constituent_separation_process,
+    ConstituentSeparationBatchError, ConstituentSeparationJobValidationError,
+    ConstituentSeparationRequest, ConstituentSeparationResolutionError,
+    ResolvedConstituentSeparation, resolve_constituent_separation_process,
 };
 
 pub(crate) use separation_execution::validate_loaded_constituent_separation_job;
 
 pub use screening_execution::{
-    ResolvedScreening, ScreeningBatchError, ScreeningBottleneck, ScreeningJobValidationError,
-    ScreeningRequest, ScreeningResolutionError, resolve_screening_process,
+    ResolvedScreening, ScreeningBatchError, ScreeningJobValidationError, ScreeningRequest,
+    ScreeningResolutionError, resolve_screening_process,
 };
 
 pub(crate) use screening_execution::validate_loaded_screening_job;

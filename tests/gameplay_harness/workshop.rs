@@ -56,7 +56,7 @@ use deep_hearth::maintenance::{Condition, MaintenanceBand};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::ore_processing::{
-    ComminutionBottleneck, ComminutionRequest, ComminutionResolutionError, ResolvedComminution,
+    ComminutionRequest, ComminutionResolutionError, PoweredOreBottleneck, ResolvedComminution,
     resolve_comminution_process,
 };
 use deep_hearth::production::{
@@ -169,7 +169,7 @@ fn assemble_workshop_hand_crank(registries: &Registries, state: &mut AppState) -
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct CrushBatchOutcome {
-    bottleneck: ComminutionBottleneck,
+    bottleneck: PoweredOreBottleneck,
     completed: bool,
 }
 

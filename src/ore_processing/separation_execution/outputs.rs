@@ -217,6 +217,19 @@ fn validate_input_trace(
         .unwrap_or_else(|| {
             unreachable!("authored constituent-separation input form requires particulate state")
         });
+    if let Some(required) = definition.input_particle_size_range() {
+        let found = particle_size.envelope();
+        if found.minimum_diameter() < required.minimum_diameter()
+            || found.maximum_diameter() > required.maximum_diameter()
+        {
+            return Err(
+                ConstituentSeparationBatchError::InputParticleSizeOutsideOperatingRange {
+                    required,
+                    found,
+                },
+            );
+        }
+    }
     Ok((profile.temperature(), particle_size))
 }
 

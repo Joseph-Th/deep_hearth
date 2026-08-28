@@ -3,6 +3,14 @@
 use super::*;
 
 #[test]
+fn greatest_common_divisor_handles_zero_and_coprime_inputs() {
+    assert_eq!(greatest_common_divisor_u32(0, 0), 0);
+    assert_eq!(greatest_common_divisor_u32(0, 42), 42);
+    assert_eq!(greatest_common_divisor_u32(84, 30), 6);
+    assert_eq!(greatest_common_divisor_u32(u32::MAX, u32::MAX - 1), 1);
+}
+
+#[test]
 fn scaling_preserves_fractional_remainder_across_steps() {
     let (first, remainder) = checked_mul_div_with_remainder(1, 1, 3, 0)
         .unwrap_or_else(|| panic!("first exact scaling unexpectedly overflowed"));

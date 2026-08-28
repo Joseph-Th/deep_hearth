@@ -1,48 +1,47 @@
-//! Aggregate gameplay-evidence coverage for authored runtime process catalogs.
+//! Dynamic gameplay-catalog discovery and bounded scenario-generation diversity contracts.
 
 use std::collections::BTreeSet;
 
-use deep_hearth::content::{
-    PROCESS_CAST_PURE_COPPER, PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE,
-    PROCESS_FINE_GRIND_SCREEN_OVERSIZE, PROCESS_GRIND_CRUSHED_ORE, PROCESS_MELT_PURE_COPPER,
-    PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
-};
+use deep_hearth::content::build_registries;
 
 use super::foundry_probe::probe_setup as foundry_probe_setup;
 use super::ore_probe::probe_parameters;
 use super::progression_probe::varied_four_way_order;
+use super::report::{ProcessResolverKind, process_catalog_entries};
 use super::survival_probe::provisioning_world;
 
 #[test]
-fn gameplay_machine_process_catalog_has_evidence() {
+fn gameplay_catalog_is_discovered_from_runtime_owners() {
     let registries = build_registries();
-    let manual_processes = registries
-        .crafting()
-        .definitions()
-        .map(|definition| definition.process())
-        .collect::<BTreeSet<_>>();
-    let actual_machine_processes = registries
-        .production()
-        .definitions()
-        .map(|definition| definition.id())
-        .filter(|process| !manual_processes.contains(process))
-        .collect::<BTreeSet<_>>();
-    let exercised_machine_processes = BTreeSet::from([
-        PROCESS_CRUSH_ORE,
-        PROCESS_GRIND_CRUSHED_ORE,
-        PROCESS_SCREEN_CRUSHED_ORE,
-        PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
-        PROCESS_CONCENTRATE_COPPER,
-        PROCESS_MELT_PURE_COPPER,
-        PROCESS_CAST_PURE_COPPER,
-        PROCESS_SEPARATE_NATIVE_COPPER,
-    ]);
-
     assert_eq!(
-        actual_machine_processes, exercised_machine_processes,
-        "gameplay evidence coverage is stale: classify every authored non-manual production process in progression, workshop, ore, or foundry evaluation"
+        process_catalog_entries(&registries).len(),
+        registries.production().definitions().count(),
+        "cold-agent catalog discovery must classify every authored process"
     );
+    for entry in process_catalog_entries(&registries) {
+        if entry.resolver == ProcessResolverKind::ManualCraft {
+            assert_eq!(entry.nominal_provider_count, 0);
+            assert_eq!(entry.matching_energy_store_count, 0);
+            continue;
+        }
+        assert!(
+            entry.nominal_provider_count > 0,
+            "machine process {} ({}) has no authored equipment definition satisfying its nominal capability requirements",
+            entry.process.value(),
+            entry.name,
+        );
+        assert!(
+            entry.matching_energy_store_count > 0,
+            "machine process {} ({}) has no energy store with the required carrier and transfer direction",
+            entry.process.value(),
+            entry.name,
+        );
+    }
+}
 
+#[test]
+fn gameplay_generators_retain_meaningful_physical_variation() {
+    let registries = build_registries();
     let ore_setups = (1_u64..=8)
         .map(|seed| probe_parameters(&registries, seed))
         .collect::<Vec<_>>();

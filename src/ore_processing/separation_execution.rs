@@ -14,7 +14,7 @@ use crate::energy::{
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
 use crate::inventory::{MaterialLotSelection, StockpileId};
 use crate::maintenance::{ActiveConditionDurationError, Condition};
-use crate::material::{FormId, MaterialId, MaterialLotSpecError};
+use crate::material::{FormId, MaterialId, MaterialLotSpecError, ParticleSizeRange};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputStream, ProcessResolution, ProcessResolutionError,
     validate_selected_process_inputs,
@@ -22,8 +22,8 @@ use crate::production::{
 use crate::registry::Registries;
 
 use super::powered_physics::{
-    PoweredOreEquipmentError, PoweredOreTimingError, resolve_powered_ore_equipment,
-    resolve_powered_ore_timing,
+    PoweredOreBottleneck, PoweredOreEquipmentError, PoweredOreTimingError,
+    classify_powered_ore_bottleneck, resolve_powered_ore_equipment, resolve_powered_ore_timing,
 };
 use super::{ConstituentSeparationProcessDefinition, MassFlowDurationError};
 
@@ -71,6 +71,10 @@ pub enum ConstituentSeparationBatchError {
         expected: FormId,
         found: FormId,
     },
+    InputParticleSizeOutsideOperatingRange {
+        required: ParticleSizeRange,
+        found: ParticleSizeRange,
+    },
     InputHostMaterialMismatch {
         expected: MaterialId,
         found: MaterialId,
@@ -104,6 +108,14 @@ impl Display for ConstituentSeparationBatchError {
                 "constituent separation requires input form {} but selected form {}",
                 expected.value(),
                 found.value()
+            ),
+            Self::InputParticleSizeOutsideOperatingRange { required, found } => write!(
+                formatter,
+                "constituent separation requires feed inside {}..={} um but selected feed spans {}..={} um",
+                required.minimum_diameter().micrometers(),
+                required.maximum_diameter().micrometers(),
+                found.minimum_diameter().micrometers(),
+                found.maximum_diameter().micrometers()
             ),
             Self::InputHostMaterialMismatch { expected, found } => write!(
                 formatter,
@@ -152,6 +164,7 @@ impl Error for ConstituentSeparationBatchError {
             Self::Output(error) => Some(error),
             Self::EmptyInput
             | Self::InputFormMismatch { .. }
+            | Self::InputParticleSizeOutsideOperatingRange { .. }
             | Self::InputHostMaterialMismatch { .. }
             | Self::UnsupportedConstituent { .. }
             | Self::MissingTargetConstituent { .. }
@@ -268,14 +281,6 @@ impl Error for ConstituentSeparationResolutionError {
     }
 }
 
-/// Physical rate constraint currently setting resolved constituent-separation duration.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ConstituentSeparationBottleneck {
-    Throughput,
-    EnergyDelivery,
-    Balanced,
-}
-
 /// Fully resolved constituent separation ready for routed production start.
 #[must_use]
 #[derive(Debug)]
@@ -349,12 +354,8 @@ impl ResolvedConstituentSeparation {
     }
 
     #[must_use]
-    pub fn bottleneck(&self) -> ConstituentSeparationBottleneck {
-        match self.throughput_duration.cmp(&self.energy_duration) {
-            std::cmp::Ordering::Greater => ConstituentSeparationBottleneck::Throughput,
-            std::cmp::Ordering::Less => ConstituentSeparationBottleneck::EnergyDelivery,
-            std::cmp::Ordering::Equal => ConstituentSeparationBottleneck::Balanced,
-        }
+    pub fn bottleneck(&self) -> PoweredOreBottleneck {
+        classify_powered_ore_bottleneck(self.throughput_duration, self.energy_duration)
     }
 }
 

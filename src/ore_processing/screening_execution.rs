@@ -22,9 +22,9 @@ use crate::registry::Registries;
 
 use super::MassFlowDurationError;
 use super::powered_physics::{
-    PoweredOreEquipmentError, PoweredOreJobValidationError, PoweredOreTimingError,
-    resolve_powered_ore_equipment, resolve_powered_ore_job_replay, resolve_powered_ore_timing,
-    validate_powered_ore_job_replay,
+    PoweredOreBottleneck, PoweredOreEquipmentError, PoweredOreJobValidationError,
+    PoweredOreTimingError, classify_powered_ore_bottleneck, resolve_powered_ore_equipment,
+    resolve_powered_ore_job_replay, resolve_powered_ore_timing, validate_powered_ore_job_replay,
 };
 
 mod outputs;
@@ -174,14 +174,6 @@ impl Error for ScreeningResolutionError {
     }
 }
 
-/// Physical rate constraint that determines one resolved screening duration.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ScreeningBottleneck {
-    Throughput,
-    EnergyDelivery,
-    Balanced,
-}
-
 /// Fully resolved screening operation ready for the canonical production start transaction.
 #[must_use]
 #[derive(Debug)]
@@ -270,16 +262,11 @@ impl ResolvedScreening {
     }
 
     #[must_use]
-    pub fn bottleneck(&self) -> ScreeningBottleneck {
-        match self
-            .constraints
-            .throughput_duration
-            .cmp(&self.constraints.energy_duration)
-        {
-            std::cmp::Ordering::Greater => ScreeningBottleneck::Throughput,
-            std::cmp::Ordering::Less => ScreeningBottleneck::EnergyDelivery,
-            std::cmp::Ordering::Equal => ScreeningBottleneck::Balanced,
-        }
+    pub fn bottleneck(&self) -> PoweredOreBottleneck {
+        classify_powered_ore_bottleneck(
+            self.constraints.throughput_duration,
+            self.constraints.energy_duration,
+        )
     }
 }
 

@@ -47,7 +47,7 @@ acquisition path is not implemented.
 | Surface | Evaluated capability |
 | --- | --- |
 | Workshop | Installed industrial machines operate under finite stored work, survival pressure, wear, maintenance, structural support, suspension/recovery, and policy-dependent choices. |
-| Ore preparation | Installed crushing, grinding, dry screening, oversize regrinding, and generalized copper concentration preserve exact constituent accounting and produce physical tailings. |
+| Ore preparation | Installed crushing, grinding, dry screening, oversize regrinding, and generalized copper concentration preserve exact constituent accounting and produce physical tailings. Concentration requires fully liberated 500..=2,000 um particulate feed rather than accepting primary coarse crusher output directly. |
 | Foundry | Installed sensible heating, pure-material melting, and pure-material casting use finite energy, equipment limits, phase boundaries, latent heat, finite heat recovery, and passive heat rejection from the workshop sink. |
 
 ## Not implemented

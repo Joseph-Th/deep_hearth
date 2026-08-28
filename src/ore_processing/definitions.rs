@@ -5,7 +5,8 @@ use crate::core::quantity::{Length, MassSpecificEnergy};
 use crate::energy::EnergyCarrier;
 use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::material::{
-    COMPOSITION_PARTS_PER_MILLION, FormId, MaterialId, ParticleSizeDistribution, ParticleSizeRange,
+    COMPOSITION_PARTS_PER_MILLION, CommodityKey, FormId, MaterialId, ParticleSizeDistribution,
+    ParticleSizeRange,
 };
 use crate::production::ProcessId;
 
@@ -157,6 +158,7 @@ pub struct ScreeningProcessDefinition {
 pub struct ConstituentSeparationProcessDefinition {
     process: ProcessId,
     input_form: FormId,
+    input_particle_size_range: Option<ParticleSizeRange>,
     target_material: MaterialId,
     target_output_form: FormId,
     residue_material: Option<MaterialId>,
@@ -188,6 +190,7 @@ impl ConstituentSeparationProcessDefinition {
         Self {
             process,
             input_form,
+            input_particle_size_range: None,
             target_material,
             target_output_form,
             residue_material: Some(residue_material),
@@ -203,8 +206,8 @@ impl ConstituentSeparationProcessDefinition {
     pub const fn new_concentration(
         process: ProcessId,
         input_form: FormId,
-        target_material: MaterialId,
-        target_output_form: FormId,
+        input_particle_size_range: ParticleSizeRange,
+        target_output: CommodityKey,
         residue_output_form: FormId,
         recovery: ConstituentRecoveryProfile,
         operating: PoweredOreProcessProfile,
@@ -212,8 +215,9 @@ impl ConstituentSeparationProcessDefinition {
         Self {
             process,
             input_form,
-            target_material,
-            target_output_form,
+            input_particle_size_range: Some(input_particle_size_range),
+            target_material: target_output.material(),
+            target_output_form: target_output.form(),
             residue_material: None,
             residue_output_form,
             recovery,
@@ -229,6 +233,13 @@ impl ConstituentSeparationProcessDefinition {
     #[must_use]
     pub const fn input_form(self) -> FormId {
         self.input_form
+    }
+
+    /// Complete particulate feed envelope that is physically liberated enough for this separation.
+    /// Binary sorting may omit this when the target occurs as independently sortable coarse pieces.
+    #[must_use]
+    pub const fn input_particle_size_range(self) -> Option<ParticleSizeRange> {
+        self.input_particle_size_range
     }
 
     #[must_use]

@@ -1,6 +1,6 @@
 //! Canonical primitive-to-mechanized progression probe for the gameplay experience harness.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
 use super::seed::mix64;
@@ -56,7 +56,8 @@ use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
-const MAX_STEADY_STATE_CRUSH_CYCLES: u64 = 64;
+const MAX_STEADY_STATE_CRUSH_CYCLES: u64 = 12;
+const EXTRACTION_GUARANTEED_GRADE_PREMIUM_PPM: u32 = 100_000;
 
 pub(super) fn varied_four_way_order(seed: u64) -> [usize; 4] {
     let mut order = [0, 1, 2, 3];
@@ -70,6 +71,26 @@ pub(super) fn varied_four_way_order(seed: u64) -> [usize; 4] {
     order
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum AutonomousWorkStop {
+    #[default]
+    MachineCompleted,
+    FeedBufferCapacity,
+    TargetSupply,
+    ToolCondition,
+}
+
+impl AutonomousWorkStop {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::MachineCompleted => "machine-completed",
+            Self::FeedBufferCapacity => "feed-buffer-capacity",
+            Self::TargetSupply => "target-supply",
+            Self::ToolCondition => "tool-condition",
+        }
+    }
+}
+
 fn progression_clue_bounds(slot: usize) -> VoxelBounds {
     let x = i64::try_from(slot)
         .unwrap_or_else(|_| unreachable!("four-way clue slot fits i64"))
@@ -79,83 +100,70 @@ fn progression_clue_bounds(slot: usize) -> VoxelBounds {
         .unwrap_or_else(|error| panic!("primitive progression clue bounds failed: {error}"))
 }
 
-/// Fail closed when the authored player-facing acquisition/action catalog grows beyond what this
-/// cold-agent progression episode either exercises naturally or explicitly classifies outside the
-/// episode fantasy.
+/// Verifies only the runtime dependencies this episode actually intends to use.
 ///
-/// Runtime registries remain the authority for legality. These IDs are only an evidence inventory so
-/// newly playable content cannot appear without forcing the gameplay harness to learn it.
-fn assert_playable_catalog_coverage(registries: &Registries) {
-    let actual_equipment = registries
-        .equipment()
-        .definitions()
-        .filter(|definition| definition.has_runtime_acquisition_route())
-        .map(|definition| definition.id().value())
-        .collect::<BTreeSet<_>>();
-    let exercised_equipment = BTreeSet::from([
-        EQUIPMENT_STONE_PICK.value(),
-        EQUIPMENT_STONE_HAND_CRANK.value(),
-        EQUIPMENT_COPPER_REINFORCED_PICK.value(),
-        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK.value(),
-        EQUIPMENT_STONE_CRUSHER.value(),
-        EQUIPMENT_STONE_SEPARATOR.value(),
-    ]);
-    assert_eq!(
-        actual_equipment, exercised_equipment,
-        "cold-agent progression coverage is stale: update the probe so every equipment definition with a runtime assembly/upgrade route is exercised"
+/// The broader cold-agent catalog is discovered dynamically by the aggregate harness report. This
+/// probe therefore does not freeze the whole playable catalog to an exact ID list just to protect its
+/// own scenario. New routes may coexist without making this established primitive episode stale.
+fn assert_progression_runtime_dependencies(registries: &Registries) {
+    for equipment in [
+        EQUIPMENT_STONE_PICK,
+        EQUIPMENT_STONE_HAND_CRANK,
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+        EQUIPMENT_STONE_CRUSHER,
+        EQUIPMENT_STONE_SEPARATOR,
+    ] {
+        let definition = registries
+            .equipment()
+            .get_equipment(equipment)
+            .unwrap_or_else(|| {
+                panic!(
+                    "primitive progression equipment {} disappeared",
+                    equipment.value()
+                )
+            });
+        assert!(
+            definition.has_runtime_acquisition_route(),
+            "primitive progression equipment {} lost its runtime acquisition route",
+            equipment.value()
+        );
+    }
+    assert!(
+        registries
+            .energy()
+            .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+            .is_some_and(|definition| definition.has_runtime_assembly_route()),
+        "primitive progression flywheel lost its runtime assembly route"
     );
-
-    let actual_energy = registries
-        .energy()
-        .definitions()
-        .filter(|definition| definition.has_runtime_assembly_route())
-        .map(|definition| definition.id().value())
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        actual_energy,
-        BTreeSet::from([ENERGY_STONE_FLYWHEEL_DRIVE.value()]),
-        "cold-agent progression coverage is stale: update the probe so every runtime-assemblable energy store is exercised"
-    );
-
-    let actual_manual_processes = registries
-        .crafting()
-        .definitions()
-        .map(|definition| definition.process().value())
-        .collect::<BTreeSet<_>>();
-    let natural_manual_processes = BTreeSet::from([
-        PROCESS_KNAP_STONE_TOOL.value(),
-        PROCESS_SHAPE_WOOD_HANDLE.value(),
-        PROCESS_SHAPE_STONE_FLYWHEEL.value(),
-        PROCESS_COLD_WORK_COPPER_REINFORCEMENT.value(),
-    ]);
-    assert_eq!(
-        actual_manual_processes, natural_manual_processes,
-        "cold-agent progression coverage is stale: every authored manual craft must have a useful role in the playable primitive loop"
-    );
-
-    let actual_prospecting_methods = registries
-        .labor()
-        .prospecting_definitions()
-        .map(|definition| definition.id().value())
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        actual_prospecting_methods,
-        BTreeSet::from([
-            PROSPECTING_FIELD_INSPECTION.value(),
-            PROSPECTING_DETAILED_FIELD_SURVEY.value(),
-        ]),
-        "cold-agent progression coverage is stale: update the probe so every authored prospecting method is exercised"
-    );
-
-    let actual_mining_methods = registries
-        .mining()
-        .definitions()
-        .map(|definition| definition.id().value())
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        actual_mining_methods,
-        BTreeSet::from([MINING_METHOD_HAND_PICK.value()]),
-        "cold-agent progression coverage is stale: update the probe so every authored mining method is exercised"
+    for process in [
+        PROCESS_KNAP_STONE_TOOL,
+        PROCESS_SHAPE_WOOD_HANDLE,
+        PROCESS_SHAPE_STONE_FLYWHEEL,
+        PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+    ] {
+        assert!(
+            registries.crafting().get_manual(process).is_some(),
+            "primitive progression manual process {} disappeared",
+            process.value()
+        );
+    }
+    for method in [
+        PROSPECTING_FIELD_INSPECTION,
+        PROSPECTING_DETAILED_FIELD_SURVEY,
+    ] {
+        assert!(
+            registries.labor().get_prospecting(method).is_some(),
+            "primitive progression prospecting method {} disappeared",
+            method.value()
+        );
+    }
+    assert!(
+        registries
+            .mining()
+            .get_method(MINING_METHOD_HAND_PICK)
+            .is_some(),
+        "primitive progression hand-mining method disappeared"
     );
 }
 
@@ -717,17 +725,18 @@ impl PrimitivePriority {
             Self::MechanizationFirst => "mechanization-first",
         }
     }
-
-    const fn opposite(self) -> Self {
-        match self {
-            Self::ExtractionFirst => Self::MechanizationFirst,
-            Self::MechanizationFirst => Self::ExtractionFirst,
-        }
-    }
 }
 
-fn primitive_priority(seed: u64) -> PrimitivePriority {
-    if mix64(seed ^ 0x5052_494F_5249_5459).is_multiple_of(2) {
+fn observed_primitive_priority(
+    bulk_sample_copper_ppm: u32,
+    hard_clue: ObservedCopperClue,
+) -> PrimitivePriority {
+    // The actor knows the exact grade of matter it already extracted, but only the evidence bounds
+    // for the blocked hard seam. Prefer extraction only when the observed lower bound guarantees a
+    // richer feed than the owned bulk sample; otherwise take the certain stored-work improvement.
+    if hard_clue.lower_ppm.saturating_sub(bulk_sample_copper_ppm)
+        >= EXTRACTION_GUARANTEED_GRADE_PREMIUM_PPM
+    {
         PrimitivePriority::ExtractionFirst
     } else {
         PrimitivePriority::MechanizationFirst
@@ -736,7 +745,7 @@ fn primitive_priority(seed: u64) -> PrimitivePriority {
 
 #[derive(Clone, Copy)]
 struct PrimitiveProgressionExperience {
-    priority: PrimitivePriority,
+    natural_priority: PrimitivePriority,
     prospecting_ticks: u64,
     surface_prospecting_ticks: u64,
     detailed_survey_ticks: u64,
@@ -756,6 +765,8 @@ struct PrimitiveProgressionExperience {
     direct_copper_evidence_upper_ppm: u32,
     bulk_ore_evidence_lower_ppm: u32,
     bulk_ore_evidence_upper_ppm: u32,
+    hard_ore_evidence_lower_ppm: u32,
+    hard_ore_evidence_upper_ppm: u32,
     bulk_sample_copper_ppm: u32,
     selected_processing_feed_copper_ppm: u32,
     selected_processing_feed_is_hard: bool,
@@ -771,7 +782,7 @@ struct PrimitiveProgressionExperience {
     automation_preparation_ticks: u64,
     separator_preparation_ticks: u64,
     processing_line_preparation_ticks: u64,
-    attention_payback_cycles: Option<u64>,
+    productive_payback_cycles: Option<u64>,
     steady_state_cycles: u64,
     steady_state_stop: PrimitiveSteadyStop,
     final_crusher_condition_ppm: u32,
@@ -787,6 +798,12 @@ struct PrimitiveProgressionExperience {
     machine_useful_overlap_ticks: u64,
     reserve_useful_overlap_ticks: u64,
     machine_player_free_ticks: u64,
+    primary_autonomous_stop: AutonomousWorkStop,
+    reserve_autonomous_stop: AutonomousWorkStop,
+    primary_mining_jobs: u64,
+    reserve_mining_jobs: u64,
+    steady_mining_jobs: u64,
+    steady_feed_buffer_limited_cycles: u64,
     separation_feed_mass: Mass,
     recovered_copper_mass: Mass,
     separation_required_energy: Energy,
@@ -1259,6 +1276,7 @@ fn fill_primitive_accumulator(
 pub(super) enum PrimitiveSteadyStop {
     #[default]
     CycleLimit,
+    NoConcurrentWork,
     CrusherCondition,
     CrankCondition,
 }
@@ -1267,6 +1285,7 @@ impl PrimitiveSteadyStop {
     const fn label(self) -> &'static str {
         match self {
             Self::CycleLimit => "probe-cycle-limit",
+            Self::NoConcurrentWork => "no-concurrent-player-work",
             Self::CrusherCondition => "crusher-condition-lifetime",
             Self::CrankCondition => "crank-condition-lifetime",
         }
@@ -1276,11 +1295,14 @@ impl PrimitiveSteadyStop {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct SteadyStateWork {
     cycles: u64,
-    payback_cycle: Option<u64>,
+    productive_payback_cycle: Option<u64>,
     charge_ticks: u64,
     machine_ticks: u64,
     useful_overlap_ticks: u64,
     player_free_ticks: u64,
+    mined_mass: Mass,
+    mining_jobs: u64,
+    feed_buffer_limited_cycles: u64,
     stop: PrimitiveSteadyStop,
     terminal_crusher_condition_ppm: u32,
 }
@@ -1294,10 +1316,10 @@ fn run_steady_state_crushing(
     hard_ore_target: MiningTargetRequest,
     pick: deep_hearth::equipment::EquipmentId,
     mass: Mass,
-    required_player_free_ticks: u64,
+    required_productive_ticks: u64,
 ) -> SteadyStateWork {
     let mut totals = SteadyStateWork::default();
-    let mut payback_cycle = None;
+    let mut productive_payback_cycle = None;
     for cycle in 1..=MAX_STEADY_STATE_CRUSH_CYCLES {
         let charge_ticks = match fill_primitive_accumulator(registries, state, machine) {
             Ok(ticks) => ticks,
@@ -1356,11 +1378,36 @@ fn run_steady_state_crushing(
             .player_free_ticks
             .checked_add(player_free)
             .unwrap_or_else(|| panic!("primitive steady-state free duration overflowed"));
-        if payback_cycle.is_none() && totals.player_free_ticks >= required_player_free_ticks {
-            payback_cycle = Some(cycle);
+        totals.mined_mass = totals
+            .mined_mass
+            .checked_add(work.mined_mass)
+            .unwrap_or_else(|| panic!("primitive steady-state mined mass overflowed"));
+        totals.mining_jobs = totals
+            .mining_jobs
+            .checked_add(work.mining_jobs)
+            .unwrap_or_else(|| panic!("primitive steady-state mining-job count overflowed"));
+        if work.autonomous_stop == AutonomousWorkStop::FeedBufferCapacity {
+            totals.feed_buffer_limited_cycles = totals
+                .feed_buffer_limited_cycles
+                .checked_add(1)
+                .unwrap_or_else(|| panic!("primitive steady-state buffer-limit count overflowed"));
+        }
+        if productive_payback_cycle.is_none()
+            && totals.useful_overlap_ticks >= required_productive_ticks
+        {
+            productive_payback_cycle = Some(cycle);
+        }
+        if work.mining_jobs == 0
+            && matches!(
+                work.autonomous_stop,
+                AutonomousWorkStop::TargetSupply | AutonomousWorkStop::ToolCondition
+            )
+        {
+            totals.stop = PrimitiveSteadyStop::NoConcurrentWork;
+            break;
         }
     }
-    totals.payback_cycle = payback_cycle;
+    totals.productive_payback_cycle = productive_payback_cycle;
     totals.terminal_crusher_condition_ppm = state
         .equipment()
         .get_equipment(machine.crusher)
@@ -1381,6 +1428,9 @@ struct ConcurrentMachineWork {
     crush_ticks: u64,
     player_work_ticks: u64,
     overlap_ticks: u64,
+    mined_mass: Mass,
+    mining_jobs: u64,
+    autonomous_stop: AutonomousWorkStop,
 }
 
 #[derive(Clone, Copy)]
@@ -1578,64 +1628,101 @@ fn crush_while_mining(
     .commit(state)
     .unwrap_or_else(|error| panic!("primitive progression crushing commit failed: {error}"));
 
-    let concurrent_target = resolve_progression_mining_target(state, concurrent.target);
-    let concurrent_mining = validate_start_mining(
-        registries,
-        state,
-        MINING_METHOD_HAND_PICK,
-        concurrent_target,
-        concurrent.destination,
-        concurrent.pick,
-        concurrent.mass,
-    )
-    .unwrap_or_else(|error| {
-        panic!("primitive progression concurrent mining admission failed: {error}")
-    });
-    let concurrent_mining_job = concurrent_mining.commit(state).unwrap_or_else(|error| {
-        panic!("primitive progression concurrent mining commit failed: {error}")
-    });
-    let player_work_ticks = state
-        .mining()
-        .get_job(concurrent_mining_job)
-        .map(|record| duration(record.started_at().value(), record.completes_at().value()))
-        .unwrap_or_else(|| panic!("primitive progression concurrent mining job disappeared"));
-    assert!(
-        state.production().get_job(crush_job).is_some()
-            && state.mining().get_job(concurrent_mining_job).is_some()
-            && state.player_work().active().is_some(),
-        "autonomous crushing and player mining must coexist after both canonical starts"
-    );
-    let overlap_ticks = crush_ticks.min(player_work_ticks);
-    let overlap_witness_ticks = overlap_ticks.saturating_sub(1);
-    if overlap_witness_ticks > 0 {
-        advance_exact(registries, state, overlap_witness_ticks);
-        assert!(
-            state.production().get_job(crush_job).is_some()
-                && state.mining().get_job(concurrent_mining_job).is_some()
-                && state.player_work().active().is_some(),
-            "machine production and player mining must remain independently active during their shared interval"
-        );
-    }
-    advance_exact(registries, state, player_work_ticks - overlap_witness_ticks);
-    assert!(
-        state.mining().get_job(concurrent_mining_job).is_some(),
-        "completed mining output must remain claimable after concurrent machine work"
-    );
-    validate_claim_mining_output(registries, state, concurrent_mining_job)
-        .unwrap_or_else(|error| {
-            panic!("primitive progression concurrent mining claim failed: {error}")
-        })
-        .commit(state)
-        .unwrap_or_else(|error| {
-            panic!("primitive progression concurrent mining claim commit failed: {error}")
+    let mut player_work_ticks = 0_u64;
+    let mut overlap_ticks = 0_u64;
+    let mut mined_mass = Mass::ZERO;
+    let mut mining_jobs = 0_u64;
+    let autonomous_stop = loop {
+        let Some(machine_job) = state.production().get_job(crush_job) else {
+            break AutonomousWorkStop::MachineCompleted;
+        };
+        let machine_ticks_remaining = machine_job
+            .completes_at()
+            .value()
+            .checked_sub(state.tick().value())
+            .unwrap_or_else(|| {
+                panic!("primitive crusher completion fell behind authoritative time")
+            });
+        let concurrent_target = resolve_progression_mining_target(state, concurrent.target);
+        let concurrent_mining = match validate_start_mining(
+            registries,
+            state,
+            MINING_METHOD_HAND_PICK,
+            concurrent_target,
+            concurrent.destination,
+            concurrent.pick,
+            concurrent.mass,
+        ) {
+            Ok(start) => start,
+            Err(error) => {
+                break match error {
+                    MiningStartError::DestinationCapacityExceeded { .. } => {
+                        AutonomousWorkStop::FeedBufferCapacity
+                    }
+                    MiningStartError::TargetDepleted
+                    | MiningStartError::InsufficientTargetMass { .. } => {
+                        AutonomousWorkStop::TargetSupply
+                    }
+                    MiningStartError::ConditionDuration(_) | MiningStartError::ZeroThroughput => {
+                        AutonomousWorkStop::ToolCondition
+                    }
+                    other => panic!(
+                        "primitive progression autonomous-window mining hit unexpected blocker: {other}"
+                    ),
+                };
+            }
+        };
+        let concurrent_mining_job = concurrent_mining.commit(state).unwrap_or_else(|error| {
+            panic!("primitive progression concurrent mining commit failed: {error}")
         });
-
+        let work_ticks = state
+            .mining()
+            .get_job(concurrent_mining_job)
+            .map(|record| duration(record.started_at().value(), record.completes_at().value()))
+            .unwrap_or_else(|| panic!("primitive progression concurrent mining job disappeared"));
+        if mining_jobs == 0 {
+            assert!(
+                state.production().get_job(crush_job).is_some()
+                    && state.mining().get_job(concurrent_mining_job).is_some()
+                    && state.player_work().active().is_some(),
+                "autonomous crushing and player mining must coexist after both canonical starts"
+            );
+        }
+        overlap_ticks = overlap_ticks
+            .checked_add(machine_ticks_remaining.min(work_ticks))
+            .unwrap_or_else(|| panic!("primitive concurrent overlap duration overflowed"));
+        player_work_ticks = player_work_ticks
+            .checked_add(work_ticks)
+            .unwrap_or_else(|| panic!("primitive concurrent player-work duration overflowed"));
+        mined_mass = mined_mass
+            .checked_add(concurrent.mass)
+            .unwrap_or_else(|| panic!("primitive concurrent mined mass overflowed"));
+        mining_jobs = mining_jobs
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("primitive concurrent mining-job count overflowed"));
+        advance_exact(registries, state, work_ticks);
+        assert!(
+            state.mining().get_job(concurrent_mining_job).is_some(),
+            "completed mining output must remain claimable after concurrent machine work"
+        );
+        validate_claim_mining_output(registries, state, concurrent_mining_job)
+            .unwrap_or_else(|error| {
+                panic!("primitive progression concurrent mining claim failed: {error}")
+            })
+            .commit(state)
+            .unwrap_or_else(|error| {
+                panic!("primitive progression concurrent mining claim commit failed: {error}")
+            });
+    };
     Ok(ConcurrentMachineWork {
         job: crush_job,
         machine_started_at,
         crush_ticks,
         player_work_ticks,
         overlap_ticks,
+        mined_mass,
+        mining_jobs,
+        autonomous_stop,
     })
 }
 

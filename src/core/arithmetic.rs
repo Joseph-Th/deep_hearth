@@ -1,5 +1,15 @@
 //! Exact integer scaling helpers shared by authoritative physical integrations.
 
+/// Greatest common divisor for canonical `u32` ratio normalization.
+pub(crate) const fn greatest_common_divisor_u32(mut left: u32, mut right: u32) -> u32 {
+    while right != 0 {
+        let remainder = left % right;
+        left = right;
+        right = remainder;
+    }
+    left
+}
+
 /// Calculates `value * multiplier / divisor` plus the exact carried remainder without requiring
 /// the full-width product to fit in `u128`.
 ///

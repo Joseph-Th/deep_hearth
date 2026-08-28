@@ -5,6 +5,7 @@ use std::env;
 
 use super::configuration::MaintainedAnchor;
 use super::focused_seeds::MAINTAINED_VARIATION_ROOT;
+use super::fresh_seed::fresh_root;
 use super::has_verbose_output;
 use super::report::{
     EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioPolicyVariation,
@@ -577,7 +578,7 @@ pub(super) fn run_maintained_agency_counterfactuals() {
             parse_seed(&raw)
                 .unwrap_or_else(|| panic!("agency gameplay variation seed is invalid: {raw:?}"))
         })
-        .unwrap_or(MAINTAINED_VARIATION_ROOT);
+        .unwrap_or_else(|| fresh_root(MAINTAINED_VARIATION_ROOT ^ 0xA63E_4E43_595F_4652));
     let organic = organic_agency_worlds(variation_root);
     let mut worlds = vec![
         AgencyWorld {

@@ -184,8 +184,10 @@ interpretations of the same authored operating envelope.
 - **Dry screening:** partitions fully resolved particle classes around an authored aperture without
   inventing fractional or unresolved splits;
 - **Constituent separation:** handles physically liberated particulate feed. Binary definitions may restrict feed
-  to one authored target plus one authored residue material; concentration definitions accept arbitrary
-  non-target gangue without composition-specific recipes. Output mass is derived from exact selected
+  to one authored target plus one authored residue material; concentration definitions additionally own an
+  admissible input particle-size range and reject unresolved/coarse feed outside that liberation envelope.
+  Concentration accepts arbitrary non-target gangue within that prepared feed without composition-specific
+  recipes. Output mass is derived from exact selected
   composition rather than a fixed yield. Concentration authors distinct target and lower non-target
   recoveries, so product grade emerges from feed assay and separator selectivity rather than perfect
   gangue rejection. Fractional component remainders are deterministically distributed across blended

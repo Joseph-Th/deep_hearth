@@ -458,14 +458,14 @@ fn nutrition_normalization_handles_full_width_energy_without_scaled_overflow() {
     let maximum = Energy::from_nanojoules(u128::MAX);
     assert_eq!(
         normalized_nutrition_gain_ppm(Energy::from_nanojoules(u128::MAX), maximum),
-        Ok(NUTRITION_PARTS_PER_MILLION)
+        Ok(u128::from(NUTRITION_PARTS_PER_MILLION))
     );
     assert_eq!(
         normalized_nutrition_gain_ppm(
             Energy::from_nanojoules(10_000_000_000_000_000),
             Energy::from_nanojoules(20_000_000_000_000_000),
         ),
-        Ok(500_000)
+        Ok(500_000_u128)
     );
 }
 
@@ -477,12 +477,71 @@ fn nutrition_allocation_handles_full_width_energy_without_intermediate_overflow(
         protein: 1,
     };
 
-    let gain = allocate_nutrition(NUTRITION_PARTS_PER_MILLION, offered);
+    let gain = allocate_nutrition(u128::from(NUTRITION_PARTS_PER_MILLION), offered);
 
     assert_eq!(gain.total_ppm(), NUTRITION_PARTS_PER_MILLION);
     assert_eq!(gain.get(FoodCategory::Grain), NUTRITION_PARTS_PER_MILLION);
     assert_eq!(gain.get(FoodCategory::Fruit), 0);
     assert_eq!(gain.get(FoodCategory::Protein), 0);
+}
+
+#[test]
+fn very_large_valid_meal_clamps_nutrition_without_integer_range_failure() {
+    const MEAL_MASS_MG: u64 = 7_000_000_000;
+
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0019));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("large-meal survival initialization failed: {error}"));
+    let physiology = registries.survival().physiology();
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            physiology.maximum_metabolic_energy(),
+            physiology.maximum_hydration(),
+            Vitality::MAXIMUM,
+            NutritionReserves::from_parts_per_million(0, 0, 0),
+            0,
+        ),
+    );
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(MEAL_MASS_MG))
+        .unwrap_or_else(|error| panic!("large-meal stockpile failed: {error}"));
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+        Mass::from_milligrams(MEAL_MASS_MG),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("large-meal food lot failed: {error}"));
+
+    let outcome = validate_eat(
+        &registries,
+        &state,
+        stockpile,
+        &[MaterialLotSelection::new(
+            lot,
+            Mass::from_milligrams(MEAL_MASS_MG),
+        )],
+    )
+    .unwrap_or_else(|error| panic!("large valid meal was rejected: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("large valid meal commit failed: {error}"));
+
+    assert_eq!(outcome.total_mass(), Mass::from_milligrams(MEAL_MASS_MG));
+    assert_eq!(outcome.energy_gained(), Energy::ZERO);
+    assert_eq!(
+        outcome.nutrition_gained().get(FoodCategory::Grain),
+        NUTRITION_PARTS_PER_MILLION
+    );
+    assert_eq!(
+        state.survival().consumed_mass(MATERIAL_GRAIN),
+        AggregateMass::from_milligrams(u128::from(MEAL_MASS_MG))
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

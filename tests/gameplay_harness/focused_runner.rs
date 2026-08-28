@@ -6,6 +6,7 @@ use deep_hearth::content::build_registries;
 use deep_hearth::registry::Registries;
 
 use super::focused_seeds::{MAINTAINED_VARIATION_ROOT, focused_probe_seeds_from};
+use super::fresh_seed::fresh_root;
 
 fn probe_seed_spec(name: &str) -> (u64, u64) {
     match name {
@@ -19,7 +20,9 @@ fn probe_seed_spec(name: &str) -> (u64, u64) {
 
 pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, u64)) {
     let registries = build_registries();
-    run_focused_probe_with_registries(&registries, name, probe, MAINTAINED_VARIATION_ROOT);
+    let (_, salt) = probe_seed_spec(name);
+    let default_variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(13));
+    run_focused_probe_with_registries(&registries, name, probe, default_variation_root);
 }
 
 pub(super) fn run_focused_probe_with_registries(

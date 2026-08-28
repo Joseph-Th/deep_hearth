@@ -125,9 +125,12 @@ World-scale clue discovery is outside scope. The probe must show that the actor:
 - resolves opaque mining targets and learns extracted form/composition from owned output;
 - encounters direct-source insufficiency through a canonical rejected action;
 - makes the same-state scarce-copper choice between extraction capability and stored-work rate;
+- chooses its natural branch from player-visible evidence and explicit actor policy rather than behavior-seed coin flips or counterfactual outcomes;
+- treats hard-seam access as an uncertain opportunity rather than a guaranteed grade upgrade, then reassesses the extracted sample against already-owned processable ore before choosing feed;
 - obtains reciprocal physical benefit before both branches converge on the same final capabilities;
 - delegates crushing while performing other useful work and recovers the second reinforcement from processed ore;
-- reaches attention payback while primitive equipment still has useful physical life remaining.
+- reports demonstrated productive overlap separately from autonomous time the episode does not fill with useful work; construction-time equivalence is observational, not a required success claim;
+- samples repeated primitive-machine wear over a bounded player-facing horizon without turning dozens of identical cycles into the gameplay experience itself.
 
 Matched branches use the same post-convergence workload. Reported choice effects must be downstream material,
 energy, labor, capability, or timing consequences of different physical actions, not counters alone.
@@ -155,11 +158,16 @@ consequences, matched-policy agency results, and focused survival/progression/or
 | `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` | physical variation root |
 | `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` | workshop policy root |
 | `DEEP_HEARTH_GAMEPLAY_SEEDS` | exact comma-separated world seeds |
-| `DEEP_HEARTH_GAMEPLAY_VERBOSE` | expanded scenario and focused-probe traces |
+| `DEEP_HEARTH_GAMEPLAY_VERBOSE` | expanded high-signal decisions, blockers, physical tradeoffs, and focused-probe diagnostics |
+| `DEEP_HEARTH_GAMEPLAY_TRACE` | full per-operation workshop narration plus verbose diagnostics; use only when the compact/verbose evidence identifies a scenario that needs step-by-step replay |
 
-Gates and audits use stable deterministic defaults. Reports generate fresh roots unless explicit replay
-values are supplied and always print realized seeds. Malformed explicit seeds fail configuration. Hard
-assertions own balance-independent contracts; report output carries balance observations.
+Gameplay gates and audits keep stable maintained anchors, then add a small fresh variation sample on each
+run. Every realized variation root and world seed is printed before execution, so any surprising run is
+exactly replayable with the variables above. Explicit replay values suppress fresh sampling. Unit tests for
+the seed planner itself remain deterministic. Hard assertions own balance-independent invariants and anchor
+contracts; organic samples are allowed to complete, partially complete, or stop at an observed gameplay
+constraint without turning balance-sensitive outcomes into flaky expectations. Malformed explicit seeds fail
+configuration.
 
 ## Completion
 

@@ -34,11 +34,16 @@ mod support;
 
 fn has_verbose_output() -> bool {
     env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some()
+        || env::var_os("DEEP_HEARTH_GAMEPLAY_TRACE").is_some()
+}
+
+fn has_trace_output() -> bool {
+    env::var_os("DEEP_HEARTH_GAMEPLAY_TRACE").is_some()
 }
 
 macro_rules! println {
     ($($argument:tt)*) => {{
-        if has_verbose_output() {
+        if crate::has_trace_output() {
             std::println!($($argument)*);
         }
     }};

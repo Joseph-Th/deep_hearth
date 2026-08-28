@@ -303,11 +303,19 @@ class LocalCiPlanTests(unittest.TestCase):
         )
 
     def test_global_catalog_failure_reuses_the_aggregate_target(self) -> None:
-        output = "failures:\n    catalog_contract_tests::gameplay_machine_process_catalog_has_evidence\n"
+        output = "failures:\n    catalog_contract_tests::gameplay_catalog_is_discovered_from_runtime_owners\n"
         error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit catalog_contract_tests::gameplay_machine_process_catalog_has_evidence",
+            "python tools/run_test.py --target gameplay_audit catalog_contract_tests::gameplay_catalog_is_discovered_from_runtime_owners",
+        )
+
+    def test_generator_diversity_failure_reuses_the_aggregate_target(self) -> None:
+        output = "failures:\n    catalog_contract_tests::gameplay_generators_retain_meaningful_physical_variation\n"
+        error = "error: test failed, to rerun pass `--test gameplay_audit`"
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("all"), output, error),
+            "python tools/run_test.py --target gameplay_audit catalog_contract_tests::gameplay_generators_retain_meaningful_physical_variation",
         )
 
     def test_unknown_aggregate_only_failure_stays_on_the_aggregate_target(self) -> None:
@@ -556,7 +564,12 @@ class ExactTestCommandTests(unittest.TestCase):
         self.assertIn("workshop_contract_tests::gameplay_harness_gate", workshop)
         self.assertNotIn("agency::gameplay_maintained_agency_counterfactuals", workshop)
         self.assertNotIn(
-            "catalog_contract_tests::gameplay_machine_process_catalog_has_evidence", workshop
+            "catalog_contract_tests::gameplay_catalog_is_discovered_from_runtime_owners",
+            workshop,
+        )
+        self.assertNotIn(
+            "catalog_contract_tests::gameplay_generators_retain_meaningful_physical_variation",
+            workshop,
         )
         self.assertIn(
             "configuration::tests::default_gate_keeps_maintained_anchors_and_adds_a_bounded_variation_sample",
@@ -579,7 +592,8 @@ class ExactTestCommandTests(unittest.TestCase):
             set(audit) - set(workshop),
             {
                 "agency::gameplay_maintained_agency_counterfactuals",
-                "catalog_contract_tests::gameplay_machine_process_catalog_has_evidence",
+                "catalog_contract_tests::gameplay_catalog_is_discovered_from_runtime_owners",
+                "catalog_contract_tests::gameplay_generators_retain_meaningful_physical_variation",
                 "focused::gameplay_survival_provisioning_probe",
                 "focused::gameplay_primitive_progression_probe",
                 "focused::gameplay_ore_preparation_probe",

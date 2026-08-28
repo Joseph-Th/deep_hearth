@@ -2,11 +2,195 @@
 
 use std::collections::BTreeSet;
 
+use deep_hearth::capability::evaluate_capabilities;
 use deep_hearth::core::quantity::{Energy, Mass, Volume};
+use deep_hearth::energy::EnergyCarrier;
 use deep_hearth::maintenance::MaintenanceBand;
+use deep_hearth::production::ProcessId;
 use deep_hearth::registry::Registries;
 
 use super::scenario::ScenarioVariation;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum ProcessResolverKind {
+    ManualCraft,
+    Comminution,
+    Screening,
+    ConstituentSeparation,
+    SensibleHeating,
+    Melting,
+    Casting,
+}
+
+impl ProcessResolverKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::ManualCraft => "manual-craft",
+            Self::Comminution => "comminution",
+            Self::Screening => "screening",
+            Self::ConstituentSeparation => "constituent-separation",
+            Self::SensibleHeating => "sensible-heating",
+            Self::Melting => "melting",
+            Self::Casting => "casting",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProcessEnergyRole {
+    None,
+    Supply(EnergyCarrier),
+    Sink(EnergyCarrier),
+}
+
+impl ProcessEnergyRole {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Supply(EnergyCarrier::Mechanical) => "mechanical-supply",
+            Self::Supply(EnergyCarrier::Electrical) => "electrical-supply",
+            Self::Supply(EnergyCarrier::Thermal) => "thermal-supply",
+            Self::Sink(EnergyCarrier::Mechanical) => "mechanical-sink",
+            Self::Sink(EnergyCarrier::Electrical) => "electrical-sink",
+            Self::Sink(EnergyCarrier::Thermal) => "thermal-sink",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct ProcessCatalogEntry {
+    pub(super) process: ProcessId,
+    pub(super) name: String,
+    pub(super) resolver: ProcessResolverKind,
+    pub(super) nominal_provider_count: usize,
+    pub(super) runtime_provider_count: usize,
+    pub(super) matching_energy_store_count: usize,
+    pub(super) runtime_energy_store_count: usize,
+    energy_role: ProcessEnergyRole,
+}
+
+fn process_resolver_and_energy(
+    registries: &Registries,
+    process: ProcessId,
+) -> (ProcessResolverKind, ProcessEnergyRole) {
+    let mut matches = Vec::with_capacity(1);
+    if registries.crafting().get_manual(process).is_some() {
+        matches.push((ProcessResolverKind::ManualCraft, ProcessEnergyRole::None));
+    }
+    if let Some(definition) = registries.ore_processing().get_comminution(process) {
+        matches.push((
+            ProcessResolverKind::Comminution,
+            ProcessEnergyRole::Supply(definition.energy_carrier()),
+        ));
+    }
+    if let Some(definition) = registries.ore_processing().get_screening(process) {
+        matches.push((
+            ProcessResolverKind::Screening,
+            ProcessEnergyRole::Supply(definition.energy_carrier()),
+        ));
+    }
+    if let Some(definition) = registries
+        .ore_processing()
+        .get_constituent_separation(process)
+    {
+        matches.push((
+            ProcessResolverKind::ConstituentSeparation,
+            ProcessEnergyRole::Supply(definition.energy_carrier()),
+        ));
+    }
+    if let Some(definition) = registries.thermal().get_sensible_heating(process) {
+        matches.push((
+            ProcessResolverKind::SensibleHeating,
+            ProcessEnergyRole::Supply(definition.energy_carrier()),
+        ));
+    }
+    if let Some(definition) = registries.thermal().get_melting(process) {
+        matches.push((
+            ProcessResolverKind::Melting,
+            ProcessEnergyRole::Supply(definition.energy_carrier()),
+        ));
+    }
+    if let Some(definition) = registries.thermal().get_casting(process) {
+        matches.push((
+            ProcessResolverKind::Casting,
+            ProcessEnergyRole::Sink(definition.energy_carrier()),
+        ));
+    }
+    assert_eq!(
+        matches.len(),
+        1,
+        "authored process {} must resolve through exactly one gameplay execution family",
+        process.value()
+    );
+    matches[0]
+}
+
+fn energy_store_matches_role(
+    definition: &deep_hearth::energy::EnergyStoreDefinition,
+    role: ProcessEnergyRole,
+) -> bool {
+    match role {
+        ProcessEnergyRole::None => false,
+        ProcessEnergyRole::Supply(carrier) => {
+            definition.carrier() == carrier && !definition.max_output_power().is_zero()
+        }
+        ProcessEnergyRole::Sink(carrier) => {
+            definition.carrier() == carrier && !definition.max_input_power().is_zero()
+        }
+    }
+}
+
+pub(super) fn process_catalog_entries(registries: &Registries) -> Vec<ProcessCatalogEntry> {
+    registries
+        .production()
+        .definitions()
+        .map(|process| {
+            let (resolver, energy_role) = process_resolver_and_energy(registries, process.id());
+            let (nominal_provider_count, runtime_provider_count) =
+                if resolver == ProcessResolverKind::ManualCraft {
+                    (0, 0)
+                } else {
+                    registries
+                        .equipment()
+                        .definitions()
+                        .filter(|equipment| {
+                            evaluate_capabilities(
+                                registries.capabilities(),
+                                equipment.capabilities(),
+                                process.capability_requirements(),
+                            )
+                            .is_ok()
+                        })
+                        .fold((0_usize, 0_usize), |(all, runtime), equipment| {
+                            (
+                                all + 1,
+                                runtime + usize::from(equipment.has_runtime_acquisition_route()),
+                            )
+                        })
+                };
+            let (matching_energy_store_count, runtime_energy_store_count) = registries
+                .energy()
+                .definitions()
+                .filter(|store| energy_store_matches_role(store, energy_role))
+                .fold((0_usize, 0_usize), |(all, runtime), store| {
+                    (
+                        all + 1,
+                        runtime + usize::from(store.has_runtime_assembly_route()),
+                    )
+                });
+            ProcessCatalogEntry {
+                process: process.id(),
+                name: process.name().to_owned(),
+                resolver,
+                nominal_provider_count,
+                runtime_provider_count,
+                matching_energy_store_count,
+                runtime_energy_store_count,
+                energy_role,
+            }
+        })
+        .collect()
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PowerPreference {
@@ -292,7 +476,7 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
         .filter(|definition| definition.has_runtime_assembly_route())
         .count();
     std::println!(
-        "CONTENT ACQUISITION DECLARATIONS equipment=[runtime-path:{runtime_path_equipment} no-runtime-path:{}] energy=[runtime-path:{runtime_path_energy} no-runtime-path:{}] global-runtime-scope=STATUS.md",
+        "CONTENT ACQUISITION DECLARATIONS equipment=[runtime-path:{runtime_path_equipment} no-runtime-path:{}] energy=[runtime-path:{runtime_path_energy} no-runtime-path:{}] reachability=registry-declarations-not-end-to-end-proof",
         equipment_count - runtime_path_equipment,
         energy_count - runtime_path_energy,
     );
@@ -329,7 +513,7 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
         .collect::<Vec<_>>()
         .join(",");
     std::println!(
-        "CONTENT ACQUISITION declared-equipment=[{acquisition_declared_equipment}] declared-energy=[{assembly_declared_energy}] no-runtime-path-equipment=[{no_acquisition_equipment}] no-runtime-path-energy=[{no_assembly_energy}] evidence-note=declaration-is-not-end-to-end-reachability global-runtime-scope=STATUS.md"
+        "CONTENT ACQUISITION declared-equipment=[{acquisition_declared_equipment}] declared-energy=[{assembly_declared_energy}] no-runtime-path-equipment=[{no_acquisition_equipment}] no-runtime-path-energy=[{no_assembly_energy}] evidence-note=declaration-is-not-end-to-end-reachability"
     );
 
     let equipment = registries
@@ -387,6 +571,24 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
     std::println!(
         "CONTENT CATALOG equipment=[{equipment}] energy=[{energy}] processes=[{processes}]"
     );
+    let process_routes = process_catalog_entries(registries)
+        .into_iter()
+        .map(|entry| {
+            format!(
+                "{}:{}:resolver={}:capability-providers={}/{}runtime:energy={}:compatible-stores={}/{}runtime",
+                entry.process.value(),
+                entry.name,
+                entry.resolver.label(),
+                entry.nominal_provider_count,
+                entry.runtime_provider_count,
+                entry.energy_role.label(),
+                entry.matching_energy_store_count,
+                entry.runtime_energy_store_count,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    std::println!("CONTENT PROCESS ROUTES [{process_routes}]");
 }
 
 fn scenario_outcome(report: &ScenarioReport) -> &'static str {

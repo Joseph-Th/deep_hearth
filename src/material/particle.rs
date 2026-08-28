@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::core::arithmetic::greatest_common_divisor_u32;
 use crate::core::quantity::Length;
 
 /// Compact authoritative diameter envelope for particulate material.
@@ -167,7 +168,7 @@ impl ParticleSizeDistribution {
             )
         });
         let divisor = classes.iter().fold(0_u32, |divisor, class| {
-            greatest_common_divisor(divisor, class.weight())
+            greatest_common_divisor_u32(divisor, class.weight())
         });
         if divisor > 1 {
             for class in &mut classes {
@@ -203,7 +204,7 @@ impl ParticleSizeDistribution {
             total_weight = total_weight
                 .checked_add(u64::from(class.weight()))
                 .ok_or(ParticleSizeDistributionError::WeightSumOverflow)?;
-            common_divisor = greatest_common_divisor(common_divisor, class.weight());
+            common_divisor = greatest_common_divisor_u32(common_divisor, class.weight());
             previous = Some(class.range());
         }
         if common_divisor > 1 {
@@ -240,15 +241,6 @@ impl ParticleSizeDistribution {
             .map(|class| u64::from(class.weight()))
             .sum()
     }
-}
-
-fn greatest_common_divisor(mut left: u32, mut right: u32) -> u32 {
-    while right != 0 {
-        let remainder = left % right;
-        left = right;
-        right = remainder;
-    }
-    left
 }
 
 impl From<ParticleSizeRange> for ParticleSizeDistribution {
