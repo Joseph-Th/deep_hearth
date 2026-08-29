@@ -23,6 +23,31 @@ name = "gameplay_audit"
 path = "tests/gameplay_audit.rs"
 required-features = ["test-gameplay"]
 
+[[test]]
+name = "gameplay_workshop"
+path = "tests/gameplay_workshop.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
+name = "gameplay_survival"
+path = "tests/gameplay_survival.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
+name = "gameplay_progression"
+path = "tests/gameplay_progression.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
+name = "gameplay_ore"
+path = "tests/gameplay_ore.rs"
+required-features = ["test-gameplay"]
+
+[[test]]
+name = "gameplay_foundry"
+path = "tests/gameplay_foundry.rs"
+required-features = ["test-gameplay"]
+
 [features]
 default = []
 test-gameplay = []

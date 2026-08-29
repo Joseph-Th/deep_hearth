@@ -1,14 +1,9 @@
-//! Minimal fixtures shared by every focused gameplay target.
+//! Equipment capability lookup helpers shared by gameplay harnesses.
 
 use deep_hearth::capability::{CapabilityId, CapabilityValue};
-use deep_hearth::content::gameplay_fixture::seed_stockpile;
-use deep_hearth::core::quantity::{Mass, Temperature};
-use deep_hearth::core::state::AppState;
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::equipment::EquipmentDefinitionId;
-use deep_hearth::inventory::{StockpileId, StockpileStorageProfile};
 use deep_hearth::registry::Registries;
-
-pub(super) const ROOM_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 
 pub(super) fn nominal_equipment_mass_capability(
     registries: &Registries,
@@ -33,8 +28,4 @@ pub(super) fn nominal_equipment_mass_capability(
             capability.value()
         ),
     }
-}
-
-pub(super) fn add_solid_stockpile(state: &mut AppState, capacity: Mass) -> StockpileId {
-    seed_stockpile(state, capacity, StockpileStorageProfile::solid_only())
 }

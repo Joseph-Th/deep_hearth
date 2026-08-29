@@ -26,9 +26,8 @@ use deep_hearth::inventory::{
     validate_build_storage_enclosure,
 };
 use deep_hearth::labor::{ManualPowerRequest, ProspectingMethodId, validate_start_manual_power};
-use deep_hearth::material::{CommodityKey, MaterialAssemblyProfile};
+use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
-use deep_hearth::production::ProcessId;
 use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
@@ -38,9 +37,11 @@ use deep_hearth::survival::{
     validate_eat,
 };
 
+use super::environment::ROOM_TEMPERATURE;
+use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::FocusedProbeCase;
+use super::preservation_route::preservation_construction_plan;
 use super::seed::mix64;
-use super::support::ROOM_TEMPERATURE;
 
 const DIET_RECOVERY_TARGET_VITALITY_PPM: u32 = 950_000;
 const DIET_RECOVERY_OBSERVATION_TICKS: u64 = 1_000;
@@ -74,205 +75,6 @@ struct PreservationInfrastructureReview {
     hydration_cost_ul: u64,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct ManualConstructionStep {
-    process: ProcessId,
-    batches: u64,
-    duration_ticks: u64,
-    input: CommodityKey,
-    input_mass: Mass,
-    output: CommodityKey,
-}
-
-#[derive(Clone, Debug)]
-struct ManualConstructionRoute {
-    raw_commodity: CommodityKey,
-    raw_mass: Mass,
-    steps: Vec<ManualConstructionStep>,
-    attention_ticks: u64,
-    exertion_energy_nj: u128,
-    exertion_hydration_ul: u64,
-}
-
-#[derive(Clone, Debug)]
-struct PreservationConstructionPlan {
-    routes: Vec<ManualConstructionRoute>,
-    raw_mass: Mass,
-    attention_ticks: u64,
-}
-
-fn discover_manual_construction_route(
-    registries: &Registries,
-    output: CommodityKey,
-    required_mass: Mass,
-    visiting: &mut BTreeSet<CommodityKey>,
-) -> Option<ManualConstructionRoute> {
-    if !visiting.insert(output) {
-        return None;
-    }
-    let producers = registries
-        .crafting()
-        .definitions()
-        .filter(|definition| {
-            definition
-                .outputs()
-                .iter()
-                .any(|candidate| candidate.commodity() == output)
-        })
-        .collect::<Vec<_>>();
-    if producers.is_empty() {
-        assert!(visiting.remove(&output));
-        return Some(ManualConstructionRoute {
-            raw_commodity: output,
-            raw_mass: required_mass,
-            steps: Vec::new(),
-            attention_ticks: 0,
-            exertion_energy_nj: 0,
-            exertion_hydration_ul: 0,
-        });
-    }
-
-    let mut candidates = Vec::new();
-    for producer in producers {
-        let output_per_batch = producer
-            .outputs()
-            .iter()
-            .find(|candidate| candidate.commodity() == output)
-            .map(|candidate| candidate.mass())
-            .unwrap_or_else(|| unreachable!("selected producer must contain requested output"));
-        assert!(
-            !output_per_batch.is_zero(),
-            "manual construction producer {} has zero useful output",
-            producer.process().value()
-        );
-        let batches = required_mass
-            .milligrams()
-            .div_ceil(output_per_batch.milligrams());
-        let input_mass = Mass::from_milligrams(
-            producer
-                .input_mass()
-                .milligrams()
-                .checked_mul(batches)
-                .unwrap_or_else(|| panic!("preservation construction input mass overflowed")),
-        );
-        let duration_ticks = producer
-            .duration()
-            .value()
-            .checked_mul(batches)
-            .unwrap_or_else(|| panic!("preservation construction duration overflowed"));
-        let step = ManualConstructionStep {
-            process: producer.process(),
-            batches,
-            duration_ticks,
-            input: producer.input(),
-            input_mass,
-            output,
-        };
-        let Some(mut route) =
-            discover_manual_construction_route(registries, producer.input(), input_mass, visiting)
-        else {
-            continue;
-        };
-        route.attention_ticks = route
-            .attention_ticks
-            .checked_add(duration_ticks)
-            .unwrap_or_else(|| panic!("preservation construction attention overflowed"));
-        route.exertion_energy_nj = route
-            .exertion_energy_nj
-            .checked_add(
-                producer
-                    .exertion()
-                    .energy_cost_per_tick()
-                    .nanojoules()
-                    .checked_mul(u128::from(duration_ticks))
-                    .unwrap_or_else(|| panic!("preservation construction exertion overflowed")),
-            )
-            .unwrap_or_else(|| panic!("preservation construction exertion total overflowed"));
-        route.exertion_hydration_ul = route
-            .exertion_hydration_ul
-            .checked_add(
-                producer
-                    .exertion()
-                    .hydration_loss_per_tick()
-                    .microliters()
-                    .checked_mul(duration_ticks)
-                    .unwrap_or_else(|| panic!("preservation construction hydration overflowed")),
-            )
-            .unwrap_or_else(|| panic!("preservation construction hydration total overflowed"));
-        route.steps.push(step);
-        candidates.push(route);
-    }
-    assert!(visiting.remove(&output));
-    let best_key = candidates
-        .iter()
-        .map(|route| {
-            (
-                route.attention_ticks,
-                route.raw_mass.milligrams(),
-                route.exertion_energy_nj,
-                route.exertion_hydration_ul,
-            )
-        })
-        .min()?;
-    let mut best = candidates.into_iter().filter(|route| {
-        (
-            route.attention_ticks,
-            route.raw_mass.milligrams(),
-            route.exertion_energy_nj,
-            route.exertion_hydration_ul,
-        ) == best_key
-    });
-    let selected = best
-        .next()
-        .unwrap_or_else(|| unreachable!("manual construction best key came from a route"));
-    assert!(
-        best.next().is_none(),
-        "preservation construction has multiple equally efficient observable manual routes to commodity {}; add an explicit player policy instead of using process identity",
-        output.value()
-    );
-    Some(selected)
-}
-
-fn preservation_construction_plan(
-    registries: &Registries,
-    profile: &MaterialAssemblyProfile,
-) -> PreservationConstructionPlan {
-    let mut routes = Vec::with_capacity(profile.inputs().len());
-    let mut raw_mass = Mass::ZERO;
-    let mut attention_ticks = 0_u64;
-    for input in profile.inputs() {
-        let route = discover_manual_construction_route(
-            registries,
-            input.commodity(),
-            input.mass(),
-            &mut BTreeSet::new(),
-        )
-        .unwrap_or_else(|| {
-            panic!(
-                "constructible preservation storage has no acyclic manual production route to assembly commodity {}",
-                input.commodity().value()
-            )
-        });
-        assert!(
-            !route.steps.is_empty(),
-            "preservation enclosure assembly commodity {} has no manual fabrication step; do not bootstrap a finished enclosure component as ordinary-play evidence",
-            input.commodity().value()
-        );
-        raw_mass = raw_mass
-            .checked_add(route.raw_mass)
-            .unwrap_or_else(|| panic!("preservation construction raw-material mass overflowed"));
-        attention_ticks = attention_ticks
-            .checked_add(route.attention_ticks)
-            .unwrap_or_else(|| panic!("preservation construction attention overflowed"));
-        routes.push(route);
-    }
-    PreservationConstructionPlan {
-        routes,
-        raw_mass,
-        attention_ticks,
-    }
-}
-
 pub(super) fn preservation_storage_definition_for_seed(
     registries: &Registries,
     seed: u64,
@@ -293,19 +95,6 @@ pub(super) fn preservation_storage_definition_for_seed(
     let index = usize::try_from(mix64(seed ^ 0x5354_4F52_4147_4550) % options.len() as u64)
         .unwrap_or_else(|_| unreachable!("bounded storage option index fits usize"));
     options[index]
-}
-
-pub(super) fn preservation_construction_summary(
-    registries: &Registries,
-    definition: StorageDefinitionId,
-) -> (usize, u64) {
-    let definition = registries
-        .storage()
-        .get(definition)
-        .unwrap_or_else(|| panic!("preservation construction summary references unknown storage"));
-    let plan = preservation_construction_plan(registries, definition.assembly_profile());
-    let stages = plan.routes.iter().map(|route| route.steps.len()).sum();
-    (stages, plan.attention_ticks)
 }
 
 fn evaluate_preservation_infrastructure_probe(
@@ -343,7 +132,7 @@ fn evaluate_preservation_infrastructure_probe(
         .checked_sub(construction_ticks)
         .and_then(|ticks| ticks.checked_sub(1))
         .unwrap_or_else(|| unreachable!("food selection guarantees a positive observation window"));
-    let observation_floor = maximum_observation.min(200).max(1);
+    let observation_floor = maximum_observation.clamp(1, 200);
     let observation_ceiling = maximum_observation.min(1_200);
     let observation_ticks = observation_floor
         + mix64(seed ^ 0x5052_4553_484F_5249) % (observation_ceiling - observation_floor + 1);
@@ -354,8 +143,7 @@ fn evaluate_preservation_infrastructure_probe(
     let maximum_witness_mass = definition
         .maximum_stockpile_capacity()
         .milligrams()
-        .min(250_000)
-        .max(1);
+        .clamp(1, 250_000);
     let minimum_witness_mass = maximum_witness_mass.min(25_000);
     let food_mass = Mass::from_milligrams(
         minimum_witness_mass
@@ -383,10 +171,6 @@ fn evaluate_preservation_infrastructure_probe(
         ROOM_TEMPERATURE,
     );
     seed_preexisting_world_age(&mut state, SimulationTick::new(bootstrap_age_ticks));
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("preservation infrastructure player setup failed: {error}"));
-    let survival_before = assess_survival(registries, &state)
-        .unwrap_or_else(|| panic!("preservation infrastructure player disappeared at setup"));
     let assembled = seed_stockpile(
         &mut state,
         construction_plan.raw_mass,
@@ -421,26 +205,46 @@ fn evaluate_preservation_infrastructure_probe(
         );
         route_sources.push(Some(source));
     }
+    let route_destinations = construction_plan
+        .routes
+        .iter()
+        .map(|route| {
+            (0..route.steps.len())
+                .map(|index| {
+                    if index + 1 == route.steps.len() {
+                        assembled
+                    } else {
+                        seed_stockpile(
+                            &mut state,
+                            route.raw_mass,
+                            StockpileStorageProfile::solid_only(),
+                        )
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    // Everything above is starting-world scaffolding. Player admission is the hard boundary after
+    // which this ordinary-play subepisode uses only canonical production work and simulation ticks.
+    initialize_player_survival(registries, &mut state)
+        .unwrap_or_else(|error| panic!("preservation infrastructure player setup failed: {error}"));
+    let survival_before = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("preservation infrastructure player disappeared at setup"));
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("preservation infrastructure matter setup failed: {error}"))
         .total();
     let mut executed_ticks = 0_u64;
     let mut executed_stages = 0_usize;
-    for (route, initial_source) in construction_plan.routes.iter().zip(route_sources) {
+    for ((route, initial_source), destinations) in construction_plan
+        .routes
+        .iter()
+        .zip(route_sources)
+        .zip(route_destinations)
+    {
         let Some(mut source) = initial_source else {
             continue;
         };
-        for (index, step) in route.steps.iter().enumerate() {
-            let final_step = index + 1 == route.steps.len();
-            let destination = if final_step {
-                assembled
-            } else {
-                seed_stockpile(
-                    &mut state,
-                    route.raw_mass,
-                    StockpileStorageProfile::solid_only(),
-                )
-            };
+        for (step, destination) in route.steps.iter().zip(destinations) {
             assert!(
                 state
                     .inventory()
@@ -747,18 +551,30 @@ impl ProvisioningPriority {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DietProvisioningPolicy {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum DietProvisioningPolicy {
     CompactCalories,
     BalancedRecovery,
 }
 
 impl DietProvisioningPolicy {
-    const fn label(self) -> &'static str {
+    pub(super) const fn label(self) -> &'static str {
         match self {
             Self::CompactCalories => "compact-calories",
             Self::BalancedRecovery => "balanced-recovery",
         }
+    }
+}
+
+pub(super) fn diet_provisioning_policy_for_behavior_seed(
+    behavior_seed: u64,
+) -> DietProvisioningPolicy {
+    // Focused behavior generation deliberately stratifies this low bit in exploratory samples while
+    // leaving the physical world seed independent. Maintained/replay seeds remain exact and stable.
+    if behavior_seed.is_multiple_of(2) {
+        DietProvisioningPolicy::CompactCalories
+    } else {
+        DietProvisioningPolicy::BalancedRecovery
     }
 }
 
@@ -827,23 +643,27 @@ fn selected_food_indices(foods: &[FoodDefinition], policy: DietProvisioningPolic
     }
 }
 
-fn run_diet_recovery_branch(
-    registries: &Registries,
-    prepared: &AppState,
-    foods: &[FoodDefinition],
+struct DietRecoveryBranch<'a> {
+    prepared: &'a AppState,
+    foods: &'a [FoodDefinition],
     food_store: StockpileId,
-    food_lots: &[MaterialLotId],
+    food_lots: &'a [MaterialLotId],
     drink: DrinkDefinition,
     drink_store: FluidStoreId,
-    policy: DietProvisioningPolicy,
     matter_total: AggregateMass,
     fluid_total: AggregateVolume,
+}
+
+fn run_diet_recovery_branch(
+    registries: &Registries,
+    branch: &DietRecoveryBranch<'_>,
+    policy: DietProvisioningPolicy,
 ) -> (u32, u32) {
-    let mut state = prepared.clone();
+    let mut state = branch.prepared.clone();
     let physiology = registries.survival().physiology();
     let before = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("diet-recovery player disappeared before provisioning"));
-    let selected_indices = selected_food_indices(foods, policy);
+    let selected_indices = selected_food_indices(branch.foods, policy);
     let energy_deficit = physiology
         .maximum_metabolic_energy()
         .checked_sub(before.metabolic_energy())
@@ -856,12 +676,12 @@ fn run_diet_recovery_branch(
         .iter()
         .map(|index| {
             MaterialLotSelection::new(
-                food_lots[*index],
-                mass_for_target_energy(foods[*index], per_category_target),
+                branch.food_lots[*index],
+                mass_for_target_energy(branch.foods[*index], per_category_target),
             )
         })
         .collect::<Vec<_>>();
-    let _meal = validate_eat(registries, &state, food_store, &selections)
+    let _meal = validate_eat(registries, &state, branch.food_store, &selections)
         .unwrap_or_else(|error| panic!("diet-recovery meal validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("diet-recovery meal commit failed: {error}"));
@@ -878,11 +698,11 @@ fn run_diet_recovery_branch(
                 u128::from(hydration_deficit.microliters())
                     .checked_mul(1_000_000)
                     .unwrap_or_else(|| panic!("diet-recovery drink scaling overflowed"))
-                    .div_ceil(u128::from(drink.hydration_multiplier_ppm())),
+                    .div_ceil(u128::from(branch.drink.hydration_multiplier_ppm())),
             )
             .unwrap_or_else(|_| panic!("diet-recovery drink volume exceeds authoritative range")),
         );
-        let _drink = validate_drink(registries, &state, drink_store, drink_volume)
+        let _drink = validate_drink(registries, &state, branch.drink_store, drink_volume)
             .unwrap_or_else(|error| panic!("diet-recovery drink validation failed: {error}"))
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("diet-recovery drink commit failed: {error}"));
@@ -911,14 +731,14 @@ fn run_diet_recovery_branch(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("diet-recovery matter audit failed: {error}"))
             .total(),
-        matter_total,
+        branch.matter_total,
         "diet-recovery eating must conserve represented matter"
     );
     assert_eq!(
         calculate_fluid_volume_accounting(&state)
             .unwrap_or_else(|error| panic!("diet-recovery fluid audit failed: {error}"))
             .total(),
-        fluid_total,
+        branch.fluid_total,
         "diet-recovery drinking must conserve represented fluid"
     );
     validate_loaded_state(registries, &state)
@@ -941,7 +761,7 @@ fn evaluate_diet_recovery_consequence(
         return DietRecoveryReview::supply_collapsed();
     }
 
-    let mut state = AppState::new(WorldSeed::new(seed ^ 0x4449_4554_5F524543));
+    let mut state = AppState::new(WorldSeed::new(seed ^ 0x4449_4554_5F52_4543));
     initialize_player_survival(registries, &mut state)
         .unwrap_or_else(|error| panic!("diet-recovery player initialization failed: {error}"));
     let maximum_deprivation_ticks = registries
@@ -1025,30 +845,23 @@ fn evaluate_diet_recovery_consequence(
     let fluid_total = calculate_fluid_volume_accounting(&state)
         .unwrap_or_else(|error| panic!("diet-recovery initial fluid audit failed: {error}"))
         .total();
-
-    let (compact_diet_quality_ppm, compact_vitality_after_ppm) = run_diet_recovery_branch(
-        registries,
-        &state,
-        &world.foods,
+    let branch = DietRecoveryBranch {
+        prepared: &state,
+        foods: &world.foods,
         food_store,
-        &food_lots,
-        world.drink,
+        food_lots: &food_lots,
+        drink: world.drink,
         drink_store,
-        DietProvisioningPolicy::CompactCalories,
         matter_total,
         fluid_total,
-    );
+    };
+
+    let (compact_diet_quality_ppm, compact_vitality_after_ppm) =
+        run_diet_recovery_branch(registries, &branch, DietProvisioningPolicy::CompactCalories);
     let (balanced_diet_quality_ppm, balanced_vitality_after_ppm) = run_diet_recovery_branch(
         registries,
-        &state,
-        &world.foods,
-        food_store,
-        &food_lots,
-        world.drink,
-        drink_store,
+        &branch,
         DietProvisioningPolicy::BalancedRecovery,
-        matter_total,
-        fluid_total,
     );
     assert!(
         balanced_diet_quality_ppm > compact_diet_quality_ppm,
@@ -1397,16 +1210,6 @@ fn prepare_provisioning_world(
         .unwrap_or_else(|| panic!("survival probe offered-food capacity overflowed"));
 
     let mut state = AppState::new(WorldSeed::new(seed));
-    match world.start_profile {
-        SurvivalStartProfile::FullReserve => initialize_player_survival(registries, &mut state)
-            .unwrap_or_else(|error| panic!("survival probe player initialization failed: {error}")),
-        SurvivalStartProfile::HungerWarning => {
-            seed_player_survival_at_hunger_warning(registries, &mut state)
-        }
-        SurvivalStartProfile::HydrationWarning => {
-            seed_player_survival_at_hydration_warning(registries, &mut state)
-        }
-    }
     let ambient_meal = seed_stockpile(
         &mut state,
         ambient_capacity,
@@ -1484,6 +1287,19 @@ fn prepare_provisioning_world(
         ROOM_TEMPERATURE,
     );
 
+    // World supplies and preexisting infrastructure are bootstrap state. Admit the player only after
+    // all fixture-only mutations are complete, then let canonical ticks create the survival pressure.
+    match world.start_profile {
+        SurvivalStartProfile::FullReserve => initialize_player_survival(registries, &mut state)
+            .unwrap_or_else(|error| panic!("survival probe player initialization failed: {error}")),
+        SurvivalStartProfile::HungerWarning => {
+            seed_player_survival_at_hunger_warning(registries, &mut state)
+        }
+        SurvivalStartProfile::HydrationWarning => {
+            seed_player_survival_at_hydration_warning(registries, &mut state)
+        }
+    }
+
     advance_exact(registries, &mut state, world.age_ticks);
     let ambient_age = fresh_age(registries, &state, ambient_witness);
     let preserved_age = fresh_age(registries, &state, preserved_witness);
@@ -1523,7 +1339,7 @@ fn prepare_provisioning_world(
 
 fn run_provisioning_case(
     registries: &Registries,
-    seed: u64,
+    behavior_seed: u64,
     world: &ProvisioningWorld,
     prepared: &PreparedProvisioningWorld,
     plan: &ProvisioningPlan,
@@ -1566,7 +1382,9 @@ fn run_provisioning_case(
     let drink_first = match provisioning_priority {
         ProvisioningPriority::Hydration => true,
         ProvisioningPriority::MetabolicEnergy => false,
-        ProvisioningPriority::Balanced => mix64(seed ^ 0x5052_4F56_4953_494F).is_multiple_of(2),
+        ProvisioningPriority::Balanced => {
+            mix64(behavior_seed ^ 0x5052_4F56_4953_494F).is_multiple_of(2)
+        }
     };
     let selections = selected_indices
         .iter()
@@ -1695,7 +1513,7 @@ fn run_provisioning_case(
             .collect::<Vec<_>>()
             .join("+");
         std::println!(
-            "PLAYABLE SURVIVAL seed=0x{seed:016X} mode=matched-policy policy={} catalog=registry-derived world-bootstrap=[reserve-profile:{},authored-food,authored-drink,storage-profile] player-present-from=t0 available-categories={available_categories} selected-categories={selected_categories} food-rotation=[witness:{} elapsed:{age_ticks}t preservation:{preservation_multiplier_ppm}ppm ambient-age:{ambient_age}t preserved-age:{preserved_age}t age-saved:{preservation_age_saved_ticks}t consume:older-ambient retain-preserved:{}mg] wait={provisioning_wait_ticks}t provisioning=[priority:{} action-order:{action_order}] meal=[mass:{}mg energy:+{}nJ nutrition:+{}ppm diet-quality:{}->{}ppm recovery-rate:{}->{}ppm/t] drink=[fluid:{} volume:{}uL hydration:+{}uL] reserves=restored matter=conserved fluid=conserved tick={}",
+            "PLAYABLE SURVIVAL behavior=0x{behavior_seed:016X} mode=matched-policy policy={} catalog=registry-derived world-bootstrap=[reserve-profile:{},authored-food,authored-drink,storage-profile] player-present-from=t0 available-categories={available_categories} selected-categories={selected_categories} food-rotation=[witness:{} elapsed:{age_ticks}t preservation:{preservation_multiplier_ppm}ppm ambient-age:{ambient_age}t preserved-age:{preserved_age}t age-saved:{preservation_age_saved_ticks}t consume:older-ambient retain-preserved:{}mg] wait={provisioning_wait_ticks}t provisioning=[priority:{} action-order:{action_order}] meal=[mass:{}mg energy:+{}nJ nutrition:+{}ppm diet-quality:{}->{}ppm recovery-rate:{}->{}ppm/t] drink=[fluid:{} volume:{}uL hydration:+{}uL] reserves=restored matter=conserved fluid=conserved tick={}",
             policy.label(),
             world.start_profile.label(),
             witness_food.commodity().value(),
@@ -1759,7 +1577,6 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
     let physiology = registries.survival().physiology();
 
     let mut hunger = AppState::new(WorldSeed::new(seed ^ 0x4855_4E47_4552_0001));
-    seed_player_survival_at_hunger_warning(registries, &mut hunger);
     let hunger_food_store = seed_stockpile(
         &mut hunger,
         food_mass,
@@ -1781,6 +1598,7 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
         drink_volume,
         ROOM_TEMPERATURE,
     );
+    seed_player_survival_at_hunger_warning(registries, &mut hunger);
     let hunger_before = assess_survival(registries, &hunger)
         .unwrap_or_else(|| panic!("hunger-pressure player disappeared"));
     let hunger_priority = provisioning_priority_from_reserves(
@@ -1811,7 +1629,6 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
     assert!(hunger_after.metabolic_energy() > hunger_before.metabolic_energy());
 
     let mut thirst = AppState::new(WorldSeed::new(seed ^ 0x5448_4952_5354_0002));
-    seed_player_survival_at_hydration_warning(registries, &mut thirst);
     let thirst_food_store = seed_stockpile(
         &mut thirst,
         food_mass,
@@ -1833,6 +1650,7 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
         drink_volume,
         ROOM_TEMPERATURE,
     );
+    seed_player_survival_at_hydration_warning(registries, &mut thirst);
     let thirst_before = assess_survival(registries, &thirst)
         .unwrap_or_else(|| panic!("thirst-pressure player disappeared"));
     let thirst_priority = provisioning_priority_from_reserves(
@@ -2113,7 +1931,12 @@ fn evaluate_survival_work_pressure_probe(
     }
 }
 
-fn evaluate_survival_provisioning_probe(registries: &Registries, seed: u64) {
+fn evaluate_survival_provisioning_probe(registries: &Registries, case: FocusedProbeCase) {
+    let seed = case.seed();
+    let sample = focused_probe_role_label(case.role());
+    let behavior_seed = case
+        .behavior_seed()
+        .unwrap_or_else(|| panic!("survival probe is missing its actor behavior seed"));
     let preservation_infrastructure = evaluate_preservation_infrastructure_probe(registries, seed);
     evaluate_survival_pressure_response_probe(registries, seed);
     let work_pressure = evaluate_survival_work_pressure_probe(registries, seed);
@@ -2154,7 +1977,7 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, seed: u64) {
 
     let compact = run_provisioning_case(
         registries,
-        seed,
+        behavior_seed,
         &world,
         &prepared,
         &compact_plan,
@@ -2162,7 +1985,7 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, seed: u64) {
     );
     let balanced = run_provisioning_case(
         registries,
-        seed,
+        behavior_seed,
         &world,
         &prepared,
         &balanced_plan,
@@ -2188,6 +2011,11 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, seed: u64) {
         balanced.retained_preserved_mass_mg
     );
     assert!(compact.reserve_recovered && balanced.reserve_recovered);
+    let natural_policy = diet_provisioning_policy_for_behavior_seed(behavior_seed);
+    let natural = match natural_policy {
+        DietProvisioningPolicy::CompactCalories => compact,
+        DietProvisioningPolicy::BalancedRecovery => balanced,
+    };
     if available_category_count == authored_category_count {
         assert!(compact.selected_category_count < balanced.selected_category_count);
         assert!(compact.meal_mass_mg <= balanced.meal_mass_mg);
@@ -2226,9 +2054,33 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, seed: u64) {
     } else {
         "choice:supply-collapsed reason=available-categories-below-authored-diet-set".to_string()
     };
+    let choice_state = if available_category_count == authored_category_count {
+        "policy-sensitive"
+    } else {
+        "supply-constrained"
+    };
     let food_options = food_option_summary(registries, foods);
     std::println!(
-        "SURVIVAL REVIEW seed=0x{seed:016X} fantasy=prepare+provision episode=[start:{} wait:{provisioning_wait_ticks}t available:[foods:{} categories:{} options:{food_options}]] preservation-infrastructure=[storage:{} food:{} stages:{} route=bootstrap-roots->manual-production-forest->enclosure production:{}t observation:{}t raw:{}mg embodied:{}mg residual:{}mg multiplier:{}ppm witness=[bootstrap-age:{}t ambient:{}:{}t enclosed:{}:{}t saved:{}t] survival-cost:{}nJ+{}uL] activity-pressure=[prospecting:[method:{} region:{}vox {}t] energy:{}ppm hydration:{}ppm dominant:{}; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:{} stored-work:{}nJ; contrast:{}] matched-world-choice=[compact-calories:[selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t] balanced:[selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t]] tradeoff=[meal-mass-delta:+{}mg water-saved:+{}uL diet-quality-advantage:+{}ppm recovery-advantage:+{}ppm/t] recovery-consequence=[{recovery_consequence}] decision-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] preservation=[definition:{} age-saved:{}t retained:{}mg] reserve-recovered:{}",
+        "SURVIVAL EXPERIENCE seed=0x{seed:016X} sample={sample} start={} supply=[foods:{} categories:{}] pressure={} choice=[state:{choice_state} policy:{} meal:{}mg drink:{}uL] preparation=[preservation:{}ppm age-saved:{}t retained:{}mg] consequence=[reserve-restored:{} diet-advantage:{}ppm recovery-advantage:{}ppm/t] work-interlock=[prospecting:{} manual-power:{} differs:{}]",
+        world.start_profile.label(),
+        foods.len(),
+        available_category_count,
+        compact.provisioning_priority.label(),
+        natural_policy.label(),
+        natural.meal_mass_mg,
+        natural.drink_volume_ul,
+        preservation_infrastructure.preservation_multiplier_ppm,
+        compact.preservation_age_saved_ticks,
+        compact.retained_preserved_mass_mg,
+        reserve_recovered,
+        balanced_diet_quality_advantage_ppm,
+        recovery_rate_advantage_ppm_per_tick,
+        prospecting_pressure.label(),
+        manual_power_pressure.label(),
+        prospecting_pressure != manual_power_pressure,
+    );
+    std::println!(
+        "SURVIVAL REVIEW seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=prepare+provision episode=[start:{} wait:{provisioning_wait_ticks}t available:[foods:{} categories:{} options:{food_options}]] preservation-infrastructure=[storage:{} food:{} stages:{} route=bootstrap-roots->manual-production-forest->enclosure production:{}t observation:{}t raw:{}mg embodied:{}mg residual:{}mg multiplier:{}ppm witness=[bootstrap-age:{}t ambient:{}:{}t enclosed:{}:{}t saved:{}t] survival-cost:{}nJ+{}uL] activity-pressure=[prospecting:[method:{} region:{}vox {}t] energy:{}ppm hydration:{}ppm dominant:{}; manual-power:{}t energy:{}ppm hydration:{}ppm dominant:{} stored-work:{}nJ; contrast:{}] actor-choice=[policy:{} selected:{} meal:{}mg drink:{}uL] matched-counterfactual=[compact-calories:[selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t] balanced:[selected:{} meal:{}mg drink:{}uL diet:{}->{}ppm recovery:{}->{}ppm/t]] tradeoff=[meal-mass-delta:+{}mg water-saved:+{}uL diet-quality-advantage:+{}ppm recovery-advantage:+{}ppm/t] recovery-consequence=[{recovery_consequence}] decision-pressure=[energy:{}ppm hydration:{}ppm dominant:{}] preservation=[definition:{} age-saved:{}t retained:{}mg] reserve-recovered:{}",
         world.start_profile.label(),
         foods.len(),
         available_category_count,
@@ -2269,6 +2121,10 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, seed: u64) {
         manual_power_pressure.label(),
         work_pressure.stored_work_nj,
         prospecting_pressure != manual_power_pressure,
+        natural_policy.label(),
+        natural.selected_category_count,
+        natural.meal_mass_mg,
+        natural.drink_volume_ul,
         compact.selected_category_count,
         compact.meal_mass_mg,
         compact.drink_volume_ul,
@@ -2300,5 +2156,5 @@ fn evaluate_survival_provisioning_probe(registries: &Registries, seed: u64) {
 }
 
 pub(super) fn run_survival_provisioning_probe(registries: &Registries, case: FocusedProbeCase) {
-    evaluate_survival_provisioning_probe(registries, case.seed());
+    evaluate_survival_provisioning_probe(registries, case);
 }

@@ -369,12 +369,12 @@ pub(crate) fn validate_material_relocation_from_selection(
     })
 }
 
-fn validate_relocation_endpoints<'a>(
-    inventories: &'a InventoryState,
+fn validate_relocation_endpoints(
+    inventories: &InventoryState,
     expected_revision: u64,
     source: StockpileId,
     destination: StockpileId,
-) -> Result<(&'a StockpileRecord, &'a StockpileRecord), MaterialRelocationError> {
+) -> Result<(&StockpileRecord, &StockpileRecord), MaterialRelocationError> {
     if inventories.revision() != expected_revision {
         return Err(MaterialRelocationError::StaleSelection {
             expected: expected_revision,

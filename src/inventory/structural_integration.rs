@@ -189,42 +189,57 @@ fn support_force(
         .ok_or(StockpileStructuralLoadError::WeightForceOverflow { element })
 }
 
-fn supported_mass(
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SupportedMassProjection {
+    current: AggregateMass,
+    projected: AggregateMass,
+}
+
+fn supported_mass_projection(
     state: &AppState,
     element: StructuralElementId,
     overrides: &BTreeMap<StockpileId, Mass>,
     excluded: Option<StockpileId>,
-) -> Result<AggregateMass, StockpileStructuralLoadError> {
-    let mut total = AggregateMass::ZERO;
+) -> Result<SupportedMassProjection, StockpileStructuralLoadError> {
+    let mut current = AggregateMass::ZERO;
+    let mut projected = AggregateMass::ZERO;
     for stockpile in state.inventory().supported_stockpiles(element) {
-        if excluded == Some(stockpile) {
-            continue;
-        }
         let record = state
             .inventory()
             .get_stockpile(stockpile)
             .ok_or(StockpileStructuralLoadError::UnknownStockpile { stockpile })?;
-        let stored_mass = overrides
+        let current_mass = record
+            .stored_mass()
+            .checked_add(record.embodied_mass())
+            .ok_or(StockpileStructuralLoadError::AggregateMassOverflow { element })?;
+        current = current
+            .checked_add(AggregateMass::from_mass(current_mass))
+            .ok_or(StockpileStructuralLoadError::AggregateMassOverflow { element })?;
+
+        if excluded == Some(stockpile) {
+            continue;
+        }
+        let projected_stored_mass = overrides
             .get(&stockpile)
             .copied()
             .unwrap_or_else(|| record.stored_mass());
-        let mass = stored_mass
+        let projected_mass = projected_stored_mass
             .checked_add(record.embodied_mass())
             .ok_or(StockpileStructuralLoadError::AggregateMassOverflow { element })?;
-        total = total
-            .checked_add(AggregateMass::from_mass(mass))
+        projected = projected
+            .checked_add(AggregateMass::from_mass(projected_mass))
             .ok_or(StockpileStructuralLoadError::AggregateMassOverflow { element })?;
     }
-    Ok(total)
+    Ok(SupportedMassProjection { current, projected })
 }
 
 fn validate_existing_load(
     registries: &Registries,
     state: &AppState,
     element: StructuralElementId,
+    current_mass: AggregateMass,
 ) -> Result<(), StockpileStructuralLoadError> {
-    let mass = supported_mass(state, element, &BTreeMap::new(), None)?;
-    let expected = support_force(registries, element, mass)?;
+    let expected = support_force(registries, element, current_mass)?;
     let stored = state
         .structures()
         .get_element(element)
@@ -268,12 +283,13 @@ pub(crate) fn validate_stockpile_support_for_new_inbound(
     Ok(Some(state.structures().revision()))
 }
 
-/// Resolves the exact final structure-owned loads implied by final stockpile masses.
-pub(crate) fn resolve_stockpile_stored_loads(
-    registries: &Registries,
+fn collect_stored_mass_changes(
     state: &AppState,
     changes: impl IntoIterator<Item = StockpileStoredMassChange>,
-) -> Result<BTreeMap<StructuralElementId, Force>, StockpileStructuralLoadError> {
+) -> Result<
+    (BTreeMap<StockpileId, Mass>, BTreeSet<StructuralElementId>),
+    StockpileStructuralLoadError,
+> {
     let mut overrides = BTreeMap::new();
     let mut affected_supports = BTreeSet::new();
     for change in changes {
@@ -291,31 +307,42 @@ pub(crate) fn resolve_stockpile_stored_loads(
                 change.stockpile.value()
             );
         }
-        if let Some(support) = record.supported_by() {
-            let support_record = state.structures().get_element(support).ok_or(
-                StockpileStructuralLoadError::UnknownSupport {
-                    stockpile: change.stockpile,
-                    element: support,
-                },
-            )?;
-            if change.stored_after > record.stored_mass()
-                && support_record.lifecycle() != StructuralLifecycle::Active
-            {
-                return Err(StockpileStructuralLoadError::SupportNotActiveForIncrease {
-                    stockpile: change.stockpile,
-                    element: support,
-                    lifecycle: support_record.lifecycle(),
-                });
-            }
-            affected_supports.insert(support);
+        let Some(support) = record.supported_by() else {
+            continue;
+        };
+        let support_record = state.structures().get_element(support).ok_or(
+            StockpileStructuralLoadError::UnknownSupport {
+                stockpile: change.stockpile,
+                element: support,
+            },
+        )?;
+        if change.stored_after > record.stored_mass()
+            && support_record.lifecycle() != StructuralLifecycle::Active
+        {
+            return Err(StockpileStructuralLoadError::SupportNotActiveForIncrease {
+                stockpile: change.stockpile,
+                element: support,
+                lifecycle: support_record.lifecycle(),
+            });
         }
+        affected_supports.insert(support);
     }
+    Ok((overrides, affected_supports))
+}
+
+/// Resolves the exact final structure-owned loads implied by final stockpile masses.
+pub(crate) fn resolve_stockpile_stored_loads(
+    registries: &Registries,
+    state: &AppState,
+    changes: impl IntoIterator<Item = StockpileStoredMassChange>,
+) -> Result<BTreeMap<StructuralElementId, Force>, StockpileStructuralLoadError> {
+    let (overrides, affected_supports) = collect_stored_mass_changes(state, changes)?;
 
     let mut loads = BTreeMap::new();
     for element in affected_supports {
-        validate_existing_load(registries, state, element)?;
-        let mass = supported_mass(state, element, &overrides, None)?;
-        loads.insert(element, support_force(registries, element, mass)?);
+        let mass = supported_mass_projection(state, element, &overrides, None)?;
+        validate_existing_load(registries, state, element, mass.current)?;
+        loads.insert(element, support_force(registries, element, mass.projected)?);
     }
     Ok(loads)
 }
@@ -667,8 +694,9 @@ pub fn validate_mount_stockpile(
             lifecycle: target.lifecycle(),
         });
     }
-    validate_existing_load(registries, state, element).map_err(StockpileSupportError::Load)?;
-    let current_mass = supported_mass(state, element, &BTreeMap::new(), None)
+    let mass = supported_mass_projection(state, element, &BTreeMap::new(), None)
+        .map_err(StockpileSupportError::Load)?;
+    validate_existing_load(registries, state, element, mass.current)
         .map_err(StockpileSupportError::Load)?;
     let stockpile_mass = record
         .stored_mass()
@@ -676,7 +704,8 @@ pub fn validate_mount_stockpile(
         .ok_or(StockpileSupportError::Load(
             StockpileStructuralLoadError::AggregateMassOverflow { element },
         ))?;
-    let next_mass = current_mass
+    let next_mass = mass
+        .current
         .checked_add(AggregateMass::from_mass(stockpile_mass))
         .ok_or(StockpileSupportError::Load(
             StockpileStructuralLoadError::AggregateMassOverflow { element },
@@ -719,11 +748,12 @@ pub fn validate_unmount_stockpile(
             StockpileStructuralLoadError::UnknownSupport { stockpile, element },
         ));
     }
-    validate_existing_load(registries, state, element).map_err(StockpileSupportError::Load)?;
-    let remaining_mass = supported_mass(state, element, &BTreeMap::new(), Some(stockpile))
+    let mass = supported_mass_projection(state, element, &BTreeMap::new(), Some(stockpile))
+        .map_err(StockpileSupportError::Load)?;
+    validate_existing_load(registries, state, element, mass.current)
         .map_err(StockpileSupportError::Load)?;
     let next_load =
-        support_force(registries, element, remaining_mass).map_err(StockpileSupportError::Load)?;
+        support_force(registries, element, mass.projected).map_err(StockpileSupportError::Load)?;
     let structural = validate_stockpile_structural_load_plan(
         registries,
         state,

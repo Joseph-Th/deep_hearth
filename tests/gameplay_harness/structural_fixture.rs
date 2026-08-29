@@ -67,7 +67,7 @@ pub(super) fn support_area_for_utilization(
     };
     let mut upper = 1_u64;
     while !fits(upper) {
-        let next = upper.checked_mul(2).unwrap_or(u64::MAX);
+        let next = upper.saturating_mul(2);
         assert!(
             next != upper,
             "gameplay harness could not size a legal structural support"

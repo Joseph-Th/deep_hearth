@@ -7,7 +7,7 @@ const GATE_VARIATION_SCENARIO_COUNT: usize = 1;
 const EXPLORATORY_VARIATION_SCENARIO_COUNT: usize = 4;
 const SEED_STRIDE: u64 = 0xD1B5_4A32_D192_ED03;
 
-pub(super) use super::focused_seeds::MAINTAINED_VARIATION_ROOT;
+pub(super) use super::seed::MAINTAINED_VARIATION_ROOT;
 pub(super) const MAINTAINED_BEHAVIOR_ROOT: u64 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

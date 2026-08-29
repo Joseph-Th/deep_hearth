@@ -1,5 +1,6 @@
 //! Focused ore-preparation capability probe.
 
+use super::equipment_support::nominal_equipment_mass_capability;
 use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::ore_setup::{OrePreparationProbeIds, OrePreparationSetup, setup_ore_preparation_probe};
@@ -7,7 +8,6 @@ use super::production_support::{
     finish_uninterrupted_production_job, select_stockpile_mass, varied_healthy_condition,
 };
 use super::seed::mix64;
-use super::support::nominal_equipment_mass_capability;
 use deep_hearth::content::{
     ENERGY_MECHANICAL_LARGE_DRIVE, EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRAVITY_SEPARATOR,
     EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER, FORM_CONCENTRATE, FORM_TAILINGS, MATERIAL_CLAY,
@@ -222,16 +222,26 @@ pub(super) enum OreProbeOutcome {
     },
 }
 
+#[derive(Clone, Copy)]
+struct OreEnergyStop {
+    stage: &'static str,
+    available: Energy,
+    requested: Energy,
+}
+
 fn report_ore_energy_stop(
     registries: &Registries,
     state: &AppState,
     ids: OrePreparationProbeIds,
     case: FocusedProbeCase,
     initial_matter: AggregateMass,
-    stage: &'static str,
-    available: Energy,
-    requested: Energy,
+    stop: OreEnergyStop,
 ) -> OreProbeOutcome {
+    let OreEnergyStop {
+        stage,
+        available,
+        requested,
+    } = stop;
     validate_loaded_state(registries, state)
         .unwrap_or_else(|error| panic!("ore preparation stop-state audit failed: {error}"));
     let current_matter = calculate_matter_accounting(state)
@@ -368,9 +378,11 @@ pub(super) fn evaluate_ore_preparation_capability_probe(
                 ids,
                 case,
                 initial_matter,
-                "crush",
-                available,
-                requested,
+                OreEnergyStop {
+                    stage: "crush",
+                    available,
+                    requested,
+                },
             );
         }
         Err(ComminutionResolutionError::BatchMassExceeded { .. })
@@ -495,9 +507,11 @@ pub(super) fn evaluate_ore_preparation_capability_probe(
                 ids,
                 case,
                 initial_matter,
-                "grind",
-                available,
-                requested,
+                OreEnergyStop {
+                    stage: "grind",
+                    available,
+                    requested,
+                },
             );
         }
         Err(ComminutionResolutionError::BatchMassExceeded { .. })
@@ -597,9 +611,11 @@ pub(super) fn evaluate_ore_preparation_capability_probe(
                 ids,
                 case,
                 initial_matter,
-                "screen",
-                available,
-                requested,
+                OreEnergyStop {
+                    stage: "screen",
+                    available,
+                    requested,
+                },
             );
         }
         Err(ScreeningResolutionError::BatchMassExceeded { .. })
@@ -723,9 +739,11 @@ pub(super) fn evaluate_ore_preparation_capability_probe(
                         ids,
                         case,
                         initial_matter,
-                        "regrind-oversize",
-                        available,
-                        requested,
+                        OreEnergyStop {
+                            stage: "regrind-oversize",
+                            available,
+                            requested,
+                        },
                     );
                 }
                 Err(ComminutionResolutionError::BatchMassExceeded { .. })
@@ -818,9 +836,11 @@ pub(super) fn evaluate_ore_preparation_capability_probe(
                 ids,
                 case,
                 initial_matter,
-                "concentrate",
-                available,
-                requested,
+                OreEnergyStop {
+                    stage: "concentrate",
+                    available,
+                    requested,
+                },
             );
         }
         Err(ConstituentSeparationResolutionError::BatchMassExceeded { .. })

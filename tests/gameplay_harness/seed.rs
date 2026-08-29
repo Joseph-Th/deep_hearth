@@ -1,5 +1,7 @@
 //! Deterministic seed mixing shared by gameplay harnesses.
 
+pub(super) const MAINTAINED_VARIATION_ROOT: u64 = 0xE7A1_0A7E_5EED_2026;
+
 pub(super) fn mix64(mut value: u64) -> u64 {
     value = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
     value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);

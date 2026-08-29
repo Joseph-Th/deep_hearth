@@ -9,10 +9,12 @@ use super::configuration::{
     MAINTAINED_BEHAVIOR_ROOT, MAINTAINED_VARIATION_ROOT, ScenarioPlanMode, scenario_seeds_from,
 };
 use super::contracts::{assert_anchor_diversity, assert_scenario_contracts};
+use super::environment::ROOM_TEMPERATURE;
 use super::fresh_seed::fresh_root;
-use super::has_verbose_output;
 use super::industrial_support::install_equipment_on_grounded_support;
+use super::inventory_support::add_solid_stockpile;
 use super::ore_fixture::copper_ore_composition;
+use super::output::has_verbose_output;
 use super::report::{
     EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioChoiceReport,
     ScenarioPolicyVariation, ScenarioProgressReport, ScenarioReport, ScenarioResourceReport,
@@ -20,7 +22,6 @@ use super::report::{
 };
 use super::scenario::{ScenarioDeliveryVariation, ScenarioVariation, WORKSHOP_SUPPORT_LENGTH};
 use super::seed::mix64;
-use super::support::{ROOM_TEMPERATURE, add_solid_stockpile};
 use deep_hearth::content::gameplay_fixture::{
     authorize_controlled_material_delivery, materialize_structure, seed_composed_lot, seed_lot,
     seed_player_survival_at_hydration_warning,
@@ -811,7 +812,7 @@ fn probe_manual_recovery_option(
         )
     };
     let best_key = options.iter().map(&option_key).min();
-    let option = best_key.and_then(|best_key| {
+    let option = best_key.map(|best_key| {
         let mut best = options
             .into_iter()
             .filter(|candidate| option_key(candidate) == best_key);
@@ -822,7 +823,7 @@ fn probe_manual_recovery_option(
             best.next().is_none(),
             "manual recovery has multiple equally useful observable destinations; add an explicit player policy instead of using store identity or label"
         );
-        Some(selected)
+        selected
     });
     ManualRecoveryProbe {
         option,
@@ -1457,6 +1458,8 @@ fn apply_delivery_and_adapt(
     adapt_after_delivery(registries, state, ids, actor, after);
 }
 
+#[path = "workshop/finalize.rs"]
+mod finalize;
 #[path = "workshop/runner.rs"]
 mod runner;
 

@@ -127,7 +127,9 @@ def normalize_path(path: str) -> str:
 
 def is_maintained_rust_source(path: str) -> bool:
     normalized = normalize_path(path)
-    return normalized.startswith("src/") and normalized.endswith(".rs")
+    return normalized.endswith(".rs") and (
+        normalized.startswith("src/") or normalized.startswith("tests/")
+    )
 
 
 def path_is_within_scope(path: str, scope: str) -> bool:
@@ -186,12 +188,22 @@ def git_changed_paths_since(revision: str) -> list[str]:
             revision,
             "--",
             "src",
+            "tests",
         ],
-        f"list source changes relative to {revision}",
+        f"list maintained Rust changes relative to {revision}",
     )
     untracked = git_output_paths(
-        ["git", "ls-files", "--others", "--exclude-standard", "-z", "--", "src"],
-        "list untracked source files",
+        [
+            "git",
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            "src",
+            "tests",
+        ],
+        "list untracked maintained Rust files",
     )
     return tracked + untracked
 

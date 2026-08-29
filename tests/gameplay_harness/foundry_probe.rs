@@ -1,5 +1,7 @@
 //! Focused pure-copper melt/cast capability probe.
 
+use super::environment::ROOM_TEMPERATURE;
+use super::equipment_support::nominal_equipment_mass_capability;
 use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::foundry_setup::{FoundryIds, FoundrySetup, setup_foundry_probe};
@@ -7,7 +9,6 @@ use super::production_support::{
     finish_uninterrupted_production_job, select_stockpile_mass, varied_healthy_condition,
 };
 use super::seed::mix64;
-use super::support::{ROOM_TEMPERATURE, nominal_equipment_mass_capability};
 use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,
     EQUIPMENT_ELECTRIC_FURNACE, MATERIAL_COPPER, PROCESS_CAST_PURE_COPPER,
@@ -171,7 +172,19 @@ fn melt_scaling_limit(error: &MeltingResolutionError) -> Option<MeltBatchLimit> 
             Some(MeltBatchLimit::FiniteEnergy)
         }
         MeltingResolutionError::ConditionDuration(_) => Some(MeltBatchLimit::ConditionLifetime),
-        _ => None,
+        MeltingResolutionError::UnknownThermalProcess { .. }
+        | MeltingResolutionError::Input(_)
+        | MeltingResolutionError::Equipment(_)
+        | MeltingResolutionError::Capability(_)
+        | MeltingResolutionError::MissingHeatingPower { .. }
+        | MeltingResolutionError::MissingMaximumTemperature { .. }
+        | MeltingResolutionError::MissingMaximumBatchMass { .. }
+        | MeltingResolutionError::Batch(_)
+        | MeltingResolutionError::MeltingPointExceedsEquipmentMaximum { .. }
+        | MeltingResolutionError::Energy(_)
+        | MeltingResolutionError::WrongEnergyCarrier { .. }
+        | MeltingResolutionError::Duration(_)
+        | MeltingResolutionError::Resolution(_) => None,
     }
 }
 
@@ -223,7 +236,19 @@ fn cast_scaling_limit(error: &CastingResolutionError) -> Option<CastBatchLimit> 
             Some(CastBatchLimit::ThermalSinkCapacity)
         }
         CastingResolutionError::ConditionDuration(_) => Some(CastBatchLimit::ConditionLifetime),
-        _ => None,
+        CastingResolutionError::UnknownThermalProcess { .. }
+        | CastingResolutionError::Input(_)
+        | CastingResolutionError::Equipment(_)
+        | CastingResolutionError::Capability(_)
+        | CastingResolutionError::MissingCoolingPower { .. }
+        | CastingResolutionError::MissingMaximumTemperature { .. }
+        | CastingResolutionError::MissingMaximumBatchMass { .. }
+        | CastingResolutionError::Batch(_)
+        | CastingResolutionError::InputTemperatureExceedsEquipmentMaximum { .. }
+        | CastingResolutionError::EnergySink(_)
+        | CastingResolutionError::WrongEnergyCarrier { .. }
+        | CastingResolutionError::Duration(_)
+        | CastingResolutionError::Resolution(_) => None,
     }
 }
 

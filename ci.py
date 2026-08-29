@@ -17,12 +17,19 @@ import time
 ROOT = Path(__file__).resolve().parent
 
 GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
+GAMEPLAY_TARGETS = {
+    "workshop": "gameplay_workshop",
+    "survival": "gameplay_survival",
+    "progression": "gameplay_progression",
+    "ore": "gameplay_ore",
+    "foundry": "gameplay_foundry",
+}
 GAMEPLAY_TESTS = {
     "workshop": "workshop_contract_tests::gameplay_harness_gate",
-    "survival": "focused::gameplay_survival_provisioning_probe",
-    "progression": "focused::gameplay_primitive_progression_probe",
-    "ore": "focused::gameplay_ore_preparation_probe",
-    "foundry": "focused::gameplay_foundry_probe",
+    "survival": "gameplay_survival_provisioning_probe",
+    "progression": "gameplay_primitive_progression_probe",
+    "ore": "gameplay_ore_preparation_probe",
+    "foundry": "gameplay_foundry_probe",
 }
 
 
@@ -46,16 +53,15 @@ def configure_report_replay_environment(
 
 GAMEPLAY_SCOPES = ("all", *GAMEPLAY_TESTS)
 FAILED_TEST = re.compile(r"^    (?P<name>[A-Za-z0-9_:]+)$", re.MULTILINE)
-FAILED_RERUN_TARGET = re.compile(
-    r"to rerun pass `(?P<target>--lib|--test gameplay_audit)`"
-)
+FAILED_RERUN_TARGET = re.compile(r"to rerun pass `(?P<target>--lib|--test [A-Za-z0-9_-]+)`")
 RUST_TEST_RESULT = re.compile(
     r"test result: ok\. (?P<passed>\d+) passed; (?P<failed>\d+) failed; "
     r"(?P<ignored>\d+) ignored;"
 )
 GAMEPLAY_REPORT_PREFIXES = (
     "HARNESS INPUT ",
-    "CONTENT ",
+    "CONTENT registry_schema=",
+    "CONTENT ACQUISITION DECLARATIONS ",
     "EVIDENCE CONTRACT ",
     "CAPABILITY HIGHLIGHT ",
     "SAMPLE ",
@@ -68,14 +74,17 @@ GAMEPLAY_REPORT_PREFIXES = (
     "PROBE INPUT ",
 )
 FOCUSED_REVIEW_PREFIXES = (
-    "SURVIVAL REVIEW ",
+    "SURVIVAL EXPERIENCE ",
     "PROGRESSION FALLBACK ",
-    "PROGRESSION REVIEW ",
+    "PROGRESSION EXPERIENCE ",
     "ORE REVIEW ",
     "FOUNDRY REVIEW ",
 )
 FOCUSED_VISIBLE_REPLAY_SEED = re.compile(
     r"\b(?:anchor|coverage|organic):(0x[0-9A-Fa-f]+)"
+)
+WORKSHOP_REPLAY_ROOTS = re.compile(
+    r"\bworld_root=(?P<world>\S+)\s+behavior_root=(?P<behavior>\S+)"
 )
 
 
@@ -95,6 +104,19 @@ def rust_test_summary(stdout: str) -> str | None:
     if ignored:
         detail += f", {ignored} ignored"
     return detail
+
+
+def gameplay_replay_summary(stdout: str) -> str | None:
+    """Return one compact reproduction token from captured focused-gameplay output."""
+
+    for line in stdout.splitlines():
+        if line.startswith("PROBE INPUT ") and " replay=" in line:
+            return f"replay={line.split(' replay=', 1)[1]}"
+        if line.startswith("HARNESS INPUT "):
+            match = WORKSHOP_REPLAY_ROOTS.search(line)
+            if match is not None:
+                return f"roots={match.group('world')}/{match.group('behavior')}"
+    return None
 
 
 def combined_test_summary(stdout: str) -> str | None:
@@ -165,12 +187,16 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
         failed = FAILED_TEST.findall(combined)
         if failed:
             return f"python tools/run_test.py {failed[-1]}"
-    if GAMEPLAY_AUDIT_TARGET in command:
+    gameplay_targets = (GAMEPLAY_AUDIT_TARGET, *GAMEPLAY_TARGETS.values())
+    if any(target in command for target in gameplay_targets):
         failed = FAILED_TEST.findall(combined)
         if failed:
             rerun_targets = FAILED_RERUN_TARGET.findall(combined)
             if rerun_targets and rerun_targets[-1] == "--lib":
                 return f"python tools/run_test.py {failed[-1]}"
+            if rerun_targets and rerun_targets[-1].startswith("--test "):
+                target = rerun_targets[-1].removeprefix("--test ")
+                return f"python tools/run_test.py --target {target} {failed[-1]}"
             return (
                 "python tools/run_test.py "
                 f"--target {GAMEPLAY_AUDIT_TARGET} {failed[-1]}"
@@ -243,11 +269,14 @@ def gameplay_targets_command(
 
 
 def gameplay_command(scope: str, *, nocapture: bool = False) -> list[str]:
-    test_filter = None if scope == "all" else GAMEPLAY_TESTS[scope]
+    if scope == "all":
+        return gameplay_targets_command((GAMEPLAY_AUDIT_TARGET,), nocapture=nocapture)
     return gameplay_targets_command(
-        (GAMEPLAY_AUDIT_TARGET,),
-        test_filter=test_filter,
-        nocapture=nocapture,
+        (GAMEPLAY_TARGETS[scope],),
+        test_filter=GAMEPLAY_TESTS[scope],
+        # Focused gates capture stdout in ci.py, then surface only the short replay token on success.
+        # On failure the same output preserves the exact world needed to reproduce the problem.
+        nocapture=True,
     )
 
 
@@ -279,39 +308,41 @@ def report_plan() -> list[tuple[str, list[str]]]:
     ]
 
 
-def bca_review_plan(since: str, paths: list[str]) -> list[tuple[str, list[str]]]:
-    """Run the pinned history-aware BCA review over maintained source changed from a base revision."""
+def bca_review_plan(
+    since: str,
+    paths: list[str],
+    *,
+    changed_only: bool = True,
+) -> list[tuple[str, list[str]]]:
+    """Run the pinned history-aware BCA review over changed source or a requested hotspot scope."""
 
     command = [
         sys.executable,
         "tools/check_bca.py",
         "review",
-        "--changed",
-        "--since",
-        since,
     ]
+    label = "BCA hotspot review"
+    if changed_only:
+        command.append("--changed")
+        label = "BCA changed-source review"
+    command.extend(("--since", since))
     for path in paths:
         command.extend(("--path", path))
-    return [("BCA changed-source review", command)]
+    return [(label, command)]
 
 
-def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
-    if args.preset == "quick":
-        return quick_plan()
-    if args.preset == "bca":
-        return bca_review_plan(args.since, args.path)
-    if args.preset == "audit":
-        if args.all:
-            return audit_plan("all")
-        if args.core:
-            return audit_plan("core")
-        if args.gameplay:
-            return audit_plan("gameplay")
-        raise ValueError(
-            "audit requires an explicit scope: use `--core`, `--gameplay`, or `--all`"
-        )
-    if args.preset == "report":
-        return report_plan()
+def audit_plan_for_args(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
+    if args.all:
+        return audit_plan("all")
+    if args.core:
+        return audit_plan("core")
+    if args.gameplay:
+        return audit_plan("gameplay")
+    raise ValueError("audit requires an explicit scope: use `--core`, `--gameplay`, or `--all`")
+
+
+def gate_plan(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
+    """Resolve the single build-producing lane layered on top of the build-free quick checks."""
 
     if args.all:
         raise ValueError("broad verification is audit-only; use `python ci.py audit --all`")
@@ -349,6 +380,24 @@ def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
     else:
         plan.append(("compile", cargo("check-fast")))
     return plan
+
+
+def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
+    if args.preset == "quick":
+        return quick_plan()
+    if args.preset == "gate":
+        return gate_plan(args)
+    if args.preset == "audit":
+        return audit_plan_for_args(args)
+    if args.preset == "report":
+        return report_plan()
+    if args.preset == "bca":
+        return bca_review_plan(
+            args.since,
+            args.path,
+            changed_only=not args.hotspots,
+        )
+    raise ValueError(f"unknown local-CI preset: {args.preset}")
 
 
 def execute_stage(command: list[str]) -> tuple[subprocess.CompletedProcess[str] | None, float, OSError | None]:
@@ -394,7 +443,10 @@ def report_stage(
             if label == "core + gameplay"
             else rust_test_summary(result.stdout)
         )
-        suffix = f"; {detail}" if detail is not None else ""
+        details = [detail] if detail is not None else []
+        if replay := gameplay_replay_summary(result.stdout):
+            details.append(replay)
+        suffix = f"; {'; '.join(details)}" if details else ""
         print(f"PASS ({elapsed:.1f}s{suffix})")
         if echo_success and result.stdout.strip():
             output = (
@@ -458,7 +510,9 @@ def run_parallel_stages(
     return None if failed else timings
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+def build_parser() -> argparse.ArgumentParser:
+    """Build the local-CI command surface without mixing in preset policy validation."""
+
     parser = argparse.ArgumentParser(
         description="Run concise local verification without hosted CI or implicit change detection."
     )
@@ -530,39 +584,79 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=[],
         help="restrict BCA review to a source scope; repeat for multiple scopes",
     )
-    args = parser.parse_args(argv)
-    if args.preset == "quick" and any(
+    parser.add_argument(
+        "--hotspots",
+        action="store_true",
+        help=(
+            "with the bca preset, review current history-aware hotspots in the requested source "
+            "scope instead of limiting the report to changed maintained Rust source"
+        ),
+    )
+    return parser
+
+
+def has_build_lane_option(args: argparse.Namespace) -> bool:
+    return any(
         (args.all, args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)
-    ):
+    )
+
+
+def validate_quick_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if has_build_lane_option(args):
         parser.error("quick is intentionally build-free and does not accept build-producing flags")
-    if args.preset == "audit" and any((args.lint, args.soak, args.shaders, args.rustdoc)):
+
+
+def validate_audit_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if any((args.lint, args.soak, args.shaders, args.rustdoc)):
         parser.error(
             "audit has a fixed runtime scope; run change-scoped lint/rustdoc/shader lanes separately"
         )
-    if args.preset == "audit" and not any((args.all, args.core, args.gameplay)):
+    if not any((args.all, args.core, args.gameplay)):
         parser.error("audit requires an explicit scope: --core, --gameplay, or --all")
-    if args.preset == "audit" and args.gameplay not in (None, "all"):
+    if args.gameplay not in (None, "all"):
         parser.error(
             "focused gameplay belongs in gate; audit --gameplay always means all maintained gameplay targets"
         )
-    if args.preset == "gate" and args.core:
+
+
+def validate_gate_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if args.core:
         parser.error("complete core behavior is audit-only; use `python ci.py audit --core`")
-    if args.preset == "gate" and args.all:
+    if args.all:
         parser.error("broad verification is audit-only; use `python ci.py audit --all`")
-    if args.preset == "gate" and args.gameplay == "all":
+    if args.gameplay == "all":
         parser.error(
             "gate requires an explicit gameplay scope; use `python ci.py audit --gameplay` for all targets"
         )
-    if args.preset == "report" and any(
-        (args.all, args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)
-    ):
+
+
+def validate_report_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if has_build_lane_option(args):
         parser.error("report is a fixed exploratory lane and does not accept gate flags")
-    if args.preset == "bca" and any(
-        (args.all, args.core, args.lint, args.soak, args.gameplay, args.shaders, args.rustdoc)
-    ):
+
+
+def validate_bca_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if has_build_lane_option(args):
         parser.error("bca review is build-free and does not accept build-producing flags")
-    if args.preset != "bca" and (args.since != "HEAD" or args.path):
-        parser.error("--since and --path are valid only with the bca preset")
+
+
+def validate_preset_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    validators = {
+        "quick": validate_quick_options,
+        "gate": validate_gate_options,
+        "audit": validate_audit_options,
+        "report": validate_report_options,
+        "bca": validate_bca_options,
+    }
+    validators[args.preset](parser, args)
+    if args.preset != "bca" and (args.since != "HEAD" or args.path or args.hotspots):
+        parser.error("--since, --path, and --hotspots are valid only with the bca preset")
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    validate_preset_options(parser, args)
     return args
 
 

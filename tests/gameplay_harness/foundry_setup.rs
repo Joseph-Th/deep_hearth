@@ -4,7 +4,7 @@ use super::capability_boundary::{
     seed_capability_only_energy_store, seed_capability_only_equipment,
 };
 use super::industrial_support::install_equipment_on_grounded_support;
-use super::support::add_solid_stockpile;
+use super::inventory_support::add_solid_stockpile;
 use deep_hearth::content::gameplay_fixture::{seed_lot, seed_stockpile};
 use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,

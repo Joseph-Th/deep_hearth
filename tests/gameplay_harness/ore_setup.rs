@@ -3,9 +3,10 @@
 use super::capability_boundary::{
     seed_capability_only_energy_store, seed_capability_only_equipment,
 };
+use super::environment::ROOM_TEMPERATURE;
 use super::industrial_support::install_equipment_on_grounded_support;
+use super::inventory_support::add_solid_stockpile;
 use super::ore_fixture::copper_ore_composition;
-use super::support::{ROOM_TEMPERATURE, add_solid_stockpile};
 use deep_hearth::content::gameplay_fixture::seed_composed_lot;
 use deep_hearth::content::{
     ENERGY_MECHANICAL_LARGE_DRIVE, EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRAVITY_SEPARATOR,

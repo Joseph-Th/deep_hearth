@@ -9,13 +9,13 @@ use deep_hearth::registry::Registries;
 use deep_hearth::structural::{STRUCTURAL_PARTS_PER_MILLION, calculate_weight_force_ceiling};
 
 use super::configuration::MaintainedAnchor;
+use super::equipment_support::nominal_equipment_mass_capability;
 use super::report::{
     EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioPolicyVariation,
     StructuralPreference,
 };
 use super::seed::mix64;
 use super::structural_fixture::support_area_for_utilization;
-use super::support::nominal_equipment_mass_capability;
 
 pub(super) const WORKSHOP_SUPPORT_LENGTH: Length = Length::from_micrometers(2_000_000);
 

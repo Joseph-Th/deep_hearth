@@ -157,11 +157,10 @@ struct OutputAccumulator {
     residue_mass: Mass,
 }
 
-fn validate_input_trace(
-    materials: &MaterialRegistry,
+fn validate_input_identity(
     definition: ConstituentSeparationPhysics,
     trace: &ConsumedMaterialTrace,
-) -> Result<SeparationInputKey, ConstituentSeparationBatchError> {
+) -> Result<(), ConstituentSeparationBatchError> {
     let profile = trace.profile();
     if profile.commodity().form() != definition.input_form() {
         return Err(ConstituentSeparationBatchError::InputFormMismatch {
@@ -177,7 +176,15 @@ fn validate_input_trace(
             },
         );
     }
+    Ok(())
+}
 
+fn validate_input_constituents(
+    materials: &MaterialRegistry,
+    definition: ConstituentSeparationPhysics,
+    trace: &ConsumedMaterialTrace,
+) -> Result<(), ConstituentSeparationBatchError> {
+    let profile = trace.profile();
     let mut has_non_target = false;
     for component in profile.composition().components() {
         if component.material() == definition.target_material() {
@@ -206,7 +213,14 @@ fn validate_input_trace(
     if !has_non_target {
         return Err(ConstituentSeparationBatchError::MissingNonTargetConstituent);
     }
+    Ok(())
+}
 
+fn validate_input_particle_size(
+    definition: ConstituentSeparationPhysics,
+    trace: &ConsumedMaterialTrace,
+) -> Result<ParticleSizeDistribution, ConstituentSeparationBatchError> {
+    let profile = trace.profile();
     let particle_size = profile
         .particle_size_distribution()
         .cloned()
@@ -226,7 +240,18 @@ fn validate_input_trace(
             );
         }
     }
-    Ok((profile.temperature(), particle_size))
+    Ok(particle_size)
+}
+
+fn validate_input_trace(
+    materials: &MaterialRegistry,
+    definition: ConstituentSeparationPhysics,
+    trace: &ConsumedMaterialTrace,
+) -> Result<SeparationInputKey, ConstituentSeparationBatchError> {
+    validate_input_identity(definition, trace)?;
+    validate_input_constituents(materials, definition, trace)?;
+    let particle_size = validate_input_particle_size(definition, trace)?;
+    Ok((trace.profile().temperature(), particle_size))
 }
 
 fn collect_inputs(

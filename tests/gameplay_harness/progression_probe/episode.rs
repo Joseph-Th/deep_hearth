@@ -6,6 +6,7 @@ pub(super) fn run_primitive_progression_case(
     registries: &Registries,
     seed: u64,
     priority: PrimitivePriority,
+    extraction_grade_premium_ppm: u32,
     deferred_trace_refinement: bool,
     emit_detail: bool,
 ) -> PrimitiveProgressionExperience {
@@ -53,13 +54,13 @@ pub(super) fn run_primitive_progression_case(
         .checked_add(hard_ore_deposit_mass)
         .unwrap_or_else(|| panic!("primitive progression ore staging capacity overflowed"));
     let ore_copper_ppm = 450_000 + (mix64(seed ^ 0x5052_4F47_4752_4144) % 300_001) as u32;
-    let soft_gangue_clay_share_ppm = u32::try_from(mix64(seed ^ 0x534F_4654_5F47414E) % 750_001)
+    let soft_gangue_clay_share_ppm = u32::try_from(mix64(seed ^ 0x534F_4654_5F47_414E) % 750_001)
         .unwrap_or_else(|_| unreachable!("bounded soft-ore gangue variation fits u32"));
     // Hardness is an access constraint, not a promise of grade. A difficult seam can be excellent,
     // mediocre, or disappointing relative to easier ore. The player must buy access from bounded
     // evidence, then reassess the extracted sample instead of receiving a guaranteed jackpot.
     let hard_ore_copper_ppm = 500_000 + (mix64(seed ^ 0x4841_5244_5F47_5244) % 400_001) as u32;
-    let hard_gangue_clay_share_ppm = u32::try_from(mix64(seed ^ 0x4841_5244_5F47414E) % 750_001)
+    let hard_gangue_clay_share_ppm = u32::try_from(mix64(seed ^ 0x4841_5244_5F47_414E) % 750_001)
         .unwrap_or_else(|_| unreachable!("bounded hard-ore gangue variation fits u32"));
     let trace_copper_ppm = if deferred_trace_refinement {
         50_000 + (mix64(seed ^ 0x5452_4143_455F_4752) % 40_001) as u32
@@ -70,7 +71,7 @@ pub(super) fn run_primitive_progression_case(
         // processing feed without paying for a redundant detailed survey or extraction sample.
         125_000 + (mix64(seed ^ 0x5452_4143_455F_4752) % 75_001) as u32
     };
-    let trace_gangue_clay_share_ppm = u32::try_from(mix64(seed ^ 0x5452_4143_5F47414E) % 750_001)
+    let trace_gangue_clay_share_ppm = u32::try_from(mix64(seed ^ 0x5452_4143_5F47_414E) % 750_001)
         .unwrap_or_else(|_| unreachable!("bounded trace-ore gangue variation fits u32"));
     let PrimitiveMaterialPlan {
         raw_inputs,
@@ -142,8 +143,6 @@ pub(super) fn run_primitive_progression_case(
         .unwrap_or_else(|| panic!("primitive progression native-copper reserve overflowed"));
 
     let mut state = AppState::new(WorldSeed::new(seed));
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("primitive progression survival setup failed: {error}"));
     let raw = add_solid_stockpile(&mut state, raw_seed_capacity);
     let shaped = add_solid_stockpile(&mut state, shaped_capacity);
     let ore_storage = add_solid_stockpile(&mut state, ore_storage_capacity);
@@ -226,6 +225,10 @@ pub(super) fn run_primitive_progression_case(
         ),
     );
     let trace_target = MiningTargetRequest::new(trace_bounds, MATERIAL_COPPER);
+    // Finish every fixture-only world mutation before admitting the player. From this point onward,
+    // the episode may only use production-visible observations and canonical player/runtime actions.
+    initialize_player_survival(registries, &mut state)
+        .unwrap_or_else(|error| panic!("primitive progression survival setup failed: {error}"));
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| {
             panic!("primitive progression initial matter audit failed: {error}")
@@ -594,7 +597,11 @@ pub(super) fn run_primitive_progression_case(
             true,
         )
     };
-    let natural_priority = observed_primitive_priority(bulk_sample.copper_ppm, hard_clue);
+    let natural_priority = observed_primitive_priority(
+        bulk_sample.copper_ppm,
+        hard_clue,
+        extraction_grade_premium_ppm,
+    );
     let primitive_sorting_recovery_ppm = registries
         .ore_processing()
         .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
@@ -617,15 +624,40 @@ pub(super) fn run_primitive_progression_case(
         .checked_add(surface_prospecting_ticks)
         .and_then(|ticks| ticks.checked_add(detailed_survey_ticks))
         .unwrap_or_else(|| panic!("primitive progression prospecting duration overflowed"));
+    // At this exact player-visible decision state, ordinary play has two legitimate ways to bridge
+    // the missing second reinforcement: process some already-owned bulk ore by hand now, or invest
+    // in the primitive powered line. Replay the manual route on a clone so the mechanized episode is
+    // unchanged and both alternatives own the same geology, inventory, survival reserves, and prior
+    // attention costs. The destinations are empty stockpiles that were part of the starting world;
+    // the counterfactual performs no fixture mutation after actor admission.
+    let manual_bridge = evaluate_owned_ore_manual_bridge(
+        registries,
+        &state,
+        OwnedOreManualBridgePlan {
+            ore_source: ore_storage,
+            crushed_destination: crushed_storage,
+            native_destination: hard_ore_storage,
+            residue_destination: separation_residue_storage,
+            shaped_destination: shaped,
+            copper_ppm: bulk_sample.copper_ppm,
+            reinforcement_required: crank_upgrade_native,
+        },
+    );
+    assert!(
+        manual_bridge.manual_recovery_ppm < manual_bridge.powered_recovery_ppm,
+        "primitive mechanization must improve copper recovery over the real same-world hand route"
+    );
     let base_machine = build_primitive_machine(
         registries,
         &mut state,
-        raw,
-        native_storage,
-        shaped,
-        mined_mass,
-        soft_separation_feed_mass,
-        seed,
+        PrimitiveMachineBuildPlan {
+            raw,
+            native_storage,
+            shaped,
+            mined_mass,
+            separation_feed_mass: soft_separation_feed_mass,
+            seed,
+        },
     );
     let mut hard_sample_copper_ppm = None;
     let (
@@ -689,8 +721,10 @@ pub(super) fn run_primitive_progression_case(
                 primary_source,
                 crushed_storage,
                 machine,
-                mined_mass,
-                machine.required_energy,
+                CrushingBatch {
+                    mass: mined_mass,
+                    expected_energy: machine.required_energy,
+                },
                 ConcurrentMiningPlan {
                     target: bulk_ore_clue.request,
                     destination: ore_storage,
@@ -738,8 +772,10 @@ pub(super) fn run_primitive_progression_case(
                 ore_storage,
                 crushed_storage,
                 machine,
-                mined_mass,
-                machine.required_energy,
+                CrushingBatch {
+                    mass: mined_mass,
+                    expected_energy: machine.required_energy,
+                },
                 ConcurrentMiningPlan {
                     target: bulk_ore_clue.request,
                     destination: ore_storage,
@@ -787,12 +823,14 @@ pub(super) fn run_primitive_progression_case(
     let separation = separate_native_copper(
         registries,
         &mut state,
-        crushed_storage,
-        native_storage,
-        separation_residue_storage,
-        machine,
-        selected_separation_feed_mass,
-        crank_upgrade_native,
+        PrimitiveSeparationPlan {
+            crushed_storage,
+            native_storage,
+            residue_storage: separation_residue_storage,
+            machine,
+            feed_mass: selected_separation_feed_mass,
+            expected_target: crank_upgrade_native,
+        },
     );
     let separation_completed_at = state.tick().value();
     assert!(
@@ -934,8 +972,10 @@ pub(super) fn run_primitive_progression_case(
         ore_storage,
         crushed_storage,
         machine,
-        machine.reserve_mass,
-        planned_reserve_energy,
+        CrushingBatch {
+            mass: machine.reserve_mass,
+            expected_energy: planned_reserve_energy,
+        },
         ConcurrentMiningPlan {
             target: post_convergence_mining_target,
             destination: ore_storage,
@@ -972,13 +1012,18 @@ pub(super) fn run_primitive_progression_case(
     let steady_state = run_steady_state_crushing(
         registries,
         &mut state,
-        ore_storage,
-        crushed_storage,
-        machine,
-        post_convergence_mining_target,
-        pick,
-        mined_mass,
-        required_steady_state_productive_ticks,
+        SteadyStateCrushingPlan {
+            ore_storage,
+            crushed_storage,
+            machine,
+            concurrent: ConcurrentMiningPlan {
+                target: post_convergence_mining_target,
+                destination: ore_storage,
+                pick,
+                mass: mined_mass,
+            },
+            required_productive_ticks: required_steady_state_productive_ticks,
+        },
     );
     let component_service =
         service_reinforced_pick(registries, &mut state, raw, native_storage, shaped, pick);
@@ -1132,6 +1177,11 @@ pub(super) fn run_primitive_progression_case(
         hard_ore_evidence_lower_ppm: hard_clue.lower_ppm,
         hard_ore_evidence_upper_ppm: hard_clue.upper_ppm,
         bulk_sample_copper_ppm: bulk_sample.copper_ppm,
+        manual_bridge_feed_mass: manual_bridge.feed_mass,
+        manual_bridge_attention_ticks: manual_bridge.total_attention_ticks,
+        manual_bridge_recovery_ppm: manual_bridge.manual_recovery_ppm,
+        manual_bridge_metabolic_cost_nj: manual_bridge.metabolic_cost_nj,
+        manual_bridge_hydration_cost_ul: manual_bridge.hydration_cost_ul,
         selected_processing_feed_copper_ppm,
         selected_processing_feed_is_hard,
         processing_feed_selected_from_bulk,
@@ -1219,8 +1269,9 @@ pub(super) fn run_primitive_progression_case(
             "surface-resolved"
         };
         std::println!(
-            "PLAYABLE PROGRESSION seed=0x{seed:016X} priority={} world-bootstrap=[raw-gathered-matter-surplus:{}mg,visible-regional-geological-clue-zones+local-follow-up-regions,empty-storage] discovery=[path:{information_path} regional-recon:{}t regional-upper:[{},{}]ppm local-inspection:{}t clues:{} coarse-resolved:{} refinement-triggered-by-direct-shortage:{} detailed-survey:{}t alternative-bounds:{}..{}->{}..{}ppm alternative-sample:{}mg/{}t sample-observed:{} sample-grade:{}ppm bulk-grade:{}ppm evidence-persisted:true evidence-gated-target-resolution:true hidden-deposit-id:unavailable-to-actor] episode-scope=[current-primitive-route-actions-useful] canonical=recon-regional-clue-zones->prioritize-local-inspection->act-on-resolved-evidence->shape+assemble-pick->preview-resolved-mining-affordances->mine-best-bulk-feed->encounter-hardness-gate->mine-strongest-copper-clue->observe-native-metal->attempt-second-direct-parcel->observe-insufficient-target-mass->revisit-alternative-evidence->refine+sample-only-if-still-ambiguous->choose-best-supported-feed->build-processing-line->choose-first-copper-upgrade:[pick|crank]->exercise-affordance+reassess-feed->charge+autonomous-crush+mine-while-waiting->separate-crushed-ore->forge-second-upgrade->converge->repeat fantasy=read-world->infer-affordances->respond-to-constraints-with-information->survive->craft-tools->sequence-competing-investments->turn-investment-into-affordance->store-work->delegate-repetition->convert-processed-matter-into-next-capability",
+            "PLAYABLE PROGRESSION seed=0x{seed:016X} priority={} policy=[guaranteed-grade-premium:{}ppm] world-bootstrap=[raw-gathered-matter-surplus:{}mg,visible-regional-geological-clue-zones+local-follow-up-regions,empty-storage] discovery=[path:{information_path} regional-recon:{}t regional-upper:[{},{}]ppm local-inspection:{}t clues:{} coarse-resolved:{} refinement-triggered-by-direct-shortage:{} detailed-survey:{}t alternative-bounds:{}..{}->{}..{}ppm alternative-sample:{}mg/{}t sample-observed:{} sample-grade:{}ppm bulk-grade:{}ppm evidence-persisted:true evidence-gated-target-resolution:true hidden-deposit-id:unavailable-to-actor] episode-scope=[current-primitive-route-actions-useful] canonical=recon-regional-clue-zones->prioritize-local-inspection->act-on-resolved-evidence->shape+assemble-pick->preview-resolved-mining-affordances->mine-best-bulk-feed->encounter-hardness-gate->mine-strongest-copper-clue->observe-native-metal->attempt-second-direct-parcel->observe-insufficient-target-mass->revisit-alternative-evidence->refine+sample-only-if-still-ambiguous->choose-best-supported-feed->build-processing-line->choose-first-copper-upgrade:[pick|crank]->exercise-affordance+reassess-feed->charge+autonomous-crush+mine-while-waiting->separate-crushed-ore->forge-second-upgrade->converge->repeat fantasy=read-world->infer-affordances->respond-to-constraints-with-information->survive->craft-tools->sequence-competing-investments->turn-investment-into-affordance->store-work->delegate-repetition->convert-processed-matter-into-next-capability",
             priority.label(),
+            extraction_grade_premium_ppm,
             raw_surplus.milligrams(),
             regional_recon_ticks,
             regional_upper_bounds_ppm[0],

@@ -8,15 +8,35 @@ use deep_hearth::content::{
 };
 use deep_hearth::inventory::StockpileStorageProfile;
 
+use super::focused_seeds::{
+    EXPLORATORY_VARIATION_COUNT, FocusedProbeCase, FocusedProbeRole, FocusedProbeSeedPlan,
+    focused_probe_cases_from,
+};
 use super::foundry_probe::probe_setup as foundry_probe_setup;
 use super::ore_probe::probe_parameters;
-use super::progression_probe::{manual_processing::manual_processing_setup, varied_four_way_order};
+use super::preservation_route::preservation_construction_plan;
+use super::progression_probe::{
+    extraction_grade_premium_ppm, manual_processing::manual_processing_setup, varied_four_way_order,
+};
 use super::report::{ProcessResolverKind, process_catalog_entries};
 use super::survival_probe::{
-    SurvivalStartProfile, preservation_construction_summary,
+    DietProvisioningPolicy, SurvivalStartProfile, diet_provisioning_policy_for_behavior_seed,
     preservation_storage_definition_for_seed, prospecting_method_for_work_pressure,
     provisioning_world,
 };
+
+fn preservation_construction_summary(
+    registries: &deep_hearth::registry::Registries,
+    definition: deep_hearth::inventory::StorageDefinitionId,
+) -> (usize, u64) {
+    let definition = registries
+        .storage()
+        .get(definition)
+        .unwrap_or_else(|| panic!("preservation construction summary references unknown storage"));
+    let plan = preservation_construction_plan(registries, definition.assembly_profile());
+    let stages = plan.routes.iter().map(|route| route.steps.len()).sum();
+    (stages, plan.attention_ticks)
+}
 
 #[test]
 fn gameplay_catalog_is_discovered_from_runtime_owners() {
@@ -197,6 +217,61 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
         sorted.sort_unstable();
         sorted == [0, 1, 2, 3]
     }));
+
+    let progression_actor_policies = (1_u64..=16)
+        .map(|behavior_seed| {
+            extraction_grade_premium_ppm(FocusedProbeCase::new(
+                0xCAFE,
+                Some(behavior_seed),
+                FocusedProbeRole::OrganicVariation,
+            ))
+        })
+        .collect::<BTreeSet<_>>();
+    assert!(
+        progression_actor_policies.len() > 1,
+        "organic progression actor variation collapsed to one extraction-versus-mechanization policy"
+    );
+
+    let survival_actor_policies = (1_u64..=16)
+        .map(diet_provisioning_policy_for_behavior_seed)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        survival_actor_policies,
+        BTreeSet::from([
+            DietProvisioningPolicy::CompactCalories,
+            DietProvisioningPolicy::BalancedRecovery,
+        ]),
+        "organic survival actor variation must exercise both maintained provisioning preferences"
+    );
+    let exploratory_survival_cases = focused_probe_cases_from(FocusedProbeSeedPlan {
+        variation_count: EXPLORATORY_VARIATION_COUNT,
+        scenario_raw: None,
+        variation_raw: Some("0x1111"),
+        behavior_raw: Some("0x2222"),
+        maintained_seed: 0x1234,
+        maintained_coverage_seeds: &[],
+        probe_salt: 0x5355_5256_5052_4F42,
+        default_variation_root: 0,
+        default_behavior_root: Some(0),
+    })
+    .unwrap_or_else(|error| panic!("exploratory survival actor plan failed: {error:?}"));
+    assert_eq!(
+        exploratory_survival_cases
+            .into_iter()
+            .filter(|case| case.role() == FocusedProbeRole::OrganicVariation)
+            .map(|case| {
+                diet_provisioning_policy_for_behavior_seed(
+                    case.behavior_seed()
+                        .unwrap_or_else(|| panic!("organic survival actor seed missing")),
+                )
+            })
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            DietProvisioningPolicy::CompactCalories,
+            DietProvisioningPolicy::BalancedRecovery,
+        ]),
+        "two-case exploratory survival sampling must show both actor preferences"
+    );
 
     let manual_processing_setups = (1_u64..=16)
         .map(|seed| manual_processing_setup(&registries, seed))

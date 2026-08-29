@@ -6,10 +6,11 @@ use deep_hearth::content::build_registries;
 use deep_hearth::registry::Registries;
 
 use super::focused_seeds::{
-    EXPLORATORY_VARIATION_COUNT, FocusedProbeCase, FocusedProbeRole, GATE_VARIATION_COUNT,
-    MAINTAINED_VARIATION_ROOT, focused_probe_cases_from,
+    EXPLORATORY_VARIATION_COUNT, FocusedProbeCase, FocusedProbeRole, FocusedProbeSeedPlan,
+    GATE_VARIATION_COUNT, focused_probe_cases_from,
 };
 use super::fresh_seed::fresh_root;
+use super::seed::MAINTAINED_VARIATION_ROOT;
 
 pub(super) const fn focused_probe_role_label(role: FocusedProbeRole) -> &'static str {
     match role {
@@ -32,15 +33,26 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
     }
 }
 
+pub(super) fn probe_uses_actor_behavior(name: &str) -> bool {
+    matches!(name, "survival-provisioning" | "primitive-progression")
+}
+
 pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, FocusedProbeCase)) {
     let registries = build_registries();
     let (_, _, salt) = probe_seed_spec(name);
+    let default_variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(13));
+    let default_behavior_root = if probe_uses_actor_behavior(name) {
+        fresh_root(MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(37) ^ 0x4245_4841_5649_4F52)
+    } else {
+        0
+    };
     run_focused_probe_with_registries(
         &registries,
         name,
         probe,
         false,
-        fresh_root(MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(13)),
+        default_variation_root,
+        default_behavior_root,
     );
 }
 
@@ -50,44 +62,81 @@ pub(super) fn run_focused_probe_with_registries(
     probe: fn(&Registries, FocusedProbeCase),
     explore: bool,
     default_variation_root: u64,
+    default_behavior_root: u64,
 ) {
     let (maintained_seed, maintained_coverage_seeds, salt) = probe_seed_spec(name);
+    let uses_actor_behavior = probe_uses_actor_behavior(name);
+    let behavior_root = if uses_actor_behavior {
+        Some(default_behavior_root)
+    } else {
+        None
+    };
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
+    let behavior_raw = uses_actor_behavior
+        .then(|| env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok())
+        .flatten();
     let variation_count = if explore {
         EXPLORATORY_VARIATION_COUNT
     } else {
         GATE_VARIATION_COUNT
     };
-    let cases = focused_probe_cases_from(
+    let cases = focused_probe_cases_from(FocusedProbeSeedPlan {
         variation_count,
-        scenario_raw.as_deref(),
-        variation_raw.as_deref(),
+        scenario_raw: scenario_raw.as_deref(),
+        variation_raw: variation_raw.as_deref(),
+        behavior_raw: behavior_raw.as_deref(),
         maintained_seed,
         maintained_coverage_seeds,
-        salt,
+        probe_salt: salt,
         default_variation_root,
-    )
+        default_behavior_root: behavior_root,
+    })
     .unwrap_or_else(|error| panic!("gameplay focused probe seed configuration failed: {error:?}"));
     let replay = cases
         .iter()
         .map(|case| {
-            format!(
-                "{}:0x{:016X}",
-                focused_probe_role_label(case.role()),
-                case.seed()
-            )
+            if uses_actor_behavior {
+                let behavior_seed = case.behavior_seed().unwrap_or_else(|| {
+                    panic!("focused actor probe {name:?} lost its behavior seed")
+                });
+                format!(
+                    "{}:0x{:016X}@0x{:016X}",
+                    focused_probe_role_label(case.role()),
+                    case.seed(),
+                    behavior_seed,
+                )
+            } else {
+                format!(
+                    "{}:0x{:016X}",
+                    focused_probe_role_label(case.role()),
+                    case.seed(),
+                )
+            }
         })
         .collect::<Vec<_>>()
         .join(",");
     std::println!(
-        "PROBE INPUT name={name} mode={} samples={} organic={} replay={replay}",
+        "PROBE INPUT name={name} mode={} samples={} organic={} world_root={} behavior_root={} replay={replay}",
         if explore { "explore" } else { "gate" },
         cases.len(),
         cases
             .iter()
             .filter(|case| case.role() == FocusedProbeRole::OrganicVariation)
             .count(),
+        scenario_raw.as_deref().map_or_else(
+            || variation_raw
+                .as_deref()
+                .map_or_else(|| format!("0x{default_variation_root:016X}"), str::to_owned),
+            |_| "explicit".to_owned(),
+        ),
+        if uses_actor_behavior {
+            behavior_raw
+                .as_deref()
+                .map_or_else(|| format!("0x{default_behavior_root:016X}"), str::to_owned)
+        } else {
+            "unused".to_owned()
+        },
     );
 
     for case in cases {

@@ -27,16 +27,20 @@ Use the smallest lane that completely proves the changed contract.
 | Long-horizon soak | `python ci.py gate --soak` |
 | Gameplay exploration report | `python ci.py report` |
 | Changed-source BCA review | `python ci.py bca [--path <scope>] [--since <revision>]` |
+| Current BCA hotspot review | `python ci.py bca --hotspots [--path <scope>] [--since <revision>]` |
 
 `python ci.py quick` runs formatting, the cognitive-complexity ratchet, documentation contracts, and local CI
 contracts without building Rust. Do not pair a compile-only command with an executable lane that already
 compiles the same surface.
 
-For Rust test iteration, use `--check` while code is changing, then run the exact test for behavioral proof.
-Use `--suite` when one owner change affects several nearby tests; it resolves the matching source-catalog
-group before Cargo starts and executes that bounded group in one already-cached test binary. Exact selectors
-must resolve uniquely, suite selectors must match at least one test, and both fail before building when the
-source catalog cannot satisfy the request.
+For production implementation edits, use `cargo check-fast` while code is unstable; it avoids test codegen
+and linking entirely. Use `python tools/run_test.py --check ...` when the test body or test-only support itself
+is changing, then pay for exact executable proof only when the behavior is ready to verify. Rust library unit
+tests share one `--lib` test binary, so filtering one unit test reduces execution work but cannot eliminate the
+link cost after a unit-test edit. Use `--suite` when one owner change affects several nearby tests; it resolves
+the matching source-catalog group before Cargo starts and executes that bounded group in one already-cached
+test binary. Exact selectors must resolve uniquely, suite selectors must match at least one test, and both fail
+before building when the source catalog cannot satisfy the request.
 
 Compile-only library test checks intentionally do not enable the gameplay integration feature, so changing a
 unit test cannot type-check the entire gameplay harness by accident. Executable unit tests, suites, and the
@@ -51,9 +55,11 @@ gameplay failure, rerun the exact failing test on `gameplay_audit` first to reus
 New or worsened over-threshold cognitive complexity fails the ratchet. Other BCA metrics are advisory.
 
 Use `python ci.py bca` for nontrivial refactors. It delegates to the repository-pinned BCA wrapper, reviews
-only maintained Rust source changed from `HEAD`, joins current hotspots to version-control history, and shows
+changed maintained Rust under `src/` and `tests/`, joins current hotspots to version-control history, and shows
 cognitive/cyclomatic/SLOC changes against the base revision. Add repeated `--path` filters when the task is
-already scoped or `--since <revision>` when the comparison base is different. Direct
+already scoped or `--since <revision>` when the comparison base is different. Before choosing a refactor,
+`python ci.py bca --hotspots` exposes the same history-aware report across the current maintained source;
+combine it with `--path` to inspect one owner without hand-assembling wrapper commands. Direct
 `python tools/check_bca.py report` and `diff` commands remain available for custom analysis. Treat BCA as
 diagnostic evidence: simplify code when the result supports a clearer design; do not split cohesive code,
 optimize exhaustive error formatting, or refresh the baseline only to improve a score.
@@ -96,10 +102,11 @@ After setup, actor code must:
 
 ### Gameplay scopes
 
-All gameplay scopes are exact tests inside the single `gameplay_audit` Cargo target. Focused gates filter that
-shared binary rather than maintaining separate survival/progression/ore/foundry/workshop executables. This
-keeps focused repair and later broad gameplay verification on one incremental artifact while preserving the
-human-facing scope names below.
+Focused gameplay scopes use small dedicated Cargo test targets while the complete `gameplay_audit` target
+remains the one broad checkpoint and report surface. Every target uses the same `test-gameplay` feature shape,
+so focused iteration reuses the production library but recompiles/links only the selected harness family.
+Broad audits deliberately pay for the aggregate binary only at checkpoint time instead of making every
+survival, progression, ore, foundry, or workshop edit rebuild unrelated harness code.
 
 | Scope | Contract |
 | --- | --- |
@@ -143,10 +150,13 @@ gangue mix, resource pressure, condition, evidence topology, food supply, or pol
 full episodes merely to obtain coverage; cheap bounded generator sweeps own breadth while routine gates retain
 one fresh replayable organic case alongside maintained regressions.
 
-Fresh sampling is reproducible rather than fixed: every gate prints the realized variation root and/or exact
-world seeds. Set `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` to replay the same physical sample and
-`DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` to replay workshop policy variation. Explicit
-`DEEP_HEARTH_GAMEPLAY_SEEDS` values run exactly the requested focused worlds.
+Fresh sampling is reproducible rather than fixed. Survival/progression PASS lines include world/behavior seed
+pairs because those probes have actor-policy choices; ore/foundry report only physical world seeds because
+inventing an unused behavior channel would be false precision. Failures retain the full captured probe input.
+`DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` selects physical world variation while
+`DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` independently selects actor-policy variation where the probe has such a
+policy; changing one must not silently change the other. Explicit `DEEP_HEARTH_GAMEPLAY_SEEDS` values run
+exactly the requested focused worlds.
 
 The progression probe must demonstrate player-visible evidence, an observable scarce-copper choice, physical
 consequences for both branches, useful concurrent work during delegated processing, convergence on the next
@@ -154,11 +164,22 @@ capability, bounded wear/lifecycle evidence, and a normal-play maintenance recov
 maintenance demonstration must craft the authored replacement component through the ordinary manual process,
 service the same reinforced equipment identity, conserve matter, and retain its already-invested copper
 reinforcement instead of rebuilding the whole tool. Low-tech manual processing must remain catalog-visible as
-a real zero-machine fallback. The progression gate independently starts from an already-owned ordinary ore
-parcel, hand-breaks it through canonical direct-labor comminution, hand-sorts the resulting particulate feed,
-and cold-works recovered native copper into an authored reinforcement. Both manual stages must have bounded
-batch size, explicit survival/attention cost, no equipment or stored-energy resource, exact matter retention,
-and trusted-load-valid completion. Hand sorting must retain lower target recovery than the powered route.
+a real zero-machine fallback. One maintained route regression independently starts from an already-owned
+ordinary ore parcel sized to prove the complete fallback, hand-breaks it through canonical direct-labor
+comminution, hand-sorts the resulting particulate feed, and cold-works recovered native copper into an authored
+reinforcement. That deliberately constructed route proof is not organic-world evidence and must not be rerun or
+reported as though every generated world guarantees enough copper in one hand-processing batch. Both manual
+stages must have bounded batch size, explicit survival/attention cost, no equipment or stored-energy resource,
+exact matter retention, and trusted-load-valid completion. Hand sorting must retain lower target recovery than
+the powered route.
+The ordinary progression episode separately evaluates the real hand-processing alternative at the actual
+post-discovery decision point. It clones that player-visible state, consumes the bulk ore already owned there,
+and completes hand-break -> hand-sort -> cold-work through canonical actions without fixture mutation. This
+same-world counterfactual must remain a cheaper immediate attention bridge than constructing the primitive line,
+while powered processing must retain better material recovery. The mechanized branch must then repay its larger
+setup attention within the bounded repeated-work horizon and continue through a small post-payback observation
+window. The horizon is outcome-driven with a hard cap rather than a fixed cycle count, so the harness observes
+the investment maturing instead of stopping just before payback in slower organic worlds.
 Primitive powered sorting must use its authored finite target recovery when selecting feed,
 leave unrecovered target matter in physical residue, and still obtain the exact usable copper parcel through
 ordinary processing rather than fixture compensation. The stone flywheel must lose
@@ -222,26 +243,29 @@ timing, or yield calculations.
 
 `python ci.py report` expands the organic sample beyond the routine gate and prints aggregate behavioral
 evidence plus exact replay inputs. It is an exploration/diagnostic surface, not an additional required gate.
-Exploratory mode always includes the registry-derived equipment, energy, storage, process, prospecting, food, and drink
-catalogs so a cold agent can see what exists before interpreting the sampled episodes. The compact report
-retains the maintained anchor, any named full-simulation coverage outcome, and every bounded organic focused
-outcome (currently two organic worlds per focused concern). The anchor gives the cold agent a stable reference
-capability, named coverage cases expose distinct executed consequences that justify their retained simulation
-cost, and the organic worlds show whether choices, blockers, food options, work methods, and information paths
-actually vary. Cheap generator-only coverage remains assertion-only rather than adding report noise. Use verbose
-or trace output only when operation-level detail is needed.
+The compact report leads with registry/acquisition summaries and player-experience evidence instead of repeating
+the full discovered catalogs and per-system accounting. It retains the maintained anchor, any named
+full-simulation coverage outcome, and every bounded organic focused outcome (currently two organic worlds per
+focused concern). The anchor gives the cold agent a stable reference capability, named coverage cases expose
+distinct executed consequences that justify their retained simulation cost, and the organic worlds show whether
+choices, blockers, food options, work methods, and information paths actually vary. Set verbose output when the
+complete registry-derived equipment, energy, storage, process, prospecting, food, and drink catalogs or detailed
+focused accounting are needed. Cheap generator-only coverage remains assertion-only rather than adding report
+noise; trace remains reserved for operation-level narration.
 
 | Variable | Meaning |
 | --- | --- |
 | `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` | physical variation root |
-| `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` | workshop policy root |
+| `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` | actor-policy root for scopes that expose behavior choices |
 | `DEEP_HEARTH_GAMEPLAY_SEEDS` | exact comma-separated world seeds |
 | `DEEP_HEARTH_GAMEPLAY_VERBOSE` | expanded decisions, blockers, tradeoffs, focused-probe diagnostics |
 | `DEEP_HEARTH_GAMEPLAY_TRACE` | operation-level workshop narration plus verbose diagnostics |
 
 Generated samples are deliberately small so routine gameplay still has one build-producing lane and fast
-runtime. Increase sample breadth in the report or explicit replay/sweep inputs rather than turning the edit
-loop into a multi-seed soak.
+runtime. Two-case focused exploration stratifies one generic behavior bit while keeping the rest of the actor
+seed fresh, so binary preferences do not disappear by chance from a tiny report sample; physical world seeds
+remain independent. Increase sample breadth in the report or explicit replay/sweep inputs rather than turning
+the edit loop into a multi-seed soak.
 
 ## Completion
 
