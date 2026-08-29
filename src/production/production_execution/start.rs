@@ -483,7 +483,7 @@ impl Error for StartProcessError {
 
 /// Consumed proof that process references, matter, capacity, time, and job identity are valid.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedStartProcess {
     job: ProductionJobRecord,
     next_job_id: u64,
@@ -603,7 +603,6 @@ fn validate_start_process_routed_internal(
         next_production_revision,
     } = validate_job_allocation(state, resolution)?;
     let ValidatedMaterialReservation {
-        input_mass,
         reservation,
         storage_history: material_storage_history,
     } = validate_material_reservation(state, resolution, inbound_by_destination, completes_at)?;
@@ -634,7 +633,6 @@ fn validate_start_process_routed_internal(
                 suspension: None,
             },
             resources: ProductionJobResources {
-                consumed_mass: input_mass,
                 consumed_inputs,
                 material_storage_history,
                 consumed_energy,

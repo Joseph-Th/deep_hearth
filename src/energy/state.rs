@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Energy, Mass};
 use crate::core::time::SimulationTick;
-use crate::inventory::ConsumedMaterialTrace;
+use crate::inventory::{ConsumedMaterialTrace, checked_consumed_material_mass};
 
 use super::definitions::EnergyStoreDefinitionId;
 
@@ -34,7 +34,6 @@ pub struct EnergyStoreRecord {
     pub(super) id: EnergyStoreId,
     pub(super) definition: EnergyStoreDefinitionId,
     pub(super) stored: Energy,
-    pub(super) embodied_mass: Mass,
     pub(super) embodied_material: Vec<ConsumedMaterialTrace>,
     pub(super) created_at: SimulationTick,
 }
@@ -57,8 +56,13 @@ impl EnergyStoreRecord {
 
     /// Conserved matter physically embodied in this storage instance.
     #[must_use]
-    pub const fn embodied_mass(&self) -> Mass {
-        self.embodied_mass
+    pub fn embodied_mass(&self) -> Mass {
+        checked_consumed_material_mass(&self.embodied_material).unwrap_or_else(|| {
+            panic!(
+                "validated energy store {} embodied trace mass overflowed",
+                self.id.value()
+            )
+        })
     }
 
     /// Exact material/provenance traces transferred into this store at construction.

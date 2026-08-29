@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::{Energy, Mass};
+use crate::core::quantity::Energy;
 use crate::core::state::AppState;
 use crate::registry::Registries;
 
@@ -91,7 +91,6 @@ fn allocate_energy_store(
         id,
         definition,
         stored: initial,
-        embodied_mass: Mass::ZERO,
         embodied_material: Vec::new(),
         created_at: state.tick(),
     };

@@ -391,7 +391,7 @@ impl EatOutcome {
 }
 
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedEat {
     attention: ValidatedPlayerAttentionHold,
     expected_survival_revision: u64,

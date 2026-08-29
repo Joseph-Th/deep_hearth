@@ -33,31 +33,13 @@ pub(crate) use inbound_reservation::{
 };
 pub(crate) use ingress::{
     MaterialIngressEntry, MaterialIngressError, ValidatedMaterialIngress, apply_material_ingress,
-    validate_material_ingress,
+    validate_material_ingress, validate_material_ingress_after_egress,
 };
-pub use selection::MaterialLotSelection;
-pub use state::{
-    ConsumedMaterialTrace, InventoryState, InventoryValidationError, MaterialLotId,
-    MaterialLotRecord, StockpileEnclosureRecord, StockpileId, StockpileRecord,
-    StockpileStorageProfile, StockpileStorageProfileError,
-};
-pub use storage::{StorageDefinition, StorageDefinitionId, StorageRegistry};
-pub use storage_validation::StockpileStorageError;
-pub use structural_integration::{
-    StockpileStructuralLoadError, StockpileSupportCommitError, StockpileSupportError,
-    StockpileSupportOutcome, ValidatedStockpileSupportChange, validate_mount_stockpile,
-    validate_unmount_stockpile,
-};
-#[cfg(any(test, feature = "test-gameplay"))]
-pub use transactions::{
-    MaterialTransferCommitError, MaterialTransferError, MaterialTransferResolution,
-    ValidatedMaterialTransfer, validate_material_transfer,
-};
-
 pub(crate) use reserved_ingress::{
     ReservedDepositPlan, ReservedDepositPlanError, ReservedDepositRequest, apply_reserved_deposits,
     decide_reserved_deposits,
 };
+pub use selection::MaterialLotSelection;
 pub(crate) use selection::{
     ConsumptionReservation, ConsumptionSelection, ConsumptionSelectionError,
     ExplicitConsumptionSelectionError, ReservationError, apply_prechecked_consumption_reservation,
@@ -66,18 +48,34 @@ pub(crate) use selection::{
 };
 pub(crate) use state::{
     AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialStorageHistory, STORAGE_AGE_PARTS_PER_TICK,
-    validate_loaded_inventory,
+    checked_consumed_material_mass, validate_loaded_inventory,
 };
+pub use state::{
+    ConsumedMaterialTrace, InventoryState, InventoryValidationError, MaterialLotId,
+    MaterialLotRecord, StockpileEnclosureRecord, StockpileId, StockpileRecord,
+    StockpileStorageProfile, StockpileStorageProfileError,
+};
+pub use storage::{StorageDefinition, StorageDefinitionId, StorageRegistry};
+pub use storage_validation::StockpileStorageError;
 pub(crate) use storage_validation::validate_stockpile_storage;
 pub(crate) use structural_integration::{
     StockpileStoredMassChange, ValidatedStockpileStructuralLoad,
     validate_stockpile_stored_mass_changes, validate_stockpile_support_for_new_inbound,
+};
+pub use structural_integration::{
+    StockpileStructuralLoadError, StockpileSupportCommitError, StockpileSupportError,
+    StockpileSupportOutcome, ValidatedStockpileSupportChange, validate_mount_stockpile,
+    validate_unmount_stockpile,
 };
 pub(crate) use transactions::{
     MaterialEgressError, MaterialReformCommitError, MaterialReformError, ValidatedMaterialEgress,
     ValidatedMaterialReform, apply_material_egress, validate_material_egress_from_selection,
     validate_material_reform_from_selection,
 };
+#[cfg(test)]
+pub(crate) use transactions::{MaterialTransferCommitError, MaterialTransferError};
+#[cfg(feature = "test-gameplay")]
+pub(crate) use transactions::{MaterialTransferResolution, validate_material_transfer};
 
 #[cfg(test)]
 pub(crate) use test_support::{

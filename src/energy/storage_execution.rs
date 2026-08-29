@@ -513,7 +513,7 @@ pub(crate) fn apply_released_energy_outcomes(
     state.apply_revision(next_revision);
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct EnergyConsumptionReservation {
     expected_revision: u64,
     next_revision: u64,
@@ -521,11 +521,11 @@ pub(crate) struct EnergyConsumptionReservation {
 }
 
 impl EnergyConsumptionReservation {
-    pub(crate) const fn expected_revision(self) -> u64 {
+    pub(crate) const fn expected_revision(&self) -> u64 {
         self.expected_revision
     }
 
-    pub(crate) const fn trace(self) -> ConsumedEnergyTrace {
+    pub(crate) const fn trace(&self) -> ConsumedEnergyTrace {
         self.trace
     }
 }

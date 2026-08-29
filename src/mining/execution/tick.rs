@@ -21,7 +21,7 @@ struct GeologicalExtraction {
     remaining_after: Mass,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MiningTickPlan {
     expected_revision: u64,
     next_revision: u64,

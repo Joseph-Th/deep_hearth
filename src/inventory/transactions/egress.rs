@@ -6,7 +6,7 @@ use crate::material::MaterialInputSpec;
 use super::super::selection::ConsumptionSelection;
 use super::super::state::{
     ConsumedMaterialTrace, InventoryState, LotSlice, StockpileId, apply_aggregate_withdraw,
-    apply_consume_lot_slice,
+    apply_consume_lot_slice, checked_consumed_material_mass,
 };
 
 /// Revision-bound withdrawal of exact material slices into another authoritative owner.
@@ -15,7 +15,7 @@ use super::super::state::{
 /// can leave inventory exactly once; the cross-subsystem transaction that holds it is responsible
 /// for establishing the new owner before exposing a successful commit.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedMaterialEgress {
     expected_revision: u64,
     next_revision: u64,
@@ -23,7 +23,6 @@ pub(crate) struct ValidatedMaterialEgress {
     inputs: Vec<MaterialInputSpec>,
     lot_slices: Vec<LotSlice>,
     consumed_inputs: Vec<ConsumedMaterialTrace>,
-    total_consumed: Mass,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,8 +36,25 @@ impl ValidatedMaterialEgress {
         self.expected_revision
     }
 
-    pub(crate) const fn total_consumed(&self) -> Mass {
-        self.total_consumed
+    pub(in crate::inventory) const fn next_revision(&self) -> u64 {
+        self.next_revision
+    }
+
+    pub(in crate::inventory) const fn source(&self) -> StockpileId {
+        self.source
+    }
+
+    pub(in crate::inventory) fn inputs(&self) -> &[MaterialInputSpec] {
+        &self.inputs
+    }
+
+    pub(in crate::inventory) fn lot_slices(&self) -> &[LotSlice] {
+        &self.lot_slices
+    }
+
+    pub(crate) fn total_consumed(&self) -> Mass {
+        checked_consumed_material_mass(&self.consumed_inputs)
+            .unwrap_or_else(|| panic!("validated material egress mass overflowed"))
     }
 
     #[cfg(any(test, feature = "test-gameplay"))]
@@ -58,7 +74,6 @@ pub(crate) fn validate_material_egress_from_selection(
         inputs,
         lot_slices,
         consumed_inputs,
-        total_consumed,
     } = selection;
     if state.revision() != expected_revision {
         return Err(MaterialEgressError::StaleSelection {
@@ -76,7 +91,6 @@ pub(crate) fn validate_material_egress_from_selection(
         inputs,
         lot_slices,
         consumed_inputs,
-        total_consumed,
     })
 }
 
@@ -89,7 +103,6 @@ pub(crate) fn apply_material_egress(state: &mut InventoryState, egress: Validate
         inputs,
         lot_slices,
         consumed_inputs: _,
-        total_consumed: _,
     } = egress;
     assert_eq!(
         state.revision(),

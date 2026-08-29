@@ -18,6 +18,9 @@ mod contracts;
 mod environment;
 #[path = "gameplay_harness/equipment_support.rs"]
 mod equipment_support;
+#[cfg(test)]
+#[path = "gameplay_harness/fixture_boundary_tests.rs"]
+mod fixture_boundary_tests;
 #[path = "gameplay_harness/focused_runner.rs"]
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]

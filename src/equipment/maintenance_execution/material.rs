@@ -7,8 +7,9 @@ use crate::inventory::{
     MaterialReformCommitError, MaterialReformError, StockpileStoredMassChange,
     ValidatedMaterialEgress, ValidatedMaterialIngress, ValidatedMaterialReform,
     ValidatedStockpileStructuralLoad, apply_material_egress, apply_material_ingress,
-    validate_material_egress_from_selection, validate_material_ingress,
-    validate_material_reform_from_selection, validate_stockpile_stored_mass_changes,
+    checked_consumed_material_mass, validate_material_egress_from_selection,
+    validate_material_ingress_after_egress, validate_material_reform_from_selection,
+    validate_stockpile_stored_mass_changes,
 };
 use crate::material::CommodityKey;
 use crate::registry::Registries;
@@ -35,7 +36,7 @@ pub(super) enum ValidatedMaintenanceMaterial {
 }
 
 impl ValidatedMaintenanceMaterial {
-    pub(super) const fn material_mass(&self) -> Mass {
+    pub(super) fn material_mass(&self) -> Mass {
         match self {
             Self::Aggregate(material) => material.total_mass(),
             Self::Component { egress, .. } => egress.total_consumed(),
@@ -99,11 +100,8 @@ impl ValidatedMaintenanceMaterial {
 }
 
 fn trace_mass(traces: &[ConsumedMaterialTrace]) -> Mass {
-    traces.iter().fold(Mass::ZERO, |total, trace| {
-        total
-            .checked_add(trace.mass())
-            .unwrap_or_else(|| panic!("validated maintenance trace mass overflowed"))
-    })
+    checked_consumed_material_mass(traces)
+        .unwrap_or_else(|| panic!("validated maintenance trace mass overflowed"))
 }
 
 fn map_egress_error(error: MaterialEgressError) -> EquipmentMaintenanceMaterialError {
@@ -263,11 +261,10 @@ fn validate_component_exchange(
     let egress = validate_material_egress_from_selection(state.inventory(), resolution.material)
         .map_err(map_egress_error)?;
 
-    let mut inventory_after_egress = state.inventory().clone();
-    apply_material_egress(&mut inventory_after_egress, egress.clone());
-    let worn_ingress = validate_material_ingress(
+    let worn_ingress = validate_material_ingress_after_egress(
         registries,
-        &inventory_after_egress,
+        state.inventory(),
+        &egress,
         spent_destination,
         worn.iter().map(|trace| {
             MaterialIngressEntry::from_reformed_consumed_trace(trace, resolution.spent.form())

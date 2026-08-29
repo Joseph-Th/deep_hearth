@@ -298,8 +298,13 @@ impl MiningState {
         record
     }
 
-    pub(crate) const fn has_valid_id_cursor(&self) -> bool {
+    pub(crate) fn has_valid_id_cursor(&self) -> bool {
         self.next_job_id != 0
+            && self
+                .jobs
+                .keys()
+                .next_back()
+                .is_none_or(|highest| highest.value() < self.next_job_id)
     }
 
     pub(crate) fn earliest_due_tick(&self) -> Option<SimulationTick> {

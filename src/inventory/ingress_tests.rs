@@ -9,6 +9,10 @@ use crate::material::CommodityKey;
 
 use super::super::fixture::add_stockpile;
 use super::super::state::StockpileStorageProfile;
+use crate::inventory::{
+    apply_material_egress, deposit_lot_for_test, validate_consumption_selection,
+    validate_material_egress_from_selection,
+};
 
 fn add_test_stockpile(state: &mut AppState, capacity: Mass) -> StockpileId {
     match add_stockpile(
@@ -126,6 +130,59 @@ fn compatible_parcels_in_one_ingress_allocate_only_one_persistent_identity() {
     assert_eq!(resulting_lots.len(), 2);
     assert_eq!(resulting_lots[0], resulting_lots[1]);
     assert_eq!(state.inventory().next_lot_id(), cursor_before + 1);
+    assert_eq!(state.inventory().lot_ids(destination).count(), 1);
+}
+
+#[test]
+fn projected_post_egress_ingress_excludes_fully_consumed_source_identity() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A61_0006));
+    let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
+    let original = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        destination,
+        wood_log_spec(Mass::from_milligrams(10)).commodity(),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap_or_else(|error| panic!("projected-ingress source lot failed: {error}"));
+    let selection = validate_consumption_selection(
+        state.inventory(),
+        destination,
+        &[crate::material::MaterialInputSpec::new(
+            wood_log_spec(Mass::from_milligrams(10)).commodity(),
+            Mass::from_milligrams(10),
+        )],
+    )
+    .unwrap_or_else(|error| panic!("projected-ingress selection failed: {error:?}"));
+    let egress = validate_material_egress_from_selection(state.inventory(), selection)
+        .unwrap_or_else(|error| panic!("projected-ingress egress failed: {error:?}"));
+    let traces = egress.consumed_inputs().to_vec();
+    let ingress = validate_material_ingress_after_egress(
+        &registries,
+        state.inventory(),
+        &egress,
+        destination,
+        traces.iter().map(MaterialIngressEntry::from_consumed_trace),
+        state.tick(),
+    )
+    .unwrap_or_else(|error| panic!("projected-ingress validation failed: {error:?}"));
+
+    apply_material_egress(state.inventory_state_mut(), egress);
+    let returned_lots = apply_material_ingress(state.inventory_state_mut(), ingress);
+    let [returned] = returned_lots.as_slice() else {
+        panic!("projected single-parcel ingress must produce one lot");
+    };
+    assert_ne!(*returned, original);
+    assert!(state.inventory().get_lot(original).is_none());
+    assert_eq!(
+        state
+            .inventory()
+            .get_lot(*returned)
+            .map(MaterialLotRecord::mass),
+        Some(Mass::from_milligrams(10))
+    );
     assert_eq!(state.inventory().lot_ids(destination).count(), 1);
 }
 

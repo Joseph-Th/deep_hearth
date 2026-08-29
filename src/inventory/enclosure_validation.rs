@@ -78,9 +78,8 @@ pub enum StorageEnclosureValidationError {
     EmbodiedTraceMassOverflow {
         stockpile: StockpileId,
     },
-    EmbodiedTraceMassMismatch {
+    EmbodiedMassMismatch {
         stockpile: StockpileId,
-        stored: Mass,
         traced: Mass,
         authored: Mass,
     },
@@ -205,16 +204,14 @@ impl Display for StorageEnclosureValidationError {
                 "stockpile {} enclosure construction trace mass overflowed",
                 stockpile.value()
             ),
-            Self::EmbodiedTraceMassMismatch {
+            Self::EmbodiedMassMismatch {
                 stockpile,
-                stored,
                 traced,
                 authored,
             } => write!(
                 formatter,
-                "stockpile {} enclosure stores {} mg embodied, traces {} mg, and definition requires {} mg",
+                "stockpile {} enclosure traces {} mg embodied matter but definition requires {} mg",
                 stockpile.value(),
-                stored.milligrams(),
                 traced.milligrams(),
                 authored.milligrams()
             ),
@@ -252,7 +249,7 @@ impl Error for StorageEnclosureValidationError {
             | Self::EmbodiedProvenanceInFuture { .. }
             | Self::EmbodiedProvenanceAfterConstruction { .. }
             | Self::EmbodiedTraceMassOverflow { .. }
-            | Self::EmbodiedTraceMassMismatch { .. }
+            | Self::EmbodiedMassMismatch { .. }
             | Self::AssemblyMaterialMismatch { .. } => None,
         }
     }
@@ -388,16 +385,14 @@ fn collect_validated_enclosure_traces(
 
 fn validate_enclosure_assembly(
     stockpile: StockpileId,
-    enclosure: &StockpileEnclosureRecord,
     definition: &StorageDefinition,
     traced_mass: Mass,
     mut traced_by_commodity: BTreeMap<CommodityKey, Mass>,
 ) -> Result<(), StorageEnclosureValidationError> {
     let authored_mass = definition.assembly_profile().input_mass();
-    if traced_mass != enclosure.embodied_mass() || enclosure.embodied_mass() != authored_mass {
-        return Err(StorageEnclosureValidationError::EmbodiedTraceMassMismatch {
+    if traced_mass != authored_mass {
+        return Err(StorageEnclosureValidationError::EmbodiedMassMismatch {
             stockpile,
-            stored: enclosure.embodied_mass(),
             traced: traced_mass,
             authored: authored_mass,
         });
@@ -441,13 +436,7 @@ fn validate_loaded_storage_enclosure(
     validate_enclosure_definition_binding(state, stockpile, enclosure, definition)?;
     let (traced_mass, traced_by_commodity) =
         collect_validated_enclosure_traces(registries, state, stockpile.id(), enclosure)?;
-    validate_enclosure_assembly(
-        stockpile.id(),
-        enclosure,
-        definition,
-        traced_mass,
-        traced_by_commodity,
-    )
+    validate_enclosure_assembly(stockpile.id(), definition, traced_mass, traced_by_commodity)
 }
 
 /// Replays every persisted storage enclosure against immutable authored definitions.

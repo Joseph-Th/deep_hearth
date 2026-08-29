@@ -8,7 +8,7 @@ use crate::content::{
     PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
     build_registries,
 };
-use crate::core::quantity::{Area, Force, Length, Temperature, Volume};
+use crate::core::quantity::{Area, Energy, Force, Length, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::crafting::{
@@ -933,6 +933,55 @@ fn loaded_working_mining_job_rejects_forged_source_mass_trace() {
 }
 
 #[test]
+fn trusted_load_rejects_multiple_working_mining_jobs_before_single_extraction_tick() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_0034));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("multiple-mining survival setup failed: {error}"));
+    let first_pick = assemble_pick_for_test(&registries, &mut state);
+    let second_pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(200_000))
+        .unwrap_or_else(|error| panic!("multiple-mining destination failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("multiple-mining deposit failed: {error}"));
+    let first_job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        first_pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("multiple-mining canonical start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("multiple-mining canonical commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("multiple-mining serialization failed: {error}"));
+    let first_key = first_job.value().to_string();
+    let second_job = MiningJobId::new(first_job.value() + 1);
+    let second_key = second_job.value().to_string();
+    let mut duplicate = encoded["state"]["systems"]["mining"]["jobs"][&first_key].clone();
+    duplicate["identity"]["id"] = serde_json::json!(second_job.value());
+    duplicate["resources"]["equipment_trace"]["equipment"] = serde_json::json!(second_pick.value());
+    encoded["state"]["systems"]["mining"]["jobs"][&second_key] = duplicate;
+    encoded["state"]["systems"]["mining"]["next_job_id"] =
+        serde_json::json!(second_job.value() + 1);
+    encoded["state"]["systems"]["inventory"]["stockpiles"][destination.value().to_string()]["reserved_inbound"] =
+        serde_json::json!(200_000_u64);
+    let forged: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("multiple-mining forged decode failed: {error}"));
+
+    assert_eq!(
+        forged.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::MultiplePlayerJobs
+        )))
+    );
+}
+
+#[test]
 fn loaded_ready_mining_job_reconstructs_authored_duration() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xA11E_0022));
@@ -1600,6 +1649,13 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
             .stored_mass(),
         Mass::ZERO
     );
+    let ready_energy = calculate_explicit_energy_accounting(&registries, &state)
+        .unwrap_or_else(|error| panic!("ready mining energy accounting failed: {error}"));
+    assert_eq!(ready_energy.total(), Some(energy_before_mining));
+    assert!(
+        !ready_energy.mining_material_thermal().is_zero(),
+        "extracted ore must retain explicit thermal ownership while waiting to be claimed"
+    );
     let ready_state = state.clone();
     assert_eq!(
         advance_tick(&registries, &mut state),
@@ -1623,6 +1679,13 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
         Mass::from_milligrams(100_000)
     );
     assert_eq!(destination.reserved_inbound(), Mass::ZERO);
+    assert_eq!(
+        calculate_explicit_energy_accounting(&registries, &state)
+            .unwrap_or_else(|error| panic!("claimed mining energy ownership audit failed: {error}"))
+            .mining_material_thermal(),
+        Energy::ZERO,
+        "claim must transfer all ready ore thermal ownership out of mining"
+    );
     assert_eq!(
         calculate_matter_accounting(&state)
             .unwrap_or_else(|error| panic!("mining final matter accounting failed: {error}"))

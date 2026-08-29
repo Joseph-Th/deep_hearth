@@ -72,7 +72,7 @@ pub struct ValidatedEquipmentMaintenance {
 
 impl ValidatedEquipmentMaintenance {
     #[must_use]
-    pub const fn material_mass(&self) -> Mass {
+    pub fn material_mass(&self) -> Mass {
         self.material.material_mass()
     }
 

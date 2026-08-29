@@ -151,7 +151,7 @@ pub(crate) fn validate_loaded_mining(
     state: &MiningState,
     current: SimulationTick,
 ) -> Result<(), MiningValidationError> {
-    if !state.has_valid_id_cursor() {
+    if state.next_job_id == 0 {
         return Err(MiningValidationError::InvalidIdCursor);
     }
     let mut expected = ExpectedMiningIndexes::default();

@@ -106,7 +106,6 @@ pub fn add_structural_element(
             geometry,
             is_grounded,
         },
-        embodied_mass: crate::core::quantity::Mass::ZERO,
         embodied_material: Vec::new(),
         loads: Default::default(),
         lifecycle: StructuralLifecycle::Planned,

@@ -175,7 +175,7 @@ pub fn initialize_player_survival(
 /// This is fixture-only starting-state construction. Runtime depletion still occurs exclusively
 /// through authoritative simulation ticks after scenario setup returns.
 #[cfg(feature = "test-gameplay")]
-pub(crate) fn initialize_player_survival_at_hydration_warning_for_fixture(
+pub(crate) fn initialize_player_survival_at_hydration_warning_boundary_for_fixture(
     registries: &Registries,
     state: &mut AppState,
 ) -> Result<(), InitializeSurvivalError> {
@@ -206,7 +206,7 @@ pub(crate) fn initialize_player_survival_at_hydration_warning_for_fixture(
 /// This is fixture-only starting-state construction. Runtime depletion still occurs exclusively
 /// through authoritative simulation ticks after scenario setup returns.
 #[cfg(feature = "test-gameplay")]
-pub(crate) fn initialize_player_survival_at_hunger_warning_for_fixture(
+pub(crate) fn initialize_player_survival_at_hunger_warning_boundary_for_fixture(
     registries: &Registries,
     state: &mut AppState,
 ) -> Result<(), InitializeSurvivalError> {

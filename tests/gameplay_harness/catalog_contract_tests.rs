@@ -423,8 +423,8 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
             .collect::<BTreeSet<_>>(),
         BTreeSet::from([
             SurvivalStartProfile::FullReserve,
-            SurvivalStartProfile::HungerWarning,
-            SurvivalStartProfile::HydrationWarning,
+            SurvivalStartProfile::HungerWarningBoundary,
+            SurvivalStartProfile::HydrationWarningBoundary,
         ]),
         "cheap survival generation must cover every authored starting reserve-pressure archetype without dedicated full-simulation coverage seeds"
     );

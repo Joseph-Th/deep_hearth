@@ -13,7 +13,7 @@ use super::report::{
 use super::scenario::ScenarioVariation;
 use super::seed::{MAINTAINED_VARIATION_ROOT, mix64};
 use super::seed_input::parse_seed;
-use super::workshop::{run_scenario, run_scenario_with_observation_horizon};
+use super::workshop::run_scenario;
 use deep_hearth::content::build_registries;
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::registry::Registries;
@@ -307,7 +307,7 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
             let mut variation =
                 ScenarioVariation::from_seeds(registries, world_seed, behavior_seed, world.anchor);
             variation.policy = policy;
-            let report = run_scenario(registries, variation);
+            let report = run_scenario(registries, variation, None);
             assert_eq!(
                 report.world_seed, world_seed,
                 "agency counterfactual must preserve the matched world seed"
@@ -339,8 +339,7 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
             let mut variation =
                 ScenarioVariation::from_seeds(registries, world_seed, behavior_seed, world.anchor);
             variation.policy = policy;
-            let report =
-                run_scenario_with_observation_horizon(registries, variation, comparison_horizon);
+            let report = run_scenario(registries, variation, Some(comparison_horizon));
             assert_eq!(
                 report.inputs, matched_inputs,
                 "agency counterfactual rerun must preserve the matched physical setup"

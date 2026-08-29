@@ -5,7 +5,7 @@
 //! performs the corresponding owner mutation exactly once. No alternate single-lot ingress path is
 //! retained.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -27,6 +27,10 @@ use super::storage_validation::{
     CommodityReferenceError, StockpileStorageError, validate_commodity_reference,
     validate_stockpile_storage,
 };
+
+mod projection;
+
+pub(crate) use projection::validate_material_ingress_after_egress;
 
 /// One source-owned material parcel prepared for canonical inventory admission.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -231,7 +235,7 @@ impl Error for MaterialIngressError {
 
 /// Consumed proof that a complete source-owned parcel set can enter one stockpile atomically.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedMaterialIngress {
     expected_revision: u64,
     next_revision: u64,
@@ -416,6 +420,7 @@ fn plan_ingress_identities(
     destination: StockpileId,
     entries: &[MaterialIngressEntry],
     current_tick: SimulationTick,
+    excluded_existing: BTreeSet<MaterialLotId>,
 ) -> Result<IngressIdentityPlan, MaterialIngressError> {
     let merge_policies = entries
         .iter()
@@ -425,7 +430,7 @@ fn plan_ingress_identities(
         .storage_profile()
         .preservation_multiplier_ppm();
     let storage_history = MaterialStorageHistory::new(current_tick);
-    let mut identity_planner = LotIdentityPlanner::new(state, std::iter::empty());
+    let mut identity_planner = LotIdentityPlanner::new(state, excluded_existing);
     let mut lot_ids = Vec::with_capacity(entries.len());
     for (entry, merge_policy) in entries.iter().zip(&merge_policies) {
         lot_ids.push(
@@ -480,6 +485,7 @@ pub(crate) fn validate_material_ingress(
         destination,
         &entries,
         current_tick,
+        BTreeSet::new(),
     )?;
     let next_revision = state
         .revision()

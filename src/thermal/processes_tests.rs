@@ -211,11 +211,12 @@ fn make_registries_with_condition_curves(
     maximum_temperature: Temperature,
     curves: Vec<CapabilityConditionCurve>,
 ) -> Registries {
-    make_registries_with_energy_output_power_and_condition_curves(
+    make_registries_with_energy_output_power_condition_curves_and_support(
         carrier,
         maximum_temperature,
         Power::from_microwatts(500_000),
         curves,
+        false,
     )
 }
 
@@ -224,19 +225,21 @@ fn make_registries_with_energy_output_power(
     maximum_temperature: Temperature,
     energy_output_power: Power,
 ) -> Registries {
-    make_registries_with_energy_output_power_and_condition_curves(
+    make_registries_with_energy_output_power_condition_curves_and_support(
         carrier,
         maximum_temperature,
         energy_output_power,
         Vec::new(),
+        false,
     )
 }
 
-fn make_registries_with_energy_output_power_and_condition_curves(
+fn make_registries_with_energy_output_power_condition_curves_and_support(
     carrier: EnergyCarrier,
     maximum_temperature: Temperature,
     energy_output_power: Power,
     curves: Vec<CapabilityConditionCurve>,
+    requires_structural_support: bool,
 ) -> Registries {
     let capabilities = match CapabilityProfile::new([
         (
@@ -267,6 +270,11 @@ fn make_registries_with_energy_output_power_and_condition_curves(
         thresholds,
         curves,
     );
+    let equipment = if requires_structural_support {
+        equipment.with_required_structural_support()
+    } else {
+        equipment
+    };
     let energy = EnergyStoreDefinition::new_with_transfer_limits(
         BATTERY,
         "test finite battery",
@@ -325,6 +333,16 @@ fn make_registries_with_energy_output_power_and_condition_curves(
             EnergyCarrier::Electrical,
             1_000,
         ),
+    )
+}
+
+fn make_registries_with_fixed_heater() -> Registries {
+    make_registries_with_energy_output_power_condition_curves_and_support(
+        EnergyCarrier::Electrical,
+        Temperature::from_millikelvin(400_000),
+        Power::from_microwatts(5_000),
+        Vec::new(),
+        true,
     )
 }
 
@@ -1609,6 +1627,140 @@ fn sensible_heating_rejects_heater_after_mounted_support_fails() {
 }
 
 #[test]
+fn trusted_load_rejects_fixed_equipment_job_with_erased_support_requirement() {
+    let registries = make_registries_with_fixed_heater();
+    let (registries, mut state, source, destination, equipment, energy_store) =
+        make_loaded_fixture_with_registries(
+            registries,
+            Condition::PRISTINE,
+            Temperature::from_millikelvin(300_000),
+            Energy::from_nanojoules(500_000_000),
+        );
+    let support = add_active_support(&registries, &mut state, 0);
+    let _ = validate_mount_equipment(&registries, &state, equipment, support)
+        .unwrap_or_else(|error| panic!("fixed heating fixture mount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("fixed heating fixture mount commit failed: {error}"));
+    let resolved = resolve_test_sensible_heating_process(
+        &registries,
+        &state,
+        PROCESS,
+        source,
+        equipment,
+        energy_store,
+        Temperature::from_millikelvin(303_000),
+    )
+    .unwrap_or_else(|error| panic!("fixed heating fixture resolution failed: {error}"));
+    let job = validate_start_process(
+        &registries,
+        &state,
+        resolved.process_resolution(),
+        source,
+        destination,
+    )
+    .unwrap_or_else(|error| panic!("fixed heating fixture start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("fixed heating fixture start commit failed: {error}"));
+    assert!(
+        state
+            .production()
+            .get_job(job)
+            .is_some_and(|record| record.has_required_active_support())
+    );
+
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("fixed heating support tamper serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["production"]["jobs"][job.value().to_string()]["equipment"]["requires_active_support"] =
+        serde_json::json!(false);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("fixed heating support tamper decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::JobEquipmentSupportRequirementMissing {
+                job,
+                equipment,
+                definition: HEATER,
+            }
+        ))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_running_job_whose_support_assignment_was_erased() {
+    let registries = make_registries_with_energy_output_power(
+        EnergyCarrier::Electrical,
+        Temperature::from_millikelvin(400_000),
+        Power::from_microwatts(5_000),
+    );
+    let (registries, mut state, source, destination, equipment, energy_store) =
+        make_loaded_fixture_with_registries(
+            registries,
+            Condition::PRISTINE,
+            Temperature::from_millikelvin(300_000),
+            Energy::from_nanojoules(500_000_000),
+        );
+    let support = add_active_support(&registries, &mut state, 0);
+    let _ = validate_mount_equipment(&registries, &state, equipment, support)
+        .unwrap_or_else(|error| panic!("support-state fixture mount failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("support-state fixture mount commit failed: {error}"));
+    let resolved = resolve_test_sensible_heating_process(
+        &registries,
+        &state,
+        PROCESS,
+        source,
+        equipment,
+        energy_store,
+        Temperature::from_millikelvin(303_000),
+    )
+    .unwrap_or_else(|error| panic!("support-state fixture resolution failed: {error}"));
+    let job = validate_start_process(
+        &registries,
+        &state,
+        resolved.process_resolution(),
+        source,
+        destination,
+    )
+    .unwrap_or_else(|error| panic!("support-state fixture start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("support-state fixture start commit failed: {error}"));
+    assert!(
+        state
+            .production()
+            .get_job(job)
+            .is_some_and(|record| record.has_required_active_support() && !record.is_suspended())
+    );
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("support-state tamper serialization failed: {error}"));
+    encoded["state"]["systems"]["equipment"]["records"][equipment.value().to_string()]["supported_by"] =
+        serde_json::Value::Null;
+    let loads = encoded["state"]["systems"]["structures"]["elements"][support.value().to_string()]
+        ["loads"]
+        .as_object_mut()
+        .unwrap_or_else(|| panic!("support-state structural loads were not an object"));
+    assert!(loads.remove("Equipment").is_some());
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("support-state tamper decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::JobEquipmentSupportStateMismatch {
+                job,
+                equipment,
+                requires_active_support: true,
+                supported_by: None,
+            }
+        ))
+    );
+}
+
+#[test]
 fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
     let registries = make_registries_with_energy_output_power(
         EnergyCarrier::Electrical,
@@ -1661,6 +1813,12 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
         .get_job(job)
         .map(|record| record.completes_at())
         .unwrap_or_else(|| panic!("suspension fixture job disappeared"));
+    let reserved_output_mass = state
+        .inventory()
+        .get_stockpile(destination)
+        .map(|stockpile| stockpile.reserved_inbound())
+        .unwrap_or_else(|| panic!("suspension fixture destination disappeared"));
+    assert!(!reserved_output_mass.is_zero());
 
     let _ = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("suspension fixture first active tick failed: {error}"));
@@ -1690,6 +1848,14 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
             .get_stockpile(destination)
             .map(|stockpile| stockpile.stored_mass()),
         Some(Mass::ZERO)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| stockpile.reserved_inbound()),
+        Some(reserved_output_mass),
+        "suspension must retain the job's output capacity reservation"
     );
     assert_eq!(
         state
@@ -1739,6 +1905,14 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
         .into_state(&registries)
         .unwrap_or_else(|error| panic!("suspended heating save validation failed: {error}"));
     assert_eq!(loaded, state);
+    assert_eq!(
+        loaded
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| stockpile.reserved_inbound()),
+        Some(reserved_output_mass),
+        "save/reload must preserve suspended output reservation ownership"
+    );
 
     let mut tampered =
         serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
@@ -1889,6 +2063,14 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
         )),
         Some((active_duration, resumed_due, None))
     );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| stockpile.reserved_inbound()),
+        Some(reserved_output_mass),
+        "resume must not release reserved output capacity before completion"
+    );
 
     while state.production().get_job(job).is_some() {
         let _ = advance_tick(&registries, &mut state)
@@ -1901,6 +2083,14 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
             .get_stockpile(destination)
             .map(|stockpile| stockpile.stored_mass()),
         Some(Mass::from_milligrams(10))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| stockpile.reserved_inbound()),
+        Some(Mass::ZERO),
+        "completion must release exactly the reservation it materializes"
     );
     assert_eq!(
         state

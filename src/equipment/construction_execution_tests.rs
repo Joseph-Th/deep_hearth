@@ -7,11 +7,13 @@ use crate::content::{
 use crate::core::quantity::Temperature;
 use crate::core::state::StateValidationError;
 use crate::core::time::WorldSeed;
+use crate::energy::calculate_explicit_energy_accounting;
 use crate::equipment::EquipmentValidationError;
 use crate::inventory::{
     add_solid_stockpile_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
 };
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
+use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 
 fn unassembled_pick_fixture() -> (Registries, AppState, crate::inventory::StockpileId) {
@@ -117,10 +119,30 @@ fn composite_pick_requires_both_authored_inputs_and_rejects_forged_embodiment() 
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("assembly handle fixture failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("assembly matter-before audit failed: {error}"))
+        .total();
+    let energy_before = calculate_explicit_energy_accounting(&registries, &state)
+        .unwrap_or_else(|error| panic!("assembly energy-before audit failed: {error}"))
+        .total()
+        .unwrap_or_else(|| panic!("assembly energy-before total overflowed"));
     let equipment = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, source)
         .unwrap_or_else(|error| panic!("composite pick validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("composite pick commit failed: {error}"));
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("assembly matter-after audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(
+        calculate_explicit_energy_accounting(&registries, &state)
+            .unwrap_or_else(|error| panic!("assembly energy-after audit failed: {error}"))
+            .total(),
+        Some(energy_before),
+        "equipment assembly must transfer exact material thermal energy into embodiment"
+    );
 
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("composite pick serialization failed: {error}"));

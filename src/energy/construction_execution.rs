@@ -268,7 +268,6 @@ pub fn validate_assemble_energy_store(
             id,
             definition,
             stored: Energy::ZERO,
-            embodied_mass: assembly.input_mass(),
             embodied_material,
             created_at: state.tick(),
         },

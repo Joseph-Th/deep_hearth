@@ -188,7 +188,7 @@ impl Display for PlayerWorkCommitError {
 impl Error for PlayerWorkCommitError {}
 
 #[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedPlayerWorkStart {
     expected_revision: u64,
     next_revision: u64,
@@ -202,7 +202,7 @@ impl ValidatedPlayerWorkStart {
         self.resource_budget
     }
 
-    pub(crate) fn precheck(self, state: &AppState) -> Result<(), PlayerWorkCommitError> {
+    pub(crate) fn precheck(&self, state: &AppState) -> Result<(), PlayerWorkCommitError> {
         let actual_revision = state.player_work().revision();
         if actual_revision != self.expected_revision {
             return Err(PlayerWorkCommitError::StaleRevision {
@@ -289,7 +289,7 @@ pub(crate) enum PlayerWorkTickError {
     RevisionExhausted,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum PlayerWorkTickPlan {
     Release {
         expected_revision: u64,

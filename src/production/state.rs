@@ -9,7 +9,9 @@ use crate::core::quantity::Mass;
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::energy::{ConsumedEnergyTrace, EnergyStoreId, ReleasedEnergyTrace};
 use crate::equipment::{EquipmentId, EquipmentOperationTrace};
-use crate::inventory::{ConsumedMaterialTrace, MaterialStorageHistory, StockpileId};
+use crate::inventory::{
+    ConsumedMaterialTrace, MaterialStorageHistory, StockpileId, checked_consumed_material_mass,
+};
 use crate::maintenance::Condition;
 use crate::material::MaterialLotSpec;
 
@@ -161,7 +163,6 @@ pub(super) struct ProductionJobSchedule {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ProductionJobResources {
-    pub(super) consumed_mass: Mass,
     pub(super) consumed_inputs: Vec<ConsumedMaterialTrace>,
     pub(super) material_storage_history: MaterialStorageHistory,
     pub(super) consumed_energy: Option<ConsumedEnergyTrace>,
@@ -232,8 +233,13 @@ impl ProductionJobRecord {
     }
 
     #[must_use]
-    pub const fn consumed_mass(&self) -> Mass {
-        self.resources.consumed_mass
+    pub fn consumed_mass(&self) -> Mass {
+        checked_consumed_material_mass(&self.resources.consumed_inputs).unwrap_or_else(|| {
+            panic!(
+                "validated production job {} consumed input mass overflowed",
+                self.id().value()
+            )
+        })
     }
 
     #[must_use]
@@ -325,8 +331,13 @@ impl ProductionState {
         self.next_job_id
     }
 
-    pub(crate) const fn has_valid_id_cursor(&self) -> bool {
+    pub(crate) fn has_valid_id_cursor(&self) -> bool {
         self.next_job_id != 0
+            && self
+                .jobs
+                .keys()
+                .next_back()
+                .is_none_or(|highest| highest.value() < self.next_job_id)
     }
 
     pub(crate) fn rebuild_derived_indexes(&mut self) {

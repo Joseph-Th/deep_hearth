@@ -9,7 +9,7 @@ use crate::material::{CommodityKey, MaterialInputSpec};
 use super::state::{
     ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, MaterialLotRecord,
     MaterialStorageHistory, StockpileId, StockpileRecord, apply_aggregate_withdraw,
-    apply_consume_lot_slice, get_stockpile_mut_or_panic,
+    apply_consume_lot_slice, checked_consumed_material_mass, get_stockpile_mut_or_panic,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -113,7 +113,7 @@ pub(crate) enum ReservationCommitError {
 }
 
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ConsumptionReservation {
     expected_revision: u64,
     next_revision: u64,
@@ -137,7 +137,6 @@ pub(crate) struct ConsumptionSelection {
     pub(super) inputs: Vec<MaterialInputSpec>,
     pub(super) lot_slices: Vec<LotSlice>,
     pub(super) consumed_inputs: Vec<ConsumedMaterialTrace>,
-    pub(super) total_consumed: Mass,
 }
 
 impl ConsumptionSelection {
@@ -149,8 +148,23 @@ impl ConsumptionSelection {
         &self.consumed_inputs
     }
 
-    pub(crate) const fn total_consumed(&self) -> Mass {
-        self.total_consumed
+    pub(crate) fn total_consumed(&self) -> Mass {
+        checked_consumed_material_mass(&self.consumed_inputs)
+            .unwrap_or_else(|| panic!("validated consumption selection mass overflowed"))
+    }
+
+    pub(crate) fn selected_mass_for_lot(&self, lot: MaterialLotId) -> Mass {
+        self.lot_slices
+            .iter()
+            .filter(|slice| slice.lot == lot)
+            .fold(Mass::ZERO, |total, slice| {
+                total.checked_add(slice.mass).unwrap_or_else(|| {
+                    panic!(
+                        "validated consumption selection overflowed selected mass for lot {}",
+                        lot.value()
+                    )
+                })
+            })
     }
 }
 
@@ -254,7 +268,6 @@ pub(crate) fn validate_consumption_selection(
         inputs: inputs.to_vec(),
         lot_slices,
         consumed_inputs,
-        total_consumed,
     })
 }
 
@@ -308,7 +321,6 @@ pub(crate) fn validate_explicit_consumption_selection(
         inputs,
         lot_slices,
         consumed_inputs,
-        total_consumed,
     })
 }
 
@@ -365,7 +377,6 @@ pub(crate) fn validate_consumption_reservation_from_selection(
         inputs,
         lot_slices,
         consumed_inputs,
-        total_consumed,
     } = selection;
     if state.revision() != expected_revision {
         return Err(ReservationError::StaleSelection {
@@ -376,6 +387,8 @@ pub(crate) fn validate_consumption_reservation_from_selection(
     let Some(next_revision) = state.revision().checked_add(1) else {
         return Err(ReservationError::RevisionExhausted);
     };
+    let total_consumed = checked_consumed_material_mass(&consumed_inputs)
+        .ok_or(ReservationError::MassOverflow { stockpile: source })?;
 
     for (destination, inbound_mass) in &inbound_by_destination {
         let Some(destination_record) = state.get_stockpile(*destination) else {

@@ -15,7 +15,7 @@ use super::super::selection::ConsumptionSelection;
 use super::super::state::{
     ConsumedMaterialTrace, InventoryState, LotSlice, LotStorageTransition, MaterialLotId,
     StockpileId, StockpileRecord, apply_aggregate_deposit, apply_aggregate_withdraw,
-    apply_move_full_lot, apply_split_lot,
+    apply_move_full_lot, apply_split_lot, checked_consumed_material_mass,
 };
 use super::super::storage_validation::{StockpileStorageError, validate_stockpile_storage};
 use super::super::structural_integration::{
@@ -29,7 +29,7 @@ use super::super::structural_integration::{
 /// deciding a consequence. The relocation preserves selected profiles and provenance exactly and
 /// never substitutes equivalent-looking inventory at validation time.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedMaterialRelocation {
     expected_revision: u64,
     next_revision: u64,
@@ -38,7 +38,6 @@ pub(crate) struct ValidatedMaterialRelocation {
     inputs: Vec<MaterialInputSpec>,
     transfers: Vec<RelocationLotTransfer>,
     next_lot_id_after: Option<u64>,
-    total_mass: Mass,
     structural: Option<ValidatedStockpileStructuralLoad>,
 }
 
@@ -51,8 +50,12 @@ struct RelocationLotTransfer {
 
 impl ValidatedMaterialRelocation {
     #[cfg(test)]
-    pub(crate) const fn total_mass(&self) -> Mass {
-        self.total_mass
+    pub(crate) fn total_mass(&self) -> Mass {
+        self.inputs.iter().fold(Mass::ZERO, |total, input| {
+            total
+                .checked_add(input.mass())
+                .unwrap_or_else(|| panic!("validated material relocation mass overflowed"))
+        })
     }
 
     pub(crate) fn commit(self, state: &mut AppState) -> Result<(), MaterialRelocationCommitError> {
@@ -313,8 +316,10 @@ pub(crate) fn validate_material_relocation_from_selection(
         inputs,
         lot_slices,
         consumed_inputs,
-        total_consumed,
     } = selection;
+    let total_consumed = checked_consumed_material_mass(&consumed_inputs).unwrap_or_else(|| {
+        panic!("validated consumption selection mass overflowed before relocation")
+    });
     let inventories = state.inventory();
     let (source_record, destination_record) =
         validate_relocation_endpoints(inventories, expected_revision, source, destination)?;
@@ -364,7 +369,6 @@ pub(crate) fn validate_material_relocation_from_selection(
         inputs,
         transfers,
         next_lot_id_after,
-        total_mass: total_consumed,
         structural,
     })
 }

@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
 
 use deep_hearth::content::gameplay_fixture::{
-    seed_fluid_store, seed_lot, seed_player_survival_at_hunger_warning,
-    seed_player_survival_at_hydration_warning, seed_preexisting_world_age, seed_stockpile,
+    seed_fluid_store, seed_lot, seed_player_survival_at_hunger_warning_boundary,
+    seed_player_survival_at_hydration_warning_boundary, seed_preexisting_world_age, seed_stockpile,
 };
 use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, MANUAL_POWER_HAND_CRANK,
@@ -582,16 +582,16 @@ fn provisioning_drink_supply(registries: &Registries, world: &ProvisioningWorld)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum SurvivalStartProfile {
     FullReserve,
-    HungerWarning,
-    HydrationWarning,
+    HungerWarningBoundary,
+    HydrationWarningBoundary,
 }
 
 impl SurvivalStartProfile {
     const fn label(self) -> &'static str {
         match self {
             Self::FullReserve => "full-reserve",
-            Self::HungerWarning => "hunger-warning",
-            Self::HydrationWarning => "hydration-warning",
+            Self::HungerWarningBoundary => "hunger-warning-boundary",
+            Self::HydrationWarningBoundary => "hydration-warning-boundary",
         }
     }
 }
@@ -885,34 +885,6 @@ fn evaluate_diet_recovery_consequence(
     }
 
     let mut state = AppState::new(WorldSeed::new(seed ^ 0x4449_4554_5F52_4543));
-    initialize_player_survival(registries, &mut state)
-        .unwrap_or_else(|error| panic!("diet-recovery player initialization failed: {error}"));
-    let maximum_deprivation_ticks = registries
-        .core()
-        .calendar()
-        .ticks_per_day()
-        .checked_mul(2)
-        .unwrap_or_else(|| panic!("diet-recovery setup horizon overflowed"));
-    let mut deprivation_ticks = 0_u64;
-    loop {
-        let assessment = assess_survival(registries, &state)
-            .unwrap_or_else(|| panic!("diet-recovery player disappeared during deprivation"));
-        if assessment.vitality().parts_per_million() <= DIET_RECOVERY_TARGET_VITALITY_PPM {
-            break;
-        }
-        assert!(
-            deprivation_ticks < maximum_deprivation_ticks,
-            "diet-recovery setup could not create a bounded real vitality deficit within two authored world days"
-        );
-        let _ = advance_tick(registries, &mut state)
-            .unwrap_or_else(|error| panic!("diet-recovery deprivation tick failed: {error}"));
-        deprivation_ticks += 1;
-    }
-    let vitality_before_ppm = assess_survival(registries, &state)
-        .unwrap_or_else(|| panic!("diet-recovery player disappeared at decision point"))
-        .vitality()
-        .parts_per_million();
-
     let physiology = registries.survival().physiology();
     let offered_masses = world
         .foods
@@ -962,6 +934,37 @@ fn evaluate_diet_recovery_consequence(
         drink_supply,
         ROOM_TEMPERATURE,
     );
+
+    // Every provision exists before admission. The vitality deficit is created only by canonical
+    // simulation ticks so the recovery decision does not depend on post-admission fixture mutation.
+    initialize_player_survival(registries, &mut state)
+        .unwrap_or_else(|error| panic!("diet-recovery player initialization failed: {error}"));
+    let maximum_deprivation_ticks = registries
+        .core()
+        .calendar()
+        .ticks_per_day()
+        .checked_mul(2)
+        .unwrap_or_else(|| panic!("diet-recovery setup horizon overflowed"));
+    let mut deprivation_ticks = 0_u64;
+    loop {
+        let assessment = assess_survival(registries, &state)
+            .unwrap_or_else(|| panic!("diet-recovery player disappeared during deprivation"));
+        if assessment.vitality().parts_per_million() <= DIET_RECOVERY_TARGET_VITALITY_PPM {
+            break;
+        }
+        assert!(
+            deprivation_ticks < maximum_deprivation_ticks,
+            "diet-recovery setup could not create a bounded real vitality deficit within two authored world days"
+        );
+        let _ = advance_tick(registries, &mut state)
+            .unwrap_or_else(|error| panic!("diet-recovery deprivation tick failed: {error}"));
+        deprivation_ticks += 1;
+    }
+    let vitality_before_ppm = assess_survival(registries, &state)
+        .unwrap_or_else(|| panic!("diet-recovery player disappeared at decision point"))
+        .vitality()
+        .parts_per_million();
+
     let matter_total = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("diet-recovery initial matter audit failed: {error}"))
         .total();
@@ -1132,8 +1135,8 @@ pub(super) fn provisioning_world(registries: &Registries, seed: u64) -> Provisio
     foods.sort_by_key(|food| food.category());
     let start_profile = match mix64(seed ^ 0x5354_4152_5450_5246) % 3 {
         0 => SurvivalStartProfile::FullReserve,
-        1 => SurvivalStartProfile::HungerWarning,
-        _ => SurvivalStartProfile::HydrationWarning,
+        1 => SurvivalStartProfile::HungerWarningBoundary,
+        _ => SurvivalStartProfile::HydrationWarningBoundary,
     };
     let compact_indices = selected_food_indices(&foods, DietProvisioningPolicy::CompactCalories);
     let balanced_indices = selected_food_indices(&foods, DietProvisioningPolicy::BalancedRecovery);
@@ -1207,7 +1210,8 @@ pub(super) fn provisioning_world(registries: &Registries, seed: u64) -> Provisio
             base.checked_add(mix64(seed ^ 0x4441_5946_5241_4354) % jitter)
                 .unwrap_or_else(|| panic!("survival probe provisioning wait overflowed"))
         }
-        SurvivalStartProfile::HungerWarning | SurvivalStartProfile::HydrationWarning => {
+        SurvivalStartProfile::HungerWarningBoundary
+        | SurvivalStartProfile::HydrationWarningBoundary => {
             let base = (ticks_per_day / 24).max(1);
             base.checked_add(mix64(seed ^ 0x5052_4553_5355_5245) % base)
                 .unwrap_or_else(|| panic!("survival pressure-world wait overflowed"))
@@ -1467,11 +1471,11 @@ fn prepare_provisioning_world(
     match world.start_profile {
         SurvivalStartProfile::FullReserve => initialize_player_survival(registries, &mut state)
             .unwrap_or_else(|error| panic!("survival probe player initialization failed: {error}")),
-        SurvivalStartProfile::HungerWarning => {
-            seed_player_survival_at_hunger_warning(registries, &mut state)
+        SurvivalStartProfile::HungerWarningBoundary => {
+            seed_player_survival_at_hunger_warning_boundary(registries, &mut state)
         }
-        SurvivalStartProfile::HydrationWarning => {
-            seed_player_survival_at_hydration_warning(registries, &mut state)
+        SurvivalStartProfile::HydrationWarningBoundary => {
+            seed_player_survival_at_hydration_warning_boundary(registries, &mut state)
         }
     }
 
@@ -1813,7 +1817,7 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
         drink_volume,
         ROOM_TEMPERATURE,
     );
-    seed_player_survival_at_hunger_warning(registries, &mut hunger);
+    seed_player_survival_at_hunger_warning_boundary(registries, &mut hunger);
     let hunger_before = assess_survival(registries, &hunger)
         .unwrap_or_else(|| panic!("hunger-pressure player disappeared"));
     let hunger_priority = provisioning_priority_from_reserves(
@@ -1865,7 +1869,7 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
         drink_volume,
         ROOM_TEMPERATURE,
     );
-    seed_player_survival_at_hydration_warning(registries, &mut thirst);
+    seed_player_survival_at_hydration_warning_boundary(registries, &mut thirst);
     let thirst_before = assess_survival(registries, &thirst)
         .unwrap_or_else(|| panic!("thirst-pressure player disappeared"));
     let thirst_priority = provisioning_priority_from_reserves(
@@ -1900,7 +1904,7 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
         .unwrap_or_else(|error| panic!("thirst-pressure state audit failed: {error}"));
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
-            "SURVIVAL PRESSURE seed=0x{seed:016X} matched-warning-worlds=[hunger:[priority:{} eat:useful drink:blocked-full-hydration] thirst:[priority:{} drink:useful dry-food:blocked-no-benefit]] response=pressure-sensitive canonical-actions=true",
+            "SURVIVAL PRESSURE seed=0x{seed:016X} matched-warning-boundary-worlds=[hunger:[priority:{} eat:useful drink:blocked-full-hydration] thirst:[priority:{} drink:useful dry-food:blocked-no-benefit]] response=pressure-sensitive canonical-actions=true",
             hunger_priority.label(),
             thirst_priority.label(),
         );

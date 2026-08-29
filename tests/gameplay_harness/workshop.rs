@@ -24,8 +24,9 @@ use super::report::{
 use super::scenario::{ScenarioDeliveryVariation, ScenarioVariation, WORKSHOP_SUPPORT_LENGTH};
 use super::seed::mix64;
 use deep_hearth::content::gameplay_fixture::{
-    authorize_controlled_material_delivery, seed_composed_lot, seed_grounded_active_structure,
-    seed_lot, seed_player_survival_at_hydration_warning,
+    ControlledMaterialDelivery, authorize_controlled_material_delivery,
+    commit_controlled_material_delivery, seed_composed_lot, seed_grounded_active_structure,
+    seed_lot, seed_player_survival_at_hydration_warning_boundary,
 };
 use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
@@ -47,8 +48,7 @@ use deep_hearth::equipment::{
     validate_relocate_equipment,
 };
 use deep_hearth::inventory::{
-    MaterialLotId, MaterialLotSelection, MaterialTransferResolution, StockpileId,
-    validate_material_transfer, validate_mount_stockpile,
+    MaterialLotId, MaterialLotSelection, StockpileId, validate_mount_stockpile,
 };
 use deep_hearth::labor::{
     ManualPowerError, ManualPowerRequest, PlayerWorkStartError, ValidatedManualPowerStart,
@@ -223,7 +223,7 @@ impl<'state> ScenarioActorRuntime<'state> {
 /// Scenario-controller state that owns all future controlled-event facts hidden from the actor.
 struct ControlledDeliveryRuntime<'state> {
     delivery: ScenarioDeliveryVariation,
-    authorization: &'state mut Option<MaterialTransferResolution>,
+    authorization: &'state mut Option<ControlledMaterialDelivery>,
 }
 
 fn seed_capability_store_exact(
@@ -301,14 +301,8 @@ fn seed_energy_store(
 fn setup_workshop(
     registries: &Registries,
     variation: ScenarioVariation,
-) -> (AppState, WorkshopIds, Option<MaterialTransferResolution>) {
+) -> (AppState, WorkshopIds, Option<ControlledMaterialDelivery>) {
     let mut state = AppState::new(WorldSeed::new(variation.world_seed));
-    if variation.survival.start_at_hydration_warning {
-        seed_player_survival_at_hydration_warning(registries, &mut state);
-    } else {
-        initialize_player_survival(registries, &mut state)
-            .unwrap_or_else(|error| panic!("workshop survival initialization failed: {error}"));
-    }
     let ore_mass = variation.ore.order_mass;
     let ore_source = add_solid_stockpile(&mut state, ore_mass);
     let crushed_storage = add_solid_stockpile(&mut state, ore_mass);
@@ -448,11 +442,18 @@ fn setup_workshop(
     );
 
     let delivery_authorization = Some(authorize_controlled_material_delivery(
+        &state,
         delivery_source,
         delivery_destination,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
         variation.delivery.mass,
     ));
+    if variation.survival.start_at_hydration_warning_boundary {
+        seed_player_survival_at_hydration_warning_boundary(registries, &mut state);
+    } else {
+        initialize_player_survival(registries, &mut state)
+            .unwrap_or_else(|error| panic!("workshop survival initialization failed: {error}"));
+    }
 
     (
         state,
@@ -1145,17 +1146,6 @@ fn analyze_workshop_supports(
     )
 }
 
-fn transfer_controlled_delivery(
-    registries: &Registries,
-    state: &mut AppState,
-    authorization: MaterialTransferResolution,
-) {
-    validate_material_transfer(registries, state, authorization)
-        .unwrap_or_else(|error| panic!("workshop controlled delivery validation failed: {error}"))
-        .commit(state)
-        .unwrap_or_else(|error| panic!("workshop controlled delivery commit failed: {error}"));
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CrusherRelocationOutcome {
     Relocated,
@@ -1396,7 +1386,7 @@ fn apply_delivery(
         .authorization
         .take()
         .unwrap_or_else(|| panic!("controlled delivery authorization was already consumed"));
-    transfer_controlled_delivery(registries, state, authorization);
+    commit_controlled_material_delivery(registries, state, authorization);
     let (compact, reinforced) = analyze_workshop_supports(registries, state, ids);
     let (after, alternate_after) = if *actor.current_support == ids.compact_support {
         (compact, reinforced)
@@ -1449,16 +1439,9 @@ mod runner;
 pub(super) fn run_scenario(
     registries: &Registries,
     variation: ScenarioVariation,
+    observation_horizon: Option<u64>,
 ) -> ScenarioReport {
-    runner::run_scenario(registries, variation)
-}
-
-pub(super) fn run_scenario_with_observation_horizon(
-    registries: &Registries,
-    variation: ScenarioVariation,
-    observation_horizon: u64,
-) -> ScenarioReport {
-    runner::run_scenario_with_observation_horizon(registries, variation, observation_horizon)
+    runner::run_scenario(registries, variation, observation_horizon)
 }
 
 pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {

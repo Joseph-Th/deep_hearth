@@ -256,7 +256,7 @@ impl DrinkOutcome {
 }
 
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedDrink {
     attention: ValidatedPlayerAttentionHold,
     expected_survival_revision: u64,

@@ -146,7 +146,7 @@ impl Error for StockpileStructuralLoadError {
 /// leaves the numeric load unchanged. This prevents a zero-delta operation from committing after its
 /// support has failed or otherwise changed since validation.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedStockpileStructuralLoad {
     expected_revision: u64,
     structural: Option<ValidatedStructuralLoadBatch>,
@@ -579,7 +579,7 @@ impl StockpileSupportOutcome {
 
 /// Consumed proof that inventory ownership and structure-owned stored-matter load agree.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedStockpileSupportChange {
     stockpile: StockpileId,
     before: Option<StructuralElementId>,

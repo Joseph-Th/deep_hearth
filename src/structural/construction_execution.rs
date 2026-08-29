@@ -148,7 +148,7 @@ pub struct StructuralConstructionResolution {
 
 impl StructuralConstructionResolution {
     #[must_use]
-    pub const fn mass(&self) -> Mass {
+    pub fn mass(&self) -> Mass {
         self.selection.total_consumed()
     }
 }
@@ -425,7 +425,6 @@ pub struct ValidatedStructuralConstruction {
     expected_structure_revision: u64,
     next_structure_revision: u64,
     material: Vec<ConsumedMaterialTrace>,
-    mass: Mass,
     self_weight: Force,
     egress: ValidatedMaterialEgress,
     stockpile_load: Option<ValidatedStockpileStructuralLoad>,
@@ -481,7 +480,7 @@ impl ValidatedStructuralConstruction {
         }
         apply_material_egress(state.inventory_state_mut(), self.egress);
         let structures = state.structure_state_mut();
-        structures.set_embodied_matter(self.element, self.mass, self.material, self.self_weight);
+        structures.set_embodied_matter(self.element, self.material, self.self_weight);
         structures.apply_revision(self.next_structure_revision);
         Ok(())
     }
@@ -607,7 +606,6 @@ pub fn validate_structural_construction(
         expected_structure_revision,
         next_structure_revision,
         material: egress.consumed_inputs().to_vec(),
-        mass: egress.total_consumed(),
         self_weight,
         egress,
         stockpile_load,

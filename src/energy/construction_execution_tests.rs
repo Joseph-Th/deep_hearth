@@ -152,23 +152,37 @@ fn buildable_energy_store_requires_material_and_preserves_world_matter() {
 }
 
 #[test]
-fn load_rejects_forged_energy_store_embodied_mass() {
+fn legacy_energy_store_embodied_mass_field_is_rejected_during_decode() {
     let (registries, state, store) = assembled_store_fixture();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("energy embodiment tamper serialization failed: {error}"));
     encoded["state"]["systems"]["energy"]["records"][store.value().to_string()]["embodied_mass"] =
         serde_json::json!(1_000_000_u64);
+    assert!(serde_json::from_value::<LoadedSaveEnvelope>(encoded).is_err());
+}
+
+#[test]
+fn load_rejects_energy_embodied_trace_mass_overflow_before_derived_mass_is_used() {
+    let (registries, state, store) = assembled_store_fixture();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("energy trace-overflow serialization failed: {error}"));
+    let traces = encoded["state"]["systems"]["energy"]["records"]
+        [store.value().to_string()]["embodied_material"]
+        .as_array_mut()
+        .unwrap_or_else(|| panic!("assembled energy store lost embodied trace array"));
+    assert!(
+        traces.len() >= 2,
+        "overflow fixture requires two embodied traces"
+    );
+    traces[0]["mass"] = serde_json::json!(u64::MAX);
+    traces[1]["mass"] = serde_json::json!(u64::MAX);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
-        .unwrap_or_else(|error| panic!("energy embodiment tamper decode failed: {error}"));
+        .unwrap_or_else(|error| panic!("energy trace-overflow decode failed: {error}"));
 
     assert_eq!(
         decoded.into_state(&registries),
         Err(LoadError::InvalidState(StateValidationError::Energy(
-            EnergyValidationError::EmbodiedTraceMassMismatch {
-                store,
-                stored: Mass::from_milligrams(1_000_000),
-                traced: Mass::from_milligrams(1_100_000),
-            }
+            EnergyValidationError::EmbodiedTraceMassOverflow { store }
         )))
     );
 }

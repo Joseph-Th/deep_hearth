@@ -12,7 +12,7 @@ use super::super::selection::ConsumptionSelection;
 use super::super::state::{
     ConsumedMaterialTrace, LotSlice, MaterialLotId, MaterialLotProfile, MaterialLotRecord,
     MaterialStorageHistory, StockpileId, StockpileRecord, apply_aggregate_withdraw,
-    apply_consume_lot_slice, apply_insert_or_merge_new_lot,
+    apply_consume_lot_slice, apply_insert_or_merge_new_lot, checked_consumed_material_mass,
 };
 use super::super::storage_validation::{
     CommodityReferenceError, StockpileStorageError, validate_commodity_reference,
@@ -28,7 +28,7 @@ use super::super::{
 /// The caller owns the physical reason for the form change. Inventory owns only exact withdrawal,
 /// destination storage admission, conserved mass, lot identity/provenance, and structural-load updates.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedMaterialReform {
     expected_revision: u64,
     next_revision: u64,
@@ -38,7 +38,6 @@ pub(crate) struct ValidatedMaterialReform {
     lot_slices: Vec<LotSlice>,
     outputs: Vec<(ConsumedMaterialTrace, MaterialStorageHistory)>,
     target: CommodityKey,
-    total_mass: Mass,
     lot_ids: Vec<MaterialLotId>,
     merge_policy: LotMergePolicy,
     next_lot_id: u64,
@@ -46,8 +45,12 @@ pub(crate) struct ValidatedMaterialReform {
 }
 
 impl ValidatedMaterialReform {
-    pub(crate) const fn total_mass(&self) -> Mass {
-        self.total_mass
+    pub(crate) fn total_mass(&self) -> Mass {
+        self.outputs.iter().fold(Mass::ZERO, |total, (trace, _)| {
+            total
+                .checked_add(trace.mass())
+                .unwrap_or_else(|| panic!("validated material reform mass overflowed"))
+        })
     }
 
     pub(crate) fn commit(self, state: &mut AppState) -> Result<(), MaterialReformCommitError> {
@@ -150,7 +153,7 @@ pub(crate) enum MaterialReformCommitError {
     Structure(StructuralCommitError),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 struct MaterialReformMassPlan {
     structural: Option<ValidatedStockpileStructuralLoad>,
 }
@@ -418,8 +421,9 @@ pub(crate) fn validate_material_reform_from_selection(
         inputs,
         lot_slices,
         consumed_inputs,
-        total_consumed,
     } = selection;
+    let total_consumed = checked_consumed_material_mass(&consumed_inputs)
+        .unwrap_or_else(|| panic!("validated consumption selection mass overflowed before reform"));
     let inventories = state.inventory();
     if inventories.revision() != expected_revision {
         return Err(MaterialReformError::StaleSelection {
@@ -476,7 +480,6 @@ pub(crate) fn validate_material_reform_from_selection(
         lot_slices,
         outputs,
         target,
-        total_mass: total_consumed,
         lot_ids: identity_plan.lot_ids,
         merge_policy: identity_plan.merge_policy,
         next_lot_id: identity_plan.next_lot_id,

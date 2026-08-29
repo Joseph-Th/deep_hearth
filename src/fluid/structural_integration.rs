@@ -312,7 +312,7 @@ pub(crate) fn resolve_fluid_structural_loads(
 
 /// Revision guard plus any actual structural load mutation required by a fluid-owner transaction.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedFluidStructuralLoad {
     expected_revision: u64,
     structural: Option<ValidatedStructuralLoadBatch>,
@@ -524,7 +524,7 @@ impl FluidSupportOutcome {
 
 /// Consumed proof that fluid ownership and the corresponding aggregate structural load agree.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedFluidSupportChange {
     store: FluidStoreId,
     before: Option<StructuralElementId>,

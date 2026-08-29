@@ -29,13 +29,13 @@ impl PlayerAttentionConflict {
 }
 
 #[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedPlayerAttention {
     expected_revision: u64,
 }
 
 #[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedPlayerAttentionHold {
     expected_revision: u64,
     next_revision: u64,
@@ -43,7 +43,7 @@ pub(crate) struct ValidatedPlayerAttentionHold {
 }
 
 impl ValidatedPlayerAttention {
-    pub(crate) const fn expected_revision(self) -> u64 {
+    pub(crate) const fn expected_revision(&self) -> u64 {
         self.expected_revision
     }
 
@@ -58,7 +58,7 @@ impl ValidatedPlayerAttention {
 }
 
 impl ValidatedPlayerAttentionHold {
-    pub(crate) fn precheck(self, state: &AppState) -> Result<(), PlayerAttentionConflict> {
+    pub(crate) fn precheck(&self, state: &AppState) -> Result<(), PlayerAttentionConflict> {
         let actual = state.player_work().revision();
         if actual != self.expected_revision {
             return Err(PlayerAttentionConflict {

@@ -18,7 +18,7 @@ struct PassiveEnergyDissipationEntry {
 }
 
 /// Pre-tick passive-loss decisions for every finite store with authored dissipation.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct PassiveEnergyDissipationPlan {
     entries: Vec<PassiveEnergyDissipationEntry>,
 }

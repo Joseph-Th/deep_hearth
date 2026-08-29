@@ -5,23 +5,9 @@ use super::*;
 pub(super) fn run_scenario(
     registries: &Registries,
     variation: ScenarioVariation,
-) -> ScenarioReport {
-    run_scenario_with_optional_horizon(registries, variation, None)
-}
-
-pub(super) fn run_scenario_with_observation_horizon(
-    registries: &Registries,
-    variation: ScenarioVariation,
-    observation_horizon: u64,
-) -> ScenarioReport {
-    run_scenario_with_optional_horizon(registries, variation, Some(observation_horizon))
-}
-
-fn run_scenario_with_optional_horizon(
-    registries: &Registries,
-    mut variation: ScenarioVariation,
     observation_horizon: Option<u64>,
 ) -> ScenarioReport {
+    let mut variation = variation;
     let (mut state, ids, mut delivery_authorization) = setup_workshop(registries, variation);
     let initial_survival = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("workshop player survival state disappeared after setup"));
@@ -736,7 +722,7 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
                 case.anchor,
             )
         })
-        .map(|variation| run_scenario(&registries, variation))
+        .map(|variation| run_scenario(&registries, variation, None))
         .collect();
     assert_scenario_contracts(&reports);
     let anchor_reports = plan

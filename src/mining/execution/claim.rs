@@ -168,7 +168,6 @@ pub fn validate_claim_mining_output(
         vec![ReservedDepositRequest::new(
             record.destination(),
             vec![record.output().clone()],
-            mass,
             0,
         )],
     )

@@ -352,7 +352,7 @@ impl ValidatedProcessInputs {
     }
 
     #[must_use]
-    pub const fn input_mass(&self) -> Mass {
+    pub fn input_mass(&self) -> Mass {
         self.selection.total_consumed()
     }
 
@@ -799,7 +799,7 @@ impl ProcessResolution {
     }
 
     #[must_use]
-    pub const fn input_mass(&self) -> Mass {
+    pub fn input_mass(&self) -> Mass {
         self.selection.total_consumed()
     }
 

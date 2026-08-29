@@ -534,6 +534,36 @@ fn persisted_structure_rejects_forged_embodied_particle_state() {
 }
 
 #[test]
+fn persisted_structure_rejects_trace_mass_overflow_before_derived_mass_is_used() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5C00_0014));
+    let element = member(&registries, &mut state, Mass::from_milligrams(100));
+    materialize_structural_element_for_test(&registries, &mut state, element, FORM_LOG);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("structural trace-overflow serialization failed: {error}"));
+    let traces = encoded["state"]["systems"]["structures"]["elements"][element.value().to_string()]
+        ["embodied_material"]
+        .as_array_mut()
+        .unwrap_or_else(|| panic!("structural element lost embodied trace array"));
+    let mut duplicate = traces
+        .first()
+        .cloned()
+        .unwrap_or_else(|| panic!("structural element lost embodied material"));
+    traces[0]["mass"] = serde_json::json!(u64::MAX);
+    duplicate["mass"] = serde_json::json!(u64::MAX);
+    traces.push(duplicate);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("structural trace-overflow decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Structure(
+            StructureValidationError::EmbodiedMassOverflow { element }
+        )))
+    );
+}
+
+#[test]
 fn wrong_material_cannot_become_structural_strength_material() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5C00_0003));

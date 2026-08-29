@@ -301,8 +301,13 @@ impl GeologyState {
         self.revision = next_revision;
     }
 
-    pub(crate) const fn has_valid_id_cursor(&self) -> bool {
+    pub(crate) fn has_valid_id_cursor(&self) -> bool {
         self.next_deposit_id != 0
+            && self
+                .deposits
+                .keys()
+                .next_back()
+                .is_none_or(|highest| highest.value() < self.next_deposit_id)
     }
 }
 

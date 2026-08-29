@@ -987,6 +987,15 @@ fn same_tick_completions_are_emitted_in_stable_job_id_order() {
         Ok(token) => commit_process_for_test(token, &mut state),
         Err(error) => panic!("second process validation failed: {error}"),
     };
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|record| record.reserved_inbound()),
+        Some(Mass::from_milligrams(20)),
+        "two same-tick jobs must reserve their shared destination cumulatively"
+    );
+    let inventory_revision_before_completion = state.inventory().revision();
 
     let outcome = match advance_tick(&registries, &mut state) {
         Ok(outcome) => outcome,
@@ -998,6 +1007,19 @@ fn same_tick_completions_are_emitted_in_stable_job_id_order() {
         .map(|completion| completion.job())
         .collect();
     assert_eq!(completed, vec![first, second]);
+    assert_eq!(
+        state.inventory().revision(),
+        inventory_revision_before_completion + 1,
+        "one completion batch must apply all shared-destination deposits under one inventory revision"
+    );
+    let destination_record = state
+        .inventory()
+        .get_stockpile(destination)
+        .unwrap_or_else(|| panic!("shared completion destination disappeared"));
+    assert_eq!(destination_record.stored_mass(), Mass::from_milligrams(20));
+    assert_eq!(destination_record.reserved_inbound(), Mass::ZERO);
+    assert_eq!(state.inventory().lot_ids(destination).count(), 1);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

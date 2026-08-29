@@ -11,7 +11,7 @@ use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 
 use super::EquipmentId;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct EquipmentConditionPlan {
     equipment: EquipmentId,
     expected_revision: u64,
@@ -22,17 +22,17 @@ pub(crate) struct EquipmentConditionPlan {
 
 impl EquipmentConditionPlan {
     #[must_use]
-    pub(crate) const fn equipment(self) -> EquipmentId {
+    pub(crate) const fn equipment(&self) -> EquipmentId {
         self.equipment
     }
 
     #[must_use]
-    pub(crate) const fn before(self) -> Condition {
+    pub(crate) const fn before(&self) -> Condition {
         self.before
     }
 
     #[must_use]
-    pub(crate) const fn after(self) -> Condition {
+    pub(crate) const fn after(&self) -> Condition {
         self.after
     }
 }

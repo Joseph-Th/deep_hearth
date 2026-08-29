@@ -33,7 +33,7 @@ use crate::material::{
     MaterialLotSpec,
 };
 use crate::production::{
-    ProcessDefinition, ProcessId, ProcessResolution, ProductionJobId, ProductionValidationError,
+    ProcessDefinition, ProcessId, ProcessResolution, ProductionValidationError,
     make_test_process_resolution, validate_process_inputs, validate_start_process,
 };
 use crate::simulation::advance_tick;
@@ -775,14 +775,14 @@ fn previous_save_schema_is_rejected_without_compatibility_path() {
     let state = AppState::new(WorldSeed::new(0x5700_0022));
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("previous-schema fixture serialization failed: {error}"));
-    encoded["schema_version"] = serde_json::json!(54_u32);
+    encoded["schema_version"] = serde_json::json!(58_u32);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("previous-schema fixture decode failed: {error}"));
 
     assert_eq!(
         decoded.into_state(&registries),
         Err(LoadError::UnsupportedSchemaVersion {
-            found: 54,
+            found: 58,
             supported: CURRENT_SAVE_SCHEMA_VERSION,
         })
     );
@@ -872,7 +872,7 @@ fn structural_graph_damage_and_load_round_trip_exactly() {
 }
 
 #[test]
-fn tampered_structural_embodied_mass_is_rejected_on_load() {
+fn legacy_structural_embodied_mass_field_is_rejected_during_decode() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5700_0013));
     let member = make_test_structural_element(&registries, &mut state, 0, 0, true);
@@ -882,21 +882,7 @@ fn tampered_structural_embodied_mass_is_rejected_on_load() {
     };
     encoded["state"]["systems"]["structures"]["elements"][member.value().to_string()]["embodied_mass"] =
         serde_json::json!(2_u64);
-    let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
-        Ok(decoded) => decoded,
-        Err(error) => panic!("tampered structural embodied-mass save failed decode: {error}"),
-    };
-
-    assert_eq!(
-        decoded.into_state(&registries),
-        Err(LoadError::InvalidState(StateValidationError::Structure(
-            StructureValidationError::EmbodiedMassMismatch {
-                element: member,
-                stored: Mass::from_milligrams(2),
-                traced: Mass::from_milligrams(1),
-            }
-        )))
-    );
+    assert!(serde_json::from_value::<LoadedSaveEnvelope>(encoded).is_err());
 }
 
 #[test]
@@ -920,7 +906,7 @@ fn tampered_structural_length_cannot_change_required_embodied_mass() {
         Err(LoadError::InvalidState(StateValidationError::Structure(
             StructureValidationError::EmbodiedMassGeometryMismatch {
                 element: member,
-                stored: Mass::from_milligrams(1),
+                embodied: Mass::from_milligrams(1),
                 required: Mass::from_milligrams(2),
             }
         )))
@@ -2050,7 +2036,7 @@ fn in_flight_job_survives_later_process_requirement_rebalance() {
 }
 
 #[test]
-fn tampered_in_flight_consumed_mass_is_rejected_on_load() {
+fn legacy_in_flight_consumed_mass_field_is_rejected_during_decode() {
     let registries = make_test_registries_with_process(make_test_process());
     let mut state = AppState::new(WorldSeed::new(0xC0DE_0009));
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10)) {
@@ -2086,21 +2072,7 @@ fn tampered_in_flight_consumed_mass_is_rejected_on_load() {
     };
     encoded["state"]["systems"]["production"]["jobs"][job.value().to_string()]["resources"]["consumed_mass"] =
         serde_json::json!(9);
-    let decoded: LoadedSaveEnvelope = match serde_json::from_value(encoded) {
-        Ok(decoded) => decoded,
-        Err(error) => panic!("tampered save failed structural decode: {error}"),
-    };
-
-    assert_eq!(
-        decoded.into_state(&registries),
-        Err(LoadError::InvalidState(StateValidationError::Production(
-            ProductionValidationError::ConsumedInputMassMismatch {
-                job: ProductionJobId::new(job.value()),
-                traced: Mass::from_milligrams(10),
-                consumed: Mass::from_milligrams(9),
-            }
-        )))
-    );
+    assert!(serde_json::from_value::<LoadedSaveEnvelope>(encoded).is_err());
 }
 
 #[test]

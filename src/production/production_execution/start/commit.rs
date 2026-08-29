@@ -155,11 +155,11 @@ impl ValidatedStartProcess {
 
         validate_commit_occupancy(state, &job)?;
         validate_production_revision(state, expected_production_revision)?;
-        if let Some(energy) = energy_ingress_reservation {
+        if let Some(energy) = &energy_ingress_reservation {
             validate_energy_revision(state, energy.expected_revision())?;
         }
         validate_inventory_revision(state, reservation.expected_revision())?;
-        if let Some(energy) = energy_reservation {
+        if let Some(energy) = &energy_reservation {
             validate_energy_revision(state, energy.expected_revision())?;
         }
         if let Some(equipment) = equipment_use {

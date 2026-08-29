@@ -23,7 +23,6 @@ pub(crate) enum ReservedDepositPlanError {
 pub(crate) struct ReservedDepositRequest {
     destination: StockpileId,
     outputs: Vec<MaterialLotSpec>,
-    reserved_mass: Mass,
     storage_age_parts: u128,
 }
 
@@ -31,13 +30,11 @@ impl ReservedDepositRequest {
     pub(crate) fn new(
         destination: StockpileId,
         outputs: Vec<MaterialLotSpec>,
-        reserved_mass: Mass,
         storage_age_parts: u128,
     ) -> Self {
         Self {
             destination,
             outputs,
-            reserved_mass,
             storage_age_parts,
         }
     }
@@ -49,12 +46,11 @@ struct ReservedDepositPlanEntry {
     outputs: Vec<MaterialLotSpec>,
     lot_ids: Vec<MaterialLotId>,
     merge_policies: Vec<LotMergePolicy>,
-    reserved_mass: Mass,
     storage_age_parts: u128,
 }
 
 /// Inventory-owned allocation and revision plan for one tick's reserved production outputs.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ReservedDepositPlan {
     expected_revision: u64,
     next_revision: u64,
@@ -96,7 +92,6 @@ pub(crate) fn decide_reserved_deposits(
         let ReservedDepositRequest {
             destination,
             outputs,
-            reserved_mass,
             storage_age_parts,
         } = request;
         let mut lot_ids = Vec::with_capacity(outputs.len());
@@ -136,7 +131,6 @@ pub(crate) fn decide_reserved_deposits(
             outputs,
             lot_ids,
             merge_policies,
-            reserved_mass,
             storage_age_parts,
         });
     }
@@ -176,11 +170,18 @@ pub(crate) fn apply_reserved_deposits(state: &mut InventoryState, plan: Reserved
             outputs,
             lot_ids,
             merge_policies,
-            reserved_mass,
             storage_age_parts,
         } = entry;
         debug_assert_eq!(outputs.len(), lot_ids.len());
         debug_assert_eq!(outputs.len(), merge_policies.len());
+        let reserved_mass = outputs.iter().fold(Mass::ZERO, |total, output| {
+            total.checked_add(output.mass()).unwrap_or_else(|| {
+                panic!(
+                    "validated reserved output mass overflowed for stockpile {}",
+                    destination.value()
+                )
+            })
+        });
         {
             let record = get_stockpile_mut_or_panic(state, destination);
             record.reserved_inbound = match record.reserved_inbound.checked_sub(reserved_mass) {

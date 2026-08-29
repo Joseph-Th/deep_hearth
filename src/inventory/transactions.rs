@@ -23,11 +23,13 @@ pub(crate) use relocation::{
     validate_material_relocation_from_selection,
 };
 
-#[cfg(any(test, feature = "test-gameplay"))]
-pub use transfer::{
+#[cfg(test)]
+pub(crate) use transfer::{
     MaterialTransferCommitError, MaterialTransferError, MaterialTransferResolution,
     ValidatedMaterialTransfer, validate_material_transfer,
 };
+#[cfg(all(not(test), feature = "test-gameplay"))]
+pub(crate) use transfer::{MaterialTransferResolution, validate_material_transfer};
 
 #[cfg(test)]
 #[path = "transactions_tests.rs"]

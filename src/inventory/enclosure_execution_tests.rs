@@ -4,11 +4,13 @@ use super::*;
 
 use crate::content::{
     FORM_CHEST_BODY, FORM_FOOD, FORM_LOG, MATERIAL_BERRIES, MATERIAL_WOOD,
-    STORAGE_TIMBER_PROVISIONS_CHEST, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    PROCESS_SHAPE_WOOD_BOARDS, STORAGE_TIMBER_PROVISIONS_CHEST,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{AggregateMass, Area, Length, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::{TickSpan, WorldSeed};
+use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::inventory::{
     StorageEnclosureValidationError, add_solid_stockpile_for_test, deposit_lot_for_test,
@@ -25,7 +27,7 @@ use crate::structural::{
     calculate_aggregate_weight_force_ceiling, materialize_structural_element_for_test,
     validate_activate_structural_element,
 };
-use crate::survival::{FoodFreshness, assess_food_freshness};
+use crate::survival::{FoodFreshness, assess_food_freshness, initialize_player_survival};
 
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 const CHEST_MASS: Mass = Mass::from_milligrams(2_400_000);
@@ -264,6 +266,108 @@ fn enclosure_rejects_existing_contents_outside_completed_profile_without_mutatio
 }
 
 #[test]
+fn enclosure_allows_incompatible_construction_lot_when_target_source_consumes_it_fully() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5702_1008));
+    let target = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(5_000_000))
+        .unwrap_or_else(|error| panic!("self-enclosure target fixture failed: {error}"));
+    let hot_temperature = Temperature::from_millikelvin(340_000);
+    let construction_lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        target,
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
+        CHEST_MASS,
+        hot_temperature,
+    )
+    .unwrap_or_else(|error| panic!("self-enclosure construction lot failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("self-enclosure matter-before audit failed: {error}"))
+        .total();
+
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        target,
+        target,
+    )
+    .unwrap_or_else(|error| panic!("self-enclosure validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("self-enclosure commit failed: {error}"));
+
+    let record = state
+        .inventory()
+        .get_stockpile(target)
+        .unwrap_or_else(|| panic!("self-enclosure target disappeared"));
+    assert_eq!(record.stored_mass(), Mass::ZERO);
+    assert_eq!(record.embodied_mass(), CHEST_MASS);
+    assert!(state.inventory().get_lot(construction_lot).is_none());
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("self-enclosure matter-after audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn enclosure_rejects_storage_profile_change_while_inbound_output_is_reserved() {
+    let (registries, mut state, target, enclosure_source, _) =
+        construction_fixture(Mass::from_milligrams(5_000_000));
+    let craft_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("reserved-enclosure craft source failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        craft_source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(1_000_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("reserved-enclosure craft input failed: {error}"));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("reserved-enclosure survival setup failed: {error}"));
+    validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(PROCESS_SHAPE_WOOD_BOARDS, craft_source, target),
+    )
+    .unwrap_or_else(|error| panic!("reserved-enclosure craft start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("reserved-enclosure craft commit failed: {error}"));
+
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(target)
+            .map(|record| record.reserved_inbound()),
+        Some(Mass::from_milligrams(1_000_000))
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_build_storage_enclosure(
+            &registries,
+            &state,
+            STORAGE_TIMBER_PROVISIONS_CHEST,
+            target,
+            enclosure_source,
+        )
+        .err(),
+        Some(
+            StorageEnclosureConstructionError::TargetHasReservedInbound {
+                stockpile: target,
+                reserved: Mass::from_milligrams(1_000_000),
+            }
+        )
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn mounting_enclosed_stockpile_loads_contents_and_enclosure_body() {
     let (registries, mut state, target, source, _) =
         construction_fixture(Mass::from_milligrams(5_000_000));
@@ -329,21 +433,31 @@ fn load_replays_storage_definition_profile_and_embodied_matter() {
     );
 
     let target_key = target.value().to_string();
-    let mut forged_mass = encoded.clone();
-    forged_mass["state"]["systems"]["inventory"]["stockpiles"][&target_key]["enclosure"]["embodied_mass"] =
+    let mut legacy_mass = encoded.clone();
+    legacy_mass["state"]["systems"]["inventory"]["stockpiles"][&target_key]["enclosure"]["embodied_mass"] =
         serde_json::json!(2_300_000_u64);
-    let decoded: LoadedSaveEnvelope = serde_json::from_value(forged_mass)
-        .unwrap_or_else(|error| panic!("forged enclosure mass decode failed: {error}"));
+    assert!(serde_json::from_value::<LoadedSaveEnvelope>(legacy_mass).is_err());
+
+    let mut overflowed_traces = encoded.clone();
+    let traces =
+        overflowed_traces["state"]["systems"]["inventory"]["stockpiles"][&target_key]["enclosure"]
+            ["embodied_material"]
+            .as_array_mut()
+            .unwrap_or_else(|| panic!("storage enclosure lost embodied trace array"));
+    let mut duplicate = traces
+        .first()
+        .cloned()
+        .unwrap_or_else(|| panic!("storage enclosure lost embodied material"));
+    traces[0]["mass"] = serde_json::json!(u64::MAX);
+    duplicate["mass"] = serde_json::json!(u64::MAX);
+    traces.push(duplicate);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(overflowed_traces)
+        .unwrap_or_else(|error| panic!("enclosure trace-overflow decode failed: {error}"));
     assert_eq!(
         decoded.into_state(&registries),
         Err(LoadError::InvalidState(
             StateValidationError::StorageEnclosure(
-                StorageEnclosureValidationError::EmbodiedTraceMassMismatch {
-                    stockpile: target,
-                    stored: Mass::from_milligrams(2_300_000),
-                    traced: CHEST_MASS,
-                    authored: CHEST_MASS,
-                }
+                StorageEnclosureValidationError::EmbodiedTraceMassOverflow { stockpile: target }
             )
         ))
     );

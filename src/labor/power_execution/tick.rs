@@ -14,7 +14,7 @@ pub(crate) enum ManualPowerTickError {
     EquipmentRevisionExhausted,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ManualPowerTickPlan {
     work: ManualPowerWork,
     stored_before: Energy,

@@ -12,6 +12,7 @@ use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, apply_clock_advance};
 use crate::core::time::SimulationTick;
 use crate::core::time::WorldSeed;
+use crate::energy::calculate_explicit_energy_accounting;
 use crate::inventory::selection::apply_consumption_reservation;
 use crate::inventory::{
     MaterialFixtureError, MaterialIngressEntry, MaterialIngressError, MaterialLotRecord,
@@ -1164,12 +1165,7 @@ fn consumption_reservation_and_reserved_deposit_preserve_final_quantity() {
         &registries,
         state.inventory(),
         created_at,
-        vec![ReservedDepositRequest::new(
-            destination,
-            vec![output],
-            Mass::from_milligrams(10),
-            0,
-        )],
+        vec![ReservedDepositRequest::new(destination, vec![output], 0)],
     )
     .unwrap_or_else(|error| panic!("reserved deposit planning failed: {error:?}"));
     apply_reserved_deposits(state.inventory_state_mut(), deposit_plan);
@@ -1297,6 +1293,9 @@ fn exact_relocation_preserves_inventory_quantity() {
     let before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("accounting failed: {error:?}"))
         .total();
+    let energy_before = calculate_explicit_energy_accounting(&registries, &state)
+        .unwrap_or_else(|error| panic!("relocation energy-before accounting failed: {error}"))
+        .total();
 
     let inputs = vec![MaterialInputSpec::new(wood_log(), Mass::from_milligrams(6))];
     let selection = validate_consumption_selection(state.inventory(), source, &inputs)
@@ -1334,6 +1333,13 @@ fn exact_relocation_preserves_inventory_quantity() {
         before,
         "relocation must conserve world matter"
     );
+    assert_eq!(
+        calculate_explicit_energy_accounting(&registries, &state)
+            .unwrap_or_else(|error| panic!("relocation energy-after accounting failed: {error}"))
+            .total(),
+        energy_before,
+        "relocation must preserve exact material thermal energy"
+    );
 }
 
 #[test]
@@ -1354,6 +1360,9 @@ fn exact_reform_changes_only_physical_form_and_conserves_matter() {
     .unwrap_or_else(|error| panic!("reform source deposit failed: {error}"));
     let before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("reform accounting failed: {error:?}"))
+        .total();
+    let energy_before = calculate_explicit_energy_accounting(&registries, &state)
+        .unwrap_or_else(|error| panic!("reform energy-before accounting failed: {error}"))
         .total();
 
     let inputs = [MaterialInputSpec::new(wood_log(), Mass::from_milligrams(6))];
@@ -1410,6 +1419,13 @@ fn exact_reform_changes_only_physical_form_and_conserves_matter() {
             .total(),
         before,
         "same-material form reform must conserve world matter"
+    );
+    assert_eq!(
+        calculate_explicit_energy_accounting(&registries, &state)
+            .unwrap_or_else(|error| panic!("reform energy-after accounting failed: {error}"))
+            .total(),
+        energy_before,
+        "same-phase form reform must preserve exact material thermal energy"
     );
     validate_loaded_inventory(registries.materials(), state.inventory(), state.tick())
         .unwrap_or_else(|error| panic!("reformed inventory failed validation: {error}"));

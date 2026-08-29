@@ -64,7 +64,6 @@ pub(super) fn validate_job_allocation(
 
 #[must_use]
 pub(super) struct ValidatedMaterialReservation {
-    pub(super) input_mass: Mass,
     pub(super) reservation: ConsumptionReservation,
     pub(super) storage_history: MaterialStorageHistory,
 }
@@ -101,7 +100,6 @@ pub(super) fn validate_material_reservation(
         return Err(StartProcessError::InputStorageAgeOverflow { stockpile: source });
     }
     Ok(ValidatedMaterialReservation {
-        input_mass,
         reservation,
         storage_history,
     })
@@ -134,7 +132,9 @@ pub(super) fn validate_energy_reservations(
         ),
         None => None,
     };
-    let consumed = consumption.map(EnergyConsumptionReservation::trace);
+    let consumed = consumption
+        .as_ref()
+        .map(EnergyConsumptionReservation::trace);
     let released = ingress.map(EnergyIngressReservation::trace);
     for store in consumed
         .map(|trace| trace.source())

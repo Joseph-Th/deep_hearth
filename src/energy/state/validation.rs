@@ -39,20 +39,16 @@ pub enum EnergyValidationError {
     UnexpectedAssemblyMaterial {
         store: EnergyStoreId,
     },
-    UnexpectedEmbodiedMass {
-        store: EnergyStoreId,
-        stored: Mass,
-    },
     ZeroEmbodiedTrace {
         store: EnergyStoreId,
     },
     EmbodiedTraceMassOverflow {
         store: EnergyStoreId,
     },
-    EmbodiedTraceMassMismatch {
+    EmbodiedMassMismatch {
         store: EnergyStoreId,
-        stored: Mass,
         traced: Mass,
+        authored: Mass,
     },
     UnknownEmbodiedCommodity {
         store: EnergyStoreId,
@@ -134,12 +130,6 @@ impl Display for EnergyValidationError {
                 "energy store {} persists assembled material but its definition has no assembly profile",
                 store.value()
             ),
-            Self::UnexpectedEmbodiedMass { store, stored } => write!(
-                formatter,
-                "energy store {} persists {} mg embodied mass without an assembly profile",
-                store.value(),
-                stored.milligrams()
-            ),
             Self::ZeroEmbodiedTrace { store } => write!(
                 formatter,
                 "energy store {} contains a zero-mass embodied material trace",
@@ -150,16 +140,16 @@ impl Display for EnergyValidationError {
                 "energy store {} embodied material trace mass overflows",
                 store.value()
             ),
-            Self::EmbodiedTraceMassMismatch {
+            Self::EmbodiedMassMismatch {
                 store,
-                stored,
                 traced,
+                authored,
             } => write!(
                 formatter,
-                "energy store {} stores {} mg embodied mass but traces own {} mg",
+                "energy store {} traces {} mg embodied mass but its assembly requires {} mg",
                 store.value(),
-                stored.milligrams(),
-                traced.milligrams()
+                traced.milligrams(),
+                authored.milligrams()
             ),
             Self::UnknownEmbodiedCommodity { store, commodity } => write!(
                 formatter,
@@ -310,12 +300,6 @@ fn validate_embodied_material(
         if !record.embodied_material.is_empty() {
             return Err(EnergyValidationError::UnexpectedAssemblyMaterial { store: record.id });
         }
-        if !record.embodied_mass.is_zero() {
-            return Err(EnergyValidationError::UnexpectedEmbodiedMass {
-                store: record.id,
-                stored: record.embodied_mass,
-            });
-        }
         return Ok(());
     };
 
@@ -414,18 +398,11 @@ fn validate_embodied_totals(
     traced_mass: Mass,
     mut stored_by_commodity: BTreeMap<CommodityKey, Mass>,
 ) -> Result<(), EnergyValidationError> {
-    if traced_mass != record.embodied_mass {
-        return Err(EnergyValidationError::EmbodiedTraceMassMismatch {
+    if traced_mass != assembly.input_mass() {
+        return Err(EnergyValidationError::EmbodiedMassMismatch {
             store: record.id,
-            stored: record.embodied_mass,
             traced: traced_mass,
-        });
-    }
-    if record.embodied_mass != assembly.input_mass() {
-        return Err(EnergyValidationError::EmbodiedTraceMassMismatch {
-            store: record.id,
-            stored: assembly.input_mass(),
-            traced: record.embodied_mass,
+            authored: assembly.input_mass(),
         });
     }
     for input in assembly.inputs() {

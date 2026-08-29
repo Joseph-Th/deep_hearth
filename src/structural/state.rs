@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::core::quantity::{Area, Force, Length, Mass};
 use crate::core::time::SimulationTick;
-use crate::inventory::ConsumedMaterialTrace;
+use crate::inventory::{ConsumedMaterialTrace, checked_consumed_material_mass};
 use crate::material::MaterialId;
 use crate::spatial::VoxelBounds;
 
@@ -144,7 +144,6 @@ pub(super) struct StructuralElementConfiguration {
 pub struct StructuralElementRecord {
     pub(super) id: StructuralElementId,
     pub(super) configuration: StructuralElementConfiguration,
-    pub(super) embodied_mass: Mass,
     pub(super) embodied_material: Vec<ConsumedMaterialTrace>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     pub(super) loads: BTreeMap<StructuralLoadKind, Force>,
@@ -196,8 +195,13 @@ impl StructuralElementRecord {
 
     /// Exact matter currently owned by this structural member.
     #[must_use]
-    pub const fn embodied_mass(&self) -> Mass {
-        self.embodied_mass
+    pub fn embodied_mass(&self) -> Mass {
+        checked_consumed_material_mass(&self.embodied_material).unwrap_or_else(|| {
+            panic!(
+                "validated structural element {} embodied trace mass overflowed",
+                self.id.value()
+            )
+        })
     }
 
     /// Physical/provenance traces transferred into this member at construction.
@@ -470,7 +474,6 @@ impl StructureState {
     pub(super) fn set_embodied_matter(
         &mut self,
         element: StructuralElementId,
-        mass: Mass,
         material: Vec<ConsumedMaterialTrace>,
         self_weight: Force,
     ) {
@@ -478,7 +481,6 @@ impl StructureState {
             .elements
             .get_mut(&element)
             .unwrap_or_else(|| panic!("prechecked structural construction target disappeared"));
-        record.embodied_mass = mass;
         record.embodied_material = material;
         if self_weight.is_zero() {
             record.loads.remove(&StructuralLoadKind::SelfWeight);

@@ -10,7 +10,7 @@ use crate::content::{
 use crate::core::quantity::{Energy, Temperature};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
-use crate::energy::validate_assemble_energy_store;
+use crate::energy::{calculate_explicit_energy_accounting, validate_assemble_energy_store};
 use crate::equipment::{
     EquipmentValidationError, apply_equipment_condition_plan, decide_equipment_wear,
     validate_assemble_equipment,
@@ -143,6 +143,10 @@ fn additive_upgrade_preserves_identity_wear_and_world_matter() {
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("upgrade initial matter accounting failed: {error}"))
         .total();
+    let energy_before = calculate_explicit_energy_accounting(&registries, &state)
+        .unwrap_or_else(|error| panic!("upgrade initial energy accounting failed: {error}"))
+        .total()
+        .unwrap_or_else(|| panic!("upgrade initial explicit energy total overflowed"));
 
     let upgraded = validate_upgrade_equipment(
         &registries,
@@ -170,6 +174,13 @@ fn additive_upgrade_preserves_identity_wear_and_world_matter() {
             .unwrap_or_else(|error| panic!("upgrade final matter accounting failed: {error}"))
             .total(),
         matter_before
+    );
+    assert_eq!(
+        calculate_explicit_energy_accounting(&registries, &state)
+            .unwrap_or_else(|error| panic!("upgrade final energy accounting failed: {error}"))
+            .total(),
+        Some(energy_before),
+        "additive upgrade must preserve the thermal energy of all exact embodied traces"
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("upgraded state audit failed: {error}"));

@@ -59,17 +59,12 @@ pub enum StructureValidationError {
     },
     EmbodiedMassGeometryMismatch {
         element: StructuralElementId,
-        stored: Mass,
+        embodied: Mass,
         required: Mass,
     },
     UnmaterializedLoadBearingElement {
         element: StructuralElementId,
         lifecycle: StructuralLifecycle,
-    },
-    EmbodiedMassMismatch {
-        element: StructuralElementId,
-        stored: Mass,
-        traced: Mass,
     },
     EmbodiedMassOverflow {
         element: StructuralElementId,
@@ -200,13 +195,13 @@ impl Display for StructureValidationError {
             ),
             Self::EmbodiedMassGeometryMismatch {
                 element,
-                stored,
+                embodied,
                 required,
             } => write!(
                 formatter,
                 "structural element {} owns {} mg but its geometry and material density require {} mg",
                 element.value(),
-                stored.milligrams(),
+                embodied.milligrams(),
                 required.milligrams()
             ),
             Self::ElementKeyMismatch { key, record } => write!(
@@ -242,17 +237,6 @@ impl Display for StructureValidationError {
                 formatter,
                 "structural element {} is {lifecycle:?} without embodied construction matter",
                 element.value()
-            ),
-            Self::EmbodiedMassMismatch {
-                element,
-                stored,
-                traced,
-            } => write!(
-                formatter,
-                "structural element {} stores {} mg embodied mass but traces own {} mg",
-                element.value(),
-                stored.milligrams(),
-                traced.milligrams()
             ),
             Self::EmbodiedMassOverflow { element } => write!(
                 formatter,
@@ -460,17 +444,12 @@ impl Error for StructureValidationError {
             | Self::ActiveElementUnsupported { element: _element } => None,
             Self::EmbodiedMassGeometryMismatch {
                 element: _element,
-                stored: _stored,
+                embodied: _embodied,
                 required: _required,
             } => None,
             Self::UnmaterializedLoadBearingElement {
                 element: _element,
                 lifecycle: _lifecycle,
-            } => None,
-            Self::EmbodiedMassMismatch {
-                element: _element,
-                stored: _stored,
-                traced: _traced,
             } => None,
             Self::EmbodiedMaterialMismatch {
                 element: _element,

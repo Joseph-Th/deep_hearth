@@ -316,7 +316,9 @@ impl ScenarioReport {
                 gangue_clay_share_ppm: variation.ore.gangue_clay_share_ppm,
                 nominal_batch_mass: variation.ore.nominal_batch_mass,
                 order_mass: variation.ore.order_mass,
-                start_at_hydration_warning: variation.survival.start_at_hydration_warning,
+                start_at_hydration_warning_boundary: variation
+                    .survival
+                    .start_at_hydration_warning_boundary,
                 initial_condition_ppm: variation
                     .crusher
                     .initial_crusher_condition
@@ -381,7 +383,7 @@ pub(super) struct ScenarioInputReport {
     pub(super) gangue_clay_share_ppm: u32,
     pub(super) nominal_batch_mass: Mass,
     pub(super) order_mass: Mass,
-    pub(super) start_at_hydration_warning: bool,
+    pub(super) start_at_hydration_warning_boundary: bool,
     pub(super) initial_condition_ppm: u32,
     pub(super) initial_maintenance_band: MaintenanceBand,
     pub(super) small_drive_batch_budget: u8,
@@ -944,9 +946,9 @@ pub(super) fn print_harness_summary(
         .iter()
         .filter(|report| report.inputs.initial_maintenance_band == MaintenanceBand::Critical)
         .count();
-    let survival_warning_starts = reports
+    let survival_warning_boundary_starts = reports
         .iter()
-        .filter(|report| report.inputs.start_at_hydration_warning)
+        .filter(|report| report.inputs.start_at_hydration_warning_boundary)
         .count();
     let small_drive_batches: u32 = reports
         .iter()
@@ -1040,8 +1042,8 @@ pub(super) fn print_harness_summary(
 
     for report in reports.iter().filter(|_| include_scenarios) {
         let outcome = scenario_outcome(report);
-        let survival_start = if report.inputs.start_at_hydration_warning {
-            "hydration-warning"
+        let survival_start = if report.inputs.start_at_hydration_warning_boundary {
+            "hydration-warning-boundary"
         } else {
             "full-reserve"
         };
@@ -1101,8 +1103,8 @@ pub(super) fn print_harness_summary(
     }
 
     std::println!(
-        "SAMPLE ore=[grade:{ore_grade_min}..{ore_grade_max}ppm gangue-clay-share:{clay_share_min}..{clay_share_max}ppm nominal-batch:{batch_mass_min}..{batch_mass_max}mg order:{order_mass_min}..{order_mass_max}mg] crusher-condition=[{initial_condition_min}..{initial_condition_max}ppm normal:{initial_normal} warning:{initial_warning} critical:{initial_critical}] survival-start=[hydration-warning:{survival_warning_starts} full-reserve:{}] resources=[small-drive:{}..{}+{}..{}ppm nominal-batches large-drive:{}..{}+{}..{}ppm maintenance-units:{}..{}] scheduled-event=[tick:{delivery_tick_min}..{delivery_tick_max}t mass:{delivery_mass_min}..{delivery_mass_max}mg compact:{compact_deliveries} reinforced:{} actor-visibility:hidden]",
-        reports.len() - survival_warning_starts,
+        "SAMPLE ore=[grade:{ore_grade_min}..{ore_grade_max}ppm gangue-clay-share:{clay_share_min}..{clay_share_max}ppm nominal-batch:{batch_mass_min}..{batch_mass_max}mg order:{order_mass_min}..{order_mass_max}mg] crusher-condition=[{initial_condition_min}..{initial_condition_max}ppm normal:{initial_normal} warning:{initial_warning} critical:{initial_critical}] survival-start=[hydration-warning-boundary:{survival_warning_boundary_starts} full-reserve:{}] resources=[small-drive:{}..{}+{}..{}ppm nominal-batches large-drive:{}..{}+{}..{}ppm maintenance-units:{}..{}] scheduled-event=[tick:{delivery_tick_min}..{delivery_tick_max}t mass:{delivery_mass_min}..{delivery_mass_max}mg compact:{compact_deliveries} reinforced:{} actor-visibility:hidden]",
+        reports.len() - survival_warning_boundary_starts,
         reports
             .iter()
             .map(|report| report.inputs.small_drive_batch_budget)

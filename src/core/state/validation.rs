@@ -71,6 +71,10 @@ pub fn validate_loaded_state(
     )
     .map_err(StateValidationError::Inventory)?;
 
+    // Validate trace-backed enclosure matter before cross-owner structural accounting derives its
+    // mass. This keeps malformed decoded trace sums on the validation-error path rather than the
+    // runtime-invariant panic path used by already trusted state.
+    validate_inventory_references(registries, state)?;
     validate_structural_integrations(registries, state)?;
     validate_loaded_geology(registries.materials(), &state.systems.geology, state.tick())
         .map_err(StateValidationError::Geology)?;
@@ -92,7 +96,6 @@ pub fn validate_loaded_state(
     )
     .map_err(StateValidationError::Survival)?;
 
-    validate_inventory_references(registries, state)?;
     validate_production_references(registries, state)?;
     validate_loaded_mining_jobs(registries, state).map_err(StateValidationError::MiningJob)?;
     validate_loaded_player_work(registries, state, &state.systems.player_work)
@@ -109,7 +112,7 @@ pub fn validate_invariants(registries: &Registries, state: &AppState) {
     );
     debug_assert!(
         state.systems.mining.has_valid_id_cursor(),
-        "Runtime Invariant 8 (No Lost Runtime State): mining job ID cursor must remain nonzero"
+        "Runtime Invariant 8 (No Lost Runtime State): mining job ID cursor must remain above every allocated job"
     );
     debug_assert!(
         state.systems.energy.has_valid_id_cursor(),
@@ -129,19 +132,19 @@ pub fn validate_invariants(registries: &Registries, state: &AppState) {
     );
     debug_assert!(
         state.systems.geology.has_valid_id_cursor(),
-        "Runtime Invariant 8 (No Lost Runtime State): geological deposit ID cursor must remain valid"
+        "Runtime Invariant 8 (No Lost Runtime State): geological deposit ID cursor must remain above every allocated deposit"
     );
     debug_assert!(
         state.systems.geological_knowledge.has_valid_id_cursor(),
-        "Runtime Invariant 8 (No Lost Runtime State): geological observation ID cursor must remain valid"
+        "Runtime Invariant 8 (No Lost Runtime State): geological observation ID cursor must remain above every allocated observation"
     );
     debug_assert!(
         state.systems.inventory.has_valid_id_cursors(),
-        "Runtime Invariant 8 (No Lost Runtime State): inventory ID cursors must remain nonzero"
+        "Runtime Invariant 8 (No Lost Runtime State): inventory ID cursors must remain above every allocated stockpile and lot"
     );
     debug_assert!(
         state.systems.production.has_valid_id_cursor(),
-        "Runtime Invariant 8 (No Lost Runtime State): production ID cursor must remain nonzero"
+        "Runtime Invariant 8 (No Lost Runtime State): production job ID cursor must remain above every allocated job"
     );
     debug_assert!(
         state

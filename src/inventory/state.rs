@@ -256,6 +256,13 @@ impl ConsumedMaterialTrace {
     }
 }
 
+/// Sums exact material traces without widening or wrapping authoritative mass.
+pub(crate) fn checked_consumed_material_mass(traces: &[ConsumedMaterialTrace]) -> Option<Mass> {
+    traces
+        .iter()
+        .try_fold(Mass::ZERO, |total, trace| total.checked_add(trace.mass()))
+}
+
 /// Persistent identifier for one homogeneous runtime material lot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MaterialLotId(u64);
@@ -433,7 +440,6 @@ pub struct StockpileRecord {
 #[serde(deny_unknown_fields)]
 pub struct StockpileEnclosureRecord {
     definition: StorageDefinitionId,
-    embodied_mass: Mass,
     embodied_material: Vec<ConsumedMaterialTrace>,
     created_at: SimulationTick,
 }
@@ -442,13 +448,11 @@ impl StockpileEnclosureRecord {
     #[must_use]
     pub(crate) fn new(
         definition: StorageDefinitionId,
-        embodied_mass: Mass,
         embodied_material: Vec<ConsumedMaterialTrace>,
         created_at: SimulationTick,
     ) -> Self {
         Self {
             definition,
-            embodied_mass,
             embodied_material,
             created_at,
         }
@@ -460,8 +464,13 @@ impl StockpileEnclosureRecord {
     }
 
     #[must_use]
-    pub const fn embodied_mass(&self) -> Mass {
-        self.embodied_mass
+    pub fn embodied_mass(&self) -> Mass {
+        checked_consumed_material_mass(&self.embodied_material).unwrap_or_else(|| {
+            panic!(
+                "validated storage enclosure {} embodied trace mass overflowed",
+                self.definition.value()
+            )
+        })
     }
 
     #[must_use]
@@ -499,7 +508,7 @@ impl StockpileRecord {
 
     /// Returns matter embodied in this stockpile's enclosure rather than stored as contents.
     #[must_use]
-    pub const fn embodied_mass(&self) -> Mass {
+    pub fn embodied_mass(&self) -> Mass {
         match &self.enclosure {
             Some(enclosure) => enclosure.embodied_mass(),
             None => Mass::ZERO,
@@ -654,8 +663,19 @@ impl InventoryState {
         self.revision = next_revision;
     }
 
-    pub(crate) const fn has_valid_id_cursors(&self) -> bool {
-        self.next_stockpile_id != 0 && self.next_lot_id != 0
+    pub(crate) fn has_valid_id_cursors(&self) -> bool {
+        self.next_stockpile_id != 0
+            && self.next_lot_id != 0
+            && self
+                .stockpiles
+                .keys()
+                .next_back()
+                .is_none_or(|highest| highest.value() < self.next_stockpile_id)
+            && self
+                .lots
+                .keys()
+                .next_back()
+                .is_none_or(|highest| highest.value() < self.next_lot_id)
     }
 
     /// Returns one stockpile by stable runtime ID.

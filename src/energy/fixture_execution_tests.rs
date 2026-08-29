@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::content::{FORM_FLYWHEEL, MATERIAL_STONE, make_test_registries_with_energy_store};
-use crate::core::quantity::Power;
+use crate::core::quantity::{Mass, Power};
 use crate::core::time::WorldSeed;
 use crate::energy::{EnergyCarrier, EnergyStoreDefinition, EnergyStoreRecord};
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};

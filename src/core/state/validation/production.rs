@@ -61,7 +61,7 @@ fn validate_production_job(
     validate_job_process_and_source(registries, state, job)?;
     validate_job_consumed_energy(registries, state, job)?;
     validate_job_released_energy(registries, state, job)?;
-    validate_job_equipment(state, job)?;
+    validate_job_equipment(registries, state, job)?;
     validate_job_subsystem_contracts(registries, job)?;
     validate_job_schedule(state, job)?;
     validate_job_consumed_inputs(registries, job)?;
@@ -193,6 +193,7 @@ fn validate_job_released_energy(
 }
 
 fn validate_job_equipment(
+    registries: &Registries,
     state: &AppState,
     job: &ProductionJobRecord,
 ) -> Result<(), StateValidationError> {
@@ -217,6 +218,29 @@ fn validate_job_equipment(
             job: job.id(),
             traced: provider.condition(),
             stored: record.condition(),
+        });
+    }
+    let definition = registries
+        .equipment()
+        .get_equipment(record.definition())
+        .unwrap_or_else(|| {
+            unreachable!("validated equipment record definition disappeared from registry")
+        });
+    if definition.requires_structural_support() && !job.has_required_active_support() {
+        return Err(
+            StateValidationError::JobEquipmentSupportRequirementMissing {
+                job: job.id(),
+                equipment: provider.equipment(),
+                definition: record.definition(),
+            },
+        );
+    }
+    if !job.is_suspended() && job.has_required_active_support() != record.supported_by().is_some() {
+        return Err(StateValidationError::JobEquipmentSupportStateMismatch {
+            job: job.id(),
+            equipment: provider.equipment(),
+            requires_active_support: job.has_required_active_support(),
+            supported_by: record.supported_by(),
         });
     }
     Ok(())

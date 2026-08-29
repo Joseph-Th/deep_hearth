@@ -23,6 +23,37 @@ fn failed_thermal_equipment_exposes_no_heat_transfer_capability() {
 }
 
 #[test]
+fn current_mining_capability_providers_remain_portable_hand_tools() {
+    let registry = build_equipment_registry();
+    for definition in registry.definitions() {
+        let capabilities = definition.capabilities();
+        let mining_capabilities = [
+            CAPABILITY_MINING_FLOW,
+            CAPABILITY_MINING_MAX_BATCH,
+            CAPABILITY_MINING_MAX_HARDNESS,
+        ];
+        let provided = mining_capabilities
+            .into_iter()
+            .filter(|capability| capabilities.get_capability(*capability).is_some())
+            .count();
+        if provided == 0 {
+            continue;
+        }
+        assert_eq!(
+            provided,
+            mining_capabilities.len(),
+            "equipment {} must provide the complete mining capability contract or none of it",
+            definition.id().value()
+        );
+        assert!(
+            !definition.requires_structural_support(),
+            "current hand-mining provider {} must remain portable until mechanized excavation has support-aware mining lifecycle semantics",
+            definition.id().value()
+        );
+    }
+}
+
+#[test]
 fn primitive_equipment_services_replace_authored_embodied_components() {
     let registry = build_equipment_registry();
     for (equipment, component, mass) in [

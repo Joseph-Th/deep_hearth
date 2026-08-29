@@ -22,7 +22,7 @@ pub(crate) enum InboundReservationError {
 }
 
 #[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedInboundReservation {
     expected_revision: u64,
     next_revision: u64,
@@ -31,7 +31,7 @@ pub(crate) struct ValidatedInboundReservation {
 }
 
 impl ValidatedInboundReservation {
-    pub(crate) const fn expected_revision(self) -> u64 {
+    pub(crate) const fn expected_revision(&self) -> u64 {
         self.expected_revision
     }
 

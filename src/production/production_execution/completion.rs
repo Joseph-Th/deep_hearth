@@ -100,7 +100,7 @@ impl ProcessCompletion {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct CompletionPlan {
     revisions: CompletionRevisionPlan,
     inventory_deposits: ReservedDepositPlan,
@@ -398,7 +398,6 @@ fn plan_due_job_outputs(
         planning.deposit_requests.push(ReservedDepositRequest::new(
             stream.destination(),
             stream.outputs().to_vec(),
-            reserved_mass,
             storage_age_parts,
         ));
         planning.add_deposited_mass(stream.destination(), reserved_mass)?;

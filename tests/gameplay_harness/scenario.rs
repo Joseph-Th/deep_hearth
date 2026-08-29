@@ -38,7 +38,7 @@ pub(super) struct ScenarioVariation {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ScenarioSurvivalVariation {
-    pub(super) start_at_hydration_warning: bool,
+    pub(super) start_at_hydration_warning_boundary: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -250,7 +250,7 @@ impl ScenarioVariation {
             world_seed,
             behavior_seed,
             survival: ScenarioSurvivalVariation {
-                start_at_hydration_warning: match anchor {
+                start_at_hydration_warning_boundary: match anchor {
                     Some(MaintainedAnchor::SurvivalRecovery) => true,
                     Some(_) => false,
                     None => n.is_multiple_of(4),

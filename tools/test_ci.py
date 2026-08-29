@@ -501,8 +501,6 @@ class LocalCiPlanTests(unittest.TestCase):
             exposed,
             {
                 ("src/content/mod.rs", "pub mod gameplay_fixture;"),
-                ("src/inventory/mod.rs", "pub use transactions::{"),
-                ("src/inventory/transactions.rs", "pub use transfer::{"),
             },
         )
         content = (ROOT / "src" / "content" / "mod.rs").read_text(encoding="utf-8")

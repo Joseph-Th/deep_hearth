@@ -27,7 +27,7 @@ fn gameplay_terminal_prework_stop_does_not_plan_unreachable_work_or_wait_for_hid
     variation.crusher.maintenance_replacement_units = 0;
     variation.delivery.delivery_at_tick = 64;
 
-    let report = workshop::run_scenario(&registries, variation);
+    let report = workshop::run_scenario(&registries, variation, None);
 
     assert!(report.limits.maintenance_stop);
     assert!(!report.progress.delivery_applied);
@@ -61,7 +61,7 @@ fn hidden_delivery_payload_does_not_change_pre_event_actor_choices() {
                 case.behavior_seed,
                 Some(anchor),
             );
-            let report = workshop::run_scenario(&registries, variation);
+            let report = workshop::run_scenario(&registries, variation, None);
             report
                 .progress
                 .delivery_applied
@@ -82,7 +82,7 @@ fn hidden_delivery_payload_does_not_change_pre_event_actor_choices() {
             .unwrap_or_else(|| panic!("hidden-delivery counterfactual mass overflowed")),
     );
 
-    let alternate_report = workshop::run_scenario(&registries, alternate);
+    let alternate_report = workshop::run_scenario(&registries, alternate, None);
 
     assert_ne!(
         baseline_report.inputs.delivery_mass,

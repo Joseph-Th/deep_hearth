@@ -27,7 +27,7 @@ use super::{
 /// pathless logistics event because world logistics is outside the current production scope.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
-pub struct MaterialTransferResolution {
+pub(crate) struct MaterialTransferResolution {
     source: StockpileId,
     destination: StockpileId,
     commodity: CommodityKey,
@@ -53,7 +53,7 @@ impl MaterialTransferResolution {
 
 /// Failure while validating an atomic stockpile-to-stockpile transfer.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum MaterialTransferError {
+pub(crate) enum MaterialTransferError {
     UnknownStockpile {
         stockpile: StockpileId,
     },
@@ -168,7 +168,7 @@ impl Error for MaterialTransferError {
 
 /// Failure when a validated transfer is committed after inventory has changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum MaterialTransferCommitError {
+pub(crate) enum MaterialTransferCommitError {
     StaleInventoryRevision { expected: u64, actual: u64 },
     Structure(StructuralCommitError),
 }
@@ -200,13 +200,13 @@ impl Error for MaterialTransferCommitError {
 /// Consumed proof that all preconditions for a two-stockpile transfer have been checked.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
-pub struct ValidatedMaterialTransfer {
+pub(crate) struct ValidatedMaterialTransfer {
     relocation: ValidatedMaterialRelocation,
 }
 
 impl ValidatedMaterialTransfer {
     /// Atomically commits this already validated transfer and consumes the proof token.
-    pub fn commit(self, state: &mut AppState) -> Result<(), MaterialTransferCommitError> {
+    pub(crate) fn commit(self, state: &mut AppState) -> Result<(), MaterialTransferCommitError> {
         self.relocation.commit(state).map_err(|error| match error {
             MaterialRelocationCommitError::StaleInventoryRevision { expected, actual } => {
                 MaterialTransferCommitError::StaleInventoryRevision { expected, actual }
@@ -219,7 +219,7 @@ impl ValidatedMaterialTransfer {
 }
 
 /// Validates one already physically resolved material transfer without mutating either stockpile.
-pub fn validate_material_transfer(
+pub(crate) fn validate_material_transfer(
     registries: &Registries,
     state: &AppState,
     resolution: MaterialTransferResolution,

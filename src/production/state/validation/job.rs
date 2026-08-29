@@ -20,10 +20,10 @@ pub(super) fn validate_job_record(
 ) -> Result<(), ProductionValidationError> {
     validate_job_schedule(id, job, current)?;
     validate_job_suspension(id, job)?;
-    validate_consumed_resources(id, job)?;
+    let consumed_mass = validate_consumed_resources(id, job)?;
     validate_energy_traces(id, job)?;
     validate_equipment_outcome(id, job)?;
-    validate_outputs(id, job)
+    validate_outputs(id, job, consumed_mass)
 }
 
 fn validate_job_schedule(
@@ -209,7 +209,7 @@ fn validate_consumed_input_trace(
 fn validate_consumed_resources(
     id: ProductionJobId,
     job: &ProductionJobRecord,
-) -> Result<(), ProductionValidationError> {
+) -> Result<Mass, ProductionValidationError> {
     if job.output_streams.is_empty() {
         return Err(ProductionValidationError::NoOutputs { job: id });
     }
@@ -226,14 +226,7 @@ fn validate_consumed_resources(
             )?)
             .ok_or(ProductionValidationError::ConsumedInputMassOverflow { job: id })?;
     }
-    if traced_input_mass != job.resources.consumed_mass {
-        return Err(ProductionValidationError::ConsumedInputMassMismatch {
-            job: id,
-            traced: traced_input_mass,
-            consumed: job.resources.consumed_mass,
-        });
-    }
-    Ok(())
+    Ok(traced_input_mass)
 }
 
 fn validate_energy_traces(
@@ -367,6 +360,7 @@ fn validate_output_stream(
 fn validate_outputs(
     id: ProductionJobId,
     job: &ProductionJobRecord,
+    consumed_mass: Mass,
 ) -> Result<(), ProductionValidationError> {
     let mut output_mass = Mass::ZERO;
     let mut output_stream_ids = BTreeSet::new();
@@ -389,11 +383,11 @@ fn validate_outputs(
             .checked_add(validate_output_stream(id, stream)?)
             .ok_or(ProductionValidationError::OutputMassOverflow { job: id })?;
     }
-    if output_mass != job.resources.consumed_mass {
+    if output_mass != consumed_mass {
         return Err(ProductionValidationError::OutputMassMismatch {
             job: id,
             output: output_mass,
-            consumed: job.resources.consumed_mass,
+            consumed: consumed_mass,
         });
     }
     Ok(())

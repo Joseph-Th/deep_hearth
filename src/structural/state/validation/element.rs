@@ -78,7 +78,7 @@ fn validate_element_geometry_shape(
     if record.length().is_zero() {
         return Err(StructureValidationError::ZeroLength { element: record.id });
     }
-    if record.lifecycle != StructuralLifecycle::Planned && record.embodied_mass.is_zero() {
+    if record.lifecycle != StructuralLifecycle::Planned && record.embodied_material.is_empty() {
         return Err(StructureValidationError::UnmaterializedLoadBearingElement {
             element: record.id,
             lifecycle: record.lifecycle,
@@ -102,13 +102,6 @@ fn validate_element_embodiment(
         traced_mass = traced_mass
             .checked_add(trace.mass())
             .ok_or(StructureValidationError::EmbodiedMassOverflow { element: record.id })?;
-    }
-    if traced_mass != record.embodied_mass {
-        return Err(StructureValidationError::EmbodiedMassMismatch {
-            element: record.id,
-            stored: record.embodied_mass,
-            traced: traced_mass,
-        });
     }
     Ok(traced_mass)
 }
@@ -217,8 +210,7 @@ fn validate_element_mass_and_loads(
     traced_mass: Mass,
     gravity: Acceleration,
 ) -> Result<(), StructureValidationError> {
-    debug_assert_eq!(traced_mass, record.embodied_mass);
-    if !record.embodied_mass.is_zero() {
+    if !traced_mass.is_zero() {
         let required = calculate_prismatic_material_mass_ceiling(
             materials,
             record.material(),
@@ -229,19 +221,17 @@ fn validate_element_mass_and_loads(
             element: record.id,
             error,
         })?;
-        if record.embodied_mass != required {
+        if traced_mass != required {
             return Err(StructureValidationError::EmbodiedMassGeometryMismatch {
                 element: record.id,
-                stored: record.embodied_mass,
+                embodied: traced_mass,
                 required,
             });
         }
     }
-    let expected_self_weight = calculate_aggregate_weight_force_ceiling(
-        AggregateMass::from_mass(record.embodied_mass),
-        gravity,
-    )
-    .ok_or(StructureValidationError::SelfWeightOverflow { element: record.id })?;
+    let expected_self_weight =
+        calculate_aggregate_weight_force_ceiling(AggregateMass::from_mass(traced_mass), gravity)
+            .ok_or(StructureValidationError::SelfWeightOverflow { element: record.id })?;
     let stored_self_weight = record.load(StructuralLoadKind::SelfWeight);
     if stored_self_weight != expected_self_weight {
         return Err(StructureValidationError::SelfWeightMismatch {

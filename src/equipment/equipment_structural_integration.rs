@@ -328,7 +328,7 @@ impl EquipmentSupportOutcome {
 
 /// Consumed proof that equipment ownership and the corresponding aggregate structural load agree.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedEquipmentSupportChange {
     equipment: EquipmentId,
     before: Option<StructuralElementId>,
@@ -339,7 +339,7 @@ pub struct ValidatedEquipmentSupportChange {
 }
 
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 enum ValidatedEquipmentStructuralChange {
     Single(ValidatedStructuralMutation),
     Batch(ValidatedStructuralLoadBatch),

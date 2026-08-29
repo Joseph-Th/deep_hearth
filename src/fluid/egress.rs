@@ -77,7 +77,7 @@ impl Error for FluidEgressCommitError {
 
 /// Consumed proof that exact finite fluid may leave storage for another authoritative owner.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedFluidEgress {
     expected_revision: u64,
     next_revision: u64,

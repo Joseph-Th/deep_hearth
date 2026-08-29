@@ -142,6 +142,17 @@ pub enum StateValidationError {
         traced: Condition,
         stored: Condition,
     },
+    JobEquipmentSupportRequirementMissing {
+        job: ProductionJobId,
+        equipment: EquipmentId,
+        definition: EquipmentDefinitionId,
+    },
+    JobEquipmentSupportStateMismatch {
+        job: ProductionJobId,
+        equipment: EquipmentId,
+        requires_active_support: bool,
+        supported_by: Option<StructuralElementId>,
+    },
     UnknownEquipmentSupport {
         equipment: EquipmentId,
         element: StructuralElementId,
@@ -473,6 +484,30 @@ impl Display for StateValidationError {
                 traced.parts_per_million(),
                 stored.parts_per_million()
             ),
+            Self::JobEquipmentSupportRequirementMissing {
+                job,
+                equipment,
+                definition,
+            } => write!(
+                formatter,
+                "production job {} uses structurally installed equipment {} definition {} but does not preserve its active-support requirement",
+                job.value(),
+                equipment.value(),
+                definition.value()
+            ),
+            Self::JobEquipmentSupportStateMismatch {
+                job,
+                equipment,
+                requires_active_support,
+                supported_by,
+            } => write!(
+                formatter,
+                "running production job {} stores requires_active_support={} for equipment {} but current support is {:?}",
+                job.value(),
+                requires_active_support,
+                equipment.value(),
+                supported_by.map(StructuralElementId::value)
+            ),
             Self::UnknownEquipmentSupport { equipment, element } => write!(
                 formatter,
                 "equipment {} references missing structural support element {}",
@@ -758,6 +793,17 @@ impl Error for StateValidationError {
                 job: _job,
                 traced: _traced,
                 stored: _stored,
+            } => None,
+            Self::JobEquipmentSupportRequirementMissing {
+                job: _job,
+                equipment: _equipment,
+                definition: _definition,
+            } => None,
+            Self::JobEquipmentSupportStateMismatch {
+                job: _job,
+                equipment: _equipment,
+                requires_active_support: _requires_active_support,
+                supported_by: _supported_by,
             } => None,
             Self::UnknownEquipmentSupport {
                 equipment: _equipment,

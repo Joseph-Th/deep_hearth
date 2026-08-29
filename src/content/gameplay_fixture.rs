@@ -20,7 +20,7 @@ use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
 use crate::inventory::{
     MaterialLotId, MaterialLotSelection, MaterialTransferResolution, StockpileId,
     StockpileStorageProfile, add_stockpile, deposit_composed_lot_for_fixture,
-    deposit_lot_for_fixture,
+    deposit_lot_for_fixture, validate_material_transfer,
 };
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, FormId, MaterialComposition, MaterialId};
@@ -32,18 +32,30 @@ use crate::structural::{
     validate_activate_structural_element, validate_structural_construction,
 };
 use crate::survival::{
-    initialize_player_survival_at_hunger_warning_for_fixture,
-    initialize_player_survival_at_hydration_warning_for_fixture,
+    initialize_player_survival_at_hunger_warning_boundary_for_fixture,
+    initialize_player_survival_at_hydration_warning_boundary_for_fixture,
 };
+
+fn assert_pre_admission(state: &AppState, operation: &str) {
+    assert!(
+        state.survival().player().is_none(),
+        "gameplay bootstrap {operation} must occur before actor admission"
+    );
+}
 
 /// Seeds a controlled scenario player at the authored hydration warning boundary.
 ///
 /// This represents a pre-existing starting condition for the maintained survival-pressure world. It
 /// does not advance the simulation or provide an acting-policy shortcut once setup has completed.
-pub fn seed_player_survival_at_hydration_warning(registries: &Registries, state: &mut AppState) {
-    initialize_player_survival_at_hydration_warning_for_fixture(registries, state).unwrap_or_else(
-        |error| panic!("gameplay bootstrap hydration-warning seed failed: {error}"),
-    );
+pub fn seed_player_survival_at_hydration_warning_boundary(
+    registries: &Registries,
+    state: &mut AppState,
+) {
+    assert_pre_admission(state, "hydration-warning-boundary player seed");
+    initialize_player_survival_at_hydration_warning_boundary_for_fixture(registries, state)
+        .unwrap_or_else(|error| {
+            panic!("gameplay bootstrap hydration-warning-boundary seed failed: {error}")
+        });
 }
 
 /// Advances setup-only world age without executing gameplay systems.
@@ -58,10 +70,7 @@ pub fn seed_preexisting_world_age(state: &mut AppState, tick: SimulationTick) {
         SimulationTick::ZERO,
         "gameplay bootstrap world age may only be established from the initial tick"
     );
-    assert!(
-        state.survival().player().is_none(),
-        "gameplay bootstrap world age must be established before player survival begins"
-    );
+    assert_pre_admission(state, "pre-existing world-age seed");
     apply_clock_advance(state, tick);
 }
 
@@ -69,9 +78,15 @@ pub fn seed_preexisting_world_age(state: &mut AppState, tick: SimulationTick) {
 ///
 /// This represents a pre-existing starting condition for a maintained survival-pressure world. It
 /// does not advance the simulation or provide an acting-policy shortcut once setup has completed.
-pub fn seed_player_survival_at_hunger_warning(registries: &Registries, state: &mut AppState) {
-    initialize_player_survival_at_hunger_warning_for_fixture(registries, state)
-        .unwrap_or_else(|error| panic!("gameplay bootstrap hunger-warning seed failed: {error}"));
+pub fn seed_player_survival_at_hunger_warning_boundary(
+    registries: &Registries,
+    state: &mut AppState,
+) {
+    assert_pre_admission(state, "hunger-warning-boundary player seed");
+    initialize_player_survival_at_hunger_warning_boundary_for_fixture(registries, state)
+        .unwrap_or_else(|error| {
+            panic!("gameplay bootstrap hunger-warning-boundary seed failed: {error}")
+        });
 }
 
 pub fn seed_stockpile(
@@ -79,6 +94,7 @@ pub fn seed_stockpile(
     capacity: Mass,
     storage_profile: StockpileStorageProfile,
 ) -> StockpileId {
+    assert_pre_admission(state, "stockpile seed");
     add_stockpile(state, capacity, storage_profile)
         .unwrap_or_else(|error| panic!("gameplay bootstrap stockpile seed failed: {error}"))
 }
@@ -89,6 +105,7 @@ pub fn seed_equipment(
     definition: EquipmentDefinitionId,
     condition: Condition,
 ) -> EquipmentId {
+    assert_pre_admission(state, "equipment seed");
     add_equipment(registries, state, definition, condition)
         .unwrap_or_else(|error| panic!("gameplay bootstrap equipment seed failed: {error}"))
 }
@@ -99,6 +116,7 @@ pub fn seed_energy_store(
     definition: EnergyStoreDefinitionId,
     amount: Energy,
 ) -> EnergyStoreId {
+    assert_pre_admission(state, "energy-store seed");
     add_energy_store_with_initial_for_fixture(registries, state, definition, amount)
         .unwrap_or_else(|error| panic!("gameplay bootstrap energy seed failed: {error}"))
 }
@@ -111,6 +129,7 @@ pub fn seed_fluid_store(
     volume: Volume,
     temperature: Temperature,
 ) -> FluidStoreId {
+    assert_pre_admission(state, "fluid-store seed");
     add_fluid_store_with_contents_for_fixture(
         registries,
         state,
@@ -166,6 +185,7 @@ pub fn seed_geological_deposit(
     state: &mut AppState,
     seed: GeologicalDepositSeed,
 ) {
+    assert_pre_admission(state, "geological-deposit seed");
     let GeologicalDepositSeed {
         bounds,
         commodity,
@@ -195,6 +215,7 @@ pub fn seed_lot(
     mass: Mass,
     temperature: Temperature,
 ) -> MaterialLotId {
+    assert_pre_admission(state, "material-lot seed");
     deposit_lot_for_fixture(registries, state, stockpile, commodity, mass, temperature)
         .unwrap_or_else(|error| panic!("gameplay bootstrap material seed failed: {error}"))
 }
@@ -208,6 +229,7 @@ pub fn seed_composed_lot(
     temperature: Temperature,
     composition: MaterialComposition,
 ) -> MaterialLotId {
+    assert_pre_admission(state, "composed-material seed");
     deposit_composed_lot_for_fixture(
         registries,
         state,
@@ -226,13 +248,43 @@ pub fn seed_composed_lot(
 /// or reveal event timing to the actor. Inventory still validates and commits the canonical transfer;
 /// this is a controlled audit authorization because world logistics is outside current production
 /// scope and ordinary runtime cannot create pathless transfers.
-pub const fn authorize_controlled_material_delivery(
+#[must_use]
+#[derive(Debug, PartialEq, Eq)]
+pub struct ControlledMaterialDelivery {
+    resolution: MaterialTransferResolution,
+}
+
+pub fn authorize_controlled_material_delivery(
+    state: &AppState,
     source: StockpileId,
     destination: StockpileId,
     commodity: CommodityKey,
     mass: Mass,
-) -> MaterialTransferResolution {
-    MaterialTransferResolution::new(source, destination, commodity, mass)
+) -> ControlledMaterialDelivery {
+    assert_pre_admission(state, "controlled-delivery authorization");
+    ControlledMaterialDelivery {
+        resolution: MaterialTransferResolution::new(source, destination, commodity, mass),
+    }
+}
+
+/// Applies one previously authorized controlled delivery through canonical inventory validation.
+///
+/// Keeping the inventory transfer proof private prevents the gameplay harness from manufacturing
+/// arbitrary pathless logistics after actor admission. The scenario controller can only retain and
+/// later consume this opaque authorization created during controlled setup.
+pub fn commit_controlled_material_delivery(
+    registries: &Registries,
+    state: &mut AppState,
+    delivery: ControlledMaterialDelivery,
+) {
+    assert!(
+        state.survival().player().is_some(),
+        "gameplay controlled delivery may only commit after actor admission"
+    );
+    validate_material_transfer(registries, state, delivery.resolution)
+        .unwrap_or_else(|error| panic!("gameplay controlled delivery validation failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("gameplay controlled delivery commit failed: {error}"));
 }
 
 fn materialize_structure(
@@ -282,6 +334,7 @@ pub fn seed_grounded_active_structure(
     geometry: StructuralElementGeometry,
     form: FormId,
 ) -> StructuralElementId {
+    assert_pre_admission(state, "structural seed");
     let element = add_structural_element(registries, state, profile, material, geometry, true)
         .unwrap_or_else(|error| panic!("gameplay bootstrap structural allocation failed: {error}"));
     materialize_structure(registries, state, element, form);

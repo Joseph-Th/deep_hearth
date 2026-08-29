@@ -133,11 +133,6 @@ pub enum ProductionValidationError {
     ConsumedInputMassOverflow {
         job: ProductionJobId,
     },
-    ConsumedInputMassMismatch {
-        job: ProductionJobId,
-        traced: Mass,
-        consumed: Mass,
-    },
     ZeroConsumedEnergy {
         job: ProductionJobId,
     },
@@ -411,17 +406,6 @@ impl Display for ProductionValidationError {
                 formatter,
                 "production job {} consumed input trace mass overflows authoritative quantity storage",
                 job.value()
-            ),
-            Self::ConsumedInputMassMismatch {
-                job,
-                traced,
-                consumed,
-            } => write!(
-                formatter,
-                "production job {} traces {} mg of consumed input but records {} mg consumed",
-                job.value(),
-                traced.milligrams(),
-                consumed.milligrams()
             ),
             Self::ConsumedInputCreatedAfterStart {
                 job,

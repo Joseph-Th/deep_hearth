@@ -29,12 +29,7 @@ fn reserved_deposit_plan_owns_lot_ids_and_revision_advance() {
         &registries,
         state.inventory(),
         SimulationTick::new(7),
-        vec![ReservedDepositRequest::new(
-            destination,
-            vec![output],
-            Mass::from_milligrams(10),
-            0,
-        )],
+        vec![ReservedDepositRequest::new(destination, vec![output], 0)],
     )
     .unwrap_or_else(|error| panic!("reserved ingress planning failed: {error:?}"));
     assert_eq!(plan.expected_revision(), expected_revision);
@@ -102,12 +97,7 @@ fn reserved_output_merges_without_consuming_an_unused_lot_identity() {
         &registries,
         state.inventory(),
         state.tick(),
-        vec![ReservedDepositRequest::new(
-            destination,
-            vec![output],
-            Mass::from_milligrams(6),
-            0,
-        )],
+        vec![ReservedDepositRequest::new(destination, vec![output], 0)],
     )
     .unwrap_or_else(|error| panic!("reserved ingress merge planning failed: {error:?}"));
 

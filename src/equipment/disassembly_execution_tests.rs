@@ -9,7 +9,7 @@ use crate::content::{
 use crate::core::quantity::{Energy, Temperature};
 use crate::core::state::validate_loaded_state;
 use crate::core::time::WorldSeed;
-use crate::energy::validate_assemble_energy_store;
+use crate::energy::{calculate_explicit_energy_accounting, validate_assemble_energy_store};
 use crate::equipment::{
     apply_equipment_condition_plan, decide_equipment_wear, validate_assemble_equipment,
 };
@@ -46,6 +46,13 @@ fn assembled_pick(registries: &Registries, state: &mut AppState) -> EquipmentId 
         .unwrap_or_else(|error| panic!("disassembly pick assembly failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("disassembly pick assembly commit failed: {error}"))
+}
+
+fn explicit_energy(registries: &Registries, state: &AppState) -> crate::core::quantity::Energy {
+    calculate_explicit_energy_accounting(registries, state)
+        .unwrap_or_else(|error| panic!("disassembly explicit energy accounting failed: {error}"))
+        .total()
+        .unwrap_or_else(|| panic!("disassembly explicit energy total overflowed"))
 }
 
 fn assembled_crank(registries: &Registries, state: &mut AppState) -> EquipmentId {
@@ -116,6 +123,7 @@ fn pristine_disassembly_recovers_exact_matter_without_reusing_identity() {
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("disassembly matter before failed: {error}"))
         .total();
+    let energy_before = explicit_energy(&registries, &state);
 
     let outcome = validate_disassemble_equipment(&registries, &state, pick, destination)
         .unwrap_or_else(|error| panic!("disassembly validation failed: {error}"))
@@ -136,6 +144,7 @@ fn pristine_disassembly_recovers_exact_matter_without_reusing_identity() {
             .total(),
         matter_before
     );
+    assert_eq!(explicit_energy(&registries, &state), energy_before);
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("disassembly state audit failed: {error}"));
 
@@ -160,6 +169,7 @@ fn worn_equipment_recovers_as_same_material_scrap_without_resetting_components()
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("worn disassembly matter before failed: {error}"))
         .total();
+    let energy_before = explicit_energy(&registries, &state);
 
     let outcome = validate_disassemble_equipment(&registries, &state, pick, destination)
         .unwrap_or_else(|error| panic!("worn disassembly validation failed: {error}"))
@@ -190,6 +200,7 @@ fn worn_equipment_recovers_as_same_material_scrap_without_resetting_components()
             .total(),
         matter_before
     );
+    assert_eq!(explicit_energy(&registries, &state), energy_before);
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("worn disassembly state audit failed: {error}"));
 }

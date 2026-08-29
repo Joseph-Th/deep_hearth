@@ -48,6 +48,10 @@ pub enum StorageEnclosureConstructionError {
         current: StockpileStorageProfile,
         required: StockpileStorageProfile,
     },
+    TargetHasReservedInbound {
+        stockpile: StockpileId,
+        reserved: Mass,
+    },
     TargetContentsIncompatible {
         lot: MaterialLotId,
         error: StockpileStorageError,
@@ -123,6 +127,15 @@ impl Display for StorageEnclosureConstructionError {
                 "stockpile {} does not have the ambient solid-storage profile required for this enclosure",
                 stockpile.value()
             ),
+            Self::TargetHasReservedInbound {
+                stockpile,
+                reserved,
+            } => write!(
+                formatter,
+                "stockpile {} cannot change storage enclosure while {} mg of inbound matter is reserved",
+                stockpile.value(),
+                reserved.milligrams()
+            ),
             Self::TargetContentsIncompatible { lot, error } => write!(
                 formatter,
                 "material lot {} is incompatible with the completed storage enclosure: {error}",
@@ -176,6 +189,7 @@ impl Error for StorageEnclosureConstructionError {
             | Self::TargetMounted { .. }
             | Self::TargetCapacityTooLarge { .. }
             | Self::TargetStorageProfileMismatch { .. }
+            | Self::TargetHasReservedInbound { .. }
             | Self::StorageHistoryOverflow { .. }
             | Self::InsufficientMaterial { .. }
             | Self::SourceMassOverflow { .. }
@@ -342,34 +356,14 @@ pub fn validate_build_storage_enclosure(
             },
         );
     }
-    let next_profile = definition_record.storage_profile();
-    let source_preservation = required_profile.preservation_multiplier_ppm();
-    for lot in state.inventory().lot_ids(target) {
-        let record = state
-            .inventory()
-            .get_lot(lot)
-            .unwrap_or_else(|| unreachable!("stockpile lot index references a live lot"));
-        validate_stockpile_storage_profile(
-            registries,
-            next_profile,
-            target,
-            record.commodity(),
-            record.composition(),
-            record.temperature(),
-            record.particle_size_distribution(),
-        )
-        .map_err(|error| {
-            StorageEnclosureConstructionError::TargetContentsIncompatible { lot, error }
-        })?;
-        if record
-            .storage_history()
-            .rebase(state.tick(), source_preservation)
-            .is_none()
-        {
-            return Err(StorageEnclosureConstructionError::StorageHistoryOverflow { lot });
-        }
+    if !target_record.reserved_inbound().is_zero() {
+        return Err(
+            StorageEnclosureConstructionError::TargetHasReservedInbound {
+                stockpile: target,
+                reserved: target_record.reserved_inbound(),
+            },
+        );
     }
-
     let selection = validate_consumption_selection(
         state.inventory(),
         source,
@@ -394,6 +388,36 @@ pub fn validate_build_storage_enclosure(
             StorageEnclosureConstructionError::SourceMassOverflow { stockpile }
         }
     })?;
+    let next_profile = definition_record.storage_profile();
+    let source_preservation = required_profile.preservation_multiplier_ppm();
+    for lot in state.inventory().lot_ids(target) {
+        let record = state
+            .inventory()
+            .get_lot(lot)
+            .unwrap_or_else(|| unreachable!("stockpile lot index references a live lot"));
+        if source == target && selection.selected_mass_for_lot(lot) == record.mass() {
+            continue;
+        }
+        validate_stockpile_storage_profile(
+            registries,
+            next_profile,
+            target,
+            record.commodity(),
+            record.composition(),
+            record.temperature(),
+            record.particle_size_distribution(),
+        )
+        .map_err(|error| {
+            StorageEnclosureConstructionError::TargetContentsIncompatible { lot, error }
+        })?;
+        if record
+            .storage_history()
+            .rebase(state.tick(), source_preservation)
+            .is_none()
+        {
+            return Err(StorageEnclosureConstructionError::StorageHistoryOverflow { lot });
+        }
+    }
     let embodied_material = selection.consumed_inputs().to_vec();
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {
@@ -432,12 +456,7 @@ pub fn validate_build_storage_enclosure(
         next_inventory_revision,
         expected_profile: required_profile,
         next_profile,
-        enclosure: StockpileEnclosureRecord::new(
-            definition,
-            definition_record.assembly_profile().input_mass(),
-            embodied_material,
-            state.tick(),
-        ),
+        enclosure: StockpileEnclosureRecord::new(definition, embodied_material, state.tick()),
         egress,
         structural_load,
     })

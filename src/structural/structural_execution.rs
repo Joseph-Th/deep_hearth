@@ -301,7 +301,7 @@ impl Error for StructuralMutationError {
 
 /// Validated structural mutation bound to one exact subsystem revision and resolved cascade.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedStructuralMutation {
     operation: StructuralMutation,
     expected_revision: u64,
@@ -377,7 +377,7 @@ fn apply_damage_events(
 /// The entire batch is analyzed and committed under one structural revision so a cross-owner
 /// transaction never exposes an impossible intermediate load arrangement.
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedStructuralLoadBatch {
     kind: StructuralLoadKind,
     loads: BTreeMap<StructuralElementId, Force>,

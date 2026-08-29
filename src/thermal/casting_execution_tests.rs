@@ -704,6 +704,54 @@ fn casting_save_resume_preserves_exact_completion_and_rejects_tampered_heat() {
     );
 }
 
+#[test]
+fn trusted_load_rejects_energy_sink_contents_that_invalidate_pending_release_capacity() {
+    let mut fixture = make_fixture(Mass::from_milligrams(10), MELTING_POINT);
+    let resolved = resolve_selected(
+        &fixture.registries,
+        &fixture.state,
+        fixture.ids,
+        Mass::from_milligrams(10),
+    )
+    .unwrap_or_else(|error| panic!("sink-capacity casting resolution failed: {error}"));
+    let released = resolved.released_energy();
+    let job = validate_start_process(
+        &fixture.registries,
+        &fixture.state,
+        resolved.process_resolution(),
+        fixture.ids.source,
+        fixture.ids.destination,
+    )
+    .unwrap_or_else(|error| panic!("sink-capacity casting start validation failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("sink-capacity casting start commit failed: {error}"));
+    let capacity = fixture
+        .registries
+        .energy()
+        .get_store(HEAT_SINK)
+        .unwrap_or_else(|| panic!("casting heat-sink definition disappeared"))
+        .capacity();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&fixture.registries, &fixture.state))
+        .unwrap_or_else(|error| panic!("sink-capacity casting serialization failed: {error}"));
+    encoded["state"]["systems"]["energy"]["records"][fixture.ids.heat_sink.value().to_string()]["stored"] =
+        serde_json::json!(capacity.nanojoules());
+    let forged: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("sink-capacity forged save decode failed: {error}"));
+
+    assert_eq!(
+        forged.into_state(&fixture.registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::JobReleasedEnergyCapacityExceeded {
+                job,
+                store: fixture.ids.heat_sink,
+                stored: capacity,
+                released,
+                capacity,
+            }
+        ))
+    );
+}
+
 #[cfg(feature = "test-soak")]
 #[test]
 #[ignore = "long-horizon soak"]
