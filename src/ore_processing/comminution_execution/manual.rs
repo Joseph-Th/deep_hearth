@@ -192,7 +192,7 @@ impl Error for StartManualComminutionError {
     }
 }
 
-/// Failure while committing a previously validated hand-breaking start.
+/// Failure while committing a validated hand-breaking start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManualComminutionCommitError {
     Process(StartProcessCommitError),

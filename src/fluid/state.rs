@@ -1,4 +1,4 @@
-//! Persistent finite fluid-store records; child validation audits durable state and references.
+//! Owns persistent finite fluid stores, contents, support assignment, and identity/revision state.
 
 use std::collections::{BTreeMap, BTreeSet};
 

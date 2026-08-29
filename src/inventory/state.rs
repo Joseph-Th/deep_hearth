@@ -1,4 +1,4 @@
-//! Inventory records and private synchronized collection ownership; child validation audits derived state.
+//! Owns persistent stockpiles, material lots, indexes, reservations, and synchronized mutations.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
@@ -94,7 +94,7 @@ impl StockpileStorageProfile {
 
     /// Unbounded-temperature containment for dry storage that accepts solid matter only.
     #[must_use]
-    pub const fn solid_only() -> Self {
+    pub const fn unbounded_solid_only() -> Self {
         Self {
             can_store_solid: true,
             can_store_liquid: false,
@@ -229,8 +229,8 @@ impl MaterialStorageHistory {
 
 /// Physical/provenance snapshot of one material slice consumed by an in-flight operation.
 ///
-/// Source lot identity is deliberately not retained: a fully consumed lot may cease to exist.
-/// The trace is historical evidence, not an ownership reference and not a second matter owner.
+/// Source lot identity is omitted because a fully consumed lot may cease to exist. The trace records
+/// physical and provenance facts only; it is neither an ownership reference nor a second matter owner.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConsumedMaterialTrace {
@@ -275,8 +275,8 @@ impl MaterialLotId {
 
 /// Runtime properties that determine whether two collocated lots are physically fungible.
 ///
-/// Physical properties that determine process interchangeability belong here. Historical state stays
-/// outside this profile. Age-sensitive commodities only coalesce when projected storage exposure is
+/// Physical properties that determine process interchangeability belong here. Storage age and provenance
+/// stay outside this profile. Age-sensitive commodities only coalesce when projected storage exposure is
 /// identical, preserving exact perishability cohorts instead of aging newer matter to match older
 /// matter. Commodities without authored age-dependent behavior may coalesce conservatively across
 /// exposure histories to keep lot fragmentation bounded.

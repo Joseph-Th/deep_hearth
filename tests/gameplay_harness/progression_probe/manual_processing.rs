@@ -299,7 +299,7 @@ pub(super) fn evaluate_manual_processing_fallback(
         ROOM_TEMPERATURE,
         composition.clone(),
     );
-    // This is a maintained route fixture, so all owned starting matter exists before actor admission.
+    // All route-fixture starting matter exists before actor admission.
     initialize_player_survival(registries, &mut state).unwrap_or_else(|error| {
         panic!("manual processing fallback survival setup failed: {error}")
     });

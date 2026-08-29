@@ -1,6 +1,6 @@
 [target.x86_64-pc-windows-msvc]
-# This is a single-developer Windows workspace and LLVM is part of the local toolchain. `lld-link`
-# materially reduces the link cost of the large gameplay/test binaries compared with the MSVC linker.
+# LLVM is part of the supported local Windows toolchain. `lld-link` materially reduces the link cost
+# of the large gameplay/test binaries compared with the default MSVC linker.
 linker = "lld-link.exe"
 
 [alias]

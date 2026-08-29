@@ -1,4 +1,4 @@
-//! Tests for the sibling rng module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for deterministic persisted random streams.
 
 use super::*;
 

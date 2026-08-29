@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::capability::{CapabilityRegistry, CapabilityRequirement};
+use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityRequirement};
 use crate::core::quantity::Mass;
 use crate::material::{MaterialInputSpec, MaterialLotSpec, MaterialRegistry};
 
@@ -133,6 +133,18 @@ impl ProcessDefinition {
     #[must_use]
     pub fn capability_requirements(&self) -> &[CapabilityRequirement] {
         &self.capability_requirements
+    }
+
+    /// Returns the unique authored requirement for one capability dimension.
+    #[must_use]
+    pub(crate) fn get_capability_requirement(
+        &self,
+        capability: CapabilityId,
+    ) -> Option<CapabilityRequirement> {
+        self.capability_requirements
+            .iter()
+            .copied()
+            .find(|requirement| requirement.capability() == capability)
     }
 }
 

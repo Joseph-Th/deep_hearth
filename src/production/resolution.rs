@@ -1,4 +1,4 @@
-//! Operation-specific production resolution; exact selected inputs are bound before physical resolvers derive duration and outputs.
+//! Binds exact process inputs and derives operation-specific duration, outputs, energy, and equipment effects.
 
 use std::collections::BTreeSet;
 use std::error::Error;

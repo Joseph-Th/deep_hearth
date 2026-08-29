@@ -1,4 +1,4 @@
-//! Pure-material melting resolution; sibling thermal code owns sensible heating and shared registry dispatch.
+//! Resolves and replays pure-material melting operations.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};

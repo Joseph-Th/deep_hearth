@@ -22,7 +22,11 @@ pub(crate) fn add_solid_stockpile_for_test(
     state: &mut AppState,
     capacity: Mass,
 ) -> Result<StockpileId, AddStockpileError> {
-    add_stockpile(state, capacity, StockpileStorageProfile::solid_only())
+    add_stockpile(
+        state,
+        capacity,
+        StockpileStorageProfile::unbounded_solid_only(),
+    )
 }
 
 /// Validates one controlled pathless transfer fixture through the canonical transfer boundary.

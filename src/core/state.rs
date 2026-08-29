@@ -1,6 +1,6 @@
-//! Root serializable runtime state; child validation audits persistence and cheap runtime invariants.
+//! Owns the serializable root runtime state and deterministic subsystem state graph.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::energy::EnergyState;
 use crate::equipment::EquipmentState;
@@ -17,13 +17,39 @@ use super::rng::{RandomState, RngStreamId};
 use super::time::{SimulationTick, WorldSeed};
 
 /// Mutable runtime state that must survive execution and restart boundaries.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct AppState {
     world_seed: WorldSeed,
     clock: ClockState,
     random: RandomState,
     systems: SystemState,
+}
+
+/// Raw current-schema state representation used only inside the trusted persistence envelope.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AppStateRepresentation {
+    world_seed: WorldSeed,
+    clock: ClockState,
+    random: RandomState,
+    systems: SystemState,
+}
+
+/// Decodes untrusted current-schema state for `LoadedSaveEnvelope`; callers must still promote it
+/// through the persistence validator before runtime use.
+pub(crate) fn deserialize_unvalidated_app_state<'de, D>(
+    deserializer: D,
+) -> Result<AppState, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let representation = AppStateRepresentation::deserialize(deserializer)?;
+    Ok(AppState {
+        world_seed: representation.world_seed,
+        clock: representation.clock,
+        random: representation.random,
+        systems: representation.systems,
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

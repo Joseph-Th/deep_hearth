@@ -1,4 +1,4 @@
-//! Tests for the sibling mod module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for persistent spatial coordinates and bounds.
 
 use super::*;
 
@@ -63,5 +63,26 @@ fn bounds_reject_zero_or_negative_extent_per_axis() {
     assert_eq!(
         VoxelBounds::new(VoxelCoord::new(0, 2, 0), VoxelCoord::new(1, 1, 1)),
         Err(VoxelBoundsError::NonPositiveExtent { axis: Axis::Y })
+    );
+}
+
+#[test]
+fn bounds_deserialization_replays_nonempty_extent_validation() {
+    let zero_x = r#"{
+        "min":{"x":0,"y":0,"z":0},
+        "max_exclusive":{"x":0,"y":1,"z":1}
+    }"#;
+    assert!(
+        serde_json::from_str::<VoxelBounds>(zero_x).is_err(),
+        "deserialization must not construct zero-width voxel bounds"
+    );
+
+    let inverted_y = r#"{
+        "min":{"x":0,"y":2,"z":0},
+        "max_exclusive":{"x":1,"y":1,"z":1}
+    }"#;
+    assert!(
+        serde_json::from_str::<VoxelBounds>(inverted_y).is_err(),
+        "deserialization must not construct inverted voxel bounds"
     );
 }

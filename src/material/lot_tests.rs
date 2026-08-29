@@ -1,4 +1,4 @@
-//! Tests for the sibling lot module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for material-lot physical state.
 
 use super::*;
 use crate::material::{COMPOSITION_PARTS_PER_MILLION, CompositionComponent, FormId};

@@ -1,4 +1,4 @@
-//! Tests for the sibling storage execution module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for finite energy-store execution.
 
 use super::*;
 use crate::content::make_test_registries_with_energy_store;

@@ -1,4 +1,4 @@
-//! Tests for the sibling reserved ingress module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for reserved material ingress planning and commit.
 
 use super::*;
 use crate::content::{FORM_LUMP, MATERIAL_CHARCOAL, build_registries};

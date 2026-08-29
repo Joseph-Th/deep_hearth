@@ -258,7 +258,7 @@ pub struct CapabilityProfile {
 /// Read-only source of typed capability values.
 ///
 /// Static profiles and runtime-adjusted providers share this interface so evaluators do not need
-/// to materialize temporary maps when capability values depend on condition or another owner.
+/// to materialize intermediate maps when capability values depend on condition or another owner.
 pub trait CapabilitySource {
     fn get_capability(&self, capability: CapabilityId) -> Option<CapabilityValue>;
 }

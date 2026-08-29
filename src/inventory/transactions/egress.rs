@@ -14,6 +14,7 @@ use super::super::state::{
 /// The destination owner is deliberately absent. This token proves only that the selected matter
 /// can leave inventory exactly once; the cross-subsystem transaction that holds it is responsible
 /// for establishing the new owner before exposing a successful commit.
+#[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedMaterialEgress {
     expected_revision: u64,

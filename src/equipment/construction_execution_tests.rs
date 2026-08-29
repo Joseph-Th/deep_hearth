@@ -1,4 +1,4 @@
-//! Tests for the sibling construction execution module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for material-backed equipment construction.
 
 use super::*;
 use crate::content::{
@@ -13,6 +13,76 @@ use crate::inventory::{
 };
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+
+fn unassembled_pick_fixture() -> (Registries, AppState, crate::inventory::StockpileId) {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA55E_00E0));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("assembly exhaustion source fixture failed: {error}"));
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("assembly exhaustion material fixture failed: {error}"));
+    }
+    (registries, state, source)
+}
+
+#[test]
+fn assembly_rejects_exhausted_equipment_id_without_consuming_material() {
+    let (registries, state, source) = unassembled_pick_fixture();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("equipment id exhaustion serialization failed: {error}"));
+    encoded["state"]["systems"]["equipment"]["next_equipment_id"] = serde_json::json!(u32::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("equipment id exhaustion decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("equipment id exhaustion fixture should load: {error}"));
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_assemble_equipment(&registries, &loaded, EQUIPMENT_STONE_PICK, source).err(),
+        Some(EquipmentAssemblyError::EquipmentIdExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn assembly_rejects_exhausted_equipment_revision_without_consuming_material() {
+    let (registries, state, source) = unassembled_pick_fixture();
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("equipment revision exhaustion serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["equipment"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("equipment revision exhaustion decode failed: {error}"));
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("equipment revision exhaustion fixture should load: {error}")
+    });
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_assemble_equipment(&registries, &loaded, EQUIPMENT_STONE_PICK, source).err(),
+        Some(EquipmentAssemblyError::EquipmentRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+}
 
 #[test]
 fn composite_pick_requires_both_authored_inputs_and_rejects_forged_embodiment() {

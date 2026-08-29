@@ -12,7 +12,7 @@ use super::{
     ProductionAvailabilityChange,
 };
 
-/// Applies a previously decided due-job plan in stable job-ID order.
+/// Applies a decided due-job plan in stable job-ID order.
 pub(crate) fn apply_completion_plan(
     state: &mut AppState,
     plan: CompletionPlan,

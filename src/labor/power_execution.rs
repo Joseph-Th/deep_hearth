@@ -1,4 +1,4 @@
-//! Direct player-power transactions; lifecycle owns exclusivity while energy/equipment owners commit completion consequences.
+//! Owns validated direct player-power work from admission through completion effects.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -310,6 +310,7 @@ impl Error for ManualPowerCommitError {
 }
 
 /// Observable completion of one direct player-powered generation work order.
+#[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ManualPowerOutcome {
     method: ManualPowerMethodId,

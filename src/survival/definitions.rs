@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::core::quantity::{Energy, MassSpecificEnergy, Temperature, Volume};
+use crate::core::quantity::{Energy, Mass, MassSpecificEnergy, Temperature, Volume};
 use crate::core::time::TickSpan;
 use crate::fluid::{FluidDefinitionId, FluidRegistry};
 use crate::material::{CommodityKey, MaterialId, MaterialRegistry};
@@ -163,12 +163,99 @@ impl HydrationDefinition {
     }
 }
 
+/// Authored quantity and attention-time envelope for direct consumption.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DirectConsumptionDefinition {
+    maximum_meal_mass: Mass,
+    maximum_meal_duration: TickSpan,
+    maximum_drink_volume: Volume,
+    maximum_drink_duration: TickSpan,
+}
+
+impl DirectConsumptionDefinition {
+    #[must_use]
+    pub fn new(
+        maximum_meal_mass: Mass,
+        maximum_meal_duration: TickSpan,
+        maximum_drink_volume: Volume,
+        maximum_drink_duration: TickSpan,
+    ) -> Self {
+        assert!(
+            !maximum_meal_mass.is_zero(),
+            "maximum direct meal mass must be nonzero"
+        );
+        assert!(
+            !maximum_meal_duration.is_zero(),
+            "maximum direct meal duration must be nonzero"
+        );
+        assert!(
+            !maximum_drink_volume.is_zero(),
+            "maximum direct drink volume must be nonzero"
+        );
+        assert!(
+            !maximum_drink_duration.is_zero(),
+            "maximum direct drink duration must be nonzero"
+        );
+        Self {
+            maximum_meal_mass,
+            maximum_meal_duration,
+            maximum_drink_volume,
+            maximum_drink_duration,
+        }
+    }
+
+    #[must_use]
+    pub const fn maximum_meal_mass(self) -> Mass {
+        self.maximum_meal_mass
+    }
+
+    #[must_use]
+    pub const fn maximum_drink_volume(self) -> Volume {
+        self.maximum_drink_volume
+    }
+
+    fn scaled_duration(amount: u64, maximum: u64, maximum_duration: TickSpan) -> TickSpan {
+        let ticks = u128::from(amount)
+            .checked_mul(u128::from(maximum_duration.value()))
+            .unwrap_or_else(|| unreachable!("u64 direct-consumption scaling fits u128"))
+            .div_ceil(u128::from(maximum));
+        let ticks = u64::try_from(ticks)
+            .unwrap_or_else(|_| unreachable!("bounded direct-consumption duration fits u64"));
+        TickSpan::new(ticks.max(1))
+    }
+
+    #[must_use]
+    pub fn meal_duration(self, mass: Mass) -> Option<TickSpan> {
+        if mass.is_zero() || mass > self.maximum_meal_mass {
+            return None;
+        }
+        Some(Self::scaled_duration(
+            mass.milligrams(),
+            self.maximum_meal_mass.milligrams(),
+            self.maximum_meal_duration,
+        ))
+    }
+
+    #[must_use]
+    pub fn drink_duration(self, volume: Volume) -> Option<TickSpan> {
+        if volume.is_zero() || volume > self.maximum_drink_volume {
+            return None;
+        }
+        Some(Self::scaled_duration(
+            volume.microliters(),
+            self.maximum_drink_volume.microliters(),
+            self.maximum_drink_duration,
+        ))
+    }
+}
+
 /// Immutable physiology parameters for the player survival owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PhysiologyDefinition {
     metabolism: MetabolismDefinition,
     hydration: HydrationDefinition,
     nutrition: NutritionDefinition,
+    direct_consumption: DirectConsumptionDefinition,
     starvation_vitality_loss_ppm_per_tick: u32,
     dehydration_vitality_loss_ppm_per_tick: u32,
 }
@@ -179,6 +266,7 @@ impl PhysiologyDefinition {
         metabolism: MetabolismDefinition,
         hydration: HydrationDefinition,
         nutrition: NutritionDefinition,
+        direct_consumption: DirectConsumptionDefinition,
         starvation_vitality_loss_ppm_per_tick: u32,
         dehydration_vitality_loss_ppm_per_tick: u32,
     ) -> Self {
@@ -202,6 +290,7 @@ impl PhysiologyDefinition {
             metabolism,
             hydration,
             nutrition,
+            direct_consumption,
             starvation_vitality_loss_ppm_per_tick,
             dehydration_vitality_loss_ppm_per_tick,
         }
@@ -240,6 +329,11 @@ impl PhysiologyDefinition {
     #[must_use]
     pub const fn nutrition(self) -> NutritionDefinition {
         self.nutrition
+    }
+
+    #[must_use]
+    pub const fn direct_consumption(self) -> DirectConsumptionDefinition {
+        self.direct_consumption
     }
 
     #[must_use]

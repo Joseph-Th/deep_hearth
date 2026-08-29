@@ -1,4 +1,4 @@
-//! Tests for evidence-gated mining-target resolution.
+//! Contract tests for evidence-gated mining-target resolution.
 
 use super::*;
 use crate::content::{FORM_ORE, MATERIAL_COPPER, build_registries};

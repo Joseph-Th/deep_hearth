@@ -1,24 +1,20 @@
 # Deep Hearth
 
 Deep Hearth is a deterministic Rust simulation core for a first-person survival, settlement, and
-industrialization game. This repository owns headless gameplay state and simulation. Rendering, input,
-networking, platform integration, and save-file storage are adapter concerns.
+industrialization game. This repository owns headless gameplay state, authored definitions, and simulation
+rules. It does not contain a playable client or general engine shell; rendering, input, networking, platform
+integration, and save-file storage belong to adapters.
 
-Current ordinary play reaches:
+[`STATUS.md`](STATUS.md) is the sole authority for ordinary reachability, capability-only evaluation, and
+absent runtime scope. Do not infer reachability from source presence or controlled gameplay-harness setup.
 
-`local clues -> coarse-to-fine prospecting -> stone tools -> evidence-gated hand mining -> scarce-copper choice -> primitive power and processing -> second reinforcement`
-
-Industrial workshop, ore-preparation, and foundry behavior is executable through controlled harness setup but
-is not ordinarily acquirable. [`STATUS.md`](STATUS.md) is the authority for reachability.
-
-## Start here
+## Orientation
 
 1. Read workspace [`../AGENTS.md`](../AGENTS.md), then project [`AGENTS.md`](AGENTS.md).
-2. Check [`STATUS.md`](STATUS.md) before assuming a capability exists or is reachable.
-3. Use the task map below to find the owner, canonical boundary, and contract.
-4. Read the owning production source and its adjacent tests.
-5. Read only the authority page that owns the contract you are changing.
-6. Use [`TESTING.md`](TESTING.md) for the smallest complete verification lane.
+2. Read [`STATUS.md`](STATUS.md) for current reachable, capability-only, and absent scope.
+3. Use the task map below to find the owner, canonical boundary, contract, and focused proof.
+4. Read that owner and its adjacent tests; open deeper authority pages only as needed.
+5. Use [`TESTING.md`](TESTING.md) for verification and gameplay-evaluation commands.
 
 ## Authorities
 
@@ -30,18 +26,6 @@ is not ordinarily acquirable. [`STATUS.md`](STATUS.md) is the authority for reac
 | Product direction and intended player experience | [`GAME_DESIGN.md`](GAME_DESIGN.md) |
 | Current reachable, capability-only, and absent scope | [`STATUS.md`](STATUS.md) |
 | Tests, gameplay harnesses, and local verification | [`TESTING.md`](TESTING.md) |
-
-## Repository map
-
-| Area | Purpose |
-| --- | --- |
-| `src/content/`, `src/registry/` | authored definitions, registry construction, validation |
-| `src/core/`, `src/simulation/`, `src/persistence/` | root state, time/RNG, tick orchestration, trusted load |
-| `src/*` domain modules | authoritative subsystem state and canonical operations |
-| `tests/gameplay_harness/` | player-facing behavior evaluation through production APIs |
-| `tests/` | focused and consolidated gameplay targets |
-| `ci.py`, `tools/`, `.cargo/config.toml` | local verification and developer tooling |
-| `assets/` | renderer-neutral authored assets and asset-specific contracts |
 
 ## Task map
 
@@ -59,11 +43,20 @@ is not ordinarily acquirable. [`STATUS.md`](STATUS.md) is the authority for reac
 | Gameplay evaluation | `tests/gameplay_harness/`; production APIs after controlled setup | [`TESTING.md`](TESTING.md) | matching gameplay lane |
 | Verification tooling | `ci.py`, `.cargo/config.toml`, `tools/` | [`TESTING.md`](TESTING.md) | `python ci.py quick` |
 
-## Change requirements
+## Change-impact map
 
-- Start with the authoritative state owner; coordinators call owner APIs rather than creating another source of truth.
-- Persist every fact that affects supported continuation; rebuild only deterministic derived data.
-- Give fallible cross-owner mutation one canonical validation/commit path and preserve state on rejection.
-- Validate new authored identities and update schema/version contracts when persisted identity or payload semantics change.
-- Add executable coverage and update `STATUS.md` when a capability becomes implemented or reachable.
-- Update the authority page that owns any changed public, physical, gameplay, persistence, or verification contract.
+Use this map when a change crosses an authority boundary.
+
+| Change | Required companion work |
+| --- | --- |
+| Persisted runtime state | Keep the fact in its runtime owner; update strict serialization, deterministic index rebuilds, trusted-load validation, schema ownership when semantics change, and persistence coverage. |
+| Authored identity or physical definition | Validate references during registry construction; update registry schema ownership when persisted identity/replay semantics change; update affected resolvers and registry-derived tests. |
+| Canonical command or cross-owner mutation | Preserve one production path, typed rejection, stale-state protection, and atomicity; reuse it from tests and harnesses. |
+| Tick or scheduled behavior | Persist future-affecting schedule state, keep `advance_tick` ordering explicit, validate continuation on load, and test deterministic completion or resumption. |
+| Gameplay capability or reachability | Add executable production-path coverage and update [`STATUS.md`](STATUS.md). Update [`GAME_DESIGN.md`](GAME_DESIGN.md) only when intended experience changes. |
+| Gameplay-harness policy or evidence | Preserve actor/diagnostic separation, reproducible seeds, bounded search, replay inputs, evidence labels, and production-derived legality; update [`TESTING.md`](TESTING.md). |
+| Texture, shader, or adapter contract | Keep authored definitions renderer-neutral; update [`assets/shaders/README.md`](assets/shaders/README.md) when its binding contract changes; run the relevant lane. |
+| Verification or developer tooling | Keep selectors fail-closed and commands local/reproducible; update [`TESTING.md`](TESTING.md). |
+
+Update only the authority page that owns the changed contract. Do not copy the same mutable fact into unrelated
+documents.

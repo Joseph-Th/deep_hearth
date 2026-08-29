@@ -1,4 +1,4 @@
-//! Tests for the sibling structural integration module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for inventory-owned structural loads.
 
 use super::*;
 use crate::content::{
@@ -126,7 +126,7 @@ fn multiple_stockpiles_aggregate_mass_before_rounding_weight() {
         Mass::from_milligrams(1),
     );
 
-    mount(&registries, &mut state, first, support);
+    let _ = mount(&registries, &mut state, first, support);
     assert_eq!(
         state
             .structures()
@@ -134,7 +134,7 @@ fn multiple_stockpiles_aggregate_mass_before_rounding_weight() {
             .map(|record| record.load(StructuralLoadKind::StoredMatter)),
         Some(Force::from_millinewtons(1))
     );
-    mount(&registries, &mut state, second, support);
+    let _ = mount(&registries, &mut state, second, support);
 
     assert_eq!(
         state
@@ -172,7 +172,7 @@ fn new_production_rejects_failed_destination_support() {
         Mass::from_milligrams(20),
         Mass::ZERO,
     );
-    mount(&registries, &mut state, destination, support);
+    let _ = mount(&registries, &mut state, destination, support);
     let overload = match validate_set_structural_load(
         &registries,
         &state,
@@ -254,7 +254,7 @@ fn validated_production_start_rejects_destination_support_collapse_before_commit
         Mass::from_milligrams(20),
         Mass::ZERO,
     );
-    mount(&registries, &mut state, destination, support);
+    let _ = mount(&registries, &mut state, destination, support);
     let inputs = match validate_process_inputs(&registries, &state, ProcessId::new(971_004), source)
     {
         Ok(inputs) => inputs,
@@ -339,7 +339,7 @@ fn production_suspends_until_failed_destination_support_is_recovered() {
         Mass::from_milligrams(20),
         Mass::ZERO,
     );
-    mount(&registries, &mut state, destination, support);
+    let _ = mount(&registries, &mut state, destination, support);
     let inputs = match validate_process_inputs(&registries, &state, ProcessId::new(971_003), source)
     {
         Ok(inputs) => inputs,
@@ -417,11 +417,11 @@ fn production_suspends_until_failed_destination_support_is_recovered() {
         Some(Force::ZERO)
     );
     assert_eq!(state.production().jobs().count(), 1);
-    validate_unmount_stockpile(&registries, &state, destination)
+    let _ = validate_unmount_stockpile(&registries, &state, destination)
         .unwrap_or_else(|error| panic!("suspended destination unmount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("suspended destination unmount commit failed: {error}"));
-    mount(&registries, &mut state, destination, recovery_support);
+    let _ = mount(&registries, &mut state, destination, recovery_support);
 
     let completed = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("recovered destination completion failed: {error}"));
@@ -471,8 +471,8 @@ fn production_moves_supported_weight_with_authoritative_matter_ownership() {
         Mass::from_milligrams(20),
         Mass::ZERO,
     );
-    mount(&registries, &mut state, source, source_support);
-    mount(&registries, &mut state, destination, destination_support);
+    let _ = mount(&registries, &mut state, source, source_support);
+    let _ = mount(&registries, &mut state, destination, destination_support);
     let inputs = match validate_process_inputs(&registries, &state, ProcessId::new(971_001), source)
     {
         Ok(inputs) => inputs,
@@ -543,8 +543,8 @@ fn transfer_between_supported_stockpiles_updates_both_loads_atomically() {
         Mass::from_milligrams(300_000),
         Mass::ZERO,
     );
-    mount(&registries, &mut state, source, source_support);
-    mount(&registries, &mut state, destination, destination_support);
+    let _ = mount(&registries, &mut state, source, source_support);
+    let _ = mount(&registries, &mut state, destination, destination_support);
 
     let transfer = match validate_material_transfer_for_test(
         &registries,
@@ -610,8 +610,8 @@ fn supported_transfer_rejects_stale_structure_before_moving_matter() {
         Mass::from_milligrams(300_000),
         Mass::ZERO,
     );
-    mount(&registries, &mut state, source, source_support);
-    mount(&registries, &mut state, destination, destination_support);
+    let _ = mount(&registries, &mut state, source, source_support);
+    let _ = mount(&registries, &mut state, destination, destination_support);
     let transfer = match validate_material_transfer_for_test(
         &registries,
         &state,
@@ -736,8 +736,8 @@ fn same_support_transfer_binds_structure_even_when_aggregate_weight_is_unchanged
         Mass::from_milligrams(10),
         Mass::ZERO,
     );
-    mount(&registries, &mut state, source, support);
-    mount(&registries, &mut state, destination, support);
+    let _ = mount(&registries, &mut state, source, support);
+    let _ = mount(&registries, &mut state, destination, support);
     let transfer = match validate_material_transfer_for_test(
         &registries,
         &state,
@@ -808,7 +808,7 @@ fn stored_matter_load_is_inventory_owned_and_blocks_support_removal() {
         Mass::from_milligrams(100),
         Mass::from_milligrams(10),
     );
-    mount(&registries, &mut state, stockpile, support);
+    let _ = mount(&registries, &mut state, stockpile, support);
 
     assert_eq!(
         validate_set_structural_load(
@@ -929,8 +929,8 @@ fn run_supported_transfer_soak(seed: WorldSeed) -> AppState {
         Mass::from_milligrams(10),
         Mass::ZERO,
     );
-    mount(&registries, &mut state, left, left_support);
-    mount(&registries, &mut state, right, right_support);
+    let _ = mount(&registries, &mut state, left, left_support);
+    let _ = mount(&registries, &mut state, right, right_support);
 
     for step in 0..1_000_u64 {
         let (source, destination) = if step.is_multiple_of(2) {

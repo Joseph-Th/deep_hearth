@@ -287,6 +287,7 @@ impl Error for EnergyStoreDisassemblyCommitError {
     }
 }
 
+#[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EnergyStoreDisassemblyOutcome {
     recovered_lots: Vec<MaterialLotId>,

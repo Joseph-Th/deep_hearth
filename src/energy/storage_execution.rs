@@ -581,11 +581,13 @@ pub(crate) fn validate_energy_consumption_reservation(
     })
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EnergyCommitError {
     StaleRevision { expected: u64, actual: u64 },
 }
 
+#[cfg(test)]
 pub(crate) fn apply_energy_consumption_reservation(
     state: &mut EnergyState,
     reservation: EnergyConsumptionReservation,
@@ -596,10 +598,29 @@ pub(crate) fn apply_energy_consumption_reservation(
             actual: state.revision(),
         });
     }
+    Ok(apply_prechecked_energy_consumption_reservation(
+        state,
+        reservation,
+    ))
+}
+
+/// Applies a finite-energy reservation after a surrounding transaction has checked its revision.
+///
+/// Cross-owner commits use this infallible form only after all recoverable conflicts have been
+/// rejected, so a prior structural mutation cannot be followed by a stale-energy error.
+pub(crate) fn apply_prechecked_energy_consumption_reservation(
+    state: &mut EnergyState,
+    reservation: EnergyConsumptionReservation,
+) -> ConsumedEnergyTrace {
+    assert_eq!(
+        state.revision(),
+        reservation.expected_revision,
+        "prechecked energy reservation requires its validated energy revision"
+    );
     let trace = reservation.trace;
     state.subtract_stored_energy(trace.source, trace.energy);
     state.apply_revision(reservation.next_revision);
-    Ok(trace)
+    trace
 }
 
 #[cfg(test)]

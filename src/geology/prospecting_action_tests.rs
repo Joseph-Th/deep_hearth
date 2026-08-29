@@ -7,14 +7,14 @@ use crate::content::{
     build_registries,
 };
 use crate::core::quantity::{Mass, Pressure, Temperature};
-use crate::core::state::{AppState, validate_loaded_state};
+use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
-use crate::labor::{PlayerWork, ProspectingMethodId};
+use crate::labor::{PlayerWork, PlayerWorkValidationError, ProspectingMethodId};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::mining::{MiningTargetRequest, MiningTargetResolutionError, resolve_mining_target};
-use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
-use crate::simulation::advance_tick;
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::simulation::{TickError, advance_tick};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::survival::{assess_survival, initialize_player_survival};
 
@@ -233,7 +233,7 @@ fn regional_reconnaissance_trades_precision_for_footprint_then_local_inspection_
 
     start_inspection(&registries, &mut state, target_region);
     for _ in 0..prospecting_duration(&registries, PROSPECTING_FIELD_INSPECTION) {
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("local refinement tick failed: {error}"));
     }
     let target = resolve_mining_target(
@@ -294,6 +294,69 @@ fn prospecting_duration(registries: &Registries, method: ProspectingMethodId) ->
         .value()
 }
 
+fn inspection_ready_to_complete_fixture() -> (Registries, AppState) {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_E001));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("prospecting exhaustion survival setup failed: {error}"));
+    let region = one_voxel(40);
+    insert_copper(&registries, &mut state, region);
+    start_inspection(&registries, &mut state, region);
+    let duration = prospecting_duration(&registries, PROSPECTING_FIELD_INSPECTION);
+    for _ in 1..duration {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("prospecting exhaustion setup tick failed: {error}"));
+    }
+    (registries, state)
+}
+
+#[test]
+fn completion_tick_rejects_exhausted_observation_id_without_partial_progress() {
+    let (registries, state) = inspection_ready_to_complete_fixture();
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("prospecting observation-id exhaustion serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["geological_knowledge"]["next_observation_id"] =
+        serde_json::json!(u32::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap_or_else(|error| {
+        panic!("prospecting observation-id exhaustion decode failed: {error}")
+    });
+    let mut loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("prospecting observation-id exhaustion fixture should load: {error}")
+    });
+    let before = loaded.clone();
+
+    assert_eq!(
+        advance_tick(&registries, &mut loaded),
+        Err(TickError::GeologicalObservationIdExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn completion_tick_rejects_exhausted_knowledge_revision_without_partial_progress() {
+    let (registries, state) = inspection_ready_to_complete_fixture();
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("prospecting knowledge revision exhaustion serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["geological_knowledge"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap_or_else(|error| {
+        panic!("prospecting knowledge revision exhaustion decode failed: {error}")
+    });
+    let mut loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("prospecting knowledge revision exhaustion fixture should load: {error}")
+    });
+    let before = loaded.clone();
+
+    assert_eq!(
+        advance_tick(&registries, &mut loaded),
+        Err(TickError::GeologicalKnowledgeRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
 #[test]
 fn field_inspection_is_timed_survival_costed_and_records_uncertain_evidence() {
     let registries = build_registries();
@@ -344,8 +407,27 @@ fn field_inspection_is_timed_survival_costed_and_records_uncertain_evidence() {
     assert_eq!(finding.upper_ppm(), 1_000_000);
     let survival_after = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("field prospecting final survival state disappeared"));
-    assert!(survival_after.metabolic_energy() < survival_before.metabolic_energy());
-    assert!(survival_after.hydration() < survival_before.hydration());
+    let physiology = registries.survival().physiology();
+    let exertion = registries
+        .labor()
+        .get_prospecting(PROSPECTING_FIELD_INSPECTION)
+        .unwrap_or_else(|| panic!("field inspection definition disappeared"))
+        .exertion();
+    assert_eq!(
+        survival_before.metabolic_energy().nanojoules()
+            - survival_after.metabolic_energy().nanojoules(),
+        (physiology.basal_energy_cost_per_tick().nanojoules()
+            + exertion.energy_cost_per_tick().nanojoules())
+            * u128::from(field_duration),
+        "prospecting admission duration must equal the exact number of charged field-work ticks"
+    );
+    assert_eq!(
+        survival_before.hydration().microliters() - survival_after.hydration().microliters(),
+        (physiology.hydration_loss_per_tick().microliters()
+            + exertion.hydration_loss_per_tick().microliters())
+            * field_duration,
+        "prospecting hydration budgeting must match realized field-work cost"
+    );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("field prospecting final audit failed: {error}"));
 }
@@ -456,7 +538,7 @@ fn completed_field_inspection_provides_the_evidence_required_for_mining_target_r
 
     start_inspection(&registries, &mut state, region);
     for _ in 0..prospecting_duration(&registries, PROSPECTING_FIELD_INSPECTION) {
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("target prospecting tick failed: {error}"));
     }
     let target = resolve_mining_target(&state, MiningTargetRequest::new(region, MATERIAL_COPPER))
@@ -483,7 +565,7 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
     );
     let field_duration = prospecting_duration(&registries, PROSPECTING_FIELD_INSPECTION);
     for _ in 0..field_duration {
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("surface refinement prospecting tick failed: {error}"));
     }
     assert_eq!(
@@ -512,7 +594,7 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
     let detailed_duration = prospecting_duration(&registries, PROSPECTING_DETAILED_FIELD_SURVEY);
     assert!(detailed_duration > field_duration);
     for _ in 0..detailed_duration {
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("detailed refinement prospecting tick failed: {error}"));
     }
     let detailed = state
@@ -547,7 +629,7 @@ fn in_progress_field_inspection_round_trip_preserves_deterministic_continuation(
     let pre_save_ticks = 7;
     assert!(pre_save_ticks < field_duration);
     for _ in 0..pre_save_ticks {
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("round-trip prospecting pre-save tick failed: {error}"));
     }
 
@@ -568,4 +650,36 @@ fn in_progress_field_inspection_round_trip_preserves_deterministic_continuation(
         assert_eq!(actual, expected);
     }
     assert_eq!(loaded, state);
+}
+
+#[test]
+fn trusted_load_rejects_forged_field_prospecting_duration() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_2006));
+    initialize_player_survival(&registries, &mut state).unwrap_or_else(|error| {
+        panic!("prospecting duration-tamper survival setup failed: {error}")
+    });
+    let region = one_voxel(31);
+    insert_copper(&registries, &mut state, region);
+    start_inspection(&registries, &mut state, region);
+
+    let mut tampered =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("prospecting duration-tamper serialization failed: {error}")
+        });
+    let completion = tampered["state"]["systems"]["player_work"]["active"]["Prospecting"]
+        ["work"]["completes_at"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("prospecting completion tick was not serialized as u64"));
+    tampered["state"]["systems"]["player_work"]["active"]["Prospecting"]["work"]["completes_at"] =
+        serde_json::json!(completion + 1);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+        .unwrap_or_else(|error| panic!("prospecting duration-tamper decode failed: {error}"));
+
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::ProspectingDurationMismatch
+        )))
+    );
 }

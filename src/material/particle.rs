@@ -106,7 +106,7 @@ impl Error for ParticleSizeRangeError {}
 /// A class represents material known to lie somewhere inside its diameter bounds. The weight is a
 /// relative mass weight; `ParticleSizeDistribution` reduces all class weights by their greatest
 /// common divisor so physically equivalent ratios have one canonical persistent representation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ParticleSizeClass {
     range: ParticleSizeRange,
@@ -146,6 +146,23 @@ impl Display for ParticleSizeClassError {
 }
 
 impl Error for ParticleSizeClassError {}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ParticleSizeClassRepresentation {
+    range: ParticleSizeRange,
+    weight: u32,
+}
+
+impl<'de> Deserialize<'de> for ParticleSizeClass {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let representation = ParticleSizeClassRepresentation::deserialize(deserializer)?;
+        Self::new(representation.range, representation.weight).map_err(serde::de::Error::custom)
+    }
+}
 
 /// Canonical weighted particle-size classes for one homogeneous particulate material lot.
 ///

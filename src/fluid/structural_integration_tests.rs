@@ -1,4 +1,4 @@
-//! Tests for the sibling structural integration module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for fluid-owned structural loads.
 
 use super::*;
 use crate::content::{
@@ -9,7 +9,7 @@ use crate::core::quantity::{Area, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::fluid::{
-    FluidDefinition, FluidDefinitionId, FluidValidationError, add_fluid_store,
+    FluidDefinition, FluidDefinitionId, FluidEgressError, FluidValidationError, add_fluid_store,
     add_fluid_store_with_contents_for_fixture, validate_fluid_egress,
 };
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
@@ -191,7 +191,7 @@ fn fluid_mass_rounding_occurs_after_support_local_aggregation() {
     let support = add_active_support(&registries, &mut state, 0);
     for _ in 0..4 {
         let store = add_filled(&registries, &mut state, 1);
-        mount(&registries, &mut state, store, support);
+        let _ = mount(&registries, &mut state, store, support);
     }
 
     assert_eq!(
@@ -215,7 +215,7 @@ fn direct_fluid_load_write_and_supported_member_removal_are_blocked() {
     let mut state = AppState::new(WorldSeed::new(0x9410_0003));
     let support = add_active_support(&registries, &mut state, 0);
     let store = add_filled(&registries, &mut state, 1_000);
-    mount(&registries, &mut state, store, support);
+    let _ = mount(&registries, &mut state, store, support);
 
     assert_eq!(
         validate_set_structural_load(
@@ -334,12 +334,57 @@ fn fluid_support_change_rejects_stale_fluid_owner_before_structural_mutation() {
 }
 
 #[test]
+fn fluid_mount_rejects_exhausted_fluid_revision_without_structural_mutation() {
+    let registries = registries();
+    let mut state = AppState::new(WorldSeed::new(0x9410_E001));
+    let support = add_active_support(&registries, &mut state, 0);
+    let store = add_filled(&registries, &mut state, 1_000_000);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("fluid mount exhaustion serialization failed: {error}"));
+    encoded["state"]["systems"]["fluid"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("fluid mount exhaustion decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("fluid mount exhaustion fixture should load: {error}"));
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_mount_fluid_store(&registries, &loaded, store, support).err(),
+        Some(FluidSupportError::FluidRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn fluid_egress_rejects_exhausted_revision_without_withdrawing_volume() {
+    let registries = registries();
+    let mut state = AppState::new(WorldSeed::new(0x9410_E002));
+    let store = add_filled(&registries, &mut state, 1_000_000);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("fluid egress exhaustion serialization failed: {error}"));
+    encoded["state"]["systems"]["fluid"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("fluid egress exhaustion decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("fluid egress exhaustion fixture should load: {error}"));
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_fluid_egress(&registries, &loaded, store, Volume::from_microliters(1),).err(),
+        Some(FluidEgressError::RevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
 fn supported_fluid_round_trip_preserves_support_index_and_derived_load() {
     let registries = registries();
     let mut state = AppState::new(WorldSeed::new(0x9410_0007));
     let support = add_active_support(&registries, &mut state, 0);
     let store = add_filled(&registries, &mut state, 1_000_000);
-    mount(&registries, &mut state, store, support);
+    let _ = mount(&registries, &mut state, store, support);
     let expected_load = state
         .structures()
         .get_element(support)
@@ -381,7 +426,7 @@ fn tampered_fluid_derived_load_is_rejected_on_load() {
     let mut state = AppState::new(WorldSeed::new(0x9410_0008));
     let support = add_active_support(&registries, &mut state, 0);
     let store = add_filled(&registries, &mut state, 1_000_000);
-    mount(&registries, &mut state, store, support);
+    let _ = mount(&registries, &mut state, store, support);
 
     let expected = match state.structures().get_element(support) {
         Some(record) => record.load(StructuralLoadKind::Fluid),

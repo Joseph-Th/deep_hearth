@@ -1,4 +1,4 @@
-//! Tests for the sibling upgrade execution module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for additive equipment upgrades.
 
 use super::*;
 use crate::content::{

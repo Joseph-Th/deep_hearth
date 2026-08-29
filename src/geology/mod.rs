@@ -27,8 +27,7 @@ pub use prospecting_action::{
 #[cfg(test)]
 pub(crate) use prospecting_execution::validate_record_prospecting;
 pub(crate) use prospecting_execution::{
-    ProspectingCommitError, ProspectingResolution, RecordProspectingError,
-    ValidatedGeologicalObservation,
+    ProspectingResolution, RecordProspectingError, ValidatedGeologicalObservation,
 };
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use state::GeneratedDepositSpec;

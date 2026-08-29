@@ -68,7 +68,7 @@ fn construction_fixture(
 
 fn advance_exact(registries: &Registries, state: &mut AppState, ticks: u64) {
     for _ in 0..ticks {
-        advance_tick(registries, state)
+        let _ = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("preservation fixture tick failed: {error}"));
     }
 }
@@ -90,7 +90,7 @@ fn active_support(registries: &Registries, state: &mut AppState) -> StructuralEl
     )
     .unwrap_or_else(|error| panic!("preservation support allocation failed: {error}"));
     materialize_structural_element_for_test(registries, state, support, FORM_LOG);
-    validate_activate_structural_element(registries, state, support)
+    let _ = validate_activate_structural_element(registries, state, support)
         .unwrap_or_else(|error| panic!("preservation support activation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("preservation support activation commit failed: {error}"));
@@ -225,6 +225,45 @@ fn enclosure_rejects_oversized_or_already_improved_stockpile_without_mutation() 
 }
 
 #[test]
+fn enclosure_rejects_existing_contents_outside_completed_profile_without_mutation() {
+    let (registries, mut state, target, source, _) =
+        construction_fixture(Mass::from_milligrams(5_000_000));
+    let hot_temperature = Temperature::from_millikelvin(340_000);
+    let hot_lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        target,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(50_000),
+        hot_temperature,
+    )
+    .unwrap_or_else(|error| panic!("hot provisions fixture failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_build_storage_enclosure(
+            &registries,
+            &state,
+            STORAGE_TIMBER_PROVISIONS_CHEST,
+            target,
+            source,
+        )
+        .err(),
+        Some(
+            StorageEnclosureConstructionError::TargetContentsIncompatible {
+                lot: hot_lot,
+                error: StockpileStorageError::TemperatureExceedsMaximum {
+                    stockpile: target,
+                    temperature: hot_temperature,
+                    maximum: Temperature::from_millikelvin(333_150),
+                },
+            }
+        )
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn mounting_enclosed_stockpile_loads_contents_and_enclosure_body() {
     let (registries, mut state, target, source, _) =
         construction_fixture(Mass::from_milligrams(5_000_000));
@@ -239,7 +278,7 @@ fn mounting_enclosed_stockpile_loads_contents_and_enclosure_body() {
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("supported enclosure commit failed: {error}"));
     let support = active_support(&registries, &mut state);
-    validate_mount_stockpile(&registries, &state, target, support)
+    let _ = validate_mount_stockpile(&registries, &state, target, support)
         .unwrap_or_else(|error| panic!("enclosed stockpile mount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("enclosed stockpile mount commit failed: {error}"));

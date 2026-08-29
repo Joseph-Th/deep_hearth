@@ -1,4 +1,4 @@
-//! Durable production jobs and synchronized scheduling/resource indexes; child validation audits persistence.
+//! Owns durable production jobs, schedules, reservations, and resource-occupancy indexes.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
@@ -39,8 +39,8 @@ pub enum ProductionSuspensionReason {
 
 /// When an occupied resource can become available to unrelated work.
 ///
-/// Running jobs have a scheduled wall-clock release. Suspended jobs deliberately do not expose their
-/// stale pre-suspension completion tick as a promise: release depends on physical recovery and resume.
+/// Running jobs have a scheduled wall-clock release. Suspended jobs expose no scheduled release
+/// because availability depends on physical recovery and resume.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProductionOccupancyRelease {
     Scheduled(SimulationTick),

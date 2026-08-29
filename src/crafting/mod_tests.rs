@@ -1,4 +1,4 @@
-//! Tests for the sibling mod module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for manual crafting and shaping.
 
 use super::*;
 use crate::content::{
@@ -275,7 +275,7 @@ fn active_stockpile_support(registries: &Registries, state: &mut AppState) -> St
     )
     .unwrap_or_else(|error| panic!("manual craft support allocation failed: {error}"));
     materialize_structural_element_for_test(registries, state, support, FORM_LOG);
-    validate_activate_structural_element(registries, state, support)
+    let _ = validate_activate_structural_element(registries, state, support)
         .unwrap_or_else(|error| panic!("manual craft support activation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("manual craft support activation commit failed: {error}"));
@@ -286,7 +286,7 @@ fn active_stockpile_support(registries: &Registries, state: &mut AppState) -> St
 fn manual_craft_output_support_failure_pauses_work_and_exertion_until_recovered() {
     let (registries, mut state, source, destination) = make_fixture();
     let support = active_stockpile_support(&registries, &mut state);
-    validate_mount_stockpile(&registries, &state, destination, support)
+    let _ = validate_mount_stockpile(&registries, &state, destination, support)
         .unwrap_or_else(|error| panic!("manual craft destination mount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("manual craft destination mount commit failed: {error}"));
@@ -299,11 +299,11 @@ fn manual_craft_output_support_failure_pauses_work_and_exertion_until_recovered(
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("supported manual craft start commit failed: {error}"));
 
-    advance_tick(&registries, &mut state)
+    let _ = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("supported manual craft active tick failed: {error}"));
     let before_pause = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("manual craft survival state disappeared before suspension"));
-    validate_set_structural_load(
+    let _ = validate_set_structural_load(
         &registries,
         &state,
         support,
@@ -349,7 +349,7 @@ fn manual_craft_output_support_failure_pauses_work_and_exertion_until_recovered(
         Some(physiology.hydration_loss_per_tick())
     );
 
-    validate_unmount_stockpile(&registries, &state, destination)
+    let _ = validate_unmount_stockpile(&registries, &state, destination)
         .unwrap_or_else(|error| {
             panic!("suspended manual craft destination unmount failed: {error}")
         })
@@ -403,7 +403,7 @@ fn manual_craft_output_support_failure_pauses_work_and_exertion_until_recovered(
 fn suspended_manual_craft_releases_attention_and_waits_while_other_player_work_runs() {
     let (registries, mut state, source, destination) = make_fixture();
     let support = active_stockpile_support(&registries, &mut state);
-    validate_mount_stockpile(&registries, &state, destination, support)
+    let _ = validate_mount_stockpile(&registries, &state, destination, support)
         .unwrap_or_else(|error| {
             panic!("manual craft parallel-work destination mount failed: {error}")
         })
@@ -419,9 +419,9 @@ fn suspended_manual_craft_releases_attention_and_waits_while_other_player_work_r
     .unwrap_or_else(|error| panic!("manual craft parallel-work start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("manual craft parallel-work start commit failed: {error}"));
-    advance_tick(&registries, &mut state)
+    let _ = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("manual craft parallel-work active tick failed: {error}"));
-    validate_set_structural_load(
+    let _ = validate_set_structural_load(
         &registries,
         &state,
         support,
@@ -433,7 +433,7 @@ fn suspended_manual_craft_releases_attention_and_waits_while_other_player_work_r
     .unwrap_or_else(|error| {
         panic!("manual craft parallel-work support failure commit failed: {error}")
     });
-    advance_tick(&registries, &mut state).unwrap_or_else(|error| {
+    let _ = advance_tick(&registries, &mut state).unwrap_or_else(|error| {
         panic!("manual craft parallel-work suspension tick failed: {error}")
     });
     assert_eq!(state.player_work().active(), None);
@@ -457,7 +457,7 @@ fn suspended_manual_craft_releases_attention_and_waits_while_other_player_work_r
         Some(PlayerWork::Prospecting { .. })
     ));
 
-    validate_unmount_stockpile(&registries, &state, destination)
+    let _ = validate_unmount_stockpile(&registries, &state, destination)
         .unwrap_or_else(|error| {
             panic!("manual craft parallel-work recovery validation failed: {error}")
         })
@@ -488,7 +488,7 @@ fn suspended_manual_craft_releases_attention_and_waits_while_other_player_work_r
         .duration()
         .value();
     for _ in 1..prospecting_duration {
-        advance_tick(&registries, &mut state).unwrap_or_else(|error| {
+        let _ = advance_tick(&registries, &mut state).unwrap_or_else(|error| {
             panic!("manual craft parallel-work prospecting tick failed: {error}")
         });
     }
@@ -515,7 +515,7 @@ fn suspended_manual_craft_releases_attention_and_waits_while_other_player_work_r
 fn one_tick_manual_craft_resume_completes_without_leaking_player_work() {
     let (registries, mut state, source, destination) = make_fixture();
     let support = active_stockpile_support(&registries, &mut state);
-    validate_mount_stockpile(&registries, &state, destination, support)
+    let _ = validate_mount_stockpile(&registries, &state, destination, support)
         .unwrap_or_else(|error| panic!("one-tick resume destination mount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("one-tick resume destination mount commit failed: {error}"));
@@ -528,10 +528,10 @@ fn one_tick_manual_craft_resume_completes_without_leaking_player_work() {
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("one-tick resume craft start commit failed: {error}"));
     for _ in 0..39 {
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("one-tick resume active craft tick failed: {error}"));
     }
-    validate_set_structural_load(
+    let _ = validate_set_structural_load(
         &registries,
         &state,
         support,
@@ -553,7 +553,7 @@ fn one_tick_manual_craft_resume_completes_without_leaking_player_work() {
     ));
     assert_eq!(state.player_work().active(), None);
 
-    validate_unmount_stockpile(&registries, &state, destination)
+    let _ = validate_unmount_stockpile(&registries, &state, destination)
         .unwrap_or_else(|error| panic!("one-tick resume recovery validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("one-tick resume recovery commit failed: {error}"));
@@ -641,7 +641,7 @@ fn stone_knapping_is_timed_conserved_hand_work() {
     ));
 
     for _ in 0..resolution.duration().value() {
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("stone knapping tick failed: {error}"));
     }
     assert_eq!(state.player_work().active(), None);
@@ -661,11 +661,28 @@ fn stone_knapping_is_timed_conserved_hand_work() {
     let matter_after = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("manual craft final accounting failed: {error}"));
     assert_eq!(matter_before.total(), matter_after.total());
-    assert!(
-        assess_survival(&registries, &state)
-            .unwrap_or_else(|| panic!("manual craft survival state disappeared"))
-            .metabolic_energy()
-            < survival_before.metabolic_energy()
+    let survival_after = assess_survival(&registries, &state)
+        .unwrap_or_else(|| panic!("manual craft survival state disappeared"));
+    let physiology = registries.survival().physiology();
+    let exertion = registries
+        .crafting()
+        .get_manual(PROCESS_KNAP_STONE_TOOL)
+        .unwrap_or_else(|| panic!("stone knapping manual definition disappeared"))
+        .exertion();
+    assert_eq!(
+        survival_before.metabolic_energy().nanojoules()
+            - survival_after.metabolic_energy().nanojoules(),
+        (physiology.basal_energy_cost_per_tick().nanojoules()
+            + exertion.energy_cost_per_tick().nanojoules())
+            * u128::from(resolution.duration().value()),
+        "manual-craft admission duration must equal the exact number of charged active ticks"
+    );
+    assert_eq!(
+        survival_before.hydration().microliters() - survival_after.hydration().microliters(),
+        (physiology.hydration_loss_per_tick().microliters()
+            + exertion.hydration_loss_per_tick().microliters())
+            * resolution.duration().value(),
+        "manual-craft hydration budgeting must match realized active-tick cost"
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("stone knapping final audit failed: {error}"));
@@ -708,7 +725,7 @@ fn manual_craft_commit_rejects_intervening_survival_change() {
     )
     .unwrap_or_else(|error| panic!("manual craft survival-stale validation failed: {error}"));
     let expected = state.survival().revision();
-    advance_tick(&registries, &mut state)
+    let _ = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("manual craft survival-stale tick failed: {error}"));
     let before = state.clone();
 
@@ -777,7 +794,7 @@ fn active_manual_craft_save_requires_enough_metabolic_energy_to_finish() {
 fn suspended_manual_craft_loads_with_depleted_reserves_and_does_not_resume_unsafely() {
     let (registries, mut state, source, destination) = make_fixture();
     let support = active_stockpile_support(&registries, &mut state);
-    validate_mount_stockpile(&registries, &state, destination, support)
+    let _ = validate_mount_stockpile(&registries, &state, destination, support)
         .unwrap_or_else(|error| panic!("suspended low-reserve destination mount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| {
@@ -791,9 +808,9 @@ fn suspended_manual_craft_loads_with_depleted_reserves_and_does_not_resume_unsaf
     .unwrap_or_else(|error| panic!("suspended low-reserve craft start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("suspended low-reserve craft start commit failed: {error}"));
-    advance_tick(&registries, &mut state)
+    let _ = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("suspended low-reserve active craft tick failed: {error}"));
-    validate_set_structural_load(
+    let _ = validate_set_structural_load(
         &registries,
         &state,
         support,
@@ -805,7 +822,7 @@ fn suspended_manual_craft_loads_with_depleted_reserves_and_does_not_resume_unsaf
     })
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("suspended low-reserve support failure commit failed: {error}"));
-    advance_tick(&registries, &mut state)
+    let _ = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("suspended low-reserve suspension tick failed: {error}"));
     assert_eq!(state.player_work().active(), None);
 
@@ -821,7 +838,7 @@ fn suspended_manual_craft_loads_with_depleted_reserves_and_does_not_resume_unsaf
         .unwrap_or_else(|error| panic!("suspended low-reserve state failed trusted load: {error}"));
     assert_eq!(loaded.player_work().active(), None);
 
-    validate_unmount_stockpile(&registries, &loaded, destination)
+    let _ = validate_unmount_stockpile(&registries, &loaded, destination)
         .unwrap_or_else(|error| panic!("suspended low-reserve recovery validation failed: {error}"))
         .commit(&mut loaded)
         .unwrap_or_else(|error| panic!("suspended low-reserve recovery commit failed: {error}"));
@@ -874,7 +891,7 @@ fn stale_manual_craft_token_reports_labor_revision_conflict_after_prior_work_fin
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("first manual craft commit failed: {error}"));
     for _ in 0..40 {
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("manual craft completion tick failed: {error}"));
     }
 
@@ -963,7 +980,7 @@ fn in_progress_timber_chest_joinery_round_trip_preserves_deterministic_continuat
         Some(TickSpan::new(80))
     );
     for _ in 0..20 {
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("timber chest joinery pre-save tick failed: {error}"));
     }
 

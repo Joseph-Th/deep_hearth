@@ -28,8 +28,13 @@ Read only the section for the subsystem being changed.
 - Implemented authoritative physical calculations use checked integer arithmetic, not floating point.
 - Dynamic scheduled work persists as explicit records. `PeriodicSchedule` is for static clock-derived
   phase scheduling.
-- `CURRENT_SAVE_SCHEMA_VERSION` is the only accepted runtime payload shape.
-- `RegistrySchemaVersion` identifies authored identity and physical-definition compatibility.
+- `advance_tick` decides all fallible phase work against one pre-tick snapshot. Its application stage
+  prechecks shared-owner revisions before mutation; after the completion transaction succeeds, remaining
+  phase applies are infallible and assertion-backed before the clock advances.
+- `CURRENT_SAVE_SCHEMA_VERSION` is the only accepted runtime payload shape; `RegistrySchemaVersion` identifies
+  authored identity and physical-definition compatibility.
+- Untrusted save data enters through `LoadedSaveEnvelope::into_state`; the [Trusted load](#trusted-load)
+  section owns the promotion and validation contract. Raw `AppState` has no public `Deserialize` path.
 - Save encoding and storage are adapter concerns.
 
 ## Runtime owners
@@ -51,7 +56,7 @@ synchronized indexes.
 | `PlayerWorkState` | At most one active player labor operation |
 | `SurvivalState` | Metabolic energy, hydration, vitality, nutrition, fractional vitality-recovery carry, terminal consumed matter/fluid totals |
 
-Cross-owner operations coordinate these owners; no owner reaches into another owner's private storage.
+Cross-owner operations coordinate owner APIs; they do not mutate another owner's private storage directly.
 
 ## Physical quantities
 
@@ -98,34 +103,24 @@ coalescing, and the monotonic lot cursor advances only when a distinct lot will 
 
 ### Inventory
 
-Stockpiles own capacity, containment, preservation, optional material-backed enclosure identity, inbound
-reservations, and derived routing/mass indexes. Inventory is custody, not movement authorization. Runtime movement requires a canonical owner that
-binds exact ingress, egress, reform, or reserved-output consequences. Generic stockpile transport has no
-runtime authorizer. The `test-gameplay` harness may inject one controlled conserved delivery as setup/event
-infrastructure; this does not grant general transport authority. Same-material reform is valid only when the
-commodity form changes without changing material phase; input already entirely in the target commodity is
-rejected. Reform preserves temperature, composition, and particle state, so phase transitions remain owned
-by explicit thermal processing rather than by inventory relabeling.
+Stockpiles own capacity, containment, preservation, optional enclosure identity, inbound reservations, and
+derived routing/mass indexes. Inventory owns custody, not general movement authorization. Runtime movement
+requires a canonical owner that binds exact ingress, egress, reform, relocation, or reserved-output effects.
+General stockpile transport is not implemented. The gameplay harness may authorize controlled conserved
+transfers only as setup or controlled-event infrastructure.
 
-Constructible storage enclosures are immutable registry definitions with a maximum enclosed stockpile
-capacity, explicit storage profile, and exact consolidated-solid assembly profile. Construction upgrades one
-existing ambient solid stockpile in place because general transport is not implemented. Exact selected
-construction traces leave ordinary inventory and become persistent enclosure matter owned by that stockpile.
-Before the improved preservation multiplier begins, every existing lot checkpoints accumulated exposure using
-the old storage multiplier at the construction tick. A chest therefore slows only future spoilage and cannot
-retroactively restore food freshness. Trusted load replays definition identity, capacity, profile, construction
-timestamp, exact embodied trace mass/material/provenance, and physical trace state. The built-in lidded timber
-provisions chest encloses at most 20,000,000 mg and applies a 2,000,000 ppm preservation multiplier. Its
-2,400,000 mg body is not assembled implicitly by inventory: ordinary play first shapes boards from raw timber,
-then performs an 80-tick survival-costed manual joinery process that conserves those boards into one consolidated
-timber chest-body commodity. Enclosure installation consumes that already assembled body into persistent
-infrastructure ownership. Installation itself remains a local zero-time binding because general construction
-and haulage are absent; furniture fabrication is nevertheless paid through canonical player work first.
+Same-material reform may change form without changing material phase. It preserves temperature, composition,
+and particle state; phase transitions remain owned by thermal processing.
 
-Supported stockpiles contribute `StructuralLoadKind::StoredMatter` for all stockpile-owned physical mass:
-stored contents plus any enclosure body. Every canonical stored-mass mutation updates inventory ownership and
-the resulting structural load atomically. Enclosure construction currently requires an unmounted target;
-mounting afterward computes support load from both contents and enclosure matter.
+Storage enclosures are immutable definitions with a capacity limit, storage profile, and exact consolidated
+assembly profile. Construction transfers selected traces from inventory into persistent stockpile-owned
+enclosure matter. Before commit, every existing lot must satisfy the completed enclosure's phase, temperature,
+material-phase, and particle-state containment rules. Existing lots checkpoint accumulated exposure before the
+new preservation multiplier takes effect, so improved storage affects future spoilage only. Trusted load
+validates enclosure definition, construction time, storage profile, and embodied traces.
+
+Supported stockpiles contribute `StructuralLoadKind::StoredMatter` for stored contents plus enclosure matter.
+Stored-mass mutations and their structural-load consequences commit atomically.
 
 ### Geology and knowledge
 
@@ -139,195 +134,115 @@ assessment combines only acquired evidence and preserves contradiction or spatia
 
 ### Prospecting and mining
 
-Field prospecting is exclusive `PlayerWorkState` labor over a method-bounded region. Regional reconnaissance
-covers a broader footprint with loose, high-uncertainty evidence. A local transect provides intermediate
-surface-exposure evidence over a small multi-voxel region at lower active-time cost than independently
-inspecting every covered voxel; because it records one area observation, it cannot identify which voxel owns
-the hidden deposit. Field inspection is a one-voxel local observation, while detailed field survey costs more
-time and survival reserve for narrower one-voxel evidence. Start validation checks method, known material,
-authored spatial limit, duration, and survival budget. Completion uses hidden geology internally to derive
-authored uncertainty bounds, records one observation, and exposes no deposit identity or count. Overlapping
-observations combine through `GeologicalKnowledgeState`; empty ground also produces bounded evidence.
-In-progress prospecting persists and validates as player work.
+Prospecting is exclusive `PlayerWorkState` labor over an authored method and bounded region. Completion may
+read hidden geology only to produce a bounded `GeologicalObservationRecord`; actor-visible output never exposes
+deposit identity or exact hidden state. Acquired observations combine through `GeologicalKnowledgeState`.
+In-progress prospecting persists as player work.
 
-Mining target resolution converts compatible acquired evidence into an opaque deposit-bound authorization.
-Resolution fails when evidence is absent, contradictory, spatially incomparable, excludes the material,
-remains too uncertain, has not localized the original acquired observation footprints to one voxel, or still
-matches multiple live deposits. A narrower target query cannot manufacture precision by clipping a broader
-observation; localization must come from the acquired evidence footprints themselves. Hidden geology is never
-used as a public tie-break. Mining re-resolves the authorized evidence locality before admission and
-again before commit, so
-unrelated remote geology or knowledge changes do not invalidate the target while local contradiction,
-ambiguity, depletion, or source-mass change still does.
-Public mining state does not expose deposit identity, exact hidden remaining mass, pre-claim composition, or
-exact target hardness.
+Mining target resolution converts sufficiently precise, compatible acquired evidence into opaque extraction
+authorization. Resolution rejects absent, contradictory, spatially incomparable, insufficiently localized, or
+ambiguous evidence. Querying a smaller region cannot create precision that was not acquired. Hidden geology is
+never a public tie-breaker.
 
-Mining start validates target, tool, labor, capability, wear, destination, and reservation constraints, then
-stores a source/output trace while geology retains ownership of the exact batch throughout active labor.
-Completion atomically removes that batch from geology, applies tool wear, releases work occupancy, and opens a
-zero-time terminal claim boundary. The world clock cannot advance while any completed mining output remains
-unclaimed, so extracted matter cannot remain indefinitely weightless between completion and its reserved
-inventory destination. Claim remains explicit so destination-support failure can be repaired at the completion
-tick.
+Mining start validates authorization, tool, labor, capability, wear, destination, and reservation constraints.
+Geology retains ownership of the selected batch during labor. Completion removes the batch from geology,
+applies wear, releases player work, and creates an explicit claim boundary. Time cannot advance while completed
+mining output remains unclaimed; claim failure can therefore be repaired without losing or duplicating matter.
 
 ## Production and processing
 
 ### Production jobs
 
-`ProcessDefinition` owns immutable identity, material requirements, and typed capability requirements.
-Operation-specific physics belong in resolver outputs, not static duration/yield fields.
+`ProcessDefinition` owns immutable process identity, material requirements, and typed capability requirements.
+Resolver-owned equipment capability IDs also appear as `AtLeast` process requirements so generic provider
+discovery and resolver admission use the same capability dimensions. Operation-specific duration, yield,
+energy, wear, and dynamic batch limits belong in resolver output.
 
-`ProcessResolution` describes one concrete operation: exact selected inputs, duration, output streams, and
-finite energy/equipment consequences. Production reserves output capacity at start and owns consumed
-matter plus modeled energy while work is in flight. Completion is revision-bound and must preserve exact
-represented matter and modeled energy across all streams.
+`ProcessResolution` binds one concrete operation to exact selected inputs, duration, output streams, and finite
+resource consequences. Production reserves output capacity at start and owns consumed matter and modeled
+in-process energy until completion. Completion is revision-bound and conserves represented matter and modeled
+energy across all streams.
 
-Manual shaping conserves material identity and mass, preserves input temperature, cannot change phase,
-and only authors output forms whose particle-size state is untracked. A particulate output requires an
-operation with an explicit output particle-size distribution rather than an underspecified hand recipe.
-Authored `chip` and `scrap` outputs are retained physical streams rather than implicit losses. At the current
-playable tier they are terminal commodities because combustion, remelting, material reconstitution, and
-recycling are not implemented. Assembly and maintenance therefore cannot reinterpret those outputs as fresh
-components or fuel; any future recovery path requires its own explicit physical process and owner.
+Manual shaping conserves material identity and mass, preserves temperature, cannot change phase, and only emits
+forms whose particle-size state is untracked. Particulate output requires an owner that defines particle-size
+state. `chip` and `scrap` outputs remain represented matter; no current owner may reinterpret them as fuel or
+fresh components without an explicit recovery process.
 
-Required equipment support or reserved-output support may suspend a production job when that support
-becomes unavailable. Suspension preserves work-in-process, reservations, and exact remaining active time.
-Suspended manual production releases `PlayerWorkState`. Resumption reacquires player labor through the normal
-attention and survival-budget admission boundary. Without available labor, the job remains suspended and
-consumes no exertion or active process time. Crafting and hand-operated material processing remain separate
-domain owners, but both consume the same generic manual-production labor contract.
+Loss of required equipment or output support may suspend a job. Suspension preserves work-in-process,
+reservations, and exact remaining active time. Suspended manual production releases `PlayerWorkState`; resumption
+must reacquire labor and pass the remaining survival-budget admission.
 
 ### Physical resolvers
 
-Powered ore-processing definitions share one `PoweredOreProcessProfile` for throughput capability, batch
-limit, energy carrier, mass-specific work, and active-tick wear. Runtime admission and trusted-load replay
-derive equipment, energy, timing, and condition physics from that profile; each process owner adds only its
-material/output transformation. Comminution, screening, and separation therefore use one authored operating
-envelope.
+Powered ore-processing definitions share `PoweredOreProcessProfile` for throughput capability, batch limit,
+energy carrier, mass-specific work, and active-tick wear. Runtime admission and trusted-load replay derive those
+consequences from the shared profile; each resolver owns only its material transformation.
 
-Implemented resolvers:
+Implemented resolver contracts:
 
-- **Comminution:** authored feed/output particle state, condition-sensitive throughput, batch limits,
-  finite work energy, power-limited duration, and active-tick wear;
-- **Dry screening:** partitions fully resolved particle classes around an authored aperture without
-  inventing fractional or unresolved splits;
-- **Constituent separation:** handles physically liberated particulate feed. Sorting definitions author a
-  finite target recovery with zero gangue carry into the recovered target stream. Unrecovered target and every
-  non-target constituent remain in a blended particulate residue, provided each constituent authors the
-  required residue form. The residue commodity host is derived from the dominant physical gangue rather than
-  baking a gangue identity into the process, so mixed stone/clay/slag feed does not require composition-specific
-  sorting recipes. Sorting requires the input commodity host to be the target material, so its gangue-hosted
-  residue cannot be fed back through the same primitive operation for asymptotic recovery. Material-side
-  separation physics are shared between direct-labor and powered routes. Direct-labor comminution likewise uses
-  the same exact composition, temperature, form, and particle-size projection as powered comminution rather than
-  a parallel recipe approximation. The built-in hand-breaking route converts at most 100,000 mg of coarse ore per
-  batch into a deliberately coarse 2,000..=10,000 um crushed state at 250 mg/s; it consumes exclusive player
-  attention plus survival reserves and carries no equipment or stored-energy resource. That visible-piece envelope
-  is the exact authored feed range for hand sorting, preventing fine-ground powder from being treated as visually
-  sortable material. The built-in hand-sorting route accepts at most 200,000 mg per batch, processes 500 mg/s,
-  recovers 650,000 ppm of liberated native copper, and is also direct survival-costed player labor. The stone
-  separator applies the same conservative material projection at 900,000 ppm target recovery with materially
-  higher throughput while consuming finite mechanical work and equipment condition. Mechanization therefore
-  improves yield and returns player attention rather than merely replacing one recipe label with another.
-  Both routes leave unrecovered copper physically represented in crushed gangue. Concentration definitions
-  instead operate on composition-bearing particulate
-  feed: the commodity host may be gangue when the target constituent is actually present, but the full feed must
-  lie inside the authored particle-size liberation envelope. Comminution preserves host identity and exact
-  composition while changing particle state, allowing retained primitive residue to become eligible only after
-  real preparation rather than relabeling. Concentration authors distinct target and lower non-target recoveries,
-  so product grade emerges from feed assay and separator selectivity rather than perfect gangue rejection. Its
-  residue uses an authored particulate `tailings` form distinct from the `crushed` input form, preventing the
-  identical concentration operation from being repeated indefinitely on its own output. Output mass is
-  derived from exact selected composition rather than a fixed yield. Fractional component remainders are
-  deterministically distributed across blended particulate lots so represented constituent content remains
-  exact. Separation cannot consolidate matter: target outputs remain loose, while concentrate and residue
-  retain input particulate state. Persisted jobs replay composition, commodity/form identity, streams, energy,
-  duration, and wear;
-- **Thermal processing:** sensible heating, pure-material melting, and pure-material casting use real
-  selected matter, finite energy sources/sinks, equipment limits, phase boundaries, and latent heat. Melting
-  and casting definitions bind authored input and output forms; admission and persisted replay cannot
-  substitute a different form solely because its material and phase are compatible. Casting definitions
-  also own the completed solid temperature. Casting first removes liquid superheat and latent heat at the
-  fusion boundary, then removes the solid's sensible heat down to that authored output temperature; all
-  three contributions enter the finite thermal sink. Completed cast lots therefore do not remain
-  indefinitely at the melting boundary. Registry validation requires each casting form pair to apply to at
-  least one authored material and requires its completed-solid temperature to remain in the solid range for
-  every material that authors both forms. Casting outputs are non-particulate solids; casting does not author
-  a particle-size distribution.
+- **Comminution:** validates feed and output particle state, batch limits, condition-adjusted throughput,
+  finite work energy, duration, and wear. Direct-labor and powered routes share the same material projection.
+- **Dry screening:** partitions fully resolved particle classes around an authored aperture without inventing
+  unresolved fractions.
+- **Constituent separation:** applies authored target and non-target recovery to liberated particulate feed.
+  Unrecovered constituents remain in physical residue. Sorting and concentration preserve exact composition,
+  use deterministic remainder allocation, and emit forms that prevent unsupported repeat-processing loops.
+- **Thermal processing:** sensible heating, pure-material melting, and casting use exact selected matter, finite
+  energy sources/sinks, equipment limits, phase boundaries, and latent heat. Melting/casting bind authored forms;
+  casting also owns the completed-solid temperature. Persisted jobs replay the same physical resolution used at
+  admission.
 
 ## Equipment, labor, survival, energy, and fluids
 
 ### Equipment and maintenance
 
-Capabilities use explicit typed values and `AtLeast`/`AtMost` requirements. Equipment providers expose
-runtime condition-adjusted capabilities through the same evaluation boundary as nominal definitions.
-Failed equipment exposes no productive capability.
+Capabilities use typed values and explicit `AtLeast`/`AtMost` requirements. Runtime providers expose
+condition-adjusted capability through the same evaluation boundary as nominal definitions; failed equipment
+provides no productive capability.
 
-Equipment owns persistent identity, condition, embodied traces, occupancy, and optional structural
-installation. Fixed machinery requires an active support before it can authorize new work; portable tools
-remain usable without one. Mounted equipment contributes equipment-owned structural load.
+Equipment owns identity, condition, embodied traces, occupancy, and optional structural support. Fixed
+machinery requires active support before new work starts. Mounted equipment contributes its own structural-load
+channel.
 
-Assembly consumes exact material traces. Additive upgrades preserve identity, condition, and existing traces
-while adding authored matter. Pristine idle unmounted equipment may disassemble to exact traces; worn
-recovery, where authored, reforms traces into a same-material recovery form that cannot immediately reset wear
-through reassembly. Aggregate maintenance applies only where replacement material is not represented as exact
-component traces; traced component replacement requires a trace-level swap.
-
-Maintenance consumes an exact replacement commodity, produces a distinct conserved spent form with the same
-material phase and particle-state policy, and restores the authored condition target. For machinery using
-aggregate replacement stock, maintenance is a physical material reform rather than condition-only mutation;
-phase or particle transformations require their owning processes. Equipment with exact assembly traces may
-instead author whole-component replacement. Registry validation binds that service commodity and mass to
-exactly one assembly input. Runtime service consumes fresh exact traces from inventory, removes every embodied
-trace belonging to that component, reforms the removed traces into the same material's authored spent form,
-and installs the fresh traces without changing equipment identity, unrelated component traces, additive
-upgrades, or embodied mass. Partial component replacement is not modeled: any positive repair below the
-authored target consumes one complete component, preventing an implicit durability currency from bypassing
-physical component ownership.
+Assembly consumes exact traces. Additive upgrades preserve identity, condition, and prior embodiment while
+adding authored matter. Disassembly and worn recovery are allowed only through authored routes. Maintenance is
+physical: aggregate replacement consumes an exact commodity and emits conserved spent matter; traced component
+service replaces one complete authored component while preserving unrelated traces and upgrades. Phase or
+particle transformations remain owned by their physical process.
 
 ### Player work and survival
 
-`PlayerWorkState` is exclusive across manual production, field prospecting, hand mining, and direct manual
-power. Manual production currently includes shaping/crafting, timber joinery, low-tech hand breaking, and hand sorting. Work admission binds
-projected metabolic-energy and hydration cost. Suspended manual production
-does not reserve player attention; resumption must pass the same admission again for its exact remaining
-active time. Successful active work consumes the corresponding physiological budget.
+`PlayerWorkState` allows at most one active player-attention operation across manual production, prospecting,
+mining, manual power, eating, and drinking. Work admission binds the required metabolic-energy and hydration
+budget. Suspended manual production releases attention; resumption must reacquire it and revalidate the exact
+remaining budget.
 
-Direct player power uses a real portable unmounted power provider and finite compatible destination
-store. Duration respects provider/store transfer limits and sustainable metabolic output; physiological
-cost scales to actual mechanical work at authored efficiency. Energy creation and equipment wear commit
-together.
+Direct manual power requires portable unmounted equipment and a compatible finite energy destination. Duration
+is limited by provider capability, destination input power, sustainable metabolic output, and requested work.
+Energy creation, physiological cost, and equipment wear share one validated operation.
 
-Survival tracks metabolic energy, hydration, vitality, and category-specific recent nutrition. Eating and
-drinking consume exact physical portions into terminal conservation owners; physiological gains clamp
-independently to authored reserve capacities. Vitality recovery is limited by the weakest
-Grain/Fruit/Protein reserve. Persisted fixed-point carry preserves fractional recovery between ticks; the
-read-only assessment rounds the exact rate for presentation. Consumption that improves no reserve is
-rejected before finite resources are consumed.
+`SurvivalState` owns metabolic energy, hydration, vitality, recent nutrition, and terminal consumed matter/fluid
+totals. Eating and drinking consume exact physical quantities. The authored direct-consumption envelope limits
+quantity and derives exclusive attention duration. Drinking also rejects effective hydration above remaining
+capacity. Consumption that improves no reserve is rejected before resource withdrawal.
+
+Diet quality is limited by the weakest Grain/Fruit/Protein reserve. Fractional vitality recovery is persisted;
+read-only assessment exposes a rounded presentation rate.
 
 ### Energy and fluids
 
-Energy stores own carrier, capacity, directional power envelopes, stored energy, identity, revision,
-optional embodied traces, and an optional authored passive-dissipation rate. Runtime owners consume or
-supply energy through their own validated reservations; direct manual power is an explicit generator.
-Passive dissipation is an unavoidable loss into an unmodeled environmental/loss domain, not controllable
-output power. Registry construction requires the authored rate to integrate to exact whole nanojoules per
-authoritative tick. The canonical tick decides loss from the pre-tick stored-energy snapshot and applies it
-after same-tick ingress, so newly captured energy remains explicit until the following tick. Generic
-store-to-store transfer is not authorized because no physical path, carrier conversion, or transfer
-consequence is modeled. The primitive stone flywheel authors nonzero bearing/windage loss: its finite rotation
-therefore supports short-horizon delegated work but is not a lossless long-term battery. Player logic must read
-the actual stored-energy state when planning subsequent work and generate only the required shortfall through
-the canonical manual-power path.
+Energy stores own carrier, capacity, directional power limits, stored energy, revision, optional embodied
+traces, and optional passive dissipation. Runtime consumers/producers act through validated owner operations.
+Passive dissipation is an environmental/loss sink, not controllable output power. Its authored rate must
+integrate to exact whole nanojoules per tick. Tick execution derives loss from the pre-tick store snapshot and
+applies it after same-tick ingress. Generic store-to-store transfer is absent because no transfer path or
+carrier-conversion owner exists.
 
-Fluid stores own identity, volume, temperature, capacity, revision, and optional support. One underlying
-material has at most one fluid identity while composition, contamination, concentration, and phase-mixture
-state are absent; distinct IDs cannot stand in for unmodeled fluid properties. Runtime operations support
-exact finite withdrawal and support changes. There is no generic inter-store transfer, pumping, or mixing
-path, so cross-store movement and mixing require an explicit owning system. Supported fluid load derives
-from authored material density; canonical withdrawal updates that load. Fluid temperature prevents thermally
-incompatible contents from being treated as interchangeable. Finite-fluid thermal transport and the thermal
-fate of consumed fluid are outside the explicit-energy conservation ledger.
+Fluid stores own identity, volume, temperature, capacity, revision, and optional structural support. A material
+has at most one fluid identity in the current homogeneous-fluid model. Runtime supports exact withdrawal and
+support changes; generic transfer, pumping, and mixing are absent. Supported-fluid load derives from authored
+density and updates with canonical withdrawal. Fluid thermal transport and consumed-fluid thermal fate are
+outside the explicit-energy ledger.
 
 ## Structures
 
@@ -358,8 +273,10 @@ concrete shader binding contract.
 
 ## Trusted load
 
-`validate_loaded_state(registries, state)` is the exhaustive trusted-load boundary. It recomputes rather
-than trusting cached claims. Admission:
+`LoadedSaveEnvelope::into_state(registries)` is the public decoded-save promotion boundary and
+`validate_loaded_state(registries, state)` is its exhaustive graph validator. Raw `AppState` does not
+implement public deserialization, so adapters cannot bypass schema/reconstruction checks by decoding the
+runtime root directly. Validation recomputes rather than trusting cached claims. Admission:
 
 1. validates save and registry versions;
 2. rebuilds derived indexes;

@@ -1,4 +1,4 @@
-//! Tests for the sibling definitions module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for energy-store definitions.
 
 use super::*;
 use crate::content::{FORM_FLYWHEEL, MATERIAL_STONE, build_registries};

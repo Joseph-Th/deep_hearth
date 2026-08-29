@@ -1,4 +1,4 @@
-//! Tests for mining definition construction invariants.
+//! Contract tests for mining-definition construction invariants.
 
 use super::*;
 use crate::survival::SurvivalExertion;

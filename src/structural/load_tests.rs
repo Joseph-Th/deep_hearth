@@ -1,4 +1,4 @@
-//! Tests for the sibling load module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for structural load representation.
 
 use super::*;
 

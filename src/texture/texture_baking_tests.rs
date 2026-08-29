@@ -1,4 +1,4 @@
-//! Tests for the sibling texture baking module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for deterministic texture baking.
 
 use super::*;
 use crate::texture::{

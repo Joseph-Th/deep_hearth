@@ -25,12 +25,7 @@ pub(super) fn validate_structural_element(
     current_tick: SimulationTick,
     gravity: Acceleration,
 ) -> Result<(), StructureValidationError> {
-    if id != record.id {
-        return Err(StructureValidationError::ElementKeyMismatch {
-            key: id,
-            record: record.id,
-        });
-    }
+    validate_structural_element_identity(id, record.id)?;
     profiles
         .get_profile(record.profile())
         .ok_or(StructureValidationError::UnknownProfile {
@@ -61,6 +56,19 @@ pub(super) fn validate_structural_element(
     Ok(())
 }
 
+fn validate_structural_element_identity(
+    key: StructuralElementId,
+    record: StructuralElementId,
+) -> Result<(), StructureValidationError> {
+    if key.value() == 0 || record.value() == 0 {
+        return Err(StructureValidationError::ZeroElementId);
+    }
+    if key != record {
+        return Err(StructureValidationError::ElementKeyMismatch { key, record });
+    }
+    Ok(())
+}
+
 fn validate_element_geometry_shape(
     record: &StructuralElementRecord,
 ) -> Result<(), StructureValidationError> {
@@ -78,6 +86,10 @@ fn validate_element_geometry_shape(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "element_tests.rs"]
+mod tests;
 
 fn validate_element_embodiment(
     materials: &MaterialRegistry,

@@ -1,4 +1,4 @@
-//! Tests for the sibling transactions module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for inventory transaction atomicity.
 
 use std::collections::BTreeMap;
 
@@ -12,24 +12,101 @@ use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, apply_clock_advance};
 use crate::core::time::SimulationTick;
 use crate::core::time::WorldSeed;
+use crate::inventory::selection::apply_consumption_reservation;
 use crate::inventory::{
     MaterialFixtureError, MaterialIngressEntry, MaterialIngressError, MaterialLotRecord,
-    ReservedDepositRequest, StockpileStorageError, StockpileStorageProfile,
-    add_solid_stockpile_for_test, add_stockpile, apply_consumption_reservation,
-    apply_material_ingress, apply_reserved_deposits, decide_reserved_deposits,
-    deposit_bulk_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
-    validate_consumption_reservation_from_selection, validate_consumption_selection,
-    validate_loaded_inventory, validate_material_ingress, validate_material_transfer_for_test,
+    ReservedDepositRequest, StockpileId, StockpileStorageError, StockpileStorageProfile,
+    add_solid_stockpile_for_test, add_stockpile, apply_material_ingress, apply_reserved_deposits,
+    decide_reserved_deposits, deposit_bulk_for_test, deposit_composed_lot_for_test,
+    deposit_lot_for_test, validate_consumption_reservation_from_selection,
+    validate_consumption_selection, validate_loaded_inventory, validate_material_ingress,
+    validate_material_transfer_for_test,
 };
 use crate::material::{
     CommodityKey, CompositionComponent, MaterialComposition, MaterialInputSpec, MaterialLotSpec,
     MaterialPhase,
 };
 use crate::matter::calculate_matter_accounting;
+use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::registry::Registries;
 
 fn wood_log() -> CommodityKey {
     CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
+}
+
+fn split_transfer_fixture() -> (Registries, AppState, StockpileId, StockpileId) {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_E001));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("split-transfer source fixture failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("split-transfer destination fixture failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap_or_else(|error| panic!("split-transfer material fixture failed: {error}"));
+    (registries, state, source, destination)
+}
+
+#[test]
+fn split_transfer_rejects_exhausted_lot_id_without_mutation() {
+    let (registries, state, source, destination) = split_transfer_fixture();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("lot-id exhaustion serialization failed: {error}"));
+    encoded["state"]["systems"]["inventory"]["next_lot_id"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("lot-id exhaustion decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("lot-id exhaustion fixture should load: {error}"));
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_material_transfer_for_test(
+            &registries,
+            &loaded,
+            source,
+            destination,
+            wood_log(),
+            Mass::from_milligrams(3),
+        ),
+        Err(MaterialTransferError::LotIdExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn split_transfer_rejects_exhausted_inventory_revision_without_mutation() {
+    let (registries, state, source, destination) = split_transfer_fixture();
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("inventory revision exhaustion serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["inventory"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("inventory revision exhaustion decode failed: {error}"));
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("inventory revision exhaustion fixture should load: {error}")
+    });
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_material_transfer_for_test(
+            &registries,
+            &loaded,
+            source,
+            destination,
+            wood_log(),
+            Mass::from_milligrams(3),
+        ),
+        Err(MaterialTransferError::RevisionExhausted)
+    );
+    assert_eq!(loaded, before);
 }
 
 #[test]
@@ -505,6 +582,59 @@ fn repeated_partial_transfers_coalesce_new_fragments_in_destination() {
         validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()),
         Ok(())
     );
+}
+
+#[test]
+fn fully_consumed_lot_identity_is_not_reused_by_later_ingress() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_2011));
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("lot-reuse stockpile fixture failed: {error}"));
+    let removed = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        wood_log(),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap_or_else(|error| panic!("lot-reuse initial deposit failed: {error}"));
+    let cursor_after_initial_allocation = state.inventory().next_lot_id();
+    let selection = validate_consumption_selection(
+        state.inventory(),
+        stockpile,
+        &[MaterialInputSpec::new(
+            wood_log(),
+            Mass::from_milligrams(10),
+        )],
+    )
+    .unwrap_or_else(|error| panic!("lot-reuse consumption selection failed: {error:?}"));
+    let reservation = validate_consumption_reservation_from_selection(
+        state.inventory(),
+        selection,
+        BTreeMap::new(),
+    )
+    .unwrap_or_else(|error| panic!("lot-reuse consumption reservation failed: {error:?}"));
+    apply_consumption_reservation(state.inventory_state_mut(), reservation)
+        .unwrap_or_else(|error| panic!("lot-reuse consumption commit failed: {error:?}"));
+    assert!(state.inventory().get_lot(removed).is_none());
+    assert_eq!(
+        state.inventory().next_lot_id(),
+        cursor_after_initial_allocation
+    );
+
+    let replacement = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        wood_log(),
+        Mass::from_milligrams(1),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap_or_else(|error| panic!("lot-reuse replacement deposit failed: {error}"));
+
+    assert_eq!(replacement.value(), cursor_after_initial_allocation);
+    assert!(replacement > removed);
 }
 
 #[test]

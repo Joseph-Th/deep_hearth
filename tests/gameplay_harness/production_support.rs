@@ -1,4 +1,4 @@
-//! Shared industrial helpers for focused gameplay capability probes.
+//! Provides registry-derived industrial setup, selection, and tick advancement for gameplay probes.
 
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
@@ -76,9 +76,9 @@ pub(super) fn select_stockpile_mass(
 
 /// Advances an already-admitted capability-probe job whose providers are intentionally stable.
 ///
-/// This helper is not a general actor scheduler. It asserts that no suspension or other world event
-/// changes the runtime duration, so callers cannot accidentally hide a support or availability branch
-/// behind a generic "finish" utility.
+/// This function is not a general actor scheduler. It asserts that no suspension or other world event
+/// changes the runtime duration, so callers cannot hide a support or availability branch behind a
+/// generic completion path.
 pub(super) fn finish_uninterrupted_production_job(
     registries: &Registries,
     state: &mut AppState,
@@ -92,7 +92,7 @@ pub(super) fn finish_uninterrupted_production_job(
         "gameplay harness {context} resolved a zero-tick production job"
     );
     for elapsed in 1..=expected_ticks {
-        advance_tick(registries, state)
+        let _ = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("gameplay harness {context} tick failed: {error}"));
         if state.production().get_job(job).is_none() {
             assert_eq!(

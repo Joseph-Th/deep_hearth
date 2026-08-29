@@ -55,7 +55,23 @@ fn assert_thermal_reference_validation_rejects(thermal: ThermalRegistry) {
     production.register_process(ProcessDefinition::new_selected_batch(
         TEST_PROCESS,
         "invalid phase-change fixture",
-        Vec::new(),
+        vec![
+            CapabilityRequirement::new(
+                TEST_HEATING_POWER,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Power(Power::from_picowatts(1)),
+            ),
+            CapabilityRequirement::new(
+                TEST_MAX_TEMPERATURE,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Temperature(Temperature::from_millikelvin(1)),
+            ),
+            CapabilityRequirement::new(
+                TEST_MAX_BATCH_MASS,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Mass(Mass::from_milligrams(1)),
+            ),
+        ],
     ));
     let material_registry = materials::build_material_registry();
 
@@ -172,6 +188,11 @@ fn built_in_preservation_storage_has_a_complete_material_route_and_legible_compo
     assert_eq!(
         chest.storage_profile().preservation_multiplier_ppm(),
         2_000_000
+    );
+    assert_eq!(
+        chest.storage_profile().maximum_temperature(),
+        Temperature::from_millikelvin(333_150),
+        "ordinary timber provisions storage must not act as high-temperature containment"
     );
     assert_eq!(
         chest.assembly_profile().input_mass(),
@@ -964,7 +985,28 @@ fn process_cannot_own_multiple_physical_resolver_semantics() {
     let process = ProcessDefinition::new_selected_batch(
         TEST_PROCESS,
         "ambiguous physical resolver fixture",
-        Vec::new(),
+        vec![
+            CapabilityRequirement::new(
+                TEST_MASS_FLOW,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1)),
+            ),
+            CapabilityRequirement::new(
+                TEST_MAX_BATCH_MASS,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Mass(Mass::from_milligrams(1)),
+            ),
+            CapabilityRequirement::new(
+                TEST_HEATING_POWER,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Power(Power::from_picowatts(1)),
+            ),
+            CapabilityRequirement::new(
+                TEST_MAX_TEMPERATURE,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Temperature(Temperature::from_millikelvin(1)),
+            ),
+        ],
     );
     let mut production = ProductionRegistry::new();
     production.register_process(process);

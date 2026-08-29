@@ -1,4 +1,4 @@
-//! Timed material-processing subsystem; definitions are immutable, state owns durable jobs, and execution mutates canonically.
+//! Owns timed material-processing definitions, resolution, durable jobs, and canonical execution.
 
 mod definitions;
 mod production_execution;

@@ -1,4 +1,4 @@
-//! Deterministic structural load propagation and damage-cascade analysis over sibling persistent records.
+//! Resolves deterministic structural loads, utilization, damage, and failure cascades.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
@@ -249,9 +249,9 @@ struct LoadProjection {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RelationChange {
-    #[cfg(any(test, feature = "test-gameplay"))]
+    #[cfg(test)]
     Insert(StructuralElementId),
-    #[cfg(any(test, feature = "test-gameplay"))]
+    #[cfg(test)]
     Remove(StructuralElementId),
 }
 
@@ -335,7 +335,7 @@ impl LoadPropagation {
     }
 }
 
-#[cfg(any(test, feature = "test-gameplay"))]
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StructuralSupportOverlay {
     Link {
@@ -351,7 +351,7 @@ enum StructuralSupportOverlay {
 /// One-operation read overlay used to analyze a proposed mutation without cloning structural state.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct StructuralAnalysisOverlay {
-    #[cfg(any(test, feature = "test-gameplay"))]
+    #[cfg(test)]
     support: Option<StructuralSupportOverlay>,
     lifecycle: Option<(StructuralElementId, StructuralLifecycle)>,
     loads: BTreeMap<(StructuralElementId, StructuralLoadKind), Force>,
@@ -360,7 +360,7 @@ pub(crate) struct StructuralAnalysisOverlay {
 
 impl StructuralAnalysisOverlay {
     #[must_use]
-    #[cfg(any(test, feature = "test-gameplay"))]
+    #[cfg(test)]
     pub(crate) fn link_support(element: StructuralElementId, support: StructuralElementId) -> Self {
         Self {
             support: Some(StructuralSupportOverlay::Link { element, support }),
@@ -371,7 +371,7 @@ impl StructuralAnalysisOverlay {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "test-gameplay"))]
+    #[cfg(test)]
     pub(crate) fn remove_support(
         element: StructuralElementId,
         support: StructuralElementId,
@@ -388,6 +388,7 @@ impl StructuralAnalysisOverlay {
     #[cfg(any(test, feature = "test-gameplay"))]
     pub(crate) fn activate(element: StructuralElementId) -> Self {
         Self {
+            #[cfg(test)]
             support: None,
             lifecycle: Some((element, StructuralLifecycle::Active)),
             loads: BTreeMap::new(),
@@ -402,7 +403,7 @@ impl StructuralAnalysisOverlay {
         load: Force,
     ) -> Self {
         Self {
-            #[cfg(any(test, feature = "test-gameplay"))]
+            #[cfg(test)]
             support: None,
             lifecycle: None,
             loads: BTreeMap::from([((element, kind), load)]),
@@ -415,7 +416,7 @@ impl StructuralAnalysisOverlay {
         loads: BTreeMap<(StructuralElementId, StructuralLoadKind), Force>,
     ) -> Self {
         Self {
-            #[cfg(any(test, feature = "test-gameplay"))]
+            #[cfg(test)]
             support: None,
             lifecycle: None,
             loads,
@@ -424,7 +425,7 @@ impl StructuralAnalysisOverlay {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "test-gameplay"))]
+    #[cfg(test)]
     pub(crate) fn remove_element(element: StructuralElementId) -> Self {
         Self {
             support: None,
@@ -463,11 +464,11 @@ impl StructuralAnalysisOverlay {
 
         let mut owned = base.clone();
         match changed_neighbor {
-            #[cfg(any(test, feature = "test-gameplay"))]
+            #[cfg(test)]
             Some(RelationChange::Insert(neighbor)) => {
                 owned.insert(neighbor);
             }
-            #[cfg(any(test, feature = "test-gameplay"))]
+            #[cfg(test)]
             Some(RelationChange::Remove(neighbor)) => {
                 owned.remove(&neighbor);
             }
@@ -488,7 +489,7 @@ impl StructuralAnalysisOverlay {
         state: &'state StructureState,
         element: StructuralElementId,
     ) -> Cow<'state, BTreeSet<StructuralElementId>> {
-        #[cfg(any(test, feature = "test-gameplay"))]
+        #[cfg(test)]
         let changed_neighbor = match self.support {
             Some(StructuralSupportOverlay::Link {
                 element: changed,
@@ -500,7 +501,7 @@ impl StructuralAnalysisOverlay {
             }) if changed == element => Some(RelationChange::Remove(support)),
             Some(_) | None => None,
         };
-        #[cfg(not(any(test, feature = "test-gameplay")))]
+        #[cfg(not(test))]
         let changed_neighbor = None;
         self.overlay_relation(state.support_set(element), element, changed_neighbor)
     }
@@ -510,7 +511,7 @@ impl StructuralAnalysisOverlay {
         state: &'state StructureState,
         support: StructuralElementId,
     ) -> Cow<'state, BTreeSet<StructuralElementId>> {
-        #[cfg(any(test, feature = "test-gameplay"))]
+        #[cfg(test)]
         let changed_neighbor = match self.support {
             Some(StructuralSupportOverlay::Link {
                 element,
@@ -522,7 +523,7 @@ impl StructuralAnalysisOverlay {
             }) if changed == support => Some(RelationChange::Remove(element)),
             Some(_) | None => None,
         };
-        #[cfg(not(any(test, feature = "test-gameplay")))]
+        #[cfg(not(test))]
         let changed_neighbor = None;
         self.overlay_relation(state.dependent_set(support), support, changed_neighbor)
     }

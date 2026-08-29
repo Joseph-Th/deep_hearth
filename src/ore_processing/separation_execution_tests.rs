@@ -1,4 +1,4 @@
-//! Tests for exact constituent separation; fixtures use built-in primitive content where possible.
+//! Contract tests for exact constituent separation and its conserved output streams.
 
 use super::*;
 use crate::content::{
@@ -419,7 +419,7 @@ fn hand_sorting_is_a_conserved_survival_costed_fallback_that_powered_sorting_mat
     );
 
     for _ in 0..duration.value() {
-        advance_tick(&manual.registries, &mut manual.state)
+        let _ = advance_tick(&manual.registries, &mut manual.state)
             .unwrap_or_else(|error| panic!("manual separation tick failed: {error}"));
     }
     assert_eq!(manual.state.player_work().active(), None);
@@ -498,7 +498,7 @@ fn in_progress_hand_sorting_round_trip_preserves_deterministic_continuation() {
     let pre_save_ticks = 10;
     assert!(pre_save_ticks < duration.value());
     for _ in 0..pre_save_ticks {
-        advance_tick(&fixture.registries, &mut fixture.state).unwrap_or_else(|error| {
+        let _ = advance_tick(&fixture.registries, &mut fixture.state).unwrap_or_else(|error| {
             panic!("round-trip manual separation pre-save tick failed: {error}")
         });
     }
@@ -650,7 +650,7 @@ fn constituent_separation_recovers_pure_target_and_leaves_unrecovered_copper_in_
     .commit(&mut fixture.state)
     .unwrap_or_else(|error| panic!("separation start commit failed: {error}"));
     for _ in 0..duration.value() {
-        advance_tick(&fixture.registries, &mut fixture.state)
+        let _ = advance_tick(&fixture.registries, &mut fixture.state)
             .unwrap_or_else(|error| panic!("separation completion tick failed: {error}"));
     }
 
@@ -710,7 +710,7 @@ fn primitive_sorting_tailings_cannot_be_repeatedly_resorted_for_asymptotic_recov
     .commit(&mut fixture.state)
     .unwrap_or_else(|error| panic!("tailings-loop separation commit failed: {error}"));
     for _ in 0..duration.value() {
-        advance_tick(&fixture.registries, &mut fixture.state)
+        let _ = advance_tick(&fixture.registries, &mut fixture.state)
             .unwrap_or_else(|error| panic!("tailings-loop separation completion failed: {error}"));
     }
 
@@ -1088,7 +1088,7 @@ fn concentration_accepts_gangue_hosted_prepared_tailings_and_recovers_target() {
     .commit(&mut fixture.state)
     .unwrap_or_else(|error| panic!("gangue-hosted concentration commit failed: {error}"));
     for _ in 0..duration.value() {
-        advance_tick(&fixture.registries, &mut fixture.state)
+        let _ = advance_tick(&fixture.registries, &mut fixture.state)
             .unwrap_or_else(|error| panic!("gangue-hosted concentration tick failed: {error}"));
     }
     assert_eq!(
@@ -1451,7 +1451,7 @@ fn run_concentration_soak() -> AppState {
         }
 
         for _ in 0..duration.value() {
-            advance_tick(&fixture.registries, &mut fixture.state)
+            let _ = advance_tick(&fixture.registries, &mut fixture.state)
                 .unwrap_or_else(|error| panic!("concentration soak completion failed: {error}"));
         }
         if operation.is_multiple_of(25) {

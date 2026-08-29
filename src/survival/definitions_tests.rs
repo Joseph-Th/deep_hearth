@@ -1,6 +1,7 @@
-//! Tests for the sibling definitions module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for survival definitions and intake limits.
 
 use super::*;
+use crate::core::quantity::Mass;
 
 fn physiology(starvation_loss: u32, dehydration_loss: u32) -> PhysiologyDefinition {
     PhysiologyDefinition::new(
@@ -15,9 +16,79 @@ fn physiology(starvation_loss: u32, dehydration_loss: u32) -> PhysiologyDefiniti
             Volume::from_microliters(1),
         ),
         NutritionDefinition::new(1, 1),
+        DirectConsumptionDefinition::new(
+            Mass::from_milligrams(1),
+            TickSpan::new(1),
+            Volume::from_microliters(1),
+            TickSpan::new(1),
+        ),
         starvation_loss,
         dehydration_loss,
     )
+}
+
+#[test]
+fn direct_consumption_definition_requires_nonzero_quantity_and_duration_limits() {
+    for definition in [
+        || {
+            DirectConsumptionDefinition::new(
+                Mass::ZERO,
+                TickSpan::new(1),
+                Volume::from_microliters(1),
+                TickSpan::new(1),
+            )
+        },
+        || {
+            DirectConsumptionDefinition::new(
+                Mass::from_milligrams(1),
+                TickSpan::ZERO,
+                Volume::from_microliters(1),
+                TickSpan::new(1),
+            )
+        },
+        || {
+            DirectConsumptionDefinition::new(
+                Mass::from_milligrams(1),
+                TickSpan::new(1),
+                Volume::ZERO,
+                TickSpan::new(1),
+            )
+        },
+        || {
+            DirectConsumptionDefinition::new(
+                Mass::from_milligrams(1),
+                TickSpan::new(1),
+                Volume::from_microliters(1),
+                TickSpan::ZERO,
+            )
+        },
+    ] {
+        assert!(std::panic::catch_unwind(definition).is_err());
+    }
+}
+
+#[test]
+fn direct_consumption_duration_scales_with_exact_quantity() {
+    let definition = DirectConsumptionDefinition::new(
+        Mass::from_milligrams(1_000),
+        TickSpan::new(100),
+        Volume::from_microliters(1_000),
+        TickSpan::new(20),
+    );
+    assert_eq!(
+        definition.meal_duration(Mass::from_milligrams(500)),
+        Some(TickSpan::new(50))
+    );
+    assert_eq!(
+        definition.meal_duration(Mass::from_milligrams(1)),
+        Some(TickSpan::new(1))
+    );
+    assert_eq!(definition.meal_duration(Mass::ZERO), None);
+    assert_eq!(definition.meal_duration(Mass::from_milligrams(1_001)), None);
+    assert_eq!(
+        definition.drink_duration(Volume::from_microliters(250)),
+        Some(TickSpan::new(5))
+    );
 }
 
 #[test]

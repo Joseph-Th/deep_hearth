@@ -204,6 +204,61 @@ fn deposit_test_wood(
     }
 }
 
+fn unstarted_process_fixture() -> (Registries, AppState, StockpileId, StockpileId) {
+    let registries = make_test_registries();
+    let mut state = AppState::new(WorldSeed::new(0x9000_E001));
+    let source = add_test_stockpile(&mut state, 100);
+    let destination = add_test_stockpile(&mut state, 100);
+    deposit_test_wood(&registries, &mut state, source, 20);
+    (registries, state, source, destination)
+}
+
+#[test]
+fn process_start_rejects_exhausted_job_id_without_consuming_material() {
+    let (registries, state, source, destination) = unstarted_process_fixture();
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("production job-id exhaustion serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["production"]["next_job_id"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("production job-id exhaustion decode failed: {error}"));
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("production job-id exhaustion fixture should load: {error}")
+    });
+    let before = loaded.clone();
+    let resolution = make_test_resolution(&registries, &loaded, source, 3);
+
+    assert_eq!(
+        validate_start_process(&registries, &loaded, &resolution, source, destination).err(),
+        Some(StartProcessError::JobIdExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn process_start_rejects_exhausted_production_revision_without_consuming_material() {
+    let (registries, state, source, destination) = unstarted_process_fixture();
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("production revision exhaustion serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["production"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("production revision exhaustion decode failed: {error}"));
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("production revision exhaustion fixture should load: {error}")
+    });
+    let before = loaded.clone();
+    let resolution = make_test_resolution(&registries, &loaded, source, 3);
+
+    assert_eq!(
+        validate_start_process(&registries, &loaded, &resolution, source, destination).err(),
+        Some(StartProcessError::ProductionRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
 #[test]
 fn process_consumes_inputs_reserves_capacity_and_completes_on_due_tick() {
     let registries = make_test_registries();
@@ -332,7 +387,7 @@ fn production_preserves_input_storage_exposure_and_ages_work_in_process() {
     commit_process_for_test(token, &mut state);
 
     for _ in 0..3 {
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("perishable process tick failed: {error}"));
     }
 
@@ -406,7 +461,7 @@ fn persisted_production_storage_history_must_be_rebased_to_job_start() {
     let token = validate_start_process(&registries, &state, &resolution, source, destination)
         .unwrap_or_else(|error| panic!("storage-history validation fixture failed: {error}"));
     let job = commit_process_for_test(token, &mut state);
-    advance_tick(&registries, &mut state)
+    let _ = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("storage-history validation tick failed: {error}"));
 
     let encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
@@ -646,6 +701,43 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
         noncanonical.into_state(&registries),
         Err(LoadError::InvalidState(StateValidationError::Production(
             ProductionValidationError::NonCanonicalOutputStreamOrder { job }
+        )))
+    );
+
+    let mut duplicate_stream = encoded.clone();
+    let streams = duplicate_stream["state"]["systems"]["production"]["jobs"]
+        [job.value().to_string()]["output_streams"]
+        .as_array_mut()
+        .unwrap_or_else(|| panic!("multi-stream duplicate test lost output streams"));
+    streams.push(streams[0].clone());
+    let duplicate_stream: LoadedSaveEnvelope = serde_json::from_value(duplicate_stream)
+        .unwrap_or_else(|error| {
+            panic!("duplicate output-stream save failed structural decode: {error}")
+        });
+    assert_eq!(
+        duplicate_stream.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Production(
+            ProductionValidationError::DuplicateOutputStreamId {
+                job,
+                stream: ProcessOutputStreamId::new(10),
+            }
+        )))
+    );
+
+    let mut duplicate_output = encoded.clone();
+    let outputs = duplicate_output["state"]["systems"]["production"]["jobs"]
+        [job.value().to_string()]["output_streams"][0]["outputs"]
+        .as_array_mut()
+        .unwrap_or_else(|| panic!("multi-stream duplicate test lost stream outputs"));
+    outputs.push(outputs[0].clone());
+    let duplicate_output: LoadedSaveEnvelope = serde_json::from_value(duplicate_output)
+        .unwrap_or_else(|error| {
+            panic!("duplicate output-spec save failed structural decode: {error}")
+        });
+    assert_eq!(
+        duplicate_output.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Production(
+            ProductionValidationError::DuplicateOutputSpecification { job }
         )))
     );
 

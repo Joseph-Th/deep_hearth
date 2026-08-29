@@ -1,10 +1,26 @@
-//! Workshop scenario orchestration, maintained matrix execution, and reporting.
+//! Owns workshop scenario orchestration, bounded matrix execution, and reporting.
 
 use super::*;
 
 pub(super) fn run_scenario(
     registries: &Registries,
+    variation: ScenarioVariation,
+) -> ScenarioReport {
+    run_scenario_with_optional_horizon(registries, variation, None)
+}
+
+pub(super) fn run_scenario_with_observation_horizon(
+    registries: &Registries,
+    variation: ScenarioVariation,
+    observation_horizon: u64,
+) -> ScenarioReport {
+    run_scenario_with_optional_horizon(registries, variation, Some(observation_horizon))
+}
+
+fn run_scenario_with_optional_horizon(
+    registries: &Registries,
     mut variation: ScenarioVariation,
+    observation_horizon: Option<u64>,
 ) -> ScenarioReport {
     let (mut state, ids, mut delivery_authorization) = setup_workshop(registries, variation);
     let initial_survival = assess_survival(registries, &state)
@@ -36,7 +52,7 @@ pub(super) fn run_scenario(
                 .initial_crusher_condition
                 .parts_per_million(),
         );
-        if service_crusher(registries, &mut state, ids, &mut report)
+        if service_crusher(registries, &mut state, ids, &mut report.maintenance)
             == MaintenanceAttempt::SupplyExhausted
         {
             report.limits.maintenance_stop = true;
@@ -113,7 +129,7 @@ pub(super) fn run_scenario(
         };
     let reason = "player chooses the best currently observable structural margin";
     println!("  decision: mount crusher on {support_name}; {reason}");
-    selected_mount
+    let _ = selected_mount
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("selected crusher mount failed: {error}"));
 
@@ -193,7 +209,12 @@ pub(super) fn run_scenario(
                     variation.ore.nominal_batch_mass,
                     &mut current_support,
                     &mut alternate_support,
-                    &mut report,
+                    ScenarioActorReport {
+                        structure: &mut report.structure,
+                        choices: &mut report.choices,
+                        progress: &mut report.progress,
+                        resources: &mut report.resources,
+                    },
                 );
                 apply_delivery_and_adapt(registries, &mut state, ids, &mut controller, &mut actor);
                 continue;
@@ -236,7 +257,7 @@ pub(super) fn run_scenario(
                     println!(
                         "  decision: service crusher in warning condition because player policy favors preventive maintenance"
                     );
-                    match service_crusher(registries, &mut state, ids, &mut report) {
+                    match service_crusher(registries, &mut state, ids, &mut report.maintenance) {
                         MaintenanceAttempt::Serviced => continue,
                         MaintenanceAttempt::SupplyExhausted => {
                             println!(
@@ -249,7 +270,7 @@ pub(super) fn run_scenario(
                     println!(
                         "  decision: service crusher before more work because current condition is critical"
                     );
-                    match service_crusher(registries, &mut state, ids, &mut report) {
+                    match service_crusher(registries, &mut state, ids, &mut report.maintenance) {
                         MaintenanceAttempt::Serviced => continue,
                         MaintenanceAttempt::SupplyExhausted => {
                             report.limits.maintenance_stop = true;
@@ -283,7 +304,8 @@ pub(super) fn run_scenario(
                         println!(
                             "  decision: service crusher because no positive powered batch is legal within the remaining condition lifetime and maintenance safety margin"
                         );
-                        match service_crusher(registries, &mut state, ids, &mut report) {
+                        match service_crusher(registries, &mut state, ids, &mut report.maintenance)
+                        {
                             MaintenanceAttempt::Serviced => continue,
                             MaintenanceAttempt::SupplyExhausted => {
                                 report.limits.maintenance_stop = true;
@@ -340,7 +362,12 @@ pub(super) fn run_scenario(
                                     variation.ore.nominal_batch_mass,
                                     &mut current_support,
                                     &mut alternate_support,
-                                    &mut report,
+                                    ScenarioActorReport {
+                                        structure: &mut report.structure,
+                                        choices: &mut report.choices,
+                                        progress: &mut report.progress,
+                                        resources: &mut report.resources,
+                                    },
                                 );
                                 execute_manual_recovery(
                                     registries,
@@ -483,7 +510,12 @@ pub(super) fn run_scenario(
             variation.ore.nominal_batch_mass,
             &mut current_support,
             &mut alternate_support,
-            &mut report,
+            ScenarioActorReport {
+                structure: &mut report.structure,
+                choices: &mut report.choices,
+                progress: &mut report.progress,
+                resources: &mut report.resources,
+            },
         );
         let outcome = crush_batch(
             registries,
@@ -556,7 +588,12 @@ pub(super) fn run_scenario(
                 variation.ore.nominal_batch_mass,
                 &mut current_support,
                 &mut alternate_support,
-                &mut report,
+                ScenarioActorReport {
+                    structure: &mut report.structure,
+                    choices: &mut report.choices,
+                    progress: &mut report.progress,
+                    resources: &mut report.resources,
+                },
             );
             apply_delivery_and_adapt(registries, &mut state, ids, &mut controller, &mut actor);
         }
@@ -566,6 +603,54 @@ pub(super) fn run_scenario(
             "  controlled event: not reached before the actor's work-order episode ended at tick={} (scheduled tick={})",
             state.tick().value(),
             variation.delivery.delivery_at_tick,
+        );
+    }
+    report.resources.episode_end_tick = state.tick().value();
+    if let Some(observation_horizon) = observation_horizon {
+        assert!(
+            observation_horizon >= state.tick().value(),
+            "agency observation horizon must not precede the actor episode end"
+        );
+        if !report.progress.delivery_applied
+            && variation.delivery.delivery_at_tick <= observation_horizon
+        {
+            assert!(
+                state.tick().value() <= variation.delivery.delivery_at_tick,
+                "actor episode passed the controlled event without applying it"
+            );
+            if state.tick().value() < variation.delivery.delivery_at_tick {
+                let wait_ticks = variation.delivery.delivery_at_tick - state.tick().value();
+                finish_operation(registries, &mut state, TickSpan::new(wait_ticks));
+            }
+            let mut controller = ControlledDeliveryRuntime {
+                delivery: variation.delivery,
+                authorization: &mut delivery_authorization,
+            };
+            let mut actor = ScenarioActorRuntime::new(
+                variation.policy,
+                variation.ore.nominal_batch_mass,
+                &mut current_support,
+                &mut alternate_support,
+                ScenarioActorReport {
+                    structure: &mut report.structure,
+                    choices: &mut report.choices,
+                    progress: &mut report.progress,
+                    resources: &mut report.resources,
+                },
+            );
+            let _ = apply_delivery(registries, &mut state, ids, &mut controller, &mut actor);
+            println!(
+                "  evaluator: controlled event applied during post-episode observation; actor remains inactive"
+            );
+        }
+        if state.tick().value() < observation_horizon {
+            let wait_ticks = observation_horizon - state.tick().value();
+            finish_operation(registries, &mut state, TickSpan::new(wait_ticks));
+        }
+        assert_eq!(
+            state.tick().value(),
+            observation_horizon,
+            "agency branch must finish at its shared observation horizon"
         );
     }
     super::finalize::finalize_scenario(

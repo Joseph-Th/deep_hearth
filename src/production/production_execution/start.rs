@@ -1,4 +1,4 @@
-//! Process-start admission and routing; child commit owns atomic mutation after validation.
+//! Owns process-start admission, resource routing, and atomic commit.
 
 mod admission;
 mod commit;

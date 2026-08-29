@@ -1,4 +1,4 @@
-//! Industrial workshop actor, controlled-event runtime, and maintained scenario execution.
+//! Owns the industrial workshop actor, controlled-event runtime, and scenario execution.
 
 use std::env;
 
@@ -17,14 +17,15 @@ use super::ore_fixture::copper_ore_composition;
 use super::output::has_verbose_output;
 use super::report::{
     EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioChoiceReport,
-    ScenarioPolicyVariation, ScenarioProgressReport, ScenarioReport, ScenarioResourceReport,
-    ScenarioStructureReport, StructuralPreference, print_content_summary, print_harness_summary,
+    ScenarioMaintenanceReport, ScenarioPolicyVariation, ScenarioProgressReport, ScenarioReport,
+    ScenarioResourceReport, ScenarioStructureReport, StructuralPreference, print_content_summary,
+    print_harness_summary,
 };
 use super::scenario::{ScenarioDeliveryVariation, ScenarioVariation, WORKSHOP_SUPPORT_LENGTH};
 use super::seed::mix64;
 use deep_hearth::content::gameplay_fixture::{
-    authorize_controlled_material_delivery, materialize_structure, seed_composed_lot, seed_lot,
-    seed_player_survival_at_hydration_warning,
+    authorize_controlled_material_delivery, seed_composed_lot, seed_grounded_active_structure,
+    seed_lot, seed_player_survival_at_hydration_warning,
 };
 use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
@@ -69,8 +70,7 @@ use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::structural::{
     StructuralAssessment, StructuralElementGeometry, StructuralElementId, StructuralLifecycle,
-    StructuralLoadKind, StructuralStage, add_structural_element, analyze_structure,
-    validate_activate_structural_element,
+    StructuralLoadKind, StructuralStage, analyze_structure,
 };
 use deep_hearth::survival::{assess_survival, initialize_player_survival};
 use deep_hearth::thermal::{
@@ -115,6 +115,10 @@ enum PowerChoiceBasis {
     SingleSource,
 }
 
+/// Stable identities the workshop actor may use while planning and executing actions.
+///
+/// Controlled-delivery source/destination identities are deliberately absent. The environment owns
+/// them only through the opaque transfer authorization until the event occurs.
 #[derive(Clone, Copy)]
 struct WorkshopIds {
     ore_source: StockpileId,
@@ -128,7 +132,6 @@ struct WorkshopIds {
     small_drive: EnergyStoreId,
     large_drive: EnergyStoreId,
     electrical_buffer: EnergyStoreId,
-    delivery_support: StructuralElementId,
     compact_support: StructuralElementId,
     reinforced_support: StructuralElementId,
 }
@@ -205,24 +208,19 @@ impl<'state> ScenarioActorRuntime<'state> {
         nominal_batch_mass: Mass,
         current_support: &'state mut StructuralElementId,
         alternate_support: &'state mut StructuralElementId,
-        report: &'state mut ScenarioReport,
+        report: ScenarioActorReport<'state>,
     ) -> Self {
         Self {
             policy,
             nominal_batch_mass,
             current_support,
             alternate_support,
-            report: ScenarioActorReport {
-                structure: &mut report.structure,
-                choices: &mut report.choices,
-                progress: &mut report.progress,
-                resources: &mut report.resources,
-            },
+            report,
         }
     }
 }
 
-/// Scenario-controller state that may inject the preauthorized hidden world event.
+/// Scenario-controller state that owns all future controlled-event facts hidden from the actor.
 struct ControlledDeliveryRuntime<'state> {
     delivery: ScenarioDeliveryVariation,
     authorization: &'state mut Option<MaterialTransferResolution>,
@@ -273,26 +271,14 @@ fn active_support(
     let geometry =
         StructuralElementGeometry::new(bounds(x), WORKSHOP_SUPPORT_LENGTH, cross_section)
             .unwrap_or_else(|error| panic!("gameplay harness support geometry failed: {error}"));
-    let element = match add_structural_element(
+    seed_grounded_active_structure(
         registries,
         state,
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
         MATERIAL_WOOD,
         geometry,
-        true,
-    ) {
-        Ok(element) => element,
-        Err(error) => panic!("gameplay harness support allocation failed: {error}"),
-    };
-    materialize_structure(registries, state, element, FORM_LOG);
-    let activation = match validate_activate_structural_element(registries, state, element) {
-        Ok(activation) => activation,
-        Err(error) => panic!("gameplay harness support activation failed: {error}"),
-    };
-    if let Err(error) = activation.commit(state) {
-        panic!("gameplay harness support activation commit failed: {error}");
-    }
-    element
+        FORM_LOG,
+    )
 }
 
 fn seed_energy_store(
@@ -403,7 +389,7 @@ fn setup_workshop(
         variation.structure.reinforced_background_mass,
         ROOM_TEMPERATURE,
     );
-    validate_mount_stockpile(registries, &state, background_storage, reinforced_support)
+    let _ = validate_mount_stockpile(registries, &state, background_storage, reinforced_support)
         .unwrap_or_else(|error| panic!("gameplay harness background storage mount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| {
@@ -425,7 +411,7 @@ fn setup_workshop(
     } else {
         reinforced_support
     };
-    validate_mount_stockpile(registries, &state, delivery_destination, delivery_support)
+    let _ = validate_mount_stockpile(registries, &state, delivery_destination, delivery_support)
         .unwrap_or_else(|error| panic!("gameplay harness delivery storage mount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("gameplay harness delivery storage commit failed: {error}"));
@@ -482,7 +468,6 @@ fn setup_workshop(
             small_drive,
             large_drive,
             electrical_buffer,
-            delivery_support,
             compact_support,
             reinforced_support,
         },
@@ -500,7 +485,7 @@ fn service_crusher(
     registries: &Registries,
     state: &mut AppState,
     ids: WorkshopIds,
-    report: &mut ScenarioReport,
+    maintenance: &mut ScenarioMaintenanceReport,
 ) -> MaintenanceAttempt {
     let resolution = match resolve_equipment_maintenance(
         registries,
@@ -518,7 +503,7 @@ fn service_crusher(
             available,
             required,
         }) => {
-            report.maintenance.supply_exhausted = true;
+            maintenance.supply_exhausted = true;
             println!(
                 "  maintenance supply: service needs {}mg replacement stock but only {}mg remains",
                 required.milligrams(),
@@ -544,13 +529,11 @@ fn service_crusher(
     assert_eq!(outcome.condition_before(), before);
     assert_eq!(outcome.condition_after(), after);
     assert_eq!(outcome.material_mass(), material_mass);
-    report.maintenance.services = report
-        .maintenance
+    maintenance.services = maintenance
         .services
         .checked_add(1)
         .unwrap_or_else(|| panic!("gameplay harness maintenance service count overflowed"));
-    report.maintenance.replacement_spent = report
-        .maintenance
+    maintenance.replacement_spent = maintenance
         .replacement_spent
         .checked_add(material_mass)
         .unwrap_or_else(|| panic!("gameplay harness maintenance material accounting overflowed"));
@@ -1218,7 +1201,7 @@ fn try_relocate_crusher(
     let abandoned_support = *current_support;
     let assessment = structural_assessment(relocation.structural_analysis(), *alternate_support);
     debug_assert_ne!(assessment.stage(), StructuralStage::Failed);
-    relocation
+    let _ = relocation
         .commit(state)
         .unwrap_or_else(|error| panic!("crusher recovery relocation commit failed: {error}"));
     println!(
@@ -1430,7 +1413,7 @@ fn apply_delivery(
                 .get_element(support)
                 .is_some_and(|record| record.is_cracked())
         });
-    let destination = if ids.delivery_support == ids.compact_support {
+    let destination = if controller.delivery.destination_is_compact {
         "compact"
     } else {
         "reinforced"
@@ -1468,6 +1451,14 @@ pub(super) fn run_scenario(
     variation: ScenarioVariation,
 ) -> ScenarioReport {
     runner::run_scenario(registries, variation)
+}
+
+pub(super) fn run_scenario_with_observation_horizon(
+    registries: &Registries,
+    variation: ScenarioVariation,
+    observation_horizon: u64,
+) -> ScenarioReport {
+    runner::run_scenario_with_observation_horizon(registries, variation, observation_horizon)
 }
 
 pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {

@@ -360,7 +360,7 @@ fn validate_liquid_phase_state(
 }
 
 /// Validates that a material lot's authored form, composition, and temperature are physically
-/// consistent with the currently represented solid/liquid phase model.
+/// consistent with the represented solid/liquid phase model.
 ///
 /// Solid mixtures remain supported because each constituent can be checked independently against
 /// its authored melting point. Liquid mixtures are deliberately rejected until alloy/solution phase

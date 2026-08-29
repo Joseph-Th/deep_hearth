@@ -23,6 +23,7 @@ use crate::structural::StructuralLifecycle;
 
 use super::StartProcessError;
 
+#[must_use]
 pub(super) struct ValidatedJobAllocation {
     pub(super) current: SimulationTick,
     pub(super) completes_at: SimulationTick,
@@ -61,6 +62,7 @@ pub(super) fn validate_job_allocation(
     })
 }
 
+#[must_use]
 pub(super) struct ValidatedMaterialReservation {
     pub(super) input_mass: Mass,
     pub(super) reservation: ConsumptionReservation,
@@ -105,6 +107,7 @@ pub(super) fn validate_material_reservation(
     })
 }
 
+#[must_use]
 pub(super) struct ValidatedEnergyReservations {
     pub(super) consumption: Option<EnergyConsumptionReservation>,
     pub(super) ingress: Option<EnergyIngressReservation>,
@@ -175,6 +178,7 @@ fn validate_energy_store_available(
     Ok(())
 }
 
+#[must_use]
 pub(super) struct ValidatedEquipmentResources {
     pub(super) selection: Option<ValidatedEquipmentUse>,
     pub(super) provider: Option<EquipmentOperationTrace>,

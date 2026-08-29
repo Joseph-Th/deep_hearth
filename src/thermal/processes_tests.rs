@@ -2,7 +2,8 @@
 
 use super::*;
 use crate::capability::{
-    CapabilityDefinition, CapabilityId, CapabilityProfile, CapabilityValue, CapabilityValueKind,
+    CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityProfile,
+    CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{
     FORM_LOG, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, MATERIAL_WOOD,
@@ -274,8 +275,27 @@ fn make_registries_with_energy_output_power_and_condition_curves(
         Power::ZERO,
         energy_output_power,
     );
-    let process =
-        ProcessDefinition::new_selected_batch(PROCESS, "test sensible heating", Vec::new());
+    let process = ProcessDefinition::new_selected_batch(
+        PROCESS,
+        "test sensible heating",
+        vec![
+            CapabilityRequirement::new(
+                HEATING_POWER,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Power(Power::from_picowatts(1)),
+            ),
+            CapabilityRequirement::new(
+                MAX_TEMPERATURE,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Temperature(Temperature::from_millikelvin(1)),
+            ),
+            CapabilityRequirement::new(
+                MAX_BATCH_MASS,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Mass(Mass::from_milligrams(1)),
+            ),
+        ],
+    );
     make_test_registries_with_sensible_heating(
         vec![
             CapabilityDefinition::new(
@@ -1604,11 +1624,11 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
         );
     let failed_support = add_active_support(&registries, &mut state, 0);
     let recovery_support = add_active_support(&registries, &mut state, 2);
-    validate_mount_equipment(&registries, &state, equipment, failed_support)
+    let _ = validate_mount_equipment(&registries, &state, equipment, failed_support)
         .unwrap_or_else(|error| panic!("suspension fixture mount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("suspension fixture mount commit failed: {error}"));
-    validate_mount_stockpile(&registries, &state, destination, failed_support)
+    let _ = validate_mount_stockpile(&registries, &state, destination, failed_support)
         .unwrap_or_else(|error| panic!("suspension destination mount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("suspension destination mount commit failed: {error}"));
@@ -1642,7 +1662,7 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
         .map(|record| record.completes_at())
         .unwrap_or_else(|| panic!("suspension fixture job disappeared"));
 
-    advance_tick(&registries, &mut state)
+    let _ = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("suspension fixture first active tick failed: {error}"));
     let suspended_at = state.tick();
     fail_support(&registries, &mut state, failed_support);
@@ -1720,6 +1740,24 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
         .unwrap_or_else(|error| panic!("suspended heating save validation failed: {error}"));
     assert_eq!(loaded, state);
 
+    let mut tampered =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("powered player-labor tamper serialization failed: {error}")
+        });
+    tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["schedule"]["suspension"]
+        ["reason"] = serde_json::json!("PlayerLaborUnavailable");
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+        .unwrap_or_else(|error| panic!("powered player-labor tamper decode failed: {error}"));
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::NonManualJobSuspendedForPlayerLabor {
+                job,
+                process: PROCESS,
+            }
+        ))
+    );
+
     let tampered_due = SimulationTick::new(original_due.value() + 1);
     let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("suspended schedule tamper serialization failed: {error}"));
@@ -1782,11 +1820,11 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
     );
     state = loaded;
 
-    validate_unmount_equipment(&registries, &state, equipment)
+    let _ = validate_unmount_equipment(&registries, &state, equipment)
         .unwrap_or_else(|error| panic!("suspended equipment unmount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("suspended equipment unmount commit failed: {error}"));
-    validate_mount_equipment(&registries, &state, equipment, recovery_support)
+    let _ = validate_mount_equipment(&registries, &state, equipment, recovery_support)
         .unwrap_or_else(|error| panic!("suspended equipment remount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("suspended equipment remount commit failed: {error}"));
@@ -1817,11 +1855,11 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
         ))
     );
 
-    validate_unmount_stockpile(&registries, &state, destination)
+    let _ = validate_unmount_stockpile(&registries, &state, destination)
         .unwrap_or_else(|error| panic!("suspended destination unmount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("suspended destination unmount commit failed: {error}"));
-    validate_mount_stockpile(&registries, &state, destination, recovery_support)
+    let _ = validate_mount_stockpile(&registries, &state, destination, recovery_support)
         .unwrap_or_else(|error| panic!("suspended destination remount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("suspended destination remount commit failed: {error}"));
@@ -1853,7 +1891,7 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
     );
 
     while state.production().get_job(job).is_some() {
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("resumed heating completion failed: {error}"));
     }
     assert_eq!(state.tick(), resumed_due);

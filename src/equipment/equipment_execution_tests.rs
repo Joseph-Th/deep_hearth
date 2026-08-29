@@ -1,4 +1,4 @@
-//! Tests for the sibling equipment execution module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for equipment assembly and occupancy execution.
 
 use super::*;
 use crate::capability::{

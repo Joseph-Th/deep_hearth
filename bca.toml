@@ -1,5 +1,5 @@
 # Big Code Analysis policy for maintained Rust source. The routine gate intentionally uses only cognitive
-# complexity: it tracked real nested decision logic during adoption without penalizing exhaustive Rust
+# complexity because it tracks nested decision logic without penalizing exhaustive Rust
 # matches, explicit typed constructors, or large-but-cohesive files. Other BCA metrics remain advisory;
 # TESTING.md owns the repository-pinned report and diff commands used to inspect them.
 paths = ["src"]

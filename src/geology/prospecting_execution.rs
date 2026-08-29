@@ -1,5 +1,4 @@
-//! Canonical recording of resolved prospecting evidence; sibling knowledge state owns persistence
-//! and assessment while physical tools, sampling, labor, and instrument models remain separate.
+//! Records resolved prospecting evidence into persistent geological knowledge.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -111,11 +110,13 @@ impl Display for RecordProspectingError {
 impl Error for RecordProspectingError {}
 
 /// Failure to commit an observation after geological knowledge changed.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProspectingCommitError {
+pub(crate) enum ProspectingCommitError {
     StaleKnowledgeRevision { expected: u64, actual: u64 },
 }
 
+#[cfg(test)]
 impl Display for ProspectingCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -127,6 +128,7 @@ impl Display for ProspectingCommitError {
     }
 }
 
+#[cfg(test)]
 impl Error for ProspectingCommitError {}
 
 /// Consumed proof that resolved geological evidence can be persisted atomically.
@@ -144,7 +146,8 @@ pub struct ValidatedGeologicalObservation {
 }
 
 impl ValidatedGeologicalObservation {
-    pub fn commit(
+    #[cfg(test)]
+    pub(crate) fn commit(
         self,
         state: &mut AppState,
     ) -> Result<GeologicalObservationId, ProspectingCommitError> {
@@ -178,6 +181,37 @@ impl ValidatedGeologicalObservation {
             next_revision,
         );
         Ok(id)
+    }
+
+    pub(super) fn apply_prechecked(self, state: &mut AppState) -> GeologicalObservationId {
+        let Self {
+            expected_revision,
+            next_revision,
+            id,
+            next_observation_id,
+            region,
+            evidence,
+            findings,
+            observed_at,
+        } = self;
+        let knowledge = state.geological_knowledge_state_mut();
+        assert_eq!(
+            knowledge.revision(),
+            expected_revision,
+            "prechecked prospecting observation requires its validated knowledge revision"
+        );
+        knowledge.insert_observation(
+            GeologicalObservationRecord {
+                id,
+                region,
+                evidence,
+                findings,
+                observed_at,
+            },
+            next_observation_id,
+            next_revision,
+        );
+        id
     }
 }
 

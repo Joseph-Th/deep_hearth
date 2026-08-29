@@ -1,4 +1,4 @@
-//! Exact comminution resolution and persisted-job audit for the sibling ore-processing definitions.
+//! Resolves comminution operations and validates persisted comminution jobs.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};

@@ -27,11 +27,9 @@ pub(super) fn run_primitive_progression_case(
     let reserve_batch_budget = (MAX_STEADY_STATE_CRUSH_CYCLES + 2)
         .checked_mul(concurrent_jobs_per_cycle_budget)
         .unwrap_or_else(|| panic!("primitive progression reserve batch budget overflowed"));
-    // The autonomous window can fit many short mining jobs inside one slower crusher batch. Keep
-    // both known ore bodies finite, but size them from the bounded repeat horizon rather than the
-    // old assumption that one machine cycle implied roughly one mining batch. Seed variation keeps
-    // depletion slack different between worlds without letting fixture exhaustion dominate the
-    // returned-attention experiment before it has time to become informative.
+    // Size finite ore reserves from the bounded repeat horizon so concurrent mining can exercise
+    // returned attention without fixture depletion becoming the limiting factor. Seed variation
+    // changes depletion slack between worlds.
     let soft_ore_deposit_mass = multiply_mass(
         mined_mass,
         reserve_batch_budget,
@@ -46,10 +44,9 @@ pub(super) fn run_primitive_progression_case(
     )
     .checked_add(hard_ore_surplus)
     .unwrap_or_else(|| panic!("primitive progression hard-ore reserve mass overflowed"));
-    // The progression episode asks the actor to keep mining while the crusher works. Size the
-    // staging stockpile from the bounded world reserve so useful concurrency is not accidentally
-    // disabled by the old single-job fixture capacity. Logistics/haulage are outside this slice;
-    // buffer pressure should come from authored world limits, not stale harness assumptions.
+    // The actor may mine while the crusher runs. Size staging capacity from the finite world reserve
+    // so the experiment measures authored resource limits; logistics and haulage are outside this
+    // slice.
     let ore_storage_capacity = soft_ore_deposit_mass
         .checked_add(hard_ore_deposit_mass)
         .unwrap_or_else(|| panic!("primitive progression ore staging capacity overflowed"));
@@ -162,15 +159,20 @@ pub(super) fn run_primitive_progression_case(
         );
     }
     let clue_slots = varied_four_way_order(seed ^ 0x434C_5545_5F4C_4159);
-    let observation_order = varied_four_way_order(seed ^ 0x434C_5545_5F4F_5244);
+    // Local clue locations are actor-visible starting facts. Build that input independently from the
+    // hidden assignment of geological roles to those locations so setup truth cannot choose the
+    // actor's search candidates or their order.
+    let visible_clue_requests: [MiningTargetRequest; 4] = std::array::from_fn(|slot| {
+        MiningTargetRequest::new(progression_clue_bounds(slot), MATERIAL_COPPER)
+    });
     let soft_ore_bounds = progression_clue_bounds(clue_slots[0]);
     let ore_composition = copper_ore_composition(ore_copper_ppm, soft_gangue_clay_share_ppm);
     let hard_ore_composition =
         copper_ore_composition(hard_ore_copper_ppm, hard_gangue_clay_share_ppm);
-    let _ = seed_geological_deposit(
+    seed_geological_deposit(
         registries,
         &mut state,
-        geological_deposit_spec(
+        GeologicalDepositSeed::new(
             soft_ore_bounds,
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
             soft_ore_deposit_mass,
@@ -181,10 +183,10 @@ pub(super) fn run_primitive_progression_case(
     );
     let soft_ore_target = MiningTargetRequest::new(soft_ore_bounds, MATERIAL_COPPER);
     let hard_ore_bounds = progression_clue_bounds(clue_slots[1]);
-    let _ = seed_geological_deposit(
+    seed_geological_deposit(
         registries,
         &mut state,
-        geological_deposit_spec(
+        GeologicalDepositSeed::new(
             hard_ore_bounds,
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
             hard_ore_deposit_mass,
@@ -195,10 +197,10 @@ pub(super) fn run_primitive_progression_case(
     );
     let hard_ore_target = MiningTargetRequest::new(hard_ore_bounds, MATERIAL_COPPER);
     let native_bounds = progression_clue_bounds(clue_slots[2]);
-    let _ = seed_geological_deposit(
+    seed_geological_deposit(
         registries,
         &mut state,
-        geological_deposit_spec(
+        GeologicalDepositSeed::new(
             native_bounds,
             CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
             native_deposit_mass,
@@ -210,10 +212,10 @@ pub(super) fn run_primitive_progression_case(
     let native_target = MiningTargetRequest::new(native_bounds, MATERIAL_COPPER);
     let trace_bounds = progression_clue_bounds(clue_slots[3]);
     let trace_composition = copper_ore_composition(trace_copper_ppm, trace_gangue_clay_share_ppm);
-    let _ = seed_geological_deposit(
+    seed_geological_deposit(
         registries,
         &mut state,
-        geological_deposit_spec(
+        GeologicalDepositSeed::new(
             trace_bounds,
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
             refined_clue_sample_mass
@@ -236,14 +238,7 @@ pub(super) fn run_primitive_progression_case(
         .total();
     let survival_before = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("primitive progression survival state disappeared"));
-    let clue_roles = [
-        soft_ore_target,
-        hard_ore_target,
-        native_target,
-        trace_target,
-    ];
-    let initial_clue_requests = observation_order.map(|index| clue_roles[index]);
-    for request in initial_clue_requests {
+    for request in visible_clue_requests {
         assert_eq!(
             resolve_mining_target(&state, request),
             Err(MiningTargetResolutionError::NoEvidence {
@@ -278,11 +273,14 @@ pub(super) fn run_primitive_progression_case(
         );
         upper_ppm
     });
-    let mut clue_requests = initial_clue_requests.to_vec();
-    clue_requests.sort_by(|left, right| {
-        let left_zone = regional_zone_for_clue(left.region(), &regional_zones);
-        let right_zone = regional_zone_for_clue(right.region(), &regional_zones);
-        regional_upper_bounds_ppm[right_zone].cmp(&regional_upper_bounds_ppm[left_zone])
+    let mut clue_requests = visible_clue_requests.to_vec();
+    clue_requests.sort_by_key(|request| {
+        let zone = regional_zone_for_clue(request.region(), &regional_zones);
+        (
+            Reverse(regional_upper_bounds_ppm[zone]),
+            request.region().min(),
+            request.region().max_exclusive(),
+        )
     });
 
     let surface_prospecting_ticks = clue_requests

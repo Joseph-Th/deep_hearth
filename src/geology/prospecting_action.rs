@@ -16,8 +16,8 @@ use crate::spatial::{VoxelBounds, VoxelCoord};
 use super::prospecting_execution::validate_record_prospecting_at;
 use super::{
     GeologicalDepositLifecycle, GeologicalEvidenceKind, GeologicalObservationId,
-    MaterialAbundanceEstimate, ProspectingCommitError, ProspectingResolution,
-    RecordProspectingError, ValidatedGeologicalObservation,
+    MaterialAbundanceEstimate, ProspectingResolution, RecordProspectingError,
+    ValidatedGeologicalObservation,
 };
 
 /// One player-selected geological prospecting action over an authored-bounded region.
@@ -205,6 +205,7 @@ pub fn validate_start_field_prospecting(
 }
 
 /// Observable completion of one field-prospecting action. The hidden geological owner is intentionally absent.
+#[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FieldProspectingOutcome {
     observation: GeologicalObservationId,
@@ -398,18 +399,16 @@ pub(crate) fn decide_field_prospecting_tick(
 pub(crate) fn apply_field_prospecting_tick(
     state: &mut AppState,
     plan: Option<FieldProspectingTickPlan>,
-) -> Result<Option<FieldProspectingOutcome>, ProspectingCommitError> {
-    let Some(plan) = plan else {
-        return Ok(None);
-    };
-    let observation = plan.observation.commit(state)?;
-    Ok(Some(FieldProspectingOutcome {
+) -> Option<FieldProspectingOutcome> {
+    let plan = plan?;
+    let observation = plan.observation.apply_prechecked(state);
+    Some(FieldProspectingOutcome {
         observation,
         method: plan.work.method(),
         region: plan.work.region(),
         material: plan.work.material(),
         evidence: plan.evidence,
-    }))
+    })
 }
 
 #[cfg(test)]

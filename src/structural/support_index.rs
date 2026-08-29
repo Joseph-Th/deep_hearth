@@ -90,8 +90,8 @@ where
 
 /// Applies one already-validated structural-support reassignment to an owner's reverse index.
 ///
-/// The owning subsystem remains responsible for its authoritative record and revision. This helper
-/// owns only the repeated derived-index invariant: the old membership must exist, a distinct new
+/// The owning subsystem remains responsible for its authoritative record and revision. This operation
+/// owns only the repeated derived-index invariant: the prior membership must exist, a distinct target
 /// membership must not already exist, empty buckets are removed, and the final membership is unique.
 pub(crate) fn apply_support_index_change<Id>(
     index: &mut BTreeMap<StructuralElementId, BTreeSet<Id>>,

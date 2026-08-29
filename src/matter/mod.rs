@@ -234,14 +234,11 @@ fn calculate_total_mass(parts: &[AggregateMass]) -> Result<AggregateMass, Matter
 
 /// Recomputes matter ownership from authoritative records without trusting stockpile caches.
 ///
-/// Finite geological deposits own their remaining extractable matter through active mining labor.
-/// Mining completion transfers the exact batch into a zero-time ready-to-claim owner, and claim then
-/// transfers it into inventory. Fixture materialization can move selected inventory matter into
-/// structural embodiment, where it remains authoritative structural matter because runtime
-/// demolition/recovery is not currently modeled. Production inputs are removed from inventory at
-/// process start. The running production job's resolved output snapshot becomes the durable owner of
-/// that same matter until completion. Reserved inbound capacity and working mining output plans are
-/// not additional matter and are deliberately excluded from this projection.
+/// Finite geological deposits own extractable matter until mining completion. Completed mining output
+/// is a ready-to-claim owner until claim transfers it into inventory. Structural embodiment remains
+/// structure-owned because no demolition/recovery operation exists. Production start transfers input
+/// matter from inventory to the durable in-process output snapshot until completion. Reservations and
+/// unfinished mining output plans are not matter owners and are excluded from this projection.
 pub fn calculate_matter_accounting(
     state: &AppState,
 ) -> Result<MatterAccounting, MatterAccountingError> {

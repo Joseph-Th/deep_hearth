@@ -1,4 +1,4 @@
-//! Deterministic material thermal-energy calculations; sibling process code owns physically resolved heating and phase change.
+//! Owns deterministic material heat calculations and thermal process resolution.
 
 mod casting_execution;
 mod equipment_physics;

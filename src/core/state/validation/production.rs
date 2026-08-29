@@ -1,5 +1,4 @@
-//! Cross-owner production validation; this child reconciles job traces, reservations, and runtime
-//! resources.
+//! Validates production-job references, reservations, physical traces, and runtime resources across owners.
 
 use std::collections::BTreeMap;
 
@@ -13,7 +12,9 @@ use crate::ore_processing::{
     validate_loaded_comminution_job, validate_loaded_constituent_separation_job,
     validate_loaded_screening_job,
 };
-use crate::production::{ProductionJobRecord, ProductionOutputStream, sum_lot_spec_mass};
+use crate::production::{
+    ProductionJobRecord, ProductionOutputStream, ProductionSuspensionReason, sum_lot_spec_mass,
+};
 use crate::registry::Registries;
 use crate::thermal::validate_loaded_thermal_job;
 
@@ -225,6 +226,15 @@ fn validate_job_subsystem_contracts(
     registries: &Registries,
     job: &ProductionJobRecord,
 ) -> Result<(), StateValidationError> {
+    if job.suspension().is_some_and(|suspension| {
+        suspension.reason() == ProductionSuspensionReason::PlayerLaborUnavailable
+    }) && registries.manual_process_exertion(job.process()).is_none()
+    {
+        return Err(StateValidationError::NonManualJobSuspendedForPlayerLabor {
+            job: job.id(),
+            process: job.process(),
+        });
+    }
     validate_loaded_comminution_job(registries, job)
         .map_err(StateValidationError::ComminutionJob)?;
     validate_loaded_constituent_separation_job(registries, job)

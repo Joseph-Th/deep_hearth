@@ -126,3 +126,7 @@ where
 
     deserializer.deserialize_map(StrictMapOfSetsVisitor(PhantomData))
 }
+
+#[cfg(test)]
+#[path = "serialization_tests.rs"]
+mod tests;

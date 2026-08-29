@@ -17,7 +17,7 @@ use super::state::EquipmentRecord;
 /// Failure while allocating one persistent equipment instance.
 #[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AddEquipmentError {
+pub(crate) enum AddEquipmentError {
     UnknownDefinition { definition: EquipmentDefinitionId },
     RequiresAssembly { definition: EquipmentDefinitionId },
     IdExhausted,

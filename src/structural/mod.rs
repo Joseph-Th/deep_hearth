@@ -1,4 +1,4 @@
-//! Structural load and failure subsystem; definitions classify material response, state owns support graphs, analysis resolves loads, and execution commits consequences.
+//! Owns structural definitions, support graphs, load analysis, damage, and canonical mutation.
 
 mod analysis;
 #[cfg(any(test, feature = "test-gameplay"))]
@@ -30,26 +30,20 @@ pub use state::{
     StructuralElementGeometry, StructuralElementId, StructuralElementRecord, StructuralLifecycle,
     StructuralLoadKind, StructureState, StructureValidationError,
 };
-pub use structural_execution::{
-    StructuralCommitError, StructuralMutationError, StructuralMutationOutcome,
-};
+pub(crate) use structural_execution::StructuralMutationOutcome;
+pub use structural_execution::{StructuralCommitError, StructuralMutationError};
 
-#[cfg(feature = "test-gameplay")]
-pub use element_execution::{AddStructuralElementError, add_structural_element};
-#[cfg(not(feature = "test-gameplay"))]
+#[cfg(test)]
+pub(crate) use element_execution::AddStructuralElementError;
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) use element_execution::add_structural_element;
 pub(crate) use structural_execution::ValidatedStructuralMutation;
-#[cfg(feature = "test-gameplay")]
-pub use structural_execution::{
-    ValidatedStructuralMutation, validate_activate_structural_element, validate_link_support,
-    validate_remove_structural_element, validate_remove_support, validate_set_structural_load,
-};
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) use structural_execution::validate_activate_structural_element;
 
-#[cfg(all(test, not(feature = "test-gameplay")))]
-pub(crate) use element_execution::{AddStructuralElementError, add_structural_element};
-#[cfg(all(test, not(feature = "test-gameplay")))]
+#[cfg(test)]
 pub(crate) use structural_execution::{
-    validate_activate_structural_element, validate_link_support,
-    validate_remove_structural_element, validate_set_structural_load,
+    validate_link_support, validate_remove_structural_element, validate_set_structural_load,
 };
 
 #[cfg(feature = "test-gameplay")]

@@ -1,5 +1,4 @@
-//! Persistent geological observations and conservative read-only knowledge assessment; sibling
-//! prospecting execution owns mutation while authoritative deposits remain separate hidden truth.
+//! Owns persistent geological observations and conservative read-only knowledge assessment.
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
@@ -171,7 +170,7 @@ impl Display for MaterialAbundanceEstimateError {
 
 impl Error for MaterialAbundanceEstimateError {}
 
-/// Persisted evidence acquired at one point in simulation history.
+/// Persisted geological observation acquired at one simulation tick.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GeologicalObservationRecord {

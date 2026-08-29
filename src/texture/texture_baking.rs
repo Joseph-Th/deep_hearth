@@ -1,4 +1,4 @@
-//! Compact deterministic texture-array baking; sibling definitions own authored visual content.
+//! Bakes immutable texture definitions into compact deterministic GPU upload data.
 
 use std::collections::BTreeMap;
 

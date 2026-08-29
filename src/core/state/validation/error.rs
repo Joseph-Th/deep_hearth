@@ -204,6 +204,10 @@ pub enum StateValidationError {
         current: SimulationTick,
         suspended_at: SimulationTick,
     },
+    NonManualJobSuspendedForPlayerLabor {
+        job: ProductionJobId,
+        process: ProcessId,
+    },
     ReservedMassOverflow {
         stockpile: StockpileId,
     },
@@ -587,6 +591,12 @@ impl Display for StateValidationError {
                 suspended_at.value(),
                 current.value()
             ),
+            Self::NonManualJobSuspendedForPlayerLabor { job, process } => write!(
+                formatter,
+                "production job {} for non-manual process {} claims player-labor suspension",
+                job.value(),
+                process.value()
+            ),
             Self::ReservedMassOverflow { stockpile } => write!(
                 formatter,
                 "expected inbound reservations overflow stockpile {} mass accounting",
@@ -796,6 +806,10 @@ impl Error for StateValidationError {
                 job: _job,
                 current: _current,
                 suspended_at: _suspended_at,
+            } => None,
+            Self::NonManualJobSuspendedForPlayerLabor {
+                job: _job,
+                process: _process,
             } => None,
             Self::ReservedMassOverflow {
                 stockpile: _stockpile,

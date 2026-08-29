@@ -1,4 +1,4 @@
-//! Production execution facade; child modules separate process admission from in-flight completion.
+//! Routes production start admission and in-flight completion through canonical execution paths.
 
 mod completion;
 mod start;

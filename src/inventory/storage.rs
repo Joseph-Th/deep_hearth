@@ -46,6 +46,10 @@ impl StorageDefinition {
         assembly_profile: MaterialAssemblyProfile,
     ) -> Self {
         assert!(
+            !name.trim().is_empty(),
+            "storage definition name must not be empty"
+        );
+        assert!(
             !maximum_stockpile_capacity.is_zero(),
             "storage definition maximum capacity must be nonzero"
         );
@@ -94,6 +98,10 @@ impl StorageDefinition {
         &self.assembly_profile
     }
 }
+
+#[cfg(test)]
+#[path = "storage_tests.rs"]
+mod tests;
 
 /// Immutable authored storage definitions keyed by stable identity.
 #[derive(Clone, Debug, PartialEq, Eq)]

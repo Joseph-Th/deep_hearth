@@ -118,7 +118,8 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
     assert!(!manual.max_batch_mass().is_zero());
     assert!(!manual.processing_rate().is_zero());
 
-    let ambient_preservation = StockpileStorageProfile::solid_only().preservation_multiplier_ppm();
+    let ambient_preservation =
+        StockpileStorageProfile::unbounded_solid_only().preservation_multiplier_ppm();
     let storage_definitions = registries.storage().definitions().collect::<Vec<_>>();
     assert!(
         !storage_definitions.is_empty(),

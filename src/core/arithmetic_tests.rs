@@ -1,4 +1,4 @@
-//! Tests for the sibling arithmetic module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for exact integer arithmetic.
 
 use super::*;
 

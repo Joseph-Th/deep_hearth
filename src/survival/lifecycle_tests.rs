@@ -1,4 +1,4 @@
-//! Tests for the sibling lifecycle module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for survival tick evolution.
 
 use super::*;
 use crate::content::build_registries;

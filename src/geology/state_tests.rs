@@ -1,4 +1,4 @@
-//! Tests for the sibling state module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for geological deposit state.
 
 use super::*;
 use crate::content::{FORM_CRUSHED, FORM_MOLTEN, FORM_ORE, MATERIAL_COPPER, build_registries};

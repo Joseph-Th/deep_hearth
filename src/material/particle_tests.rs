@@ -1,4 +1,4 @@
-//! Tests for the sibling particle module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for particulate-state representation.
 
 use super::*;
 
@@ -37,6 +37,23 @@ fn distribution_canonicalizes_order_and_preserves_weighted_classes() {
             Length::from_micrometers(2_000),
         )
         .unwrap_or_else(|error| panic!("particle envelope failed: {error}"))
+    );
+}
+
+#[test]
+fn particle_class_deserialization_enforces_nonzero_weight() {
+    let valid: ParticleSizeClass = serde_json::from_str(
+        r#"{"range":{"minimum_diameter":100,"maximum_diameter":500},"weight":1}"#,
+    )
+    .unwrap_or_else(|error| panic!("valid particle class failed deserialization: {error}"));
+    assert_eq!(valid.weight(), 1);
+
+    let invalid = serde_json::from_str::<ParticleSizeClass>(
+        r#"{"range":{"minimum_diameter":100,"maximum_diameter":500},"weight":0}"#,
+    );
+    assert!(
+        invalid.is_err(),
+        "zero-weight particle class must be rejected"
     );
 }
 

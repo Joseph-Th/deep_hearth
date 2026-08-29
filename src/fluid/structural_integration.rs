@@ -1,4 +1,4 @@
-//! Fluid-store structural support integration; fluid ownership derives one aggregate structural load per support.
+//! Derives structure-owned loads from supported fluid stores.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
@@ -507,6 +507,7 @@ impl Error for FluidSupportCommitError {
 }
 
 /// Successful fluid-store support change plus any resulting structural damage.
+#[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FluidSupportOutcome {
     structural: Option<StructuralMutationOutcome>,

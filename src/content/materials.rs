@@ -1,4 +1,4 @@
-//! Built-in material and form definitions; sibling content modules assemble other registry domains.
+//! Defines built-in materials, forms, and commodities.
 
 use crate::core::quantity::Temperature;
 use crate::material::{

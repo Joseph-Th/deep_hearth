@@ -1,4 +1,4 @@
-//! Tests for the sibling structural execution module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for structural mutation and failure execution.
 
 use super::*;
 use crate::content::{
@@ -6,6 +6,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Area, Length};
 use crate::core::time::WorldSeed;
+use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     AddStructuralElementError, StructuralElementGeometry, StructuralFailureCause, StructuralStage,
@@ -104,6 +105,74 @@ fn allocation_rejects_material_without_authored_structural_strength() {
     assert_eq!(state, before);
 }
 
+#[test]
+fn allocation_rejects_exhausted_element_id_without_mutating_state() {
+    let registries = build_registries();
+    let state = AppState::new(WorldSeed::new(0x5700_E001));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("structural id exhaustion serialization failed: {error}"));
+    encoded["state"]["systems"]["structures"]["next_element_id"] = serde_json::json!(u32::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("structural id exhaustion decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("structural id exhaustion fixture should load: {error}"));
+    let before = loaded.clone();
+    let geometry = crate::structural::make_test_structural_geometry(
+        make_test_bounds(0, 0),
+        Length::from_micrometers(1_000),
+        MEMBER_AREA,
+    );
+
+    assert_eq!(
+        add_structural_element(
+            &registries,
+            &mut loaded,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            geometry,
+            true,
+        ),
+        Err(AddStructuralElementError::IdExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn allocation_rejects_exhausted_structure_revision_without_mutating_state() {
+    let registries = build_registries();
+    let state = AppState::new(WorldSeed::new(0x5700_E002));
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("structural revision exhaustion serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["structures"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("structural revision exhaustion decode failed: {error}"));
+    let mut loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("structural revision exhaustion fixture should load: {error}")
+    });
+    let before = loaded.clone();
+    let geometry = crate::structural::make_test_structural_geometry(
+        make_test_bounds(0, 0),
+        Length::from_micrometers(1_000),
+        MEMBER_AREA,
+    );
+
+    assert_eq!(
+        add_structural_element(
+            &registries,
+            &mut loaded,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            geometry,
+            true,
+        ),
+        Err(AddStructuralElementError::RevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
 fn make_test_element(
     registries: &Registries,
     state: &mut AppState,
@@ -149,7 +218,7 @@ fn activate_test_element(
         Ok(token) => token,
         Err(error) => panic!("structural activation fixture failed: {error}"),
     };
-    commit_test_mutation(token, state);
+    let _ = commit_test_mutation(token, state);
 }
 
 fn link_test_support(
@@ -162,7 +231,7 @@ fn link_test_support(
         Ok(token) => token,
         Err(error) => panic!("structural support fixture failed: {error}"),
     };
-    commit_test_mutation(token, state);
+    let _ = commit_test_mutation(token, state);
 }
 
 fn find_assessment(
@@ -247,7 +316,7 @@ fn independent_load_sources_accumulate_without_overwriting_and_zero_removes_sour
         Ok(token) => token,
         Err(error) => panic!("permanent load validation failed: {error}"),
     };
-    commit_test_mutation(permanent, &mut state);
+    let _ = commit_test_mutation(permanent, &mut state);
 
     let snow = match validate_set_structural_load(
         &registries,
@@ -366,7 +435,7 @@ fn mutation_analysis_is_scoped_to_connected_structure_components() {
 
     assert_eq!(assessed, vec![support, deck]);
     assert!(token.analysis().damage_events().is_empty());
-    commit_test_mutation(token, &mut state);
+    let _ = commit_test_mutation(token, &mut state);
     assert!(unrelated_elements.into_iter().all(|element| {
         state
             .structures()
@@ -390,7 +459,7 @@ fn planned_load_contribution_overflow_is_rejected_without_mutation() {
         Ok(token) => token,
         Err(error) => panic!("maximum planned load validation failed: {error}"),
     };
-    commit_test_mutation(maximum, &mut state);
+    let _ = commit_test_mutation(maximum, &mut state);
     let before = state.clone();
 
     assert_eq!(
@@ -508,7 +577,7 @@ fn unchanged_public_load_is_rejected_without_revision_churn() {
         load,
     )
     .unwrap_or_else(|error| panic!("initial public load validation failed: {error}"));
-    commit_test_mutation(initial, &mut state);
+    let _ = commit_test_mutation(initial, &mut state);
     let before = state.clone();
 
     assert_eq!(
@@ -560,7 +629,7 @@ fn removing_one_load_path_cascades_failure_through_dependents_atomically() {
             ))
     );
     let before_revision = state.structures().revision();
-    commit_test_mutation(token, &mut state);
+    let _ = commit_test_mutation(token, &mut state);
 
     assert_eq!(state.structures().revision(), before_revision + 1);
     assert_eq!(
@@ -600,7 +669,7 @@ fn failed_embodied_debris_cannot_be_deleted_without_a_recovery_system() {
         Force::from_millinewtons(50_000_000),
     )
     .unwrap_or_else(|error| panic!("debris overload validation failed: {error}"));
-    commit_test_mutation(overload, &mut state);
+    let _ = commit_test_mutation(overload, &mut state);
     assert_eq!(
         state
             .structures()
@@ -733,7 +802,7 @@ fn long_support_chain_collapse_is_complete_and_deterministically_ordered() {
         .map(|event| event.element())
         .collect();
     assert_eq!(event_ids, chain);
-    commit_test_mutation(token, &mut state);
+    let _ = commit_test_mutation(token, &mut state);
 
     assert!(chain.iter().all(|element| {
         state

@@ -30,12 +30,12 @@ impl RngStreamId {
 
 /// Persisted algorithm used to derive a new stream's initial seed from world seed and stream ID.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RngStreamDerivation {
+pub(crate) enum RngStreamDerivation {
     /// SplitMix64-based domain separation pinned as stream derivation version 1.
     SplitMix64V1,
 }
 
-/// Persisted algorithm identity; variants are never silently reinterpreted after release.
+/// Persisted algorithm identity; each variant has fixed replay semantics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RngAlgorithm {
     /// xoshiro256** with SplitMix64 seed expansion, pinned as Deep Hearth algorithm version 1.
@@ -49,7 +49,7 @@ pub enum RngAlgorithm {
 /// sequence of any existing stream.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RandomState {
+pub(crate) struct RandomState {
     root_seed: WorldSeed,
     derivation: RngStreamDerivation,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
@@ -58,7 +58,7 @@ pub struct RandomState {
 
 impl RandomState {
     #[must_use]
-    pub fn new(world_seed: WorldSeed) -> Self {
+    pub(crate) fn new(world_seed: WorldSeed) -> Self {
         let derivation = RngStreamDerivation::SplitMix64V1;
         let mut streams = BTreeMap::new();
         streams.insert(
@@ -77,18 +77,13 @@ impl RandomState {
     }
 
     #[must_use]
-    pub const fn root_seed(&self) -> WorldSeed {
+    pub(crate) const fn root_seed(&self) -> WorldSeed {
         self.root_seed
-    }
-
-    #[must_use]
-    pub const fn derivation(&self) -> RngStreamDerivation {
-        self.derivation
     }
 
     /// Returns the PRNG algorithm for one stream when that stream has been initialized.
     #[must_use]
-    pub fn stream_algorithm(&self, stream: RngStreamId) -> Option<RngAlgorithm> {
+    pub(crate) fn stream_algorithm(&self, stream: RngStreamId) -> Option<RngAlgorithm> {
         self.streams.get(&stream).map(DeterministicRng::algorithm)
     }
 
@@ -98,8 +93,9 @@ impl RandomState {
             .is_some_and(DeterministicRng::is_valid)
     }
 
-    /// Advances one independent state-owned stream, creating it deterministically on first use.
-    pub fn next_u64(&mut self, stream: RngStreamId) -> u64 {
+    /// Advances one independent state-owned stream for deterministic stream-isolation tests.
+    #[cfg(test)]
+    pub(crate) fn next_u64(&mut self, stream: RngStreamId) -> u64 {
         let derivation = self.derivation;
         let world_seed = self.root_seed;
         self.streams

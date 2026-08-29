@@ -9,12 +9,14 @@ use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 use super::{FORM_CHEST_BODY, MATERIAL_WOOD};
 
 pub const STORAGE_TIMBER_PROVISIONS_CHEST: StorageDefinitionId = StorageDefinitionId::new(1);
+const TIMBER_PROVISIONS_CHEST_MAXIMUM_TEMPERATURE: Temperature =
+    Temperature::from_millikelvin(333_150);
 
 pub(crate) fn build_storage_registry() -> StorageRegistry {
     let preservation = StockpileStorageProfile::with_preservation(
         true,
         false,
-        Temperature::from_millikelvin(u32::MAX),
+        TIMBER_PROVISIONS_CHEST_MAXIMUM_TEMPERATURE,
         2_000_000,
     )
     .unwrap_or_else(|error| panic!("timber provisions chest storage profile failed: {error}"));

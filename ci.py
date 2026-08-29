@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fast, explicit local verification runner for a single-developer workspace."""
+"""Fast, explicit local verification runner for Deep Hearth's repository-owned gates."""
 
 from __future__ import annotations
 

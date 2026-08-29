@@ -1,4 +1,4 @@
-//! Ore/material preparation registry and execution exports; focused sibling modules own definitions and shared physics.
+//! Owns ore/material preparation definitions, shared physics, and execution APIs.
 
 mod comminution_execution;
 mod definitions;
@@ -7,13 +7,13 @@ mod screening_execution;
 mod separation_execution;
 mod throughput;
 
-use crate::capability::{CapabilityRegistry, CapabilityValueKind};
+use crate::capability::{CapabilityComparison, CapabilityRegistry, CapabilityValueKind};
 use crate::material::{
     CommodityKey, MaterialFormCohesion, MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy,
 };
 use crate::production::{ProcessId, ProcessInputPolicy, ProductionRegistry};
 pub use powered_physics::{PoweredOreBottleneck, PoweredOreJobValidationError};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub use comminution_execution::{
     ComminutionBatchError, ComminutionJobValidationError, ComminutionRequest,
@@ -105,6 +105,22 @@ fn validate_powered_process_contract(
             kind,
             "{operation} process {} {role} capability has wrong physical kind",
             process.value()
+        );
+        let requirement = definition
+            .get_capability_requirement(capability)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{operation} process {} must require its resolver-owned {role} capability {}",
+                    process.value(),
+                    capability.value()
+                )
+            });
+        assert_eq!(
+            requirement.comparison(),
+            CapabilityComparison::AtLeast,
+            "{operation} process {} resolver-owned {role} capability {} must use AtLeast comparison",
+            process.value(),
+            capability.value()
         );
     }
 }
@@ -430,11 +446,6 @@ impl OreProcessingRegistry {
         for definition in manual_comminution_definitions {
             let process = definition.process();
             assert!(
-                !comminution.contains_key(&process),
-                "process {} cannot own both powered and manual comminution semantics",
-                process.value()
-            );
-            assert!(
                 manual_comminution.insert(process, definition).is_none(),
                 "duplicate manual comminution definition for process {}",
                 process.value()
@@ -443,11 +454,6 @@ impl OreProcessingRegistry {
         let mut screening = BTreeMap::new();
         for definition in screening_definitions {
             let process = definition.process();
-            assert!(
-                !comminution.contains_key(&process),
-                "process {} cannot own both comminution and screening semantics",
-                process.value()
-            );
             assert!(
                 screening.insert(process, definition).is_none(),
                 "duplicate screening definition for process {}",
@@ -458,13 +464,6 @@ impl OreProcessingRegistry {
         for definition in separation_definitions {
             let process = definition.process();
             assert!(
-                !comminution.contains_key(&process)
-                    && !manual_comminution.contains_key(&process)
-                    && !screening.contains_key(&process),
-                "process {} cannot own multiple ore-processing resolver semantics",
-                process.value()
-            );
-            assert!(
                 separation.insert(process, definition).is_none(),
                 "duplicate constituent-separation definition for process {}",
                 process.value()
@@ -474,16 +473,22 @@ impl OreProcessingRegistry {
         for definition in manual_separation_definitions {
             let process = definition.process();
             assert!(
-                !comminution.contains_key(&process)
-                    && !manual_comminution.contains_key(&process)
-                    && !screening.contains_key(&process)
-                    && !separation.contains_key(&process),
-                "process {} cannot own multiple ore-processing resolver semantics",
-                process.value()
-            );
-            assert!(
                 manual_separation.insert(process, definition).is_none(),
                 "duplicate manual constituent-separation definition for process {}",
+                process.value()
+            );
+        }
+        let mut claimed_processes = BTreeSet::new();
+        for process in comminution
+            .keys()
+            .chain(manual_comminution.keys())
+            .chain(screening.keys())
+            .chain(separation.keys())
+            .chain(manual_separation.keys())
+        {
+            assert!(
+                claimed_processes.insert(*process),
+                "process {} cannot own multiple ore-processing resolver semantics",
                 process.value()
             );
         }

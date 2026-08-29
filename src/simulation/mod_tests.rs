@@ -1,4 +1,4 @@
-//! Tests for the sibling mod module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for canonical simulation-tick orchestration.
 
 use super::*;
 use crate::content::{build_registries, make_test_registries_with_energy_store};
@@ -9,6 +9,7 @@ use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
     add_energy_store_with_initial_for_fixture,
 };
+use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::registry::Registries;
 use crate::survival::{Vitality, initialize_player_survival, player_record};
 
@@ -55,7 +56,7 @@ fn canonical_tick_applies_exact_passive_energy_dissipation() {
     )
     .unwrap_or_else(|error| panic!("passive-dissipation tick fixture failed: {error}"));
 
-    advance_tick(&registries, &mut state)
+    let _ = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("passive-dissipation tick failed: {error}"));
 
     assert_eq!(
@@ -81,6 +82,57 @@ fn clock_exhaustion_leaves_state_unchanged() {
         Err(TickError::ClockExhausted {
             current: SimulationTick::new(u64::MAX),
         })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn exhausted_survival_revision_reloaded_from_save_rejects_tick_atomically() {
+    let registries = build_registries();
+    let mut source = AppState::new(WorldSeed::new(0x5100_000A));
+    initialize_player_survival(&registries, &mut source)
+        .unwrap_or_else(|error| panic!("survival-revision fixture failed: {error}"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &source))
+        .unwrap_or_else(|error| panic!("survival-revision fixture serialization failed: {error}"));
+    encoded["state"]["systems"]["survival"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("survival-revision fixture decode failed: {error}"));
+    let mut state = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("exhausted survival revision should remain load-valid: {error}")
+    });
+    let before = state.clone();
+
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(TickError::SurvivalRevisionExhausted)
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn exhausted_energy_revision_reloaded_from_save_rejects_passive_tick_atomically() {
+    let registries = passive_dissipation_registries();
+    let mut source = AppState::new(WorldSeed::new(0x5100_000B));
+    let _store = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut source,
+        DISSIPATIVE_STORE,
+        Energy::from_nanojoules(5_000_000_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("energy-revision fixture failed: {error}"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &source))
+        .unwrap_or_else(|error| panic!("energy-revision fixture serialization failed: {error}"));
+    encoded["state"]["systems"]["energy"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("energy-revision fixture decode failed: {error}"));
+    let mut state = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("exhausted energy revision should remain load-valid: {error}")
+    });
+    let before = state.clone();
+
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(TickError::EnergyRevisionExhausted)
     );
     assert_eq!(state, before);
 }

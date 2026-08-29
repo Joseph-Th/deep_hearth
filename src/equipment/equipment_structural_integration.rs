@@ -1,4 +1,4 @@
-//! Equipment-to-structure support integration; equipment owns support assignment while structural state owns the resulting aggregate load and failure consequences.
+//! Coordinates equipment support assignments with structure-owned equipment loads.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -313,6 +313,7 @@ impl Error for EquipmentSupportCommitError {
 }
 
 /// Successful support change including any structural damage caused by the equipment load change.
+#[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EquipmentSupportOutcome {
     structural: StructuralMutationOutcome,
@@ -337,6 +338,7 @@ pub struct ValidatedEquipmentSupportChange {
     structural: ValidatedEquipmentStructuralChange,
 }
 
+#[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum ValidatedEquipmentStructuralChange {
     Single(ValidatedStructuralMutation),

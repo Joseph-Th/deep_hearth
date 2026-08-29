@@ -9,12 +9,13 @@ use crate::material::CommodityKey;
 use crate::registry::Registries;
 use crate::structural::{StructuralCommitError, StructuralElementId};
 
+use super::storage_validation::validate_stockpile_storage_profile;
 use super::{
     ConsumptionSelectionError, MaterialEgressError, MaterialLotId, StockpileEnclosureRecord,
-    StockpileId, StockpileStorageProfile, StockpileStoredMassChange, StockpileStructuralLoadError,
-    StorageDefinitionId, ValidatedMaterialEgress, ValidatedStockpileStructuralLoad,
-    apply_material_egress, validate_consumption_selection, validate_material_egress_from_selection,
-    validate_stockpile_stored_mass_changes,
+    StockpileId, StockpileStorageError, StockpileStorageProfile, StockpileStoredMassChange,
+    StockpileStructuralLoadError, StorageDefinitionId, ValidatedMaterialEgress,
+    ValidatedStockpileStructuralLoad, apply_material_egress, validate_consumption_selection,
+    validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
 };
 
 /// Failure while validating construction of one authored storage enclosure.
@@ -46,6 +47,10 @@ pub enum StorageEnclosureConstructionError {
         stockpile: StockpileId,
         current: StockpileStorageProfile,
         required: StockpileStorageProfile,
+    },
+    TargetContentsIncompatible {
+        lot: MaterialLotId,
+        error: StockpileStorageError,
     },
     StorageHistoryOverflow {
         lot: MaterialLotId,
@@ -118,6 +123,11 @@ impl Display for StorageEnclosureConstructionError {
                 "stockpile {} does not have the ambient solid-storage profile required for this enclosure",
                 stockpile.value()
             ),
+            Self::TargetContentsIncompatible { lot, error } => write!(
+                formatter,
+                "material lot {} is incompatible with the completed storage enclosure: {error}",
+                lot.value()
+            ),
             Self::StorageHistoryOverflow { lot } => write!(
                 formatter,
                 "material lot {} cannot checkpoint its existing storage exposure at construction time",
@@ -157,6 +167,7 @@ impl Display for StorageEnclosureConstructionError {
 impl Error for StorageEnclosureConstructionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::TargetContentsIncompatible { error, .. } => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::UnknownDefinition { .. }
             | Self::UnknownTarget { .. }
@@ -173,7 +184,7 @@ impl Error for StorageEnclosureConstructionError {
     }
 }
 
-/// Failure to commit a previously validated storage-enclosure construction.
+/// Failure to commit a validated storage-enclosure construction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StorageEnclosureCommitError {
     StaleInventoryRevision { expected: u64, actual: u64 },
@@ -321,7 +332,7 @@ pub fn validate_build_storage_enclosure(
             maximum: definition_record.maximum_stockpile_capacity(),
         });
     }
-    let required_profile = StockpileStorageProfile::solid_only();
+    let required_profile = StockpileStorageProfile::unbounded_solid_only();
     if target_record.storage_profile() != required_profile {
         return Err(
             StorageEnclosureConstructionError::TargetStorageProfileMismatch {
@@ -331,12 +342,25 @@ pub fn validate_build_storage_enclosure(
             },
         );
     }
+    let next_profile = definition_record.storage_profile();
     let source_preservation = required_profile.preservation_multiplier_ppm();
     for lot in state.inventory().lot_ids(target) {
         let record = state
             .inventory()
             .get_lot(lot)
             .unwrap_or_else(|| unreachable!("stockpile lot index references a live lot"));
+        validate_stockpile_storage_profile(
+            registries,
+            next_profile,
+            target,
+            record.commodity(),
+            record.composition(),
+            record.temperature(),
+            record.particle_size_distribution(),
+        )
+        .map_err(|error| {
+            StorageEnclosureConstructionError::TargetContentsIncompatible { lot, error }
+        })?;
         if record
             .storage_history()
             .rebase(state.tick(), source_preservation)
@@ -407,7 +431,7 @@ pub fn validate_build_storage_enclosure(
         expected_inventory_revision,
         next_inventory_revision,
         expected_profile: required_profile,
-        next_profile: definition_record.storage_profile(),
+        next_profile,
         enclosure: StockpileEnclosureRecord::new(
             definition,
             definition_record.assembly_profile().input_mass(),

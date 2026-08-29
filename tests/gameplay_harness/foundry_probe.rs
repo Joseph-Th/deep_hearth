@@ -93,8 +93,8 @@ pub(super) fn probe_setup(registries: &Registries, seed: u64) -> FoundrySetup {
         electrical_capacity >= required_electrical,
         "foundry electrical buffer must remain capable of the maintained full-batch contract"
     );
-    // The seed owns resource pressure so explicit replay recreates the same world regardless of
-    // runner role. Generated worlds span under- and over-provisioned electrical budgets.
+    // Seed-derived resource pressure keeps replay independent of runner role and spans
+    // under- and over-provisioned electrical budgets.
     let energy_budget_ppm = 400_000 + (mix64(seed ^ 0x454C_4543_4845_4147) % 950_001) as u32;
     let electrical_budget = Energy::from_nanojoules(
         required_electrical
@@ -110,9 +110,7 @@ pub(super) fn probe_setup(registries: &Registries, seed: u64) -> FoundrySetup {
         .map(|definition| definition.capacity())
         .unwrap_or_else(|| panic!("foundry probe thermal-sink definition disappeared"));
     // Existing heat competes with casting for finite sink capacity. A bimodal cool/saturated
-    // distribution keeps the probe focused on both unconstrained throughput and meaningful thermal
-    // recovery pressure. The maintained anchor falls in the cool bucket through the mixer; organic
-    // seeds commonly begin near saturation.
+    // distribution covers both unconstrained throughput and meaningful thermal-recovery pressure.
     let thermal_roll = mix64(seed ^ 0x5448_4552_4D53_494F);
     let thermal_pressure_ppm = if thermal_roll.is_multiple_of(5) {
         (thermal_roll % 250_001) as u32
@@ -517,7 +515,7 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
     // timing in the harness. The branch is created only after the cast choice has been resolved.
     let mut no_cast_baseline = state.clone();
     for _ in 0..cast_duration.value() {
-        advance_tick(registries, &mut no_cast_baseline).unwrap_or_else(|error| {
+        let _ = advance_tick(registries, &mut no_cast_baseline).unwrap_or_else(|error| {
             panic!("foundry no-cast thermal baseline tick failed: {error}")
         });
     }
@@ -622,7 +620,7 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
     let cooling_ticks = u64::try_from(cooling_ticks)
         .unwrap_or_else(|_| panic!("foundry thermal cooling duration exceeded tick range"));
     for _ in 0..cooling_ticks {
-        advance_tick(registries, &mut state)
+        let _ = advance_tick(registries, &mut state)
             .unwrap_or_else(|error| panic!("foundry thermal cooldown tick failed: {error}"));
     }
     let cooled_thermal = state

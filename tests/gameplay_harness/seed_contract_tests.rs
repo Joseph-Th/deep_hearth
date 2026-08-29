@@ -1,4 +1,4 @@
-//! Workshop-target tests for shared replay-seed parsing and focused-probe planning.
+//! Contract tests for replay-seed parsing and focused-probe planning.
 
 use super::focused_runner::probe_uses_actor_behavior;
 use super::focused_seeds::{

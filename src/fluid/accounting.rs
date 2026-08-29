@@ -1,4 +1,4 @@
-//! Read-only aggregate fluid-volume projection over sibling persistent fluid-store records.
+//! Recomputes aggregate fluid-volume ownership from persistent stores and consumed-fluid sinks.
 
 use std::collections::BTreeMap;
 use std::error::Error;

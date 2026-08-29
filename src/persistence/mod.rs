@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::registry::{Registries, RegistrySchemaVersion};
 
-/// Save schema currently emitted and accepted by this build.
+/// Save schema emitted and accepted by this build.
 pub const CURRENT_SAVE_SCHEMA_VERSION: u32 = 55;
 
 /// Borrowed versioned save payload suitable for any Serde encoding adapter.
@@ -37,6 +37,7 @@ impl<'state> SaveEnvelope<'state> {
 pub struct LoadedSaveEnvelope {
     schema_version: u32,
     registry_schema_version: RegistrySchemaVersion,
+    #[serde(deserialize_with = "crate::core::state::deserialize_unvalidated_app_state")]
     state: AppState,
 }
 

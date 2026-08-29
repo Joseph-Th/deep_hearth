@@ -1,4 +1,4 @@
-//! Tests for the sibling mod module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for typed capability definition and evaluation.
 
 use super::*;
 

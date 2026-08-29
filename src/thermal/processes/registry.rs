@@ -2,7 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use crate::capability::{CapabilityId, CapabilityRegistry, CapabilityValueKind};
+use crate::capability::{
+    CapabilityComparison, CapabilityId, CapabilityRegistry, CapabilityValueKind,
+};
 use crate::energy::EnergyCarrier;
 use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::material::{CommodityKey, MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy};
@@ -393,4 +395,26 @@ fn validate_common_thermal_references(
         "thermal process {} maximum-batch-mass capability must be Mass",
         process.value()
     );
+    for (capability, role) in [
+        (thermal_power_capability, "thermal-transfer-power"),
+        (max_temperature_capability, "maximum-temperature"),
+        (max_batch_mass_capability, "maximum-batch-mass"),
+    ] {
+        let requirement = process_definition
+            .get_capability_requirement(capability)
+            .unwrap_or_else(|| {
+                panic!(
+                    "thermal process {} must require its resolver-owned {role} capability {}",
+                    process.value(),
+                    capability.value()
+                )
+            });
+        assert_eq!(
+            requirement.comparison(),
+            CapabilityComparison::AtLeast,
+            "thermal process {} resolver-owned {role} capability {} must use AtLeast comparison",
+            process.value(),
+            capability.value()
+        );
+    }
 }

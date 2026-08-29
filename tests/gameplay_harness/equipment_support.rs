@@ -1,4 +1,4 @@
-//! Equipment capability lookup helpers shared by gameplay harnesses.
+//! Resolves authored equipment capabilities for gameplay-harness planning.
 
 use deep_hearth::capability::{CapabilityId, CapabilityValue};
 use deep_hearth::core::quantity::Mass;

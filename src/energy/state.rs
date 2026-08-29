@@ -1,4 +1,4 @@
-//! Persistent finite-energy ownership; child validation audits immutable references and runtime invariants.
+//! Owns persistent finite energy stores, embodied matter, identity, and revision state.
 
 use std::collections::BTreeMap;
 

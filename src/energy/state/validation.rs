@@ -1,4 +1,4 @@
-//! Persistent-state validation for energy; this child audits private owner data without exposing mutation.
+//! Validates persisted energy stores, embodied matter, authored references, and cursors.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -19,6 +19,7 @@ use super::{EnergyState, EnergyStoreId, EnergyStoreRecord};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EnergyValidationError {
     InvalidIdCursor,
+    ZeroStoreId,
     RecordKeyMismatch {
         key: EnergyStoreId,
         record: EnergyStoreId,
@@ -99,6 +100,7 @@ impl Display for EnergyValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidIdCursor => formatter.write_str("energy store ID cursor is invalid"),
+            Self::ZeroStoreId => formatter.write_str("energy store ID must be nonzero"),
             Self::RecordKeyMismatch { key, record } => write!(
                 formatter,
                 "energy store map key {} disagrees with record id {}",
@@ -260,12 +262,7 @@ fn validate_energy_store_record(
     record: &EnergyStoreRecord,
     current: SimulationTick,
 ) -> Result<(), EnergyValidationError> {
-    if key != record.id {
-        return Err(EnergyValidationError::RecordKeyMismatch {
-            key,
-            record: record.id,
-        });
-    }
+    validate_energy_store_identity(key, record.id)?;
     let Some(definition) = registry.get_store(record.definition) else {
         return Err(EnergyValidationError::UnknownDefinition {
             store: record.id,
@@ -286,6 +283,19 @@ fn validate_energy_store_record(
             created_at: record.created_at,
             current,
         });
+    }
+    Ok(())
+}
+
+fn validate_energy_store_identity(
+    key: EnergyStoreId,
+    record: EnergyStoreId,
+) -> Result<(), EnergyValidationError> {
+    if key.value() == 0 || record.value() == 0 {
+        return Err(EnergyValidationError::ZeroStoreId);
+    }
+    if key != record {
+        return Err(EnergyValidationError::RecordKeyMismatch { key, record });
     }
     Ok(())
 }
@@ -441,3 +451,7 @@ fn validate_embodied_totals(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "validation_tests.rs"]
+mod tests;

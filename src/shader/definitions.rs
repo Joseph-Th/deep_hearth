@@ -1,4 +1,4 @@
-//! Typed shader modules, bounded work profiles, and dependency validation used by sibling assembly.
+//! Defines typed shader modules, dependencies, pipeline requirements, and bounded work profiles.
 
 use std::collections::{BTreeMap, BTreeSet};
 

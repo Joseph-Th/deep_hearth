@@ -33,6 +33,7 @@ impl ExpectedMiningIndexes {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MiningValidationError {
     InvalidIdCursor,
+    ZeroJobId,
     JobIdMismatch {
         key: MiningJobId,
         record: MiningJobId,
@@ -74,6 +75,7 @@ impl Display for MiningValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidIdCursor => formatter.write_str("mining job identifier cursor is invalid"),
+            Self::ZeroJobId => formatter.write_str("mining job ID must be nonzero"),
             Self::JobIdMismatch { key, record } => write!(
                 formatter,
                 "mining job map key {} disagrees with record id {}",
@@ -186,17 +188,26 @@ fn validate_mining_job_identity(
     key: MiningJobId,
     job: &MiningJobRecord,
 ) -> Result<(), MiningValidationError> {
-    if key != job.id() {
-        return Err(MiningValidationError::JobIdMismatch {
-            key,
-            record: job.id(),
-        });
-    }
-    if job.id().value() >= state.next_job_id {
-        return Err(MiningValidationError::JobIdBeyondCursor { job: job.id() });
-    }
+    validate_mining_job_id(state.next_job_id, key, job.id())?;
     if job.output().mass().is_zero() {
         return Err(MiningValidationError::ZeroOutputMass { job: job.id() });
+    }
+    Ok(())
+}
+
+fn validate_mining_job_id(
+    next_job_id: u64,
+    key: MiningJobId,
+    record: MiningJobId,
+) -> Result<(), MiningValidationError> {
+    if key.value() == 0 || record.value() == 0 {
+        return Err(MiningValidationError::ZeroJobId);
+    }
+    if key != record {
+        return Err(MiningValidationError::JobIdMismatch { key, record });
+    }
+    if record.value() >= next_job_id {
+        return Err(MiningValidationError::JobIdBeyondCursor { job: record });
     }
     Ok(())
 }
@@ -221,6 +232,10 @@ fn validate_mining_job_schedule(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "validation_tests.rs"]
+mod tests;
 
 fn validate_working_mining_job(
     job: &MiningJobRecord,

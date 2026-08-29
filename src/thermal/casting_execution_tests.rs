@@ -1,4 +1,4 @@
-//! Tests for the sibling casting execution module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for casting execution and persistence.
 
 use super::*;
 use crate::capability::{

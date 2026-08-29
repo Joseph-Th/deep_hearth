@@ -1,4 +1,4 @@
-//! Tests for the sibling disassembly execution module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for equipment disassembly and recovery.
 
 use super::*;
 use crate::content::{

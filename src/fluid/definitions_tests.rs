@@ -1,4 +1,4 @@
-//! Tests for fluid-definition identity invariants that must fail during registry assembly.
+//! Contract tests for fluid-definition identity invariants enforced at registry assembly.
 
 use super::*;
 use crate::content::MATERIAL_WATER;

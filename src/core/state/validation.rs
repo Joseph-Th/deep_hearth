@@ -1,5 +1,4 @@
-//! Persistent-state validation for root runtime; child audits reconcile private owners without
-//! exposing mutation.
+//! Performs exhaustive trusted-load validation across the root runtime graph.
 
 use crate::energy::validate_loaded_energy;
 use crate::equipment::validate_loaded_equipment;

@@ -1,15 +1,12 @@
-//! External starting-state boundary for the gameplay exercise.
+//! Controlled starting-state construction for gameplay evaluation.
 //!
-//! Deep Hearth does not yet own general world acquisition for loose matter or potable fluid, broad
-//! structural construction/haulage, or generation/acquisition for every industrial energy carrier.
-//! Primitive energy-store assembly and survival-costed manual generation are real gameplay and must
-//! use their canonical runtime paths when a probe exercises them. The harness may arrange only the
-//! remaining unavailable starting facts before the acting policy starts. Keep every direct
-//! bootstrap-only mutation in this module so the exercise itself cannot accidentally treat a fixture
-//! shortcut as player behavior.
+//! General loose-matter/fluid acquisition, broad construction/haulage, and acquisition for every
+//! industrial energy carrier are outside current runtime scope. This module may establish only those
+//! unavailable prerequisites before actor admission. Reachable mechanics, including primitive
+//! energy-store assembly and survival-costed manual generation, use their canonical runtime paths.
 //!
-//! Once setup returns, gameplay code must use the same runtime resolvers, validators, commits, and
-//! simulation ticks as the game core.
+//! After setup, gameplay evaluation uses production resolvers, validators, commits, and simulation
+//! ticks. Setup-only mutation stays in this module so fixture authority cannot become actor authority.
 
 use crate::core::quantity::{Energy, Mass, Pressure, Temperature, Volume};
 use crate::core::state::{AppState, apply_clock_advance};
@@ -19,19 +16,20 @@ use crate::energy::{
 };
 use crate::equipment::{EquipmentDefinitionId, EquipmentId, add_equipment};
 use crate::fluid::{FluidDefinitionId, FluidStoreId, add_fluid_store_with_contents_for_fixture};
-use crate::geology::{GeneratedDepositSpec, GeologicalDepositId, insert_generated_deposit};
+use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
 use crate::inventory::{
     MaterialLotId, MaterialLotSelection, MaterialTransferResolution, StockpileId,
     StockpileStorageProfile, add_stockpile, deposit_composed_lot_for_fixture,
     deposit_lot_for_fixture,
 };
 use crate::maintenance::Condition;
-use crate::material::{CommodityKey, FormId, MaterialComposition};
+use crate::material::{CommodityKey, FormId, MaterialComposition, MaterialId};
 use crate::registry::Registries;
 use crate::spatial::VoxelBounds;
 use crate::structural::{
-    StructuralElementId, bind_structural_construction_selection,
-    resolve_structural_material_requirement, validate_structural_construction,
+    StructuralElementGeometry, StructuralElementId, StructuralProfileId, add_structural_element,
+    bind_structural_construction_selection, resolve_structural_material_requirement,
+    validate_activate_structural_element, validate_structural_construction,
 };
 use crate::survival::{
     initialize_player_survival_at_hunger_warning_for_fixture,
@@ -51,7 +49,7 @@ pub fn seed_player_survival_at_hydration_warning(registries: &Registries, state:
 /// Advances setup-only world age without executing gameplay systems.
 ///
 /// Use this only to represent material or infrastructure that already existed before the acting
-/// episode begins. The helper requires an uninitialized player so setup cannot erase survival cost
+/// episode begins. This setup path requires an uninitialized player so it cannot erase survival cost
 /// or skip active player work. Once the player is initialized, time must advance through canonical
 /// simulation ticks.
 pub fn seed_preexisting_world_age(state: &mut AppState, tick: SimulationTick) {
@@ -124,15 +122,59 @@ pub fn seed_fluid_store(
     .unwrap_or_else(|error| panic!("gameplay bootstrap fluid seed failed: {error}"))
 }
 
-pub fn geological_deposit_spec(
+/// Inert authored facts for one geological deposit used only by the controlled gameplay fixture.
+///
+/// This value is not a generation authorization. The crate-private `GeneratedDepositSpec` remains
+/// the validating authority created only inside [`seed_geological_deposit`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GeologicalDepositSeed {
     bounds: VoxelBounds,
     commodity: CommodityKey,
     mass: Mass,
     temperature: Temperature,
     excavation_hardness: Pressure,
     composition: MaterialComposition,
-) -> GeneratedDepositSpec {
-    GeneratedDepositSpec::new(
+}
+
+impl GeologicalDepositSeed {
+    #[must_use]
+    pub const fn new(
+        bounds: VoxelBounds,
+        commodity: CommodityKey,
+        mass: Mass,
+        temperature: Temperature,
+        excavation_hardness: Pressure,
+        composition: MaterialComposition,
+    ) -> Self {
+        Self {
+            bounds,
+            commodity,
+            mass,
+            temperature,
+            excavation_hardness,
+            composition,
+        }
+    }
+}
+
+/// Seeds one pre-existing geological deposit through the crate-owned generation boundary.
+///
+/// The harness supplies only authored physical facts. The internal generation specification and its
+/// validator remain crate-private; this function is the external controlled-setup mutation boundary.
+pub fn seed_geological_deposit(
+    registries: &Registries,
+    state: &mut AppState,
+    seed: GeologicalDepositSeed,
+) {
+    let GeologicalDepositSeed {
+        bounds,
+        commodity,
+        mass,
+        temperature,
+        excavation_hardness,
+        composition,
+    } = seed;
+    let spec = GeneratedDepositSpec::new(
         bounds,
         commodity,
         mass,
@@ -140,16 +182,9 @@ pub fn geological_deposit_spec(
         excavation_hardness,
         composition,
     )
-    .unwrap_or_else(|error| panic!("gameplay bootstrap geological specification failed: {error}"))
-}
-
-pub fn seed_geological_deposit(
-    registries: &Registries,
-    state: &mut AppState,
-    spec: GeneratedDepositSpec,
-) -> GeologicalDepositId {
-    insert_generated_deposit(registries, state, spec)
-        .unwrap_or_else(|error| panic!("gameplay bootstrap geological deposit failed: {error}"))
+    .unwrap_or_else(|error| panic!("gameplay bootstrap geological specification failed: {error}"));
+    let _deposit = insert_generated_deposit(registries, state, spec)
+        .unwrap_or_else(|error| panic!("gameplay bootstrap geological deposit failed: {error}"));
 }
 
 pub fn seed_lot(
@@ -200,7 +235,7 @@ pub const fn authorize_controlled_material_delivery(
     MaterialTransferResolution::new(source, destination, commodity, mass)
 }
 
-pub fn materialize_structure(
+fn materialize_structure(
     registries: &Registries,
     state: &mut AppState,
     element: StructuralElementId,
@@ -209,7 +244,7 @@ pub fn materialize_structure(
     let requirement = resolve_structural_material_requirement(registries, state, element)
         .unwrap_or_else(|error| panic!("gameplay bootstrap material requirement failed: {error}"));
     let mass = requirement.required_mass();
-    let source = seed_stockpile(state, mass, StockpileStorageProfile::solid_only());
+    let source = seed_stockpile(state, mass, StockpileStorageProfile::unbounded_solid_only());
     let commodity = CommodityKey::new(requirement.material(), form);
     let lot = deposit_lot_for_fixture(
         registries,
@@ -233,4 +268,28 @@ pub fn materialize_structure(
         })
         .commit(state)
         .unwrap_or_else(|error| panic!("gameplay bootstrap construction commit failed: {error}"));
+}
+
+/// Creates, materializes, and activates one grounded structural member during controlled setup.
+///
+/// The low-level structural allocation and activation operations remain crate-private so the gameplay
+/// harness cannot use them after actor admission. This fixture is the external setup boundary.
+pub fn seed_grounded_active_structure(
+    registries: &Registries,
+    state: &mut AppState,
+    profile: StructuralProfileId,
+    material: MaterialId,
+    geometry: StructuralElementGeometry,
+    form: FormId,
+) -> StructuralElementId {
+    let element = add_structural_element(registries, state, profile, material, geometry, true)
+        .unwrap_or_else(|error| panic!("gameplay bootstrap structural allocation failed: {error}"));
+    materialize_structure(registries, state, element, form);
+    let _ = validate_activate_structural_element(registries, state, element)
+        .unwrap_or_else(|error| panic!("gameplay bootstrap structural activation failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| {
+            panic!("gameplay bootstrap structural activation commit failed: {error}")
+        });
+    element
 }

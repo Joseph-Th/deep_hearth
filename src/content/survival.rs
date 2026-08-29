@@ -1,12 +1,12 @@
 //! Built-in physiology and primitive edible/drinkable content.
 
-use crate::core::quantity::{Energy, MassSpecificEnergy, Temperature, Volume};
+use crate::core::quantity::{Energy, Mass, MassSpecificEnergy, Temperature, Volume};
 use crate::core::time::TickSpan;
 use crate::material::CommodityKey;
 use crate::survival::{
-    ConsumptionTemperatureRange, DrinkDefinition, FoodCategory, FoodDefinition,
-    HydrationDefinition, MetabolismDefinition, NutritionDefinition, PhysiologyDefinition,
-    SurvivalRegistry,
+    ConsumptionTemperatureRange, DirectConsumptionDefinition, DrinkDefinition, FoodCategory,
+    FoodDefinition, HydrationDefinition, MetabolismDefinition, NutritionDefinition,
+    PhysiologyDefinition, SurvivalRegistry,
 };
 
 use super::{
@@ -37,6 +37,12 @@ fn physiology() -> PhysiologyDefinition {
             Volume::from_microliters(125),
         ),
         NutritionDefinition::new(5, 10),
+        DirectConsumptionDefinition::new(
+            Mass::from_milligrams(1_000_000),
+            TickSpan::new(100),
+            Volume::from_microliters(1_250_000),
+            TickSpan::new(30),
+        ),
         25,
         50,
     )

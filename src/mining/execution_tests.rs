@@ -1,4 +1,4 @@
-//! Tests for the sibling execution module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for mining admission, lifecycle, and claim.
 
 use super::*;
 use crate::content::{
@@ -105,7 +105,7 @@ fn active_stockpile_support(registries: &Registries, state: &mut AppState) -> St
     )
     .unwrap_or_else(|error| panic!("mining support allocation failed: {error}"));
     materialize_structural_element_for_test(registries, state, support, FORM_LOG);
-    validate_activate_structural_element(registries, state, support)
+    let _ = validate_activate_structural_element(registries, state, support)
         .unwrap_or_else(|error| panic!("mining support activation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("mining support activation commit failed: {error}"));
@@ -142,6 +142,203 @@ fn validate_known_mining(
         equipment,
         mass,
     )
+}
+
+fn unstarted_mining_fixture() -> (
+    Registries,
+    AppState,
+    GeologicalDepositId,
+    StockpileId,
+    EquipmentId,
+) {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_E001));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("mining exhaustion survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+        .unwrap_or_else(|error| panic!("mining exhaustion destination failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("mining exhaustion deposit failed: {error}"));
+    (registries, state, deposit, destination, pick)
+}
+
+fn ready_mining_claim_fixture() -> (Registries, AppState, MiningJobId) {
+    let (registries, mut state, deposit, destination, pick) = unstarted_mining_fixture();
+    let job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("mining claim exhaustion start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("mining claim exhaustion start commit failed: {error}"));
+    let record = state
+        .mining()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("mining claim exhaustion job disappeared after start"));
+    let duration = record.completes_at().value() - record.started_at().value();
+    for _ in 0..duration {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("mining claim exhaustion completion failed: {error}"));
+    }
+    assert!(
+        state
+            .mining()
+            .get_job(job)
+            .is_some_and(MiningJobRecord::is_ready_to_claim)
+    );
+    (registries, state, job)
+}
+
+#[test]
+fn mining_start_rejects_exhausted_job_id_without_claiming_work() {
+    let (registries, state, deposit, destination, pick) = unstarted_mining_fixture();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("mining job-id exhaustion serialization failed: {error}"));
+    encoded["state"]["systems"]["mining"]["next_job_id"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("mining job-id exhaustion decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("mining job-id exhaustion fixture should load: {error}"));
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_known_mining(
+            &registries,
+            &loaded,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        )
+        .err(),
+        Some(MiningStartError::MiningIdExhausted)
+    );
+    assert_eq!(loaded, before);
+    assert_eq!(loaded.player_work().active(), None);
+}
+
+#[test]
+fn mining_start_rejects_exhausted_mining_revision_without_claiming_work() {
+    let (registries, state, deposit, destination, pick) = unstarted_mining_fixture();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("mining revision exhaustion serialization failed: {error}"));
+    encoded["state"]["systems"]["mining"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("mining revision exhaustion decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("mining revision exhaustion fixture should load: {error}"));
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_known_mining(
+            &registries,
+            &loaded,
+            MINING_METHOD_HAND_PICK,
+            deposit,
+            destination,
+            pick,
+            Mass::from_milligrams(100_000),
+        )
+        .err(),
+        Some(MiningStartError::MiningRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+    assert_eq!(loaded.player_work().active(), None);
+}
+
+#[test]
+fn mining_claim_rejects_exhausted_lot_id_without_releasing_pending_output() {
+    let (registries, state, job) = ready_mining_claim_fixture();
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("mining claim lot-id exhaustion serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["inventory"]["next_lot_id"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("mining claim lot-id exhaustion decode failed: {error}"));
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("mining claim lot-id exhaustion fixture should load: {error}")
+    });
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_claim_mining_output(&registries, &loaded, job).err(),
+        Some(MiningClaimError::LotIdExhausted)
+    );
+    assert_eq!(loaded, before);
+    assert!(
+        loaded
+            .mining()
+            .get_job(job)
+            .is_some_and(MiningJobRecord::is_ready_to_claim)
+    );
+}
+
+#[test]
+fn mining_claim_rejects_exhausted_inventory_revision_without_releasing_pending_output() {
+    let (registries, state, job) = ready_mining_claim_fixture();
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("mining claim inventory revision exhaustion serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["inventory"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap_or_else(|error| {
+        panic!("mining claim inventory revision exhaustion decode failed: {error}")
+    });
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("mining claim inventory revision exhaustion fixture should load: {error}")
+    });
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_claim_mining_output(&registries, &loaded, job).err(),
+        Some(MiningClaimError::InventoryRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+    assert!(
+        loaded
+            .mining()
+            .get_job(job)
+            .is_some_and(MiningJobRecord::is_ready_to_claim)
+    );
+}
+
+#[test]
+fn mining_claim_rejects_exhausted_mining_revision_without_releasing_pending_output() {
+    let (registries, state, job) = ready_mining_claim_fixture();
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("mining claim mining revision exhaustion serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["mining"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap_or_else(|error| {
+        panic!("mining claim mining revision exhaustion decode failed: {error}")
+    });
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("mining claim mining revision exhaustion fixture should load: {error}")
+    });
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_claim_mining_output(&registries, &loaded, job).err(),
+        Some(MiningClaimError::MiningRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+    assert!(
+        loaded
+            .mining()
+            .get_job(job)
+            .is_some_and(MiningJobRecord::is_ready_to_claim)
+    );
 }
 
 #[test]
@@ -503,6 +700,49 @@ fn loaded_mining_state_rejects_job_map_key_identity_mismatch() {
 }
 
 #[test]
+fn loaded_mining_state_rejects_equipment_double_booking_after_index_rebuild() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_0025));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("mining double-book survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(200_000))
+        .unwrap_or_else(|error| panic!("mining double-book destination failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("mining double-book deposit failed: {error}"));
+    let job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        pick,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap_or_else(|error| panic!("mining double-book start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("mining double-book commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("mining double-book serialization failed: {error}"));
+    let second_job = job.value() + 1;
+    let mut duplicated =
+        encoded["state"]["systems"]["mining"]["jobs"][job.value().to_string()].clone();
+    duplicated["identity"]["id"] = serde_json::json!(second_job);
+    encoded["state"]["systems"]["mining"]["jobs"][second_job.to_string()] = duplicated;
+    encoded["state"]["systems"]["mining"]["next_job_id"] = serde_json::json!(second_job + 1);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("mining double-book tamper decode failed: {error}"));
+
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Mining(
+            MiningValidationError::EquipmentDoubleBooked { equipment: pick }
+        )))
+    );
+}
+
+#[test]
 fn deposit_excavation_hardness_is_independent_of_assay_composition() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xA11E_000A));
@@ -590,7 +830,7 @@ fn ready_mining_job_keeps_historical_tool_physics_after_tool_upgrade() {
         .map(|record| record.completes_at().value() - record.started_at().value())
         .unwrap_or_else(|| panic!("mining trace job disappeared"));
     for _ in 0..duration {
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("mining trace completion failed: {error}"));
     }
     assert!(
@@ -723,7 +963,7 @@ fn loaded_ready_mining_job_reconstructs_authored_duration() {
         record.completes_at().value() - record.started_at().value(),
     );
     for _ in 0..required.value() {
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("mining duration-audit completion failed: {error}"));
     }
     let ready = state
@@ -1160,7 +1400,7 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("mining knapping commit failed: {error}"));
     for _ in 0..40 {
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("mining knapping tick failed: {error}"));
     }
     validate_start_manual_craft(
@@ -1172,7 +1412,7 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("mining handle shaping commit failed: {error}"));
     for _ in 0..40 {
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("mining handle shaping tick failed: {error}"));
     }
 
@@ -1418,7 +1658,7 @@ fn ready_mining_output_waits_for_destination_support_recovery() {
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
         .unwrap_or_else(|error| panic!("mining support-recovery destination failed: {error}"));
     let support = active_stockpile_support(&registries, &mut state);
-    validate_mount_stockpile(&registries, &state, destination, support)
+    let _ = validate_mount_stockpile(&registries, &state, destination, support)
         .unwrap_or_else(|error| panic!("mining support-recovery mount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("mining support-recovery mount commit failed: {error}"));
@@ -1447,7 +1687,7 @@ fn ready_mining_output_waits_for_destination_support_recovery() {
         })
         .unwrap_or_else(|| panic!("mining support-recovery duration was invalid"));
     for _ in 0..duration {
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("mining support-recovery work tick failed: {error}"));
     }
     assert!(
@@ -1457,7 +1697,7 @@ fn ready_mining_output_waits_for_destination_support_recovery() {
             .is_some_and(MiningJobRecord::is_ready_to_claim)
     );
 
-    validate_set_structural_load(
+    let _ = validate_set_structural_load(
         &registries,
         &state,
         support,
@@ -1487,7 +1727,7 @@ fn ready_mining_output_waits_for_destination_support_recovery() {
     ));
     assert_eq!(state, blocked);
 
-    validate_unmount_stockpile(&registries, &state, destination)
+    let _ = validate_unmount_stockpile(&registries, &state, destination)
         .unwrap_or_else(|error| panic!("mining support-recovery unmount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("mining support-recovery unmount commit failed: {error}"));
@@ -1560,7 +1800,7 @@ fn run_mining_soak(seed: WorldSeed) -> AppState {
             .unwrap_or_else(|| panic!("mining soak duration underflowed at step {step}"));
         assert!(duration > 0);
         for _ in 0..duration {
-            advance_tick(&registries, &mut state)
+            let _ = advance_tick(&registries, &mut state)
                 .unwrap_or_else(|error| panic!("mining soak tick failed at step {step}: {error}"));
         }
         validate_claim_mining_output(&registries, &state, job)

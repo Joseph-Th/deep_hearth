@@ -1,4 +1,4 @@
-//! Tests for the sibling equipment structural integration module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for equipment-owned structural loads.
 
 use super::*;
 use crate::capability::{
@@ -125,7 +125,7 @@ fn multiple_equipment_records_aggregate_one_structural_load_without_rounding_per
         Ok(token) => token,
         Err(error) => panic!("first equipment mount validation failed: {error}"),
     };
-    commit_support(first_mount, &mut state);
+    let _ = commit_support(first_mount, &mut state);
     assert_eq!(
         state
             .structures()
@@ -138,7 +138,7 @@ fn multiple_equipment_records_aggregate_one_structural_load_without_rounding_per
         Ok(token) => token,
         Err(error) => panic!("second equipment mount validation failed: {error}"),
     };
-    commit_support(second_mount, &mut state);
+    let _ = commit_support(second_mount, &mut state);
     assert_eq!(
         state
             .structures()
@@ -152,7 +152,7 @@ fn multiple_equipment_records_aggregate_one_structural_load_without_rounding_per
         Ok(token) => token,
         Err(error) => panic!("first equipment unmount validation failed: {error}"),
     };
-    commit_support(first_unmount, &mut state);
+    let _ = commit_support(first_unmount, &mut state);
     assert_eq!(
         state
             .structures()
@@ -165,7 +165,7 @@ fn multiple_equipment_records_aggregate_one_structural_load_without_rounding_per
         Ok(token) => token,
         Err(error) => panic!("second equipment unmount validation failed: {error}"),
     };
-    commit_support(second_unmount, &mut state);
+    let _ = commit_support(second_unmount, &mut state);
     assert_eq!(
         state
             .structures()
@@ -194,7 +194,7 @@ fn relocation_remains_revision_bound_when_force_rounding_hides_both_load_deltas(
     ] {
         let mount = validate_mount_equipment(&registries, &state, equipment, support)
             .unwrap_or_else(|error| panic!("rounding relocation mount failed: {error}"));
-        commit_support(mount, &mut state);
+        let _ = commit_support(mount, &mut state);
     }
     let source_load = state
         .structures()
@@ -212,7 +212,7 @@ fn relocation_remains_revision_bound_when_force_rounding_hides_both_load_deltas(
 
     let relocation = validate_relocate_equipment(&registries, &state, moved, target)
         .unwrap_or_else(|error| panic!("rounding relocation validation failed: {error}"));
-    commit_support(relocation, &mut state);
+    let _ = commit_support(relocation, &mut state);
 
     assert_eq!(state.structures().revision(), structural_revision + 1);
     assert_eq!(
@@ -250,7 +250,7 @@ fn relocation_moves_equipment_and_structural_load_as_one_transaction() {
     let equipment = add_test_equipment(&registries, &mut state);
     let mount = validate_mount_equipment(&registries, &state, equipment, source)
         .unwrap_or_else(|error| panic!("relocation source mount failed: {error}"));
-    commit_support(mount, &mut state);
+    let _ = commit_support(mount, &mut state);
     let source_load = state
         .structures()
         .get_element(source)
@@ -266,7 +266,7 @@ fn relocation_moves_equipment_and_structural_load_as_one_transaction() {
             .iter()
             .any(|assessment| assessment.element() == target)
     );
-    commit_support(relocation, &mut state);
+    let _ = commit_support(relocation, &mut state);
 
     assert_eq!(
         state
@@ -303,7 +303,7 @@ fn stale_relocation_leaves_equipment_on_original_support() {
     let equipment = add_test_equipment(&registries, &mut state);
     let mount = validate_mount_equipment(&registries, &state, equipment, source)
         .unwrap_or_else(|error| panic!("stale relocation source mount failed: {error}"));
-    commit_support(mount, &mut state);
+    let _ = commit_support(mount, &mut state);
     let relocation = validate_relocate_equipment(&registries, &state, equipment, target)
         .unwrap_or_else(|error| panic!("stale relocation validation failed: {error}"));
 
@@ -315,7 +315,8 @@ fn stale_relocation_leaves_equipment_on_original_support() {
         Force::from_millinewtons(1),
     )
     .unwrap_or_else(|error| panic!("stale relocation structure mutation failed: {error}"));
-    snow.commit(&mut state)
+    let _ = snow
+        .commit(&mut state)
         .unwrap_or_else(|error| panic!("stale relocation structure commit failed: {error}"));
 
     assert!(matches!(
@@ -410,7 +411,7 @@ fn failed_support_can_be_unloaded_without_resurrecting_it() {
         Ok(token) => token,
         Err(error) => panic!("failing equipment mount validation failed: {error}"),
     };
-    commit_support(mount, &mut state);
+    let _ = commit_support(mount, &mut state);
     assert_eq!(
         state
             .structures()
@@ -423,7 +424,7 @@ fn failed_support_can_be_unloaded_without_resurrecting_it() {
         Ok(token) => token,
         Err(error) => panic!("failed-support unmount validation failed: {error}"),
     };
-    commit_support(unmount, &mut state);
+    let _ = commit_support(unmount, &mut state);
     let record = match state.structures().get_element(member) {
         Some(record) => record,
         None => panic!("failed support disappeared while unloading"),

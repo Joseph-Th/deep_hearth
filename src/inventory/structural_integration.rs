@@ -1,4 +1,4 @@
-//! Stockpile-to-structure support integration; inventory owns support assignment while structural state owns the resulting aggregate stockpile-matter load.
+//! Coordinates stockpile support assignments with structure-owned stored-matter loads.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
@@ -562,6 +562,7 @@ impl Error for StockpileSupportCommitError {
 }
 
 /// Successful support assignment change plus any resulting structural damage.
+#[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StockpileSupportOutcome {
     structural: Option<StructuralMutationOutcome>,

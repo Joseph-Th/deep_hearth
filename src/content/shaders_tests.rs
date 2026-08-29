@@ -1,4 +1,4 @@
-//! Tests for the sibling shaders module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for built-in shader content.
 
 use super::*;
 use crate::shader::ShaderProgramKind;

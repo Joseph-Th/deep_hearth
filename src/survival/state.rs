@@ -1,4 +1,4 @@
-//! Persistent player survival state; mutation is owned by sibling survival transactions.
+//! Owns persistent player survival state and terminal consumption accounting.
 
 use std::collections::BTreeMap;
 

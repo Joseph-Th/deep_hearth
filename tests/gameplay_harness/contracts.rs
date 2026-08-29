@@ -1,8 +1,7 @@
-//! Gameplay-harness execution contracts and intentionally small maintained-seed diversity checks.
+//! Enforces gameplay-harness execution invariants and actor-policy coverage.
 //!
-//! Physical outcomes such as support failure, relocation, maintenance pressure, and work-order
-//! completion are observations, not frozen balance requirements. Hard failures stay focused on
-//! canonical execution and stable maintained-input contracts.
+//! Physical outcomes are observations unless an explicit regression contract fixes them. Hard
+//! failures target canonical execution and stable required-input contracts.
 
 use super::configuration::MaintainedAnchor;
 use super::report::{

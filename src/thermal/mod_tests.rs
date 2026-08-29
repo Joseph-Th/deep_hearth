@@ -1,4 +1,4 @@
-//! Tests for the sibling mod module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for thermal calculations and registry behavior.
 
 use super::*;
 use crate::content::{MATERIAL_COPPER, MATERIAL_SLAG, build_registries};

@@ -1,4 +1,4 @@
-//! Tests for the sibling selection module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for exact inventory selection.
 
 use super::*;
 use crate::content::{FORM_LOG, MATERIAL_STONE, MATERIAL_WOOD, build_registries};

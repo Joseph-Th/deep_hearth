@@ -13,7 +13,7 @@ use super::report::{
 use super::scenario::ScenarioVariation;
 use super::seed::{MAINTAINED_VARIATION_ROOT, mix64};
 use super::seed_input::parse_seed;
-use super::workshop::run_scenario;
+use super::workshop::{run_scenario, run_scenario_with_observation_horizon};
 use deep_hearth::content::build_registries;
 use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::registry::Registries;
@@ -123,6 +123,7 @@ struct AgencyPathSignature {
     small_drive_remaining: Energy,
     large_drive_remaining: Energy,
     maintenance_stock_remaining: Mass,
+    episode_end_tick: u64,
     elapsed_ticks: u64,
     metabolic_energy_spent: Energy,
     manual_power_metabolic_energy: Energy,
@@ -146,6 +147,7 @@ impl AgencyPathSignature {
             small_drive_remaining: report.resources.small_drive_remaining,
             large_drive_remaining: report.resources.large_drive_remaining,
             maintenance_stock_remaining: report.resources.maintenance_stock_remaining,
+            episode_end_tick: report.resources.episode_end_tick,
             elapsed_ticks: report.resources.elapsed_ticks,
             metabolic_energy_spent: report.resources.metabolic_energy_spent,
             manual_power_metabolic_energy: report.resources.manual_power_metabolic_energy,
@@ -158,7 +160,7 @@ fn power_counterfactual_changed(baseline: &ScenarioReport, variant: &ScenarioRep
         || baseline.choices.large_drive_batches != variant.choices.large_drive_batches
         || baseline.resources.small_drive_remaining != variant.resources.small_drive_remaining
         || baseline.resources.large_drive_remaining != variant.resources.large_drive_remaining
-        || baseline.resources.elapsed_ticks != variant.resources.elapsed_ticks
+        || baseline.resources.episode_end_tick != variant.resources.episode_end_tick
 }
 
 fn agency_report(
@@ -195,7 +197,7 @@ fn maintenance_counterfactual_changed(baseline: &ScenarioReport, variant: &Scena
     baseline.maintenance.services != variant.maintenance.services
         || baseline.maintenance.replacement_spent != variant.maintenance.replacement_spent
         || baseline.resources.final_condition_ppm != variant.resources.final_condition_ppm
-        || baseline.resources.elapsed_ticks != variant.resources.elapsed_ticks
+        || baseline.resources.episode_end_tick != variant.resources.episode_end_tick
         || baseline.progress.processed_mass != variant.progress.processed_mass
 }
 
@@ -205,7 +207,7 @@ fn structure_counterfactual_changed(baseline: &ScenarioReport, variant: &Scenari
         || baseline.structure.structural_stop != variant.structure.structural_stop
         || baseline.structure.production_suspension != variant.structure.production_suspension
         || baseline.progress.processed_mass != variant.progress.processed_mass
-        || baseline.resources.elapsed_ticks != variant.resources.elapsed_ticks
+        || baseline.resources.episode_end_tick != variant.resources.episode_end_tick
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -300,7 +302,7 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
         let focus = world.focus.label();
         let world_seed = world.world_seed;
         let behavior_seed = mix64(world_seed ^ 0xA63E_4E43_5900_0001);
-        let mut reports = Vec::with_capacity(policies.len());
+        let mut preliminary_reports = Vec::with_capacity(policies.len());
         for (variant, policy) in policies {
             let mut variation =
                 ScenarioVariation::from_seeds(registries, world_seed, behavior_seed, world.anchor);
@@ -314,13 +316,66 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
                 report.behavior_seed, behavior_seed,
                 "agency counterfactual must preserve the matched behavior seed"
             );
+            preliminary_reports.push((variant, report));
+        }
+        let comparison_horizon = preliminary_reports
+            .iter()
+            .map(|(_, report)| report.resources.episode_end_tick)
+            .max()
+            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        let matched_inputs = preliminary_reports
+            .first()
+            .map(|(_, report)| report.inputs)
+            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        assert!(
+            preliminary_reports
+                .iter()
+                .all(|(_, report)| report.inputs == matched_inputs),
+            "agency policy variants must preserve the same physical setup and controlled-event schedule"
+        );
+
+        let mut reports = Vec::with_capacity(policies.len());
+        for (variant, policy) in policies {
+            let mut variation =
+                ScenarioVariation::from_seeds(registries, world_seed, behavior_seed, world.anchor);
+            variation.policy = policy;
+            let report =
+                run_scenario_with_observation_horizon(registries, variation, comparison_horizon);
+            assert_eq!(
+                report.inputs, matched_inputs,
+                "agency counterfactual rerun must preserve the matched physical setup"
+            );
+            assert_eq!(
+                report.resources.elapsed_ticks, comparison_horizon,
+                "agency counterfactual branches must use one policy-independent observation horizon"
+            );
             reports.push((variant, report));
         }
+        let initial_support_choice = reports
+            .first()
+            .map(|(_, report)| report.choices.chose_compact_support)
+            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        assert!(
+            reports
+                .iter()
+                .all(|(_, report)| report.choices.chose_compact_support == initial_support_choice),
+            "one-factor agency policies must not alter the policy-independent initial structural choice"
+        );
 
         let processed_min = reports
             .iter()
             .map(|(_, report)| report.progress.processed_mass.milligrams())
             .min()
+            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        let episode_end_min = reports
+            .iter()
+            .map(|(_, report)| report.resources.episode_end_tick)
+            .min()
+            .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        let episode_end_max = reports
+            .iter()
+            .map(|(_, report)| report.resources.episode_end_tick)
+            .max()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
         let processed_max = reports
             .iter()
@@ -395,6 +450,8 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
             .map(|(_, report)| report.resources.elapsed_ticks)
             .max()
             .unwrap_or_else(|| unreachable!("agency probe policy set is nonempty"));
+        assert_eq!(elapsed_min, comparison_horizon);
+        assert_eq!(elapsed_max, comparison_horizon);
         let survival_energy_min = reports
             .iter()
             .map(|(_, report)| report.resources.metabolic_energy_spent.nanojoules())
@@ -473,9 +530,10 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
         let evidence = evidence.label();
         if has_verbose_output() {
             std::println!(
-                "AGENCY focus={focus} world=0x{world_seed:016X} variants={} physical-paths={} evidence={evidence} actionable=[power:{} survival:{} maintenance:{} structure:{}] policy-effects=[processed:{}..{}mg adaptive:{}..{} high-power:{}..{} manual-recharges:{}..{} services:{}..{} final-condition:{}..{}ppm relocations:{}/{} suspensions:{}/{} elapsed:{}..{}t survival-energy:{}..{}nJ]",
+                "AGENCY focus={focus} world=0x{world_seed:016X} variants={} physical-paths={} evidence={evidence} horizon={}t actionable=[power:{} survival:{} maintenance:{} structure:{}] policy-effects=[processed:{}..{}mg adaptive:{}..{} high-power:{}..{} manual-recharges:{}..{} services:{}..{} final-condition:{}..{}ppm relocations:{}/{} suspensions:{}/{} episode-end:{}..{}t survival-energy:{}..{}nJ]",
                 reports.len(),
                 signatures.len(),
+                comparison_horizon,
                 power_effect,
                 survival_effect,
                 maintenance_effect,
@@ -496,8 +554,8 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
                 reports.len(),
                 suspensions,
                 reports.len(),
-                elapsed_min,
-                elapsed_max,
+                episode_end_min,
+                episode_end_max,
                 survival_energy_min,
                 survival_energy_max,
             );
@@ -506,7 +564,7 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
                 .map(|(variant, report)| {
                     let label = variant.label();
                     format!(
-                        "{label}:ore{}/{}-ops{}-adapt{}-hi{}-manual{}-maint{}-reloc{}-susp{}-choices[p:{} f:{}]-t{}-body{}-manualbody{}-c{}-lo{}-hi{}",
+                        "{label}:ore{}/{}-ops{}-adapt{}-hi{}-manual{}-maint{}-reloc{}-susp{}-choices[p:{} f:{}]-episode{}-horizon{}-body{}-manualbody{}-c{}-lo{}-hi{}",
                         report.progress.processed_mass.milligrams(),
                         report.progress.target_mass.milligrams(),
                         report.progress.operations_completed,
@@ -518,6 +576,7 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
                         u8::from(report.structure.production_suspension),
                         report.choices.policy_power_choices,
                         report.choices.single_source_power_choices,
+                        report.resources.episode_end_tick,
                         report.resources.elapsed_ticks,
                         report.resources.metabolic_energy_spent.nanojoules(),
                         report.resources.manual_power_metabolic_energy.nanojoules(),
@@ -542,7 +601,7 @@ fn run_agency_probe(registries: &Registries, worlds: &[AgencyWorld]) {
         "organic agency evidence classes must partition sampled worlds"
     );
     std::println!(
-        "AGENCY SUMMARY worlds={} distinct-physical-paths={} processed-work-differences={} demonstrated-choice-effects=[power:{} survival:{} maintenance:{} structure:{}] organic=[actionable:{}/{} objective-resolved:{} terminal-constraint:{} dormant-policy-pressure:{}] basis=matched-world-one-factor-counterfactual+reason-specific-absence-classification",
+        "AGENCY SUMMARY worlds={} distinct-physical-paths={} processed-work-differences={} demonstrated-choice-effects=[power:{} survival:{} maintenance:{} structure:{}] organic=[actionable:{}/{} objective-resolved:{} terminal-constraint:{} dormant-policy-pressure:{}] basis=matched-world-one-factor-counterfactual+shared-observation-horizon+reason-specific-absence-classification",
         worlds.len(),
         worlds_with_distinct_paths,
         worlds_with_work_difference,

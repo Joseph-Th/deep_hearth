@@ -6,5 +6,9 @@ use deep_hearth::core::state::AppState;
 use deep_hearth::inventory::{StockpileId, StockpileStorageProfile};
 
 pub(super) fn add_solid_stockpile(state: &mut AppState, capacity: Mass) -> StockpileId {
-    seed_stockpile(state, capacity, StockpileStorageProfile::solid_only())
+    seed_stockpile(
+        state,
+        capacity,
+        StockpileStorageProfile::unbounded_solid_only(),
+    )
 }

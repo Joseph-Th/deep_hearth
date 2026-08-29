@@ -76,7 +76,7 @@ impl ThermalProperties {
     }
 }
 
-/// Axial material strengths used by the currently authored structural model.
+/// Axial material strengths used by the authored structural model.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StructuralProperties {
     compressive_strength_kpa: u32,

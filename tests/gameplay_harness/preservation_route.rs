@@ -1,4 +1,4 @@
-//! Ordinary manual-production routing used to evaluate preservation infrastructure.
+//! Resolves preservation-infrastructure construction through ordinary manual-production routes.
 
 use std::collections::BTreeSet;
 

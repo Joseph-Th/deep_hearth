@@ -1,4 +1,4 @@
-//! In-flight availability, completion planning, and atomic application; sibling start owns admission.
+//! Owns in-flight availability, completion planning, and atomic production-job completion.
 
 use std::collections::BTreeMap;
 

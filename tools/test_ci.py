@@ -7,6 +7,7 @@ import argparse
 import contextlib
 import io
 from pathlib import Path
+import re
 import sys
 import tomllib
 import unittest
@@ -48,6 +49,92 @@ def cargo_build_commands(plan: list[tuple[str, list[str]]]) -> list[list[str]]:
 
 def cargo_test_targets(command: list[str]) -> list[str]:
     return [command[index + 1] for index, value in enumerate(command[:-1]) if value == "--test"]
+
+
+def deserialized_named_structs(
+    path: Path,
+) -> list[tuple[int, str, str, list[tuple[int, str, str]]]]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    structures: list[tuple[int, str, str, list[tuple[int, str, str]]]] = []
+    pending_attributes: list[str] = []
+    depth = 0
+    index = 0
+
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if depth != 0:
+            depth += lines[index].count("{") - lines[index].count("}")
+            index += 1
+            continue
+        if stripped.startswith("#["):
+            attribute = [stripped]
+            while sum(part.count("[") - part.count("]") for part in attribute) > 0:
+                index += 1
+                attribute.append(lines[index].strip())
+            pending_attributes.append(" ".join(attribute))
+            index += 1
+            continue
+        if not stripped or stripped.startswith("///") or stripped.startswith("//!"):
+            index += 1
+            continue
+
+        match = re.match(
+            r"(?:pub(?:\([^)]*\))?\s+)?struct\s+([A-Za-z0-9_]+)\s*\{",
+            stripped,
+        )
+        attributes = " ".join(pending_attributes)
+        pending_attributes.clear()
+        if match is None:
+            depth += lines[index].count("{") - lines[index].count("}")
+            index += 1
+            continue
+
+        body_depth = lines[index].count("{") - lines[index].count("}")
+        fields: list[tuple[int, str, str]] = []
+        field_attributes: list[str] = []
+        field_lines: list[str] = []
+        field_index = index + 1
+        while field_index < len(lines) and body_depth > 0:
+            current = lines[field_index]
+            stripped_field = current.strip()
+            depth_before = body_depth
+            body_depth += current.count("{") - current.count("}")
+            if depth_before != 1 or stripped_field == "}":
+                field_index += 1
+                continue
+            if stripped_field.startswith("#[") and not field_lines:
+                attribute = [stripped_field]
+                while sum(part.count("[") - part.count("]") for part in attribute) > 0:
+                    field_index += 1
+                    attribute.append(lines[field_index].strip())
+                field_attributes.append(" ".join(attribute))
+                field_index += 1
+                continue
+            if (
+                not stripped_field
+                or stripped_field.startswith("///")
+                or stripped_field.startswith("//")
+            ):
+                field_index += 1
+                continue
+            field_lines.append(stripped_field)
+            if stripped_field.endswith(","):
+                fields.append(
+                    (
+                        field_index + 1,
+                        " ".join(field_lines),
+                        " ".join(field_attributes),
+                    )
+                )
+                field_attributes.clear()
+                field_lines.clear()
+            field_index += 1
+
+        if re.search(r"Deserialize", attributes):
+            structures.append((index + 1, match.group(1), attributes, fields))
+        index = field_index
+
+    return structures
 
 
 class LocalCiPlanTests(unittest.TestCase):
@@ -372,11 +459,181 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIsNone(ci.rust_test_summary("Finished test profile"))
 
     def test_unit_test_bodies_stay_out_of_production_source_files(self) -> None:
-        inline_marker = "#[cfg(test)]\nmod tests {"
+        inline_module = re.compile(r"#\[cfg\(test\)\]\s*mod\s+[A-Za-z0-9_]+\s*\{")
+        maintained_support = [
+            *(ROOT / "src").rglob("*.rs"),
+            *(ROOT / "tests" / "gameplay_harness").rglob("*.rs"),
+        ]
         offenders = [
             path.relative_to(ROOT).as_posix()
+            for path in maintained_support
+            if not path.name.endswith("_tests.rs")
+            and path.name not in {"tests.rs", "mod_tests.rs"}
+            if inline_module.search(path.read_text(encoding="utf-8"))
+        ]
+        self.assertEqual(offenders, [])
+
+    def test_gameplay_feature_public_surface_is_explicitly_bounded(self) -> None:
+        exposed: set[tuple[str, str]] = set()
+        for path in (ROOT / "src").rglob("*.rs"):
+            lines = path.read_text(encoding="utf-8").splitlines()
+            attributes: list[str] = []
+            index = 0
+            while index < len(lines):
+                stripped = lines[index].strip()
+                if stripped.startswith("#["):
+                    attribute = [stripped]
+                    while sum(part.count("[") - part.count("]") for part in attribute) > 0:
+                        index += 1
+                        attribute.append(lines[index].strip())
+                    attributes.append(" ".join(attribute))
+                    index += 1
+                    continue
+                if not stripped or stripped.startswith("///") or stripped.startswith("//!"):
+                    index += 1
+                    continue
+                if "test-gameplay" in " ".join(attributes) and stripped.startswith("pub "):
+                    exposed.add((path.relative_to(ROOT).as_posix(), stripped))
+                attributes.clear()
+                index += 1
+
+        self.assertEqual(
+            exposed,
+            {
+                ("src/content/mod.rs", "pub mod gameplay_fixture;"),
+                ("src/inventory/mod.rs", "pub use transactions::{"),
+                ("src/inventory/transactions.rs", "pub use transfer::{"),
+            },
+        )
+        content = (ROOT / "src" / "content" / "mod.rs").read_text(encoding="utf-8")
+        self.assertRegex(
+            content,
+            r'#\[cfg\(feature = "test-gameplay"\)\]\s*#\[doc\(hidden\)\]\s*pub mod gameplay_fixture;',
+        )
+
+    def test_test_only_source_items_do_not_use_external_public_visibility(self) -> None:
+        offenders: list[str] = []
+        for path in (ROOT / "src").rglob("*.rs"):
+            lines = path.read_text(encoding="utf-8").splitlines()
+            attributes: list[str] = []
+            index = 0
+            while index < len(lines):
+                stripped = lines[index].strip()
+                if stripped.startswith("#["):
+                    attribute = [stripped]
+                    while sum(part.count("[") - part.count("]") for part in attribute) > 0:
+                        index += 1
+                        attribute.append(lines[index].strip())
+                    attributes.append(" ".join(attribute))
+                    index += 1
+                    continue
+                if not stripped or stripped.startswith("///") or stripped.startswith("//!"):
+                    index += 1
+                    continue
+                if "cfg(test)" in " ".join(attributes) and stripped.startswith("pub "):
+                    relative = path.relative_to(ROOT).as_posix()
+                    offenders.append(f"{relative}:{index + 1}:{stripped}")
+                attributes.clear()
+                index += 1
+        self.assertEqual(offenders, [])
+
+    def test_validated_token_types_are_must_use(self) -> None:
+        validated_type = re.compile(
+            r"\s*(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum)\s+(Validated[A-Za-z0-9_]*)"
+        )
+        offenders: list[str] = []
+        for path in (ROOT / "src").rglob("*.rs"):
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for index, line in enumerate(lines):
+                match = validated_type.match(line)
+                if match is None:
+                    continue
+                attributes = lines[max(0, index - 5) : index]
+                if not any(attribute.strip().startswith("#[must_use") for attribute in attributes):
+                    relative = path.relative_to(ROOT).as_posix()
+                    offenders.append(f"{relative}:{index + 1}:{match.group(1)}")
+        self.assertEqual(offenders, [])
+
+    def test_outcome_types_are_must_use(self) -> None:
+        outcome_type = re.compile(
+            r"\s*(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum)\s+([A-Za-z0-9_]*Outcome[A-Za-z0-9_]*)"
+        )
+        offenders: list[str] = []
+        for path in (ROOT / "src").rglob("*.rs"):
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for index, line in enumerate(lines):
+                match = outcome_type.match(line)
+                if match is None:
+                    continue
+                attributes = lines[max(0, index - 5) : index]
+                if not any(attribute.strip().startswith("#[must_use") for attribute in attributes):
+                    relative = path.relative_to(ROOT).as_posix()
+                    offenders.append(f"{relative}:{index + 1}:{match.group(1)}")
+        self.assertEqual(offenders, [])
+
+    def test_deserialized_structs_deny_unknown_fields(self) -> None:
+        offenders = [
+            f"{path.relative_to(ROOT).as_posix()}:{line}:{name}"
             for path in (ROOT / "src").rglob("*.rs")
-            if inline_marker in path.read_text(encoding="utf-8")
+            for line, name, attributes, _fields in deserialized_named_structs(path)
+            if "serde(deny_unknown_fields)" not in attributes
+        ]
+        self.assertEqual(offenders, [])
+
+    def test_deserialized_ordered_collections_are_duplicate_strict(self) -> None:
+        strict_markers = (
+            "deserialize_btree_map_no_duplicates",
+            "deserialize_btree_map_of_sets_no_duplicates",
+        )
+        offenders = [
+            f"{path.relative_to(ROOT).as_posix()}:{line}:{field}"
+            for path in (ROOT / "src").rglob("*.rs")
+            for _struct_line, _name, _attributes, fields in deserialized_named_structs(path)
+            for line, field, attributes in fields
+            if ":" in field
+            and ("BTreeMap<" in field or "BTreeSet<" in field)
+            and "serde(skip" not in attributes
+            and not any(marker in attributes for marker in strict_markers)
+        ]
+        self.assertEqual(offenders, [])
+
+    def test_persistent_serde_does_not_silently_accept_compatibility_shortcuts(self) -> None:
+        forbidden = re.compile(
+            r"#\[serde\([^]]*\b(default|flatten|alias|skip_deserializing|other)\b"
+        )
+        offenders = [
+            f"{path.relative_to(ROOT).as_posix()}:{index + 1}:{line.strip()}"
+            for path in (ROOT / "src").rglob("*.rs")
+            for index, line in enumerate(path.read_text(encoding="utf-8").splitlines())
+            if forbidden.search(line)
+        ]
+        self.assertEqual(offenders, [])
+
+    def test_app_state_deserialization_is_owned_by_trusted_load(self) -> None:
+        state_source = (ROOT / "src" / "core" / "state.rs").read_text(encoding="utf-8")
+        app_state = re.search(
+            r"#\[derive\(([^)]*)\)\]\s*pub struct AppState\s*\{",
+            state_source,
+        )
+        self.assertIsNotNone(app_state)
+        assert app_state is not None
+        self.assertNotIn("Deserialize", app_state.group(1))
+
+        persistence_source = (ROOT / "src" / "persistence" / "mod.rs").read_text(
+            encoding="utf-8"
+        )
+        self.assertRegex(
+            persistence_source,
+            r'#\[serde\(deserialize_with = "crate::core::state::deserialize_unvalidated_app_state"\)\]\s*state: AppState,',
+        )
+
+    def test_gameplay_harness_cannot_read_authoritative_geology(self) -> None:
+        forbidden = re.compile(r"\.geology\(\)|\bGeologicalDepositId\b|\bget_deposit\(")
+        offenders = [
+            f"{path.relative_to(ROOT).as_posix()}:{index + 1}:{line.strip()}"
+            for path in (ROOT / "tests" / "gameplay_harness").rglob("*.rs")
+            for index, line in enumerate(path.read_text(encoding="utf-8").splitlines())
+            if forbidden.search(line)
         ]
         self.assertEqual(offenders, [])
 
@@ -820,6 +1077,38 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("assets/shaders/README.md", documents)
         self.assertFalse(any(path.startswith("target/") for path in documents))
 
+    def test_execution_card_checker_requires_portfolio_profiles_and_bca_policy(self) -> None:
+        valid = {
+            "AGENTS.md": (
+                "**Applicable profiles:** Universal; Stateful Application; Deterministic System; "
+                "Automated Behavior Evaluation\n**BCA policy:** ratchet\n"
+            )
+        }
+        self.assertEqual(check_authority_docs.check_execution_card(valid), [])
+
+        missing_profile = {
+            "AGENTS.md": "**Applicable profiles:** Universal\n**BCA policy:** ratchet\n"
+        }
+        errors = check_authority_docs.check_execution_card(missing_profile)
+        self.assertTrue(any("missing applicable portfolio profiles" in error for error in errors))
+
+        missing_bca = {
+            "AGENTS.md": (
+                "**Applicable profiles:** Universal; Stateful Application; Deterministic System; "
+                "Automated Behavior Evaluation\n"
+            )
+        }
+        errors = check_authority_docs.check_execution_card(missing_bca)
+        self.assertTrue(any("BCA policy" in error for error in errors))
+
+    def test_module_doc_checker_covers_production_and_integration_rust(self) -> None:
+        errors, checked = check_authority_docs.check_source_module_docs()
+        expected = sum(1 for root in (ROOT / "src", ROOT / "tests") for _ in root.rglob("*.rs"))
+
+        self.assertEqual(errors, [])
+        self.assertEqual(checked, expected)
+        self.assertGreater(sum(1 for _ in (ROOT / "tests").rglob("*.rs")), 0)
+
     def test_documentation_routes_resolve_from_nested_document_location(self) -> None:
         nested = ROOT / "assets" / "shaders" / "README.md"
         self.assertEqual(
@@ -913,7 +1202,7 @@ class ExactTestCommandTests(unittest.TestCase):
             catalog,
         )
         self.assertIn(
-            "core::time::calendar_tests::calendar_exposes_exact_physical_world_time_per_tick",
+            "core::time::tests::calendar_exposes_exact_physical_world_time_per_tick",
             catalog,
         )
         self.assertIn(

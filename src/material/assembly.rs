@@ -67,9 +67,8 @@ impl MaterialAssemblyProfile {
 
     /// Validates references and the physical-form boundary shared by persistent rigid assemblies.
     ///
-    /// Equipment and energy-store embodiment currently have no shaping, compaction, casting, or
-    /// sintering owner. Only forms explicitly authored as consolidated can therefore be used as
-    /// already-rigid object components.
+    /// Equipment and energy-store embodiment has no shaping, compaction, casting, or sintering
+    /// owner. Components must therefore use forms explicitly authored as consolidated.
     pub(crate) fn validate_infrastructure_references(
         &self,
         materials: &MaterialRegistry,

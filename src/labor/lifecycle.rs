@@ -115,6 +115,7 @@ pub(crate) fn player_work_exertion(
                 panic!("runtime invariant broken: player prospecting work has no method definition")
             })
             .exertion(),
+        PlayerWork::Eating { work: _ } | PlayerWork::Drinking { work: _ } => SurvivalExertion::REST,
     }
 }
 
@@ -186,6 +187,7 @@ impl Display for PlayerWorkCommitError {
 
 impl Error for PlayerWorkCommitError {}
 
+#[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedPlayerWorkStart {
     expected_revision: u64,
@@ -424,6 +426,20 @@ fn active_work_releases_now(
         }
         PlayerWork::ManualPower { work } => work.completes_at() == next_tick,
         PlayerWork::Prospecting { work } => work.completes_at() == next_tick,
+        PlayerWork::Eating { work } => {
+            work.completes_at() == next_tick
+                || state
+                    .survival()
+                    .player()
+                    .is_some_and(|player| player.vitality() == crate::survival::Vitality::ZERO)
+        }
+        PlayerWork::Drinking { work } => {
+            work.completes_at() == next_tick
+                || state
+                    .survival()
+                    .player()
+                    .is_some_and(|player| player.vitality() == crate::survival::Vitality::ZERO)
+        }
     }
 }
 

@@ -1,9 +1,22 @@
-//! Tests for exact power integration, inverse duration calculation, and specific-energy scaling.
+//! Contract tests for exact power integration, duration inversion, and specific-energy scaling.
 
 use super::*;
 
 const fn twentieth_second_tick() -> PhysicalTickDuration {
     PhysicalTickDuration::from_microseconds(50_000)
+}
+
+#[test]
+fn power_remainder_deserialization_enforces_fractional_range() {
+    let valid: PowerRemainder = serde_json::from_str("999999999")
+        .unwrap_or_else(|error| panic!("valid power remainder failed deserialization: {error}"));
+    assert_eq!(valid.numerator(), 999_999_999);
+
+    let invalid = serde_json::from_str::<PowerRemainder>("1000000000");
+    assert!(
+        invalid.is_err(),
+        "power remainder at the integration denominator must be rejected"
+    );
 }
 
 #[test]

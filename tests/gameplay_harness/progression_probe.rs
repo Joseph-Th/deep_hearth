@@ -1,5 +1,6 @@
 //! Canonical primitive-to-mechanized progression probe for the gameplay experience harness.
 
+use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
@@ -12,7 +13,7 @@ use super::ore_fixture::copper_ore_composition;
 use super::seed::mix64;
 use deep_hearth::capability::{CapabilityId, CapabilityValue};
 use deep_hearth::content::gameplay_fixture::{
-    geological_deposit_spec, seed_geological_deposit, seed_lot,
+    GeologicalDepositSeed, seed_geological_deposit, seed_lot,
 };
 use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
@@ -243,7 +244,7 @@ fn assert_progression_runtime_dependencies(registries: &Registries) {
 
 fn advance_exact(registries: &Registries, state: &mut AppState, ticks: u64) {
     for _ in 0..ticks {
-        advance_tick(registries, state)
+        let _ = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("primitive progression tick failed: {error}"));
     }
 }
@@ -835,9 +836,18 @@ fn observed_resolved_copper_clue(
 fn strongest_observed_copper_clue(
     clues: impl IntoIterator<Item = ObservedCopperClue>,
 ) -> ObservedCopperClue {
+    // Evidence quality is the actor's primary preference. Equal evidence uses the observable clue
+    // region as an explicit stable policy rather than inheriting setup, registry, or iterator order.
     clues
         .into_iter()
-        .max_by_key(|clue| (clue.lower_ppm, clue.upper_ppm))
+        .max_by_key(|clue| {
+            (
+                clue.lower_ppm,
+                clue.upper_ppm,
+                Reverse(clue.request.region().min()),
+                Reverse(clue.request.region().max_exclusive()),
+            )
+        })
         .unwrap_or_else(|| panic!("primitive progression has no eligible observed copper clue"))
 }
 

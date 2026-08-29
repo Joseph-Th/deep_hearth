@@ -361,6 +361,9 @@ pub(super) struct ScenarioResourceReport {
     pub(super) small_drive_remaining: Energy,
     pub(super) large_drive_remaining: Energy,
     pub(super) maintenance_stock_remaining: Mass,
+    /// Tick when the actor stopped issuing workshop decisions for this episode.
+    pub(super) episode_end_tick: u64,
+    /// Tick of the evaluator's final observation frame.
     pub(super) elapsed_ticks: u64,
     pub(super) metabolic_energy_spent: Energy,
     pub(super) hydration_spent: Volume,
@@ -372,7 +375,7 @@ pub(super) struct ScenarioResourceReport {
     pub(super) final_hand_crank_condition_ppm: u32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ScenarioInputReport {
     pub(super) ore_copper_ppm: u32,
     pub(super) gangue_clay_share_ppm: u32,

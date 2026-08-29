@@ -1,5 +1,4 @@
-//! Cross-owner inventory validation; this child checks authored references and temporal lot
-//! provenance.
+//! Validates inventory references, storage enclosures, and temporal lot provenance across owners.
 
 use crate::core::state::AppState;
 use crate::inventory::{MaterialLotRecord, validate_loaded_storage_enclosures};

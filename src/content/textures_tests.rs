@@ -1,9 +1,9 @@
-//! Tests for the sibling textures module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for built-in texture content.
 
 use std::collections::BTreeSet;
 
 use super::*;
-use crate::texture::TEXTURE_MIP_LEVEL_COUNT;
+use crate::texture::{TEXTURE_MIP_LEVEL_COUNT, TEXTURE_SIDE};
 
 const BUILT_IN_TEXTURES: [TextureId; 13] = [
     TEXTURE_WOOD_SIDE,

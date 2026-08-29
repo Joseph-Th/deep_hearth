@@ -1,4 +1,4 @@
-//! Persistent-state validation for inventory; this child audits private owner data without exposing mutation.
+//! Validates persisted inventory records, cached totals, indexes, storage policy, and references.
 
 use std::collections::BTreeMap;
 use std::error::Error;

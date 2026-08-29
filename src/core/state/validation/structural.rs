@@ -1,5 +1,4 @@
-//! Cross-owner structural validation; this child reconciles mounted runtime owners with structural
-//! load channels.
+//! Validates cross-owner structural support and load-channel consistency.
 
 use std::collections::BTreeMap;
 

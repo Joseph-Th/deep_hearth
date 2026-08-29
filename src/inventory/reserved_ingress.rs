@@ -1,4 +1,4 @@
-//! Inventory-owned allocation and commit of previously reserved output matter.
+//! Allocates and commits inventory-owned reserved output matter.
 
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;

@@ -1,4 +1,4 @@
-//! Tests for controlled energy-store fixture allocation.
+//! Contract tests for controlled energy-store fixture allocation.
 
 use super::*;
 use crate::content::{FORM_FLYWHEEL, MATERIAL_STONE, make_test_registries_with_energy_store};

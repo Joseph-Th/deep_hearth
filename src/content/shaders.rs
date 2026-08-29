@@ -1,4 +1,4 @@
-//! Built-in bounded WGSL libraries and executable programs for the sibling shader registry.
+//! Defines built-in bounded WGSL libraries and executable shader programs.
 
 #[cfg(feature = "test-shader-validation")]
 use std::error::Error;

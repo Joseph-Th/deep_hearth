@@ -1,4 +1,4 @@
-//! Persistent-state validation for geology; this child audits private owner data without exposing mutation.
+//! Validates persisted geological deposit ownership and authored references.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};

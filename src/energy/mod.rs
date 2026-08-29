@@ -1,4 +1,4 @@
-//! Finite energy storage, construction, accounting, and exact power integration.
+//! Owns finite energy stores, construction, accounting, and exact power integration.
 
 mod accounting;
 mod construction_execution;
@@ -46,8 +46,8 @@ pub(crate) use passive_dissipation::{
 };
 pub(crate) use state::validate_loaded_energy;
 pub(crate) use storage_execution::{
-    EnergyCommitError, EnergyConsumptionReservation, EnergyIngressReservation,
-    EnergyIngressReservationError, EnergyReservationError, apply_energy_consumption_reservation,
+    EnergyConsumptionReservation, EnergyIngressReservation, EnergyIngressReservationError,
+    EnergyReservationError, apply_prechecked_energy_consumption_reservation,
     apply_released_energy_outcomes, validate_energy_consumption_reservation,
     validate_energy_ingress_reservation,
 };

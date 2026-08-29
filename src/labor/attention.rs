@@ -34,11 +34,30 @@ pub(crate) struct ValidatedPlayerAttention {
     expected_revision: u64,
 }
 
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ValidatedPlayerAttentionHold {
+    expected_revision: u64,
+    next_revision: u64,
+    work: PlayerWork,
+}
+
 impl ValidatedPlayerAttention {
     pub(crate) const fn expected_revision(self) -> u64 {
         self.expected_revision
     }
 
+    pub(crate) fn hold(self, work: PlayerWork) -> Option<ValidatedPlayerAttentionHold> {
+        let next_revision = self.expected_revision.checked_add(1)?;
+        Some(ValidatedPlayerAttentionHold {
+            expected_revision: self.expected_revision,
+            next_revision,
+            work,
+        })
+    }
+}
+
+impl ValidatedPlayerAttentionHold {
     pub(crate) fn precheck(self, state: &AppState) -> Result<(), PlayerAttentionConflict> {
         let actual = state.player_work().revision();
         if actual != self.expected_revision {
@@ -48,6 +67,14 @@ impl ValidatedPlayerAttention {
             });
         }
         Ok(())
+    }
+
+    pub(crate) fn apply(self, state: &mut AppState) {
+        state.player_work_state_mut().apply_start(
+            self.expected_revision,
+            self.next_revision,
+            self.work,
+        );
     }
 }
 

@@ -1,4 +1,4 @@
-//! Persistent-state validation for equipment; this child audits private owner data without exposing mutation.
+//! Validates persisted equipment records, embodiment, support indexes, and authored references.
 
 use std::collections::BTreeMap;
 use std::error::Error;

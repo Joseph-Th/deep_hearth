@@ -336,6 +336,7 @@ impl Error for EquipmentDisassemblyCommitError {
     }
 }
 
+#[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EquipmentDisassemblyOutcome {
     recovered_lots: Vec<MaterialLotId>,

@@ -1,4 +1,4 @@
-//! Persistent-state validation for structural; this child audits private owner data without exposing mutation.
+//! Validates persisted structural members, embodiment, support topology, loads, and lifecycle.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -26,6 +26,7 @@ use topology::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StructureValidationError {
     ZeroNextElementId,
+    ZeroElementId,
     NextElementIdNotAboveAllocated {
         next: u32,
         highest: StructuralElementId,
@@ -175,6 +176,7 @@ impl Display for StructureValidationError {
             Self::ZeroNextElementId => {
                 formatter.write_str("structural next-id cursor must be nonzero")
             }
+            Self::ZeroElementId => formatter.write_str("structural element ID must be nonzero"),
             Self::NextElementIdNotAboveAllocated { next, highest } => write!(
                 formatter,
                 "structural next-id cursor {next} is not above allocated element {}",
@@ -518,7 +520,7 @@ impl Error for StructureValidationError {
                 element: _element,
                 support: _support,
             } => None,
-            Self::ZeroNextElementId => None,
+            Self::ZeroNextElementId | Self::ZeroElementId => None,
         }
     }
 }

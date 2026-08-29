@@ -1,4 +1,4 @@
-//! Tests for the sibling comminution execution module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for comminution execution and replay.
 
 use super::*;
 use crate::capability::{
@@ -226,11 +226,18 @@ fn make_registries_with_definition(
     let process = ProcessDefinition::new_selected_batch(
         PROCESS,
         "test ore crushing",
-        vec![CapabilityRequirement::new(
-            MASS_FLOW_CAPABILITY,
-            CapabilityComparison::AtLeast,
-            CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1)),
-        )],
+        vec![
+            CapabilityRequirement::new(
+                MASS_FLOW_CAPABILITY,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1)),
+            ),
+            CapabilityRequirement::new(
+                MAX_BATCH_MASS_CAPABILITY,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Mass(Mass::from_milligrams(1)),
+            ),
+        ],
     );
     make_test_registries_with_comminution(
         vec![
@@ -1077,7 +1084,7 @@ fn hand_breaking_is_conserved_survival_costed_and_resource_free() {
     assert_eq!(job_record.released_energy(), None);
     assert_eq!(job_record.equipment_provider(), None);
     for _ in 0..duration.value() {
-        advance_tick(&fixture.registries, &mut fixture.state)
+        let _ = advance_tick(&fixture.registries, &mut fixture.state)
             .unwrap_or_else(|error| panic!("manual comminution tick failed: {error}"));
     }
     assert_eq!(fixture.state.player_work().active(), None);
@@ -1142,7 +1149,7 @@ fn in_progress_hand_breaking_round_trip_replays_exact_manual_physics() {
     .commit(&mut fixture.state)
     .unwrap_or_else(|error| panic!("manual comminution round-trip commit failed: {error}"));
     for _ in 0..10 {
-        advance_tick(&fixture.registries, &mut fixture.state)
+        let _ = advance_tick(&fixture.registries, &mut fixture.state)
             .unwrap_or_else(|error| panic!("manual comminution pre-save tick failed: {error}"));
     }
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&fixture.registries, &fixture.state))
@@ -1178,10 +1185,10 @@ fn in_progress_hand_breaking_round_trip_replays_exact_manual_physics() {
         .checked_sub(10)
         .unwrap_or_else(|| unreachable!("manual comminution duration exceeds pre-save work"));
     for _ in 0..remaining {
-        advance_tick(&fixture.registries, &mut fixture.state).unwrap_or_else(|error| {
+        let _ = advance_tick(&fixture.registries, &mut fixture.state).unwrap_or_else(|error| {
             panic!("manual comminution uninterrupted tick failed: {error}")
         });
-        advance_tick(&fixture.registries, &mut loaded)
+        let _ = advance_tick(&fixture.registries, &mut loaded)
             .unwrap_or_else(|error| panic!("manual comminution resumed tick failed: {error}"));
     }
     assert_eq!(loaded, fixture.state);

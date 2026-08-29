@@ -1,4 +1,4 @@
-//! Maintainable capability-provider subsystem; definitions are immutable, state owns records, execution mutates, and integration resolves provider views.
+//! Owns persistent equipment, condition-adjusted capability, lifecycle operations, and support integration.
 
 mod construction_execution;
 mod definitions;

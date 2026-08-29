@@ -17,7 +17,8 @@ use crate::inventory::{
     validate_stockpile_stored_mass_changes,
 };
 use crate::labor::{
-    PlayerAttentionError, PlayerWork, ValidatedPlayerAttention, validate_player_attention,
+    EatingWork, PlayerAttentionError, PlayerWork, ValidatedPlayerAttentionHold,
+    validate_player_attention,
 };
 use crate::material::{CommodityKey, MaterialId};
 use crate::registry::Registries;
@@ -78,6 +79,10 @@ pub enum EatError {
     MetabolicEnergyOverflow,
     HydrationOverflow,
     NutritionOverflow,
+    MealMassExceedsIntakeLimit {
+        mass: Mass,
+        maximum: Mass,
+    },
     NoReserveGain {
         mass: Mass,
     },
@@ -90,6 +95,10 @@ pub enum EatError {
     },
     InventoryRevisionExhausted,
     SurvivalRevisionExhausted,
+    PlayerWorkRevisionExhausted,
+    CompletionTickOverflow {
+        duration: TickSpan,
+    },
     StructuralLoad(StockpileStructuralLoadError),
 }
 
@@ -182,6 +191,12 @@ impl Display for EatError {
             }
             Self::HydrationOverflow => formatter.write_str("food hydration calculation overflowed"),
             Self::NutritionOverflow => formatter.write_str("food nutrition calculation overflowed"),
+            Self::MealMassExceedsIntakeLimit { mass, maximum } => write!(
+                formatter,
+                "meal mass {} mg exceeds the direct-consumption limit of {} mg",
+                mass.milligrams(),
+                maximum.milligrams()
+            ),
             Self::NoReserveGain { mass } => write!(
                 formatter,
                 "eating {} mg would not increase metabolic, hydration, or nutrition reserves",
@@ -204,6 +219,14 @@ impl Display for EatError {
             Self::SurvivalRevisionExhausted => {
                 formatter.write_str("survival revision space is exhausted")
             }
+            Self::PlayerWorkRevisionExhausted => {
+                formatter.write_str("player-work revision space is exhausted")
+            }
+            Self::CompletionTickOverflow { duration } => write!(
+                formatter,
+                "meal attention duration of {} ticks exceeds the simulation clock range",
+                duration.value()
+            ),
             Self::StructuralLoad(error) => {
                 write!(formatter, "food withdrawal structural load failed: {error}")
             }
@@ -233,11 +256,14 @@ impl Error for EatError {
             | Self::MetabolicEnergyOverflow
             | Self::HydrationOverflow
             | Self::NutritionOverflow
+            | Self::MealMassExceedsIntakeLimit { .. }
             | Self::NoReserveGain { .. }
             | Self::UnsupportedComposition { .. }
             | Self::ConsumedMatterOverflow { material: _ }
             | Self::InventoryRevisionExhausted
-            | Self::SurvivalRevisionExhausted => None,
+            | Self::SurvivalRevisionExhausted
+            | Self::PlayerWorkRevisionExhausted
+            | Self::CompletionTickOverflow { .. } => None,
         }
     }
 }
@@ -367,7 +393,7 @@ impl EatOutcome {
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedEat {
-    attention: ValidatedPlayerAttention,
+    attention: ValidatedPlayerAttentionHold,
     expected_survival_revision: u64,
     next_survival_revision: u64,
     egress: ValidatedMaterialEgress,
@@ -444,8 +470,29 @@ pub fn validate_eat(
     let exact_selection =
         validate_explicit_consumption_selection(state.inventory(), source, selections)
             .map_err(map_eat_selection_error)?;
-    let offer = resolve_meal_offer(registries, state, selections)?;
     let physiology = registries.survival().physiology();
+    let total_mass = exact_selection.total_consumed();
+    let maximum_meal_mass = physiology.direct_consumption().maximum_meal_mass();
+    if total_mass > maximum_meal_mass {
+        return Err(EatError::MealMassExceedsIntakeLimit {
+            mass: total_mass,
+            maximum: maximum_meal_mass,
+        });
+    }
+    let duration = physiology
+        .direct_consumption()
+        .meal_duration(total_mass)
+        .unwrap_or_else(|| unreachable!("validated nonzero bounded meal must have a duration"));
+    let completes_at = state
+        .tick()
+        .checked_add_span(duration)
+        .ok_or(EatError::CompletionTickOverflow { duration })?;
+    let attention = attention
+        .hold(PlayerWork::Eating {
+            work: EatingWork::new(total_mass, state.tick(), completes_at),
+        })
+        .ok_or(EatError::PlayerWorkRevisionExhausted)?;
+    let offer = resolve_meal_offer(registries, state, selections)?;
     let (energy_gained, energy_after) = resolve_energy_gain(
         player,
         physiology.maximum_metabolic_energy(),
@@ -482,7 +529,6 @@ pub fn validate_eat(
             physiology.maximum_metabolic_energy(),
             &offer,
         )?;
-    let total_mass = egress.total_consumed();
     if energy_gained.is_zero() && hydration_gained.is_zero() && nutrition_gained.total_ppm() == 0 {
         return Err(EatError::NoReserveGain { mass: total_mass });
     }
@@ -550,6 +596,7 @@ impl ValidatedEat {
             self.after,
             self.next_consumed_masses,
         );
+        self.attention.apply(state);
         Ok(self.outcome)
     }
 }

@@ -1,4 +1,4 @@
-//! Persistent structural members with private synchronized support-index ownership; child validation audits state.
+//! Owns persistent structural members, support indexes, and local state validation.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -353,7 +353,7 @@ impl StructureState {
         self.revision = next_revision;
     }
 
-    #[cfg(any(test, feature = "test-gameplay"))]
+    #[cfg(test)]
     pub(super) fn link_support(
         &mut self,
         element: StructuralElementId,
@@ -375,7 +375,7 @@ impl StructureState {
         );
     }
 
-    #[cfg(any(test, feature = "test-gameplay"))]
+    #[cfg(test)]
     pub(super) fn unlink_support(
         &mut self,
         element: StructuralElementId,
@@ -397,7 +397,7 @@ impl StructureState {
         );
     }
 
-    #[cfg(any(test, feature = "test-gameplay"))]
+    #[cfg(test)]
     pub(super) fn remove_element(&mut self, element: StructuralElementId) {
         let supports = self
             .supports_by_element

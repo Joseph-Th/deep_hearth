@@ -1,4 +1,4 @@
-//! Unit-test support for arbitrary condition mutation without creating a gameplay wear path.
+//! Provides test-only condition mutation while production wear remains the gameplay condition path.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};

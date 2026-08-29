@@ -1,4 +1,4 @@
-//! Tests for the sibling power physics module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for direct-labor power physics.
 
 use super::*;
 

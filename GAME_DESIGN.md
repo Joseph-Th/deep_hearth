@@ -1,15 +1,15 @@
 # Game Design
 
-This page owns intended player experience and progression. It is a product target, not implementation
-evidence. Use [`STATUS.md`](STATUS.md) for current capability and [`README.md`](README.md) for project routing.
+This page owns intended player experience and progression. It is not implementation evidence. Use
+[`STATUS.md`](STATUS.md) for current capability and [`README.md`](README.md) for project routing.
 
-## Core fantasy
+## Core experience
 
 Deep Hearth is a first-person survival, settlement, and industrialization game in a persistent voxel world.
 The player learns local physical and ecological constraints, then builds systems that handle them at increasing
 scale.
 
-`observe -> infer -> prepare -> extract -> invest -> delegate -> use returned attention -> reinvest`
+`observe -> infer -> prepare -> extract -> invest -> delegate -> reinvest`
 
 Responsibility expands through:
 
@@ -17,33 +17,18 @@ Responsibility expands through:
 
 Depth comes from interacting causes and constraints, not recipe nesting or repetitive input.
 
-## Design lineage
-
-The original project brief names TerraFirmaCraft, Vintage Story, GregTech, and Don't Starve as direct
-inspirations. Deep Hearth borrows their strongest systemic ideas without treating their friction as a feature:
-
-| Inspiration | Preserve | Avoid |
-| --- | --- | --- |
-| TerraFirmaCraft | Geology, materials, food, preservation, and survival that constrain one another. | Prospecting dominated by dense repetitive sampling or knowledge that effectively requires an external guide. |
-| Vintage Story | Embodied production, coarse-to-fine prospecting, seasonal preparation, preservation, and physical automation. | Opaque information whose optimal use is repetitive grid work rather than inference and targeted follow-up. |
-| GregTech | Differentiated processing, finite power, automation, scaling, byproducts, and factory optimization. | Extra recipe stages, microcrafting, or waiting that do not create a new physical or economic decision. |
-| Don't Starve | Strong competing survival sinks, preparation, disruption, and resources with multiple urgent uses. | Permanent chore loops that remain equally attention-intensive after the player has demonstrably solved them. |
-
-These are design filters, not implementation claims. Current reachable scope remains defined by
-[`STATUS.md`](STATUS.md).
-
 ## Design laws
 
 - **Model legible consequences.** Simulate detail when the player can observe, predict, exploit, avoid, or recover from it.
-- **Progress transforms constraints.** Improvements replace pressures with new costs, obligations, or risks instead of deleting the system.
-- **Solved repetition becomes delegable.** Tools, batching, labor, machinery, and automation should reduce attention cost while preserving matter, energy, time, maintenance, and logistics costs. Preparation, preservation, and storage should likewise turn repeated emergencies into planned supply rather than permanent meter babysitting.
-- **Technology is physical capability.** Materials, tools, heat, pressure, power, precision, infrastructure, labor, control, and knowledge make processes possible; abstract unlocks do not substitute for missing capability.
+- **Progress transforms constraints.** Improvements replace pressures with new costs, obligations, or risks rather than deleting the system.
+- **Solved repetition becomes delegable.** Tools, batching, workers, machinery, storage, and automation reduce attention cost while preserving physical and economic costs.
+- **Technology is physical capability.** Materials, tools, heat, pressure, power, precision, infrastructure, labor, control, and knowledge enable processes. Abstract unlocks do not replace missing capability.
 - **Infrastructure is embodied investment.** Buildings, machines, stores, networks, and transport occupy space, contain matter, require construction, and create operating obligations.
-- **Materials matter across systems.** Better materials change tools, structures, storage, transport, machines, and controls; upgrades preserve object history unless a physical process changes it.
-- **Information is progression.** Observation, prospecting, instruments, experiments, and specialists narrow uncertainty and expose tradeoffs. Broad observations should guide where attention is spent; local observation and better instruments then buy precision. Higher precision costs more, but discovery should not depend on dense repeated probing or hidden-state revelation.
-- **Process depth needs physical purpose.** Add a process stage only when it changes material state, recovery, purity, byproduct flow, energy demand, throughput, safety, maintenance, precision, or automation. Recipe nesting and extra handling are not depth by themselves.
+- **Materials matter across systems.** Material properties affect tools, structures, storage, transport, machines, and controls. Upgrades preserve object identity unless a physical process replaces it.
+- **Information is progression.** Broad evidence guides attention; targeted observation and better instruments buy precision. Discovery should reward inference rather than repetitive probing or hidden-state revelation.
+- **Process depth needs physical purpose.** A process stage should change material state, recovery, purity, byproducts, energy, throughput, safety, maintenance, precision, or automation.
 - **Systems interlock.** Major systems exchange matter, energy, labor, information, risk, or environmental consequences.
-- **Failure is readable and recoverable.** Important failures have understandable causes, useful warning signs where plausible, and a repair/adaptation/replacement path.
+- **Failure is readable and recoverable.** Important failures have understandable causes, useful warning signs where plausible, and a repair, adaptation, or replacement path.
 - **Fallbacks remain physical.** Earlier methods may remain usable, but later infrastructure should make them relatively expensive in attention, throughput, safety, or survival reserve.
 
 ## Player loop
@@ -57,54 +42,44 @@ These are design filters, not implementation claims. Current reachable scope rem
 7. Industrialize with larger process chains, power, chemistry, transport, and automation.
 8. Expand and adapt to seasons, depletion, failures, and regional constraints.
 
-Exploration stays relevant from local survival through deposits, trade, breeding stock, transport corridors,
-and infrastructure sites.
+Resources should usually have competing uses. Every material or social sink needs an intelligible cause.
 
 | Economy | Examples |
 | --- | --- |
 | Matter | finite resources, construction, consumption, waste, recycling |
 | Energy | food, heat, mechanical work, fuels, electricity, storage, losses |
-| Labor | player time, workers, animals, machines, skill, organization, automation |
+| Labor | player attention, workers, animals, machines, skill, organization |
 | Ecology | water, fertility, reproduction, disease, habitat, nutrient cycles |
 | Knowledge | observation, surveying, teaching, instruments, documentation |
 | Risk | structural, environmental, biological, operational, economic failure |
-
-Resources should usually have competing uses. Every material or social sink needs an intelligible cause.
 
 ## System direction
 
 | System | Intended gameplay |
 | --- | --- |
 | Climate and seasons | Weather and seasons redirect work, transport, food, water, heating, construction, and risk. |
-| Hydrology | Rain, runoff, groundwater, storage, drainage, irrigation, pumping, wastewater, and treatment make water both resource and force. |
+| Hydrology | Water is both resource and force through rain, runoff, groundwater, storage, drainage, irrigation, pumping, wastewater, and treatment. |
 | Terrain and structures | Material behavior, gravity, support, load, saturation, and damage create readable stability and costly failure. |
-| Geology and prospecting | Learnable geological relationships plus increasingly precise observation, sampling, surveys, drilling, assays, and geophysics support inference rather than hidden-state revelation. |
-| Mining | Deposit geometry, access, support, ventilation, drainage, haulage, lighting, waste, and safety shape mine layout and progression. |
-| Materials | Form and physical properties make substitution meaningful across tools, structures, storage, transport, and machines. |
-| Manufacturing | Shaping, joining, firing, comminution, screening, reduction, casting, heat treatment, machining, separation, chemistry, and electrolysis depend on real capability. |
+| Geology and prospecting | Geological relationships and increasingly precise observation support inference from regional clues to actionable local evidence. |
+| Mining | Deposit geometry, access, support, ventilation, drainage, haulage, lighting, waste, and safety shape extraction. |
+| Materials and manufacturing | Form and physical properties govern substitution, shaping, joining, comminution, separation, firing, casting, machining, and chemistry. |
 | Metallurgy | Ore preparation, reduction/refining, alloy control, forming, and heat treatment have distinct physical roles; gangue and byproducts remain material streams. |
-| Mechanical power | Human, animal, water, wind, and steam systems use physical transmission with torque/speed/power limits and maintenance. |
-| Steam | Boilers, feedwater, pressure control, fuel, engines, distribution, heat loss, corrosion, scale, leaks, and overpressure enable high-power industry. |
-| Electricity | Generation, motors, storage, transformers, conductors, switchgear, protection, and loads form physical networks. |
-| Maintenance | Wear changes performance, reliability, precision, safety, and spare-part demand; technology changes maintenance work rather than removing it. |
-| Survival | Energy, hydration, temperature, fatigue, wetness, injury, and infection are legible pressures increasingly solved through preparation and infrastructure. |
-| Food and preservation | Food is physical and perishable; preservation changes future spoilage, dietary breadth affects recovery, and surplus enables population, specialists, expeditions, and trade. |
-| Agriculture | Crop choice, climate, soil, nutrients, moisture, rotation, irrigation, harvest, seed, storage, and labor form a managed changing land system. |
-| Ecology and animals | Populations respond to resources, habitat, seasons, predation, disease, and human pressure; domestication acts across generations. |
-| Workers | Continuing economic relationships and skill affect throughput, waste, defects, diagnosis, control, and safety; the player sets goals and policies. |
-| Settlements and trade | Independent production, consumption, specialization, transport, and geography create regional advantages and exchange. |
-| Sanitation | Dense settlement creates wastewater, refuse, manure, crowding, and water-quality problems that require physical management. |
-| Environment | Industry changes terrain, water, air, habitat, and material flows; environmental effects become engineering constraints. |
+| Power | Human, animal, water, wind, steam, and electrical systems use finite generation, transmission, storage, losses, and maintenance. |
+| Maintenance | Wear changes performance, reliability, precision, safety, and spare-part demand. Technology changes maintenance work rather than removing it. |
+| Survival and food | Survival pressures are legible and increasingly managed through preparation, preservation, stable supply, and infrastructure. Dietary breadth affects recovery. |
+| Agriculture and ecology | Crop choice, climate, soil, nutrients, moisture, populations, disease, habitat, and domestication form changing managed systems. |
+| Workers and settlements | Skill, organization, specialization, trade, transport, and continuing economic relationships shift work away from direct player input. |
+| Sanitation and environment | Dense settlement and industry create physical waste, pollution, water-quality, and habitat constraints that require management. |
 
 ## Progression
 
-Progression expands physical, economic, informational, and organizational capability. Eras describe
-milestones; they are not mandatory tier gates.
+Progression expands physical, economic, informational, and organizational capability. Eras are milestones,
+not mandatory tier gates.
 
 | Era | Characteristic capability |
 | --- | --- |
 | Wilderness | shelter, fire, water, foraging, hunting, stone tools, clothing |
-| Settlement | pottery, preservation, agriculture, storage, charcoal, trade, animal management |
+| Settlement | preservation, agriculture, storage, pottery, charcoal, trade, animal management |
 | Copper | prospecting, mining, ore preparation, copper metallurgy, metal tools |
 | Bronze | alloy control, improved tools, larger mines, stronger agriculture, mechanical workshops |
 | Iron | bloomery iron, forging, mine engineering, structural construction, larger settlements |
@@ -120,40 +95,36 @@ Industrialization shifts the dominant cost of work:
 `human attention -> organized labor -> machinery -> energy + maintenance + logistics + control`
 
 Progression should preserve meaningful sources, sinks, bottlenecks, and failure modes while increasing scale.
-Scarce resources should create consequential investment choices; delegated processes should return attention;
-processed matter and better information should open the next physical capability.
+Scarce resources should create investment choices; delegated processes should return attention; processed
+matter and better information should open further physical capability.
 
-Pacing constraints:
+### Pacing constraints
 
-- Critical resources have legible clues and reliable first uses; richer/deeper resources require better information, access, or infrastructure rather than search randomness.
-- Geological search should move coarse-to-fine: regional or low-resolution evidence narrows where to investigate, while local evidence resolves actionable targets. Broad evidence may guide attention but must not identify hidden owners by oracle.
+- Critical resources have legible clues and reliable first uses. Richer or deeper resources require better information, access, or infrastructure rather than search randomness.
+- Geological search moves coarse-to-fine. Broad evidence guides attention; local evidence resolves actionable targets without revealing hidden owners.
 - Repeated manual input becomes delegable before it dominates play.
-- Early material processing may retain a slower direct-labor fallback when the physics permit it, but the
-  fallback must consume real attention/survival reserve and preserve the same material state. Mechanization
-  should then buy measurable throughput, recovery, durability, or returned attention rather than merely
-  unlocking an otherwise impossible recipe.
-- Survival and industry overlap: infrastructure reduces some survival burdens while survival still constrains work. Stable supply, preservation, and storage should replace repeated emergency acquisition with preparation decisions, finite reserves, and recoverable failure risks.
-- Early preservation should be legible infrastructure with an explicit physical cause and visible benefit. Until climate/room simulation owns environmental conditions, do not hide preservation strength behind opaque room geometry or undocumented enclosure heuristics.
-- Long processes leave room for useful parallel work, preparation, observation, or logistics.
+- Manual processing may remain as a physical fallback, but mechanization should improve throughput, recovery, durability, safety, or returned attention.
+- Stable supply, preservation, and storage should replace repeated survival emergencies with preparation decisions and finite reserves.
+- Preservation strength should have an explicit physical cause and visible benefit.
+- Long processes should leave room for useful parallel work, preparation, observation, or logistics.
 - Earlier infrastructure remains useful as a component, backup, branch, or lower-scale solution when physics permits.
-- Complexity comes from interacting physical constraints, routing, quality, energy, maintenance, and information.
-- A longer process chain is justified only when each added stage creates a measurable physical or economic consequence; otherwise prefer the shorter canonical route.
+- Add process stages only when they create a measurable physical or economic consequence.
 
 ## Player information
 
-Complex systems must explain themselves. Symptoms should reveal the existence and direction of a problem;
-instruments increase precision. Player-facing information should answer:
+Player-facing information should answer:
 
 1. What is happening?
 2. Why is it happening?
 3. What can I change?
 
+Symptoms should reveal the direction of a problem; better instruments increase precision.
+
 ## Mechanic acceptance
 
-A mechanic belongs when its important causes/effects are perceivable, it creates a meaningful decision or
-obligation, it interacts with another major system, and the player can improve, delegate, mitigate, or
-automate it. Matter, energy, fluid, labor, and information transitions need explicit physical or social
-authority.
+A mechanic belongs when its important causes and effects are perceivable, it creates a meaningful decision or
+obligation, it interacts with another major system, and the player can improve, delegate, mitigate, or automate
+it. Matter, energy, fluid, labor, and information transitions need explicit physical or social authority.
 
 Simplify or remove mechanics that depend on repetitive input, hide their causes, or do not create useful
 decisions or world coherence.

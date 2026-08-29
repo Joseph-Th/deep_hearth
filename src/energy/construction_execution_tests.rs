@@ -1,4 +1,4 @@
-//! Tests for the sibling construction execution module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for material-backed energy-store construction.
 
 use super::*;
 use crate::content::{
@@ -20,7 +20,7 @@ use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::simulation::advance_tick;
 
-fn assembled_store_fixture() -> (Registries, AppState, EnergyStoreId) {
+fn unassembled_store_fixture() -> (Registries, AppState, crate::inventory::StockpileId) {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xE57E_0001));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_100_000))
@@ -43,6 +43,12 @@ fn assembled_store_fixture() -> (Registries, AppState, EnergyStoreId) {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("energy assembly shaft fixture failed: {error}"));
+
+    (registries, state, source)
+}
+
+fn assembled_store_fixture() -> (Registries, AppState, EnergyStoreId) {
+    let (registries, mut state, source) = unassembled_store_fixture();
 
     let energy_before = calculate_explicit_energy_accounting(&registries, &state)
         .unwrap_or_else(|error| {
@@ -72,6 +78,48 @@ fn assembled_store_fixture() -> (Registries, AppState, EnergyStoreId) {
         "assembled store material must remain represented in explicit energy ownership"
     );
     (registries, state, store)
+}
+
+#[test]
+fn assembly_rejects_exhausted_store_id_without_consuming_material() {
+    let (registries, state, source) = unassembled_store_fixture();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("energy store-id exhaustion serialization failed: {error}"));
+    encoded["state"]["systems"]["energy"]["next_store_id"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("energy store-id exhaustion decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("energy store-id exhaustion fixture should load: {error}"));
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_assemble_energy_store(&registries, &loaded, ENERGY_STONE_FLYWHEEL_DRIVE, source)
+            .err(),
+        Some(EnergyStoreAssemblyError::StoreIdExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn assembly_rejects_exhausted_energy_revision_without_consuming_material() {
+    let (registries, state, source) = unassembled_store_fixture();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("energy revision exhaustion serialization failed: {error}"));
+    encoded["state"]["systems"]["energy"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("energy revision exhaustion decode failed: {error}"));
+    let loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("energy revision exhaustion fixture should load: {error}"));
+    let before = loaded.clone();
+
+    assert_eq!(
+        validate_assemble_energy_store(&registries, &loaded, ENERGY_STONE_FLYWHEEL_DRIVE, source)
+            .err(),
+        Some(EnergyStoreAssemblyError::EnergyRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
 }
 
 #[test]
@@ -153,7 +201,7 @@ fn load_rejects_forged_energy_store_embodied_particle_state() {
 #[test]
 fn load_rejects_energy_store_material_created_after_construction() {
     let (registries, mut state, store) = assembled_store_fixture();
-    advance_tick(&registries, &mut state)
+    let _ = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("energy provenance audit tick failed: {error}"));
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("energy provenance tamper serialization failed: {error}"));

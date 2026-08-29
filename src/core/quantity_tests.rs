@@ -1,4 +1,4 @@
-//! Tests for the sibling quantity module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for checked physical quantities.
 
 use super::*;
 

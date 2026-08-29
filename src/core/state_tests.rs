@@ -1,4 +1,4 @@
-//! Tests for the sibling state module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for root runtime state and trusted continuation.
 
 use super::*;
 use crate::content::build_registries;
@@ -13,7 +13,8 @@ use crate::content::{
 
 #[cfg(feature = "test-soak")]
 use crate::core::quantity::{Area, Force, Mass, Temperature};
-use crate::core::rng::RngAlgorithm;
+use crate::core::rng::{RandomStateValidationError, RngAlgorithm, RngStreamId};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 
 #[cfg(feature = "test-soak")]
 use crate::inventory::{
@@ -147,20 +148,20 @@ fn build_soak_structure(registries: &Registries, state: &mut AppState) -> Struct
             Ok(token) => token,
             Err(error) => panic!("soak structural support activation failed: {error}"),
         };
-        commit_soak_structural_mutation(token, state);
+        let _ = commit_soak_structural_mutation(token, state);
     }
     for support in [left, right] {
         let token = match validate_link_support(registries, state, deck, support) {
             Ok(token) => token,
             Err(error) => panic!("soak structural support link failed: {error}"),
         };
-        commit_soak_structural_mutation(token, state);
+        let _ = commit_soak_structural_mutation(token, state);
     }
     let activation = match validate_activate_structural_element(registries, state, deck) {
         Ok(token) => token,
         Err(error) => panic!("soak deck activation failed: {error}"),
     };
-    commit_soak_structural_mutation(activation, state);
+    let _ = commit_soak_structural_mutation(activation, state);
 
     // Begin the soak with visible persistent damage but below post-crack failure capacity.
     let initial_load = match validate_set_structural_load(
@@ -333,6 +334,94 @@ fn new_state_starts_at_zero_with_versioned_rng() {
     assert_eq!(state.tick(), SimulationTick::ZERO);
     assert_eq!(state.rng_algorithm(), RngAlgorithm::Xoshiro256StarStarV1);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn trusted_load_rejects_random_world_seed_mismatch() {
+    let registries = build_registries();
+    let state = AppState::new(WorldSeed::new(42));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("random seed mismatch serialization failed: {error}"));
+    encoded["state"]["random"]["root_seed"] = serde_json::json!(43_u64);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("random seed mismatch decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::RandomWorldSeedMismatch {
+                world_seed: WorldSeed::new(42),
+                random_seed: WorldSeed::new(43),
+            }
+        ))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_missing_core_random_stream() {
+    let registries = build_registries();
+    let state = AppState::new(WorldSeed::new(42));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("missing random stream serialization failed: {error}"));
+    encoded["state"]["random"]["streams"]
+        .as_object_mut()
+        .unwrap_or_else(|| panic!("serialized random streams were not an object"))
+        .remove(&RngStreamId::CORE.value().to_string());
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("missing random stream decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Random(
+            RandomStateValidationError::MissingCoreStream
+        )))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_zero_random_stream_id() {
+    let registries = build_registries();
+    let state = AppState::new(WorldSeed::new(42));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("zero random stream serialization failed: {error}"));
+    let streams = encoded["state"]["random"]["streams"]
+        .as_object_mut()
+        .unwrap_or_else(|| panic!("serialized random streams were not an object"));
+    let core = streams
+        .get(&RngStreamId::CORE.value().to_string())
+        .cloned()
+        .unwrap_or_else(|| panic!("serialized random state lost its core stream"));
+    streams.insert("0".to_owned(), core);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("zero random stream decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Random(
+            RandomStateValidationError::ZeroStreamId
+        )))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_invalid_random_stream_state() {
+    let registries = build_registries();
+    let state = AppState::new(WorldSeed::new(42));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("invalid random stream serialization failed: {error}"));
+    encoded["state"]["random"]["streams"][RngStreamId::CORE.value().to_string()]["words"] =
+        serde_json::json!([0_u64, 0, 0, 0]);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("invalid random stream decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Random(
+            RandomStateValidationError::InvalidStreamState {
+                stream: RngStreamId::CORE,
+            }
+        )))
+    );
 }
 
 #[cfg(feature = "test-soak")]

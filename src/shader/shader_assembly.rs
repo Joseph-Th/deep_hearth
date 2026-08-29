@@ -1,4 +1,4 @@
-//! Deterministic WGSL dependency composition and dense program baking for sibling definitions.
+//! Assembles deterministic WGSL dependencies into dense executable program sets.
 
 use std::collections::BTreeSet;
 use std::error::Error;

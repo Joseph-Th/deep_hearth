@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::quantity::{Mass, Volume};
 use crate::core::time::SimulationTick;
 use crate::energy::{EnergyStoreId, ReleasedEnergyTrace};
 use crate::equipment::{EquipmentId, EquipmentOperationTrace};
@@ -23,6 +24,82 @@ pub struct ManualPowerWork {
     output: ReleasedEnergyTrace,
     started_at: SimulationTick,
     completes_at: SimulationTick,
+}
+
+/// Durable attention interval occupied by one already-admitted direct meal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EatingWork {
+    mass: Mass,
+    started_at: SimulationTick,
+    completes_at: SimulationTick,
+}
+
+impl EatingWork {
+    pub(crate) const fn new(
+        mass: Mass,
+        started_at: SimulationTick,
+        completes_at: SimulationTick,
+    ) -> Self {
+        Self {
+            mass,
+            started_at,
+            completes_at,
+        }
+    }
+
+    #[must_use]
+    pub const fn mass(self) -> Mass {
+        self.mass
+    }
+
+    #[must_use]
+    pub const fn started_at(self) -> SimulationTick {
+        self.started_at
+    }
+
+    #[must_use]
+    pub const fn completes_at(self) -> SimulationTick {
+        self.completes_at
+    }
+}
+
+/// Durable attention interval occupied by one already-admitted direct drink.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DrinkingWork {
+    volume: Volume,
+    started_at: SimulationTick,
+    completes_at: SimulationTick,
+}
+
+impl DrinkingWork {
+    pub(crate) const fn new(
+        volume: Volume,
+        started_at: SimulationTick,
+        completes_at: SimulationTick,
+    ) -> Self {
+        Self {
+            volume,
+            started_at,
+            completes_at,
+        }
+    }
+
+    #[must_use]
+    pub const fn volume(self) -> Volume {
+        self.volume
+    }
+
+    #[must_use]
+    pub const fn started_at(self) -> SimulationTick {
+        self.started_at
+    }
+
+    #[must_use]
+    pub const fn completes_at(self) -> SimulationTick {
+        self.completes_at
+    }
 }
 
 /// Durable bounded field-inspection work that will resolve one geological observation at completion.
@@ -147,6 +224,8 @@ pub enum PlayerWork {
     Mining { job: MiningJobId },
     ManualPower { work: ManualPowerWork },
     Prospecting { work: ProspectingWork },
+    Eating { work: EatingWork },
+    Drinking { work: DrinkingWork },
 }
 
 /// Single-player labor owner with an explicit revision for cross-system transactions.
@@ -185,6 +264,12 @@ impl PlayerWorkState {
             Some(PlayerWork::Prospecting { work }) => {
                 work.started_at() <= current && work.completes_at() > current
             }
+            Some(PlayerWork::Eating { work }) => {
+                work.started_at() <= current && work.completes_at() > current
+            }
+            Some(PlayerWork::Drinking { work }) => {
+                work.started_at() <= current && work.completes_at() > current
+            }
             Some(PlayerWork::ManualProduction { job: _ })
             | Some(PlayerWork::Mining { job: _ })
             | None => true,
@@ -202,6 +287,8 @@ impl PlayerWorkState {
             | Some(PlayerWork::Mining { job: _ })
             | Some(PlayerWork::ManualPower { work: _ })
             | Some(PlayerWork::Prospecting { work: _ })
+            | Some(PlayerWork::Eating { work: _ })
+            | Some(PlayerWork::Drinking { work: _ })
             | None => None,
         }
     }
@@ -217,6 +304,8 @@ impl PlayerWorkState {
             | Some(PlayerWork::Mining { job: _ })
             | Some(PlayerWork::ManualPower { work: _ })
             | Some(PlayerWork::Prospecting { work: _ })
+            | Some(PlayerWork::Eating { work: _ })
+            | Some(PlayerWork::Drinking { work: _ })
             | None => None,
         }
     }

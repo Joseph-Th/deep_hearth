@@ -1,12 +1,12 @@
-//! Atomic commit for a previously validated production start.
+//! Atomically commits a validated production start.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
-use crate::energy::{EnergyCommitError, apply_energy_consumption_reservation};
+use crate::energy::apply_prechecked_energy_consumption_reservation;
 use crate::equipment::EquipmentId;
-use crate::inventory::{ReservationCommitError, apply_consumption_reservation};
+use crate::inventory::apply_prechecked_consumption_reservation;
 use crate::mining::MiningJobId;
 use crate::structural::StructuralCommitError;
 
@@ -179,11 +179,10 @@ impl ValidatedStartProcess {
                 .commit(state)
                 .map_err(StartProcessCommitError::Structure)?;
         }
-        apply_consumption_reservation(state.inventory_state_mut(), reservation)
-            .map_err(map_inventory_commit_error)?;
+        apply_prechecked_consumption_reservation(state.inventory_state_mut(), reservation);
         if let Some(energy) = energy_reservation {
-            apply_energy_consumption_reservation(state.energy_state_mut(), energy)
-                .map_err(map_energy_commit_error)?;
+            let _ =
+                apply_prechecked_energy_consumption_reservation(state.energy_state_mut(), energy);
         }
         state
             .production_state_mut()
@@ -283,20 +282,4 @@ fn validate_structure_revision(
         return Err(StartProcessCommitError::StaleStructureRevision { expected, actual });
     }
     Ok(())
-}
-
-fn map_inventory_commit_error(error: ReservationCommitError) -> StartProcessCommitError {
-    match error {
-        ReservationCommitError::StaleInventoryRevision { expected, actual } => {
-            StartProcessCommitError::StaleInventoryRevision { expected, actual }
-        }
-    }
-}
-
-fn map_energy_commit_error(error: EnergyCommitError) -> StartProcessCommitError {
-    match error {
-        EnergyCommitError::StaleRevision { expected, actual } => {
-            StartProcessCommitError::StaleEnergyRevision { expected, actual }
-        }
-    }
 }

@@ -1,4 +1,4 @@
-//! Exact force conversions for structural load providers; sibling analysis consumes force contributions without owning their causes.
+//! Converts owner-supplied mass into conservative structural force.
 
 use crate::core::quantity::{Acceleration, AggregateMass, Force, Mass};
 

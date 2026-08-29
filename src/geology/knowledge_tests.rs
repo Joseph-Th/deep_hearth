@@ -1,4 +1,4 @@
-//! Tests for the sibling knowledge module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for acquired geological knowledge.
 
 use super::*;
 use crate::content::{MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
@@ -33,6 +33,27 @@ fn abundance_estimate_rejects_invalid_fraction_bounds() {
             bound: AbundanceBound::Upper,
             value: 1_000_001,
         })
+    );
+}
+
+#[test]
+fn abundance_estimate_deserialization_replays_fraction_bounds() {
+    let inverted = format!(
+        r#"{{"material":{},"lower_ppm":700000,"upper_ppm":600000}}"#,
+        MATERIAL_COPPER.value()
+    );
+    assert!(
+        serde_json::from_str::<MaterialAbundanceEstimate>(&inverted).is_err(),
+        "deserialization must not bypass inverted abundance bounds"
+    );
+
+    let above_unity = format!(
+        r#"{{"material":{},"lower_ppm":0,"upper_ppm":1000001}}"#,
+        MATERIAL_COPPER.value()
+    );
+    assert!(
+        serde_json::from_str::<MaterialAbundanceEstimate>(&above_unity).is_err(),
+        "deserialization must not bypass normalized abundance bounds"
     );
 }
 

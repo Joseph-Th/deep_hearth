@@ -1,4 +1,4 @@
-//! Tests for the sibling prospecting execution module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for prospecting execution and acquired evidence.
 
 use super::*;
 use crate::content::{MATERIAL_COPPER, MATERIAL_SLAG, build_registries};

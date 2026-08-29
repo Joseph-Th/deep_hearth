@@ -1,4 +1,4 @@
-//! Immutable structural response profiles; sibling state stores only authored references and runtime member condition.
+//! Defines immutable structural response profiles and load modes.
 
 use std::collections::BTreeMap;
 

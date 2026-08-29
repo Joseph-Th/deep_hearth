@@ -1,4 +1,4 @@
-//! Tests for the sibling schedule module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for deterministic periodic scheduling.
 
 use super::*;
 

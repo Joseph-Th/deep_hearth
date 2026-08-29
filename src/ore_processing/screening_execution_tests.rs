@@ -1,4 +1,4 @@
-//! Tests for the sibling screening execution module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for dry-screening execution and replay.
 
 use super::*;
 use crate::capability::{
@@ -85,11 +85,18 @@ fn registries_with_power(aperture: Length, max_output_power: Power) -> Registrie
     let process = ProcessDefinition::new_selected_batch(
         PROCESS,
         "test dry screening",
-        vec![CapabilityRequirement::new(
-            FLOW_CAPABILITY,
-            CapabilityComparison::AtLeast,
-            CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1)),
-        )],
+        vec![
+            CapabilityRequirement::new(
+                FLOW_CAPABILITY,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1)),
+            ),
+            CapabilityRequirement::new(
+                BATCH_CAPABILITY,
+                CapabilityComparison::AtLeast,
+                CapabilityValue::Mass(Mass::from_milligrams(1)),
+            ),
+        ],
     );
     make_test_registries_with_screening(
         vec![
@@ -349,7 +356,7 @@ fn routed_screening_completion_conserves_matter_and_validates_while_in_flight() 
     validate_loaded_state(&fixture.registries, &fixture.state)
         .unwrap_or_else(|error| panic!("in-flight screening state failed audit: {error}"));
     for _ in 0..duration.value() {
-        advance_tick(&fixture.registries, &mut fixture.state)
+        let _ = advance_tick(&fixture.registries, &mut fixture.state)
             .unwrap_or_else(|error| panic!("screening completion tick failed: {error}"));
     }
     assert_eq!(
@@ -501,7 +508,7 @@ fn run_screening_soak(seed: WorldSeed) -> AppState {
                 .unwrap_or_else(|error| panic!("screening soak resume failed: {error}"));
         }
 
-        advance_tick(&registries, &mut state)
+        let _ = advance_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("screening soak completion failed: {error}"));
         if operation % 25 == 0 {
             validate_loaded_state(&registries, &state)

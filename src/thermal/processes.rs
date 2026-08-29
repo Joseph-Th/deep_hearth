@@ -1,4 +1,4 @@
-//! Thermal process facade; child modules separate registry ownership, shared batch physics, runtime resolution, and persistence replay.
+//! Owns thermal process definitions, shared batch physics, runtime resolution, and persistence replay.
 
 mod heating;
 mod registry;

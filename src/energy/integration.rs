@@ -1,9 +1,9 @@
-//! Exact power integration, duration inversion, and mass-specific energy helpers.
+//! Owns exact power integration, duration inversion, and mass-specific energy conversion.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::core::arithmetic::checked_mul_div_with_remainder;
 use crate::core::quantity::{Energy, Mass, MassSpecificEnergy, Power};
@@ -16,7 +16,7 @@ const PICOWATT_MICROSECONDS_PER_NANOJOULE: u128 = 1_000_000_000;
 /// Because power is stored in picowatts and elapsed world-time in microseconds, one nanojoule is
 /// exactly one billion picowatt-microseconds. Repeated integration must persist this remainder in
 /// the owning runtime state to avoid rounding loss.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct PowerRemainder(u64);
 
 impl PowerRemainder {
@@ -25,6 +25,21 @@ impl PowerRemainder {
     #[must_use]
     pub const fn numerator(self) -> u64 {
         self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for PowerRemainder {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let numerator = u64::deserialize(deserializer)?;
+        if u128::from(numerator) >= PICOWATT_MICROSECONDS_PER_NANOJOULE {
+            return Err(serde::de::Error::custom(format_args!(
+                "power remainder {numerator} is not below integration denominator {PICOWATT_MICROSECONDS_PER_NANOJOULE}"
+            )));
+        }
+        Ok(Self(numerator))
     }
 }
 

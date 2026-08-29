@@ -1,4 +1,4 @@
-//! Tests for passive finite-store energy loss and owner revision semantics.
+//! Contract tests for passive finite-store loss and energy-owner revision semantics.
 
 use super::*;
 use crate::content::make_test_registries_with_energy_store;

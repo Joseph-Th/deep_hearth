@@ -1,4 +1,4 @@
-//! Tests for the sibling construction execution module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for structural construction execution.
 
 use super::*;
 use crate::content::{
@@ -213,6 +213,89 @@ fn explicit_energy(registries: &Registries, state: &AppState) -> Energy {
         Ok(total) => total,
         Err(error) => panic!("construction explicit energy accounting failed: {error}"),
     }
+}
+
+fn unmaterialized_construction_fixture() -> (
+    Registries,
+    AppState,
+    StructuralElementId,
+    crate::inventory::StockpileId,
+    crate::inventory::MaterialLotId,
+) {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5C00_E001));
+    let mass = Mass::from_milligrams(10);
+    let element = member(&registries, &mut state, mass);
+    let source = add_solid_stockpile_for_test(&mut state, mass)
+        .unwrap_or_else(|error| panic!("construction exhaustion source failed: {error}"));
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        mass,
+        crate::core::quantity::Temperature::from_millikelvin(300_000),
+    )
+    .unwrap_or_else(|error| panic!("construction exhaustion material failed: {error}"));
+    (registries, state, element, source, lot)
+}
+
+#[test]
+fn construction_rejects_exhausted_inventory_revision_without_consuming_material() {
+    let (registries, state, element, source, lot) = unmaterialized_construction_fixture();
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("construction inventory exhaustion serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["inventory"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("construction inventory exhaustion decode failed: {error}"));
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("construction inventory exhaustion fixture should load: {error}")
+    });
+    let before = loaded.clone();
+    let resolution = bind_structural_construction_selection(
+        &loaded,
+        element,
+        source,
+        &[MaterialLotSelection::new(lot, Mass::from_milligrams(10))],
+    )
+    .unwrap_or_else(|error| panic!("construction inventory exhaustion binding failed: {error:?}"));
+
+    assert_eq!(
+        validate_structural_construction(&registries, &loaded, resolution).err(),
+        Some(StructuralConstructionError::InventoryRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
+fn construction_rejects_exhausted_structure_revision_without_consuming_material() {
+    let (registries, state, element, source, lot) = unmaterialized_construction_fixture();
+    let mut encoded =
+        serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
+            panic!("construction structure exhaustion serialization failed: {error}")
+        });
+    encoded["state"]["systems"]["structures"]["revision"] = serde_json::json!(u64::MAX);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("construction structure exhaustion decode failed: {error}"));
+    let loaded = decoded.into_state(&registries).unwrap_or_else(|error| {
+        panic!("construction structure exhaustion fixture should load: {error}")
+    });
+    let before = loaded.clone();
+    let resolution = bind_structural_construction_selection(
+        &loaded,
+        element,
+        source,
+        &[MaterialLotSelection::new(lot, Mass::from_milligrams(10))],
+    )
+    .unwrap_or_else(|error| panic!("construction structure exhaustion binding failed: {error:?}"));
+
+    assert_eq!(
+        validate_structural_construction(&registries, &loaded, resolution).err(),
+        Some(StructuralConstructionError::StructureRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
 }
 
 #[test]

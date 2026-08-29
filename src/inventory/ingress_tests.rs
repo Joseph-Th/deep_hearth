@@ -1,4 +1,4 @@
-//! Tests for the sibling ingress module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for authoritative material ingress.
 
 use super::*;
 use crate::content::{FORM_LOG, MATERIAL_WOOD, build_registries};
@@ -11,7 +11,11 @@ use super::super::fixture::add_stockpile;
 use super::super::state::StockpileStorageProfile;
 
 fn add_test_stockpile(state: &mut AppState, capacity: Mass) -> StockpileId {
-    match add_stockpile(state, capacity, StockpileStorageProfile::solid_only()) {
+    match add_stockpile(
+        state,
+        capacity,
+        StockpileStorageProfile::unbounded_solid_only(),
+    ) {
         Ok(stockpile) => stockpile,
         Err(error) => panic!("ingress stockpile fixture failed: {error:?}"),
     }

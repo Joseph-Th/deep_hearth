@@ -12,9 +12,9 @@ pub use consumption::{
     ValidatedEat, assess_food_freshness, validate_drink, validate_eat,
 };
 pub use definitions::{
-    ConsumptionTemperatureRange, DrinkDefinition, FoodCategory, FoodDefinition,
-    HydrationDefinition, MetabolismDefinition, NutritionDefinition, PhysiologyDefinition,
-    SurvivalRegistry,
+    ConsumptionTemperatureRange, DirectConsumptionDefinition, DrinkDefinition, FoodCategory,
+    FoodDefinition, HydrationDefinition, MetabolismDefinition, NutritionDefinition,
+    PhysiologyDefinition, SurvivalRegistry,
 };
 pub use lifecycle::{
     HungerState, HydrationState, InitializeSurvivalError, SurvivalAssessment, SurvivalExertion,

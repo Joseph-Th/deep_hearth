@@ -47,7 +47,7 @@ pub struct StructuralMaterialRequirement {
 impl StructuralMaterialRequirement {
     #[must_use]
     #[cfg(test)]
-    pub const fn element(self) -> StructuralElementId {
+    pub(crate) const fn element(self) -> StructuralElementId {
         self.element
     }
 
@@ -58,7 +58,7 @@ impl StructuralMaterialRequirement {
 
     #[must_use]
     #[cfg(test)]
-    pub const fn solid_volume_ceiling(self) -> Volume {
+    pub(crate) const fn solid_volume_ceiling(self) -> Volume {
         self.solid_volume_ceiling
     }
 
@@ -434,7 +434,7 @@ pub struct ValidatedStructuralConstruction {
 impl ValidatedStructuralConstruction {
     #[must_use]
     #[cfg(test)]
-    pub const fn self_weight(&self) -> Force {
+    pub(crate) const fn self_weight(&self) -> Force {
         self.self_weight
     }
 

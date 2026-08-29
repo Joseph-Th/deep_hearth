@@ -11,7 +11,7 @@ use crate::material::{
 };
 use crate::registry::Registries;
 
-use super::state::{StockpileId, StockpileRecord};
+use super::state::{StockpileId, StockpileRecord, StockpileStorageProfile};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum CommodityReferenceError {
@@ -139,6 +139,26 @@ pub(crate) fn validate_stockpile_storage(
     temperature: Temperature,
     particle_size: Option<&ParticleSizeDistribution>,
 ) -> Result<(), StockpileStorageError> {
+    validate_stockpile_storage_profile(
+        registries,
+        record.storage_profile(),
+        stockpile,
+        commodity,
+        composition,
+        temperature,
+        particle_size,
+    )
+}
+
+pub(super) fn validate_stockpile_storage_profile(
+    registries: &Registries,
+    profile: StockpileStorageProfile,
+    stockpile: StockpileId,
+    commodity: CommodityKey,
+    composition: &MaterialComposition,
+    temperature: Temperature,
+    particle_size: Option<&ParticleSizeDistribution>,
+) -> Result<(), StockpileStorageError> {
     let form_id = commodity.form();
     let Some(form) = registries.materials().get_form(form_id) else {
         return Err(StockpileStorageError::UnknownForm { form: form_id });
@@ -155,7 +175,6 @@ pub(crate) fn validate_stockpile_storage(
         .map_err(StockpileStorageError::InvalidMaterialPhaseState)?;
     validate_material_particle_size_state(registries.materials(), commodity, particle_size)
         .map_err(StockpileStorageError::InvalidParticleSizeState)?;
-    let profile = record.storage_profile();
     if !profile.can_store_phase(form.phase()) {
         return Err(StockpileStorageError::PhaseNotAccepted {
             stockpile,

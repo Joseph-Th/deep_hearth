@@ -8,7 +8,7 @@ impl ProcessResolution {
     pub(crate) fn outputs(&self) -> &[MaterialLotSpec] {
         match self.single_output_stream() {
             Some(stream) => stream.outputs(),
-            None => panic!("single-stream test helper used with multi-stream process resolution"),
+            None => panic!("single-stream test support used with multi-stream process resolution"),
         }
     }
 }

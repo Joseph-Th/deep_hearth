@@ -1,8 +1,8 @@
-//! Tests for the sibling power execution module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for direct player-power execution and persistence.
 
 use super::*;
 use crate::content::{
-    ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE,
+    ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE, ENERGY_THERMAL_SINK,
     EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_STONE_HAND_CRANK, FORM_FLYWHEEL, FORM_HANDLE,
     FORM_LOG, FORM_LUMP, FORM_REINFORCEMENT, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
     MATERIAL_STONE, MATERIAL_WOOD, PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE,
@@ -13,7 +13,8 @@ use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::{
-    EnergyStoreRecord, EnergySupplyError, add_energy_store, validate_energy_supply,
+    EnergyStoreRecord, EnergySupplyError, add_energy_store,
+    add_energy_store_with_initial_for_fixture, validate_energy_supply,
 };
 use crate::equipment::{
     EquipmentConditionPlanError, decide_equipment_wear, validate_assemble_equipment,
@@ -34,7 +35,7 @@ use crate::survival::{assess_survival, initialize_player_survival};
 
 fn advance_exact(registries: &Registries, state: &mut AppState, ticks: u64) {
     for _ in 0..ticks {
-        advance_tick(registries, state)
+        let _ = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("manual power setup tick failed: {error}"));
     }
 }
@@ -102,7 +103,7 @@ fn active_support(registries: &Registries, state: &mut AppState) -> StructuralEl
     )
     .unwrap_or_else(|error| panic!("manual power support allocation failed: {error}"));
     materialize_structural_element_for_test(registries, state, element, FORM_LOG);
-    validate_activate_structural_element(registries, state, element)
+    let _ = validate_activate_structural_element(registries, state, element)
         .unwrap_or_else(|error| panic!("manual power support activation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("manual power support commit failed: {error}"));
@@ -120,7 +121,7 @@ fn manual_power_requires_portable_unmounted_equipment_and_rejects_mounted_work_o
     let drive = add_energy_store(&registries, &mut mounted, ENERGY_MECHANICAL_SMALL_DRIVE)
         .unwrap_or_else(|error| panic!("mounted manual power drive failed: {error}"));
     let support = active_support(&registries, &mut mounted);
-    validate_mount_equipment(&registries, &mounted, crank, support)
+    let _ = validate_mount_equipment(&registries, &mounted, crank, support)
         .unwrap_or_else(|error| panic!("manual power crank mount failed: {error}"))
         .commit(&mut mounted)
         .unwrap_or_else(|error| panic!("manual power crank mount commit failed: {error}"));
@@ -139,7 +140,7 @@ fn manual_power_requires_portable_unmounted_equipment_and_rejects_mounted_work_o
     assert_eq!(mounted, before);
 
     let mut active = mounted.clone();
-    validate_unmount_equipment(&registries, &active, crank)
+    let _ = validate_unmount_equipment(&registries, &active, crank)
         .unwrap_or_else(|error| panic!("manual power crank unmount failed: {error}"))
         .commit(&mut active)
         .unwrap_or_else(|error| panic!("manual power crank unmount commit failed: {error}"));
@@ -253,6 +254,65 @@ fn copper_reinforced_crank_halves_manual_charge_time_without_changing_energy_yie
 }
 
 #[test]
+fn shared_energy_revision_budget_rejects_manual_power_plus_passive_loss_atomically() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A80_0004));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("shared-energy survival setup failed: {error}"));
+    let crank = assemble_crank_fixture(
+        &registries,
+        &mut state,
+        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+        true,
+    );
+    let manual_destination =
+        add_energy_store(&registries, &mut state, ENERGY_MECHANICAL_LARGE_DRIVE)
+            .unwrap_or_else(|error| panic!("shared-energy manual destination failed: {error}"));
+    let _passive_store = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_THERMAL_SINK,
+        Energy::from_nanojoules(1_000_000_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("shared-energy passive store failed: {error}"));
+    let requested = Energy::from_nanojoules(300_000_000_000);
+    let start = validate_start_manual_power(
+        &registries,
+        &state,
+        ManualPowerRequest::new(
+            MANUAL_POWER_HAND_CRANK,
+            crank,
+            manual_destination,
+            requested,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("shared-energy manual power validation failed: {error}"));
+    assert_eq!(
+        start.work().completes_at().value() - state.tick().value(),
+        1
+    );
+    start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("shared-energy manual power commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("shared-energy save failed: {error}"));
+    encoded["state"]["systems"]["energy"]["revision"] = serde_json::json!(u64::MAX - 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("shared-energy save decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("shared-energy exhausted revision should load: {error}"));
+    let before = loaded.clone();
+
+    assert_eq!(
+        advance_tick(&registries, &mut loaded),
+        Err(crate::simulation::TickError::EnergyRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
+}
+
+#[test]
 fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x1A80_0001));
@@ -362,7 +422,7 @@ fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
         ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested),
     )
     .unwrap_or_else(|error| panic!("stale-survival manual power setup failed: {error}"));
-    advance_tick(&registries, &mut stale_survival_state)
+    let _ = advance_tick(&registries, &mut stale_survival_state)
         .unwrap_or_else(|error| panic!("stale-survival setup tick failed: {error}"));
     assert_eq!(
         stale_survival.commit(&mut stale_survival_state),

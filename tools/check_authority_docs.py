@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate Deep Hearth's documentation graph, references, and source-module orientation."""
+"""Validate Deep Hearth's documentation graph, references, and Rust-module orientation."""
 
 from __future__ import annotations
 
@@ -27,6 +27,14 @@ AUTHORITY_FILES = (
     "TECHNICAL_DESIGN.md",
     "GAME_DESIGN.md",
 )
+
+EXPECTED_BCA_POLICY = "**BCA policy:** ratchet"
+EXPECTED_PROFILES = {
+    "Universal",
+    "Stateful Application",
+    "Deterministic System",
+    "Automated Behavior Evaluation",
+}
 
 IGNORED_DOCUMENTATION_ROOTS = {".git", "target"}
 
@@ -152,6 +160,108 @@ def ci_command_error(command: str) -> str | None:
         return None
 
 
+def inspect_markdown_links(relative: str, text: str) -> tuple[list[str], set[str], int]:
+    """Check local Markdown links in one maintained document."""
+
+    errors: list[str] = []
+    links: set[str] = set()
+    checked = 0
+    document = ROOT / relative
+    for match in MARKDOWN_LINK.finditer(text):
+        target = link_target(match.group(1))
+        if target is None:
+            continue
+        checked += 1
+        resolved = (document.parent / target).resolve()
+        if not resolved.exists():
+            errors.append(f"{relative}: broken local Markdown link: {target}")
+            continue
+        links.add(project_relative(resolved))
+    return errors, links, checked
+
+
+def inspect_repository_routes(relative: str, text: str) -> tuple[list[str], set[str], int]:
+    """Check repository paths and collect local-CI commands named by one document."""
+
+    errors: list[str] = []
+    commands: set[str] = set()
+    checked = 0
+    document = ROOT / relative
+    for code in INLINE_CODE.findall(text):
+        if code.startswith("python ci.py"):
+            commands.add(code)
+        for match in ROUTE_REFERENCE.finditer(code):
+            route = match.group(1).rstrip(".,;:")
+            checked += 1
+            if not resolve_route(document, route).exists():
+                errors.append(f"{relative}: missing repository route: {route}")
+    return errors, commands, checked
+
+
+def inspect_cargo_aliases(relative: str, text: str, aliases: set[str]) -> tuple[list[str], int]:
+    """Check concrete Cargo aliases named by one document."""
+
+    errors: list[str] = []
+    checked = 0
+    for match in CARGO_COMMAND.finditer(text):
+        command = match.group(1).rstrip(".,;:")
+        if "{" in command or "<" in command or "[" in command or "-" not in command:
+            continue
+        checked += 1
+        if command not in aliases:
+            errors.append(f"{relative}: unknown Cargo alias: cargo {command}")
+    return errors, checked
+
+
+def check_execution_card(documents: dict[str, str]) -> list[str]:
+    """Check machine-discoverable portfolio declarations in AGENTS.md."""
+
+    errors: list[str] = []
+    agents = documents.get("AGENTS.md", "")
+    bca_declarations = [
+        line.strip() for line in agents.splitlines() if line.startswith("**BCA policy:**")
+    ]
+    if bca_declarations != [EXPECTED_BCA_POLICY]:
+        errors.append(
+            "AGENTS.md: declare exactly one `**BCA policy:** ratchet` near the project entry point"
+        )
+
+    profile_prefix = "**Applicable profiles:**"
+    profile_declarations = [
+        line.strip() for line in agents.splitlines() if line.startswith(profile_prefix)
+    ]
+    if len(profile_declarations) != 1:
+        errors.append("AGENTS.md: declare exactly one `**Applicable profiles:**` line")
+        return errors
+
+    declared = {
+        profile.strip()
+        for profile in profile_declarations[0].removeprefix(profile_prefix).split(";")
+        if profile.strip()
+    }
+    missing = EXPECTED_PROFILES - declared
+    if missing:
+        errors.append(
+            "AGENTS.md: missing applicable portfolio profiles: " + ", ".join(sorted(missing))
+        )
+    return errors
+
+
+def check_required_authority_links(resolved_links: dict[str, set[str]]) -> list[str]:
+    """Check the bounded authority graph and optional task routing."""
+
+    errors: list[str] = []
+    for source, required in REQUIRED_LINKS.items():
+        actual = resolved_links.get(source, set())
+        for target in sorted(required - actual):
+            errors.append(f"{source}: missing required authority link to {target}")
+
+    if (ROOT / "TASKS.md").exists() and "README.md" in resolved_links:
+        if "TASKS.md" not in resolved_links["README.md"]:
+            errors.append("README.md: TASKS.md exists but is absent from the authority table")
+    return errors
+
+
 def check_authority_graph() -> list[str]:
     errors: list[str] = []
     documents: dict[str, str] = {}
@@ -173,51 +283,29 @@ def check_authority_graph() -> list[str]:
     documented_ci_commands: dict[str, set[str]] = {}
 
     for relative, text in documents.items():
-        document = ROOT / relative
-        links: set[str] = set()
-        for match in MARKDOWN_LINK.finditer(text):
-            target = link_target(match.group(1))
-            if target is None:
-                continue
-            resolved = (document.parent / target).resolve()
-            checked_links += 1
-            if not resolved.exists():
-                errors.append(f"{relative}: broken local Markdown link: {target}")
-                continue
-            links.add(project_relative(resolved))
+        link_errors, links, link_count = inspect_markdown_links(relative, text)
+        errors.extend(link_errors)
+        checked_links += link_count
         resolved_links[relative] = links
 
-        for code in INLINE_CODE.findall(text):
-            if code.startswith("python ci.py"):
-                documented_ci_commands.setdefault(code, set()).add(relative)
-            for match in ROUTE_REFERENCE.finditer(code):
-                route = match.group(1).rstrip(".,;:")
-                candidate = resolve_route(document, route)
-                checked_routes += 1
-                if not candidate.exists():
-                    errors.append(f"{relative}: missing repository route: {route}")
+        route_errors, commands, route_count = inspect_repository_routes(relative, text)
+        errors.extend(route_errors)
+        checked_routes += route_count
+        for command in commands:
+            documented_ci_commands.setdefault(command, set()).add(relative)
 
-        for match in CARGO_COMMAND.finditer(text):
-            command = match.group(1).rstrip(".,;:")
-            if "{" in command or "<" in command or "[" in command or "-" not in command:
-                continue
-            checked_aliases += 1
-            if command not in aliases:
-                errors.append(f"{relative}: unknown Cargo alias: cargo {command}")
+        alias_errors, alias_count = inspect_cargo_aliases(relative, text, aliases)
+        errors.extend(alias_errors)
+        checked_aliases += alias_count
+
+    errors.extend(check_execution_card(documents))
 
     for command, sources in sorted(documented_ci_commands.items()):
         error = ci_command_error(command)
         if error is not None:
             errors.append(f"{', '.join(sorted(sources))}: {error}")
 
-    for source, required in REQUIRED_LINKS.items():
-        actual = resolved_links.get(source, set())
-        for target in sorted(required - actual):
-            errors.append(f"{source}: missing required authority link to {target}")
-
-    if (ROOT / "TASKS.md").exists() and "README.md" in resolved_links:
-        if "TASKS.md" not in resolved_links["README.md"]:
-            errors.append("README.md: TASKS.md exists but is absent from the authority table")
+    errors.extend(check_required_authority_links(resolved_links))
 
     if errors:
         return errors
@@ -233,9 +321,13 @@ def check_authority_graph() -> list[str]:
 
 def check_source_module_docs() -> tuple[list[str], int]:
     errors: list[str] = []
-    sources = sorted((ROOT / "src").rglob("*.rs"))
+    sources = sorted(
+        path
+        for root in (ROOT / "src", ROOT / "tests")
+        for path in root.rglob("*.rs")
+    )
     if not sources:
-        return ["src/: no Rust source files found"], 0
+        return ["src/ and tests/: no maintained Rust source files found"], 0
 
     for path in sources:
         relative = project_relative(path)

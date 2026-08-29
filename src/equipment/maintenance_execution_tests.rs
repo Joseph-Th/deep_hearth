@@ -1,9 +1,10 @@
-//! Tests for the sibling maintenance execution module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for equipment maintenance execution.
 
 use super::super::maintenance_resolution::EquipmentMaintenanceMaterialResolution;
 use super::*;
 use crate::capability::{
-    CapabilityDefinition, CapabilityId, CapabilityProfile, CapabilityValue, CapabilityValueKind,
+    CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityProfile,
+    CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{
     EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_COPPER_REINFORCED_PICK,
@@ -252,7 +253,7 @@ fn component_maintenance_preserves_upgrade_and_exchanges_exact_embodied_trace() 
         .unwrap_or_else(|error| panic!("component service wear planning failed: {error}"));
     apply_equipment_condition_plan(&mut state, wear)
         .unwrap_or_else(|error| panic!("component service wear commit failed: {error}"));
-    advance_tick(&registries, &mut state)
+    let _ = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("component service provenance tick failed: {error}"));
 
     let old_stone_trace = state
@@ -455,7 +456,23 @@ fn occupied_registries() -> Registries {
         ProcessDefinition::new_selected_batch(
             HEATING_PROCESS,
             "maintenance occupancy sensible heating",
-            Vec::new(),
+            vec![
+                CapabilityRequirement::new(
+                    HEATING_POWER,
+                    CapabilityComparison::AtLeast,
+                    CapabilityValue::Power(Power::from_picowatts(1)),
+                ),
+                CapabilityRequirement::new(
+                    MAX_TEMPERATURE,
+                    CapabilityComparison::AtLeast,
+                    CapabilityValue::Temperature(Temperature::from_millikelvin(1)),
+                ),
+                CapabilityRequirement::new(
+                    MAX_BATCH_MASS,
+                    CapabilityComparison::AtLeast,
+                    CapabilityValue::Mass(Mass::from_milligrams(1)),
+                ),
+            ],
         ),
         SensibleHeatingProcessDefinition::new(
             HEATING_PROCESS,

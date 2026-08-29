@@ -1,4 +1,4 @@
-//! Exclusive player-work ownership shared by manual production and extraction systems.
+//! Exclusive ownership of the local player's attention across labor and direct consumption.
 
 mod attention;
 mod definitions;
@@ -18,12 +18,14 @@ pub use power_execution::{
     ManualPowerCommitError, ManualPowerError, ManualPowerOutcome, ManualPowerRequest,
     ValidatedManualPowerStart, validate_start_manual_power,
 };
-pub use state::{ManualPowerWork, PlayerWork, PlayerWorkState, ProspectingWork};
+pub use state::{
+    DrinkingWork, EatingWork, ManualPowerWork, PlayerWork, PlayerWorkState, ProspectingWork,
+};
 pub use validation::PlayerWorkValidationError;
 pub use work_resources::PlayerWorkResourceBudget;
 
 pub(crate) use attention::{
-    PlayerAttentionError, ValidatedPlayerAttention, validate_player_attention,
+    PlayerAttentionError, ValidatedPlayerAttentionHold, validate_player_attention,
 };
 pub(crate) use lifecycle::{
     PlayerWorkTickError, ValidatedPlayerWorkStart, apply_player_work_tick,

@@ -1,4 +1,4 @@
-//! Persistent finite geological deposits; child validation audits durable geological ownership.
+//! Owns persistent finite geological deposits and their lifecycle.
 
 use std::collections::BTreeMap;
 #[cfg(any(test, feature = "test-gameplay"))]
@@ -42,7 +42,7 @@ pub enum GeologicalDepositLifecycle {
 /// Controlled world-generation authorization used by tests and maintained gameplay fixtures.
 #[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GeneratedDepositSpec {
+pub(crate) struct GeneratedDepositSpec {
     bounds: VoxelBounds,
     commodity: CommodityKey,
     mass: Mass,

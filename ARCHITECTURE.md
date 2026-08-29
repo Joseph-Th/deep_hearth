@@ -39,7 +39,9 @@ Validated*::commit(self, &mut state)
 ```
 
 Validation resolves preconditions before consequential mutation. A validated token binds the state it
-checked and rejects stale commits where required.
+checked and rejects stale commits where required. Cross-owner commits must perform every recoverable
+conflict check before their first authoritative mutation. After that point, remaining owner writes are
+infallible prevalidated applies (with invariant assertions), not new domain-error branches.
 
 Use decide/apply when a read-heavy decision produces a narrow write:
 
@@ -60,6 +62,13 @@ unless mutation of that state is itself the explicit failure contract.
 Authoritative results depend only on immutable definitions, serialized runtime state, ordered explicit
 inputs, state-owned randomness, and explicitly modeled external snapshots.
 
+Deep Hearth claims semantic deterministic continuation for authoritative simulation state and `TickOutcome`
+values when the validated registries, serialized `AppState`, ordered external commands, and persisted random
+state are identical. Authoritative physics and state transitions use checked integer arithmetic, so supported
+platforms do not acquire a separate floating-point simulation ruleset. The claim does not cover byte-identical
+adapter encodings, renderer/frame output, wall-clock execution time, or continuation across different save or
+registry schemas.
+
 - Result-affecting randomness comes from persisted state-owned streams or an explicit state-owned input.
 - Order-sensitive work uses stable collections or explicit sorting with complete tie-breakers.
 - Wall-clock time, filesystem enumeration, hash iteration, UI timing, thread scheduling, and ambient entropy
@@ -70,6 +79,9 @@ inputs, state-owned randomness, and explicitly modeled external snapshots.
 ## Persistence and adapters
 
 - Save/load preserves every value required for supported continuation.
+- `AppState` is serializable but is not a public deserialization target. Untrusted bytes decode only through
+  `LoadedSaveEnvelope`; `into_state` is the promotion boundary that checks exact schemas, rebuilds derived
+  indexes, and validates the complete state graph before returning runtime state.
 - Derived indexes may be omitted from persistence only when they rebuild deterministically and validate
   before use.
 - Required references validate at the trusted-load boundary; optional references are explicit.
@@ -104,7 +116,7 @@ load and explicit audit boundaries.
 - Group wide records by ownership concern when it clarifies invariants.
 - Fallible multi-step operations return dedicated typed errors with useful precondition context.
 - Pass the narrowest state access each phase requires.
-- Keep public APIs intentional. Do not expose production helpers only for tests.
+- Keep public APIs intentional. Do not expose production operations only to support tests.
 
 ## Naming
 
@@ -127,14 +139,22 @@ load and explicit audit boundaries.
 Reserve `destroy_*` for consequential destruction and `delete_*` for literal external deletion. Do not add
 `execute_*`, `perform_*`, or `attempt_*` for roles already covered above.
 
-## Source organization
+## Source and comment contracts
 
 Use established role suffixes such as `_execution`, `_integration`, `_loader`, `_ui`, and `_adapter` when a
-subsystem spans files. Each `src/` file begins with a concise `//!` purpose statement. Unit-test bodies live
-in adjacent test files as defined by [`TESTING.md`](TESTING.md).
+subsystem spans files. Every maintained Rust module under `src/` or `tests/` starts with a concise `//!` statement
+of purpose or ownership. Unit-test bodies live in adjacent test files as defined by [`TESTING.md`](TESTING.md).
 
-Comments explain hidden constraints, ordering, invariants, or non-obvious intent. Remove commented-out code,
-obsolete paths, and stale documentation.
+Keep a comment only when it preserves information the code does not state clearly on its own, such as:
+
+- ownership or authorization constraints;
+- result-sensitive ordering, precision, or arithmetic rationale;
+- safety assumptions and invariant dependencies;
+- durable model boundaries or tradeoffs that explain why a simpler implementation would be wrong.
+
+Do not restate syntax, narrate chronology, preserve superseded approaches, record debugging sessions, or leave
+commented-out production code. State present constraints directly instead of describing how the implementation
+arrived there.
 
 Prefer direct data structures and static dispatch in core systems. Add dynamic dispatch, generic registries,
 background machinery, or other coordination layers only when the behavior is genuinely open or dynamic and

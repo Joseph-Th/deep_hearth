@@ -1,4 +1,4 @@
-//! Tests for the sibling geometry module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for structural geometry.
 
 use super::*;
 use crate::content::{MATERIAL_COPPER, MATERIAL_WOOD, build_registries};

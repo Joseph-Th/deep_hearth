@@ -1,4 +1,4 @@
-//! Persistent-state validation for production; this child audits private owner data without exposing mutation.
+//! Validates persisted production jobs, schedules, streams, and derived indexes.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};

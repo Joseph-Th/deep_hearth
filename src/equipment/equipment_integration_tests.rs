@@ -1,4 +1,4 @@
-//! Tests for the sibling equipment integration module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for equipment integration with production owners.
 
 use super::*;
 use crate::capability::{
@@ -51,7 +51,7 @@ fn add_active_support(
     )
     .unwrap_or_else(|error| panic!("support-aware structural fixture failed: {error}"));
     materialize_structural_element_for_test(registries, state, support, FORM_LOG);
-    validate_activate_structural_element(registries, state, support)
+    let _ = validate_activate_structural_element(registries, state, support)
         .unwrap_or_else(|error| panic!("support-aware activation validation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("support-aware activation commit failed: {error}"));
@@ -275,7 +275,7 @@ fn fixed_equipment_requires_active_structural_installation_before_use() {
     );
 
     let support = add_active_support(&registries, &mut state, 0);
-    validate_mount_equipment(&registries, &state, equipment, support)
+    let _ = validate_mount_equipment(&registries, &state, equipment, support)
         .unwrap_or_else(|error| panic!("fixed-equipment mount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("fixed-equipment mount commit failed: {error}"));

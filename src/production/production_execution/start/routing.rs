@@ -14,6 +14,7 @@ use crate::registry::Registries;
 
 use super::{ProcessOutputRoute, StartProcessError};
 
+#[must_use]
 pub(super) struct ValidatedOutputRouting {
     pub(super) output_streams: Vec<ProductionOutputStream>,
     pub(super) inbound_by_destination: BTreeMap<StockpileId, Mass>,

@@ -1,7 +1,10 @@
-//! Tests for the sibling work resources module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for player-work physiological budgeting.
 
 use super::*;
-use crate::survival::{HydrationDefinition, MetabolismDefinition, NutritionDefinition};
+use crate::core::quantity::Mass;
+use crate::survival::{
+    DirectConsumptionDefinition, HydrationDefinition, MetabolismDefinition, NutritionDefinition,
+};
 
 #[test]
 fn budget_includes_basal_and_incremental_work_costs() {
@@ -17,6 +20,12 @@ fn budget_includes_basal_and_incremental_work_costs() {
             Volume::from_microliters(2),
         ),
         NutritionDefinition::new(1, 1),
+        DirectConsumptionDefinition::new(
+            Mass::from_milligrams(1),
+            TickSpan::new(1),
+            Volume::from_microliters(1),
+            TickSpan::new(1),
+        ),
         1,
         1,
     );

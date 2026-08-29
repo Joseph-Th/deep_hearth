@@ -1,4 +1,4 @@
-//! Fungible matter storage with passive state, deterministic selection, and validated mutation pipelines.
+//! Owns inventory custody, deterministic material selection, and validated matter mutation.
 
 mod coalescing;
 mod enclosure_execution;
@@ -60,9 +60,9 @@ pub(crate) use reserved_ingress::{
 };
 pub(crate) use selection::{
     ConsumptionReservation, ConsumptionSelection, ConsumptionSelectionError,
-    ExplicitConsumptionSelectionError, ReservationCommitError, ReservationError,
-    apply_consumption_reservation, validate_consumption_reservation_from_selection,
-    validate_consumption_selection, validate_explicit_consumption_selection,
+    ExplicitConsumptionSelectionError, ReservationError, apply_prechecked_consumption_reservation,
+    validate_consumption_reservation_from_selection, validate_consumption_selection,
+    validate_explicit_consumption_selection,
 };
 pub(crate) use state::{
     AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialStorageHistory, STORAGE_AGE_PARTS_PER_TICK,

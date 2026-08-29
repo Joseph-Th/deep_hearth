@@ -21,6 +21,7 @@ use crate::equipment::state::{
     EquipmentComponentMaintenanceMutation, EquipmentId, EquipmentRecord,
 };
 
+#[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum ValidatedMaintenanceMaterial {
     Aggregate(ValidatedMaterialReform),

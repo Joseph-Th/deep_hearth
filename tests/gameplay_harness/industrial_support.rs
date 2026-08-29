@@ -1,7 +1,7 @@
 //! Structural installation fixtures shared only by industrial gameplay capability targets.
 
 use super::structural_fixture::support_area_for_utilization;
-use deep_hearth::content::gameplay_fixture::materialize_structure;
+use deep_hearth::content::gameplay_fixture::seed_grounded_active_structure;
 use deep_hearth::content::{FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
 use deep_hearth::core::quantity::Length;
 use deep_hearth::core::state::AppState;
@@ -10,7 +10,7 @@ use deep_hearth::registry::Registries;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::structural::{
     StructuralElementGeometry, StructuralElementId, StructuralLifecycle, StructuralStage,
-    add_structural_element, calculate_weight_force_ceiling, validate_activate_structural_element,
+    calculate_weight_force_ceiling,
 };
 
 const INDUSTRIAL_SUPPORT_LENGTH: Length = Length::from_micrometers(1_000_000);
@@ -32,7 +32,7 @@ pub(super) fn install_equipment_on_grounded_support(
         .unwrap_or_else(|| panic!("gameplay harness installed equipment definition disappeared"));
     assert!(
         definition.requires_structural_support(),
-        "gameplay harness installation helper received portable equipment {}",
+        "gameplay harness installation setup received portable equipment {}",
         equipment.value()
     );
     let bounds = VoxelBounds::new(VoxelCoord::new(x, 0, 0), VoxelCoord::new(x + 1, 1, 1))
@@ -56,22 +56,14 @@ pub(super) fn install_equipment_on_grounded_support(
         .unwrap_or_else(|error| {
             panic!("gameplay harness machine-support geometry failed: {error}")
         });
-    let support = add_structural_element(
+    let support = seed_grounded_active_structure(
         registries,
         state,
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
         MATERIAL_WOOD,
         geometry,
-        true,
-    )
-    .unwrap_or_else(|error| panic!("gameplay harness machine support failed: {error}"));
-    materialize_structure(registries, state, support, FORM_LOG);
-    validate_activate_structural_element(registries, state, support)
-        .unwrap_or_else(|error| {
-            panic!("gameplay harness machine-support activation failed: {error}")
-        })
-        .commit(state)
-        .unwrap_or_else(|error| panic!("gameplay harness machine-support commit failed: {error}"));
+        FORM_LOG,
+    );
     let mounting = validate_mount_equipment(registries, state, equipment, support)
         .unwrap_or_else(|error| panic!("gameplay harness machine installation failed: {error}"));
     let assessment = mounting
@@ -90,7 +82,7 @@ pub(super) fn install_equipment_on_grounded_support(
         assessment.utilization_ppm() <= u128::from(stable_target_ppm),
         "gameplay capability foundation sizing drifted above its production utilization target"
     );
-    mounting.commit(state).unwrap_or_else(|error| {
+    let _ = mounting.commit(state).unwrap_or_else(|error| {
         panic!("gameplay harness machine installation commit failed: {error}")
     });
     assert_eq!(

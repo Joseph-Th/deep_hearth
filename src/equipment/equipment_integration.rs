@@ -1,4 +1,4 @@
-//! Equipment capability-provider resolution; sibling definitions and state remain separate static and runtime sources of truth.
+//! Resolves condition-adjusted equipment capabilities from immutable definitions and runtime state.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -16,6 +16,7 @@ use super::definitions::{CapabilityConditionCurve, EquipmentDefinition, Equipmen
 use super::state::{EquipmentId, EquipmentOperationTrace, EquipmentRecord};
 
 /// Revision-bound equipment provider selection carried by a resolved operation until start.
+#[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedEquipmentUse {
     expected_equipment_revision: u64,

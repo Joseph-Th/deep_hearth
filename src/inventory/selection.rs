@@ -106,11 +106,13 @@ pub(crate) enum ReservationError {
     },
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReservationCommitError {
     StaleInventoryRevision { expected: u64, actual: u64 },
 }
 
+#[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ConsumptionReservation {
     expected_revision: u64,
@@ -127,6 +129,7 @@ pub(crate) struct ConsumptionReservation {
 /// The selection owns the exact lot slices and physical/provenance traces chosen from one
 /// inventory revision. A later reservation consumes this same selection rather than selecting
 /// equivalent-looking matter a second time after a resolver has already calculated an outcome.
+#[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ConsumptionSelection {
     pub(super) expected_revision: u64,
@@ -419,10 +422,30 @@ pub(crate) fn validate_consumption_reservation_from_selection(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn apply_consumption_reservation(
     state: &mut InventoryState,
     reservation: ConsumptionReservation,
 ) -> Result<(), ReservationCommitError> {
+    if state.revision() != reservation.expected_revision {
+        return Err(ReservationCommitError::StaleInventoryRevision {
+            expected: reservation.expected_revision,
+            actual: state.revision(),
+        });
+    }
+    apply_prechecked_consumption_reservation(state, reservation);
+    Ok(())
+}
+
+/// Applies a reservation after a surrounding multi-owner transaction has checked its revision.
+///
+/// This form is intentionally infallible: callers must perform every recoverable stale-state check
+/// before mutating any other owner. The assertion protects that ordering contract from internal
+/// misuse without introducing a post-mutation error path.
+pub(crate) fn apply_prechecked_consumption_reservation(
+    state: &mut InventoryState,
+    reservation: ConsumptionReservation,
+) {
     let ConsumptionReservation {
         expected_revision,
         next_revision,
@@ -432,13 +455,11 @@ pub(crate) fn apply_consumption_reservation(
         consumed_inputs: _consumed_inputs,
         inbound_by_destination,
     } = reservation;
-
-    if state.revision() != expected_revision {
-        return Err(ReservationCommitError::StaleInventoryRevision {
-            expected: expected_revision,
-            actual: state.revision(),
-        });
-    }
+    assert_eq!(
+        state.revision(),
+        expected_revision,
+        "prechecked consumption reservation requires its validated inventory revision"
+    );
 
     for input in &inputs {
         apply_aggregate_withdraw(state, source, input.commodity(), input.mass());
@@ -461,7 +482,6 @@ pub(crate) fn apply_consumption_reservation(
         };
     }
     state.apply_revision(next_revision);
-    Ok(())
 }
 
 fn select_input_lot_slices(

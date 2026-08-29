@@ -1,4 +1,4 @@
-//! Immutable maintainable-equipment definitions; sibling state stores only persistent references and changing condition.
+//! Defines immutable equipment classes, capabilities, assembly, upgrades, and maintenance.
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -304,9 +304,9 @@ pub struct EquipmentDefinition {
 
 /// Authored additive conversion from one existing equipment class into this definition.
 ///
-/// An upgrade owns only the newly added matter. The base instance keeps its identity, condition,
-/// creation history, and already-embodied material; runtime validation appends the exact consumed
-/// traces and changes only the immutable-definition reference and total embodied mass.
+/// An upgrade owns only added matter. The instance retains identity, condition, creation metadata,
+/// and existing embodied material; validation appends exact consumed traces and updates only the
+/// definition reference and total embodied mass.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EquipmentUpgradeProfile {
     from: EquipmentDefinitionId,
@@ -544,9 +544,9 @@ impl EquipmentDefinition {
         self.upgrade_profile.as_ref()
     }
 
-    /// Returns whether ordinary runtime gameplay currently declares any acquisition route for this
-    /// equipment definition. This is the authoritative classification used by discovery/reporting
-    /// code; callers must not reconstruct it from the individual route fields.
+    /// Returns whether ordinary gameplay declares an acquisition route for this equipment
+    /// definition. Discovery/reporting code consumes this authoritative classification instead of
+    /// reconstructing it from individual route fields.
     #[must_use]
     pub const fn has_runtime_acquisition_route(&self) -> bool {
         self.assembly_profile.is_some() || self.upgrade_profile.is_some()

@@ -1,4 +1,4 @@
-//! Tests for the sibling mod module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for material registry and commodity semantics.
 
 use super::*;
 use crate::core::quantity::Length;

@@ -49,26 +49,6 @@ impl MaterialTransferResolution {
             mass,
         }
     }
-
-    #[must_use]
-    pub const fn source(&self) -> StockpileId {
-        self.source
-    }
-
-    #[must_use]
-    pub const fn destination(&self) -> StockpileId {
-        self.destination
-    }
-
-    #[must_use]
-    pub const fn commodity(&self) -> CommodityKey {
-        self.commodity
-    }
-
-    #[must_use]
-    pub const fn mass(&self) -> Mass {
-        self.mass
-    }
 }
 
 /// Failure while validating an atomic stockpile-to-stockpile transfer.
@@ -186,7 +166,7 @@ impl Error for MaterialTransferError {
     }
 }
 
-/// Failure when a previously validated transfer is committed after inventory has changed.
+/// Failure when a validated transfer is committed after inventory has changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MaterialTransferCommitError {
     StaleInventoryRevision { expected: u64, actual: u64 },

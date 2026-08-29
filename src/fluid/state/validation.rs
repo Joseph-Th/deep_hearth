@@ -1,4 +1,4 @@
-//! Persistent-state validation for fluid; this child audits private owner data without exposing mutation.
+//! Validates persisted fluid stores, contents, support indexes, authored references, and cursors.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -14,6 +14,7 @@ use super::{FluidState, FluidStoreId, FluidStoreRecord};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FluidValidationError {
     InvalidIdCursor,
+    ZeroStoreId,
     RecordKeyMismatch {
         key: FluidStoreId,
         record: FluidStoreId,
@@ -70,6 +71,7 @@ impl Display for FluidValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidIdCursor => formatter.write_str("fluid store ID cursor is invalid"),
+            Self::ZeroStoreId => formatter.write_str("fluid store ID must be nonzero"),
             Self::RecordKeyMismatch { key, record } => write!(
                 formatter,
                 "fluid store map key {} disagrees with record id {}",
@@ -184,12 +186,7 @@ fn validate_fluid_store(
     record: &FluidStoreRecord,
     current: SimulationTick,
 ) -> Result<(), FluidValidationError> {
-    if key != record.id {
-        return Err(FluidValidationError::RecordKeyMismatch {
-            key,
-            record: record.id,
-        });
-    }
+    validate_fluid_store_identity(key, record.id)?;
     if record.capacity.is_zero() {
         return Err(FluidValidationError::ZeroCapacity { store: record.id });
     }
@@ -201,6 +198,19 @@ fn validate_fluid_store(
             created_at: record.created_at,
             current,
         });
+    }
+    Ok(())
+}
+
+fn validate_fluid_store_identity(
+    key: FluidStoreId,
+    record: FluidStoreId,
+) -> Result<(), FluidValidationError> {
+    if key.value() == 0 || record.value() == 0 {
+        return Err(FluidValidationError::ZeroStoreId);
+    }
+    if key != record {
+        return Err(FluidValidationError::RecordKeyMismatch { key, record });
     }
     Ok(())
 }
@@ -291,3 +301,7 @@ fn validate_fluid_support_index(state: &FluidState) -> Result<(), FluidValidatio
         },
     })
 }
+
+#[cfg(test)]
+#[path = "validation_tests.rs"]
+mod tests;

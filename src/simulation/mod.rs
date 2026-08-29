@@ -7,8 +7,8 @@ use crate::core::state::{AppState, apply_clock_advance, validate_invariants};
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::energy::{apply_passive_energy_dissipation, decide_passive_energy_dissipation};
 use crate::geology::{
-    FieldProspectingOutcome, FieldProspectingTickError, ProspectingCommitError,
-    apply_field_prospecting_tick, decide_field_prospecting_tick,
+    FieldProspectingOutcome, FieldProspectingTickError, apply_field_prospecting_tick,
+    decide_field_prospecting_tick,
 };
 use crate::inventory::{StockpileId, StockpileStructuralLoadError};
 use crate::labor::{
@@ -28,6 +28,7 @@ use crate::survival::{
 };
 
 /// Successful result of one canonical simulation tick.
+#[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TickOutcome {
     tick: SimulationTick,
@@ -147,8 +148,6 @@ pub enum TickError {
     StalePlayerWorkRevision { expected: u64, actual: u64 },
     /// Survival reserves changed after manual production resumption was planned.
     StaleSurvivalRevision { expected: u64, actual: u64 },
-    /// Geological knowledge changed after a due field observation was planned.
-    StaleGeologicalKnowledgeRevision { expected: u64, actual: u64 },
     /// A validated stored-matter structural consequence could not commit.
     Structure(StructuralCommitError),
 }
@@ -267,10 +266,6 @@ impl Display for TickError {
                 formatter,
                 "tick completion plan expected survival revision {expected} but current revision is {actual}"
             ),
-            Self::StaleGeologicalKnowledgeRevision { expected, actual } => write!(
-                formatter,
-                "field prospecting expected geological knowledge revision {expected} but current revision is {actual}"
-            ),
             Self::Structure(error) => {
                 write!(
                     formatter,
@@ -321,10 +316,6 @@ impl Error for TickError {
                 actual: _actual,
             }
             | Self::StaleSurvivalRevision {
-                expected: _expected,
-                actual: _actual,
-            }
-            | Self::StaleGeologicalKnowledgeRevision {
                 expected: _expected,
                 actual: _actual,
             } => None,
@@ -496,13 +487,7 @@ pub fn advance_tick(
     let ready_mining_jobs = apply_mining_tick(state, mining_plan);
     let manual_power = apply_manual_power_tick(state, manual_power_plan);
     apply_passive_energy_dissipation(state, passive_energy_plan);
-    let field_prospecting = apply_field_prospecting_tick(state, field_prospecting_plan).map_err(
-        |error| match error {
-            ProspectingCommitError::StaleKnowledgeRevision { expected, actual } => {
-                TickError::StaleGeologicalKnowledgeRevision { expected, actual }
-            }
-        },
-    )?;
+    let field_prospecting = apply_field_prospecting_tick(state, field_prospecting_plan);
     apply_player_work_tick(state, player_work_plan);
     let survival =
         apply_survival_tick(state, survival_plan).or_else(|| assess_survival(registries, state));

@@ -1,4 +1,4 @@
-//! Persistent equipment records and synchronized owner mutations; child validation audits durable state.
+//! Owns persistent equipment records, embodiment, support assignment, and synchronized mutations.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -143,6 +143,7 @@ impl EquipmentRecord {
 }
 
 /// One completed operation's validated equipment-condition transition.
+#[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct EquipmentOperationConditionOutcome {
     equipment: EquipmentId,
@@ -151,7 +152,6 @@ pub(crate) struct EquipmentOperationConditionOutcome {
 }
 
 impl EquipmentOperationConditionOutcome {
-    #[must_use]
     pub(crate) const fn new(equipment: EquipmentId, before: Condition, after: Condition) -> Self {
         Self {
             equipment,

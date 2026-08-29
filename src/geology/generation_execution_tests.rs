@@ -1,4 +1,4 @@
-//! Tests for the sibling generation execution module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for generated geological deposit insertion.
 
 use super::*;
 use crate::content::{

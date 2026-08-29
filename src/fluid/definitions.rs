@@ -1,4 +1,4 @@
-//! Immutable fluid identities; sibling fluid state stores only generated runtime ownership.
+//! Defines immutable fluid identities and their underlying materials.
 
 use std::collections::BTreeMap;
 

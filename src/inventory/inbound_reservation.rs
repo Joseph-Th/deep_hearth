@@ -21,6 +21,7 @@ pub(crate) enum InboundReservationError {
     RevisionExhausted,
 }
 
+#[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedInboundReservation {
     expected_revision: u64,

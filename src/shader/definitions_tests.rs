@@ -1,4 +1,4 @@
-//! Tests for the sibling definitions module; isolated so test-only edits do not invalidate production builds.
+//! Contract tests for shader definitions and work budgets.
 
 use super::*;
 
