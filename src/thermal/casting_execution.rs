@@ -8,7 +8,8 @@ use crate::core::quantity::{Energy, Mass, Power, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::energy::{
-    EnergyCarrier, EnergySinkError, EnergyStoreId, PowerDurationError, validate_energy_sink,
+    EnergyCarrier, EnergySinkError, EnergyStoreId, PowerDurationError, validate_energy_sink_access,
+    validate_energy_sink_release,
 };
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
 use crate::inventory::MaterialLotSelection;
@@ -486,9 +487,9 @@ pub fn resolve_casting_process(
             },
         );
     }
-    let energy_sink = validate_energy_sink(registries, state, energy_sink, batch.transfer_energy)
+    let energy_sink_access = validate_energy_sink_access(registries, state, energy_sink)
         .map_err(CastingResolutionError::EnergySink)?;
-    let provided_carrier = energy_sink.trace().carrier();
+    let provided_carrier = energy_sink_access.carrier();
     if provided_carrier != definition.energy_carrier() {
         return Err(CastingResolutionError::WrongEnergyCarrier {
             required: definition.energy_carrier(),
@@ -498,7 +499,7 @@ pub fn resolve_casting_process(
     let timing = resolve_thermal_transfer_timing(
         registries,
         limits.transfer_power(),
-        energy_sink.max_input_power(),
+        energy_sink_access.max_input_power(),
         batch.transfer_energy,
         definition.condition_wear_ppm_per_active_tick(),
         provider.condition(),
@@ -512,6 +513,13 @@ pub fn resolve_casting_process(
     let transfer_power = timing.transfer_power();
     let duration = timing.duration();
     let equipment_condition_after = timing.condition_after();
+    let energy_sink = validate_energy_sink_release(
+        registries,
+        energy_sink_access,
+        batch.transfer_energy,
+        duration,
+    )
+    .map_err(CastingResolutionError::EnergySink)?;
     let resolution = inputs
         .resolve_with_equipment_and_energy_release(
             duration,

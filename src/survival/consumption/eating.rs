@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::{AggregateMass, Energy, Mass, Temperature, Volume};
+use crate::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::inventory::{
@@ -25,8 +25,10 @@ use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
 use super::super::FoodCategory;
-use super::super::state::{PlayerSurvivalRecord, player_record};
-use resolution::{resolve_energy_gain, resolve_hydration_and_nutrition, resolve_meal_offer};
+use super::super::state::PendingEating;
+use resolution::{meal_absorption_offer, resolve_meal_offer};
+
+pub(crate) use resolution::trace_absorption_offer;
 
 /// Failure while validating one exact eating action.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,9 +84,6 @@ pub enum EatError {
     MealMassExceedsIntakeLimit {
         mass: Mass,
         maximum: Mass,
-    },
-    NoReserveGain {
-        mass: Mass,
     },
     UnsupportedComposition {
         lot: MaterialLotId,
@@ -197,11 +196,6 @@ impl Display for EatError {
                 mass.milligrams(),
                 maximum.milligrams()
             ),
-            Self::NoReserveGain { mass } => write!(
-                formatter,
-                "eating {} mg would not increase metabolic, hydration, or nutrition reserves",
-                mass.milligrams()
-            ),
             Self::UnsupportedComposition { lot, material } => write!(
                 formatter,
                 "food lot {} is not pure material {} and cannot enter the current survival-consumption boundary",
@@ -257,7 +251,6 @@ impl Error for EatError {
             | Self::HydrationOverflow
             | Self::NutritionOverflow
             | Self::MealMassExceedsIntakeLimit { .. }
-            | Self::NoReserveGain { .. }
             | Self::UnsupportedComposition { .. }
             | Self::ConsumedMatterOverflow { material: _ }
             | Self::InventoryRevisionExhausted
@@ -334,7 +327,7 @@ impl EatPortionOutcome {
     }
 }
 
-/// Nutrition credited by one eating action after metabolic absorption and reserve caps.
+/// Normalized nutrition offered by one eating action before per-tick reserve caps are applied.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct NutritionGain {
     grain_ppm: u32,
@@ -343,6 +336,19 @@ pub struct NutritionGain {
 }
 
 impl NutritionGain {
+    #[must_use]
+    pub(super) const fn from_parts_per_million(
+        grain_ppm: u32,
+        fruit_ppm: u32,
+        protein_ppm: u32,
+    ) -> Self {
+        Self {
+            grain_ppm,
+            fruit_ppm,
+            protein_ppm,
+        }
+    }
+
     #[must_use]
     pub const fn get(self, category: FoodCategory) -> u32 {
         match category {
@@ -363,9 +369,9 @@ impl NutritionGain {
 pub struct EatOutcome {
     portions: Vec<EatPortionOutcome>,
     total_mass: Mass,
-    energy_gained: Energy,
-    hydration_gained: Volume,
-    nutrition_gained: NutritionGain,
+    energy_offered: Energy,
+    hydration_offered: AggregateVolume,
+    nutrition_offered: NutritionGain,
 }
 
 impl EatOutcome {
@@ -377,16 +383,16 @@ impl EatOutcome {
         self.total_mass
     }
     #[must_use]
-    pub const fn energy_gained(&self) -> Energy {
-        self.energy_gained
+    pub const fn energy_offered(&self) -> Energy {
+        self.energy_offered
     }
     #[must_use]
-    pub const fn hydration_gained(&self) -> Volume {
-        self.hydration_gained
+    pub const fn hydration_offered(&self) -> AggregateVolume {
+        self.hydration_offered
     }
     #[must_use]
-    pub const fn nutrition_gained(&self) -> NutritionGain {
-        self.nutrition_gained
+    pub const fn nutrition_offered(&self) -> NutritionGain {
+        self.nutrition_offered
     }
 }
 
@@ -398,7 +404,7 @@ pub struct ValidatedEat {
     next_survival_revision: u64,
     egress: ValidatedMaterialEgress,
     structural: Option<ValidatedStockpileStructuralLoad>,
-    after: PlayerSurvivalRecord,
+    pending: PendingEating,
     next_consumed_masses: Vec<(MaterialId, AggregateMass)>,
     outcome: EatOutcome,
 }
@@ -464,13 +470,21 @@ pub fn validate_eat(
         PlayerAttentionError::PlayerDead => EatError::PlayerDead,
         PlayerAttentionError::Busy { active } => EatError::PlayerBusy { active },
     })?;
-    let Some(player) = state.survival().player().copied() else {
-        return Err(EatError::SurvivalNotInitialized);
-    };
     let exact_selection =
         validate_explicit_consumption_selection(state.inventory(), source, selections)
             .map_err(map_eat_selection_error)?;
     let physiology = registries.survival().physiology();
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| unreachable!("validated player attention requires survival state"));
+    if player.metabolic_energy() > physiology.maximum_metabolic_energy() {
+        return Err(EatError::MetabolicEnergyOverflow);
+    }
+    if player.hydration() > physiology.maximum_hydration() {
+        return Err(EatError::HydrationOverflow);
+    }
     let total_mass = exact_selection.total_consumed();
     let maximum_meal_mass = physiology.direct_consumption().maximum_meal_mass();
     if total_mass > maximum_meal_mass {
@@ -493,11 +507,6 @@ pub fn validate_eat(
         })
         .ok_or(EatError::PlayerWorkRevisionExhausted)?;
     let offer = resolve_meal_offer(registries, state, selections)?;
-    let (energy_gained, energy_after) = resolve_energy_gain(
-        player,
-        physiology.maximum_metabolic_energy(),
-        offer.offered_energy,
-    )?;
 
     let egress = validate_material_egress_from_selection(state.inventory(), exact_selection)
         .map_err(|error| match error {
@@ -521,22 +530,17 @@ pub fn validate_eat(
         [StockpileStoredMassChange::new(source, source_after)],
     )
     .map_err(EatError::StructuralLoad)?;
-
-    let (hydration_gained, hydration_after, nutrition_after, nutrition_gained) =
-        resolve_hydration_and_nutrition(
-            player,
-            physiology.maximum_hydration(),
-            physiology.maximum_metabolic_energy(),
-            &offer,
-        )?;
-    if energy_gained.is_zero() && hydration_gained.is_zero() && nutrition_gained.total_ppm() == 0 {
-        return Err(EatError::NoReserveGain { mass: total_mass });
-    }
     let expected_survival_revision = state.survival().revision();
     let next_survival_revision = expected_survival_revision
         .checked_add(1)
         .ok_or(EatError::SurvivalRevisionExhausted)?;
+    let absorption_offer = meal_absorption_offer(&offer, physiology.maximum_metabolic_energy())?;
     let next_consumed_masses = resolve_consumed_mass_totals(state, offer.consumed_additions)?;
+    let pending = PendingEating::new(
+        egress.consumed_inputs().to_vec(),
+        state.tick(),
+        completes_at,
+    );
 
     Ok(ValidatedEat {
         attention,
@@ -544,20 +548,14 @@ pub fn validate_eat(
         next_survival_revision,
         egress,
         structural,
-        after: player_record(
-            energy_after,
-            hydration_after,
-            player.vitality(),
-            nutrition_after,
-            player.vitality_recovery_remainder(),
-        ),
+        pending,
         next_consumed_masses,
         outcome: EatOutcome {
             portions: offer.portions,
             total_mass,
-            energy_gained,
-            hydration_gained,
-            nutrition_gained,
+            energy_offered: absorption_offer.energy(),
+            hydration_offered: absorption_offer.hydration(),
+            nutrition_offered: absorption_offer.nutrition(),
         },
     })
 }
@@ -590,10 +588,10 @@ impl ValidatedEat {
                 .map_err(EatCommitError::Structure)?;
         }
         apply_material_egress(state.inventory_state_mut(), self.egress);
-        state.survival_state_mut().apply_food_consumption(
+        state.survival_state_mut().begin_food_consumption(
             self.expected_survival_revision,
             self.next_survival_revision,
-            self.after,
+            self.pending,
             self.next_consumed_masses,
         );
         self.attention.apply(state);

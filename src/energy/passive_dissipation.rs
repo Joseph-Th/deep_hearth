@@ -7,8 +7,70 @@ use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::registry::Registries;
 
+use super::definitions::EnergyStoreDefinition;
 use super::integration::{PowerRemainder, integrate_power};
 use super::state::EnergyStoreId;
+
+fn passive_dissipation_per_tick(
+    registries: &Registries,
+    definition: &EnergyStoreDefinition,
+) -> Energy {
+    let power = definition.passive_dissipation_power();
+    if power.is_zero() {
+        return Energy::ZERO;
+    }
+    let integration = integrate_power(
+        power,
+        TickSpan::new(1),
+        registries.core().physical_tick_duration(),
+        PowerRemainder::ZERO,
+    )
+    .unwrap_or_else(|error| {
+        panic!(
+            "validated passive dissipation for energy store definition {} failed at runtime: {error}",
+            definition.id().value()
+        )
+    });
+    assert_eq!(
+        integration.remainder(),
+        PowerRemainder::ZERO,
+        "validated passive dissipation must remain exact at runtime"
+    );
+    integration.energy()
+}
+
+/// Projects the greatest stored energy that can remain after an exact number of unavoidable
+/// passive-loss ticks. The result is deterministic because registry validation requires passive
+/// loss to integrate to whole nanojoules on every authoritative tick.
+pub(crate) fn project_stored_energy_after_passive_dissipation(
+    registries: &Registries,
+    definition: &EnergyStoreDefinition,
+    stored: Energy,
+    ticks: TickSpan,
+) -> Energy {
+    if stored.is_zero() || ticks.is_zero() {
+        return stored;
+    }
+    let per_tick = passive_dissipation_per_tick(registries, definition);
+    if per_tick.is_zero() {
+        return stored;
+    }
+    let stored_nj = stored.nanojoules();
+    let per_tick_nj = per_tick.nanojoules();
+    let tick_count = u128::from(ticks.value());
+    let ticks_until_empty = stored_nj.div_ceil(per_tick_nj);
+    if tick_count >= ticks_until_empty {
+        return Energy::ZERO;
+    }
+    let dissipated = per_tick_nj
+        .checked_mul(tick_count)
+        .unwrap_or_else(|| unreachable!("sub-empty passive-loss projection fits u128"));
+    Energy::from_nanojoules(
+        stored_nj
+            .checked_sub(dissipated)
+            .unwrap_or_else(|| unreachable!("sub-empty passive-loss projection cannot underflow")),
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PassiveEnergyDissipationEntry {
@@ -49,28 +111,13 @@ pub(crate) fn decide_passive_energy_dissipation(
                     record.definition().value()
                 )
             });
-        let power = definition.passive_dissipation_power();
-        if power.is_zero() {
+        if definition.passive_dissipation_power().is_zero() {
             continue;
         }
-        let integration = integrate_power(
-            power,
-            TickSpan::new(1),
-            registries.core().physical_tick_duration(),
-            PowerRemainder::ZERO,
-        )
-        .unwrap_or_else(|error| {
-            panic!(
-                "validated passive dissipation for energy store definition {} failed at runtime: {error}",
-                definition.id().value()
-            )
-        });
-        assert_eq!(
-            integration.remainder(),
-            PowerRemainder::ZERO,
-            "validated passive dissipation must remain exact at runtime"
+        let dissipated = min(
+            record.stored(),
+            passive_dissipation_per_tick(registries, definition),
         );
-        let dissipated = min(record.stored(), integration.energy());
         if dissipated.is_zero() {
             continue;
         }

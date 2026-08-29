@@ -10,6 +10,12 @@ use crate::material::MaterialId;
 
 use super::{FoodCategory, PhysiologyDefinition};
 
+mod direct_consumption;
+
+pub(crate) use direct_consumption::{
+    DirectConsumptionState, PendingDirectConsumption, PendingDrinking, PendingEating,
+};
+
 pub const NUTRITION_PARTS_PER_MILLION: u32 = 1_000_000;
 
 /// Player vitality in normalized parts per million.
@@ -153,6 +159,7 @@ impl PlayerSurvivalRecord {
 pub struct SurvivalState {
     revision: u64,
     player: Option<PlayerSurvivalRecord>,
+    direct_consumption: DirectConsumptionState,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     consumed_matter: BTreeMap<MaterialId, AggregateMass>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
@@ -165,6 +172,7 @@ impl SurvivalState {
         Self {
             revision: 0,
             player: None,
+            direct_consumption: DirectConsumptionState::new(),
             consumed_matter: BTreeMap::new(),
             consumed_fluids: BTreeMap::new(),
         }
@@ -178,6 +186,11 @@ impl SurvivalState {
     #[must_use]
     pub const fn player(&self) -> Option<&PlayerSurvivalRecord> {
         self.player.as_ref()
+    }
+
+    #[must_use]
+    pub(crate) const fn pending_direct_consumption(&self) -> Option<&PendingDirectConsumption> {
+        self.direct_consumption.pending()
     }
 
     pub(crate) fn has_valid_player_bounds(&self, physiology: PhysiologyDefinition) -> bool {
@@ -246,29 +259,57 @@ impl SurvivalState {
         self.revision = next_revision;
     }
 
-    pub(crate) fn apply_food_consumption(
+    pub(crate) fn apply_player_and_direct_consumption(
         &mut self,
         expected_revision: u64,
         next_revision: u64,
         player: PlayerSurvivalRecord,
-        next_consumed_masses: Vec<(MaterialId, AggregateMass)>,
+        pending: Option<PendingDirectConsumption>,
     ) {
         self.apply_player(expected_revision, next_revision, player);
+        self.direct_consumption.set_pending(pending);
+    }
+
+    pub(crate) fn begin_food_consumption(
+        &mut self,
+        expected_revision: u64,
+        next_revision: u64,
+        pending: PendingEating,
+        next_consumed_masses: Vec<(MaterialId, AggregateMass)>,
+    ) {
+        self.advance_revision(expected_revision, next_revision);
+        self.direct_consumption
+            .begin(PendingDirectConsumption::Eating(pending));
         for (material, mass) in next_consumed_masses {
             self.consumed_matter.insert(material, mass);
         }
     }
 
-    pub(crate) fn apply_fluid_consumption(
+    pub(crate) fn begin_fluid_consumption(
         &mut self,
         expected_revision: u64,
         next_revision: u64,
-        player: PlayerSurvivalRecord,
+        pending: PendingDrinking,
         fluid: FluidDefinitionId,
         next_consumed_volume: AggregateVolume,
     ) {
-        self.apply_player(expected_revision, next_revision, player);
+        self.advance_revision(expected_revision, next_revision);
+        self.direct_consumption
+            .begin(PendingDirectConsumption::Drinking(pending));
         self.consumed_fluids.insert(fluid, next_consumed_volume);
+    }
+
+    fn advance_revision(&mut self, expected_revision: u64, next_revision: u64) {
+        assert_eq!(
+            self.revision, expected_revision,
+            "survival mutation requires its validated owner revision"
+        );
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "survival mutation must advance revision exactly once"
+        );
+        self.revision = next_revision;
     }
 }
 

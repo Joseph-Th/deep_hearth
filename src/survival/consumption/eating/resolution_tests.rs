@@ -33,15 +33,3 @@ fn nutrition_normalization_handles_full_width_energy_without_scaled_overflow() {
         Ok(500_000_u128)
     );
 }
-
-#[test]
-fn hydration_gain_clamps_before_narrowing_extreme_offer() {
-    let current = Volume::from_microliters(99);
-    let maximum = Volume::from_microliters(100);
-
-    let (gained, after) = resolve_hydration_gain(current, maximum, u128::MAX)
-        .unwrap_or_else(|error| panic!("bounded hydration gain failed: {error}"));
-
-    assert_eq!(gained, Volume::from_microliters(1));
-    assert_eq!(after, maximum);
-}

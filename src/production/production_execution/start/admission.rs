@@ -127,8 +127,13 @@ pub(super) fn validate_energy_reservations(
     };
     let ingress = match resolution.energy_sink() {
         Some(selection) => Some(
-            validate_energy_ingress_reservation(registries, state.energy(), selection)
-                .map_err(map_energy_ingress_reservation_error)?,
+            validate_energy_ingress_reservation(
+                registries,
+                state.energy(),
+                selection,
+                resolution.duration(),
+            )
+            .map_err(map_energy_ingress_reservation_error)?,
         ),
         None => None,
     };

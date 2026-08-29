@@ -4,8 +4,51 @@ use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::labor::{DrinkingWork, EatingWork};
 use crate::registry::Registries;
+use crate::survival::PendingDirectConsumption;
 
 use super::{ActivePlayerJobs, PlayerWorkValidationError};
+
+pub(super) fn validate_direct_consumption_binding(
+    state: &AppState,
+    active: Option<crate::labor::PlayerWork>,
+) -> Result<(), PlayerWorkValidationError> {
+    match (active, state.survival().pending_direct_consumption()) {
+        (None, None) => Ok(()),
+        (None, Some(_)) => Err(PlayerWorkValidationError::PendingDirectConsumptionWithoutWork),
+        (
+            Some(crate::labor::PlayerWork::Eating { work }),
+            Some(PendingDirectConsumption::Eating(pending)),
+        ) if pending.total_mass() == Some(work.mass())
+            && pending.started_at() == work.started_at()
+            && pending.completes_at() == work.completes_at() =>
+        {
+            Ok(())
+        }
+        (Some(crate::labor::PlayerWork::Eating { .. }), None) => {
+            Err(PlayerWorkValidationError::EatingConsumptionMissing)
+        }
+        (Some(crate::labor::PlayerWork::Eating { .. }), Some(_)) => {
+            Err(PlayerWorkValidationError::EatingConsumptionMismatch)
+        }
+        (
+            Some(crate::labor::PlayerWork::Drinking { work }),
+            Some(PendingDirectConsumption::Drinking(pending)),
+        ) if pending.volume() == work.volume()
+            && pending.started_at() == work.started_at()
+            && pending.completes_at() == work.completes_at() =>
+        {
+            Ok(())
+        }
+        (Some(crate::labor::PlayerWork::Drinking { .. }), None) => {
+            Err(PlayerWorkValidationError::DrinkingConsumptionMissing)
+        }
+        (Some(crate::labor::PlayerWork::Drinking { .. }), Some(_)) => {
+            Err(PlayerWorkValidationError::DrinkingConsumptionMismatch)
+        }
+        (Some(_), None) => Ok(()),
+        (Some(_), Some(_)) => Err(PlayerWorkValidationError::PendingDirectConsumptionWithoutWork),
+    }
+}
 
 fn validate_schedule(
     current: SimulationTick,

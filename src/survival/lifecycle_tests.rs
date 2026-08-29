@@ -2,7 +2,17 @@
 
 use super::*;
 use crate::content::build_registries;
-use crate::core::time::WorldSeed;
+use crate::core::time::{SimulationTick, WorldSeed};
+
+fn next_tick(state: &AppState) -> SimulationTick {
+    SimulationTick::new(
+        state
+            .tick()
+            .value()
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("survival lifecycle test tick overflowed")),
+    )
+}
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 
 #[test]
@@ -17,9 +27,14 @@ fn work_exertion_adds_exactly_to_basal_survival_cost() {
         Volume::from_microliters(900),
     );
 
-    let resting_plan = decide_survival_tick(&registries, &resting, SurvivalExertion::REST)
-        .unwrap_or_else(|error| panic!("resting survival tick failed: {error:?}"));
-    let working_plan = decide_survival_tick(&registries, &working, exertion)
+    let resting_plan = decide_survival_tick(
+        &registries,
+        &resting,
+        SurvivalExertion::REST,
+        next_tick(&resting),
+    )
+    .unwrap_or_else(|error| panic!("resting survival tick failed: {error:?}"));
+    let working_plan = decide_survival_tick(&registries, &working, exertion, next_tick(&working))
         .unwrap_or_else(|error| panic!("working survival tick failed: {error:?}"));
     let resting_after = apply_survival_tick(&mut resting, resting_plan)
         .unwrap_or_else(|| panic!("resting survival player disappeared"));
@@ -61,16 +76,26 @@ fn exhausting_exact_reserves_does_not_apply_deficit_damage_until_the_next_tick()
         ),
     );
 
-    let exact_plan = decide_survival_tick(&registries, &state, SurvivalExertion::REST)
-        .unwrap_or_else(|error| panic!("exact-reserve survival tick failed: {error:?}"));
+    let exact_plan = decide_survival_tick(
+        &registries,
+        &state,
+        SurvivalExertion::REST,
+        next_tick(&state),
+    )
+    .unwrap_or_else(|error| panic!("exact-reserve survival tick failed: {error:?}"));
     let exact_after = apply_survival_tick(&mut state, exact_plan)
         .unwrap_or_else(|| panic!("exact-reserve survival player disappeared"));
     assert_eq!(exact_after.metabolic_energy(), Energy::ZERO);
     assert_eq!(exact_after.hydration(), Volume::ZERO);
     assert_eq!(exact_after.vitality(), vitality);
 
-    let deficit_plan = decide_survival_tick(&registries, &state, SurvivalExertion::REST)
-        .unwrap_or_else(|error| panic!("deficit survival tick failed: {error:?}"));
+    let deficit_plan = decide_survival_tick(
+        &registries,
+        &state,
+        SurvivalExertion::REST,
+        next_tick(&state),
+    )
+    .unwrap_or_else(|error| panic!("deficit survival tick failed: {error:?}"));
     let deficit_after = apply_survival_tick(&mut state, deficit_plan)
         .unwrap_or_else(|| panic!("deficit survival player disappeared"));
     let expected_loss = physiology
@@ -91,9 +116,14 @@ fn survival_initialization_and_tick_are_deterministic_and_visible() {
     let before = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("initialized survival record is missing"));
 
-    let plan = decide_survival_tick(&registries, &state, SurvivalExertion::REST)
-        .unwrap_or_else(|error| panic!("survival tick failed: {error:?}"))
-        .unwrap_or_else(|| panic!("survival tick did not produce a plan"));
+    let plan = decide_survival_tick(
+        &registries,
+        &state,
+        SurvivalExertion::REST,
+        next_tick(&state),
+    )
+    .unwrap_or_else(|error| panic!("survival tick failed: {error:?}"))
+    .unwrap_or_else(|| panic!("survival tick did not produce a plan"));
     let after = apply_survival_tick(&mut state, Some(plan))
         .unwrap_or_else(|| panic!("survival tick lost the player"));
 
@@ -145,11 +175,20 @@ fn balanced_recent_diet_recovers_vitality_faster_than_one_category() {
         3
     );
 
-    let balanced_plan = decide_survival_tick(&registries, &balanced, SurvivalExertion::REST)
-        .unwrap_or_else(|error| panic!("balanced nutrition tick failed: {error:?}"));
-    let one_category_plan =
-        decide_survival_tick(&registries, &one_category, SurvivalExertion::REST)
-            .unwrap_or_else(|error| panic!("single-category nutrition tick failed: {error:?}"));
+    let balanced_plan = decide_survival_tick(
+        &registries,
+        &balanced,
+        SurvivalExertion::REST,
+        next_tick(&balanced),
+    )
+    .unwrap_or_else(|error| panic!("balanced nutrition tick failed: {error:?}"));
+    let one_category_plan = decide_survival_tick(
+        &registries,
+        &one_category,
+        SurvivalExertion::REST,
+        next_tick(&one_category),
+    )
+    .unwrap_or_else(|error| panic!("single-category nutrition tick failed: {error:?}"));
     let balanced_after = apply_survival_tick(&mut balanced, balanced_plan)
         .unwrap_or_else(|| panic!("balanced nutrition player disappeared"));
     let one_category_after = apply_survival_tick(&mut one_category, one_category_plan)
@@ -194,8 +233,13 @@ fn fractional_diet_recovery_accumulates_instead_of_creating_rate_cliffs() {
         ),
     );
 
-    let first_plan = decide_survival_tick(&registries, &state, SurvivalExertion::REST)
-        .unwrap_or_else(|error| panic!("first fractional recovery tick failed: {error:?}"));
+    let first_plan = decide_survival_tick(
+        &registries,
+        &state,
+        SurvivalExertion::REST,
+        next_tick(&state),
+    )
+    .unwrap_or_else(|error| panic!("first fractional recovery tick failed: {error:?}"));
     let first = apply_survival_tick(&mut state, first_plan)
         .unwrap_or_else(|| panic!("first fractional recovery assessment disappeared"));
     assert_eq!(first.vitality().parts_per_million(), 500_009);
@@ -208,8 +252,13 @@ fn fractional_diet_recovery_accumulates_instead_of_creating_rate_cliffs() {
         Some(999_950)
     );
 
-    let second_plan = decide_survival_tick(&registries, &state, SurvivalExertion::REST)
-        .unwrap_or_else(|error| panic!("second fractional recovery tick failed: {error:?}"));
+    let second_plan = decide_survival_tick(
+        &registries,
+        &state,
+        SurvivalExertion::REST,
+        next_tick(&state),
+    )
+    .unwrap_or_else(|error| panic!("second fractional recovery tick failed: {error:?}"));
     let second = apply_survival_tick(&mut state, second_plan)
         .unwrap_or_else(|| panic!("second fractional recovery assessment disappeared"));
     assert_eq!(second.vitality().parts_per_million(), 500_019);

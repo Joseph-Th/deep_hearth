@@ -31,6 +31,7 @@ pub(crate) use lifecycle::{
     initialize_player_survival_at_hunger_warning_boundary_for_fixture,
     initialize_player_survival_at_hydration_warning_boundary_for_fixture,
 };
+pub(crate) use state::PendingDirectConsumption;
 #[cfg(test)]
 pub(crate) use state::player_record;
 pub(crate) use validation::validate_loaded_survival;

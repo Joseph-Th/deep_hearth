@@ -748,6 +748,7 @@ fn unsupported_schema_is_rejected_before_runtime_use() {
                 "survival": {
                     "revision": 0,
                     "player": null,
+                    "direct_consumption": {"pending": null},
                     "consumed_matter": {},
                     "consumed_fluids": {}
                 }
@@ -872,7 +873,7 @@ fn structural_graph_damage_and_load_round_trip_exactly() {
 }
 
 #[test]
-fn legacy_structural_embodied_mass_field_is_rejected_during_decode() {
+fn obsolete_structural_embodied_mass_field_is_rejected_during_decode() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5700_0013));
     let member = make_test_structural_element(&registries, &mut state, 0, 0, true);
@@ -2036,7 +2037,7 @@ fn in_flight_job_survives_later_process_requirement_rebalance() {
 }
 
 #[test]
-fn legacy_in_flight_consumed_mass_field_is_rejected_during_decode() {
+fn obsolete_in_flight_consumed_mass_field_is_rejected_during_decode() {
     let registries = make_test_registries_with_process(make_test_process());
     let mut state = AppState::new(WorldSeed::new(0xC0DE_0009));
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10)) {

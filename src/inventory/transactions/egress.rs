@@ -57,7 +57,6 @@ impl ValidatedMaterialEgress {
             .unwrap_or_else(|| panic!("validated material egress mass overflowed"))
     }
 
-    #[cfg(any(test, feature = "test-gameplay"))]
     pub(crate) fn consumed_inputs(&self) -> &[ConsumedMaterialTrace] {
         &self.consumed_inputs
     }

@@ -451,12 +451,13 @@ pub fn advance_tick(
         return Err(TickError::EnergyRevisionExhausted);
     }
     let exertion = player_work_exertion(registries, state, completion_plan.availability_changes());
-    let survival_plan =
-        decide_survival_tick(registries, state, exertion).map_err(|error| match error {
+    let survival_plan = decide_survival_tick(registries, state, exertion, next_tick).map_err(
+        |error| match error {
             SurvivalTickError::RevisionExhausted => TickError::SurvivalRevisionExhausted,
             SurvivalTickError::EnergyCostOverflow => TickError::SurvivalEnergyCostOverflow,
             SurvivalTickError::HydrationCostOverflow => TickError::SurvivalHydrationCostOverflow,
-        })?;
+        },
+    )?;
     let CompletionApplication {
         completions: production_completions,
         availability_changes: production_availability_changes,

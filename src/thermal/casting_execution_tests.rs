@@ -10,8 +10,8 @@ use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::energy::{
     EnergyStoreDefinition, EnergyStoreDefinitionId, EnergyStoreRecord,
-    ExplicitEnergyAccountingError, add_energy_store, calculate_explicit_energy_accounting,
-    validate_energy_sink,
+    ExplicitEnergyAccountingError, add_energy_store, add_energy_store_with_initial_for_fixture,
+    calculate_explicit_energy_accounting, validate_energy_sink,
 };
 use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment};
 use crate::inventory::{
@@ -64,6 +64,20 @@ fn make_registries(
     sink_capacity: Energy,
     sink_input_power: Power,
 ) -> Registries {
+    make_registries_with_sink_dissipation(
+        sink_carrier,
+        sink_capacity,
+        sink_input_power,
+        Power::ZERO,
+    )
+}
+
+fn make_registries_with_sink_dissipation(
+    sink_carrier: EnergyCarrier,
+    sink_capacity: Energy,
+    sink_input_power: Power,
+    sink_passive_dissipation: Power,
+) -> Registries {
     let profile = match CapabilityProfile::new([
         (
             COOLING_POWER,
@@ -100,6 +114,11 @@ fn make_registries(
         sink_input_power,
         Power::ZERO,
     );
+    let sink = if sink_passive_dissipation.is_zero() {
+        sink
+    } else {
+        sink.with_passive_dissipation_power(sink_passive_dissipation)
+    };
     let process = ProcessDefinition::new_selected_batch(
         PROCESS,
         "pure material casting",
@@ -170,10 +189,29 @@ fn make_fixture_with_sink_capacity(
     input_temperature: Temperature,
     sink_capacity: Energy,
 ) -> CastingFixture {
-    let registries = make_registries(
-        EnergyCarrier::Thermal,
+    make_fixture_with_sink_configuration(
+        input_mass,
+        input_temperature,
         sink_capacity,
         Power::from_microwatts(10_000_000),
+        Power::ZERO,
+        Energy::ZERO,
+    )
+}
+
+fn make_fixture_with_sink_configuration(
+    input_mass: Mass,
+    input_temperature: Temperature,
+    sink_capacity: Energy,
+    sink_input_power: Power,
+    sink_passive_dissipation: Power,
+    initial_sink_energy: Energy,
+) -> CastingFixture {
+    let registries = make_registries_with_sink_dissipation(
+        EnergyCarrier::Thermal,
+        sink_capacity,
+        sink_input_power,
+        sink_passive_dissipation,
     );
     let mut state = AppState::new(WorldSeed::new(0x9600_0001));
     let source_profile =
@@ -204,7 +242,12 @@ fn make_fixture_with_sink_capacity(
         Ok(equipment) => equipment,
         Err(error) => panic!("casting equipment fixture failed: {error}"),
     };
-    let heat_sink = match add_energy_store(&registries, &mut state, HEAT_SINK) {
+    let heat_sink = match add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        HEAT_SINK,
+        initial_sink_energy,
+    ) {
         Ok(store) => store,
         Err(error) => panic!("casting heat sink fixture failed: {error}"),
     };
@@ -219,6 +262,98 @@ fn make_fixture_with_sink_capacity(
             heat_sink,
         },
     }
+}
+
+#[test]
+fn casting_credits_guaranteed_passive_sink_recovery_before_deferred_heat_release() {
+    let input_mass = Mass::from_milligrams(10);
+    let sink_input_power = Power::from_microwatts(1_000_000);
+    let preliminary = make_fixture_with_sink_configuration(
+        input_mass,
+        MELTING_POINT,
+        Energy::from_nanojoules(100_000_000_000),
+        sink_input_power,
+        Power::ZERO,
+        Energy::ZERO,
+    );
+    let preliminary_resolution = resolve_selected(
+        &preliminary.registries,
+        &preliminary.state,
+        preliminary.ids,
+        input_mass,
+    )
+    .unwrap_or_else(|error| panic!("deferred-capacity baseline casting failed: {error}"));
+    let released = preliminary_resolution.released_energy();
+    let duration = preliminary_resolution.process_resolution().duration();
+    assert!(
+        duration.value() > 1,
+        "deferred-capacity regression requires at least one pre-release passive-loss tick"
+    );
+
+    let initial_sink_energy = Energy::from_nanojoules(1);
+    let mut fixture = make_fixture_with_sink_configuration(
+        input_mass,
+        MELTING_POINT,
+        released,
+        sink_input_power,
+        sink_input_power,
+        initial_sink_energy,
+    );
+    assert!(
+        validate_energy_sink(
+            &fixture.registries,
+            &fixture.state,
+            fixture.ids.heat_sink,
+            released,
+        )
+        .is_err(),
+        "immediate ingress must still reject a currently over-capacity release"
+    );
+
+    let resolved = resolve_selected(&fixture.registries, &fixture.state, fixture.ids, input_mass)
+        .unwrap_or_else(|error| {
+            panic!("casting should use guaranteed passive sink recovery before completion: {error}")
+        });
+    assert_eq!(resolved.released_energy(), released);
+    assert_eq!(resolved.process_resolution().duration(), duration);
+    let job = validate_start_process(
+        &fixture.registries,
+        &fixture.state,
+        resolved.process_resolution(),
+        fixture.ids.source,
+        fixture.ids.destination,
+    )
+    .unwrap_or_else(|error| panic!("deferred-capacity casting start failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("deferred-capacity casting commit failed: {error}"));
+    assert_eq!(
+        validate_loaded_state(&fixture.registries, &fixture.state),
+        Ok(())
+    );
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&fixture.registries, &fixture.state))
+        .unwrap_or_else(|error| panic!("deferred-capacity casting save failed: {error}"));
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("deferred-capacity casting decode failed: {error}"));
+    let loaded = loaded
+        .into_state(&fixture.registries)
+        .unwrap_or_else(|error| panic!("deferred-capacity casting trusted load failed: {error}"));
+    assert_eq!(loaded, fixture.state);
+
+    finish_job(&fixture.registries, &mut fixture.state, duration);
+    assert!(fixture.state.production().get_job(job).is_none());
+    assert_eq!(
+        fixture
+            .state
+            .energy()
+            .get_store(fixture.ids.heat_sink)
+            .map(EnergyStoreRecord::stored),
+        Some(released)
+    );
+    assert_eq!(
+        validate_loaded_state(&fixture.registries, &fixture.state),
+        Ok(())
+    );
 }
 
 fn resolve_selected(

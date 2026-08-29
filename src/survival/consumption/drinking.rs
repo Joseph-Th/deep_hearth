@@ -16,7 +16,26 @@ use crate::labor::{
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
-use super::super::state::{PlayerSurvivalRecord, player_record};
+use super::super::state::PendingDrinking;
+
+pub(super) fn pending_drink_hydration_offer(
+    registries: &Registries,
+    fluid: crate::fluid::FluidDefinitionId,
+    volume: Volume,
+) -> Volume {
+    let drink = registries.survival().get_drink(fluid).unwrap_or_else(|| {
+        panic!(
+            "runtime invariant broken: pending drinking references non-drinkable fluid {}",
+            fluid.value()
+        )
+    });
+    let numerator = u128::from(volume.microliters()) * u128::from(drink.hydration_multiplier_ppm());
+    let hydration = numerator / 1_000_000;
+    Volume::from_microliters(
+        u64::try_from(hydration)
+            .unwrap_or_else(|_| unreachable!("drink hydration cannot exceed source volume")),
+    )
+}
 
 /// Failure while validating finite-fluid drinking.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,10 +77,6 @@ pub enum DrinkError {
     DrinkVolumeExceedsIntakeLimit {
         volume: Volume,
         maximum: Volume,
-    },
-    HydrationCapacityExceeded {
-        offered: Volume,
-        available: Volume,
     },
     ConsumedFluidOverflow,
     StructuralLoad(FluidStructuralLoadError),
@@ -131,7 +146,7 @@ impl Display for DrinkError {
             }
             Self::NoHydrationGain { volume } => write!(
                 formatter,
-                "drink volume {} uL would not increase player hydration",
+                "drink volume {} uL resolves to zero whole microliters of hydration",
                 volume.microliters()
             ),
             Self::DrinkVolumeExceedsIntakeLimit { volume, maximum } => write!(
@@ -139,12 +154,6 @@ impl Display for DrinkError {
                 "drink volume {} uL exceeds the direct-consumption limit of {} uL",
                 volume.microliters(),
                 maximum.microliters()
-            ),
-            Self::HydrationCapacityExceeded { offered, available } => write!(
-                formatter,
-                "drink would add {} uL of hydration but the player has capacity for only {} uL",
-                offered.microliters(),
-                available.microliters()
             ),
             Self::ConsumedFluidOverflow => {
                 formatter.write_str("consumed fluid accounting overflowed")
@@ -177,7 +186,6 @@ impl Error for DrinkError {
             | Self::HydrationOverflow
             | Self::NoHydrationGain { .. }
             | Self::DrinkVolumeExceedsIntakeLimit { .. }
-            | Self::HydrationCapacityExceeded { .. }
             | Self::ConsumedFluidOverflow => None,
         }
     }
@@ -237,7 +245,7 @@ impl Error for DrinkCommitError {
 pub struct DrinkOutcome {
     store: FluidStoreId,
     volume: Volume,
-    hydration_gained: Volume,
+    hydration_offered: Volume,
 }
 
 impl DrinkOutcome {
@@ -250,8 +258,8 @@ impl DrinkOutcome {
         self.volume
     }
     #[must_use]
-    pub const fn hydration_gained(self) -> Volume {
-        self.hydration_gained
+    pub const fn hydration_offered(self) -> Volume {
+        self.hydration_offered
     }
 }
 
@@ -262,7 +270,7 @@ pub struct ValidatedDrink {
     expected_survival_revision: u64,
     next_survival_revision: u64,
     egress: ValidatedFluidEgress,
-    after: PlayerSurvivalRecord,
+    pending: PendingDrinking,
     fluid: crate::fluid::FluidDefinitionId,
     next_consumed_volume: AggregateVolume,
     outcome: DrinkOutcome,
@@ -279,9 +287,6 @@ pub fn validate_drink(
         PlayerAttentionError::PlayerDead => DrinkError::PlayerDead,
         PlayerAttentionError::Busy { active } => DrinkError::PlayerBusy { active },
     })?;
-    let Some(player) = state.survival().player().copied() else {
-        return Err(DrinkError::SurvivalNotInitialized);
-    };
     let record = state
         .fluid()
         .get_store(store)
@@ -302,6 +307,14 @@ pub fn validate_drink(
         });
     }
     let physiology = registries.survival().physiology();
+    let player = state
+        .survival()
+        .player()
+        .copied()
+        .unwrap_or_else(|| unreachable!("validated player attention requires survival state"));
+    if player.hydration() > physiology.maximum_hydration() {
+        return Err(DrinkError::HydrationOverflow);
+    }
     let maximum_drink_volume = physiology.direct_consumption().maximum_drink_volume();
     if volume > maximum_drink_volume {
         return Err(DrinkError::DrinkVolumeExceedsIntakeLimit {
@@ -349,24 +362,6 @@ pub fn validate_drink(
     if hydration_gain.is_zero() {
         return Err(DrinkError::NoHydrationGain { volume });
     }
-    let available_hydration = physiology
-        .maximum_hydration()
-        .checked_sub(player.hydration())
-        .ok_or(DrinkError::HydrationOverflow)?;
-    if available_hydration.is_zero() {
-        return Err(DrinkError::NoHydrationGain { volume });
-    }
-    if hydration_gain > available_hydration {
-        return Err(DrinkError::HydrationCapacityExceeded {
-            offered: hydration_gain,
-            available: available_hydration,
-        });
-    }
-    let hydration_gained = hydration_gain;
-    let hydration_after = player
-        .hydration()
-        .checked_add(hydration_gained)
-        .ok_or(DrinkError::HydrationOverflow)?;
     let expected_survival_revision = state.survival().revision();
     let next_survival_revision = expected_survival_revision
         .checked_add(1)
@@ -381,19 +376,19 @@ pub fn validate_drink(
         expected_survival_revision,
         next_survival_revision,
         egress,
-        after: player_record(
-            player.metabolic_energy(),
-            hydration_after,
-            player.vitality(),
-            player.nutrition(),
-            player.vitality_recovery_remainder(),
+        pending: PendingDrinking::new(
+            contents.fluid(),
+            volume,
+            contents.temperature(),
+            state.tick(),
+            completes_at,
         ),
         fluid: contents.fluid(),
         next_consumed_volume,
         outcome: DrinkOutcome {
             store,
             volume,
-            hydration_gained,
+            hydration_offered: hydration_gain,
         },
     })
 }
@@ -422,10 +417,10 @@ impl ValidatedDrink {
             }
             FluidEgressCommitError::Structure(error) => DrinkCommitError::Structure(error),
         })?;
-        state.survival_state_mut().apply_fluid_consumption(
+        state.survival_state_mut().begin_fluid_consumption(
             self.expected_survival_revision,
             self.next_survival_revision,
-            self.after,
+            self.pending,
             self.fluid,
             self.next_consumed_volume,
         );

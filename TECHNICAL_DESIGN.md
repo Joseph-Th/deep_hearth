@@ -54,7 +54,7 @@ synchronized indexes.
 | `ProductionState` | Active jobs, schedules, routing, exclusive resource occupancy |
 | `MiningState` | Mining work-in-process and schedules |
 | `PlayerWorkState` | At most one active player labor operation |
-| `SurvivalState` | Metabolic energy, hydration, vitality, nutrition, fractional vitality-recovery carry, terminal consumed matter/fluid totals |
+| `SurvivalState` | Metabolic energy, hydration, vitality, nutrition, fractional vitality-recovery carry, terminal consumed matter/fluid totals, pending direct-consumption custody |
 
 Cross-owner operations coordinate owner APIs; they do not mutate another owner's private storage directly.
 
@@ -221,10 +221,21 @@ Direct manual power requires portable unmounted equipment and a compatible finit
 is limited by provider capability, destination input power, sustainable metabolic output, and requested work.
 Energy creation, physiological cost, and equipment wear share one validated operation.
 
-`SurvivalState` owns metabolic energy, hydration, vitality, recent nutrition, and terminal consumed matter/fluid
-totals. Eating and drinking consume exact physical quantities. The authored direct-consumption envelope limits
-quantity and derives exclusive attention duration. Drinking also rejects effective hydration above remaining
-capacity. Consumption that improves no reserve is rejected before resource withdrawal.
+`SurvivalState` owns metabolic energy, hydration, vitality, recent nutrition, terminal consumed matter/fluid
+totals, and exact pending direct-consumption custody. Eating and drinking transfer selected physical quantities
+into survival ownership at admission, then release their physiological energy, hydration, and nutrition over
+the authored exclusive-attention interval. Uptake is allocated from cumulative integer fractions so intermediate
+ticks cannot receive future benefit and the final tick recovers every whole-unit remainder. Each installment is
+capped against the capacity remaining after that tick's basal/exertion expenditure. If starting reserves cannot
+fully pay that expenditure, the installment first pays the exact energy/hydration shortfall; only its residual may
+refill stored reserves, and starvation/dehydration damage is applied only when the installment cannot cover that
+shortfall. Nutrition intake is available for same-tick recovery before decay. Admission therefore does not require
+pre-action reserve headroom, because physiological expenditure during consumption can create capacity. A drink is
+rejected only when its selected volume resolves to no whole-unit hydration benefit. If the player dies while an
+intake is pending, no further physiological benefit is released; pending survival custody and its eating/drinking
+attention record are canceled together on the next authoritative tick.
+Current-schema saves persist pending intake identity and timing, and trusted load validates that custody against
+the matching player-work interval and cumulative consumed accounting.
 
 Diet quality is limited by the weakest Grain/Fruit/Protein reserve. Fractional vitality recovery is persisted;
 read-only assessment exposes a rounded presentation rate.

@@ -433,10 +433,10 @@ fn load_replays_storage_definition_profile_and_embodied_matter() {
     );
 
     let target_key = target.value().to_string();
-    let mut legacy_mass = encoded.clone();
-    legacy_mass["state"]["systems"]["inventory"]["stockpiles"][&target_key]["enclosure"]["embodied_mass"] =
+    let mut obsolete_mass = encoded.clone();
+    obsolete_mass["state"]["systems"]["inventory"]["stockpiles"][&target_key]["enclosure"]["embodied_mass"] =
         serde_json::json!(2_300_000_u64);
-    assert!(serde_json::from_value::<LoadedSaveEnvelope>(legacy_mass).is_err());
+    assert!(serde_json::from_value::<LoadedSaveEnvelope>(obsolete_mass).is_err());
 
     let mut overflowed_traces = encoded.clone();
     let traces =

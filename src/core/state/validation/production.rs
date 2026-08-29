@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
+use crate::core::time::TickSpan;
 use crate::crafting::validate_loaded_manual_craft_job;
-use crate::energy::EnergyValidationError;
+use crate::energy::{EnergyValidationError, project_energy_sink_stored_at_release};
 use crate::inventory::{StockpileId, validate_stockpile_storage};
 use crate::material::{validate_material_particle_size_state, validate_material_phase_state};
 use crate::ore_processing::{
@@ -60,10 +61,10 @@ fn validate_production_job(
 ) -> Result<(), StateValidationError> {
     validate_job_process_and_source(registries, state, job)?;
     validate_job_consumed_energy(registries, state, job)?;
+    validate_job_schedule(state, job)?;
     validate_job_released_energy(registries, state, job)?;
     validate_job_equipment(registries, state, job)?;
     validate_job_subsystem_contracts(registries, job)?;
-    validate_job_schedule(state, job)?;
     validate_job_consumed_inputs(registries, job)?;
     validate_job_outputs(registries, state, job, expected_reservations)
 }
@@ -174,7 +175,26 @@ fn validate_job_released_energy(
             store: trace.destination(),
         });
     }
-    let after = store.stored().checked_add(trace.energy()).ok_or(
+    let release_after = job.suspension().map_or_else(
+        || {
+            TickSpan::new(
+                job.completes_at()
+                    .value()
+                    .checked_sub(state.tick().value())
+                    .unwrap_or_else(|| {
+                        unreachable!("production schedule was validated before energy release")
+                    }),
+            )
+        },
+        |suspension| suspension.remaining_active_time(),
+    );
+    let projected_stored = project_energy_sink_stored_at_release(
+        registries,
+        store.definition(),
+        store.stored(),
+        release_after,
+    );
+    let after = projected_stored.checked_add(trace.energy()).ok_or(
         StateValidationError::JobReleasedEnergyCapacityOverflow {
             job: job.id(),
             store: trace.destination(),
@@ -184,7 +204,7 @@ fn validate_job_released_energy(
         return Err(StateValidationError::JobReleasedEnergyCapacityExceeded {
             job: job.id(),
             store: trace.destination(),
-            stored: store.stored(),
+            stored: projected_stored,
             released: trace.energy(),
             capacity: definition.capacity(),
         });

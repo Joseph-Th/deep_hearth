@@ -2,9 +2,9 @@
 
 use super::*;
 use crate::content::{
-    ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK, FORM_FLYWHEEL,
-    FORM_HANDLE, FORM_SCRAP, FORM_TOOL, MANUAL_POWER_HAND_CRANK, MATERIAL_STONE, MATERIAL_WOOD,
-    build_registries,
+    ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_HAND_CRANK,
+    EQUIPMENT_STONE_PICK, FORM_FLYWHEEL, FORM_HANDLE, FORM_REINFORCEMENT, FORM_SCRAP, FORM_TOOL,
+    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, build_registries,
 };
 use crate::core::quantity::{Energy, Temperature};
 use crate::core::state::validate_loaded_state;
@@ -12,6 +12,7 @@ use crate::core::time::WorldSeed;
 use crate::energy::{calculate_explicit_energy_accounting, validate_assemble_energy_store};
 use crate::equipment::{
     apply_equipment_condition_plan, decide_equipment_wear, validate_assemble_equipment,
+    validate_upgrade_equipment,
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{ManualPowerRequest, validate_start_manual_power};
@@ -48,11 +49,105 @@ fn assembled_pick(registries: &Registries, state: &mut AppState) -> EquipmentId 
         .unwrap_or_else(|error| panic!("disassembly pick assembly commit failed: {error}"))
 }
 
+fn upgrade_pick(registries: &Registries, state: &mut AppState, pick: EquipmentId) {
+    let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(20_000))
+        .unwrap_or_else(|error| panic!("disassembly upgrade source failed: {error}"));
+    deposit_lot_for_test(
+        registries,
+        state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+        Mass::from_milligrams(20_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("disassembly upgrade reinforcement failed: {error}"));
+    validate_upgrade_equipment(
+        registries,
+        state,
+        pick,
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        source,
+    )
+    .unwrap_or_else(|error| panic!("disassembly upgrade validation failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("disassembly upgrade commit failed: {error}"));
+}
+
 fn explicit_energy(registries: &Registries, state: &AppState) -> crate::core::quantity::Energy {
     calculate_explicit_energy_accounting(registries, state)
         .unwrap_or_else(|error| panic!("disassembly explicit energy accounting failed: {error}"))
         .total()
         .unwrap_or_else(|| panic!("disassembly explicit energy total overflowed"))
+}
+
+#[test]
+fn worn_upgraded_equipment_recovers_every_embodied_material_as_scrap() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xD15A_0004));
+    let pick = assembled_pick(&registries, &mut state);
+    upgrade_pick(&registries, &mut state, pick);
+    let wear = decide_equipment_wear(&state, pick, 1)
+        .unwrap_or_else(|error| panic!("upgraded disassembly wear decision failed: {error}"));
+    apply_equipment_condition_plan(&mut state, wear)
+        .unwrap_or_else(|error| panic!("upgraded disassembly wear commit failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_020_000))
+        .unwrap_or_else(|error| panic!("upgraded disassembly destination failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("upgraded disassembly matter before failed: {error}"))
+        .total();
+    let energy_before = explicit_energy(&registries, &state);
+
+    let outcome = validate_disassemble_equipment(&registries, &state, pick, destination)
+        .unwrap_or_else(|error| panic!("upgraded disassembly validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("upgraded disassembly commit failed: {error}"));
+
+    assert!(state.equipment().get_equipment(pick).is_none());
+    assert_eq!(outcome.recovered_lots().len(), 3);
+    let recovered = outcome
+        .recovered_lots()
+        .iter()
+        .map(|lot| {
+            let lot = state
+                .inventory()
+                .get_lot(*lot)
+                .unwrap_or_else(|| panic!("upgraded recovery lot disappeared"));
+            (lot.commodity(), lot.mass())
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(
+        recovered,
+        std::collections::BTreeMap::from([
+            (
+                CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+                Mass::from_milligrams(800_000),
+            ),
+            (
+                CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
+                Mass::from_milligrams(200_000),
+            ),
+            (
+                CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+                Mass::from_milligrams(20_000),
+            ),
+        ])
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::from_milligrams(1_020_000))
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("upgraded disassembly matter after failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(explicit_energy(&registries, &state), energy_before);
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("upgraded disassembly state audit failed: {error}"));
 }
 
 fn assembled_crank(registries: &Registries, state: &mut AppState) -> EquipmentId {

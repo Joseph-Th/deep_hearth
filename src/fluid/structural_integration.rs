@@ -4,19 +4,19 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::{AggregateMass, Force};
+use crate::core::quantity::Force;
 use crate::core::state::AppState;
 use crate::registry::Registries;
 use crate::structural::{
     StructuralAnalysis, StructuralCommitError, StructuralElementId, StructuralLifecycle,
     StructuralLoadKind, StructuralMutationError, StructuralMutationOutcome,
-    ValidatedStructuralLoadBatch, calculate_aggregate_weight_force_ceiling,
-    validate_set_owned_structural_loads,
+    ValidatedStructuralLoadChange, calculate_fractional_milligram_weight_force_ceiling,
+    validate_owned_structural_load_change,
 };
 
 use super::{FluidContents, FluidDefinitionId, FluidStoreId};
 
-const MICROLITERS_DENSITY_PER_MILLIGRAM: u128 = 1_000;
+const MICROLITERS_DENSITY_PER_MILLIGRAM: u32 = 1_000;
 
 /// Final contents of one store after a validated fluid-owner mutation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -207,17 +207,14 @@ fn supported_mass_numerator(
     Ok(total)
 }
 
-fn numerator_to_mass(numerator: u128) -> AggregateMass {
-    AggregateMass::from_milligrams(numerator.div_ceil(MICROLITERS_DENSITY_PER_MILLIGRAM))
-}
-
 fn support_force(
     registries: &Registries,
     element: StructuralElementId,
     mass_numerator: u128,
 ) -> Result<Force, FluidStructuralLoadError> {
-    calculate_aggregate_weight_force_ceiling(
-        numerator_to_mass(mass_numerator),
+    calculate_fractional_milligram_weight_force_ceiling(
+        mass_numerator,
+        MICROLITERS_DENSITY_PER_MILLIGRAM,
         registries.core().gravity(),
     )
     .ok_or(FluidStructuralLoadError::WeightForceOverflow { element })
@@ -310,53 +307,15 @@ pub(crate) fn resolve_fluid_structural_loads(
     Ok(loads)
 }
 
-/// Revision guard plus any actual structural load mutation required by a fluid-owner transaction.
-#[must_use]
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct ValidatedFluidStructuralLoad {
-    expected_revision: u64,
-    structural: Option<ValidatedStructuralLoadBatch>,
-}
-
-impl ValidatedFluidStructuralLoad {
-    #[must_use]
-    pub(crate) fn analysis(&self) -> Option<&StructuralAnalysis> {
-        self.structural
-            .as_ref()
-            .map(ValidatedStructuralLoadBatch::analysis)
-    }
-
-    pub(crate) fn commit(
-        self,
-        state: &mut AppState,
-    ) -> Result<Option<StructuralMutationOutcome>, StructuralCommitError> {
-        let actual = state.structures().revision();
-        if actual != self.expected_revision {
-            return Err(StructuralCommitError::StaleRevision {
-                expected: self.expected_revision,
-                actual,
-            });
-        }
-        match self.structural {
-            Some(structural) => structural.commit(state).map(Some),
-            None => Ok(None),
-        }
-    }
-}
+pub(crate) type ValidatedFluidStructuralLoad = ValidatedStructuralLoadChange;
 
 fn validate_structural_load_plan(
     registries: &Registries,
     state: &AppState,
     loads: BTreeMap<StructuralElementId, Force>,
 ) -> Result<ValidatedFluidStructuralLoad, FluidStructuralLoadError> {
-    let expected_revision = state.structures().revision();
-    let structural =
-        validate_set_owned_structural_loads(registries, state, StructuralLoadKind::Fluid, loads)
-            .map_err(FluidStructuralLoadError::Structure)?;
-    Ok(ValidatedFluidStructuralLoad {
-        expected_revision,
-        structural,
-    })
+    validate_owned_structural_load_change(registries, state, StructuralLoadKind::Fluid, loads)
+        .map_err(FluidStructuralLoadError::Structure)
 }
 
 /// Validates all structure-owned fluid weight changes implied by final store contents.

@@ -34,9 +34,8 @@ use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
 use deep_hearth::survival::{
-    DrinkDefinition, DrinkError, EatError, FoodCategory, FoodDefinition, FoodFreshness,
-    assess_food_freshness, assess_survival, initialize_player_survival, validate_drink,
-    validate_eat,
+    DrinkDefinition, FoodCategory, FoodDefinition, FoodFreshness, assess_food_freshness,
+    assess_survival, initialize_player_survival, validate_drink, validate_eat,
 };
 
 use super::environment::ROOM_TEMPERATURE;
@@ -1589,7 +1588,7 @@ fn run_provisioning_case(
     let mut no_provision_baseline = state.clone();
     let mut provisioning_elapsed_ticks = 0_u64;
     let mut drank_volume = Volume::ZERO;
-    let mut hydration_gained = Volume::ZERO;
+    let mut hydration_offered = Volume::ZERO;
     let meal;
     let action_order;
     if drink_first && !drink_volume.is_zero() {
@@ -1598,7 +1597,7 @@ fn run_provisioning_case(
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("survival probe drinking commit failed: {error}"));
         drank_volume = drank.volume();
-        hydration_gained = drank.hydration_gained();
+        hydration_offered = drank.hydration_offered();
         provisioning_elapsed_ticks = provisioning_elapsed_ticks
             .checked_add(finish_direct_consumption(registries, &mut state))
             .unwrap_or_else(|| panic!("survival provisioning attention duration overflowed"));
@@ -1628,7 +1627,7 @@ fn run_provisioning_case(
                 .commit(&mut state)
                 .unwrap_or_else(|error| panic!("survival probe drinking commit failed: {error}"));
             drank_volume = drank.volume();
-            hydration_gained = drank.hydration_gained();
+            hydration_offered = drank.hydration_offered();
             provisioning_elapsed_ticks = provisioning_elapsed_ticks
                 .checked_add(finish_direct_consumption(registries, &mut state))
                 .unwrap_or_else(|| panic!("survival provisioning attention duration overflowed"));
@@ -1657,13 +1656,13 @@ fn run_provisioning_case(
     assert_eq!(meal.portions().len(), selections.len());
     for category in selected_categories.iter().copied() {
         assert!(
-            meal.nutrition_gained().get(category) > 0,
+            meal.nutrition_offered().get(category) > 0,
             "survival probe varied meal must contribute every selected food category"
         );
     }
-    assert!(!meal.energy_gained().is_zero());
+    assert!(!meal.energy_offered().is_zero());
     if !drink_volume.is_zero() {
-        assert!(!hydration_gained.is_zero());
+        assert!(!hydration_offered.is_zero());
     }
     assert_eq!(
         state
@@ -1730,22 +1729,22 @@ fn run_provisioning_case(
             .collect::<Vec<_>>()
             .join("+");
         std::println!(
-            "PLAYABLE SURVIVAL behavior=0x{behavior_seed:016X} mode=matched-policy policy={} catalog=registry-derived world-bootstrap=[reserve-profile:{},authored-food,authored-drink,storage-profile] player-present-from=t0 available-categories={available_categories} selected-categories={selected_categories} food-rotation=[witness:{} elapsed:{age_ticks}t preservation:{preservation_multiplier_ppm}ppm ambient-age:{ambient_age}t preserved-age:{preserved_age}t age-saved:{preservation_age_saved_ticks}t consume:older-ambient retain-preserved:{}mg] wait={provisioning_wait_ticks}t provisioning=[priority:{} action-order:{action_order}] meal=[mass:{}mg energy:+{}nJ nutrition:+{}ppm diet-quality:{}->{}ppm recovery-rate:{}->{}ppm/t] drink=[fluid:{} volume:{}uL hydration:+{}uL] reserves=improved matter=conserved fluid=conserved tick={}",
+            "PLAYABLE SURVIVAL behavior=0x{behavior_seed:016X} mode=matched-policy policy={} catalog=registry-derived world-bootstrap=[reserve-profile:{},authored-food,authored-drink,storage-profile] player-present-from=t0 available-categories={available_categories} selected-categories={selected_categories} food-rotation=[witness:{} elapsed:{age_ticks}t preservation:{preservation_multiplier_ppm}ppm ambient-age:{ambient_age}t preserved-age:{preserved_age}t age-saved:{preservation_age_saved_ticks}t consume:older-ambient retain-preserved:{}mg] wait={provisioning_wait_ticks}t provisioning=[priority:{} action-order:{action_order}] meal=[mass:{}mg energy-offered:{}nJ nutrition-offered:{}ppm diet-quality:{}->{}ppm recovery-rate:{}->{}ppm/t] drink=[fluid:{} volume:{}uL hydration-offered:{}uL] reserves=improved matter=conserved fluid=conserved tick={}",
             policy.label(),
             world.start_profile.label(),
             witness_food.commodity().value(),
             witness_mass.milligrams(),
             provisioning_priority.label(),
             meal.total_mass().milligrams(),
-            meal.energy_gained().nanojoules(),
-            meal.nutrition_gained().total_ppm(),
+            meal.energy_offered().nanojoules(),
+            meal.nutrition_offered().total_ppm(),
             diet_quality_before,
             after.diet_quality_ppm(),
             recovery_rate_before,
             recovery_rate_after,
             drink.fluid().value(),
             drank_volume.microliters(),
-            hydration_gained.microliters(),
+            hydration_offered.microliters(),
             state.tick().value(),
         );
     }
@@ -1827,12 +1826,11 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
         hunger_before.hydration(),
     );
     assert_eq!(hunger_priority, ProvisioningPriority::MetabolicEnergy);
-    assert_eq!(
-        validate_drink(registries, &hunger, hunger_drink_store, drink_volume).err(),
-        Some(DrinkError::NoHydrationGain {
-            volume: drink_volume,
-        })
+    assert!(
+        validate_drink(registries, &hunger, hunger_drink_store, drink_volume).is_ok(),
+        "timed drinking at full hydration remains physically useful because basal loss creates capacity during the action"
     );
+    let mut hunger_baseline = hunger.clone();
     let hunger_meal = validate_eat(
         registries,
         &hunger,
@@ -1842,10 +1840,14 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
     .unwrap_or_else(|error| panic!("hunger-pressure dry food should be useful: {error}"))
     .commit(&mut hunger)
     .unwrap_or_else(|error| panic!("hunger-pressure meal commit failed: {error}"));
-    assert!(!hunger_meal.energy_gained().is_zero());
+    assert!(!hunger_meal.energy_offered().is_zero());
+    let hunger_ticks = finish_direct_consumption(registries, &mut hunger);
+    advance_exact(registries, &mut hunger_baseline, hunger_ticks);
     let hunger_after = assess_survival(registries, &hunger)
         .unwrap_or_else(|| panic!("hunger-pressure player disappeared after eating"));
-    assert!(hunger_after.metabolic_energy() > hunger_before.metabolic_energy());
+    let hunger_baseline_after = assess_survival(registries, &hunger_baseline)
+        .unwrap_or_else(|| panic!("hunger-pressure baseline player disappeared"));
+    assert!(hunger_after.metabolic_energy() > hunger_baseline_after.metabolic_energy());
 
     let mut thirst = AppState::new(WorldSeed::new(seed ^ 0x5448_4952_5354_0002));
     let thirst_food_store = seed_stockpile(
@@ -1879,32 +1881,36 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
         thirst_before.hydration(),
     );
     assert_eq!(thirst_priority, ProvisioningPriority::Hydration);
-    assert_eq!(
+    assert!(
         validate_eat(
             registries,
             &thirst,
             thirst_food_store,
             &[MaterialLotSelection::new(thirst_food, food_mass)],
         )
-        .err(),
-        Some(EatError::NoReserveGain { mass: food_mass }),
-        "dry food at full metabolic and nutrition reserves must be rejected specifically because it cannot improve any reserve"
+        .is_ok(),
+        "timed eating at full metabolic reserves remains useful because basal cost creates capacity during the action"
     );
+    let mut thirst_baseline = thirst.clone();
     let thirst_drink = validate_drink(registries, &thirst, thirst_drink_store, drink_volume)
         .unwrap_or_else(|error| panic!("thirst-pressure drink should be useful: {error}"))
         .commit(&mut thirst)
         .unwrap_or_else(|error| panic!("thirst-pressure drink commit failed: {error}"));
-    assert!(!thirst_drink.hydration_gained().is_zero());
+    assert!(!thirst_drink.hydration_offered().is_zero());
+    let thirst_ticks = finish_direct_consumption(registries, &mut thirst);
+    advance_exact(registries, &mut thirst_baseline, thirst_ticks);
     let thirst_after = assess_survival(registries, &thirst)
         .unwrap_or_else(|| panic!("thirst-pressure player disappeared after drinking"));
-    assert!(thirst_after.hydration() > thirst_before.hydration());
+    let thirst_baseline_after = assess_survival(registries, &thirst_baseline)
+        .unwrap_or_else(|| panic!("thirst-pressure baseline player disappeared"));
+    assert!(thirst_after.hydration() > thirst_baseline_after.hydration());
     validate_loaded_state(registries, &hunger)
         .unwrap_or_else(|error| panic!("hunger-pressure state audit failed: {error}"));
     validate_loaded_state(registries, &thirst)
         .unwrap_or_else(|error| panic!("thirst-pressure state audit failed: {error}"));
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
-            "SURVIVAL PRESSURE seed=0x{seed:016X} matched-warning-boundary-worlds=[hunger:[priority:{} eat:useful drink:blocked-full-hydration] thirst:[priority:{} drink:useful dry-food:blocked-no-benefit]] response=pressure-sensitive canonical-actions=true",
+            "SURVIVAL PRESSURE seed=0x{seed:016X} matched-warning-boundary-worlds=[hunger:[priority:{} eat:targeted drink:legal-nontarget] thirst:[priority:{} drink:targeted dry-food:legal-nontarget]] response=pressure-sensitive counterfactual-benefit=true canonical-actions=true",
             hunger_priority.label(),
             thirst_priority.label(),
         );

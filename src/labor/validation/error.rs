@@ -48,6 +48,11 @@ pub enum PlayerWorkValidationError {
     DrinkingVolumeInvalid { volume: Volume },
     DrinkingScheduleInvalid,
     DrinkingDurationMismatch,
+    PendingDirectConsumptionWithoutWork,
+    EatingConsumptionMissing,
+    EatingConsumptionMismatch,
+    DrinkingConsumptionMissing,
+    DrinkingConsumptionMismatch,
     PlayerDead,
     MetabolicCostOverflow,
     InsufficientMetabolicEnergy { available: Energy, required: Energy },
@@ -174,6 +179,21 @@ impl Display for PlayerWorkValidationError {
             }
             Self::DrinkingDurationMismatch => formatter
                 .write_str("player drinking duration disagrees with authored intake timing"),
+            Self::PendingDirectConsumptionWithoutWork => formatter.write_str(
+                "pending direct consumption exists without matching eating or drinking work",
+            ),
+            Self::EatingConsumptionMissing => {
+                formatter.write_str("player eating work has no pending consumed matter")
+            }
+            Self::EatingConsumptionMismatch => {
+                formatter.write_str("pending consumed meal disagrees with persisted eating work")
+            }
+            Self::DrinkingConsumptionMissing => {
+                formatter.write_str("player drinking work has no pending consumed fluid")
+            }
+            Self::DrinkingConsumptionMismatch => {
+                formatter.write_str("pending consumed drink disagrees with persisted drinking work")
+            }
             Self::PlayerDead => {
                 formatter.write_str("player-owned work remains active for a dead player")
             }
@@ -247,6 +267,11 @@ impl Error for PlayerWorkValidationError {
             | Self::DrinkingVolumeInvalid { .. }
             | Self::DrinkingScheduleInvalid
             | Self::DrinkingDurationMismatch
+            | Self::PendingDirectConsumptionWithoutWork
+            | Self::EatingConsumptionMissing
+            | Self::EatingConsumptionMismatch
+            | Self::DrinkingConsumptionMissing
+            | Self::DrinkingConsumptionMismatch
             | Self::PlayerDead
             | Self::MetabolicCostOverflow
             | Self::InsufficientMetabolicEnergy { .. }

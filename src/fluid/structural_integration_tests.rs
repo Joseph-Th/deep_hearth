@@ -5,7 +5,7 @@ use crate::content::{
     FORM_LOG, MATERIAL_CHARCOAL, MATERIAL_WATER, MATERIAL_WOOD,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, make_test_registries_with_fluids,
 };
-use crate::core::quantity::{Area, Volume};
+use crate::core::quantity::{AggregateMass, Area, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::fluid::{
@@ -16,8 +16,9 @@ use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralLoadKind, StructuralMutationError, add_structural_element,
-    materialize_structural_element_for_test, validate_activate_structural_element,
-    validate_remove_structural_element, validate_set_structural_load,
+    calculate_aggregate_weight_force_ceiling, materialize_structural_element_for_test,
+    validate_activate_structural_element, validate_remove_structural_element,
+    validate_set_structural_load,
 };
 
 const TEST_FLUID: FluidDefinitionId = FluidDefinitionId::new(941_001);
@@ -189,22 +190,54 @@ fn fluid_mass_rounding_occurs_after_support_local_aggregation() {
     let registries = registries_with_material(MATERIAL_CHARCOAL);
     let mut state = AppState::new(WorldSeed::new(0x9410_0002));
     let support = add_active_support(&registries, &mut state, 0);
-    for _ in 0..4 {
+    let first = add_filled(&registries, &mut state, 1);
+    let _ = mount(&registries, &mut state, first, support);
+    let structural_revision_after_first = state.structures().revision();
+    for _ in 1..4 {
         let store = add_filled(&registries, &mut state, 1);
         let _ = mount(&registries, &mut state, store, support);
     }
+    assert_eq!(
+        state.structures().revision(),
+        structural_revision_after_first,
+        "sub-milligram fluid aggregation may change without a structural revision until rounded force changes"
+    );
 
     assert_eq!(
         supported_mass_numerator(&registries, &state, support, &BTreeMap::new(), None),
         Ok(1_000)
     );
-    assert_eq!(numerator_to_mass(1_000).milligrams(), 1);
     assert_eq!(
         state
             .structures()
             .get_element(support)
             .map(|record| record.load(StructuralLoadKind::Fluid)),
         Some(Force::from_millinewtons(1))
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn fractional_fluid_mass_does_not_round_up_before_weight_conversion() {
+    let registries = registries_with_material(MATERIAL_CHARCOAL);
+    let mut state = AppState::new(WorldSeed::new(0x9410_000B));
+    let support = add_active_support(&registries, &mut state, 0);
+    let store = add_filled(&registries, &mut state, 405);
+
+    let _ = mount(&registries, &mut state, store, support);
+
+    assert_eq!(
+        supported_mass_numerator(&registries, &state, support, &BTreeMap::new(), None),
+        Ok(101_250),
+        "405 uL at 250 kg/m^3 is exactly 101.25 mg"
+    );
+    assert_eq!(
+        state
+            .structures()
+            .get_element(support)
+            .map(|record| record.load(StructuralLoadKind::Fluid)),
+        Some(Force::from_millinewtons(1)),
+        "the exact 101.25 mg fluid mass is below the 1 mN threshold before final conservative rounding"
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }

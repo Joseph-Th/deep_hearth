@@ -3,21 +3,42 @@
 use std::collections::BTreeMap;
 
 use crate::core::arithmetic::checked_mul_div_with_remainder;
-use crate::core::quantity::{AggregateMass, Energy, Volume};
+use crate::core::quantity::{AggregateMass, AggregateVolume, Energy};
 use crate::core::state::AppState;
-use crate::inventory::MaterialLotSelection;
+use crate::inventory::{ConsumedMaterialTrace, MaterialLotSelection};
 use crate::material::MaterialId;
 use crate::registry::Registries;
-use crate::survival::{FoodCategory, NUTRITION_PARTS_PER_MILLION, NutritionReserves};
+use crate::survival::{FoodCategory, NUTRITION_PARTS_PER_MILLION};
 
 use super::super::{FoodFreshness, FoodFreshnessError, assess_food_freshness};
-use super::{EatError, EatPortionOutcome, NutritionGain, PlayerSurvivalRecord};
+use super::{EatError, EatPortionOutcome, NutritionGain};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct NutritionEnergy {
     grain: u128,
     fruit: u128,
     protein: u128,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EatingAbsorptionOffer {
+    energy: Energy,
+    hydration: AggregateVolume,
+    nutrition: NutritionGain,
+}
+
+impl EatingAbsorptionOffer {
+    pub(crate) const fn energy(self) -> Energy {
+        self.energy
+    }
+
+    pub(crate) const fn hydration(self) -> AggregateVolume {
+        self.hydration
+    }
+
+    pub(crate) const fn nutrition(self) -> NutritionGain {
+        self.nutrition
+    }
 }
 
 impl NutritionEnergy {
@@ -41,6 +62,78 @@ impl NutritionEnergy {
 
     const fn total(self) -> u128 {
         self.grain + self.fruit + self.protein
+    }
+}
+
+fn resolve_nutrition_offer(
+    offered_energy: Energy,
+    maximum_metabolic_energy: Energy,
+    category_energy: NutritionEnergy,
+) -> Result<NutritionGain, EatError> {
+    let nutrition_gain_ppm =
+        normalized_nutrition_gain_ppm(offered_energy, maximum_metabolic_energy)?;
+    Ok(allocate_nutrition(nutrition_gain_ppm, category_energy))
+}
+
+pub(super) fn meal_absorption_offer(
+    offer: &MealOffer,
+    maximum_metabolic_energy: Energy,
+) -> Result<EatingAbsorptionOffer, EatError> {
+    Ok(EatingAbsorptionOffer {
+        energy: offer.offered_energy,
+        hydration: AggregateVolume::from_microliters(offer.offered_hydration_ul),
+        nutrition: resolve_nutrition_offer(
+            offer.offered_energy,
+            maximum_metabolic_energy,
+            offer.category_energy,
+        )?,
+    })
+}
+
+pub(crate) fn trace_absorption_offer(
+    registries: &Registries,
+    traces: &[ConsumedMaterialTrace],
+) -> EatingAbsorptionOffer {
+    let mut offered_energy_nj = 0_u128;
+    let mut offered_hydration_ul = 0_u128;
+    let mut category_energy = NutritionEnergy::default();
+    for trace in traces {
+        let commodity = trace.profile().commodity();
+        let food = registries.survival().get_food(commodity).unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: pending eating trace references non-food commodity {}",
+                commodity.value()
+            )
+        });
+        let energy_nj = u128::from(trace.mass().milligrams())
+            * u128::from(food.dietary_energy().nanojoules_per_milligram());
+        offered_energy_nj = offered_energy_nj
+            .checked_add(energy_nj)
+            .unwrap_or_else(|| panic!("validated pending meal energy overflowed at runtime"));
+        offered_hydration_ul = offered_hydration_ul
+            .checked_add(
+                u128::from(trace.mass().milligrams())
+                    * u128::from(food.hydration_microliters_per_milligram()),
+            )
+            .unwrap_or_else(|| panic!("validated pending meal hydration overflowed at runtime"));
+        category_energy
+            .checked_add(food.category(), energy_nj)
+            .unwrap_or_else(|| panic!("validated pending meal nutrition overflowed at runtime"));
+    }
+    let energy = Energy::from_nanojoules(offered_energy_nj);
+    let nutrition = resolve_nutrition_offer(
+        energy,
+        registries
+            .survival()
+            .physiology()
+            .maximum_metabolic_energy(),
+        category_energy,
+    )
+    .unwrap_or_else(|error| panic!("validated pending meal nutrition failed at runtime: {error}"));
+    EatingAbsorptionOffer {
+        energy,
+        hydration: AggregateVolume::from_microliters(offered_hydration_ul),
+        nutrition,
     }
 }
 
@@ -230,73 +323,6 @@ pub(super) fn resolve_meal_offer(
         category_energy,
         consumed_additions,
     })
-}
-
-pub(super) fn resolve_energy_gain(
-    player: PlayerSurvivalRecord,
-    maximum: Energy,
-    offered: Energy,
-) -> Result<(Energy, Energy), EatError> {
-    let available = maximum
-        .checked_sub(player.metabolic_energy())
-        .ok_or(EatError::MetabolicEnergyOverflow)?;
-    let gained = offered.min(available);
-    let after = player
-        .metabolic_energy()
-        .checked_add(gained)
-        .ok_or(EatError::MetabolicEnergyOverflow)?;
-    Ok((gained, after))
-}
-
-fn resolve_hydration_gain(
-    current: Volume,
-    maximum: Volume,
-    offered_microliters: u128,
-) -> Result<(Volume, Volume), EatError> {
-    let available = maximum
-        .checked_sub(current)
-        .ok_or(EatError::HydrationOverflow)?;
-    let gained_microliters = offered_microliters.min(u128::from(available.microliters()));
-    let gained_microliters = u64::try_from(gained_microliters)
-        .unwrap_or_else(|_| unreachable!("hydration gain is bounded by u64-backed capacity"));
-    let gained = Volume::from_microliters(gained_microliters);
-    let after = current
-        .checked_add(gained)
-        .ok_or(EatError::HydrationOverflow)?;
-    Ok((gained, after))
-}
-
-pub(super) fn resolve_hydration_and_nutrition(
-    player: PlayerSurvivalRecord,
-    maximum_hydration: Volume,
-    maximum_metabolic_energy: Energy,
-    offer: &MealOffer,
-) -> Result<(Volume, Volume, NutritionReserves, NutritionGain), EatError> {
-    let (hydration_gained, hydration_after) = resolve_hydration_gain(
-        player.hydration(),
-        maximum_hydration,
-        offer.offered_hydration_ul,
-    )?;
-    let nutrition_gain_ppm =
-        normalized_nutrition_gain_ppm(offer.offered_energy, maximum_metabolic_energy)?;
-    let allocated = allocate_nutrition(nutrition_gain_ppm, offer.category_energy);
-    let (after_grain, grain_ppm) = player
-        .nutrition()
-        .add(FoodCategory::Grain, allocated.get(FoodCategory::Grain));
-    let (after_fruit, fruit_ppm) =
-        after_grain.add(FoodCategory::Fruit, allocated.get(FoodCategory::Fruit));
-    let (nutrition_after, protein_ppm) =
-        after_fruit.add(FoodCategory::Protein, allocated.get(FoodCategory::Protein));
-    Ok((
-        hydration_gained,
-        hydration_after,
-        nutrition_after,
-        NutritionGain {
-            grain_ppm,
-            fruit_ppm,
-            protein_ppm,
-        },
-    ))
 }
 
 #[cfg(test)]

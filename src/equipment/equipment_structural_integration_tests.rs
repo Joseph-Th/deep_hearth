@@ -138,7 +138,9 @@ fn multiple_equipment_records_aggregate_one_structural_load_without_rounding_per
         Ok(token) => token,
         Err(error) => panic!("second equipment mount validation failed: {error}"),
     };
+    let revision_before_second_mount = state.structures().revision();
     let _ = commit_support(second_mount, &mut state);
+    assert_eq!(state.structures().revision(), revision_before_second_mount);
     assert_eq!(
         state
             .structures()
@@ -152,7 +154,9 @@ fn multiple_equipment_records_aggregate_one_structural_load_without_rounding_per
         Ok(token) => token,
         Err(error) => panic!("first equipment unmount validation failed: {error}"),
     };
+    let revision_before_first_unmount = state.structures().revision();
     let _ = commit_support(first_unmount, &mut state);
+    assert_eq!(state.structures().revision(), revision_before_first_unmount);
     assert_eq!(
         state
             .structures()
@@ -214,7 +218,7 @@ fn relocation_remains_revision_bound_when_force_rounding_hides_both_load_deltas(
         .unwrap_or_else(|error| panic!("rounding relocation validation failed: {error}"));
     let _ = commit_support(relocation, &mut state);
 
-    assert_eq!(state.structures().revision(), structural_revision + 1);
+    assert_eq!(state.structures().revision(), structural_revision);
     assert_eq!(
         state
             .structures()
@@ -235,6 +239,60 @@ fn relocation_remains_revision_bound_when_force_rounding_hides_both_load_deltas(
             .get_equipment(moved)
             .and_then(|record| record.supported_by()),
         Some(target)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn rounded_noop_relocation_still_rejects_a_stale_structure() {
+    let registries = make_registries(Mass::from_milligrams(1));
+    let mut state = AppState::new(WorldSeed::new(0x8300_0013));
+    let source = add_member(&registries, &mut state, 0);
+    let target = add_member(&registries, &mut state, 2);
+    activate_member(&registries, &mut state, source);
+    activate_member(&registries, &mut state, target);
+    let moved = add_test_equipment(&registries, &mut state);
+    let source_peer = add_test_equipment(&registries, &mut state);
+    let target_peer = add_test_equipment(&registries, &mut state);
+    for (equipment, support) in [
+        (moved, source),
+        (source_peer, source),
+        (target_peer, target),
+    ] {
+        let mount = validate_mount_equipment(&registries, &state, equipment, support)
+            .unwrap_or_else(|error| panic!("stale rounded relocation mount failed: {error}"));
+        let _ = commit_support(mount, &mut state);
+    }
+    let relocation = validate_relocate_equipment(&registries, &state, moved, target)
+        .unwrap_or_else(|error| panic!("stale rounded relocation validation failed: {error}"));
+
+    let snow = validate_set_structural_load(
+        &registries,
+        &state,
+        target,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(1),
+    )
+    .unwrap_or_else(|error| panic!("stale rounded relocation structure mutation failed: {error}"));
+    let _ = snow.commit(&mut state).unwrap_or_else(|error| {
+        panic!("stale rounded relocation structure commit failed: {error}")
+    });
+
+    assert!(matches!(
+        relocation.commit(&mut state),
+        Err(EquipmentSupportCommitError::Structure(
+            StructuralCommitError::StaleRevision {
+                expected: _expected,
+                actual: _actual,
+            }
+        ))
+    ));
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(moved)
+            .and_then(|record| record.supported_by()),
+        Some(source)
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }

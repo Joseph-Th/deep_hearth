@@ -152,7 +152,7 @@ fn buildable_energy_store_requires_material_and_preserves_world_matter() {
 }
 
 #[test]
-fn legacy_energy_store_embodied_mass_field_is_rejected_during_decode() {
+fn obsolete_energy_store_embodied_mass_field_is_rejected_during_decode() {
     let (registries, state, store) = assembled_store_fixture();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("energy embodiment tamper serialization failed: {error}"));

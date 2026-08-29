@@ -10,6 +10,10 @@ use crate::registry::Registries;
 use super::state::{PlayerSurvivalRecord, player_record};
 use super::{NUTRITION_PARTS_PER_MILLION, NutritionReserves, Vitality};
 
+mod tick;
+
+pub(crate) use tick::{SurvivalTickError, apply_survival_tick, decide_survival_tick};
+
 /// Qualitative energy state derived from authored physiology thresholds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HungerState {
@@ -298,127 +302,6 @@ fn accumulate_diet_supported_vitality_recovery(
     let next_remainder = u32::try_from(numerator % scale)
         .unwrap_or_else(|_| unreachable!("normalized vitality recovery remainder always fits u32"));
     (recovery, next_remainder)
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SurvivalTickError {
-    RevisionExhausted,
-    EnergyCostOverflow,
-    HydrationCostOverflow,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct SurvivalTickPlan {
-    expected_revision: u64,
-    next_revision: u64,
-    after: PlayerSurvivalRecord,
-    assessment: SurvivalAssessment,
-}
-
-pub(crate) fn decide_survival_tick(
-    registries: &Registries,
-    state: &AppState,
-    exertion: SurvivalExertion,
-) -> Result<Option<SurvivalTickPlan>, SurvivalTickError> {
-    let Some(before) = state.survival().player().copied() else {
-        return Ok(None);
-    };
-    if before.vitality() == Vitality::ZERO {
-        return Ok(None);
-    }
-    let physiology = registries.survival().physiology();
-    let energy_cost = physiology
-        .basal_energy_cost_per_tick()
-        .checked_add(exertion.energy_cost_per_tick())
-        .ok_or(SurvivalTickError::EnergyCostOverflow)?;
-    let hydration_loss = physiology
-        .hydration_loss_per_tick()
-        .checked_add(exertion.hydration_loss_per_tick())
-        .ok_or(SurvivalTickError::HydrationCostOverflow)?;
-    let energy_deficit = energy_cost > before.metabolic_energy();
-    let hydration_deficit = hydration_loss > before.hydration();
-    let energy_after = before
-        .metabolic_energy()
-        .checked_sub(energy_cost)
-        .unwrap_or(Energy::ZERO);
-    let hydration_after = before
-        .hydration()
-        .checked_sub(hydration_loss)
-        .unwrap_or(Volume::ZERO);
-    let nutrition_after = before
-        .nutrition()
-        .decay(physiology.nutrition().decay_ppm_per_tick());
-    let mut vitality_loss = 0_u32;
-    if energy_deficit {
-        vitality_loss =
-            vitality_loss.saturating_add(physiology.starvation_vitality_loss_ppm_per_tick());
-    }
-    if hydration_deficit {
-        vitality_loss =
-            vitality_loss.saturating_add(physiology.dehydration_vitality_loss_ppm_per_tick());
-    }
-    let mut vitality_recovery_remainder = before.vitality_recovery_remainder();
-    let vitality_after_ppm = if vitality_loss > 0 {
-        before
-            .vitality()
-            .parts_per_million()
-            .saturating_sub(vitality_loss)
-    } else if energy_after >= physiology.hungry_below()
-        && hydration_after >= physiology.thirsty_below()
-        && before.vitality() < Vitality::MAXIMUM
-    {
-        // Current reserves support the current tick. Nutrition decays into the next persisted state
-        // after supplying this tick's recovery, matching the assessment visible before the tick.
-        let (recovery, next_remainder) = accumulate_diet_supported_vitality_recovery(
-            physiology,
-            before.nutrition(),
-            vitality_recovery_remainder,
-        );
-        vitality_recovery_remainder = next_remainder;
-        let recovered = before
-            .vitality()
-            .parts_per_million()
-            .saturating_add(recovery)
-            .min(Vitality::MAXIMUM.parts_per_million());
-        if recovered == Vitality::MAXIMUM.parts_per_million() {
-            vitality_recovery_remainder = 0;
-        }
-        recovered
-    } else {
-        if before.vitality() == Vitality::MAXIMUM {
-            vitality_recovery_remainder = 0;
-        }
-        before.vitality().parts_per_million()
-    };
-    let vitality_after = Vitality::from_parts_per_million_unchecked(vitality_after_ppm);
-    let expected_revision = state.survival().revision();
-    let next_revision = expected_revision
-        .checked_add(1)
-        .ok_or(SurvivalTickError::RevisionExhausted)?;
-    let after = player_record(
-        energy_after,
-        hydration_after,
-        vitality_after,
-        nutrition_after,
-        vitality_recovery_remainder,
-    );
-    Ok(Some(SurvivalTickPlan {
-        expected_revision,
-        next_revision,
-        after,
-        assessment: assess_record(registries, after),
-    }))
-}
-
-pub(crate) fn apply_survival_tick(
-    state: &mut AppState,
-    plan: Option<SurvivalTickPlan>,
-) -> Option<SurvivalAssessment> {
-    let plan = plan?;
-    state
-        .survival_state_mut()
-        .apply_player(plan.expected_revision, plan.next_revision, plan.after);
-    Some(plan.assessment)
 }
 
 #[cfg(test)]

@@ -397,6 +397,7 @@ impl StructuralAnalysisOverlay {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn set_load(
         element: StructuralElementId,
         kind: StructuralLoadKind,

@@ -12,10 +12,8 @@ use crate::production::ProductionJobId;
 use crate::registry::Registries;
 use crate::structural::{
     StructuralAnalysis, StructuralCommitError, StructuralElementId, StructuralLifecycle,
-    StructuralLoadKind, StructuralMutationError, StructuralMutationOutcome,
-    ValidatedStructuralLoadBatch, ValidatedStructuralMutation,
-    calculate_aggregate_weight_force_ceiling, validate_set_owned_structural_load,
-    validate_set_owned_structural_loads,
+    StructuralLoadKind, StructuralMutationError, ValidatedStructuralLoadChange, analyze_structure,
+    calculate_aggregate_weight_force_ceiling, validate_owned_structural_load_change,
 };
 
 use super::{EquipmentDefinitionId, EquipmentId};
@@ -316,13 +314,13 @@ impl Error for EquipmentSupportCommitError {
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EquipmentSupportOutcome {
-    structural: StructuralMutationOutcome,
+    structural: StructuralAnalysis,
 }
 
 impl EquipmentSupportOutcome {
     #[must_use]
     pub const fn structural_analysis(&self) -> &StructuralAnalysis {
-        self.structural.analysis()
+        &self.structural
     }
 }
 
@@ -340,28 +338,49 @@ pub struct ValidatedEquipmentSupportChange {
 
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
-enum ValidatedEquipmentStructuralChange {
-    Single(ValidatedStructuralMutation),
-    Batch(ValidatedStructuralLoadBatch),
+struct ValidatedEquipmentStructuralChange {
+    structural: ValidatedStructuralLoadChange,
+    analysis: StructuralAnalysis,
 }
 
 impl ValidatedEquipmentStructuralChange {
     fn analysis(&self) -> &StructuralAnalysis {
-        match self {
-            Self::Single(structural) => structural.analysis(),
-            Self::Batch(structural) => structural.analysis(),
-        }
+        &self.analysis
     }
 
-    fn commit(
-        self,
-        state: &mut AppState,
-    ) -> Result<StructuralMutationOutcome, StructuralCommitError> {
-        match self {
-            Self::Single(structural) => structural.commit(state),
-            Self::Batch(structural) => structural.commit(state),
-        }
+    fn commit(self, state: &mut AppState) -> Result<StructuralAnalysis, StructuralCommitError> {
+        let _ = self.structural.commit(state)?;
+        Ok(self.analysis)
     }
+}
+
+fn validate_equipment_structural_change(
+    registries: &Registries,
+    state: &AppState,
+    loads: BTreeMap<StructuralElementId, Force>,
+) -> Result<ValidatedEquipmentStructuralChange, EquipmentSupportError> {
+    let structural = validate_owned_structural_load_change(
+        registries,
+        state,
+        StructuralLoadKind::Equipment,
+        loads,
+    )
+    .map_err(EquipmentSupportError::Structure)?;
+    let analysis = match structural.analysis() {
+        Some(analysis) => analysis.clone(),
+        None => analyze_structure(
+            registries.structural(),
+            registries.materials(),
+            state.structures(),
+        )
+        .map_err(|error| {
+            EquipmentSupportError::Structure(StructuralMutationError::Analysis(error))
+        })?,
+    };
+    Ok(ValidatedEquipmentStructuralChange {
+        structural,
+        analysis,
+    })
 }
 
 impl ValidatedEquipmentSupportChange {
@@ -588,14 +607,11 @@ pub fn validate_mount_equipment(
         .checked_add(AggregateMass::from_mass(equipment_mass))
         .ok_or(EquipmentSupportError::AggregateMassOverflow { element })?;
     let next_load = support_force(registries, element, next_mass)?;
-    let structural = validate_set_owned_structural_load(
+    let structural = validate_equipment_structural_change(
         registries,
         state,
-        element,
-        StructuralLoadKind::Equipment,
-        next_load,
-    )
-    .map_err(EquipmentSupportError::Structure)?;
+        BTreeMap::from([(element, next_load)]),
+    )?;
     let (expected_equipment_revision, next_equipment_revision) = next_equipment_revision(state)?;
 
     Ok(ValidatedEquipmentSupportChange {
@@ -604,7 +620,7 @@ pub fn validate_mount_equipment(
         after: Some(element),
         expected_equipment_revision,
         next_equipment_revision,
-        structural: ValidatedEquipmentStructuralChange::Single(structural),
+        structural,
     })
 }
 
@@ -632,14 +648,11 @@ pub fn validate_unmount_equipment(
     validate_existing_load(registries, state, element)?;
     let remaining_mass = supported_mass(registries, state, element, Some(equipment))?;
     let next_load = support_force(registries, element, remaining_mass)?;
-    let structural = validate_set_owned_structural_load(
+    let structural = validate_equipment_structural_change(
         registries,
         state,
-        element,
-        StructuralLoadKind::Equipment,
-        next_load,
-    )
-    .map_err(EquipmentSupportError::Structure)?;
+        BTreeMap::from([(element, next_load)]),
+    )?;
     let (expected_equipment_revision, next_equipment_revision) = next_equipment_revision(state)?;
 
     Ok(ValidatedEquipmentSupportChange {
@@ -648,7 +661,7 @@ pub fn validate_unmount_equipment(
         after: None,
         expected_equipment_revision,
         next_equipment_revision,
-        structural: ValidatedEquipmentStructuralChange::Single(structural),
+        structural,
     })
 }
 
@@ -701,26 +714,11 @@ pub fn validate_relocate_equipment(
 
     let source_load = support_force(registries, source, source_mass)?;
     let target_load = support_force(registries, target, target_mass)?;
-    let structural = validate_set_owned_structural_loads(
+    let structural = validate_equipment_structural_change(
         registries,
         state,
-        StructuralLoadKind::Equipment,
         BTreeMap::from([(source, source_load), (target, target_load)]),
-    )
-    .map_err(EquipmentSupportError::Structure)?;
-    let structural = match structural {
-        Some(structural) => ValidatedEquipmentStructuralChange::Batch(structural),
-        None => ValidatedEquipmentStructuralChange::Single(
-            validate_set_owned_structural_load(
-                registries,
-                state,
-                target,
-                StructuralLoadKind::Equipment,
-                target_load,
-            )
-            .map_err(EquipmentSupportError::Structure)?,
-        ),
-    };
+    )?;
     let (expected_equipment_revision, next_equipment_revision) = next_equipment_revision(state)?;
 
     Ok(ValidatedEquipmentSupportChange {

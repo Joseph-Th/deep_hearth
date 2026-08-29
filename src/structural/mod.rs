@@ -25,6 +25,7 @@ pub use geometry::{
     StructuralGeometryError, calculate_prismatic_material_mass_ceiling,
     calculate_prismatic_volume_ceiling,
 };
+pub(crate) use load::calculate_fractional_milligram_weight_force_ceiling;
 pub use load::{calculate_aggregate_weight_force_ceiling, calculate_weight_force_ceiling};
 pub use state::{
     StructuralElementGeometry, StructuralElementId, StructuralElementRecord, StructuralLifecycle,
@@ -37,6 +38,7 @@ pub use structural_execution::{StructuralCommitError, StructuralMutationError};
 pub(crate) use element_execution::AddStructuralElementError;
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use element_execution::add_structural_element;
+#[cfg(test)]
 pub(crate) use structural_execution::ValidatedStructuralMutation;
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use structural_execution::validate_activate_structural_element;
@@ -53,8 +55,7 @@ pub(crate) use construction_execution::{
 };
 pub(crate) use state::validate_loaded_structure;
 pub(crate) use structural_execution::{
-    ValidatedStructuralLoadBatch, validate_set_owned_structural_load,
-    validate_set_owned_structural_loads,
+    ValidatedStructuralLoadChange, validate_owned_structural_load_change,
 };
 pub(crate) use support_index::{
     SupportIndexValidationFault, apply_support_index_change, validate_support_index,

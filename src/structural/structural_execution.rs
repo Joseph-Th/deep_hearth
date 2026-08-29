@@ -1,6 +1,8 @@
 //! Revision-bound structural topology/load mutations with synchronous damage-cascade resolution.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+#[cfg(any(test, feature = "test-gameplay"))]
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -11,36 +13,24 @@ use crate::fluid::FluidStoreId;
 use crate::inventory::StockpileId;
 use crate::registry::Registries;
 
+#[cfg(test)]
+use super::analysis::StructuralDamageEvent;
 use super::analysis::{
-    StructuralAnalysis, StructuralAnalysisError, StructuralAnalysisOverlay, StructuralDamageEvent,
-    analyze_structure_components_with_overlay,
+    StructuralAnalysisError, StructuralAnalysisOverlay, analyze_structure_components_with_overlay,
 };
 #[cfg(any(test, feature = "test-gameplay"))]
 use super::state::StructuralLifecycle;
 use super::state::{StructuralElementId, StructuralLoadKind};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum StructuralMutation {
-    #[cfg(test)]
-    LinkSupport {
-        element: StructuralElementId,
-        support: StructuralElementId,
-    },
-    #[cfg(test)]
-    RemoveSupport {
-        element: StructuralElementId,
-        support: StructuralElementId,
-    },
-    #[cfg(test)]
-    RemoveElement { element: StructuralElementId },
-    #[cfg(any(test, feature = "test-gameplay"))]
-    Activate { element: StructuralElementId },
-    SetLoadContribution {
-        element: StructuralElementId,
-        kind: StructuralLoadKind,
-        load: Force,
-    },
-}
+mod transaction;
+
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) use transaction::ValidatedStructuralMutation;
+#[cfg(any(test, feature = "test-gameplay"))]
+use transaction::{StructuralMutation, validate_operation_commit_state};
+pub(crate) use transaction::{
+    StructuralMutationOutcome, ValidatedStructuralLoadBatch, ValidatedStructuralLoadChange,
+};
 
 /// Failure while validating a structural mutation before any authoritative state changes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -299,156 +289,6 @@ impl Error for StructuralMutationError {
     }
 }
 
-/// Validated structural mutation bound to one exact subsystem revision and resolved cascade.
-#[must_use]
-#[derive(Debug, PartialEq, Eq)]
-pub struct ValidatedStructuralMutation {
-    operation: StructuralMutation,
-    expected_revision: u64,
-    next_revision: u64,
-    analysis: StructuralAnalysis,
-}
-
-impl ValidatedStructuralMutation {
-    #[must_use]
-    pub const fn analysis(&self) -> &StructuralAnalysis {
-        &self.analysis
-    }
-
-    /// Commits the requested structural change and every resolved damage consequence atomically.
-    pub fn commit(
-        self,
-        state: &mut AppState,
-    ) -> Result<StructuralMutationOutcome, StructuralCommitError> {
-        let structures = state.structure_state_mut();
-        if structures.revision() != self.expected_revision {
-            return Err(StructuralCommitError::StaleRevision {
-                expected: self.expected_revision,
-                actual: structures.revision(),
-            });
-        }
-
-        validate_operation_commit_state(structures, self.operation)?;
-        for event in self.analysis.damage_events() {
-            let element = event.element();
-            #[cfg(test)]
-            if matches!(
-                self.operation,
-                StructuralMutation::RemoveElement { element: removed } if removed == element
-            ) {
-                return Err(StructuralCommitError::StateChanged { element });
-            }
-            if structures.get_element(element).is_none() {
-                return Err(StructuralCommitError::StateChanged { element });
-            }
-        }
-
-        apply_operation_unchecked(structures, self.operation);
-        apply_damage_events(structures, self.analysis.damage_events());
-        structures.apply_revision(self.next_revision);
-        Ok(StructuralMutationOutcome {
-            analysis: self.analysis,
-        })
-    }
-}
-
-fn apply_damage_events(
-    structures: &mut super::state::StructureState,
-    events: &[StructuralDamageEvent],
-) {
-    for event in events {
-        let element = event.element();
-        match event {
-            StructuralDamageEvent::Cracked {
-                element: _element,
-                carried_load: _carried_load,
-                pristine_capacity: _pristine_capacity,
-            } => structures.apply_damage(element, false),
-            StructuralDamageEvent::Failed {
-                element: _element,
-                cause: _cause,
-            } => structures.apply_damage(element, true),
-        }
-    }
-}
-
-/// Revision-bound batch of load contributions owned by one external subsystem.
-///
-/// The entire batch is analyzed and committed under one structural revision so a cross-owner
-/// transaction never exposes an impossible intermediate load arrangement.
-#[must_use]
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct ValidatedStructuralLoadBatch {
-    kind: StructuralLoadKind,
-    loads: BTreeMap<StructuralElementId, Force>,
-    expected_revision: u64,
-    next_revision: u64,
-    analysis: StructuralAnalysis,
-}
-
-impl ValidatedStructuralLoadBatch {
-    #[must_use]
-    pub(crate) const fn analysis(&self) -> &StructuralAnalysis {
-        &self.analysis
-    }
-
-    pub(crate) fn commit(
-        self,
-        state: &mut AppState,
-    ) -> Result<StructuralMutationOutcome, StructuralCommitError> {
-        let structures = state.structure_state_mut();
-        if structures.revision() != self.expected_revision {
-            return Err(StructuralCommitError::StaleRevision {
-                expected: self.expected_revision,
-                actual: structures.revision(),
-            });
-        }
-        for element in self.loads.keys().copied() {
-            if structures.get_element(element).is_none() {
-                return Err(StructuralCommitError::StateChanged { element });
-            }
-        }
-        for event in self.analysis.damage_events() {
-            if structures.get_element(event.element()).is_none() {
-                return Err(StructuralCommitError::StateChanged {
-                    element: event.element(),
-                });
-            }
-        }
-
-        apply_owned_loads(structures, self.kind, self.loads);
-        apply_damage_events(structures, self.analysis.damage_events());
-        structures.apply_revision(self.next_revision);
-        Ok(StructuralMutationOutcome {
-            analysis: self.analysis,
-        })
-    }
-}
-
-fn apply_owned_loads(
-    structures: &mut super::state::StructureState,
-    kind: StructuralLoadKind,
-    loads: BTreeMap<StructuralElementId, Force>,
-) {
-    for (element, load) in loads {
-        structures.set_load(element, kind, load);
-    }
-}
-
-/// Successful structural mutation including the load projection and damage generated by that change.
-#[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct StructuralMutationOutcome {
-    analysis: StructuralAnalysis,
-}
-
-impl StructuralMutationOutcome {
-    #[must_use]
-    pub(crate) const fn analysis(&self) -> &StructuralAnalysis {
-        &self.analysis
-    }
-}
-
 /// A validated structural token can no longer commit because authoritative state changed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StructuralCommitError {
@@ -489,115 +329,6 @@ impl Display for StructuralCommitError {
 
 impl Error for StructuralCommitError {}
 
-fn validate_operation_commit_state(
-    structures: &super::state::StructureState,
-    operation: StructuralMutation,
-) -> Result<(), StructuralCommitError> {
-    match operation {
-        #[cfg(test)]
-        StructuralMutation::LinkSupport { element, support } => {
-            validate_support_edge_state(structures, element, support, false)?
-        }
-        #[cfg(test)]
-        StructuralMutation::RemoveSupport { element, support } => {
-            validate_support_edge_state(structures, element, support, true)?
-        }
-        #[cfg(test)]
-        StructuralMutation::RemoveElement { element } => {
-            validate_element_removal_state(structures, element)?
-        }
-        #[cfg(any(test, feature = "test-gameplay"))]
-        StructuralMutation::Activate { element } => validate_element_exists(structures, element)?,
-        StructuralMutation::SetLoadContribution { element, .. } => {
-            validate_element_exists(structures, element)?
-        }
-    }
-    Ok(())
-}
-
-fn validate_element_exists(
-    structures: &super::state::StructureState,
-    element: StructuralElementId,
-) -> Result<(), StructuralCommitError> {
-    if structures.get_element(element).is_none() {
-        return Err(StructuralCommitError::StateChanged { element });
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-fn validate_support_edge_state(
-    structures: &super::state::StructureState,
-    element: StructuralElementId,
-    support: StructuralElementId,
-    expected_present: bool,
-) -> Result<(), StructuralCommitError> {
-    let Some(supports) = structures.support_set(element) else {
-        return Err(StructuralCommitError::StateChanged { element });
-    };
-    let Some(dependents) = structures.dependent_set(support) else {
-        return Err(StructuralCommitError::StateChanged { element: support });
-    };
-    if supports.contains(&support) != expected_present
-        || dependents.contains(&element) != expected_present
-    {
-        return Err(StructuralCommitError::SupportStateChanged { element, support });
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-fn validate_element_removal_state(
-    structures: &super::state::StructureState,
-    element: StructuralElementId,
-) -> Result<(), StructuralCommitError> {
-    validate_element_exists(structures, element)?;
-    let Some(supports) = structures.support_set(element) else {
-        return Err(StructuralCommitError::StateChanged { element });
-    };
-    let Some(dependents) = structures.dependent_set(element) else {
-        return Err(StructuralCommitError::StateChanged { element });
-    };
-    for support in supports {
-        validate_support_edge_state(structures, element, *support, true)?;
-    }
-    for dependent in dependents {
-        validate_support_edge_state(structures, *dependent, element, true)?;
-    }
-    Ok(())
-}
-
-fn apply_operation_unchecked(
-    structures: &mut super::state::StructureState,
-    operation: StructuralMutation,
-) {
-    match operation {
-        #[cfg(test)]
-        StructuralMutation::LinkSupport { element, support } => {
-            structures.link_support(element, support);
-        }
-        #[cfg(test)]
-        StructuralMutation::RemoveSupport { element, support } => {
-            structures.unlink_support(element, support);
-        }
-        #[cfg(test)]
-        StructuralMutation::RemoveElement { element } => {
-            structures.remove_element(element);
-        }
-        #[cfg(any(test, feature = "test-gameplay"))]
-        StructuralMutation::Activate { element } => {
-            structures.activate_element(element);
-        }
-        StructuralMutation::SetLoadContribution {
-            element,
-            kind,
-            load,
-        } => {
-            structures.set_load(element, kind, load);
-        }
-    }
-}
-
 #[cfg(any(test, feature = "test-gameplay"))]
 fn validate_common_element(
     state: &AppState,
@@ -612,6 +343,7 @@ fn validate_common_element(
     Ok(record.lifecycle())
 }
 
+#[cfg(any(test, feature = "test-gameplay"))]
 fn build_plan(
     registries: &Registries,
     state: &AppState,
@@ -650,6 +382,7 @@ fn build_plan(
         }
         #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::Activate { element } => StructuralAnalysisOverlay::activate(element),
+        #[cfg(test)]
         StructuralMutation::SetLoadContribution {
             element,
             kind,
@@ -675,6 +408,7 @@ fn build_plan(
         }
         #[cfg(any(test, feature = "test-gameplay"))]
         StructuralMutation::Activate { element } => BTreeSet::from([element]),
+        #[cfg(test)]
         StructuralMutation::SetLoadContribution { element, .. } => BTreeSet::from([element]),
     };
     let analysis = analyze_structure_components_with_overlay(
@@ -685,12 +419,12 @@ fn build_plan(
         &seeds,
     )
     .map_err(StructuralMutationError::Analysis)?;
-    Ok(ValidatedStructuralMutation {
+    Ok(ValidatedStructuralMutation::new(
         operation,
         expected_revision,
         next_revision,
         analysis,
-    })
+    ))
 }
 
 /// Validates adding a deterministic load path from one member to another.
@@ -867,24 +601,6 @@ pub(crate) fn validate_set_structural_load(
             load,
         });
     }
-    validate_set_owned_structural_load(registries, state, element, kind, load)
-}
-
-/// Validates a load contribution written by the subsystem that owns that physical source.
-///
-/// Owned integrations may need to clear their contribution from failed debris, which is why this
-/// internal boundary requires only record existence while the public arbitrary-load API rejects
-/// failed elements.
-pub(crate) fn validate_set_owned_structural_load(
-    registries: &Registries,
-    state: &AppState,
-    element: StructuralElementId,
-    kind: StructuralLoadKind,
-    load: Force,
-) -> Result<ValidatedStructuralMutation, StructuralMutationError> {
-    if state.structures().get_element(element).is_none() {
-        return Err(StructuralMutationError::UnknownElement { element });
-    }
     build_plan(
         registries,
         state,
@@ -899,13 +615,15 @@ pub(crate) fn validate_set_owned_structural_load(
 /// Validates several load contributions owned by one external subsystem as one structural change.
 ///
 /// Entries already equal to authoritative state are omitted. If every requested load already
-/// matches, no structural revision is required and this returns `None`.
-pub(crate) fn validate_set_owned_structural_loads(
+/// matches, no structural revision is required, but the returned transaction remains bound to the
+/// current structural revision.
+pub(crate) fn validate_owned_structural_load_change(
     registries: &Registries,
     state: &AppState,
     kind: StructuralLoadKind,
     loads: BTreeMap<StructuralElementId, Force>,
-) -> Result<Option<ValidatedStructuralLoadBatch>, StructuralMutationError> {
+) -> Result<ValidatedStructuralLoadChange, StructuralMutationError> {
+    let expected_revision = state.structures().revision();
     let mut changed = BTreeMap::new();
     for (element, load) in loads {
         let record = state
@@ -917,10 +635,9 @@ pub(crate) fn validate_set_owned_structural_loads(
         }
     }
     if changed.is_empty() {
-        return Ok(None);
+        return Ok(ValidatedStructuralLoadChange::new(expected_revision, None));
     }
 
-    let expected_revision = state.structures().revision();
     let next_revision = expected_revision
         .checked_add(1)
         .ok_or(StructuralMutationError::RevisionExhausted)?;
@@ -940,13 +657,16 @@ pub(crate) fn validate_set_owned_structural_loads(
     )
     .map_err(StructuralMutationError::Analysis)?;
 
-    Ok(Some(ValidatedStructuralLoadBatch {
-        kind,
-        loads: changed,
+    Ok(ValidatedStructuralLoadChange::new(
         expected_revision,
-        next_revision,
-        analysis,
-    }))
+        Some(ValidatedStructuralLoadBatch::new(
+            kind,
+            changed,
+            expected_revision,
+            next_revision,
+            analysis,
+        )),
+    ))
 }
 
 #[cfg(test)]

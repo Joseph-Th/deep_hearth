@@ -11,8 +11,7 @@ use crate::registry::Registries;
 use crate::structural::{
     StructuralAnalysis, StructuralCommitError, StructuralElementId, StructuralLifecycle,
     StructuralLoadKind, StructuralMutationError, StructuralMutationOutcome,
-    ValidatedStructuralLoadBatch, calculate_aggregate_weight_force_ceiling,
-    validate_set_owned_structural_loads,
+    ValidatedStructuralLoadChange, validate_owned_structural_load_change,
 };
 
 use super::StockpileId;
@@ -33,6 +32,10 @@ impl StockpileStoredMassChange {
         }
     }
 }
+
+mod projection;
+
+use projection::{support_force, supported_mass_projection, validate_existing_load};
 
 /// Failure while deriving structure-owned load from stockpile matter ownership.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -140,122 +143,7 @@ impl Error for StockpileStructuralLoadError {
     }
 }
 
-/// Revision guard plus any actual stored-matter structural mutation required by inventory.
-///
-/// A supported stockpile operation binds the structural owner even when conservative force rounding
-/// leaves the numeric load unchanged. This prevents a zero-delta operation from committing after its
-/// support has failed or otherwise changed since validation.
-#[must_use]
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct ValidatedStockpileStructuralLoad {
-    expected_revision: u64,
-    structural: Option<ValidatedStructuralLoadBatch>,
-}
-
-impl ValidatedStockpileStructuralLoad {
-    pub(crate) const fn expected_revision(&self) -> u64 {
-        self.expected_revision
-    }
-
-    #[cfg(any(test, feature = "test-gameplay"))]
-    pub(crate) const fn revision_delta(&self) -> u64 {
-        if self.structural.is_some() { 1 } else { 0 }
-    }
-
-    pub(crate) fn commit(
-        self,
-        state: &mut AppState,
-    ) -> Result<Option<StructuralMutationOutcome>, StructuralCommitError> {
-        let actual = state.structures().revision();
-        if actual != self.expected_revision {
-            return Err(StructuralCommitError::StaleRevision {
-                expected: self.expected_revision,
-                actual,
-            });
-        }
-        match self.structural {
-            Some(structural) => structural.commit(state).map(Some),
-            None => Ok(None),
-        }
-    }
-}
-
-fn support_force(
-    registries: &Registries,
-    element: StructuralElementId,
-    mass: AggregateMass,
-) -> Result<Force, StockpileStructuralLoadError> {
-    calculate_aggregate_weight_force_ceiling(mass, registries.core().gravity())
-        .ok_or(StockpileStructuralLoadError::WeightForceOverflow { element })
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct SupportedMassProjection {
-    current: AggregateMass,
-    projected: AggregateMass,
-}
-
-fn supported_mass_projection(
-    state: &AppState,
-    element: StructuralElementId,
-    overrides: &BTreeMap<StockpileId, Mass>,
-    excluded: Option<StockpileId>,
-) -> Result<SupportedMassProjection, StockpileStructuralLoadError> {
-    let mut current = AggregateMass::ZERO;
-    let mut projected = AggregateMass::ZERO;
-    for stockpile in state.inventory().supported_stockpiles(element) {
-        let record = state
-            .inventory()
-            .get_stockpile(stockpile)
-            .ok_or(StockpileStructuralLoadError::UnknownStockpile { stockpile })?;
-        let current_mass = record
-            .stored_mass()
-            .checked_add(record.embodied_mass())
-            .ok_or(StockpileStructuralLoadError::AggregateMassOverflow { element })?;
-        current = current
-            .checked_add(AggregateMass::from_mass(current_mass))
-            .ok_or(StockpileStructuralLoadError::AggregateMassOverflow { element })?;
-
-        if excluded == Some(stockpile) {
-            continue;
-        }
-        let projected_stored_mass = overrides
-            .get(&stockpile)
-            .copied()
-            .unwrap_or_else(|| record.stored_mass());
-        let projected_mass = projected_stored_mass
-            .checked_add(record.embodied_mass())
-            .ok_or(StockpileStructuralLoadError::AggregateMassOverflow { element })?;
-        projected = projected
-            .checked_add(AggregateMass::from_mass(projected_mass))
-            .ok_or(StockpileStructuralLoadError::AggregateMassOverflow { element })?;
-    }
-    Ok(SupportedMassProjection { current, projected })
-}
-
-fn validate_existing_load(
-    registries: &Registries,
-    state: &AppState,
-    element: StructuralElementId,
-    current_mass: AggregateMass,
-) -> Result<(), StockpileStructuralLoadError> {
-    let expected = support_force(registries, element, current_mass)?;
-    let stored = state
-        .structures()
-        .get_element(element)
-        .ok_or(StockpileStructuralLoadError::Structure(
-            StructuralMutationError::UnknownElement { element },
-        ))?
-        .load(StructuralLoadKind::StoredMatter);
-    if stored != expected {
-        return Err(StockpileStructuralLoadError::ExistingLoadMismatch {
-            element,
-            stored,
-            expected,
-        });
-    }
-    Ok(())
-}
+pub(crate) type ValidatedStockpileStructuralLoad = ValidatedStructuralLoadChange;
 
 /// Requires a stockpile's current support, if any, to be active before new inbound work is accepted.
 pub(crate) fn validate_stockpile_support_for_new_inbound(
@@ -353,18 +241,13 @@ fn validate_stockpile_structural_load_plan(
     loads: BTreeMap<StructuralElementId, Force>,
 ) -> Result<ValidatedStockpileStructuralLoad, StockpileStructuralLoadError> {
     debug_assert!(!loads.is_empty());
-    let expected_revision = state.structures().revision();
-    let structural = validate_set_owned_structural_loads(
+    validate_owned_structural_load_change(
         registries,
         state,
         StructuralLoadKind::StoredMatter,
         loads,
     )
-    .map_err(StockpileStructuralLoadError::Structure)?;
-    Ok(ValidatedStockpileStructuralLoad {
-        expected_revision,
-        structural,
-    })
+    .map_err(StockpileStructuralLoadError::Structure)
 }
 
 /// Validates all structure-owned weight changes implied by final stockpile masses.

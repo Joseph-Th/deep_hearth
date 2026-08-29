@@ -93,6 +93,7 @@ pub fn validate_loaded_state(
         registries.materials(),
         registries.fluid(),
         &state.systems.survival,
+        state.tick(),
     )
     .map_err(StateValidationError::Survival)?;
 

@@ -2,10 +2,14 @@
 
 use super::*;
 use crate::content::make_test_registries_with_energy_store;
-use crate::core::time::WorldSeed;
+use crate::core::quantity::{Energy, Power};
+use crate::core::state::AppState;
+use crate::core::time::{TickSpan, WorldSeed};
 use crate::energy::{
-    EnergyStoreRecord, add_energy_store, add_energy_store_with_initial_for_fixture,
+    EnergyCarrier, EnergyStoreDefinitionId, EnergyStoreRecord, add_energy_store,
+    add_energy_store_with_initial_for_fixture,
 };
+use crate::registry::Registries;
 
 const STORE_DEFINITION: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(930_001);
 
@@ -19,6 +23,20 @@ fn registries() -> Registries {
             Power::ZERO,
             Power::from_microwatts(25),
         ),
+    )
+}
+
+fn dissipative_sink_registries() -> Registries {
+    make_test_registries_with_energy_store(
+        super::super::EnergyStoreDefinition::new_with_transfer_limits(
+            STORE_DEFINITION,
+            "dissipative energy sink execution fixture",
+            EnergyCarrier::Thermal,
+            Energy::from_nanojoules(10_000),
+            Power::from_microwatts(40),
+            Power::ZERO,
+        )
+        .with_passive_dissipation_power(Power::from_picowatts(250_000)),
     )
 }
 
@@ -109,6 +127,67 @@ fn stale_supply_is_rejected_after_independent_energy_mutation() {
         })
     );
     assert_eq!(state, before);
+}
+
+#[test]
+fn deferred_sink_capacity_counts_only_passive_ticks_before_completion_ingress() {
+    let registries = dissipative_sink_registries();
+    let mut state = AppState::new(WorldSeed::new(0x9300_0010));
+    let store = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        STORE_DEFINITION,
+        Energy::from_nanojoules(2_000),
+    )
+    .unwrap_or_else(|error| panic!("dissipative sink fixture failed: {error}"));
+    let access = validate_energy_sink_access(&registries, &state, store)
+        .unwrap_or_else(|error| panic!("dissipative sink access failed: {error}"));
+
+    assert_eq!(
+        project_energy_sink_stored_at_release(
+            &registries,
+            STORE_DEFINITION,
+            Energy::from_nanojoules(2_000),
+            TickSpan::new(1),
+        ),
+        Energy::from_nanojoules(2_000),
+        "a one-tick job releases before that tick's passive loss"
+    );
+    assert_eq!(
+        project_energy_sink_stored_at_release(
+            &registries,
+            STORE_DEFINITION,
+            Energy::from_nanojoules(2_000),
+            TickSpan::new(2),
+        ),
+        Energy::from_nanojoules(1_100),
+        "a two-tick job has exactly one guaranteed passive-loss tick before ingress"
+    );
+    assert_eq!(
+        validate_energy_sink_release(
+            &registries,
+            access,
+            Energy::from_nanojoules(9_000),
+            TickSpan::new(2),
+        ),
+        Err(EnergySinkError::InsufficientCapacity {
+            store,
+            stored: Energy::from_nanojoules(1_100),
+            requested: Energy::from_nanojoules(9_000),
+            capacity: Energy::from_nanojoules(10_000),
+        }),
+        "completion-tick dissipation must not be credited before the release is committed"
+    );
+    assert!(
+        validate_energy_sink_release(
+            &registries,
+            access,
+            Energy::from_nanojoules(9_000),
+            TickSpan::new(3),
+        )
+        .is_ok(),
+        "a third tick adds a second pre-release passive-loss interval and makes the release fit"
+    );
 }
 
 #[test]
@@ -210,7 +289,7 @@ fn sink_binding_reserves_exact_capacity_and_is_revision_bound() {
         panic!("independent sink mutation failed: {error}");
     }
     assert_eq!(
-        validate_energy_ingress_reservation(&registries, state.energy(), sink),
+        validate_energy_ingress_reservation(&registries, state.energy(), sink, TickSpan::new(0),),
         Err(EnergyIngressReservationError::StaleSelection {
             expected,
             actual: expected + 1,

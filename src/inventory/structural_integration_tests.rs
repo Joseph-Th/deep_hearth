@@ -22,8 +22,9 @@ use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralCommitError, StructuralLifecycle, StructuralMutationError, add_structural_element,
-    materialize_structural_element_for_test, validate_activate_structural_element,
-    validate_remove_structural_element, validate_set_structural_load,
+    calculate_aggregate_weight_force_ceiling, materialize_structural_element_for_test,
+    validate_activate_structural_element, validate_remove_structural_element,
+    validate_set_structural_load,
 };
 
 fn active_support(registries: &Registries, state: &mut AppState, x: i64) -> StructuralElementId {
@@ -127,6 +128,7 @@ fn multiple_stockpiles_aggregate_mass_before_rounding_weight() {
     );
 
     let _ = mount(&registries, &mut state, first, support);
+    let structural_revision_after_first = state.structures().revision();
     assert_eq!(
         state
             .structures()
@@ -135,6 +137,11 @@ fn multiple_stockpiles_aggregate_mass_before_rounding_weight() {
         Some(Force::from_millinewtons(1))
     );
     let _ = mount(&registries, &mut state, second, support);
+    assert_eq!(
+        state.structures().revision(),
+        structural_revision_after_first,
+        "aggregate mass may change without inventing a structural revision when rounded force is unchanged"
+    );
 
     assert_eq!(
         state

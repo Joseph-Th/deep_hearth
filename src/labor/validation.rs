@@ -20,7 +20,9 @@ use super::{
 mod direct_consumption;
 mod error;
 
-use direct_consumption::{validate_drinking_work, validate_eating_work};
+use direct_consumption::{
+    validate_direct_consumption_binding, validate_drinking_work, validate_eating_work,
+};
 pub use error::PlayerWorkValidationError;
 
 struct ActivePlayerJobs {
@@ -44,7 +46,8 @@ pub(crate) fn validate_loaded_player_work(
         return Err(PlayerWorkValidationError::MultiplePlayerJobs);
     }
     let Some(work) = work_state.active() else {
-        return validate_idle_player_work(&active_jobs);
+        validate_idle_player_work(&active_jobs)?;
+        return validate_direct_consumption_binding(state, None);
     };
     let player = state
         .survival()
@@ -98,7 +101,8 @@ pub(crate) fn validate_loaded_player_work(
         PlayerWork::Drinking { work } => {
             validate_drinking_work(registries, state, &active_jobs, work)
         }
-    }
+    }?;
+    validate_direct_consumption_binding(state, Some(work))
 }
 
 fn collect_active_player_jobs(registries: &Registries, state: &AppState) -> ActivePlayerJobs {
