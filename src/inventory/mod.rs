@@ -1,6 +1,8 @@
 //! Fungible matter storage with passive state, deterministic selection, and validated mutation pipelines.
 
 mod coalescing;
+mod enclosure_execution;
+mod enclosure_validation;
 #[cfg(any(test, feature = "test-gameplay"))]
 mod fixture;
 mod inbound_reservation;
@@ -9,12 +11,19 @@ mod lot_identity;
 mod reserved_ingress;
 mod selection;
 mod state;
+mod storage;
 mod storage_validation;
 mod structural_integration;
 #[cfg(test)]
 mod test_support;
 mod transactions;
 
+pub use enclosure_execution::{
+    StorageEnclosureCommitError, StorageEnclosureConstructionError,
+    ValidatedStorageEnclosureConstruction, validate_build_storage_enclosure,
+};
+pub use enclosure_validation::StorageEnclosureValidationError;
+pub(crate) use enclosure_validation::validate_loaded_storage_enclosures;
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use fixture::add_stockpile;
 #[cfg(feature = "test-gameplay")]
@@ -29,9 +38,10 @@ pub(crate) use ingress::{
 pub use selection::MaterialLotSelection;
 pub use state::{
     ConsumedMaterialTrace, InventoryState, InventoryValidationError, MaterialLotId,
-    MaterialLotRecord, StockpileId, StockpileRecord, StockpileStorageProfile,
-    StockpileStorageProfileError,
+    MaterialLotRecord, StockpileEnclosureRecord, StockpileId, StockpileRecord,
+    StockpileStorageProfile, StockpileStorageProfileError,
 };
+pub use storage::{StorageDefinition, StorageDefinitionId, StorageRegistry};
 pub use storage_validation::StockpileStorageError;
 pub use structural_integration::{
     StockpileStructuralLoadError, StockpileSupportCommitError, StockpileSupportError,

@@ -17,10 +17,10 @@ use super::equipment::{
     EQUIPMENT_STONE_SEPARATOR,
 };
 use super::materials::{
-    FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED, FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_LOG,
-    FORM_LUMP, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_SCRAP,
-    FORM_TAILINGS, FORM_TOOL, MATERIAL_CHARCOAL, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_SLAG,
-    MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_CHEST_BODY, FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED, FORM_FLYWHEEL,
+    FORM_HANDLE, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE,
+    FORM_REINFORCEMENT, FORM_SCRAP, FORM_TAILINGS, FORM_TOOL, MATERIAL_CHARCOAL, MATERIAL_CLAY,
+    MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 const RAMP_WOOD: PaletteRampId = PaletteRampId::new(1);
@@ -88,6 +88,8 @@ pub const OBJECT_COPPER_SCRAP: ObjectAppearanceId = ObjectAppearanceId::new(26);
 pub const OBJECT_STONE_SEPARATOR: ObjectAppearanceId = ObjectAppearanceId::new(27);
 pub const OBJECT_GRAVITY_SEPARATOR: ObjectAppearanceId = ObjectAppearanceId::new(28);
 pub const OBJECT_TAILINGS: ObjectAppearanceId = ObjectAppearanceId::new(29);
+pub const OBJECT_WOOD_BOARD: ObjectAppearanceId = ObjectAppearanceId::new(30);
+pub const OBJECT_TIMBER_CHEST_BODY: ObjectAppearanceId = ObjectAppearanceId::new(31);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(
@@ -388,6 +390,16 @@ fn build_object_appearances() -> Vec<ObjectAppearanceDefinition> {
         object(OBJECT_STONE_TOOL, "worked stone tool", &[TEXTURE_STONE]),
         object(OBJECT_STONE_CHIP, "stone chips", &[TEXTURE_STONE]),
         object(OBJECT_WOOD_CHIP, "wood chips", &[TEXTURE_WOOD_SIDE]),
+        object(
+            OBJECT_WOOD_BOARD,
+            "timber boards",
+            &[TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END],
+        ),
+        object(
+            OBJECT_TIMBER_CHEST_BODY,
+            "assembled timber chest body",
+            &[TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END],
+        ),
         object(OBJECT_STONE_FLYWHEEL, "stone flywheel", &[TEXTURE_STONE]),
         object(
             OBJECT_STONE_PICK,
@@ -465,6 +477,16 @@ fn build_commodity_bindings() -> Vec<CommodityAppearanceBinding> {
             CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
             Some(BLOCK_TIMBER),
             Some(OBJECT_LOG),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+            None,
+            Some(OBJECT_WOOD_BOARD),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
+            None,
+            Some(OBJECT_TIMBER_CHEST_BODY),
         ),
         CommodityAppearanceBinding::new(
             CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),

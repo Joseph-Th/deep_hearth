@@ -24,25 +24,25 @@ use super::{
 };
 
 struct ActivePlayerJobs {
-    manual_craft: Vec<crate::production::ProductionJobId>,
+    manual_production: Vec<crate::production::ProductionJobId>,
     mining: Vec<crate::mining::MiningJobId>,
 }
 
 impl ActivePlayerJobs {
     fn has_any(&self) -> bool {
-        !self.manual_craft.is_empty() || !self.mining.is_empty()
+        !self.manual_production.is_empty() || !self.mining.is_empty()
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerWorkValidationError {
     WorkWithoutPlayer,
-    ManualCraftJobMissing,
-    ManualCraftProcessMismatch,
+    ManualProductionJobMissing,
+    ManualProductionProcessMismatch,
     MiningJobMissing,
     MiningJobNotWorking,
     MiningMethodMissing,
-    ManualCraftMissingWork,
+    ManualProductionMissingWork,
     MultiplePlayerJobs,
     MiningMissingWork,
     ManualPowerMethodMissing,
@@ -80,11 +80,12 @@ impl Display for PlayerWorkValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::WorkWithoutPlayer => formatter.write_str("player work exists without a player"),
-            Self::ManualCraftJobMissing => {
-                formatter.write_str("player work references missing manual craft job")
+            Self::ManualProductionJobMissing => {
+                formatter.write_str("player work references missing manual production job")
             }
-            Self::ManualCraftProcessMismatch => formatter
-                .write_str("player work references a production job that is not manual crafting"),
+            Self::ManualProductionProcessMismatch => formatter.write_str(
+                "player work references a production job that is not direct player labor",
+            ),
             Self::MiningJobMissing => {
                 formatter.write_str("player work references missing mining job")
             }
@@ -94,8 +95,8 @@ impl Display for PlayerWorkValidationError {
             Self::MiningMethodMissing => {
                 formatter.write_str("player mining work references a missing authored method")
             }
-            Self::ManualCraftMissingWork => {
-                formatter.write_str("active manual crafting job does not own player labor")
+            Self::ManualProductionMissingWork => {
+                formatter.write_str("active manual production job does not own player labor")
             }
             Self::MultiplePlayerJobs => {
                 formatter.write_str("more than one active job requires exclusive player labor")
@@ -209,12 +210,12 @@ impl Error for PlayerWorkValidationError {
         match self {
             Self::ManualPowerConditionDuration(error) => Some(error),
             Self::WorkWithoutPlayer
-            | Self::ManualCraftJobMissing
-            | Self::ManualCraftProcessMismatch
+            | Self::ManualProductionJobMissing
+            | Self::ManualProductionProcessMismatch
             | Self::MiningJobMissing
             | Self::MiningJobNotWorking
             | Self::MiningMethodMissing
-            | Self::ManualCraftMissingWork
+            | Self::ManualProductionMissingWork
             | Self::MultiplePlayerJobs
             | Self::MiningMissingWork
             | Self::ManualPowerMethodMissing
@@ -255,7 +256,7 @@ pub(crate) fn validate_loaded_player_work(
     work_state: &PlayerWorkState,
 ) -> Result<(), PlayerWorkValidationError> {
     let active_jobs = collect_active_player_jobs(registries, state);
-    if active_jobs.manual_craft.len() + active_jobs.mining.len() > 1 {
+    if active_jobs.manual_production.len() + active_jobs.mining.len() > 1 {
         return Err(PlayerWorkValidationError::MultiplePlayerJobs);
     }
     let Some(work) = work_state.active() else {
@@ -272,7 +273,7 @@ pub(crate) fn validate_loaded_player_work(
     let available_energy = player.metabolic_energy();
     let available_hydration = player.hydration();
     match work {
-        PlayerWork::ManualCraft { job } => validate_manual_craft_work(
+        PlayerWork::ManualProduction { job } => validate_manual_production_work(
             registries,
             state,
             &active_jobs,
@@ -308,11 +309,13 @@ pub(crate) fn validate_loaded_player_work(
 }
 
 fn collect_active_player_jobs(registries: &Registries, state: &AppState) -> ActivePlayerJobs {
-    let crafting = registries.crafting();
-    let manual_craft = state
+    let manual_production = state
         .production()
         .jobs()
-        .filter(|job| job.suspension().is_none() && crafting.get_manual(job.process()).is_some())
+        .filter(|job| {
+            job.suspension().is_none()
+                && registries.manual_process_exertion(job.process()).is_some()
+        })
         .map(|job| job.id())
         .collect::<Vec<_>>();
     let mining = state
@@ -322,7 +325,7 @@ fn collect_active_player_jobs(registries: &Registries, state: &AppState) -> Acti
         .map(|job| job.id())
         .collect::<Vec<_>>();
     ActivePlayerJobs {
-        manual_craft,
+        manual_production,
         mining,
     }
 }
@@ -330,8 +333,8 @@ fn collect_active_player_jobs(registries: &Registries, state: &AppState) -> Acti
 fn validate_idle_player_work(
     active_jobs: &ActivePlayerJobs,
 ) -> Result<(), PlayerWorkValidationError> {
-    if !active_jobs.manual_craft.is_empty() {
-        return Err(PlayerWorkValidationError::ManualCraftMissingWork);
+    if !active_jobs.manual_production.is_empty() {
+        return Err(PlayerWorkValidationError::ManualProductionMissingWork);
     }
     if !active_jobs.mining.is_empty() {
         return Err(PlayerWorkValidationError::MiningMissingWork);
@@ -339,7 +342,7 @@ fn validate_idle_player_work(
     Ok(())
 }
 
-fn validate_manual_craft_work(
+fn validate_manual_production_work(
     registries: &Registries,
     state: &AppState,
     active_jobs: &ActivePlayerJobs,
@@ -348,13 +351,13 @@ fn validate_manual_craft_work(
     available_hydration: Volume,
 ) -> Result<(), PlayerWorkValidationError> {
     let Some(record) = state.production().get_job(job) else {
-        return Err(PlayerWorkValidationError::ManualCraftJobMissing);
+        return Err(PlayerWorkValidationError::ManualProductionJobMissing);
     };
-    let Some(definition) = registries.crafting().get_manual(record.process()) else {
-        return Err(PlayerWorkValidationError::ManualCraftProcessMismatch);
+    let Some(exertion) = registries.manual_process_exertion(record.process()) else {
+        return Err(PlayerWorkValidationError::ManualProductionProcessMismatch);
     };
-    if active_jobs.manual_craft.as_slice() != [job] {
-        return Err(PlayerWorkValidationError::ManualCraftMissingWork);
+    if active_jobs.manual_production.as_slice() != [job] {
+        return Err(PlayerWorkValidationError::ManualProductionMissingWork);
     }
     let remaining = record
         .suspension()
@@ -366,7 +369,9 @@ fn validate_manual_craft_work(
                     .value()
                     .checked_sub(state.tick().value())
                     .unwrap_or_else(|| {
-                        panic!("runtime invariant broken: running manual craft job is already due")
+                        panic!(
+                            "runtime invariant broken: running manual production job is already due"
+                        )
                     }),
             )
         });
@@ -374,7 +379,7 @@ fn validate_manual_craft_work(
         registries,
         available_energy,
         available_hydration,
-        definition.exertion(),
+        exertion,
         remaining,
     )
 }

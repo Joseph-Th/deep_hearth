@@ -364,6 +364,7 @@ pub struct GeologicalKnowledgeAssessment {
     consistency: GeologicalEvidenceConsistency,
     envelope: Option<(u32, u32)>,
     common_evidence_region: Option<VoxelBounds>,
+    common_acquired_region: Option<VoxelBounds>,
     most_precise: Option<GeologicalObservationId>,
     latest_observed_at: Option<SimulationTick>,
 }
@@ -402,6 +403,15 @@ impl GeologicalKnowledgeAssessment {
         self.common_evidence_region
     }
 
+    /// Region shared by the original acquired observation footprints before the query clips them.
+    ///
+    /// This prevents consumers from mistaking a narrow read query for spatial precision that was
+    /// never actually acquired. `None` means the relevant observations have no common locality.
+    #[must_use]
+    pub(crate) const fn common_acquired_region(&self) -> Option<VoxelBounds> {
+        self.common_acquired_region
+    }
+
     #[must_use]
     pub const fn most_precise(&self) -> Option<GeologicalObservationId> {
         self.most_precise
@@ -427,6 +437,7 @@ struct GeologicalEvidenceAggregate {
     envelope_lower_ppm: u32,
     envelope_upper_ppm: u32,
     common_evidence_region: Option<VoxelBounds>,
+    common_acquired_region: Option<VoxelBounds>,
     most_precise: Option<EvidencePrecisionRank>,
     latest_observed_at: Option<SimulationTick>,
 }
@@ -440,6 +451,7 @@ impl GeologicalEvidenceAggregate {
             envelope_lower_ppm: PARTS_PER_MILLION,
             envelope_upper_ppm: 0,
             common_evidence_region: Some(region),
+            common_acquired_region: None,
             most_precise: None,
             latest_observed_at: None,
         }
@@ -452,6 +464,12 @@ impl GeologicalEvidenceAggregate {
         finding: MaterialAbundanceEstimate,
         overlap: VoxelBounds,
     ) {
+        self.common_acquired_region = if self.observations.is_empty() {
+            Some(record.region())
+        } else {
+            self.common_acquired_region
+                .and_then(|common| common.intersection(record.region()))
+        };
         self.observations.push(id);
         self.highest_lower_ppm = self.highest_lower_ppm.max(finding.lower_ppm());
         self.lowest_upper_ppm = self.lowest_upper_ppm.min(finding.upper_ppm());
@@ -488,6 +506,9 @@ impl GeologicalEvidenceAggregate {
         let common_evidence_region = has_evidence
             .then_some(self.common_evidence_region)
             .flatten();
+        let common_acquired_region = has_evidence
+            .then_some(self.common_acquired_region)
+            .flatten();
         let consistency = if !has_evidence {
             GeologicalEvidenceConsistency::NoEvidence
         } else if common_evidence_region.is_none() {
@@ -511,6 +532,7 @@ impl GeologicalEvidenceAggregate {
             consistency,
             envelope,
             common_evidence_region,
+            common_acquired_region,
             most_precise: self.most_precise.map(|rank| rank.3.0),
             latest_observed_at: self.latest_observed_at,
         }

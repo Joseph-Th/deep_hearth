@@ -1,7 +1,7 @@
 //! Immutable ore/material-preparation process definitions shared by the runtime resolvers.
 
 use crate::capability::CapabilityId;
-use crate::core::quantity::{Length, MassSpecificEnergy};
+use crate::core::quantity::{Length, Mass, MassFlow, MassSpecificEnergy};
 use crate::energy::EnergyCarrier;
 use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::material::{
@@ -9,6 +9,7 @@ use crate::material::{
     ParticleSizeRange,
 };
 use crate::production::ProcessId;
+use crate::survival::SurvivalExertion;
 
 /// Shared powered-throughput envelope for ore-preparation operations.
 ///
@@ -23,6 +24,60 @@ pub struct PoweredOreProcessProfile {
     energy_carrier: EnergyCarrier,
     specific_energy: MassSpecificEnergy,
     condition_wear_ppm_per_active_tick: u32,
+}
+
+/// Direct player-labor throughput envelope for low-tech ore preparation.
+///
+/// Manual processing deliberately carries no equipment or abstract energy input. Its cost is
+/// exclusive player attention plus exact survival expenditure, while the bounded rate and batch
+/// size keep machinery materially superior once infrastructure exists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ManualOreProcessProfile {
+    processing_rate: MassFlow,
+    max_batch_mass: Mass,
+    exertion: SurvivalExertion,
+}
+
+impl ManualOreProcessProfile {
+    #[must_use]
+    pub const fn new(
+        processing_rate: MassFlow,
+        max_batch_mass: Mass,
+        exertion: SurvivalExertion,
+    ) -> Self {
+        assert!(
+            !processing_rate.is_zero(),
+            "manual ore-processing rate must be nonzero"
+        );
+        assert!(
+            !max_batch_mass.is_zero(),
+            "manual ore-processing maximum batch mass must be nonzero"
+        );
+        assert!(
+            !exertion.energy_cost_per_tick().is_zero(),
+            "manual ore-processing exertion must consume metabolic energy"
+        );
+        Self {
+            processing_rate,
+            max_batch_mass,
+            exertion,
+        }
+    }
+
+    #[must_use]
+    pub const fn processing_rate(self) -> MassFlow {
+        self.processing_rate
+    }
+
+    #[must_use]
+    pub const fn max_batch_mass(self) -> Mass {
+        self.max_batch_mass
+    }
+
+    #[must_use]
+    pub const fn exertion(self) -> SurvivalExertion {
+        self.exertion
+    }
 }
 
 /// Authored selectivity of one constituent-separation pass.
@@ -112,15 +167,80 @@ impl PoweredOreProcessProfile {
     }
 }
 
-/// Immutable declaration that one selected-batch process reduces solid material to a finer form.
+/// Material-side particle-reduction physics shared by powered and direct-labor comminution.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ComminutionProcessDefinition {
-    process: ProcessId,
+struct ComminutionPhysics {
     input_form: FormId,
     output_form: FormId,
     input_particle_size_range: Option<ParticleSizeRange>,
     output_particle_size: ParticleSizeDistribution,
+}
+
+impl ComminutionPhysics {
+    fn new<P>(input_form: FormId, output_form: FormId, output_particle_size: P) -> Self
+    where
+        P: Into<ParticleSizeDistribution>,
+    {
+        Self {
+            input_form,
+            output_form,
+            input_particle_size_range: None,
+            output_particle_size: output_particle_size.into(),
+        }
+    }
+
+    fn new_with_input_particle_size_range<P>(
+        input_form: FormId,
+        output_form: FormId,
+        input_particle_size_range: ParticleSizeRange,
+        output_particle_size: P,
+    ) -> Self
+    where
+        P: Into<ParticleSizeDistribution>,
+    {
+        Self {
+            input_form,
+            output_form,
+            input_particle_size_range: Some(input_particle_size_range),
+            output_particle_size: output_particle_size.into(),
+        }
+    }
+
+    const fn input_form(&self) -> FormId {
+        self.input_form
+    }
+
+    const fn output_form(&self) -> FormId {
+        self.output_form
+    }
+
+    const fn input_particle_size_range(&self) -> Option<ParticleSizeRange> {
+        self.input_particle_size_range
+    }
+
+    fn output_particle_size(&self) -> ParticleSizeRange {
+        self.output_particle_size.envelope()
+    }
+
+    const fn output_particle_size_distribution(&self) -> &ParticleSizeDistribution {
+        &self.output_particle_size
+    }
+}
+
+/// Immutable declaration that one selected-batch process reduces solid material to a finer form.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComminutionProcessDefinition {
+    process: ProcessId,
+    physics: ComminutionPhysics,
     operating: PoweredOreProcessProfile,
+}
+
+/// Immutable selected-batch comminution performed directly by player labor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ManualComminutionProcessDefinition {
+    process: ProcessId,
+    physics: ComminutionPhysics,
+    operating: ManualOreProcessProfile,
 }
 
 /// Immutable declaration that one selected-batch process classifies particulate material by size.
@@ -135,6 +255,72 @@ pub struct ScreeningProcessDefinition {
     output_form: FormId,
     aperture: Length,
     operating: PoweredOreProcessProfile,
+}
+
+impl ManualComminutionProcessDefinition {
+    /// Authors direct-labor reduction of coarse untracked feed into an explicit particulate state.
+    #[must_use]
+    pub fn new<P>(
+        process: ProcessId,
+        input_form: FormId,
+        output_form: FormId,
+        output_particle_size: P,
+        operating: ManualOreProcessProfile,
+    ) -> Self
+    where
+        P: Into<ParticleSizeDistribution>,
+    {
+        Self {
+            process,
+            physics: ComminutionPhysics::new(input_form, output_form, output_particle_size),
+            operating,
+        }
+    }
+
+    #[must_use]
+    pub const fn process(&self) -> ProcessId {
+        self.process
+    }
+
+    #[must_use]
+    pub const fn input_form(&self) -> FormId {
+        self.physics.input_form()
+    }
+
+    #[must_use]
+    pub const fn output_form(&self) -> FormId {
+        self.physics.output_form()
+    }
+
+    #[must_use]
+    pub const fn input_particle_size_range(&self) -> Option<ParticleSizeRange> {
+        self.physics.input_particle_size_range()
+    }
+
+    #[must_use]
+    pub fn output_particle_size(&self) -> ParticleSizeRange {
+        self.physics.output_particle_size()
+    }
+
+    #[must_use]
+    pub const fn output_particle_size_distribution(&self) -> &ParticleSizeDistribution {
+        self.physics.output_particle_size_distribution()
+    }
+
+    #[must_use]
+    pub const fn processing_rate(&self) -> MassFlow {
+        self.operating.processing_rate()
+    }
+
+    #[must_use]
+    pub const fn max_batch_mass(&self) -> Mass {
+        self.operating.max_batch_mass()
+    }
+
+    #[must_use]
+    pub const fn exertion(&self) -> SurvivalExertion {
+        self.operating.exertion()
+    }
 }
 
 /// Immutable declaration that one selected-batch process separates an authored target constituent
@@ -157,9 +343,9 @@ enum ConstituentSeparationMode {
     Concentration,
 }
 
+/// Material-side physics shared by powered and direct-labor separation routes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ConstituentSeparationProcessDefinition {
-    process: ProcessId,
+pub(super) struct ConstituentSeparationPhysics {
     input_form: FormId,
     input_particle_size_range: Option<ParticleSizeRange>,
     target_material: MaterialId,
@@ -167,7 +353,114 @@ pub struct ConstituentSeparationProcessDefinition {
     mode: ConstituentSeparationMode,
     residue_output_form: FormId,
     recovery: ConstituentRecoveryProfile,
+}
+
+impl ConstituentSeparationPhysics {
+    const fn new_sorting(
+        input_form: FormId,
+        target_material: MaterialId,
+        target_output_form: FormId,
+        residue_output_form: FormId,
+        target_recovery_ppm: u32,
+    ) -> Self {
+        Self {
+            input_form,
+            input_particle_size_range: None,
+            target_material,
+            target_output_form,
+            mode: ConstituentSeparationMode::Sorting,
+            residue_output_form,
+            recovery: ConstituentRecoveryProfile::new(target_recovery_ppm, 0),
+        }
+    }
+
+    const fn new_sorting_with_input_particle_size_range(
+        input_form: FormId,
+        input_particle_size_range: ParticleSizeRange,
+        target_material: MaterialId,
+        target_output_form: FormId,
+        residue_output_form: FormId,
+        target_recovery_ppm: u32,
+    ) -> Self {
+        Self {
+            input_form,
+            input_particle_size_range: Some(input_particle_size_range),
+            target_material,
+            target_output_form,
+            mode: ConstituentSeparationMode::Sorting,
+            residue_output_form,
+            recovery: ConstituentRecoveryProfile::new(target_recovery_ppm, 0),
+        }
+    }
+
+    const fn new_concentration(
+        input_form: FormId,
+        input_particle_size_range: ParticleSizeRange,
+        target_output: CommodityKey,
+        residue_output_form: FormId,
+        recovery: ConstituentRecoveryProfile,
+    ) -> Self {
+        Self {
+            input_form,
+            input_particle_size_range: Some(input_particle_size_range),
+            target_material: target_output.material(),
+            target_output_form: target_output.form(),
+            mode: ConstituentSeparationMode::Concentration,
+            residue_output_form,
+            recovery,
+        }
+    }
+
+    pub(super) const fn input_form(self) -> FormId {
+        self.input_form
+    }
+
+    pub(super) const fn input_particle_size_range(self) -> Option<ParticleSizeRange> {
+        self.input_particle_size_range
+    }
+
+    pub(super) const fn target_material(self) -> MaterialId {
+        self.target_material
+    }
+
+    pub(super) const fn target_output_form(self) -> FormId {
+        self.target_output_form
+    }
+
+    pub(super) const fn is_sorting(self) -> bool {
+        matches!(self.mode, ConstituentSeparationMode::Sorting)
+    }
+
+    pub(super) const fn is_concentration(self) -> bool {
+        matches!(self.mode, ConstituentSeparationMode::Concentration)
+    }
+
+    pub(super) const fn residue_output_form(self) -> FormId {
+        self.residue_output_form
+    }
+
+    pub(super) const fn target_recovery_ppm(self) -> u32 {
+        self.recovery.target_ppm()
+    }
+
+    pub(super) const fn non_target_recovery_ppm(self) -> u32 {
+        self.recovery.non_target_ppm()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConstituentSeparationProcessDefinition {
+    process: ProcessId,
+    physics: ConstituentSeparationPhysics,
     operating: PoweredOreProcessProfile,
+}
+
+/// Immutable selected-batch constituent separation performed directly by player labor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ManualConstituentSeparationProcessDefinition {
+    process: ProcessId,
+    physics: ConstituentSeparationPhysics,
+    operating: ManualOreProcessProfile,
 }
 
 impl ConstituentSeparationProcessDefinition {
@@ -193,13 +486,13 @@ impl ConstituentSeparationProcessDefinition {
     ) -> Self {
         Self {
             process,
-            input_form,
-            input_particle_size_range: None,
-            target_material,
-            target_output_form,
-            mode: ConstituentSeparationMode::Sorting,
-            residue_output_form,
-            recovery: ConstituentRecoveryProfile::new(target_recovery_ppm, 0),
+            physics: ConstituentSeparationPhysics::new_sorting(
+                input_form,
+                target_material,
+                target_output_form,
+                residue_output_form,
+                target_recovery_ppm,
+            ),
             operating,
         }
     }
@@ -218,13 +511,13 @@ impl ConstituentSeparationProcessDefinition {
     ) -> Self {
         Self {
             process,
-            input_form,
-            input_particle_size_range: Some(input_particle_size_range),
-            target_material: target_output.material(),
-            target_output_form: target_output.form(),
-            mode: ConstituentSeparationMode::Concentration,
-            residue_output_form,
-            recovery,
+            physics: ConstituentSeparationPhysics::new_concentration(
+                input_form,
+                input_particle_size_range,
+                target_output,
+                residue_output_form,
+                recovery,
+            ),
             operating,
         }
     }
@@ -236,39 +529,29 @@ impl ConstituentSeparationProcessDefinition {
 
     #[must_use]
     pub const fn input_form(self) -> FormId {
-        self.input_form
+        self.physics.input_form()
     }
 
     /// Complete particulate feed envelope that is physically liberated enough for this separation.
     /// Sorting may omit this when the target occurs as independently sortable coarse pieces.
     #[must_use]
     pub const fn input_particle_size_range(self) -> Option<ParticleSizeRange> {
-        self.input_particle_size_range
+        self.physics.input_particle_size_range()
     }
 
     #[must_use]
     pub const fn target_material(self) -> MaterialId {
-        self.target_material
+        self.physics.target_material()
     }
 
     #[must_use]
     pub const fn target_output_form(self) -> FormId {
-        self.target_output_form
-    }
-
-    #[must_use]
-    pub(crate) const fn is_sorting(self) -> bool {
-        matches!(self.mode, ConstituentSeparationMode::Sorting)
-    }
-
-    #[must_use]
-    pub(crate) const fn is_concentration(self) -> bool {
-        matches!(self.mode, ConstituentSeparationMode::Concentration)
+        self.physics.target_output_form()
     }
 
     #[must_use]
     pub const fn residue_output_form(self) -> FormId {
-        self.residue_output_form
+        self.physics.residue_output_form()
     }
 
     /// Returns the authored fraction of exact target content recovered to the target stream.
@@ -277,14 +560,14 @@ impl ConstituentSeparationProcessDefinition {
     /// residue matter.
     #[must_use]
     pub const fn target_recovery_ppm(self) -> u32 {
-        self.recovery.target_ppm()
+        self.physics.target_recovery_ppm()
     }
 
     /// Returns the fraction of each non-target constituent carried into a concentration target
     /// stream. Sorting always returns zero here.
     #[must_use]
     pub const fn non_target_recovery_ppm(self) -> u32 {
-        self.recovery.non_target_ppm()
+        self.physics.non_target_recovery_ppm()
     }
 
     #[must_use]
@@ -314,6 +597,99 @@ impl ConstituentSeparationProcessDefinition {
 
     pub(super) const fn operating_profile(self) -> PoweredOreProcessProfile {
         self.operating
+    }
+
+    pub(super) const fn physics(self) -> ConstituentSeparationPhysics {
+        self.physics
+    }
+}
+
+impl ManualConstituentSeparationProcessDefinition {
+    pub const TARGET_STREAM: crate::production::ProcessOutputStreamId =
+        crate::production::ProcessOutputStreamId::new(1);
+    pub const RESIDUE_STREAM: crate::production::ProcessOutputStreamId =
+        crate::production::ProcessOutputStreamId::new(2);
+
+    /// Authors deterministic hand sorting of liberated target pieces from gangue.
+    #[must_use]
+    pub const fn new_sorting(
+        process: ProcessId,
+        input_form: FormId,
+        input_particle_size_range: ParticleSizeRange,
+        target_output: CommodityKey,
+        residue_output_form: FormId,
+        target_recovery_ppm: u32,
+        operating: ManualOreProcessProfile,
+    ) -> Self {
+        Self {
+            process,
+            physics: ConstituentSeparationPhysics::new_sorting_with_input_particle_size_range(
+                input_form,
+                input_particle_size_range,
+                target_output.material(),
+                target_output.form(),
+                residue_output_form,
+                target_recovery_ppm,
+            ),
+            operating,
+        }
+    }
+
+    #[must_use]
+    pub const fn process(self) -> ProcessId {
+        self.process
+    }
+
+    #[must_use]
+    pub const fn input_form(self) -> FormId {
+        self.physics.input_form()
+    }
+
+    /// Complete particulate feed envelope that remains individually hand-sortable.
+    #[must_use]
+    pub fn input_particle_size_range(self) -> ParticleSizeRange {
+        self.physics
+            .input_particle_size_range()
+            .unwrap_or_else(|| unreachable!("manual sorting always authors a visible-piece range"))
+    }
+
+    #[must_use]
+    pub const fn target_material(self) -> MaterialId {
+        self.physics.target_material()
+    }
+
+    #[must_use]
+    pub const fn target_output_form(self) -> FormId {
+        self.physics.target_output_form()
+    }
+
+    #[must_use]
+    pub const fn residue_output_form(self) -> FormId {
+        self.physics.residue_output_form()
+    }
+
+    #[must_use]
+    pub const fn target_recovery_ppm(self) -> u32 {
+        self.physics.target_recovery_ppm()
+    }
+
+    #[must_use]
+    pub const fn processing_rate(self) -> MassFlow {
+        self.operating.processing_rate()
+    }
+
+    #[must_use]
+    pub const fn max_batch_mass(self) -> Mass {
+        self.operating.max_batch_mass()
+    }
+
+    #[must_use]
+    pub const fn exertion(self) -> SurvivalExertion {
+        self.operating.exertion()
+    }
+
+    pub(super) const fn physics(self) -> ConstituentSeparationPhysics {
+        self.physics
     }
 }
 
@@ -407,10 +783,7 @@ impl ComminutionProcessDefinition {
     {
         Self {
             process,
-            input_form,
-            output_form,
-            input_particle_size_range: None,
-            output_particle_size: output_particle_size.into(),
+            physics: ComminutionPhysics::new(input_form, output_form, output_particle_size),
             operating,
         }
     }
@@ -434,10 +807,12 @@ impl ComminutionProcessDefinition {
     {
         Self {
             process,
-            input_form,
-            output_form,
-            input_particle_size_range: Some(input_particle_size_range),
-            output_particle_size: output_particle_size.into(),
+            physics: ComminutionPhysics::new_with_input_particle_size_range(
+                input_form,
+                output_form,
+                input_particle_size_range,
+                output_particle_size,
+            ),
             operating,
         }
     }
@@ -449,29 +824,29 @@ impl ComminutionProcessDefinition {
 
     #[must_use]
     pub const fn input_form(&self) -> FormId {
-        self.input_form
+        self.physics.input_form()
     }
 
     #[must_use]
     pub const fn output_form(&self) -> FormId {
-        self.output_form
+        self.physics.output_form()
     }
 
     /// Returns the authored admissible particulate feed envelope, when the operation has one.
     #[must_use]
     pub const fn input_particle_size_range(&self) -> Option<ParticleSizeRange> {
-        self.input_particle_size_range
+        self.physics.input_particle_size_range()
     }
 
     #[must_use]
     pub fn output_particle_size(&self) -> ParticleSizeRange {
-        self.output_particle_size.envelope()
+        self.physics.output_particle_size()
     }
 
     /// Returns the authored weighted size classes produced by this comminution operation.
     #[must_use]
     pub const fn output_particle_size_distribution(&self) -> &ParticleSizeDistribution {
-        &self.output_particle_size
+        self.physics.output_particle_size_distribution()
     }
 
     #[must_use]

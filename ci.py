@@ -16,12 +16,13 @@ import time
 
 ROOT = Path(__file__).resolve().parent
 
-GAMEPLAY_TARGETS = {
-    "workshop": "gameplay_workshop",
-    "survival": "gameplay_survival",
-    "progression": "gameplay_progression",
-    "ore": "gameplay_ore",
-    "foundry": "gameplay_foundry",
+GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
+GAMEPLAY_TESTS = {
+    "workshop": "workshop_contract_tests::gameplay_harness_gate",
+    "survival": "focused::gameplay_survival_provisioning_probe",
+    "progression": "focused::gameplay_primitive_progression_probe",
+    "ore": "focused::gameplay_ore_preparation_probe",
+    "foundry": "focused::gameplay_foundry_probe",
 }
 
 
@@ -43,11 +44,11 @@ def configure_report_replay_environment(
     return variation, behavior
 
 
-GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
-GAMEPLAY_SCOPES = ("all", *GAMEPLAY_TARGETS)
-GAMEPLAY_SCOPE_BY_TARGET = {target: scope for scope, target in GAMEPLAY_TARGETS.items()}
+GAMEPLAY_SCOPES = ("all", *GAMEPLAY_TESTS)
 FAILED_TEST = re.compile(r"^    (?P<name>[A-Za-z0-9_:]+)$", re.MULTILINE)
-FAILED_GAMEPLAY_TARGET = re.compile(r"to rerun pass `--test (?P<target>gameplay_[a-z_]+)`")
+FAILED_RERUN_TARGET = re.compile(
+    r"to rerun pass `(?P<target>--lib|--test gameplay_audit)`"
+)
 RUST_TEST_RESULT = re.compile(
     r"test result: ok\. (?P<passed>\d+) passed; (?P<failed>\d+) failed; "
     r"(?P<ignored>\d+) ignored;"
@@ -55,7 +56,7 @@ RUST_TEST_RESULT = re.compile(
 GAMEPLAY_REPORT_PREFIXES = (
     "HARNESS INPUT ",
     "CONTENT ",
-    "EVIDENCE SCOPE ",
+    "EVIDENCE CONTRACT ",
     "CAPABILITY HIGHLIGHT ",
     "SAMPLE ",
     "WORKSHOP CAPABILITY ",
@@ -68,11 +69,14 @@ GAMEPLAY_REPORT_PREFIXES = (
 )
 FOCUSED_REVIEW_PREFIXES = (
     "SURVIVAL REVIEW ",
+    "PROGRESSION FALLBACK ",
     "PROGRESSION REVIEW ",
     "ORE REVIEW ",
     "FOUNDRY REVIEW ",
 )
-FOCUSED_VISIBLE_REPLAY_SEED = re.compile(r"\b(?:anchor|organic):(0x[0-9A-Fa-f]+)")
+FOCUSED_VISIBLE_REPLAY_SEED = re.compile(
+    r"\b(?:anchor|coverage|organic):(0x[0-9A-Fa-f]+)"
+)
 
 
 def cargo(alias: str) -> list[str]:
@@ -88,6 +92,20 @@ def rust_test_summary(stdout: str) -> str | None:
     passed = sum(int(match.group("passed")) for match in matches)
     ignored = sum(int(match.group("ignored")) for match in matches)
     detail = f"{passed} test{'s' if passed != 1 else ''}"
+    if ignored:
+        detail += f", {ignored} ignored"
+    return detail
+
+
+def combined_test_summary(stdout: str) -> str | None:
+    """Return the core/gameplay split for the one-graph broad test command."""
+
+    matches = list(RUST_TEST_RESULT.finditer(stdout))
+    if len(matches) != 2:
+        return rust_test_summary(stdout)
+    core, gameplay = matches
+    detail = f"{core.group('passed')} core + {gameplay.group('passed')} gameplay"
+    ignored = int(core.group("ignored")) + int(gameplay.group("ignored"))
     if ignored:
         detail += f", {ignored} ignored"
     return detail
@@ -147,20 +165,18 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
         failed = FAILED_TEST.findall(combined)
         if failed:
             return f"python tools/run_test.py {failed[-1]}"
-    if "test-gameplay" in command:
-        failed_targets = FAILED_GAMEPLAY_TARGET.findall(combined)
-        if failed_targets:
-            target = failed_targets[-1]
-            failed = FAILED_TEST.findall(combined)
-            if failed:
-                if target == GAMEPLAY_AUDIT_TARGET:
-                    return (
-                        "python tools/run_test.py "
-                        f"--target {GAMEPLAY_AUDIT_TARGET} {failed[-1]}"
-                    )
-                return f"python tools/run_test.py --target {target} {failed[-1]}"
-            scope = GAMEPLAY_SCOPE_BY_TARGET.get(target)
-            if scope is not None:
+    if GAMEPLAY_AUDIT_TARGET in command:
+        failed = FAILED_TEST.findall(combined)
+        if failed:
+            rerun_targets = FAILED_RERUN_TARGET.findall(combined)
+            if rerun_targets and rerun_targets[-1] == "--lib":
+                return f"python tools/run_test.py {failed[-1]}"
+            return (
+                "python tools/run_test.py "
+                f"--target {GAMEPLAY_AUDIT_TARGET} {failed[-1]}"
+            )
+        for scope, test_name in GAMEPLAY_TESTS.items():
+            if test_name in command:
                 return f"python ci.py gate --gameplay {scope}"
     return None
 
@@ -172,11 +188,30 @@ def audit_plan(scope: str) -> list[tuple[str, list[str]]]:
         raise ValueError(f"unknown audit scope: {scope}")
 
     plan = quick_plan()
-    if scope in ("core", "all"):
+    if scope == "all":
+        plan.append(("core + gameplay", combined_test_command()))
+        return plan
+    if scope == "core":
         plan.append(("core", cargo("test-fast")))
-    if scope in ("gameplay", "all"):
+    if scope == "gameplay":
         plan.append(("gameplay", gameplay_command("all")))
     return plan
+
+
+def combined_test_command() -> list[str]:
+    """Run core and gameplay tests in one Cargo graph with one shared feature fingerprint."""
+
+    return [
+        "cargo",
+        "test",
+        "--quiet",
+        "--locked",
+        "--features",
+        "test-gameplay",
+        "--lib",
+        "--test",
+        GAMEPLAY_AUDIT_TARGET,
+    ]
 
 
 def gameplay_targets_command(
@@ -185,23 +220,35 @@ def gameplay_targets_command(
     test_filter: str | None = None,
     nocapture: bool = False,
 ) -> list[str]:
-    command = ["cargo", "test", "--quiet", "--locked", "--features", "test-gameplay"]
+    command = [
+        "cargo",
+        "test",
+        "--quiet",
+        "--locked",
+        "--features",
+        "test-gameplay",
+    ]
     for target in targets:
         command.extend(("--test", target))
+    test_args: list[str] = []
     if test_filter is not None:
         command.append(test_filter)
+        test_args.append("--exact")
     if nocapture:
-        command.extend(("--", "--nocapture"))
+        test_args.append("--nocapture")
+    if test_args:
+        command.append("--")
+        command.extend(test_args)
     return command
 
 
 def gameplay_command(scope: str, *, nocapture: bool = False) -> list[str]:
-    targets = (
-        (GAMEPLAY_AUDIT_TARGET,)
-        if scope == "all"
-        else (GAMEPLAY_TARGETS[scope],)
+    test_filter = None if scope == "all" else GAMEPLAY_TESTS[scope]
+    return gameplay_targets_command(
+        (GAMEPLAY_AUDIT_TARGET,),
+        test_filter=test_filter,
+        nocapture=nocapture,
     )
-    return gameplay_targets_command(targets, nocapture=nocapture)
 
 
 def gameplay_plan(scope: str) -> list[tuple[str, list[str]]]:
@@ -342,7 +389,11 @@ def report_stage(
         return None
     assert result is not None
     if result.returncode == 0:
-        detail = rust_test_summary(result.stdout)
+        detail = (
+            combined_test_summary(result.stdout)
+            if label == "core + gameplay"
+            else rust_test_summary(result.stdout)
+        )
         suffix = f"; {detail}" if detail is not None else ""
         print(f"PASS ({elapsed:.1f}s{suffix})")
         if echo_success and result.stdout.strip():

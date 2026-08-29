@@ -788,16 +788,41 @@ fn probe_manual_recovery_option(
         });
     }
     let policy_declined = before_policy_filter > 0 && options.is_empty();
-    let option = options.into_iter().min_by_key(|option| {
+    let option_key = |option: &ManualRecoveryOption| {
         let budget = option.start.resource_budget();
         let duration =
             option.start.work().completes_at().value() - option.start.work().started_at().value();
+        let output_power = state
+            .energy()
+            .get_store(option.store)
+            .and_then(|store| registries.energy().get_store(store.definition()))
+            .map(|definition| definition.max_output_power().whole_microwatts())
+            .unwrap_or_else(|| {
+                panic!(
+                    "manual-recovery {} drive lost its authored output-power definition",
+                    option.name
+                )
+            });
         (
             budget.metabolic_energy(),
             budget.hydration(),
             duration,
-            option.name,
+            std::cmp::Reverse(output_power),
         )
+    };
+    let best_key = options.iter().map(&option_key).min();
+    let option = best_key.and_then(|best_key| {
+        let mut best = options
+            .into_iter()
+            .filter(|candidate| option_key(candidate) == best_key);
+        let selected = best
+            .next()
+            .unwrap_or_else(|| unreachable!("manual-recovery best key came from an option"));
+        assert!(
+            best.next().is_none(),
+            "manual recovery has multiple equally useful observable destinations; add an explicit player policy instead of using store identity or label"
+        );
+        Some(selected)
     });
     ManualRecoveryProbe {
         option,

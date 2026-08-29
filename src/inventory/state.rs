@@ -13,6 +13,8 @@ use crate::material::{
 };
 use crate::structural::{StructuralElementId, apply_support_index_change};
 
+use super::storage::StorageDefinitionId;
+
 mod lot_mutation;
 
 pub(super) use lot_mutation::{
@@ -418,11 +420,59 @@ pub struct StockpileRecord {
     pub(super) id: StockpileId,
     pub(super) capacity: Mass,
     pub(super) storage_profile: StockpileStorageProfile,
+    pub(super) enclosure: Option<StockpileEnclosureRecord>,
     pub(super) supported_by: Option<StructuralElementId>,
     pub(super) stored_mass: Mass,
     pub(super) reserved_inbound: Mass,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     pub(super) contents: BTreeMap<CommodityKey, Mass>,
+}
+
+/// Exact physical enclosure currently embodied around one stockpile.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StockpileEnclosureRecord {
+    definition: StorageDefinitionId,
+    embodied_mass: Mass,
+    embodied_material: Vec<ConsumedMaterialTrace>,
+    created_at: SimulationTick,
+}
+
+impl StockpileEnclosureRecord {
+    #[must_use]
+    pub(crate) fn new(
+        definition: StorageDefinitionId,
+        embodied_mass: Mass,
+        embodied_material: Vec<ConsumedMaterialTrace>,
+        created_at: SimulationTick,
+    ) -> Self {
+        Self {
+            definition,
+            embodied_mass,
+            embodied_material,
+            created_at,
+        }
+    }
+
+    #[must_use]
+    pub const fn definition(&self) -> StorageDefinitionId {
+        self.definition
+    }
+
+    #[must_use]
+    pub const fn embodied_mass(&self) -> Mass {
+        self.embodied_mass
+    }
+
+    #[must_use]
+    pub fn embodied_material(&self) -> &[ConsumedMaterialTrace] {
+        &self.embodied_material
+    }
+
+    #[must_use]
+    pub const fn created_at(&self) -> SimulationTick {
+        self.created_at
+    }
 }
 
 impl StockpileRecord {
@@ -439,6 +489,21 @@ impl StockpileRecord {
     #[must_use]
     pub const fn storage_profile(&self) -> StockpileStorageProfile {
         self.storage_profile
+    }
+
+    /// Returns the material-backed storage enclosure, if this stockpile has been improved.
+    #[must_use]
+    pub const fn enclosure(&self) -> Option<&StockpileEnclosureRecord> {
+        self.enclosure.as_ref()
+    }
+
+    /// Returns matter embodied in this stockpile's enclosure rather than stored as contents.
+    #[must_use]
+    pub const fn embodied_mass(&self) -> Mass {
+        match &self.enclosure {
+            Some(enclosure) => enclosure.embodied_mass(),
+            None => Mass::ZERO,
+        }
     }
 
     /// Returns the structural member currently carrying this stockpile's stored matter, if assigned.
@@ -540,6 +605,52 @@ impl InventoryState {
     }
 
     pub(super) fn apply_revision(&mut self, next_revision: u64) {
+        self.revision = next_revision;
+    }
+
+    pub(super) fn apply_storage_enclosure(
+        &mut self,
+        stockpile: StockpileId,
+        expected_profile: StockpileStorageProfile,
+        next_profile: StockpileStorageProfile,
+        enclosure: StockpileEnclosureRecord,
+        at: SimulationTick,
+        next_revision: u64,
+    ) {
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "validated storage construction must advance inventory revision exactly once after material egress"
+        );
+        let source_preservation = expected_profile.preservation_multiplier_ppm();
+        for lot in self
+            .lots
+            .values_mut()
+            .filter(|lot| lot.stockpile == stockpile)
+        {
+            lot.storage_history = lot
+                .storage_history
+                .rebase(at, source_preservation)
+                .unwrap_or_else(|| {
+                    panic!("validated storage construction overflowed lot storage history")
+                });
+        }
+        let record = self.stockpiles.get_mut(&stockpile).unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: stockpile {} disappeared during enclosure construction",
+                stockpile.value()
+            )
+        });
+        assert_eq!(
+            record.storage_profile, expected_profile,
+            "validated storage construction target profile changed before apply"
+        );
+        assert!(
+            record.enclosure.is_none(),
+            "validated storage construction target unexpectedly gained an enclosure"
+        );
+        record.storage_profile = next_profile;
+        record.enclosure = Some(enclosure);
         self.revision = next_revision;
     }
 

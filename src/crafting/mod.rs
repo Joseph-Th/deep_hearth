@@ -579,7 +579,7 @@ pub fn validate_start_manual_craft(
     let work = validate_player_work_start(
         registries,
         state,
-        PlayerWork::ManualCraft {
+        PlayerWork::ManualProduction {
             job: process.job_id(),
         },
         resolution.duration(),

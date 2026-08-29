@@ -1,9 +1,8 @@
-//! Consolidated broad gameplay audit and report target.
+//! Shared gameplay verification and report target.
 //!
-//! Focused developer gates retain independent binaries so one concern can be repaired without
-//! relinking unrelated probe code. Broad verification compiles the shared workshop and focused-probe
-//! support once here and links one executable instead of paying for a workshop binary plus a second
-//! aggregate binary.
+//! Focused developer gates select one exact test from this binary. Broad gameplay verification runs
+//! the same binary unfiltered, so focused repair and later audits reuse one compiled harness artifact
+//! instead of maintaining separate target-specific copies of the same support modules.
 
 use std::env;
 

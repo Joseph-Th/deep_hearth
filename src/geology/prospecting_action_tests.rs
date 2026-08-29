@@ -98,6 +98,52 @@ fn local_transect_reduces_repeated_point_work_without_revealing_an_exact_target(
         .unwrap_or_else(|error| panic!("local-transect final audit failed: {error}"));
 }
 
+#[test]
+fn positive_local_transect_stays_area_evidence_even_with_one_hidden_deposit() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x6B00_2012));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("positive local-transect survival setup failed: {error}"));
+    let region = horizontal_region(60, 4);
+    let requested_voxel = one_voxel(62);
+    insert_copper(&registries, &mut state, region);
+
+    start_prospecting(&registries, &mut state, PROSPECTING_LOCAL_TRANSECT, region);
+    let duration = prospecting_duration(&registries, PROSPECTING_LOCAL_TRANSECT);
+    let mut completed = None;
+    for _ in 0..duration {
+        completed = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("positive local-transect tick failed: {error}"))
+            .field_prospecting();
+    }
+    let observation =
+        completed.unwrap_or_else(|| panic!("positive local transect did not complete"));
+    let finding = state
+        .geological_knowledge()
+        .get_observation(observation.observation())
+        .and_then(|record| record.finding(MATERIAL_COPPER))
+        .unwrap_or_else(|| panic!("positive local-transect finding disappeared"));
+    assert_eq!(
+        (finding.lower_ppm(), finding.upper_ppm()),
+        (925_000, 1_000_000)
+    );
+    assert_eq!(
+        resolve_mining_target(
+            &state,
+            MiningTargetRequest::new(requested_voxel, MATERIAL_COPPER),
+        ),
+        Err(
+            MiningTargetResolutionError::EvidenceInsufficientToResolveTarget {
+                material: MATERIAL_COPPER,
+                region,
+            }
+        ),
+        "positive area evidence must require real local refinement instead of revealing the hidden deposit through a narrow query"
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("positive local-transect final audit failed: {error}"));
+}
+
 fn horizontal_region(start_x: i64, width: i64) -> VoxelBounds {
     VoxelBounds::new(
         VoxelCoord::new(start_x, -1, 0),

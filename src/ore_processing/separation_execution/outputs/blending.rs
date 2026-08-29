@@ -7,7 +7,7 @@ use crate::material::{
     COMPOSITION_PARTS_PER_MILLION, CommodityKey, CompositionComponent, MaterialComposition,
     MaterialId, MaterialLotSpec, ParticleSizeDistribution,
 };
-use crate::ore_processing::ConstituentSeparationProcessDefinition;
+use crate::ore_processing::definitions::ConstituentSeparationPhysics;
 
 use super::ConstituentSeparationBatchError;
 
@@ -244,7 +244,7 @@ fn dominant_non_target_material(
 
 pub(super) fn add_blended_residue(
     grouped: &mut BTreeMap<ParticulateOutputKey, Mass>,
-    definition: ConstituentSeparationProcessDefinition,
+    definition: ConstituentSeparationPhysics,
     temperature: Temperature,
     particle_size: ParticleSizeDistribution,
     constituent_numerators: BTreeMap<MaterialId, u128>,

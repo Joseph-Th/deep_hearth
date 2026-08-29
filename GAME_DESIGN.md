@@ -128,7 +128,12 @@ Pacing constraints:
 - Critical resources have legible clues and reliable first uses; richer/deeper resources require better information, access, or infrastructure rather than search randomness.
 - Geological search should move coarse-to-fine: regional or low-resolution evidence narrows where to investigate, while local evidence resolves actionable targets. Broad evidence may guide attention but must not identify hidden owners by oracle.
 - Repeated manual input becomes delegable before it dominates play.
+- Early material processing may retain a slower direct-labor fallback when the physics permit it, but the
+  fallback must consume real attention/survival reserve and preserve the same material state. Mechanization
+  should then buy measurable throughput, recovery, durability, or returned attention rather than merely
+  unlocking an otherwise impossible recipe.
 - Survival and industry overlap: infrastructure reduces some survival burdens while survival still constrains work. Stable supply, preservation, and storage should replace repeated emergency acquisition with preparation decisions, finite reserves, and recoverable failure risks.
+- Early preservation should be legible infrastructure with an explicit physical cause and visible benefit. Until climate/room simulation owns environmental conditions, do not hide preservation strength behind opaque room geometry or undocumented enclosure heuristics.
 - Long processes leave room for useful parallel work, preparation, observation, or logistics.
 - Earlier infrastructure remains useful as a component, backup, branch, or lower-scale solution when physics permits.
 - Complexity comes from interacting physical constraints, routing, quality, energy, maintenance, and information.

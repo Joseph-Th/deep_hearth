@@ -27,9 +27,16 @@ use super::powered_physics::{
 };
 use super::{ConstituentSeparationProcessDefinition, MassFlowDurationError};
 
+mod manual;
 mod outputs;
 mod validation;
 
+pub use manual::{
+    ManualConstituentSeparationCommitError, ManualConstituentSeparationRequest,
+    ManualConstituentSeparationResolutionError, ResolvedManualConstituentSeparation,
+    StartManualConstituentSeparationError, ValidatedManualConstituentSeparationStart,
+    resolve_manual_constituent_separation_process, validate_start_manual_constituent_separation,
+};
 use outputs::resolve_separation_outputs;
 pub use validation::ConstituentSeparationJobValidationError;
 pub(crate) use validation::validate_loaded_constituent_separation_job;
@@ -411,7 +418,7 @@ pub fn resolve_constituent_separation_process(
         .particle_size_policy();
     let outputs = resolve_separation_outputs(
         registries.materials(),
-        definition,
+        definition.physics(),
         target_particle_size_policy,
         inputs.consumed_inputs(),
     )

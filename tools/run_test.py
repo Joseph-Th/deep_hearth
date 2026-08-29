@@ -16,7 +16,12 @@ import tomllib
 
 
 ROOT = Path(__file__).resolve().parents[1]
+TEST_SUPPORT_FEATURE = "test-gameplay"
 ZERO_TESTS = re.compile(r"\brunning 0 tests\b")
+TEST_RESULT = re.compile(
+    r"test result: ok\. (?P<passed>\d+) passed; (?P<failed>\d+) failed; "
+    r"(?P<ignored>\d+) ignored;"
+)
 ATTRIBUTE = re.compile(r"^\s*#\[(?P<body>.+)\]\s*$")
 FUNCTION = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?fn\s+(?P<name>[A-Za-z_]\w*)\s*\(")
 INLINE_MODULE = re.compile(r"^mod\s+(?P<name>[A-Za-z_]\w*)\s*\{$")
@@ -69,7 +74,9 @@ def requested_target_features(target: str, raw: str | None) -> set[str]:
     """Return explicit features plus the target's Cargo-declared required features."""
 
     requested = feature_set(raw)
-    if target != "lib":
+    if target == "lib":
+        requested.add(TEST_SUPPORT_FEATURE)
+    else:
         requested.update(cargo_test_target_definition(target).get("required-features", []))
     return requested
 
@@ -270,12 +277,28 @@ def cargo_command(args: argparse.Namespace) -> list[str]:
     requested_features = requested_target_features(args.target, args.features)
     if requested_features:
         command.extend(("--features", ",".join(sorted(requested_features))))
-    command.extend((args.name, "--", "--exact"))
+    command.append(args.name)
+    test_args: list[str] = []
+    if not args.suite:
+        test_args.append("--exact")
     if args.ignored:
-        command.append("--ignored")
+        test_args.append("--ignored")
     if args.nocapture:
-        command.append("--nocapture")
+        test_args.append("--nocapture")
+    if test_args:
+        command.append("--")
+        command.extend(test_args)
     return command
+
+
+def executed_test_counts(stdout: str) -> tuple[int, int] | None:
+    """Return executed and ignored counts from one selected Cargo test target."""
+
+    matches = list(TEST_RESULT.finditer(stdout))
+    if not matches:
+        return None
+    match = matches[-1]
+    return int(match.group("passed")), int(match.group("ignored"))
 
 
 def cargo_check_command(args: argparse.Namespace) -> list[str]:
@@ -286,9 +309,10 @@ def cargo_check_command(args: argparse.Namespace) -> list[str]:
     command = ["cargo", "check", "--quiet", "--locked"]
     if args.target == "lib":
         command.extend(("--lib", "--tests"))
+        requested_features = feature_set(args.features)
     else:
         command.extend(("--test", args.target))
-    requested_features = requested_target_features(args.target, args.features)
+        requested_features = requested_target_features(args.target, args.features)
     if requested_features:
         command.extend(("--features", ",".join(sorted(requested_features))))
     return command
@@ -297,8 +321,8 @@ def cargo_check_command(args: argparse.Namespace) -> list[str]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run one exact cached Rust test from an exact or uniquely matching source selector, "
-            "type-check its owning target without linking, or inspect the build-free source catalog."
+            "Run one exact cached Rust test or one bounded source-catalog suite, type-check the "
+            "owning target without linking, or inspect the build-free source catalog."
         )
     )
     parser.add_argument(
@@ -316,20 +340,29 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="type-check the selected test target without linking or executing tests",
     )
+    parser.add_argument(
+        "--suite",
+        action="store_true",
+        help="run every source-catalog test matching NAME in one Cargo invocation",
+    )
     parser.add_argument("--target", default="lib", help="Cargo test target name; defaults to lib")
     parser.add_argument(
         "--features",
         help="extra Cargo features; target required-features are inferred from Cargo.toml",
     )
     parser.add_argument("--ignored", action="store_true", help="select an ignored exact test")
-    parser.add_argument("--nocapture", action="store_true", help="show exact-test output")
+    parser.add_argument("--nocapture", action="store_true", help="show selected-test output")
     args = parser.parse_args()
     if not args.list and not args.name:
-        parser.error("an exact test name is required unless --list is used")
+        parser.error("a test selector is required unless --list is used")
     if args.list and args.check:
         parser.error("--list and --check are mutually exclusive")
+    if args.suite and (args.list or args.check):
+        parser.error("--suite is an execution mode and cannot be combined with --list or --check")
+    if args.suite and args.ignored:
+        parser.error("--ignored requires exact execution; use an exact ignored-test selector")
     if (args.list or args.check) and (args.ignored or args.nocapture):
-        parser.error("--ignored and --nocapture apply only to exact execution")
+        parser.error("--ignored and --nocapture apply only to execution modes")
     return args
 
 
@@ -352,7 +385,13 @@ def main() -> int:
 
     selector = args.name
     try:
-        args.name = resolve_test_name(selector, catalog)
+        if args.suite:
+            matches = source_test_matches(selector, catalog)
+            if not matches:
+                raise ValueError(f"test suite selector not found: {selector}")
+            args.name = selector
+        else:
+            args.name = resolve_test_name(selector, catalog)
     except ValueError as error:
         candidates = source_test_matches(selector, catalog)
         if not candidates:
@@ -386,14 +425,26 @@ def main() -> int:
         return result.returncode
 
     if not args.check and ZERO_TESTS.search(result.stdout):
-        print(f"FAIL Cargo did not execute cataloged exact test: {args.name}", file=sys.stderr)
+        mode = "suite" if args.suite else "exact test"
+        print(f"FAIL Cargo did not execute cataloged {mode}: {args.name}", file=sys.stderr)
         print(f"catalog: python tools/run_test.py --list {args.name}", file=sys.stderr)
         return 2
 
     if not args.check and args.nocapture and result.stdout.strip():
         print(result.stdout.rstrip())
-    action = "check " if args.check else ""
-    print(f"PASS {action}{args.target}::{args.name} ({elapsed:.1f}s)")
+    if args.suite:
+        counts = executed_test_counts(result.stdout)
+        if counts is None:
+            detail = "tests executed"
+        else:
+            passed, ignored = counts
+            detail = f"{passed} tests"
+            if ignored:
+                detail += f", {ignored} ignored"
+        print(f"PASS suite {args.target}::{selector} ({detail}; {elapsed:.1f}s)")
+    else:
+        action = "check " if args.check else ""
+        print(f"PASS {action}{args.target}::{args.name} ({elapsed:.1f}s)")
     return 0
 
 

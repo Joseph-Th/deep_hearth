@@ -86,6 +86,7 @@ fn observations_persist_quantitative_uncertainty_without_exposing_deposit_identi
     );
     assert_eq!(assessment.envelope(), Some((0, 700_000)));
     assert_eq!(assessment.common_evidence_region(), Some(bounds(5, 6)));
+    assert_eq!(assessment.common_acquired_region(), Some(bounds(4, 8)));
     assert_eq!(assessment.most_precise(), Some(focused_id));
     assert_eq!(assessment.latest_observed_at(), Some(state.tick()));
     assert_eq!(state.geology().deposits().count(), 0);
@@ -226,6 +227,7 @@ fn nonoverlapping_observations_do_not_leak_into_local_assessment() {
     assert!(assessment.observations().is_empty());
     assert_eq!(assessment.envelope(), None);
     assert_eq!(assessment.common_evidence_region(), None);
+    assert_eq!(assessment.common_acquired_region(), None);
 }
 
 #[test]
@@ -252,6 +254,7 @@ fn disjoint_evidence_inside_a_large_query_is_not_reported_as_a_false_conflict() 
         GeologicalEvidenceConsistency::SpatiallyIncomparable
     );
     assert_eq!(assessment.common_evidence_region(), None);
+    assert_eq!(assessment.common_acquired_region(), None);
     assert_eq!(assessment.envelope(), Some((100_000, 900_000)));
     assert_eq!(assessment.observations().len(), 2);
 }
@@ -280,6 +283,7 @@ fn empty_common_overlap_stays_empty_after_later_evidence() {
         GeologicalEvidenceConsistency::SpatiallyIncomparable
     );
     assert_eq!(assessment.common_evidence_region(), None);
+    assert_eq!(assessment.common_acquired_region(), None);
     assert_eq!(assessment.observations().len(), 3);
 }
 

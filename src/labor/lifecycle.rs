@@ -43,22 +43,21 @@ pub(crate) fn player_work_exertion(
             let record = state.production().get_job(job).unwrap_or_else(|| {
                 panic!("runtime invariant broken: resumed production job is missing")
             });
-            registries
-                .crafting()
-                .get_manual(record.process())
-                .map(|definition| definition.exertion())
+            registries.manual_process_exertion(record.process())
         });
         let exertion = resumed_manual_work.next().unwrap_or(SurvivalExertion::REST);
         assert!(
             resumed_manual_work.next().is_none(),
-            "runtime invariant broken: more than one manual craft resumed in one tick"
+            "runtime invariant broken: more than one manual production job resumed in one tick"
         );
         return exertion;
     };
     match work {
-        PlayerWork::ManualCraft { job } => {
+        PlayerWork::ManualProduction { job } => {
             let record = state.production().get_job(job).unwrap_or_else(|| {
-                panic!("runtime invariant broken: player work references missing craft job")
+                panic!(
+                    "runtime invariant broken: player work references missing manual production job"
+                )
             });
             let active_this_tick = production_availability
                 .iter()
@@ -71,12 +70,12 @@ pub(crate) fn player_work_exertion(
                 return SurvivalExertion::REST;
             }
             registries
-                .crafting()
-                .get_manual(record.process())
+                .manual_process_exertion(record.process())
                 .unwrap_or_else(|| {
-                    panic!("runtime invariant broken: player craft job has no manual definition")
+                    panic!(
+                        "runtime invariant broken: player production job has no manual definition"
+                    )
                 })
-                .exertion()
         }
         PlayerWork::Mining { job } => {
             let record = state.mining().get_job(job).unwrap_or_else(|| {
@@ -298,34 +297,37 @@ pub(crate) enum PlayerWorkTickPlan {
     Start(ValidatedPlayerWorkStart),
 }
 
-pub(crate) fn decide_manual_craft_player_work_start(
+pub(crate) fn decide_manual_production_player_work_start(
     registries: &Registries,
     state: &AppState,
     job: crate::production::ProductionJobId,
     remaining: TickSpan,
 ) -> Result<Option<ValidatedPlayerWorkStart>, PlayerWorkTickError> {
     let record = state.production().get_job(job).unwrap_or_else(|| {
-        panic!("runtime invariant broken: manual craft resume references missing production job")
+        panic!(
+            "runtime invariant broken: manual production resume references missing production job"
+        )
     });
-    let definition = registries
-        .crafting()
-        .get_manual(record.process())
+    let exertion = registries
+        .manual_process_exertion(record.process())
         .unwrap_or_else(|| {
-            panic!("runtime invariant broken: manual craft resume references non-manual process")
+            panic!(
+                "runtime invariant broken: manual production resume references non-manual process"
+            )
         });
     match validate_player_work_start(
         registries,
         state,
-        PlayerWork::ManualCraft { job },
+        PlayerWork::ManualProduction { job },
         remaining,
-        definition.exertion(),
+        exertion,
     ) {
         Ok(start) => Ok(Some(start)),
         Err(PlayerWorkStartError::RevisionExhausted) => Err(PlayerWorkTickError::RevisionExhausted),
         Err(PlayerWorkStartError::MetabolicCostOverflow { .. })
         | Err(PlayerWorkStartError::HydrationCostOverflow { .. }) => {
             panic!(
-                "runtime invariant broken: accepted manual craft remaining-work budget overflowed"
+                "runtime invariant broken: accepted manual production remaining-work budget overflowed"
             )
         }
         Err(PlayerWorkStartError::SurvivalNotInitialized)
@@ -336,7 +338,7 @@ pub(crate) fn decide_manual_craft_player_work_start(
     }
 }
 
-fn decide_resumed_manual_craft_start(
+fn decide_resumed_manual_production_start(
     registries: &Registries,
     state: &AppState,
     next_tick: SimulationTick,
@@ -354,7 +356,10 @@ fn decide_resumed_manual_craft_start(
         let record = state.production().get_job(job).unwrap_or_else(|| {
             panic!("runtime invariant broken: resumed production job is missing")
         });
-        if registries.crafting().get_manual(record.process()).is_none() {
+        if registries
+            .manual_process_exertion(record.process())
+            .is_none()
+        {
             continue;
         }
         if scheduled_completion == next_tick {
@@ -363,13 +368,13 @@ fn decide_resumed_manual_craft_start(
         let remaining = record
             .suspension()
             .unwrap_or_else(|| {
-                panic!("runtime invariant broken: resumed manual craft was not suspended")
+                panic!("runtime invariant broken: resumed manual production was not suspended")
             })
             .remaining_active_time();
-        let start = decide_manual_craft_player_work_start(registries, state, job, remaining)?
+        let start = decide_manual_production_player_work_start(registries, state, job, remaining)?
             .unwrap_or_else(|| {
                 panic!(
-                    "runtime invariant broken: production resumed manual craft without available player labor"
+                    "runtime invariant broken: production resumed manual work without available player labor"
                 )
             });
         return Ok(Some(PlayerWorkTickPlan::Start(start)));
@@ -377,14 +382,14 @@ fn decide_resumed_manual_craft_start(
     Ok(None)
 }
 
-fn manual_craft_releases_now(
+fn manual_production_releases_now(
     state: &AppState,
     job: crate::production::ProductionJobId,
     next_tick: SimulationTick,
     production_availability: &[ProductionAvailabilityChange],
 ) -> bool {
     let record = state.production().get_job(job).unwrap_or_else(|| {
-        panic!("runtime invariant broken: player work references missing craft job")
+        panic!("runtime invariant broken: player work references missing manual production job")
     });
     match production_availability
         .iter()
@@ -408,8 +413,8 @@ fn active_work_releases_now(
     production_availability: &[ProductionAvailabilityChange],
 ) -> bool {
     match work {
-        PlayerWork::ManualCraft { job } => {
-            manual_craft_releases_now(state, job, next_tick, production_availability)
+        PlayerWork::ManualProduction { job } => {
+            manual_production_releases_now(state, job, next_tick, production_availability)
         }
         PlayerWork::Mining { job } => {
             let record = state.mining().get_job(job).unwrap_or_else(|| {
@@ -429,7 +434,7 @@ pub(crate) fn decide_player_work_tick(
     production_availability: &[ProductionAvailabilityChange],
 ) -> Result<Option<PlayerWorkTickPlan>, PlayerWorkTickError> {
     let Some(work) = state.player_work().active() else {
-        return decide_resumed_manual_craft_start(
+        return decide_resumed_manual_production_start(
             registries,
             state,
             next_tick,

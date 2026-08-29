@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
+use super::ore_fixture::copper_ore_composition;
 use super::seed::mix64;
 use super::support::{ROOM_TEMPERATURE, add_solid_stockpile, nominal_equipment_mass_capability};
 use deep_hearth::capability::{CapabilityId, CapabilityValue};
@@ -14,11 +15,11 @@ use deep_hearth::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
     EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK,
     EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_SEPARATOR, FORM_NATIVE_METAL, FORM_ORE,
-    FORM_REINFORCEMENT, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE,
-    MINING_METHOD_HAND_PICK, PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_CRUSH_ORE,
-    PROCESS_KNAP_STONE_TOOL, PROCESS_SEPARATE_NATIVE_COPPER, PROCESS_SHAPE_STONE_FLYWHEEL,
-    PROCESS_SHAPE_WOOD_HANDLE, PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
-    PROSPECTING_REGIONAL_RECONNAISSANCE,
+    FORM_REINFORCEMENT, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MINING_METHOD_HAND_PICK,
+    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_CRUSH_ORE, PROCESS_HAND_BREAK_ORE,
+    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_KNAP_STONE_TOOL, PROCESS_SEPARATE_NATIVE_COPPER,
+    PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE, PROSPECTING_DETAILED_FIELD_SURVEY,
+    PROSPECTING_FIELD_INSPECTION, PROSPECTING_REGIONAL_RECONNAISSANCE,
 };
 use deep_hearth::core::quantity::{Energy, Mass, Power, Pressure};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
@@ -40,8 +41,7 @@ use deep_hearth::labor::{
     ManualPowerError, ManualPowerRequest, ProspectingMethodId, validate_start_manual_power,
 };
 use deep_hearth::material::{
-    COMPOSITION_PARTS_PER_MILLION, CommodityKey, CompositionComponent, MaterialAssemblyProfile,
-    MaterialComposition,
+    COMPOSITION_PARTS_PER_MILLION, CommodityKey, MaterialAssemblyProfile, MaterialComposition,
 };
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::mining::{
@@ -170,6 +170,20 @@ fn assert_progression_runtime_dependencies(registries: &Registries) {
     }
     assert!(
         registries
+            .ore_processing()
+            .get_manual_comminution(PROCESS_HAND_BREAK_ORE)
+            .is_some(),
+        "primitive progression manual ore-breaking route disappeared"
+    );
+    assert!(
+        registries
+            .ore_processing()
+            .get_manual_constituent_separation(PROCESS_HAND_SORT_NATIVE_COPPER)
+            .is_some(),
+        "primitive progression manual native-copper sorting route disappeared"
+    );
+    assert!(
+        registries
             .energy()
             .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
             .is_some_and(|definition| definition.has_runtime_assembly_route()),
@@ -272,11 +286,13 @@ fn add_profile_requirements(
     }
 }
 
-fn manual_craft_for_output(
-    registries: &Registries,
+fn manual_craft_plan_for_output<'a>(
+    registries: &'a Registries,
     commodity: CommodityKey,
-) -> &deep_hearth::crafting::ManualCraftDefinition {
-    registries
+    required: Mass,
+) -> (&'a deep_hearth::crafting::ManualCraftDefinition, u64) {
+    assert!(!required.is_zero());
+    let candidates = registries
         .crafting()
         .definitions()
         .filter(|definition| {
@@ -285,13 +301,51 @@ fn manual_craft_for_output(
                 .iter()
                 .any(|output| output.commodity() == commodity)
         })
-        .min_by_key(|definition| definition.process())
+        .map(|definition| {
+            let batches =
+                batches_for_output(required, output_mass_per_batch(definition, commodity));
+            let total_ticks = definition
+                .duration()
+                .value()
+                .checked_mul(batches)
+                .unwrap_or_else(|| panic!("primitive manual-production attention cost overflowed"));
+            let total_input_mg = definition
+                .input_mass()
+                .milligrams()
+                .checked_mul(batches)
+                .unwrap_or_else(|| panic!("primitive manual-production input cost overflowed"));
+            let exertion = definition.exertion();
+            let policy_key = (
+                total_ticks,
+                total_input_mg,
+                exertion.energy_cost_per_tick().nanojoules(),
+                exertion.hydration_loss_per_tick().microliters(),
+            );
+            (definition, batches, policy_key)
+        })
+        .collect::<Vec<_>>();
+    let best_key = candidates
+        .iter()
+        .map(|(_, _, policy_key)| *policy_key)
+        .min()
         .unwrap_or_else(|| {
             panic!(
                 "primitive progression has no manual route to required component {}",
                 commodity.value()
             )
-        })
+        });
+    let mut best = candidates
+        .into_iter()
+        .filter(|(_, _, policy_key)| *policy_key == best_key);
+    let (definition, batches, _) = best
+        .next()
+        .unwrap_or_else(|| unreachable!("best manual-production policy key came from a candidate"));
+    assert!(
+        best.next().is_none(),
+        "primitive progression has multiple equally efficient manual routes to component {}; add an explicit player-visible tie-break instead of using process identity",
+        commodity.value()
+    );
+    (definition, batches)
 }
 
 fn output_mass_per_batch(
@@ -382,8 +436,7 @@ fn primitive_material_plan(registries: &Registries) -> PrimitiveMaterialPlan {
 
     let mut process_batches: BTreeMap<deep_hearth::production::ProcessId, u64> = BTreeMap::new();
     for (commodity, required) in requirements {
-        let craft = manual_craft_for_output(registries, commodity);
-        let batches = batches_for_output(required, output_mass_per_batch(craft, commodity));
+        let (craft, batches) = manual_craft_plan_for_output(registries, commodity, required);
         process_batches
             .entry(craft.process())
             .and_modify(|existing| *existing = (*existing).max(batches))
@@ -445,8 +498,7 @@ fn craft_requirement(
     let missing = required
         .checked_sub(available)
         .unwrap_or_else(|| unreachable!("available component mass was already checked"));
-    let craft = manual_craft_for_output(registries, commodity);
-    let batches = batches_for_output(missing, output_mass_per_batch(craft, commodity));
+    let (craft, batches) = manual_craft_plan_for_output(registries, commodity, missing);
     let required_input = multiply_mass(craft.input_mass(), batches, "just-in-time craft input");
     let source = [raw_source, native_source]
         .into_iter()
@@ -1024,15 +1076,12 @@ fn native_input_for_upgrade(
         .inputs()
         .iter()
         .try_fold(Mass::ZERO, |total, input| {
-            let craft = manual_craft_for_output(registries, input.commodity());
+            let (craft, batches) =
+                manual_craft_plan_for_output(registries, input.commodity(), input.mass());
             assert_eq!(
                 craft.input(),
                 native,
                 "primitive copper upgrade component must remain directly cold-workable from native copper"
-            );
-            let batches = batches_for_output(
-                input.mass(),
-                output_mass_per_batch(craft, input.commodity()),
             );
             total.checked_add(multiply_mass(
                 craft.input_mass(),
@@ -1699,26 +1748,39 @@ struct ObservedMaterialSample {
     copper_ppm: u32,
 }
 
-fn observe_single_material_sample(
+fn observe_material_sample(
     state: &AppState,
     stockpile: deep_hearth::inventory::StockpileId,
     context: &'static str,
 ) -> ObservedMaterialSample {
     let mut lots = state.inventory().lot_ids(stockpile);
-    let lot = lots
+    let first = lots
         .next()
         .unwrap_or_else(|| panic!("primitive progression {context} has no extracted material"));
-    assert!(
-        lots.next().is_none(),
-        "primitive progression {context} should remain one observable material sample"
-    );
-    let record = state
+    let first_record = state
         .inventory()
-        .get_lot(lot)
+        .get_lot(first)
         .unwrap_or_else(|| panic!("primitive progression {context} sample disappeared"));
+    let commodity = first_record.commodity();
+    let composition = first_record.composition();
+    for lot in lots {
+        let record = state.inventory().get_lot(lot).unwrap_or_else(|| {
+            panic!("primitive progression {context} sample fragment disappeared")
+        });
+        assert_eq!(
+            record.commodity(),
+            commodity,
+            "primitive progression {context} contains physically different commodities and is not one observable sample"
+        );
+        assert_eq!(
+            record.composition(),
+            composition,
+            "primitive progression {context} contains compositionally different lots and cannot be treated as one assay"
+        );
+    }
     ObservedMaterialSample {
-        commodity: record.commodity(),
-        copper_ppm: record.composition().parts_per_million(MATERIAL_COPPER),
+        commodity,
+        copper_ppm: composition.parts_per_million(MATERIAL_COPPER),
     }
 }
 
@@ -1750,11 +1812,6 @@ fn separate_native_copper(
     )
     .unwrap_or_else(|error| panic!("primitive separation recharge failed: {error}"));
     let selections = select_stockpile_mass(state, crushed_storage, feed_mass);
-    assert_eq!(
-        selections.len(),
-        1,
-        "primary crusher output should remain one homogeneous lot before the progression separation step"
-    );
     let native = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
     let target_before = state
         .inventory()
@@ -1981,6 +2038,10 @@ fn finish_autonomous_crush(
 #[path = "progression_probe/episode.rs"]
 mod episode;
 use episode::run_primitive_progression_case;
+
+#[path = "progression_probe/manual_processing.rs"]
+pub(super) mod manual_processing;
+use manual_processing::evaluate_manual_processing_fallback;
 
 #[path = "progression_probe/review.rs"]
 mod review;

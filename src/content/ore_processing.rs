@@ -1,16 +1,18 @@
 //! Built-in ore-processing semantics for canonical workshop machinery.
 
-use crate::core::quantity::{Length, MassSpecificEnergy};
+use crate::core::quantity::{Energy, Length, Mass, MassFlow, MassSpecificEnergy, Volume};
 use crate::energy::EnergyCarrier;
 use crate::material::{
     CommodityKey, ParticleSizeClass, ParticleSizeDistribution, ParticleSizeRange,
 };
 
-const PRIMITIVE_NATIVE_COPPER_SORTING_RECOVERY_PPM: u32 = 900_000;
+const POWERED_NATIVE_COPPER_SORTING_RECOVERY_PPM: u32 = 900_000;
+const MANUAL_NATIVE_COPPER_SORTING_RECOVERY_PPM: u32 = 650_000;
 use crate::ore_processing::{
     ComminutionProcessDefinition, ConstituentRecoveryProfile,
-    ConstituentSeparationProcessDefinition, OreProcessingRegistry, PoweredOreProcessProfile,
-    ScreeningProcessDefinition,
+    ConstituentSeparationProcessDefinition, ManualComminutionProcessDefinition,
+    ManualConstituentSeparationProcessDefinition, ManualOreProcessProfile, OreProcessingRegistry,
+    PoweredOreProcessProfile, ScreeningProcessDefinition,
 };
 
 use super::capabilities::{
@@ -23,8 +25,10 @@ use super::materials::{
 };
 use super::processes::{
     PROCESS_CONCENTRATE_COPPER, PROCESS_CRUSH_ORE, PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
-    PROCESS_GRIND_CRUSHED_ORE, PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
+    PROCESS_GRIND_CRUSHED_ORE, PROCESS_HAND_BREAK_ORE, PROCESS_HAND_SORT_NATIVE_COPPER,
+    PROCESS_SCREEN_CRUSHED_ORE, PROCESS_SEPARATE_NATIVE_COPPER,
 };
+use crate::survival::SurvivalExertion;
 
 fn particle_size_class(minimum_micrometers: u64, maximum_micrometers: u64) -> ParticleSizeClass {
     let range = ParticleSizeRange::new(
@@ -44,6 +48,13 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
         Ok(range) => range,
         Err(error) => panic!("built-in crushed particle range is invalid: {error}"),
     };
+    let hand_sortable_particle_size = match ParticleSizeRange::new(
+        Length::from_micrometers(2_000),
+        Length::from_micrometers(10_000),
+    ) {
+        Ok(range) => range,
+        Err(error) => panic!("built-in hand-sortable particle range is invalid: {error}"),
+    };
     let ground_particle_size = ParticleSizeDistribution::new(vec![
         particle_size_class(500, 2_000),
         particle_size_class(2_001, 4_000),
@@ -57,7 +68,7 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
     let fine_particle_size = ParticleSizeDistribution::new(vec![particle_size_class(500, 2_000)])
         .unwrap_or_else(|error| panic!("built-in fine particle distribution is invalid: {error}"));
     let liberated_concentration_range = fine_particle_size.envelope();
-    OreProcessingRegistry::new_with_processes(
+    OreProcessingRegistry::new_with_manual_processes(
         [
             ComminutionProcessDefinition::new(
                 PROCESS_CRUSH_ORE,
@@ -120,7 +131,7 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                 MATERIAL_COPPER,
                 FORM_NATIVE_METAL,
                 FORM_CRUSHED,
-                PRIMITIVE_NATIVE_COPPER_SORTING_RECOVERY_PPM,
+                POWERED_NATIVE_COPPER_SORTING_RECOVERY_PPM,
                 PoweredOreProcessProfile::new(
                     CAPABILITY_SEPARATOR_FLOW,
                     CAPABILITY_SEPARATOR_BATCH,
@@ -145,5 +156,35 @@ pub(crate) fn build_ore_processing_registry() -> OreProcessingRegistry {
                 ),
             ),
         ],
+        [ManualComminutionProcessDefinition::new(
+            PROCESS_HAND_BREAK_ORE,
+            FORM_ORE,
+            FORM_CRUSHED,
+            hand_sortable_particle_size,
+            ManualOreProcessProfile::new(
+                MassFlow::from_milligrams_per_second(250),
+                Mass::from_milligrams(100_000),
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(1_000_000_000_000),
+                    Volume::from_microliters(250),
+                ),
+            ),
+        )],
+        [ManualConstituentSeparationProcessDefinition::new_sorting(
+            PROCESS_HAND_SORT_NATIVE_COPPER,
+            FORM_CRUSHED,
+            hand_sortable_particle_size,
+            CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+            FORM_CRUSHED,
+            MANUAL_NATIVE_COPPER_SORTING_RECOVERY_PPM,
+            ManualOreProcessProfile::new(
+                MassFlow::from_milligrams_per_second(500),
+                Mass::from_milligrams(200_000),
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(750_000_000_000),
+                    Volume::from_microliters(180),
+                ),
+            ),
+        )],
     )
 }

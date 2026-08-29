@@ -2,10 +2,11 @@
 
 use super::*;
 use crate::content::{
-    FORM_CHIP, FORM_CRUSHED, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE,
-    FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
-    PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_KNAP_STONE_TOOL, PROSPECTING_FIELD_INSPECTION,
-    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    FORM_BOARD, FORM_CHEST_BODY, FORM_CHIP, FORM_CRUSHED, FORM_INGOT, FORM_LOG, FORM_LUMP,
+    FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE,
+    MATERIAL_WOOD, PROCESS_ASSEMBLE_TIMBER_CHEST, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+    PROCESS_KNAP_STONE_TOOL, PROSPECTING_FIELD_INSPECTION, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    build_registries,
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -393,7 +394,7 @@ fn manual_craft_output_support_failure_pauses_work_and_exertion_until_recovered(
     );
     assert_eq!(
         state.player_work().active(),
-        Some(PlayerWork::ManualCraft { job })
+        Some(PlayerWork::ManualProduction { job })
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
@@ -505,7 +506,7 @@ fn suspended_manual_craft_releases_attention_and_waits_while_other_player_work_r
     ));
     assert_eq!(
         state.player_work().active(),
-        Some(PlayerWork::ManualCraft { job })
+        Some(PlayerWork::ManualProduction { job })
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
@@ -621,7 +622,7 @@ fn stone_knapping_is_timed_conserved_hand_work() {
     assert_eq!(resolution.duration(), TickSpan::new(40));
     assert_eq!(
         validate_start_process(&registries, &state, &resolution, source, destination),
-        Err(StartProcessError::ManualCraftRequiresPlayerWork {
+        Err(StartProcessError::ManualProcessRequiresPlayerWork {
             process: PROCESS_KNAP_STONE_TOOL,
         })
     );
@@ -636,7 +637,7 @@ fn stone_knapping_is_timed_conserved_hand_work() {
         .unwrap_or_else(|error| panic!("stone knapping commit failed: {error}"));
     assert!(matches!(
         state.player_work().active(),
-        Some(PlayerWork::ManualCraft { .. })
+        Some(PlayerWork::ManualProduction { .. })
     ));
 
     for _ in 0..resolution.duration().value() {
@@ -921,6 +922,96 @@ fn manual_craft_load_audit_rejects_forged_duration() {
             })
         ))
     );
+}
+
+#[test]
+fn in_progress_timber_chest_joinery_round_trip_preserves_deterministic_continuation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xC4AF_7016));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("timber chest joinery survival setup failed: {error}"));
+    let chest_mass = Mass::from_milligrams(2_400_000);
+    let source = add_solid_stockpile_for_test(&mut state, chest_mass)
+        .unwrap_or_else(|error| panic!("timber chest joinery source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, chest_mass)
+        .unwrap_or_else(|error| panic!("timber chest joinery destination failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+        chest_mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("timber chest joinery board fixture failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("timber chest joinery initial matter audit failed: {error}"))
+        .total();
+    let job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(PROCESS_ASSEMBLE_TIMBER_CHEST, source, destination),
+    )
+    .unwrap_or_else(|error| panic!("timber chest joinery start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("timber chest joinery start commit failed: {error}"));
+    assert_eq!(
+        state
+            .production()
+            .get_job(job)
+            .map(|record| record.active_duration()),
+        Some(TickSpan::new(80))
+    );
+    for _ in 0..20 {
+        advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("timber chest joinery pre-save tick failed: {error}"));
+    }
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("timber chest joinery serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("timber chest joinery decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("timber chest joinery trusted load failed: {error}"));
+    assert_eq!(loaded, state);
+
+    for _ in 20..80 {
+        let expected = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("timber chest joinery source tick failed: {error}"));
+        let actual = advance_tick(&registries, &mut loaded)
+            .unwrap_or_else(|error| panic!("timber chest joinery loaded tick failed: {error}"));
+        assert_eq!(actual, expected);
+    }
+    assert_eq!(loaded, state);
+    assert_eq!(state.player_work().active(), None);
+    assert!(state.production().get_job(job).is_none());
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(source)
+            .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| {
+                stockpile.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY))
+            }),
+        Some(chest_mass)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!(
+                "timber chest joinery final matter audit failed: {error}"
+            ))
+            .total(),
+        matter_before
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("timber chest joinery final state audit failed: {error}"));
 }
 
 #[test]

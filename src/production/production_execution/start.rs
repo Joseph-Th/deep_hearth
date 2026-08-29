@@ -68,7 +68,7 @@ pub enum StartProcessError {
     UnknownProcess {
         process: ProcessId,
     },
-    ManualCraftRequiresPlayerWork {
+    ManualProcessRequiresPlayerWork {
         process: ProcessId,
     },
     UnknownOutputMaterial {
@@ -197,9 +197,9 @@ impl Display for StartProcessError {
             Self::UnknownProcess { process } => {
                 write!(formatter, "unknown process id {}", process.value())
             }
-            Self::ManualCraftRequiresPlayerWork { process } => write!(
+            Self::ManualProcessRequiresPlayerWork { process } => write!(
                 formatter,
-                "manual craft process {} must start through the player-work boundary",
+                "manual process {} must start through the player-work boundary",
                 process.value()
             ),
             Self::UnknownOutputMaterial { material } => {
@@ -439,7 +439,7 @@ impl Error for StartProcessError {
             Self::DestinationStorage(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::UnknownProcess { .. }
-            | Self::ManualCraftRequiresPlayerWork { .. }
+            | Self::ManualProcessRequiresPlayerWork { .. }
             | Self::UnknownOutputMaterial { .. }
             | Self::UnknownOutputForm { .. }
             | Self::UnknownOutputCompositionMaterial { .. }
@@ -544,6 +544,16 @@ pub(crate) fn validate_start_manual_process(
     )
 }
 
+pub(crate) fn validate_start_manual_process_routed(
+    registries: &Registries,
+    state: &AppState,
+    resolution: &ProcessResolution,
+    source: StockpileId,
+    routes: &[ProcessOutputRoute],
+) -> Result<ValidatedStartProcess, StartProcessError> {
+    validate_start_process_routed_internal(registries, state, resolution, source, routes, true)
+}
+
 /// Validates a resolved process while assigning one destination to each inseparable output stream.
 ///
 /// Routes bind typed stream identities rather than relying on vector position. Multiple streams may
@@ -564,7 +574,7 @@ fn validate_start_process_routed_internal(
     resolution: &ProcessResolution,
     source: StockpileId,
     routes: &[ProcessOutputRoute],
-    allow_manual_craft: bool,
+    allow_player_labor: bool,
 ) -> Result<ValidatedStartProcess, StartProcessError> {
     let process = resolution.process();
     if source != resolution.source() {
@@ -576,8 +586,8 @@ fn validate_start_process_routed_internal(
     if registries.production().get_process(process).is_none() {
         return Err(StartProcessError::UnknownProcess { process });
     }
-    if !allow_manual_craft && registries.crafting().get_manual(process).is_some() {
-        return Err(StartProcessError::ManualCraftRequiresPlayerWork { process });
+    if !allow_player_labor && registries.manual_process_exertion(process).is_some() {
+        return Err(StartProcessError::ManualProcessRequiresPlayerWork { process });
     }
     let ValidatedOutputRouting {
         output_streams,

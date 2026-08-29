@@ -9,7 +9,7 @@ use crate::material::{
     COMPOSITION_PARTS_PER_MILLION, CommodityKey, MaterialComposition, MaterialId, MaterialLotSpec,
     MaterialRegistry, ParticleSizeDistribution, ParticleSizeStatePolicy,
 };
-use crate::ore_processing::ConstituentSeparationProcessDefinition;
+use crate::ore_processing::definitions::ConstituentSeparationPhysics;
 
 use super::ConstituentSeparationBatchError;
 
@@ -159,7 +159,7 @@ struct OutputAccumulator {
 
 fn validate_input_trace(
     materials: &MaterialRegistry,
-    definition: ConstituentSeparationProcessDefinition,
+    definition: ConstituentSeparationPhysics,
     trace: &ConsumedMaterialTrace,
 ) -> Result<SeparationInputKey, ConstituentSeparationBatchError> {
     let profile = trace.profile();
@@ -231,7 +231,7 @@ fn validate_input_trace(
 
 fn collect_inputs(
     materials: &MaterialRegistry,
-    definition: ConstituentSeparationProcessDefinition,
+    definition: ConstituentSeparationPhysics,
     traces: &[ConsumedMaterialTrace],
 ) -> Result<CollectedInputs, ConstituentSeparationBatchError> {
     if traces.is_empty() {
@@ -257,7 +257,7 @@ fn collect_inputs(
 }
 
 fn recover_group(
-    definition: ConstituentSeparationProcessDefinition,
+    definition: ConstituentSeparationPhysics,
     key: SeparationInputKey,
     mut input: ExactInputProfile,
 ) -> Result<RecoveredGroup, ConstituentSeparationBatchError> {
@@ -335,7 +335,7 @@ fn recover_group(
 impl OutputAccumulator {
     fn add_group(
         &mut self,
-        definition: ConstituentSeparationProcessDefinition,
+        definition: ConstituentSeparationPhysics,
         target_particle_size_policy: ParticleSizeStatePolicy,
         group: RecoveredGroup,
     ) -> Result<(), ConstituentSeparationBatchError> {
@@ -406,7 +406,7 @@ impl OutputAccumulator {
 
     fn finish(
         self,
-        definition: ConstituentSeparationProcessDefinition,
+        definition: ConstituentSeparationPhysics,
         selected_mass: Mass,
     ) -> Result<SeparationOutputs, ConstituentSeparationBatchError> {
         if self.recovered_target_mass.is_zero() {
@@ -437,7 +437,7 @@ impl OutputAccumulator {
 
 pub(super) fn resolve_separation_outputs(
     materials: &MaterialRegistry,
-    definition: ConstituentSeparationProcessDefinition,
+    definition: ConstituentSeparationPhysics,
     target_particle_size_policy: ParticleSizeStatePolicy,
     traces: &[ConsumedMaterialTrace],
 ) -> Result<SeparationOutputs, ConstituentSeparationBatchError> {

@@ -17,6 +17,7 @@ pub struct MatterAccounting {
     structural: AggregateMass,
     equipment: AggregateMass,
     energy_storage: AggregateMass,
+    storage_infrastructure: AggregateMass,
     stored: AggregateMass,
     in_process: AggregateMass,
     consumed: AggregateMass,
@@ -46,6 +47,12 @@ impl MatterAccounting {
     #[must_use]
     pub const fn energy_storage(self) -> AggregateMass {
         self.energy_storage
+    }
+
+    /// Matter embodied in material-backed inventory storage enclosures.
+    #[must_use]
+    pub const fn storage_infrastructure(self) -> AggregateMass {
+        self.storage_infrastructure
     }
 
     /// Matter currently owned by inventory lots.
@@ -81,6 +88,7 @@ pub enum MatterAccountingError {
     StructuralMassOverflow,
     EquipmentMassOverflow,
     EnergyStorageMassOverflow,
+    StorageInfrastructureMassOverflow,
     StoredMassOverflow,
     InProcessMassOverflow,
     ConsumedMassOverflow,
@@ -102,6 +110,8 @@ impl Display for MatterAccountingError {
             Self::EnergyStorageMassOverflow => {
                 formatter.write_str("energy-storage world matter exceeds aggregate mass range")
             }
+            Self::StorageInfrastructureMassOverflow => formatter
+                .write_str("storage-infrastructure world matter exceeds aggregate mass range"),
             Self::StoredMassOverflow => {
                 formatter.write_str("stored world matter exceeds aggregate mass range")
             }
@@ -116,6 +126,18 @@ impl Display for MatterAccountingError {
             }
         }
     }
+}
+
+fn calculate_storage_infrastructure_mass(
+    state: &AppState,
+) -> Result<AggregateMass, MatterAccountingError> {
+    let mut total = AggregateMass::ZERO;
+    for stockpile in state.inventory().stockpiles() {
+        total = total
+            .checked_add(AggregateMass::from_mass(stockpile.embodied_mass()))
+            .ok_or(MatterAccountingError::StorageInfrastructureMassOverflow)?;
+    }
+    Ok(total)
 }
 
 impl Error for MatterAccountingError {}
@@ -227,6 +249,7 @@ pub fn calculate_matter_accounting(
     let structural = calculate_structural_mass(state)?;
     let equipment = calculate_equipment_mass(state)?;
     let energy_storage = calculate_energy_storage_mass(state)?;
+    let storage_infrastructure = calculate_storage_infrastructure_mass(state)?;
     let stored = calculate_stored_mass(state)?;
     let in_process = calculate_in_process_mass(state)?;
     let consumed = calculate_consumed_mass(state)?;
@@ -235,6 +258,7 @@ pub fn calculate_matter_accounting(
         structural,
         equipment,
         energy_storage,
+        storage_infrastructure,
         stored,
         in_process,
         consumed,
@@ -244,6 +268,7 @@ pub fn calculate_matter_accounting(
         structural,
         equipment,
         energy_storage,
+        storage_infrastructure,
         stored,
         in_process,
         consumed,

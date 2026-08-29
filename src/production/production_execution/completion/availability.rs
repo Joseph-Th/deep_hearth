@@ -3,7 +3,7 @@
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::inventory::StockpileId;
-use crate::labor::{PlayerWorkTickError, decide_manual_craft_player_work_start};
+use crate::labor::{PlayerWorkTickError, decide_manual_production_player_work_start};
 use crate::registry::Registries;
 use crate::structural::StructuralLifecycle;
 
@@ -117,7 +117,7 @@ fn decide_job_unavailability(
     if physical_unavailable.is_some() || job.suspension().is_none() {
         return Ok(physical_unavailable);
     }
-    if registries.crafting().get_manual(job.process()).is_none() {
+    if registries.manual_process_exertion(job.process()).is_none() {
         return Ok(None);
     }
 
@@ -132,7 +132,7 @@ fn decide_job_unavailability(
             panic!("runtime invariant broken: manual resume candidate is not suspended")
         })
         .remaining_active_time();
-    match decide_manual_craft_player_work_start(registries, state, job.id(), remaining) {
+    match decide_manual_production_player_work_start(registries, state, job.id(), remaining) {
         Ok(Some(_start)) => {
             player_labor.claimed = true;
             Ok(None)

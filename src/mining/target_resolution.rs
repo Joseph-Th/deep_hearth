@@ -136,10 +136,12 @@ impl Error for MiningTargetResolutionError {}
 
 /// Resolves acquired evidence into exactly one hidden geological owner.
 ///
-/// Compatible evidence is allowed to narrow the requested region through its common spatial
-/// overlap. Evidence with no shared locality, explicit contradiction, or a zero upper abundance
-/// bound cannot authorize extraction. When the evidence does not identify exactly one live deposit,
-/// the player needs more localized information rather than receiving a hidden presence/count tie-break.
+/// Compatible evidence is allowed to narrow a locality only through overlap between the acquired
+/// observation footprints themselves. A narrower request cannot manufacture spatial precision from
+/// broad evidence. Evidence with no shared locality, explicit contradiction, a zero upper abundance
+/// bound, or a remaining multi-voxel acquired footprint cannot authorize extraction. Once acquired
+/// evidence genuinely localizes to one voxel, hidden geology is consulted only to bind the opaque
+/// authorization; zero or multiple compatible live deposits use the same non-oracular failure.
 pub fn resolve_mining_target(
     state: &AppState,
     request: MiningTargetRequest,
@@ -204,6 +206,18 @@ pub fn resolve_mining_target(
             )
         }
     };
+
+    let acquired_region = assessment.common_acquired_region().unwrap_or_else(|| {
+        unreachable!("compatible geological evidence must have a common acquired locality")
+    });
+    if acquired_region.voxel_count() != Some(1) {
+        return Err(
+            MiningTargetResolutionError::EvidenceInsufficientToResolveTarget {
+                material: request.material,
+                region: acquired_region,
+            },
+        );
+    }
 
     let mut matching = state.geology().deposits().filter(|deposit| {
         let abundance = deposit.composition().parts_per_million(request.material);

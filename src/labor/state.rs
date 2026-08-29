@@ -143,7 +143,7 @@ impl ManualPowerWork {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum PlayerWork {
-    ManualCraft { job: ProductionJobId },
+    ManualProduction { job: ProductionJobId },
     Mining { job: MiningJobId },
     ManualPower { work: ManualPowerWork },
     Prospecting { work: ProspectingWork },
@@ -185,7 +185,7 @@ impl PlayerWorkState {
             Some(PlayerWork::Prospecting { work }) => {
                 work.started_at() <= current && work.completes_at() > current
             }
-            Some(PlayerWork::ManualCraft { job: _ })
+            Some(PlayerWork::ManualProduction { job: _ })
             | Some(PlayerWork::Mining { job: _ })
             | None => true,
         }
@@ -198,7 +198,7 @@ impl PlayerWorkState {
     ) -> Option<ManualPowerWork> {
         match self.active {
             Some(PlayerWork::ManualPower { work }) if work.equipment() == equipment => Some(work),
-            Some(PlayerWork::ManualCraft { job: _ })
+            Some(PlayerWork::ManualProduction { job: _ })
             | Some(PlayerWork::Mining { job: _ })
             | Some(PlayerWork::ManualPower { work: _ })
             | Some(PlayerWork::Prospecting { work: _ })
@@ -213,7 +213,7 @@ impl PlayerWorkState {
     ) -> Option<ManualPowerWork> {
         match self.active {
             Some(PlayerWork::ManualPower { work }) if work.destination() == store => Some(work),
-            Some(PlayerWork::ManualCraft { job: _ })
+            Some(PlayerWork::ManualProduction { job: _ })
             | Some(PlayerWork::Mining { job: _ })
             | Some(PlayerWork::ManualPower { work: _ })
             | Some(PlayerWork::Prospecting { work: _ })

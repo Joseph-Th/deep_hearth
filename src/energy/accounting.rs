@@ -22,6 +22,7 @@ pub struct ExplicitEnergyAccounting {
     structural_material_thermal: Energy,
     equipment_material_thermal: Energy,
     energy_storage_material_thermal: Energy,
+    storage_infrastructure_material_thermal: Energy,
     inventory_material_thermal: Energy,
     mining_material_thermal: Energy,
     in_process_material_thermal: Energy,
@@ -55,6 +56,11 @@ impl ExplicitEnergyAccounting {
     }
 
     #[must_use]
+    pub const fn storage_infrastructure_material_thermal(self) -> Energy {
+        self.storage_infrastructure_material_thermal
+    }
+
+    #[must_use]
     pub const fn inventory_material_thermal(self) -> Energy {
         self.inventory_material_thermal
     }
@@ -81,11 +87,32 @@ impl ExplicitEnergyAccounting {
             .checked_add(self.structural_material_thermal)?
             .checked_add(self.equipment_material_thermal)?
             .checked_add(self.energy_storage_material_thermal)?
+            .checked_add(self.storage_infrastructure_material_thermal)?
             .checked_add(self.inventory_material_thermal)?
             .checked_add(self.mining_material_thermal)?
             .checked_add(self.in_process_material_thermal)?
             .checked_add(self.in_process_supplied)
     }
+}
+
+fn account_storage_infrastructure_material(
+    registries: &Registries,
+    state: &AppState,
+    accounting: &mut ExplicitEnergyAccounting,
+) -> Result<(), ExplicitEnergyAccountingError> {
+    for stockpile in state.inventory().stockpiles() {
+        let Some(enclosure) = stockpile.enclosure() else {
+            continue;
+        };
+        for trace in enclosure.embodied_material() {
+            add_trace_thermal_energy(
+                registries,
+                &mut accounting.storage_infrastructure_material_thermal,
+                trace,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// Failure to project currently modeled explicit energy ownership exactly.
@@ -285,6 +312,7 @@ pub fn calculate_explicit_energy_accounting(
     account_energy_stores(registries, state, &mut accounting)?;
     account_geological_material(registries, state, &mut accounting)?;
     account_inventory_material(registries, state, &mut accounting)?;
+    account_storage_infrastructure_material(registries, state, &mut accounting)?;
     account_embodied_material(registries, state, &mut accounting)?;
     account_in_flight_material(registries, state, &mut accounting)?;
     Ok(accounting)

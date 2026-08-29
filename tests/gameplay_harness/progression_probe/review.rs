@@ -146,6 +146,7 @@ fn evaluate_primitive_progression_probe(
 ) -> PrimitiveProgressionReview {
     assert_progression_runtime_dependencies(registries);
     let seed = case.seed();
+    let manual_fallback = evaluate_manual_processing_fallback(registries, seed);
     let deferred_trace_refinement = match case.role() {
         FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => true,
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
@@ -672,8 +673,26 @@ fn evaluate_primitive_progression_probe(
             .regional_upper_bounds_ppm
             .iter()
             .all(|upper_ppm| *upper_ppm > 0);
+    let manual_fallback_captured = manual_fallback.break_ticks > 0
+        && manual_fallback.sort_ticks > 0
+        && manual_fallback.cold_work_ticks > 0
+        && manual_fallback.total_attention_ticks
+            == manual_fallback
+                .break_ticks
+                .checked_add(manual_fallback.sort_ticks)
+                .and_then(|ticks| ticks.checked_add(manual_fallback.cold_work_ticks))
+                .unwrap_or_else(|| panic!("manual fallback attention accounting overflowed"))
+        && manual_fallback.recovered_native_mg >= manual_fallback.reinforcement_mg
+        && manual_fallback.native_remainder_mg
+            == manual_fallback.recovered_native_mg - manual_fallback.reinforcement_mg
+        && manual_fallback.recovered_native_mg + manual_fallback.residue_mg
+            == manual_fallback.ore_mass_mg
+        && manual_fallback.manual_recovery_ppm < manual_fallback.powered_recovery_ppm
+        && manual_fallback.metabolic_cost_nj > 0
+        && manual_fallback.hydration_cost_ul > 0;
     let fantasy_captured = regional_information_captured
         && information_path_captured
+        && manual_fallback_captured
         && review.processing_feed_selected_from_bulk
         && review.stone_mineable_clue_count > 0
         && review.hardness_blocked_clue_count > 0
@@ -731,6 +750,24 @@ fn evaluate_primitive_progression_probe(
         } else {
             "ranked"
         };
+    std::println!(
+        "PROGRESSION FALLBACK seed=0x{seed:016X} route=owned-ore->hand-break->hand-sort->cold-work captured:{manual_fallback_captured} input=[ore:{}mg copper:{}ppm gangue-clay-share:{}ppm] attention=[break:{}t sort:{}t cold-work:{}t total:{}t] matter=[native:{}mg residue:{}mg reinforcement:{}mg remainder:{}mg] recovery=[manual:{}ppm powered:{}ppm] survival-cost=[{}nJ {}uL] machinery=none stored-work=none matter=conserved",
+        manual_fallback.ore_mass_mg,
+        manual_fallback.ore_copper_ppm,
+        manual_fallback.gangue_clay_share_ppm,
+        manual_fallback.break_ticks,
+        manual_fallback.sort_ticks,
+        manual_fallback.cold_work_ticks,
+        manual_fallback.total_attention_ticks,
+        manual_fallback.recovered_native_mg,
+        manual_fallback.residue_mg,
+        manual_fallback.reinforcement_mg,
+        manual_fallback.native_remainder_mg,
+        manual_fallback.manual_recovery_ppm,
+        manual_fallback.powered_recovery_ppm,
+        manual_fallback.metabolic_cost_nj,
+        manual_fallback.hydration_cost_ul,
+    );
     std::println!(
         "PROGRESSION REVIEW seed=0x{seed:016X} fantasy=observe->infer->prepare->extract->invest->delegate->maintain->reinvest captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t alternative-evidence:{}..{}ppm] actor-choice=[policy=hard-lower-bound-premium>={}ppm chosen:{} owned-bulk:{}ppm hard-evidence:{}..{}ppm] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[extraction-feed:{} extraction-grade:{}ppm mechanization-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} first-output-delta:{:+}t reciprocal:{} converged:{}] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] stored-work=[passive-loss:{}nJ reserve-recharge:{}t] service=[pick:{}->{}ppm component:{}mg preparation:{}t copper-upgrade-preserved:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
         if review.information_refinement_required {

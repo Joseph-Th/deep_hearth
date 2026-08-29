@@ -13,7 +13,8 @@ use super::capabilities::{
 };
 use super::materials::COPPER_MELTING_POINT;
 use super::{
-    FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_COPPER, MATERIAL_STONE,
+    MATERIAL_WOOD,
 };
 
 pub const PROCESS_CRUSH_ORE: ProcessId = ProcessId::new(1);
@@ -28,6 +29,10 @@ pub const PROCESS_SHAPE_STONE_FLYWHEEL: ProcessId = ProcessId::new(9);
 pub const PROCESS_COLD_WORK_COPPER_REINFORCEMENT: ProcessId = ProcessId::new(10);
 pub const PROCESS_SEPARATE_NATIVE_COPPER: ProcessId = ProcessId::new(11);
 pub const PROCESS_CONCENTRATE_COPPER: ProcessId = ProcessId::new(12);
+pub const PROCESS_HAND_SORT_NATIVE_COPPER: ProcessId = ProcessId::new(13);
+pub const PROCESS_SHAPE_WOOD_BOARDS: ProcessId = ProcessId::new(14);
+pub const PROCESS_HAND_BREAK_ORE: ProcessId = ProcessId::new(15);
+pub const PROCESS_ASSEMBLE_TIMBER_CHEST: ProcessId = ProcessId::new(16);
 
 pub(crate) fn build_production_registry() -> ProductionRegistry {
     let mut registry = ProductionRegistry::new();
@@ -137,6 +142,30 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
                     CapabilityValue::Mass(Mass::from_milligrams(1)),
                 ),
             ],
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_HAND_SORT_NATIVE_COPPER,
+            "hand sort native copper from crushed ore",
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_ASSEMBLE_TIMBER_CHEST,
+            "assemble timber chest body",
+            vec![MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(2_400_000),
+            )],
+            Vec::new(),
+        ),
+        ProcessDefinition::new_selected_batch(PROCESS_HAND_BREAK_ORE, "hand break ore", Vec::new()),
+        ProcessDefinition::new(
+            PROCESS_SHAPE_WOOD_BOARDS,
+            "shape timber boards",
+            vec![MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+                Mass::from_milligrams(1_000_000),
+            )],
+            Vec::new(),
         ),
         ProcessDefinition::new_selected_batch(
             PROCESS_SEPARATE_NATIVE_COPPER,

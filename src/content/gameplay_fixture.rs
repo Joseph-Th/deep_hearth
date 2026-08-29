@@ -1,16 +1,19 @@
 //! External starting-state boundary for the gameplay exercise.
 //!
-//! Deep Hearth does not yet own world acquisition for loose matter, potable fluid, stored-energy
-//! generation, or a player-facing structural construction authorizer. The gameplay harness therefore
-//! has to arrange those facts before the acting policy starts. Keep every direct bootstrap-only
-//! mutation in this module so the exercise itself cannot accidentally treat a fixture shortcut as
-//! player behavior.
+//! Deep Hearth does not yet own general world acquisition for loose matter or potable fluid, broad
+//! structural construction/haulage, or generation/acquisition for every industrial energy carrier.
+//! Primitive energy-store assembly and survival-costed manual generation are real gameplay and must
+//! use their canonical runtime paths when a probe exercises them. The harness may arrange only the
+//! remaining unavailable starting facts before the acting policy starts. Keep every direct
+//! bootstrap-only mutation in this module so the exercise itself cannot accidentally treat a fixture
+//! shortcut as player behavior.
 //!
 //! Once setup returns, gameplay code must use the same runtime resolvers, validators, commits, and
 //! simulation ticks as the game core.
 
 use crate::core::quantity::{Energy, Mass, Pressure, Temperature, Volume};
-use crate::core::state::AppState;
+use crate::core::state::{AppState, apply_clock_advance};
+use crate::core::time::SimulationTick;
 use crate::energy::{
     EnergyStoreDefinitionId, EnergyStoreId, add_energy_store_with_initial_for_fixture,
 };
@@ -43,6 +46,25 @@ pub fn seed_player_survival_at_hydration_warning(registries: &Registries, state:
     initialize_player_survival_at_hydration_warning_for_fixture(registries, state).unwrap_or_else(
         |error| panic!("gameplay bootstrap hydration-warning seed failed: {error}"),
     );
+}
+
+/// Advances setup-only world age without executing gameplay systems.
+///
+/// Use this only to represent material or infrastructure that already existed before the acting
+/// episode begins. The helper requires an uninitialized player so setup cannot erase survival cost
+/// or skip active player work. Once the player is initialized, time must advance through canonical
+/// simulation ticks.
+pub fn seed_preexisting_world_age(state: &mut AppState, tick: SimulationTick) {
+    assert_eq!(
+        state.tick(),
+        SimulationTick::ZERO,
+        "gameplay bootstrap world age may only be established from the initial tick"
+    );
+    assert!(
+        state.survival().player().is_none(),
+        "gameplay bootstrap world age must be established before player survival begins"
+    );
+    apply_clock_advance(state, tick);
 }
 
 /// Seeds a controlled scenario player at the authored hunger warning boundary.

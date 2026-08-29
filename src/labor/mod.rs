@@ -1,4 +1,4 @@
-//! Exclusive player-work ownership shared by manual crafting and extraction systems.
+//! Exclusive player-work ownership shared by manual production and extraction systems.
 
 mod attention;
 mod definitions;
@@ -27,7 +27,7 @@ pub(crate) use attention::{
 };
 pub(crate) use lifecycle::{
     PlayerWorkTickError, ValidatedPlayerWorkStart, apply_player_work_tick,
-    decide_manual_craft_player_work_start, decide_player_work_tick, player_work_exertion,
+    decide_manual_production_player_work_start, decide_player_work_tick, player_work_exertion,
     validate_player_work_start,
 };
 pub(crate) use power_execution::{

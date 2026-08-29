@@ -371,6 +371,14 @@ impl ValidatedProcessInputs {
         )
     }
 
+    pub(crate) fn resolve_without_resources_routed(
+        self,
+        duration: TickSpan,
+        output_streams: Vec<ProcessOutputStream>,
+    ) -> Result<ProcessResolution, ProcessResolutionError> {
+        self.resolve_inner(duration, output_streams, ProcessResourceResolution::NONE)
+    }
+
     pub(crate) fn resolve_with_energy_and_equipment(
         self,
         duration: TickSpan,

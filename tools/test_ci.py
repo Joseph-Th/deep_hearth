@@ -339,7 +339,9 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertEqual(len(builds), 1)
         self.assertNotIn("check-fast", builds[0])
         self.assertEqual(builds[0].count("--test"), 1)
-        self.assertIn("gameplay_survival", builds[0])
+        self.assertIn(ci.GAMEPLAY_AUDIT_TARGET, builds[0])
+        self.assertIn(ci.GAMEPLAY_TESTS["survival"], builds[0])
+        self.assertIn("--exact", builds[0])
 
     def test_gate_rejects_complete_core_suite_as_a_repair_loop(self) -> None:
         with self.assertRaisesRegex(ValueError, "audit-only"):
@@ -360,8 +362,28 @@ class LocalCiPlanTests(unittest.TestCase):
     def test_audit_has_no_redundant_compile_only_stage(self) -> None:
         builds = cargo_build_commands(ci.audit_plan("all"))
         self.assertFalse(any("check-fast" in command for command in builds))
-        self.assertEqual(sum(command == ["cargo", "test-fast"] for command in builds), 1)
-        self.assertEqual(sum("test-gameplay" in command for command in builds), 1)
+        self.assertEqual(builds, [ci.combined_test_command()])
+        self.assertIn("--lib", builds[0])
+        self.assertIn(ci.GAMEPLAY_AUDIT_TARGET, builds[0])
+
+    def test_combined_audit_summary_keeps_core_and_gameplay_counts_legible(self) -> None:
+        output = "\n".join(
+            [
+                "test result: ok. 559 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
+                "test result: ok. 26 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out",
+            ]
+        )
+        self.assertEqual(
+            ci.combined_test_summary(output),
+            "559 core + 26 gameplay, 1 ignored",
+        )
+
+    def test_core_and_gameplay_execution_share_one_test_support_feature_shape(self) -> None:
+        config = tomllib.loads((ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8"))
+        core_alias = config["alias"]["test-fast"]
+        gameplay = " ".join(ci.gameplay_command("all"))
+        self.assertIn("--features test-gameplay", core_alias)
+        self.assertIn("--features test-gameplay", gameplay)
 
     def test_scoped_audits_do_not_build_the_other_broad_surface(self) -> None:
         core_builds = cargo_build_commands(ci.audit_plan("core"))
@@ -393,10 +415,18 @@ class LocalCiPlanTests(unittest.TestCase):
             "python tools/run_test.py --target gameplay_audit configuration::tests::broken_contract",
         )
 
-    def test_gameplay_failure_without_test_name_falls_back_to_focused_target(self) -> None:
-        error = "error: test failed, to rerun pass `--test gameplay_workshop`"
+    def test_combined_audit_core_failure_points_to_exact_unit_test(self) -> None:
+        output = "failures:\n    mining::execution::tests::missing_capability\n"
+        error = "error: test failed, to rerun pass `--lib`"
         self.assertEqual(
-            ci.repair_hint(ci.gameplay_command("all"), "", error),
+            ci.repair_hint(ci.combined_test_command(), output, error),
+            "python tools/run_test.py mining::execution::tests::missing_capability",
+        )
+
+    def test_gameplay_failure_without_test_name_reuses_the_semantic_scope(self) -> None:
+        error = "error: test failed, to rerun pass `--test gameplay_audit`"
+        self.assertEqual(
+            ci.repair_hint(ci.gameplay_command("workshop"), "", error),
             "python ci.py gate --gameplay workshop",
         )
 
@@ -442,34 +472,55 @@ class LocalCiPlanTests(unittest.TestCase):
 
     def test_integration_exact_command_infers_target_required_features(self) -> None:
         args = argparse.Namespace(
-            target="gameplay_ore",
+            target=ci.GAMEPLAY_AUDIT_TARGET,
             features=None,
             list=False,
-            name="gameplay_ore_preparation_probe",
+            name=ci.GAMEPLAY_TESTS["ore"],
+            suite=False,
             ignored=False,
             nocapture=False,
         )
         command = run_test.cargo_command(args)
         self.assertEqual(command.count("--features"), 1)
         self.assertIn("test-gameplay", command)
-        self.assertIn("gameplay_ore", command)
+        self.assertIn(ci.GAMEPLAY_AUDIT_TARGET, command)
 
     def test_library_check_command_avoids_codegen_and_linking(self) -> None:
         args = argparse.Namespace(
             target="lib",
             features=None,
             list=False,
+            suite=False,
         )
         self.assertEqual(
             run_test.cargo_check_command(args),
-            ["cargo", "check", "--quiet", "--locked", "--lib", "--tests"],
+            [
+                "cargo",
+                "check",
+                "--quiet",
+                "--locked",
+                "--lib",
+                "--tests",
+            ],
         )
+
+    def test_library_check_does_not_enable_gameplay_integration_feature_by_default(self) -> None:
+        args = argparse.Namespace(
+            target="lib",
+            features=None,
+            list=False,
+            suite=False,
+        )
+        command = run_test.cargo_check_command(args)
+        self.assertNotIn("test-gameplay", command)
+        self.assertNotIn("gameplay_audit", command)
 
     def test_integration_check_command_infers_required_features_without_linking(self) -> None:
         args = argparse.Namespace(
-            target="gameplay_ore",
+            target=ci.GAMEPLAY_AUDIT_TARGET,
             features=None,
             list=False,
+            suite=False,
         )
         self.assertEqual(
             run_test.cargo_check_command(args),
@@ -479,7 +530,7 @@ class LocalCiPlanTests(unittest.TestCase):
                 "--quiet",
                 "--locked",
                 "--test",
-                "gameplay_ore",
+                ci.GAMEPLAY_AUDIT_TARGET,
                 "--features",
                 "test-gameplay",
             ],
@@ -530,12 +581,17 @@ class LocalCiPlanTests(unittest.TestCase):
             [
                 "running 1 test",
                 "HARNESS INPUT plan=anchor+variation",
+                "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression]",
                 "AGENCY INPUT mode=explore organic=3 variation_root=0x1234",
                 "WORKSHOP CAPABILITY mode=exploratory scenarios=9",
                 "PROBE INPUT name=ore-preparation mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,organic:0x00000000000000AA,organic:0x00000000000000BB",
                 "ORE REVIEW seed=0x0000000000000001 anchor-detail",
                 "ORE REVIEW seed=0x00000000000000AA organic-representative",
                 "ORE REVIEW seed=0x00000000000000BB second-organic-detail",
+                "PROBE INPUT name=primitive-progression mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,coverage:0x0000000000000002,organic:0x00000000000000AA,organic:0x00000000000000BB",
+                "PROGRESSION FALLBACK seed=0x0000000000000001 anchor-fallback",
+                "PROGRESSION FALLBACK seed=0x0000000000000002 coverage-fallback",
+                "PROGRESSION FALLBACK seed=0x00000000000000AA organic-fallback",
                 "test result: ok. 1 passed",
             ]
         )
@@ -544,12 +600,17 @@ class LocalCiPlanTests(unittest.TestCase):
             "\n".join(
                 [
                     "HARNESS INPUT plan=anchor+variation",
+                    "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression]",
                     "AGENCY INPUT mode=explore organic=3 variation_root=0x1234",
                     "WORKSHOP CAPABILITY mode=exploratory scenarios=9",
                     "PROBE INPUT name=ore-preparation mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,organic:0x00000000000000AA,organic:0x00000000000000BB",
                     "ORE REVIEW seed=0x0000000000000001 anchor-detail",
                     "ORE REVIEW seed=0x00000000000000AA organic-representative",
                     "ORE REVIEW seed=0x00000000000000BB second-organic-detail",
+                    "PROBE INPUT name=primitive-progression mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,coverage:0x0000000000000002,organic:0x00000000000000AA,organic:0x00000000000000BB",
+                    "PROGRESSION FALLBACK seed=0x0000000000000001 anchor-fallback",
+                    "PROGRESSION FALLBACK seed=0x0000000000000002 coverage-fallback",
+                    "PROGRESSION FALLBACK seed=0x00000000000000AA organic-fallback",
                 ]
             ),
         )
@@ -571,10 +632,7 @@ class LocalCiPlanTests(unittest.TestCase):
         for key in ("autobins", "autoexamples", "autotests", "autobenches"):
             self.assertFalse(package[key])
         targets = {definition["name"] for definition in manifest.get("test", [])}
-        self.assertEqual(
-            targets,
-            set(ci.GAMEPLAY_TARGETS.values()) | {ci.GAMEPLAY_AUDIT_TARGET},
-        )
+        self.assertEqual(targets, {ci.GAMEPLAY_AUDIT_TARGET})
         binaries = {definition["name"] for definition in manifest.get("bin", [])}
         self.assertEqual(binaries, {"validate-shaders"})
 
@@ -682,12 +740,13 @@ class ExactTestCommandTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ambiguous.*2 matches"):
             run_test.resolve_test_name("preserves_mass", catalog)
 
-    def test_default_exact_command_reuses_default_library_shape(self) -> None:
+    def test_default_exact_command_reuses_shared_test_support_shape(self) -> None:
         args = argparse.Namespace(
             target="lib",
             features=None,
             list=False,
             name="module::tests::case",
+            suite=False,
             ignored=False,
             nocapture=False,
         )
@@ -699,6 +758,8 @@ class ExactTestCommandTests(unittest.TestCase):
                 "--quiet",
                 "--locked",
                 "--lib",
+                "--features",
+                "test-gameplay",
                 "module::tests::case",
                 "--",
                 "--exact",
@@ -736,24 +797,7 @@ class ExactTestCommandTests(unittest.TestCase):
         )
 
     def test_source_catalog_resolves_gameplay_target_modules(self) -> None:
-        workshop = run_test.source_test_catalog("gameplay_workshop", None)
-        ore = run_test.source_test_catalog("gameplay_ore", None)
         audit = run_test.source_test_catalog("gameplay_audit", None)
-        self.assertIn("workshop_contract_tests::gameplay_harness_gate", workshop)
-        self.assertNotIn("agency::gameplay_agency_counterfactuals", workshop)
-        self.assertNotIn(
-            "catalog_contract_tests::gameplay_catalog_is_discovered_from_runtime_owners",
-            workshop,
-        )
-        self.assertNotIn(
-            "catalog_contract_tests::gameplay_generators_retain_meaningful_physical_variation",
-            workshop,
-        )
-        self.assertIn(
-            "configuration::tests::default_gate_keeps_maintained_anchors_and_adds_one_organic_case",
-            workshop,
-        )
-        self.assertEqual(ore, ["gameplay_ore_preparation_probe"])
         self.assertTrue(
             {
                 "focused::gameplay_survival_provisioning_probe",
@@ -765,20 +809,9 @@ class ExactTestCommandTests(unittest.TestCase):
                 "gameplay_report",
             }.issubset(set(audit))
         )
-        self.assertTrue(set(workshop).issubset(set(audit)))
-        self.assertEqual(
-            set(audit) - set(workshop),
-            {
-                "agency::gameplay_agency_counterfactuals",
-                "catalog_contract_tests::gameplay_catalog_is_discovered_from_runtime_owners",
-                "catalog_contract_tests::gameplay_generators_retain_meaningful_physical_variation",
-                "focused::gameplay_survival_provisioning_probe",
-                "focused::gameplay_primitive_progression_probe",
-                "focused::gameplay_ore_preparation_probe",
-                "focused::gameplay_foundry_probe",
-                "gameplay_report",
-            },
-            "every broad-audit-only test must be an explicit counterfactual, focused probe, or report",
+        self.assertTrue(
+            set(ci.GAMEPLAY_TESTS.values()).issubset(set(audit)),
+            "every semantic gameplay scope must resolve to one exact test in the shared gameplay target",
         )
 
     def test_source_catalog_listing_never_builds_through_cargo_command(self) -> None:
@@ -787,11 +820,31 @@ class ExactTestCommandTests(unittest.TestCase):
             features=None,
             list=True,
             name="survival",
+            suite=False,
             ignored=False,
             nocapture=False,
         )
         with self.assertRaisesRegex(ValueError, "does not invoke Cargo"):
             run_test.cargo_command(args)
+
+    def test_suite_command_runs_one_catalog_group_without_exact_filtering(self) -> None:
+        args = argparse.Namespace(
+            target="lib",
+            features=None,
+            list=False,
+            name="ore_processing::separation_execution::tests::",
+            suite=True,
+            ignored=False,
+            nocapture=False,
+        )
+        command = run_test.cargo_command(args)
+        self.assertIn("test-gameplay", command)
+        self.assertIn(args.name, command)
+        self.assertNotIn("--exact", command)
+
+    def test_suite_result_counts_come_from_cargo_execution_not_source_matches(self) -> None:
+        output = "test result: ok. 19 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out"
+        self.assertEqual(run_test.executed_test_counts(output), (19, 2))
 
 
 if __name__ == "__main__":

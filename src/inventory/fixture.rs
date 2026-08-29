@@ -92,6 +92,7 @@ pub(crate) fn add_stockpile(
         id,
         capacity,
         storage_profile,
+        enclosure: None,
         supported_by: None,
         stored_mass: Mass::ZERO,
         reserved_inbound: Mass::ZERO,

@@ -141,6 +141,68 @@ fn broad_evidence_does_not_choose_between_multiple_hidden_deposits() {
 }
 
 #[test]
+fn broad_positive_evidence_does_not_reveal_one_hidden_deposit() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_1009));
+    let target = bounds(1, 2);
+    let broad = bounds(0, 3);
+    insert_copper_deposit(&registries, &mut state, target);
+    record_copper_evidence(&registries, &mut state, broad, 1, 1_000_000);
+
+    assert_eq!(
+        resolve_mining_target(&state, MiningTargetRequest::new(broad, MATERIAL_COPPER)),
+        Err(
+            MiningTargetResolutionError::EvidenceInsufficientToResolveTarget {
+                material: MATERIAL_COPPER,
+                region: broad,
+            }
+        ),
+        "hidden deposit count must not turn area evidence into an exact extraction target"
+    );
+}
+
+#[test]
+fn narrow_request_cannot_turn_broad_positive_evidence_into_localization() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_1010));
+    let target = bounds(1, 2);
+    let broad = bounds(0, 3);
+    insert_copper_deposit(&registries, &mut state, target);
+    record_copper_evidence(&registries, &mut state, broad, 1, 1_000_000);
+
+    assert_eq!(
+        resolve_mining_target(&state, MiningTargetRequest::new(target, MATERIAL_COPPER)),
+        Err(
+            MiningTargetResolutionError::EvidenceInsufficientToResolveTarget {
+                material: MATERIAL_COPPER,
+                region: broad,
+            }
+        ),
+        "request geometry must not be usable as a hidden-location oracle"
+    );
+}
+
+#[test]
+fn overlapping_acquired_observations_can_genuinely_localize_one_voxel() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_1011));
+    let west = bounds(0, 2);
+    let east = bounds(1, 3);
+    let localized = bounds(1, 2);
+    let query = bounds(0, 3);
+    insert_copper_deposit(&registries, &mut state, localized);
+    record_copper_evidence(&registries, &mut state, west, 900_000, 1_000_000);
+    record_copper_evidence(&registries, &mut state, east, 900_000, 1_000_000);
+
+    let resolved = resolve_mining_target(&state, MiningTargetRequest::new(query, MATERIAL_COPPER))
+        .unwrap_or_else(|error| {
+            panic!("acquired evidence overlap did not localize target: {error}")
+        });
+    assert_eq!(resolved.region(), localized);
+    assert_eq!(resolved.material(), MATERIAL_COPPER);
+}
+
+#[test]
 fn abundance_bounds_must_fit_the_hidden_target_composition() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xA11E_1007));

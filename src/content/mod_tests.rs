@@ -1,11 +1,15 @@
 //! Built-in registry assembly, reference integrity, and resolver-ownership tests.
 
+use std::collections::BTreeSet;
+
 use super::*;
 use crate::capability::{
     CapabilityComparison, CapabilityDefinition, CapabilityId, CapabilityRegistry,
     CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
-use crate::core::quantity::{Energy, Length, Mass, MassSpecificEnergy, Power, Temperature};
+use crate::core::quantity::{
+    Energy, Length, Mass, MassFlow, MassSpecificEnergy, Power, Temperature,
+};
 use crate::core::time::TickSpan;
 use crate::energy::EnergyCarrier;
 use crate::material::{CommodityKey, MaterialInputSpec, ParticleSizeRange};
@@ -60,6 +64,163 @@ fn assert_thermal_reference_validation_rejects(thermal: ThermalRegistry) {
     });
 
     assert!(result.is_err());
+}
+
+fn assert_primitive_commodity_reachable(
+    registries: &Registries,
+    commodity: CommodityKey,
+    roots: &BTreeSet<CommodityKey>,
+    visiting: &mut BTreeSet<CommodityKey>,
+) {
+    if roots.contains(&commodity) {
+        return;
+    }
+    assert!(
+        visiting.insert(commodity),
+        "primitive component route contains a manual-crafting cycle at commodity {}",
+        commodity.value()
+    );
+    let producers = registries
+        .crafting()
+        .definitions()
+        .filter(|definition| {
+            definition
+                .outputs()
+                .iter()
+                .any(|output| output.commodity() == commodity)
+        })
+        .collect::<Vec<_>>();
+    let [producer] = producers.as_slice() else {
+        panic!(
+            "primitive component commodity {} must have exactly one ordinary manual producer or be an authored primitive root; found {} producers",
+            commodity.value(),
+            producers.len()
+        );
+    };
+    assert_primitive_commodity_reachable(registries, producer.input(), roots, visiting);
+    assert!(visiting.remove(&commodity));
+}
+
+#[test]
+fn every_declared_primitive_infrastructure_component_has_a_transitive_runtime_route() {
+    let registries = build_registries();
+    let roots = BTreeSet::from([
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+    ]);
+    let mut required = BTreeSet::new();
+
+    for definition in registries.equipment().definitions() {
+        if !definition.has_runtime_acquisition_route() {
+            continue;
+        }
+        if let Some(assembly) = definition.assembly_profile() {
+            required.extend(assembly.inputs().iter().map(MaterialInputSpec::commodity));
+        }
+        if let Some(upgrade) = definition.upgrade_profile() {
+            let base = registries
+                .equipment()
+                .get_equipment(upgrade.from())
+                .unwrap_or_else(|| unreachable!("registry validation resolves upgrade bases"));
+            assert!(
+                base.has_runtime_acquisition_route(),
+                "runtime equipment upgrade {} starts from base {} with no ordinary acquisition route",
+                definition.id().value(),
+                base.id().value()
+            );
+            required.extend(
+                upgrade
+                    .additions()
+                    .inputs()
+                    .iter()
+                    .map(MaterialInputSpec::commodity),
+            );
+        }
+    }
+    for definition in registries.energy().definitions() {
+        if let Some(assembly) = definition.assembly_profile() {
+            required.extend(assembly.inputs().iter().map(MaterialInputSpec::commodity));
+        }
+    }
+    for definition in registries.storage().definitions() {
+        required.extend(
+            definition
+                .assembly_profile()
+                .inputs()
+                .iter()
+                .map(MaterialInputSpec::commodity),
+        );
+    }
+
+    for commodity in required {
+        assert_primitive_commodity_reachable(&registries, commodity, &roots, &mut BTreeSet::new());
+    }
+}
+
+#[test]
+fn built_in_preservation_storage_has_a_complete_material_route_and_legible_component() {
+    let registries = build_registries();
+    let chest = registries
+        .storage()
+        .get(STORAGE_TIMBER_PROVISIONS_CHEST)
+        .unwrap_or_else(|| panic!("built-in provisions chest definition disappeared"));
+    assert_eq!(
+        chest.maximum_stockpile_capacity(),
+        Mass::from_milligrams(20_000_000)
+    );
+    assert_eq!(
+        chest.storage_profile().preservation_multiplier_ppm(),
+        2_000_000
+    );
+    assert_eq!(
+        chest.assembly_profile().input_mass(),
+        Mass::from_milligrams(2_400_000)
+    );
+    assert_eq!(chest.assembly_profile().inputs().len(), 1);
+    let body = chest.assembly_profile().inputs()[0].commodity();
+    assert_eq!(body, CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY));
+    assert!(
+        registries
+            .textures()
+            .get_commodity_appearance(body)
+            .and_then(|binding| binding.object())
+            .is_some(),
+        "preservation chest body must remain player-legible"
+    );
+    let chest_process = registries
+        .crafting()
+        .definitions()
+        .find(|definition| {
+            definition
+                .outputs()
+                .iter()
+                .any(|output| output.commodity() == body)
+        })
+        .unwrap_or_else(|| panic!("provisions chest body lost its ordinary joinery route"));
+    assert_eq!(chest_process.process(), PROCESS_ASSEMBLE_TIMBER_CHEST);
+    assert_eq!(
+        chest_process.input(),
+        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)
+    );
+    assert_eq!(chest_process.input_mass(), Mass::from_milligrams(2_400_000));
+    assert_eq!(chest_process.duration(), TickSpan::new(80));
+    let board = chest_process.input();
+    let board_process = registries
+        .crafting()
+        .definitions()
+        .find(|definition| {
+            definition
+                .outputs()
+                .iter()
+                .any(|output| output.commodity() == board)
+        })
+        .unwrap_or_else(|| panic!("provisions chest boards lost their ordinary shaping route"));
+    assert_eq!(board_process.process(), PROCESS_SHAPE_WOOD_BOARDS);
+    assert_eq!(
+        board_process.input(),
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
+    );
 }
 
 #[test]
@@ -271,6 +432,8 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         PROCESS_GRIND_CRUSHED_ORE,
         PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
         PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+        PROCESS_HAND_BREAK_ORE,
+        PROCESS_HAND_SORT_NATIVE_COPPER,
         PROCESS_SEPARATE_NATIVE_COPPER,
         PROCESS_CONCENTRATE_COPPER,
     ] {
@@ -303,6 +466,18 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
     assert!(
         registries
             .ore_processing()
+            .get_manual_comminution(PROCESS_HAND_BREAK_ORE)
+            .is_some()
+    );
+    assert!(
+        registries
+            .ore_processing()
+            .get_manual_constituent_separation(PROCESS_HAND_SORT_NATIVE_COPPER)
+            .is_some()
+    );
+    assert!(
+        registries
+            .ore_processing()
             .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
             .is_some()
     );
@@ -324,6 +499,68 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
             .get_casting(PROCESS_CAST_PURE_COPPER)
             .is_some()
     );
+}
+
+#[test]
+fn built_in_manual_ore_processing_is_a_complete_bounded_fallback() {
+    let registries = build_registries();
+    let breaking = registries
+        .ore_processing()
+        .get_manual_comminution(PROCESS_HAND_BREAK_ORE)
+        .unwrap_or_else(|| panic!("built-in manual ore breaking disappeared"));
+    let sorting = registries
+        .ore_processing()
+        .get_manual_constituent_separation(PROCESS_HAND_SORT_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("built-in manual native-copper sorting disappeared"));
+    let powered_sorting = registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("built-in powered native-copper sorting disappeared"));
+    let powered_breaking = registries
+        .ore_processing()
+        .get_comminution(PROCESS_CRUSH_ORE)
+        .unwrap_or_else(|| panic!("built-in powered ore crushing disappeared"));
+
+    assert_eq!(breaking.input_form(), FORM_ORE);
+    assert_eq!(breaking.output_form(), FORM_CRUSHED);
+    assert_eq!(sorting.input_form(), breaking.output_form());
+    assert_eq!(
+        sorting.input_particle_size_range(),
+        breaking.output_particle_size(),
+        "hand breaking must produce exactly the visible-piece envelope accepted by hand sorting"
+    );
+    assert!(
+        breaking.output_particle_size().minimum_diameter()
+            > powered_breaking.output_particle_size().minimum_diameter(),
+        "hand breaking should retain coarser sortable pieces instead of duplicating powered crusher fines"
+    );
+    assert_eq!(
+        breaking.output_particle_size().maximum_diameter(),
+        powered_breaking.output_particle_size().maximum_diameter()
+    );
+    assert_eq!(sorting.target_output_form(), FORM_NATIVE_METAL);
+    assert_eq!(sorting.residue_output_form(), FORM_CRUSHED);
+    assert_eq!(breaking.max_batch_mass(), Mass::from_milligrams(100_000));
+    assert_eq!(
+        breaking.processing_rate(),
+        MassFlow::from_milligrams_per_second(250)
+    );
+    assert_eq!(sorting.max_batch_mass(), Mass::from_milligrams(200_000));
+    assert_eq!(
+        sorting.processing_rate(),
+        MassFlow::from_milligrams_per_second(500)
+    );
+    assert_eq!(sorting.target_recovery_ppm(), 650_000);
+    assert_eq!(powered_sorting.target_recovery_ppm(), 900_000);
+    assert!(sorting.target_recovery_ppm() < powered_sorting.target_recovery_ppm());
+    for process in [PROCESS_HAND_BREAK_ORE, PROCESS_HAND_SORT_NATIVE_COPPER] {
+        let production = registries
+            .production()
+            .get_process(process)
+            .unwrap_or_else(|| panic!("built-in manual ore process disappeared"));
+        assert!(production.capability_requirements().is_empty());
+        assert!(registries.manual_process_exertion(process).is_some());
+    }
 }
 
 #[test]
@@ -673,6 +910,7 @@ fn process_capability_references_are_validated_during_registry_assembly() {
             crafting: crate::crafting::CraftingRegistry::new(std::iter::empty()),
             labor: labor::empty_labor_registry(),
             equipment: empty_equipment_registry(),
+            storage: crate::inventory::StorageRegistry::new(std::iter::empty()),
             structural: structural::build_structural_registry(),
             materials: materials::build_material_registry(),
             mining: crate::mining::MiningRegistry::new(std::iter::empty()),
@@ -773,6 +1011,7 @@ fn process_cannot_own_multiple_physical_resolver_semantics() {
                 crafting: crate::crafting::CraftingRegistry::new(std::iter::empty()),
                 labor: labor::empty_labor_registry(),
                 equipment: empty_equipment_registry(),
+                storage: crate::inventory::StorageRegistry::new(std::iter::empty()),
                 structural: structural::build_structural_registry(),
                 materials: materials::build_material_registry(),
                 mining: crate::mining::MiningRegistry::new(std::iter::empty()),

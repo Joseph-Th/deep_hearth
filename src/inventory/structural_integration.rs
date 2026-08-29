@@ -1,4 +1,4 @@
-//! Stockpile-to-structure support integration; inventory owns support assignment while structural state owns the resulting aggregate stored-matter load.
+//! Stockpile-to-structure support integration; inventory owns support assignment while structural state owns the resulting aggregate stockpile-matter load.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
@@ -204,10 +204,13 @@ fn supported_mass(
             .inventory()
             .get_stockpile(stockpile)
             .ok_or(StockpileStructuralLoadError::UnknownStockpile { stockpile })?;
-        let mass = overrides
+        let stored_mass = overrides
             .get(&stockpile)
             .copied()
             .unwrap_or_else(|| record.stored_mass());
+        let mass = stored_mass
+            .checked_add(record.embodied_mass())
+            .ok_or(StockpileStructuralLoadError::AggregateMassOverflow { element })?;
         total = total
             .checked_add(AggregateMass::from_mass(mass))
             .ok_or(StockpileStructuralLoadError::AggregateMassOverflow { element })?;
@@ -667,8 +670,14 @@ pub fn validate_mount_stockpile(
     validate_existing_load(registries, state, element).map_err(StockpileSupportError::Load)?;
     let current_mass = supported_mass(state, element, &BTreeMap::new(), None)
         .map_err(StockpileSupportError::Load)?;
+    let stockpile_mass = record
+        .stored_mass()
+        .checked_add(record.embodied_mass())
+        .ok_or(StockpileSupportError::Load(
+            StockpileStructuralLoadError::AggregateMassOverflow { element },
+        ))?;
     let next_mass = current_mass
-        .checked_add(AggregateMass::from_mass(record.stored_mass()))
+        .checked_add(AggregateMass::from_mass(stockpile_mass))
         .ok_or(StockpileSupportError::Load(
             StockpileStructuralLoadError::AggregateMassOverflow { element },
         ))?;

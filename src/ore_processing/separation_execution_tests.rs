@@ -4,8 +4,8 @@ use super::*;
 use crate::content::{
     ENERGY_MECHANICAL_SMALL_DRIVE, EQUIPMENT_STONE_SEPARATOR, FORM_CONCENTRATE, FORM_CRUSHED,
     FORM_NATIVE_METAL, FORM_TAILINGS, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_SLAG,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CONCENTRATE_COPPER, PROCESS_SEPARATE_NATIVE_COPPER,
-    build_registries,
+    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CONCENTRATE_COPPER, PROCESS_HAND_SORT_NATIVE_COPPER,
+    PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
 };
 use crate::core::quantity::{Energy, Length, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
@@ -15,13 +15,16 @@ use crate::equipment::validate_assemble_equipment;
 use crate::inventory::{
     add_solid_stockpile_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
 };
+use crate::labor::PlayerWork;
 use crate::material::{
     CommodityKey, CompositionComponent, MaterialComposition, MaterialLotSpec, ParticleSizeRange,
 };
 use crate::matter::calculate_matter_accounting;
+use crate::ore_processing::ManualConstituentSeparationProcessDefinition;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
-use crate::production::{ProcessOutputRoute, validate_start_process_routed};
+use crate::production::{ProcessOutputRoute, StartProcessError, validate_start_process_routed};
 use crate::simulation::advance_tick;
+use crate::survival::{assess_survival, initialize_player_survival};
 
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(300_000);
 
@@ -31,6 +34,14 @@ fn liberated_particle_size() -> ParticleSizeRange {
         Length::from_micrometers(10_000),
     )
     .unwrap_or_else(|error| panic!("separation particle-size fixture failed: {error}"))
+}
+
+fn hand_sortable_particle_size() -> ParticleSizeRange {
+    ParticleSizeRange::new(
+        Length::from_micrometers(2_000),
+        Length::from_micrometers(10_000),
+    )
+    .unwrap_or_else(|error| panic!("hand-sortable particle-size fixture failed: {error}"))
 }
 
 fn concentration_particle_size() -> ParticleSizeRange {
@@ -221,6 +232,345 @@ fn resolve_process(
 
 fn resolve(fixture: &Fixture, mass: Mass) -> ResolvedConstituentSeparation {
     resolve_process(fixture, PROCESS_SEPARATE_NATIVE_COPPER, mass)
+}
+
+struct ManualFixture {
+    registries: Registries,
+    state: AppState,
+    source: StockpileId,
+    target: StockpileId,
+    residue: StockpileId,
+    lot: crate::inventory::MaterialLotId,
+}
+
+fn manual_fixture(mass: Mass, composition: MaterialComposition) -> ManualFixture {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x9720_1001));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("manual separation survival fixture failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, mass)
+        .unwrap_or_else(|error| panic!("manual separation source fixture failed: {error}"));
+    let target = add_solid_stockpile_for_test(&mut state, mass)
+        .unwrap_or_else(|error| panic!("manual separation target fixture failed: {error}"));
+    let residue = add_solid_stockpile_for_test(&mut state, mass)
+        .unwrap_or_else(|error| panic!("manual separation residue fixture failed: {error}"));
+    let input = MaterialLotSpec::with_composition_and_particle_size(
+        CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+        mass,
+        TEMPERATURE,
+        composition,
+        hand_sortable_particle_size(),
+    )
+    .unwrap_or_else(|error| panic!("manual separation input specification failed: {error}"));
+    let lot = deposit_lot_spec_for_test(&registries, &mut state, source, input)
+        .unwrap_or_else(|error| panic!("manual separation input lot failed: {error}"));
+    ManualFixture {
+        registries,
+        state,
+        source,
+        target,
+        residue,
+        lot,
+    }
+}
+
+#[test]
+fn hand_sorting_rejects_fine_ground_feed_that_is_no_longer_visually_sortable() {
+    let mass = Mass::from_milligrams(100_000);
+    let mut fixture = manual_fixture(mass, copper_stone_composition(400_000));
+    let fine = MaterialLotSpec::with_composition_and_particle_size(
+        CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+        mass,
+        TEMPERATURE,
+        copper_stone_composition(400_000),
+        concentration_particle_size(),
+    )
+    .unwrap_or_else(|error| panic!("fine hand-sorting rejection fixture failed: {error}"));
+    let fine_source = add_solid_stockpile_for_test(&mut fixture.state, mass)
+        .unwrap_or_else(|error| panic!("fine hand-sorting source failed: {error}"));
+    let fine_lot =
+        deposit_lot_spec_for_test(&fixture.registries, &mut fixture.state, fine_source, fine)
+            .unwrap_or_else(|error| panic!("fine hand-sorting lot failed: {error}"));
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        resolve_manual_constituent_separation_process(
+            &fixture.registries,
+            &fixture.state,
+            ManualConstituentSeparationRequest::new(
+                PROCESS_HAND_SORT_NATIVE_COPPER,
+                fine_source,
+                &[MaterialLotSelection::new(fine_lot, mass)],
+            ),
+        )
+        .err(),
+        Some(ManualConstituentSeparationResolutionError::Batch(
+            ConstituentSeparationBatchError::InputParticleSizeOutsideOperatingRange {
+                required: hand_sortable_particle_size(),
+                found: concentration_particle_size(),
+            }
+        ))
+    );
+    assert_eq!(fixture.state, before);
+}
+
+fn resolve_manual(fixture: &ManualFixture, mass: Mass) -> ResolvedManualConstituentSeparation {
+    resolve_manual_constituent_separation_process(
+        &fixture.registries,
+        &fixture.state,
+        ManualConstituentSeparationRequest::new(
+            PROCESS_HAND_SORT_NATIVE_COPPER,
+            fixture.source,
+            &[MaterialLotSelection::new(fixture.lot, mass)],
+        ),
+    )
+    .unwrap_or_else(|error| panic!("manual separation resolution failed: {error}"))
+}
+
+#[test]
+fn hand_sorting_is_a_conserved_survival_costed_fallback_that_powered_sorting_materially_improves() {
+    let mass = Mass::from_milligrams(100_000);
+    let composition = copper_stone_composition(400_000);
+    let mut manual = manual_fixture(mass, composition.clone());
+    let powered = fixture(mass, composition);
+    let resolved = resolve_manual(&manual, mass);
+    let powered_resolved = resolve(&powered, mass);
+    let manual_definition = manual
+        .registries
+        .ore_processing()
+        .get_manual_constituent_separation(PROCESS_HAND_SORT_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("manual native-copper sorting definition disappeared"));
+    let powered_definition = manual
+        .registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_SEPARATE_NATIVE_COPPER)
+        .unwrap_or_else(|| panic!("powered native-copper sorting definition disappeared"));
+
+    assert_eq!(manual_definition.target_recovery_ppm(), 650_000);
+    assert_eq!(powered_definition.target_recovery_ppm(), 900_000);
+    assert_eq!(resolved.target_mass(), Mass::from_milligrams(26_000));
+    assert_eq!(resolved.residue_mass(), Mass::from_milligrams(74_000));
+    assert_eq!(
+        powered_resolved.target_mass(),
+        Mass::from_milligrams(36_000)
+    );
+    assert!(powered_resolved.processing_rate() > resolved.processing_rate());
+    assert_eq!(resolved.duration(), TickSpan::new(56));
+
+    let routes = [
+        ProcessOutputRoute::new(
+            ManualConstituentSeparationProcessDefinition::TARGET_STREAM,
+            manual.target,
+        ),
+        ProcessOutputRoute::new(
+            ManualConstituentSeparationProcessDefinition::RESIDUE_STREAM,
+            manual.residue,
+        ),
+    ];
+    assert_eq!(
+        validate_start_process_routed(
+            &manual.registries,
+            &manual.state,
+            resolved.process_resolution(),
+            manual.source,
+            &routes,
+        )
+        .err(),
+        Some(StartProcessError::ManualProcessRequiresPlayerWork {
+            process: PROCESS_HAND_SORT_NATIVE_COPPER,
+        })
+    );
+    let matter_before = calculate_matter_accounting(&manual.state)
+        .unwrap_or_else(|error| panic!("manual separation initial matter audit failed: {error}"))
+        .total();
+    let survival_before = assess_survival(&manual.registries, &manual.state)
+        .unwrap_or_else(|| panic!("manual separation survival state disappeared"));
+    let duration = resolved.duration();
+    let job = validate_start_manual_constituent_separation(
+        &manual.registries,
+        &manual.state,
+        &resolved,
+        manual.source,
+        manual.target,
+        manual.residue,
+    )
+    .unwrap_or_else(|error| panic!("manual separation start failed: {error}"))
+    .commit(&mut manual.state)
+    .unwrap_or_else(|error| panic!("manual separation commit failed: {error}"));
+    assert_eq!(
+        manual.state.player_work().active(),
+        Some(PlayerWork::ManualProduction { job })
+    );
+    let job_record = manual
+        .state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("manual separation job disappeared after start"));
+    assert_eq!(job_record.consumed_energy(), None);
+    assert_eq!(job_record.released_energy(), None);
+    assert_eq!(job_record.equipment_provider(), None);
+    assert_eq!(
+        manual
+            .state
+            .inventory()
+            .get_stockpile(manual.target)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::ZERO)
+    );
+
+    for _ in 0..duration.value() {
+        advance_tick(&manual.registries, &mut manual.state)
+            .unwrap_or_else(|error| panic!("manual separation tick failed: {error}"));
+    }
+    assert_eq!(manual.state.player_work().active(), None);
+    assert_eq!(
+        manual
+            .state
+            .inventory()
+            .get_stockpile(manual.target)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::from_milligrams(26_000))
+    );
+    assert_eq!(
+        manual
+            .state
+            .inventory()
+            .get_stockpile(manual.residue)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::from_milligrams(74_000))
+    );
+    assert_eq!(
+        calculate_matter_accounting(&manual.state)
+            .unwrap_or_else(|error| panic!("manual separation final matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    let survival_after = assess_survival(&manual.registries, &manual.state)
+        .unwrap_or_else(|| panic!("manual separation final survival state disappeared"));
+    assert!(survival_after.metabolic_energy() < survival_before.metabolic_energy());
+    assert!(survival_after.hydration() < survival_before.hydration());
+    validate_loaded_state(&manual.registries, &manual.state)
+        .unwrap_or_else(|error| panic!("manual separation final state audit failed: {error}"));
+}
+
+#[test]
+fn hand_sorting_enforces_a_small_attention_bounded_batch() {
+    let mass = Mass::from_milligrams(200_001);
+    let fixture = manual_fixture(mass, copper_stone_composition(400_000));
+    assert_eq!(
+        resolve_manual_constituent_separation_process(
+            &fixture.registries,
+            &fixture.state,
+            ManualConstituentSeparationRequest::new(
+                PROCESS_HAND_SORT_NATIVE_COPPER,
+                fixture.source,
+                &[MaterialLotSelection::new(fixture.lot, mass)],
+            ),
+        )
+        .err(),
+        Some(
+            ManualConstituentSeparationResolutionError::BatchMassExceeded {
+                selected: mass,
+                maximum: Mass::from_milligrams(200_000),
+            }
+        )
+    );
+}
+
+#[test]
+fn in_progress_hand_sorting_round_trip_preserves_deterministic_continuation() {
+    let mass = Mass::from_milligrams(100_000);
+    let mut fixture = manual_fixture(mass, copper_stone_composition(400_000));
+    let resolved = resolve_manual(&fixture, mass);
+    let duration = resolved.duration();
+    validate_start_manual_constituent_separation(
+        &fixture.registries,
+        &fixture.state,
+        &resolved,
+        fixture.source,
+        fixture.target,
+        fixture.residue,
+    )
+    .unwrap_or_else(|error| panic!("round-trip manual separation start failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("round-trip manual separation commit failed: {error}"));
+
+    let pre_save_ticks = 10;
+    assert!(pre_save_ticks < duration.value());
+    for _ in 0..pre_save_ticks {
+        advance_tick(&fixture.registries, &mut fixture.state).unwrap_or_else(|error| {
+            panic!("round-trip manual separation pre-save tick failed: {error}")
+        });
+    }
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&fixture.registries, &fixture.state))
+        .unwrap_or_else(|error| {
+            panic!("round-trip manual separation serialization failed: {error}")
+        });
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("round-trip manual separation decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&fixture.registries)
+        .unwrap_or_else(|error| panic!("round-trip manual separation load failed: {error}"));
+    assert_eq!(loaded, fixture.state);
+
+    for _ in pre_save_ticks..duration.value() {
+        let expected =
+            advance_tick(&fixture.registries, &mut fixture.state).unwrap_or_else(|error| {
+                panic!("round-trip manual separation source tick failed: {error}")
+            });
+        let actual = advance_tick(&fixture.registries, &mut loaded).unwrap_or_else(|error| {
+            panic!("round-trip manual separation loaded tick failed: {error}")
+        });
+        assert_eq!(actual, expected);
+    }
+    assert_eq!(loaded, fixture.state);
+    validate_loaded_state(&fixture.registries, &loaded)
+        .unwrap_or_else(|error| panic!("round-trip manual separation final audit failed: {error}"));
+}
+
+#[test]
+fn persisted_hand_sorting_rejects_forged_fine_feed_trace() {
+    let mass = Mass::from_milligrams(100_000);
+    let mut fixture = manual_fixture(mass, copper_stone_composition(400_000));
+    let resolved = resolve_manual(&fixture, mass);
+    let job = validate_start_manual_constituent_separation(
+        &fixture.registries,
+        &fixture.state,
+        &resolved,
+        fixture.source,
+        fixture.target,
+        fixture.residue,
+    )
+    .unwrap_or_else(|error| panic!("manual sorting tamper start failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("manual sorting tamper commit failed: {error}"));
+    assert_eq!(
+        validate_loaded_state(&fixture.registries, &fixture.state),
+        Ok(())
+    );
+
+    let mut tampered = serde_json::to_value(SaveEnvelope::new(&fixture.registries, &fixture.state))
+        .unwrap_or_else(|error| panic!("manual sorting tamper serialization failed: {error}"));
+    tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["resources"]["consumed_inputs"]
+        [0]["profile"]["particle_size"]["classes"][0]["range"]["minimum_diameter"] =
+        serde_json::json!(500_u64);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+        .unwrap_or_else(|error| panic!("manual sorting tamper decode failed: {error}"));
+    assert_eq!(
+        tampered.into_state(&fixture.registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::ConstituentSeparationJob(
+                ConstituentSeparationJobValidationError::Batch {
+                    job,
+                    error:
+                        ConstituentSeparationBatchError::InputParticleSizeOutsideOperatingRange {
+                            required: hand_sortable_particle_size(),
+                            found: liberated_particle_size(),
+                        },
+                }
+            )
+        ))
+    );
 }
 
 #[test]

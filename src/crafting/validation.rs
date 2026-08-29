@@ -7,9 +7,7 @@ use std::num::NonZeroU64;
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::TickSpan;
 use crate::material::{MaterialComposition, MaterialLotSpec, MaterialLotSpecError};
-use crate::production::{
-    ProcessOutputStreamId, ProductionJobId, ProductionJobRecord, ProductionSuspensionReason,
-};
+use crate::production::{ProcessOutputStreamId, ProductionJobId, ProductionJobRecord};
 use crate::registry::Registries;
 
 use super::ManualCraftDefinition;
@@ -21,9 +19,6 @@ pub enum ManualCraftJobValidationError {
         job: ProductionJobId,
     },
     UnexpectedEquipment {
-        job: ProductionJobId,
-    },
-    PlayerLaborSuspensionWithoutManualCraft {
         job: ProductionJobId,
     },
     InputCommodityMismatch {
@@ -73,11 +68,6 @@ impl Display for ManualCraftJobValidationError {
             Self::UnexpectedEquipment { job } => write!(
                 formatter,
                 "manual craft job {} carries equipment despite being authored as hand work",
-                job.value()
-            ),
-            Self::PlayerLaborSuspensionWithoutManualCraft { job } => write!(
-                formatter,
-                "production job {} claims unavailable player labor despite not being authored as manual crafting",
                 job.value()
             ),
             Self::InputCommodityMismatch { job } => write!(
@@ -149,7 +139,6 @@ impl Error for ManualCraftJobValidationError {
             Self::OutputConstruction { error, .. } => Some(error),
             Self::UnexpectedEnergy { job: _ }
             | Self::UnexpectedEquipment { job: _ }
-            | Self::PlayerLaborSuspensionWithoutManualCraft { job: _ }
             | Self::InputCommodityMismatch { job: _ }
             | Self::InputCompositionMismatch { job: _ }
             | Self::MixedInputTemperature { job: _ }
@@ -295,16 +284,6 @@ pub(crate) fn validate_loaded_manual_craft_job(
     job: &ProductionJobRecord,
 ) -> Result<(), ManualCraftJobValidationError> {
     let definition = registries.crafting().get_manual(job.process());
-    if job.suspension().is_some_and(|suspension| {
-        suspension.reason() == ProductionSuspensionReason::PlayerLaborUnavailable
-    }) && definition.is_none()
-    {
-        return Err(
-            ManualCraftJobValidationError::PlayerLaborSuspensionWithoutManualCraft {
-                job: job.id(),
-            },
-        );
-    }
     let Some(definition) = definition else {
         return Ok(());
     };

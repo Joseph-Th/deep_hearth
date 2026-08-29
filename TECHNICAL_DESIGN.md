@@ -39,7 +39,7 @@ synchronized indexes.
 
 | Owner | Authoritative state |
 | --- | --- |
-| `InventoryState` | Stockpiles, material lots, reservations, routing, preservation, stockpile support |
+| `InventoryState` | Stockpiles, material lots, reservations, routing, preservation, material-backed storage enclosures, stockpile support |
 | `EnergyState` | Finite energy stores and embodied construction traces |
 | `FluidState` | Finite homogeneous fluid stores and support assignments |
 | `EquipmentState` | Equipment instances, condition, embodied traces, support assignments |
@@ -98,8 +98,8 @@ coalescing, and the monotonic lot cursor advances only when a distinct lot will 
 
 ### Inventory
 
-Stockpiles own capacity, containment, preservation, inbound reservations, and derived routing/mass
-indexes. Inventory is custody, not movement authorization. Runtime movement requires a canonical owner that
+Stockpiles own capacity, containment, preservation, optional material-backed enclosure identity, inbound
+reservations, and derived routing/mass indexes. Inventory is custody, not movement authorization. Runtime movement requires a canonical owner that
 binds exact ingress, egress, reform, or reserved-output consequences. Generic stockpile transport has no
 runtime authorizer. The `test-gameplay` harness may inject one controlled conserved delivery as setup/event
 infrastructure; this does not grant general transport authority. Same-material reform is valid only when the
@@ -107,8 +107,25 @@ commodity form changes without changing material phase; input already entirely i
 rejected. Reform preserves temperature, composition, and particle state, so phase transitions remain owned
 by explicit thermal processing rather than by inventory relabeling.
 
-Supported stockpiles contribute `StructuralLoadKind::StoredMatter`. Every canonical stored-mass mutation
-updates inventory ownership and the resulting structural load atomically.
+Constructible storage enclosures are immutable registry definitions with a maximum enclosed stockpile
+capacity, explicit storage profile, and exact consolidated-solid assembly profile. Construction upgrades one
+existing ambient solid stockpile in place because general transport is not implemented. Exact selected
+construction traces leave ordinary inventory and become persistent enclosure matter owned by that stockpile.
+Before the improved preservation multiplier begins, every existing lot checkpoints accumulated exposure using
+the old storage multiplier at the construction tick. A chest therefore slows only future spoilage and cannot
+retroactively restore food freshness. Trusted load replays definition identity, capacity, profile, construction
+timestamp, exact embodied trace mass/material/provenance, and physical trace state. The built-in lidded timber
+provisions chest encloses at most 20,000,000 mg and applies a 2,000,000 ppm preservation multiplier. Its
+2,400,000 mg body is not assembled implicitly by inventory: ordinary play first shapes boards from raw timber,
+then performs an 80-tick survival-costed manual joinery process that conserves those boards into one consolidated
+timber chest-body commodity. Enclosure installation consumes that already assembled body into persistent
+infrastructure ownership. Installation itself remains a local zero-time binding because general construction
+and haulage are absent; furniture fabrication is nevertheless paid through canonical player work first.
+
+Supported stockpiles contribute `StructuralLoadKind::StoredMatter` for all stockpile-owned physical mass:
+stored contents plus any enclosure body. Every canonical stored-mass mutation updates inventory ownership and
+the resulting structural load atomically. Enclosure construction currently requires an unmounted target;
+mounting afterward computes support load from both contents and enclosure matter.
 
 ### Geology and knowledge
 
@@ -135,8 +152,11 @@ In-progress prospecting persists and validates as player work.
 
 Mining target resolution converts compatible acquired evidence into an opaque deposit-bound authorization.
 Resolution fails when evidence is absent, contradictory, spatially incomparable, excludes the material,
-remains too uncertain, or still matches multiple live deposits. Hidden geology is never used as a public
-tie-break. Mining re-resolves the authorized evidence locality before admission and again before commit, so
+remains too uncertain, has not localized the original acquired observation footprints to one voxel, or still
+matches multiple live deposits. A narrower target query cannot manufacture precision by clipping a broader
+observation; localization must come from the acquired evidence footprints themselves. Hidden geology is never
+used as a public tie-break. Mining re-resolves the authorized evidence locality before admission and
+again before commit, so
 unrelated remote geology or knowledge changes do not invalidate the target while local contradiction,
 ambiguity, depletion, or source-mass change still does.
 Public mining state does not expose deposit identity, exact hidden remaining mass, pre-claim composition, or
@@ -165,12 +185,17 @@ represented matter and modeled energy across all streams.
 Manual shaping conserves material identity and mass, preserves input temperature, cannot change phase,
 and only authors output forms whose particle-size state is untracked. A particulate output requires an
 operation with an explicit output particle-size distribution rather than an underspecified hand recipe.
+Authored `chip` and `scrap` outputs are retained physical streams rather than implicit losses. At the current
+playable tier they are terminal commodities because combustion, remelting, material reconstitution, and
+recycling are not implemented. Assembly and maintenance therefore cannot reinterpret those outputs as fresh
+components or fuel; any future recovery path requires its own explicit physical process and owner.
 
 Required equipment support or reserved-output support may suspend a production job when that support
 becomes unavailable. Suspension preserves work-in-process, reservations, and exact remaining active time.
-Suspended manual crafting releases `PlayerWorkState`. Resumption reacquires player labor through the normal
+Suspended manual production releases `PlayerWorkState`. Resumption reacquires player labor through the normal
 attention and survival-budget admission boundary. Without available labor, the job remains suspended and
-consumes no exertion or active process time.
+consumes no exertion or active process time. Crafting and hand-operated material processing remain separate
+domain owners, but both consume the same generic manual-production labor contract.
 
 ### Physical resolvers
 
@@ -192,9 +217,20 @@ Implemented resolvers:
   required residue form. The residue commodity host is derived from the dominant physical gangue rather than
   baking a gangue identity into the process, so mixed stone/clay/slag feed does not require composition-specific
   sorting recipes. Sorting requires the input commodity host to be the target material, so its gangue-hosted
-  residue cannot be fed back through the same primitive operation for asymptotic recovery. The built-in
-  primitive native-copper sorter recovers 900,000 ppm of liberated copper, leaving the remainder physically
-  represented in crushed gangue. Concentration definitions instead operate on composition-bearing particulate
+  residue cannot be fed back through the same primitive operation for asymptotic recovery. Material-side
+  separation physics are shared between direct-labor and powered routes. Direct-labor comminution likewise uses
+  the same exact composition, temperature, form, and particle-size projection as powered comminution rather than
+  a parallel recipe approximation. The built-in hand-breaking route converts at most 100,000 mg of coarse ore per
+  batch into a deliberately coarse 2,000..=10,000 um crushed state at 250 mg/s; it consumes exclusive player
+  attention plus survival reserves and carries no equipment or stored-energy resource. That visible-piece envelope
+  is the exact authored feed range for hand sorting, preventing fine-ground powder from being treated as visually
+  sortable material. The built-in hand-sorting route accepts at most 200,000 mg per batch, processes 500 mg/s,
+  recovers 650,000 ppm of liberated native copper, and is also direct survival-costed player labor. The stone
+  separator applies the same conservative material projection at 900,000 ppm target recovery with materially
+  higher throughput while consuming finite mechanical work and equipment condition. Mechanization therefore
+  improves yield and returns player attention rather than merely replacing one recipe label with another.
+  Both routes leave unrecovered copper physically represented in crushed gangue. Concentration definitions
+  instead operate on composition-bearing particulate
   feed: the commodity host may be gangue when the target constituent is actually present, but the full feed must
   lie inside the authored particle-size liberation envelope. Comminution preserves host identity and exact
   composition while changing particle state, allowing retained primitive residue to become eligible only after
@@ -251,8 +287,9 @@ physical component ownership.
 
 ### Player work and survival
 
-`PlayerWorkState` is exclusive across manual crafting, field prospecting, hand mining, and direct manual
-power. Work admission binds projected metabolic-energy and hydration cost. Suspended manual production
+`PlayerWorkState` is exclusive across manual production, field prospecting, hand mining, and direct manual
+power. Manual production currently includes shaping/crafting, timber joinery, low-tech hand breaking, and hand sorting. Work admission binds
+projected metabolic-energy and hydration cost. Suspended manual production
 does not reserve player attention; resumption must pass the same admission again for its exact remaining
 active time. Successful active work consumes the corresponding physiological budget.
 

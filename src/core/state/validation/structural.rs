@@ -99,8 +99,12 @@ fn validate_stockpile_structural_loads(
             .get(&element)
             .copied()
             .unwrap_or(AggregateMass::ZERO);
+        let stockpile_mass = stockpile
+            .stored_mass()
+            .checked_add(stockpile.embodied_mass())
+            .ok_or(StateValidationError::StoredMatterMassOverflow { element })?;
         let next = current
-            .checked_add(AggregateMass::from_mass(stockpile.stored_mass()))
+            .checked_add(AggregateMass::from_mass(stockpile_mass))
             .ok_or(StateValidationError::StoredMatterMassOverflow { element })?;
         stored_mass_by_element.insert(element, next);
     }

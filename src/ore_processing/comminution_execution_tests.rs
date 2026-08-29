@@ -7,7 +7,8 @@ use crate::capability::{
 };
 use crate::content::{
     FORM_CONCENTRATE, FORM_CRUSHED, FORM_INGOT, FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG,
-    MATERIAL_STONE, make_test_registries_with_comminution,
+    MATERIAL_STONE, PROCESS_HAND_BREAK_ORE, build_registries,
+    make_test_registries_with_comminution,
 };
 use crate::core::quantity::{AggregateMass, Length, MassSpecificEnergy};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -20,8 +21,10 @@ use crate::equipment::{
     add_equipment,
 };
 use crate::inventory::{
-    add_solid_stockpile_for_test, deposit_composed_lot_for_test, deposit_lot_spec_for_test,
+    MaterialLotId, add_solid_stockpile_for_test, deposit_composed_lot_for_test,
+    deposit_lot_spec_for_test,
 };
+use crate::labor::PlayerWork;
 use crate::maintenance::MaintenanceThresholds;
 use crate::material::CompositionComponent;
 use crate::matter::calculate_matter_accounting;
@@ -29,8 +32,9 @@ use crate::ore_processing::{
     ComminutionProcessDefinition, PoweredOreJobValidationError, PoweredOreProcessProfile,
 };
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
-use crate::production::{ProcessDefinition, validate_start_process};
+use crate::production::{ProcessDefinition, StartProcessError, validate_start_process};
 use crate::simulation::advance_tick;
+use crate::survival::{assess_survival, initialize_player_survival};
 
 const MASS_FLOW_CAPABILITY: CapabilityId = CapabilityId::new(970_001);
 const MAX_BATCH_MASS_CAPABILITY: CapabilityId = CapabilityId::new(970_002);
@@ -949,6 +953,239 @@ fn comminution_job_round_trip_revalidates_exact_outputs_and_continues() {
     finish_job(&fixture.registries, &mut fixture.state, duration);
     finish_job(&fixture.registries, &mut loaded, duration);
     assert_eq!(loaded, fixture.state);
+}
+
+struct ManualComminutionFixture {
+    registries: Registries,
+    state: AppState,
+    source: StockpileId,
+    destination: StockpileId,
+    lot: MaterialLotId,
+}
+
+fn manual_comminution_fixture(mass: Mass) -> ManualComminutionFixture {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x9700_6001));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("manual comminution survival fixture failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, mass)
+        .unwrap_or_else(|error| panic!("manual comminution source fixture failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, mass)
+        .unwrap_or_else(|error| panic!("manual comminution destination fixture failed: {error}"));
+    let lot = deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+        mass,
+        INPUT_TEMPERATURE,
+        mixed_ore_composition(),
+    )
+    .unwrap_or_else(|error| panic!("manual comminution ore fixture failed: {error}"));
+    ManualComminutionFixture {
+        registries,
+        state,
+        source,
+        destination,
+        lot,
+    }
+}
+
+fn resolve_manual_comminution(
+    fixture: &ManualComminutionFixture,
+    mass: Mass,
+) -> ResolvedManualComminution {
+    resolve_manual_comminution_process(
+        &fixture.registries,
+        &fixture.state,
+        ManualComminutionRequest::new(
+            PROCESS_HAND_BREAK_ORE,
+            fixture.source,
+            &[MaterialLotSelection::new(fixture.lot, mass)],
+        ),
+    )
+    .unwrap_or_else(|error| panic!("manual comminution resolution failed: {error}"))
+}
+
+#[test]
+fn hand_breaking_is_conserved_survival_costed_and_resource_free() {
+    let mass = Mass::from_milligrams(100_000);
+    let mut fixture = manual_comminution_fixture(mass);
+    let resolved = resolve_manual_comminution(&fixture, mass);
+    let definition = fixture
+        .registries
+        .ore_processing()
+        .get_manual_comminution(PROCESS_HAND_BREAK_ORE)
+        .unwrap_or_else(|| panic!("manual comminution definition disappeared"));
+    assert_eq!(definition.max_batch_mass(), mass);
+    assert_eq!(
+        definition.processing_rate(),
+        MassFlow::from_milligrams_per_second(250)
+    );
+    assert_eq!(resolved.duration(), TickSpan::new(112));
+    let outputs = resolved.process_resolution().outputs();
+    assert_eq!(outputs.len(), 1);
+    assert_eq!(
+        outputs[0].commodity(),
+        CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED)
+    );
+    assert_eq!(outputs[0].mass(), mass);
+    assert_eq!(outputs[0].composition(), &mixed_ore_composition());
+    assert_eq!(
+        outputs[0].particle_size(),
+        Some(definition.output_particle_size())
+    );
+    assert_eq!(
+        validate_start_process(
+            &fixture.registries,
+            &fixture.state,
+            resolved.process_resolution(),
+            fixture.source,
+            fixture.destination,
+        )
+        .err(),
+        Some(StartProcessError::ManualProcessRequiresPlayerWork {
+            process: PROCESS_HAND_BREAK_ORE,
+        })
+    );
+    let matter_before = calculate_matter_accounting(&fixture.state)
+        .unwrap_or_else(|error| panic!("manual comminution initial matter audit failed: {error}"))
+        .total();
+    let survival_before = assess_survival(&fixture.registries, &fixture.state)
+        .unwrap_or_else(|| panic!("manual comminution survival state disappeared"));
+    let duration = resolved.duration();
+    let job = validate_start_manual_comminution(
+        &fixture.registries,
+        &fixture.state,
+        &resolved,
+        fixture.source,
+        fixture.destination,
+    )
+    .unwrap_or_else(|error| panic!("manual comminution start failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("manual comminution commit failed: {error}"));
+    assert_eq!(
+        fixture.state.player_work().active(),
+        Some(PlayerWork::ManualProduction { job })
+    );
+    let job_record = fixture
+        .state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("manual comminution job disappeared after start"));
+    assert_eq!(job_record.consumed_energy(), None);
+    assert_eq!(job_record.released_energy(), None);
+    assert_eq!(job_record.equipment_provider(), None);
+    for _ in 0..duration.value() {
+        advance_tick(&fixture.registries, &mut fixture.state)
+            .unwrap_or_else(|error| panic!("manual comminution tick failed: {error}"));
+    }
+    assert_eq!(fixture.state.player_work().active(), None);
+    assert_eq!(
+        fixture
+            .state
+            .inventory()
+            .get_stockpile(fixture.destination)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(mass)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&fixture.state)
+            .unwrap_or_else(|error| panic!("manual comminution final matter audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    let survival_after = assess_survival(&fixture.registries, &fixture.state)
+        .unwrap_or_else(|| panic!("manual comminution final survival state disappeared"));
+    assert!(survival_after.metabolic_energy() < survival_before.metabolic_energy());
+    assert!(survival_after.hydration() < survival_before.hydration());
+    validate_loaded_state(&fixture.registries, &fixture.state)
+        .unwrap_or_else(|error| panic!("manual comminution final state audit failed: {error}"));
+}
+
+#[test]
+fn hand_breaking_enforces_its_attention_bounded_batch() {
+    let mass = Mass::from_milligrams(100_001);
+    let fixture = manual_comminution_fixture(mass);
+    assert_eq!(
+        resolve_manual_comminution_process(
+            &fixture.registries,
+            &fixture.state,
+            ManualComminutionRequest::new(
+                PROCESS_HAND_BREAK_ORE,
+                fixture.source,
+                &[MaterialLotSelection::new(fixture.lot, mass)],
+            ),
+        )
+        .err(),
+        Some(ManualComminutionResolutionError::BatchMassExceeded {
+            selected: mass,
+            maximum: Mass::from_milligrams(100_000),
+        })
+    );
+}
+
+#[test]
+fn in_progress_hand_breaking_round_trip_replays_exact_manual_physics() {
+    let mass = Mass::from_milligrams(100_000);
+    let mut fixture = manual_comminution_fixture(mass);
+    let resolved = resolve_manual_comminution(&fixture, mass);
+    let duration = resolved.duration();
+    let job = validate_start_manual_comminution(
+        &fixture.registries,
+        &fixture.state,
+        &resolved,
+        fixture.source,
+        fixture.destination,
+    )
+    .unwrap_or_else(|error| panic!("manual comminution round-trip start failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("manual comminution round-trip commit failed: {error}"));
+    for _ in 0..10 {
+        advance_tick(&fixture.registries, &mut fixture.state)
+            .unwrap_or_else(|error| panic!("manual comminution pre-save tick failed: {error}"));
+    }
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&fixture.registries, &fixture.state))
+        .unwrap_or_else(|error| panic!("manual comminution save serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("manual comminution save decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&fixture.registries)
+        .unwrap_or_else(|error| panic!("manual comminution save validation failed: {error}"));
+    assert_eq!(loaded, fixture.state);
+
+    let mut tampered = serde_json::to_value(SaveEnvelope::new(&fixture.registries, &fixture.state))
+        .unwrap_or_else(|error| panic!("manual comminution tamper serialization failed: {error}"));
+    tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["schedule"]["active_duration"] =
+        serde_json::json!(duration.value() + 1);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+        .unwrap_or_else(|error| panic!("manual comminution tamper decode failed: {error}"));
+    assert_eq!(
+        tampered.into_state(&fixture.registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::ComminutionJob(
+                ComminutionJobValidationError::ManualDurationMismatch {
+                    job,
+                    stored: TickSpan::new(duration.value() + 1),
+                    required: duration,
+                }
+            )
+        ))
+    );
+
+    let remaining = duration
+        .value()
+        .checked_sub(10)
+        .unwrap_or_else(|| unreachable!("manual comminution duration exceeds pre-save work"));
+    for _ in 0..remaining {
+        advance_tick(&fixture.registries, &mut fixture.state).unwrap_or_else(|error| {
+            panic!("manual comminution uninterrupted tick failed: {error}")
+        });
+        advance_tick(&fixture.registries, &mut loaded)
+            .unwrap_or_else(|error| panic!("manual comminution resumed tick failed: {error}"));
+    }
+    assert_eq!(loaded, fixture.state);
+    assert!(loaded.production().get_job(job).is_none());
 }
 
 #[cfg(feature = "test-soak")]

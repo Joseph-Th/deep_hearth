@@ -6,6 +6,7 @@ use crate::crafting::CraftingRegistry;
 use crate::energy::{EnergyRegistry, EnergyStoreDefinition};
 use crate::equipment::{EquipmentDefinition, EquipmentRegistry};
 use crate::fluid::{FluidDefinition, FluidRegistry};
+use crate::inventory::StorageRegistry;
 use crate::labor::LaborRegistry;
 use crate::mining::MiningRegistry;
 use crate::ore_processing::{
@@ -28,6 +29,7 @@ struct TestRegistryDomains {
     crafting: CraftingRegistry,
     labor: LaborRegistry,
     equipment: EquipmentRegistry,
+    storage: StorageRegistry,
     mining: MiningRegistry,
     ore_processing: OreProcessingRegistry,
     thermal: ThermalRegistry,
@@ -44,6 +46,7 @@ impl TestRegistryDomains {
             crafting: CraftingRegistry::new(std::iter::empty()),
             labor: labor::empty_labor_registry(),
             equipment: empty_equipment_registry(),
+            storage: StorageRegistry::new(std::iter::empty()),
             mining: MiningRegistry::new(std::iter::empty()),
             ore_processing: OreProcessingRegistry::new(std::iter::empty()),
             thermal: empty_thermal_registry(),
@@ -60,6 +63,7 @@ impl TestRegistryDomains {
             crafting,
             labor,
             equipment,
+            storage,
             mining,
             ore_processing,
             thermal,
@@ -76,6 +80,7 @@ impl TestRegistryDomains {
                 crafting,
                 labor,
                 equipment,
+                storage,
                 structural: structural::build_structural_registry(),
                 materials: materials::build_material_registry(),
                 mining,

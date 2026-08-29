@@ -21,7 +21,7 @@ use crate::geology::{
 };
 use crate::inventory::{
     InventoryValidationError, MaterialLotId, StockpileId, StockpileStorageError,
-    validate_loaded_inventory,
+    StorageEnclosureValidationError, validate_loaded_inventory,
 };
 use crate::labor::{PlayerWorkValidationError, validate_loaded_player_work};
 use crate::maintenance::Condition;
@@ -74,6 +74,7 @@ pub enum StateValidationError {
     Geology(GeologyValidationError),
     GeologicalKnowledge(GeologicalKnowledgeValidationError),
     Inventory(InventoryValidationError),
+    StorageEnclosure(StorageEnclosureValidationError),
     Production(ProductionValidationError),
     Mining(MiningValidationError),
     MiningJob(MiningJobValidationError),
@@ -299,6 +300,9 @@ impl Display for StateValidationError {
                 write!(formatter, "invalid geological knowledge state: {error}")
             }
             Self::Inventory(error) => write!(formatter, "invalid inventory state: {error}"),
+            Self::StorageEnclosure(error) => {
+                write!(formatter, "invalid storage enclosure state: {error}")
+            }
             Self::Production(error) => write!(formatter, "invalid production state: {error}"),
             Self::Mining(error) => write!(formatter, "invalid mining state: {error}"),
             Self::MiningJob(error) => write!(formatter, "invalid mining job: {error}"),
@@ -663,6 +667,7 @@ impl Error for StateValidationError {
             Self::Geology(error) => Some(error),
             Self::GeologicalKnowledge(error) => Some(error),
             Self::Inventory(error) => Some(error),
+            Self::StorageEnclosure(error) => Some(error),
             Self::Production(error) => Some(error),
             Self::Mining(error) => Some(error),
             Self::MiningJob(error) => Some(error),

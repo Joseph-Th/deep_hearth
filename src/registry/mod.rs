@@ -9,14 +9,15 @@ use crate::crafting::CraftingRegistry;
 use crate::energy::EnergyRegistry;
 use crate::equipment::EquipmentRegistry;
 use crate::fluid::FluidRegistry;
+use crate::inventory::StorageRegistry;
 use crate::labor::LaborRegistry;
 use crate::material::MaterialRegistry;
 use crate::mining::MiningRegistry;
 use crate::ore_processing::OreProcessingRegistry;
-use crate::production::ProductionRegistry;
+use crate::production::{ProcessId, ProductionRegistry};
 use crate::shader::ShaderRegistry;
 use crate::structural::StructuralRegistry;
-use crate::survival::SurvivalRegistry;
+use crate::survival::{SurvivalExertion, SurvivalRegistry};
 use crate::texture::TextureRegistry;
 use crate::thermal::ThermalRegistry;
 
@@ -85,6 +86,7 @@ pub(crate) struct RegistryDomains {
     pub(crate) crafting: CraftingRegistry,
     pub(crate) labor: LaborRegistry,
     pub(crate) equipment: EquipmentRegistry,
+    pub(crate) storage: StorageRegistry,
     pub(crate) structural: StructuralRegistry,
     pub(crate) materials: MaterialRegistry,
     pub(crate) mining: MiningRegistry,
@@ -118,6 +120,7 @@ impl Registries {
         domains
             .equipment
             .validate_references(&domains.capabilities, &domains.materials);
+        domains.storage.validate_references(&domains.materials);
         domains
             .production
             .validate_references(&domains.materials, &domains.capabilities);
@@ -150,7 +153,7 @@ impl Registries {
             assert!(
                 !domains.ore_processing.has_process(process)
                     && !domains.thermal.has_process(process),
-                "manual craft process {} cannot also own machine resolver semantics",
+                "manual craft process {} cannot also own ore-processing or thermal resolver semantics",
                 process.value()
             );
         }
@@ -209,6 +212,12 @@ impl Registries {
         &self.domains.equipment
     }
 
+    /// Returns immutable constructible material-storage enclosure definitions.
+    #[must_use]
+    pub const fn storage(&self) -> &StorageRegistry {
+        &self.domains.storage
+    }
+
     /// Returns immutable structural load-response profiles.
     #[must_use]
     pub const fn structural(&self) -> &StructuralRegistry {
@@ -249,6 +258,27 @@ impl Registries {
     #[must_use]
     pub const fn survival(&self) -> &SurvivalRegistry {
         &self.domains.survival
+    }
+
+    /// Returns the exact exertion for a production process that directly monopolizes player labor.
+    ///
+    /// Crafting and low-tech material processing remain separate domain owners while labor,
+    /// persistence, and production can consume one canonical classification.
+    #[must_use]
+    pub(crate) fn manual_process_exertion(&self, process: ProcessId) -> Option<SurvivalExertion> {
+        self.crafting()
+            .get_manual(process)
+            .map(|definition| definition.exertion())
+            .or_else(|| {
+                self.ore_processing()
+                    .get_manual_comminution(process)
+                    .map(|definition| definition.exertion())
+            })
+            .or_else(|| {
+                self.ore_processing()
+                    .get_manual_constituent_separation(process)
+                    .map(|definition| definition.exertion())
+            })
     }
 
     /// Returns immutable palette, texture, and block/object appearance definitions.

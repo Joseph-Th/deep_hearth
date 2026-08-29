@@ -69,12 +69,15 @@ fn insert_known_deposit(
     spec: GeneratedDepositSpec,
 ) -> Result<GeologicalDepositId, crate::geology::InsertGeneratedDepositError> {
     let region = spec.bounds();
+    let min = region.min();
+    let localized = VoxelBounds::new(min, VoxelCoord::new(min.x() + 1, min.y() + 1, min.z() + 1))
+        .unwrap_or_else(|error| panic!("mining known-deposit localized bounds failed: {error}"));
     let material = spec.commodity().material();
     let deposit = crate::geology::insert_generated_deposit(registries, state, spec)?;
     let estimate = MaterialAbundanceEstimate::new(material, 1, 1_000_000)
         .unwrap_or_else(|error| panic!("mining known-deposit estimate failed: {error}"));
     let evidence = ProspectingResolution::new_for_fixture(
-        region,
+        localized,
         GeologicalEvidenceKind::ExcavationSample,
         vec![estimate],
     );

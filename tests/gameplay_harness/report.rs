@@ -14,6 +14,8 @@ use super::scenario::ScenarioVariation;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum ProcessResolverKind {
     ManualCraft,
+    ManualComminution,
+    ManualSeparation,
     Comminution,
     Screening,
     ConstituentSeparation,
@@ -26,6 +28,8 @@ impl ProcessResolverKind {
     const fn label(self) -> &'static str {
         match self {
             Self::ManualCraft => "manual-craft",
+            Self::ManualComminution => "manual-comminution",
+            Self::ManualSeparation => "manual-separation",
             Self::Comminution => "comminution",
             Self::Screening => "screening",
             Self::ConstituentSeparation => "constituent-separation",
@@ -76,6 +80,26 @@ fn process_resolver_and_energy(
     let mut matches = Vec::with_capacity(1);
     if registries.crafting().get_manual(process).is_some() {
         matches.push((ProcessResolverKind::ManualCraft, ProcessEnergyRole::None));
+    }
+    if registries
+        .ore_processing()
+        .get_manual_comminution(process)
+        .is_some()
+    {
+        matches.push((
+            ProcessResolverKind::ManualComminution,
+            ProcessEnergyRole::None,
+        ));
+    }
+    if registries
+        .ore_processing()
+        .get_manual_constituent_separation(process)
+        .is_some()
+    {
+        matches.push((
+            ProcessResolverKind::ManualSeparation,
+            ProcessEnergyRole::None,
+        ));
     }
     if let Some(definition) = registries.ore_processing().get_comminution(process) {
         matches.push((
@@ -146,28 +170,32 @@ pub(super) fn process_catalog_entries(registries: &Registries) -> Vec<ProcessCat
         .definitions()
         .map(|process| {
             let (resolver, energy_role) = process_resolver_and_energy(registries, process.id());
-            let (nominal_provider_count, runtime_provider_count) =
-                if resolver == ProcessResolverKind::ManualCraft {
-                    (0, 0)
-                } else {
-                    registries
-                        .equipment()
-                        .definitions()
-                        .filter(|equipment| {
-                            evaluate_capabilities(
-                                registries.capabilities(),
-                                equipment.capabilities(),
-                                process.capability_requirements(),
-                            )
-                            .is_ok()
-                        })
-                        .fold((0_usize, 0_usize), |(all, runtime), equipment| {
-                            (
-                                all + 1,
-                                runtime + usize::from(equipment.has_runtime_acquisition_route()),
-                            )
-                        })
-                };
+            let (nominal_provider_count, runtime_provider_count) = if matches!(
+                resolver,
+                ProcessResolverKind::ManualCraft
+                    | ProcessResolverKind::ManualComminution
+                    | ProcessResolverKind::ManualSeparation
+            ) {
+                (0, 0)
+            } else {
+                registries
+                    .equipment()
+                    .definitions()
+                    .filter(|equipment| {
+                        evaluate_capabilities(
+                            registries.capabilities(),
+                            equipment.capabilities(),
+                            process.capability_requirements(),
+                        )
+                        .is_ok()
+                    })
+                    .fold((0_usize, 0_usize), |(all, runtime), equipment| {
+                        (
+                            all + 1,
+                            runtime + usize::from(equipment.has_runtime_acquisition_route()),
+                        )
+                    })
+            };
             let (matching_energy_store_count, runtime_energy_store_count) = registries
                 .energy()
                 .definitions()
@@ -441,14 +469,25 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
         .filter(|definition| definition.assembly_profile().is_some())
         .count();
     let process_count = registries.production().definitions().count();
-    let manual_process_count = registries.crafting().definitions().count();
+    let manual_process_count = process_catalog_entries(registries)
+        .into_iter()
+        .filter(|entry| {
+            matches!(
+                entry.resolver,
+                ProcessResolverKind::ManualCraft
+                    | ProcessResolverKind::ManualComminution
+                    | ProcessResolverKind::ManualSeparation
+            )
+        })
+        .count();
     let machine_process_count = process_count.saturating_sub(manual_process_count);
+    let storage_count = registries.storage().definitions().count();
     let mining_method_count = registries.mining().definitions().count();
     let prospecting_method_count = registries.labor().prospecting_definitions().count();
     let food_count = registries.survival().foods().count();
     let drink_count = registries.survival().drinks().count();
     std::println!(
-        "CONTENT registry_schema={} equipment=[authored:{} runtime_assemblable:{} upgrade_routes:{} structural_installation_required:{}] energy=[authored:{} runtime_assemblable:{}] processes=[authored:{} manual:{} machine:{}] mining_methods={} prospecting_methods={} survival=[foods:{} drinks:{}]",
+        "CONTENT registry_schema={} equipment=[authored:{} runtime_assemblable:{} upgrade_routes:{} structural_installation_required:{}] energy=[authored:{} runtime_assemblable:{}] storage=[authored:{}] processes=[authored:{} manual:{} machine:{}] mining_methods={} prospecting_methods={} survival=[foods:{} drinks:{}]",
         registries.schema_version().value(),
         equipment_count,
         runtime_assemblable_equipment,
@@ -456,6 +495,7 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
         structurally_installed_equipment,
         energy_count,
         runtime_assemblable_energy,
+        storage_count,
         process_count,
         manual_process_count,
         machine_process_count,
@@ -568,8 +608,23 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
         .map(|definition| format!("{}:{}", definition.id().value(), definition.name()))
         .collect::<Vec<_>>()
         .join(",");
+    let storage = registries
+        .storage()
+        .definitions()
+        .map(|definition| {
+            format!(
+                "{}:{}:capacity={}mg:preservation={}ppm:embodied={}mg",
+                definition.id().value(),
+                definition.name(),
+                definition.maximum_stockpile_capacity().milligrams(),
+                definition.storage_profile().preservation_multiplier_ppm(),
+                definition.assembly_profile().input_mass().milligrams(),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
     std::println!(
-        "CONTENT CATALOG equipment=[{equipment}] energy=[{energy}] processes=[{processes}]"
+        "CONTENT CATALOG equipment=[{equipment}] energy=[{energy}] storage=[{storage}] processes=[{processes}]"
     );
     let prospecting = registries
         .labor()

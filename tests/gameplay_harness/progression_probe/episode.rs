@@ -53,10 +53,14 @@ pub(super) fn run_primitive_progression_case(
         .checked_add(hard_ore_deposit_mass)
         .unwrap_or_else(|| panic!("primitive progression ore staging capacity overflowed"));
     let ore_copper_ppm = 450_000 + (mix64(seed ^ 0x5052_4F47_4752_4144) % 300_001) as u32;
+    let soft_gangue_clay_share_ppm = u32::try_from(mix64(seed ^ 0x534F_4654_5F47414E) % 750_001)
+        .unwrap_or_else(|_| unreachable!("bounded soft-ore gangue variation fits u32"));
     // Hardness is an access constraint, not a promise of grade. A difficult seam can be excellent,
     // mediocre, or disappointing relative to easier ore. The player must buy access from bounded
     // evidence, then reassess the extracted sample instead of receiving a guaranteed jackpot.
     let hard_ore_copper_ppm = 500_000 + (mix64(seed ^ 0x4841_5244_5F47_5244) % 400_001) as u32;
+    let hard_gangue_clay_share_ppm = u32::try_from(mix64(seed ^ 0x4841_5244_5F47414E) % 750_001)
+        .unwrap_or_else(|_| unreachable!("bounded hard-ore gangue variation fits u32"));
     let trace_copper_ppm = if deferred_trace_refinement {
         50_000 + (mix64(seed ^ 0x5452_4143_455F_4752) % 40_001) as u32
     } else {
@@ -66,6 +70,8 @@ pub(super) fn run_primitive_progression_case(
         // processing feed without paying for a redundant detailed survey or extraction sample.
         125_000 + (mix64(seed ^ 0x5452_4143_455F_4752) % 75_001) as u32
     };
+    let trace_gangue_clay_share_ppm = u32::try_from(mix64(seed ^ 0x5452_4143_5F47414E) % 750_001)
+        .unwrap_or_else(|_| unreachable!("bounded trace-ore gangue variation fits u32"));
     let PrimitiveMaterialPlan {
         raw_inputs,
         raw_capacity,
@@ -159,22 +165,9 @@ pub(super) fn run_primitive_progression_case(
     let clue_slots = varied_four_way_order(seed ^ 0x434C_5545_5F4C_4159);
     let observation_order = varied_four_way_order(seed ^ 0x434C_5545_5F4F_5244);
     let soft_ore_bounds = progression_clue_bounds(clue_slots[0]);
-    let ore_composition = MaterialComposition::new(vec![
-        CompositionComponent::new(MATERIAL_COPPER, ore_copper_ppm),
-        CompositionComponent::new(
-            MATERIAL_STONE,
-            COMPOSITION_PARTS_PER_MILLION - ore_copper_ppm,
-        ),
-    ])
-    .unwrap_or_else(|error| panic!("primitive progression ore composition failed: {error}"));
-    let hard_ore_composition = MaterialComposition::new(vec![
-        CompositionComponent::new(MATERIAL_COPPER, hard_ore_copper_ppm),
-        CompositionComponent::new(
-            MATERIAL_STONE,
-            COMPOSITION_PARTS_PER_MILLION - hard_ore_copper_ppm,
-        ),
-    ])
-    .unwrap_or_else(|error| panic!("primitive progression hard-ore composition failed: {error}"));
+    let ore_composition = copper_ore_composition(ore_copper_ppm, soft_gangue_clay_share_ppm);
+    let hard_ore_composition =
+        copper_ore_composition(hard_ore_copper_ppm, hard_gangue_clay_share_ppm);
     let _ = seed_geological_deposit(
         registries,
         &mut state,
@@ -217,14 +210,7 @@ pub(super) fn run_primitive_progression_case(
     );
     let native_target = MiningTargetRequest::new(native_bounds, MATERIAL_COPPER);
     let trace_bounds = progression_clue_bounds(clue_slots[3]);
-    let trace_composition = MaterialComposition::new(vec![
-        CompositionComponent::new(MATERIAL_COPPER, trace_copper_ppm),
-        CompositionComponent::new(
-            MATERIAL_STONE,
-            COMPOSITION_PARTS_PER_MILLION - trace_copper_ppm,
-        ),
-    ])
-    .unwrap_or_else(|error| panic!("primitive trace-copper composition failed: {error}"));
+    let trace_composition = copper_ore_composition(trace_copper_ppm, trace_gangue_clay_share_ppm);
     let _ = seed_geological_deposit(
         registries,
         &mut state,
@@ -504,7 +490,7 @@ pub(super) fn run_primitive_progression_case(
         "the player must learn through the canonical mining action that the promising direct-copper occurrence cannot fund both upgrades"
     );
     let direct_supply_blocked_at = state.tick().value();
-    let bulk_sample = observe_single_material_sample(&state, ore_storage, "bulk ore");
+    let bulk_sample = observe_material_sample(&state, ore_storage, "bulk ore");
     assert_eq!(
         bulk_sample.commodity.form(),
         FORM_ORE,
@@ -565,8 +551,7 @@ pub(super) fn run_primitive_progression_case(
             pick,
             refined_clue_sample_mass,
         );
-        let refined_sample =
-            observe_single_material_sample(&state, refined_clue_storage, "refined clue");
+        let refined_sample = observe_material_sample(&state, refined_clue_storage, "refined clue");
         assert_eq!(
             refined_sample.commodity.form(),
             FORM_ORE,
@@ -669,8 +654,7 @@ pub(super) fn run_primitive_progression_case(
                 mined_mass,
             );
             let hard_seam_accessed_at = state.tick().value();
-            let hard_sample =
-                observe_single_material_sample(&state, hard_ore_storage, "hard-seam ore");
+            let hard_sample = observe_material_sample(&state, hard_ore_storage, "hard-seam ore");
             assert_eq!(hard_sample.commodity.form(), FORM_ORE);
             hard_sample_copper_ppm = Some(hard_sample.copper_ppm);
             let hard_feed_is_better = hard_sample.copper_ppm > bulk_sample.copper_ppm;
@@ -888,8 +872,7 @@ pub(super) fn run_primitive_progression_case(
             );
             reinforced_mining_ticks = Some(ticks);
             hard_seam_accessed_at = Some(state.tick().value());
-            let hard_sample =
-                observe_single_material_sample(&state, hard_ore_storage, "hard-seam ore");
+            let hard_sample = observe_material_sample(&state, hard_ore_storage, "hard-seam ore");
             assert_eq!(hard_sample.commodity.form(), FORM_ORE);
             hard_sample_copper_ppm = Some(hard_sample.copper_ppm);
         }

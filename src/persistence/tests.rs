@@ -722,14 +722,14 @@ fn previous_save_schema_is_rejected_without_compatibility_path() {
     let state = AppState::new(WorldSeed::new(0x5700_0022));
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("previous-schema fixture serialization failed: {error}"));
-    encoded["schema_version"] = serde_json::json!(52_u32);
+    encoded["schema_version"] = serde_json::json!(54_u32);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("previous-schema fixture decode failed: {error}"));
 
     assert_eq!(
         decoded.into_state(&registries),
         Err(LoadError::UnsupportedSchemaVersion {
-            found: 52,
+            found: 54,
             supported: CURRENT_SAVE_SCHEMA_VERSION,
         })
     );

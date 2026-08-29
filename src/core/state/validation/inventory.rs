@@ -2,7 +2,7 @@
 //! provenance.
 
 use crate::core::state::AppState;
-use crate::inventory::MaterialLotRecord;
+use crate::inventory::{MaterialLotRecord, validate_loaded_storage_enclosures};
 use crate::registry::Registries;
 
 use super::StateValidationError;
@@ -11,6 +11,8 @@ pub(super) fn validate_inventory_references(
     registries: &Registries,
     state: &AppState,
 ) -> Result<(), StateValidationError> {
+    validate_loaded_storage_enclosures(registries, state)
+        .map_err(StateValidationError::StorageEnclosure)?;
     validate_stockpile_commodity_references(registries, state)?;
     for lot in state.systems.inventory.lots() {
         validate_lot_cross_owner_references(registries, state, lot)?;
