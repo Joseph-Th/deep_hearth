@@ -1165,6 +1165,7 @@ fn consumption_reservation_and_reserved_deposit_preserve_final_quantity() {
         &registries,
         state.inventory(),
         created_at,
+        created_at,
         vec![ReservedDepositRequest::new(destination, vec![output], 0)],
     )
     .unwrap_or_else(|error| panic!("reserved deposit planning failed: {error:?}"));

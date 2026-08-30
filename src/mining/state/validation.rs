@@ -59,7 +59,7 @@ pub enum MiningValidationError {
         due: SimulationTick,
         current: SimulationTick,
     },
-    ReadyClaimOutsideCompletionTick {
+    ReadyClaimBeforeCompletion {
         job: MiningJobId,
         completion: SimulationTick,
         current: SimulationTick,
@@ -119,13 +119,13 @@ impl Display for MiningValidationError {
                 due.value(),
                 current.value()
             ),
-            Self::ReadyClaimOutsideCompletionTick {
+            Self::ReadyClaimBeforeCompletion {
                 job,
                 completion,
                 current,
             } => write!(
                 formatter,
-                "ready mining job {} must be claimed at completion tick {} but current tick is {}",
+                "ready mining job {} claims completion at tick {} after current tick {}",
                 job.value(),
                 completion.value(),
                 current.value()
@@ -256,8 +256,8 @@ fn validate_ready_mining_job(
     job: &MiningJobRecord,
     current: SimulationTick,
 ) -> Result<(), MiningValidationError> {
-    if job.completes_at() != current {
-        return Err(MiningValidationError::ReadyClaimOutsideCompletionTick {
+    if job.completes_at() > current {
+        return Err(MiningValidationError::ReadyClaimBeforeCompletion {
             job: job.id(),
             completion: job.completes_at(),
             current,

@@ -9,18 +9,19 @@ use crate::content::{
     build_registries,
 };
 use crate::core::quantity::{Energy, Mass, Temperature};
-use crate::core::state::{AppState, validate_loaded_state};
-use crate::core::time::WorldSeed;
+use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
+use crate::core::time::{SimulationTick, WorldSeed};
 use crate::energy::{
-    EnergySinkError, EnergyStoreRecord, add_energy_store, calculate_explicit_energy_accounting,
-    validate_assemble_energy_store, validate_disassemble_energy_store,
+    EnergySinkError, EnergyStoreRecord, EnergyValidationError, add_energy_store,
+    calculate_explicit_energy_accounting, validate_assemble_energy_store,
+    validate_disassemble_energy_store,
 };
 use crate::equipment::validate_assemble_equipment;
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{ManualPowerError, ManualPowerRequest, validate_start_manual_power};
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
-use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::simulation::advance_tick;
 use crate::survival::initialize_player_survival;
 
@@ -46,6 +47,44 @@ fn assemble_stone_flywheel(registries: &Registries, state: &mut AppState) -> Ene
         .unwrap_or_else(|error| panic!("flywheel upgrade assembly validation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("flywheel upgrade assembly commit failed: {error}"))
+}
+
+#[test]
+fn upgraded_store_load_rejects_post_construction_base_material_provenance() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xE660_1010));
+    let store = assemble_stone_flywheel(&registries, &mut state);
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("flywheel chronology audit tick failed: {error}"));
+    let reinforcement = reinforcement_source(&registries, &mut state);
+    validate_upgrade_energy_store(
+        &registries,
+        &state,
+        store,
+        ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+        reinforcement,
+    )
+    .unwrap_or_else(|error| panic!("flywheel chronology upgrade validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("flywheel chronology upgrade commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("flywheel chronology serialization failed: {error}"));
+    encoded["state"]["systems"]["energy"]["records"][store.value().to_string()]["embodied_material"]
+        [0]["provenance"]["latest_created_at"] = serde_json::json!(1_u64);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("flywheel chronology tamper decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Energy(
+            EnergyValidationError::EmbodiedProvenanceAfterConstruction {
+                store,
+                latest_created_at: SimulationTick::new(1),
+                created_at: SimulationTick::ZERO,
+            }
+        )))
+    );
 }
 
 fn reinforcement_source(registries: &Registries, state: &mut AppState) -> StockpileId {

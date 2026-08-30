@@ -344,6 +344,21 @@ impl StructureState {
         next_revision: u64,
     ) {
         let id = record.id;
+        assert_eq!(
+            id.value(),
+            self.next_element_id,
+            "structural allocation must consume the current identity cursor"
+        );
+        assert_eq!(
+            self.next_element_id.checked_add(1),
+            Some(next_element_id),
+            "structural allocation must advance the identity cursor exactly once"
+        );
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "structural allocation must advance the owner revision exactly once"
+        );
         let previous_record = self.elements.insert(id, record);
         let previous_supports = self.supports_by_element.insert(id, BTreeSet::new());
         let previous_dependents = self.dependents_by_support.insert(id, BTreeSet::new());
@@ -492,6 +507,11 @@ impl StructureState {
     }
 
     pub(super) fn apply_revision(&mut self, next_revision: u64) {
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "structural revision must advance exactly once per canonical mutation batch"
+        );
         self.revision = next_revision;
     }
 

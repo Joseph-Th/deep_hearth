@@ -4,7 +4,6 @@ use std::collections::BTreeMap;
 
 use crate::core::quantity::AggregateMass;
 use crate::core::state::AppState;
-use crate::equipment::EquipmentValidationError;
 use crate::fluid::validate_existing_fluid_load;
 use crate::registry::Registries;
 use crate::structural::{
@@ -35,20 +34,12 @@ fn validate_equipment_structural_loads(
                 element,
             });
         }
-        let Some(definition) = registries.equipment().get_equipment(equipment.definition()) else {
-            return Err(StateValidationError::Equipment(
-                EquipmentValidationError::UnknownDefinition {
-                    equipment: equipment.id(),
-                    definition: equipment.definition(),
-                },
-            ));
-        };
         let current = mounted_mass_by_element
             .get(&element)
             .copied()
             .unwrap_or(AggregateMass::ZERO);
         let next = current
-            .checked_add(AggregateMass::from_mass(definition.mass()))
+            .checked_add(AggregateMass::from_mass(equipment.embodied_mass()))
             .ok_or(StateValidationError::MountedEquipmentMassOverflow { element })?;
         mounted_mass_by_element.insert(element, next);
     }

@@ -194,11 +194,12 @@ fn apply_availability_changes(state: &mut AppState, changes: &[ProductionAvailab
                 .change_suspension_reason(job, previous, reason),
             ProductionAvailabilityChange::Resumed {
                 job,
+                resumed_at,
                 scheduled_completion,
                 ..
             } => state
                 .production_state_mut()
-                .resume_job(job, scheduled_completion),
+                .resume_job(job, resumed_at, scheduled_completion),
         }
     }
 }

@@ -1,8 +1,6 @@
 //! Binds exact process inputs and derives operation-specific duration, outputs, energy, and equipment effects.
 
 use std::collections::BTreeSet;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
@@ -12,12 +10,14 @@ use crate::energy::{ConsumedEnergyTrace, ValidatedEnergySink, ValidatedEnergySup
 use crate::equipment::{EquipmentOperationTrace, ValidatedEquipmentUse};
 use crate::inventory::{ConsumedMaterialTrace, ConsumptionSelection, StockpileId};
 use crate::maintenance::Condition;
-use crate::material::{CommodityKey, CompositionError, MaterialId, MaterialLotSpec};
+use crate::material::MaterialLotSpec;
 
 use super::definitions::ProcessId;
 
+mod errors;
 mod inputs;
 
+pub use errors::ProcessResolutionError;
 pub(crate) use inputs::validate_repeated_process_inputs;
 pub use inputs::{
     ProcessInputError, ValidatedProcessInputs, validate_process_inputs,
@@ -252,7 +252,14 @@ impl ValidatedProcessInputs {
         if duration.is_zero() {
             return Err(ProcessResolutionError::ZeroDuration);
         }
-        let output_streams = validate_and_order_output_streams(output_streams)?;
+        let (output_streams, output_mass) = validate_and_order_output_streams(output_streams)?;
+        let input_mass = self.selection.total_consumed();
+        if output_mass != input_mass {
+            return Err(ProcessResolutionError::MatterBalanceMismatch {
+                input_mass,
+                output_mass,
+            });
+        }
         let resources = resources.resolve()?;
         Ok(ProcessResolution {
             process: self.process,
@@ -269,7 +276,7 @@ impl ValidatedProcessInputs {
 
 fn validate_and_order_output_streams(
     mut output_streams: Vec<ProcessOutputStream>,
-) -> Result<Vec<ProcessOutputStream>, ProcessResolutionError> {
+) -> Result<(Vec<ProcessOutputStream>, Mass), ProcessResolutionError> {
     if output_streams.is_empty() {
         return Err(ProcessResolutionError::NoOutputs);
     }
@@ -288,10 +295,9 @@ fn validate_and_order_output_streams(
         validate_outputs(&stream.outputs)?;
     }
     output_streams.sort_by_key(|stream| stream.id);
-    if sum_output_stream_mass(&output_streams).is_none() {
-        return Err(ProcessResolutionError::OutputMassOverflow);
-    }
-    Ok(output_streams)
+    let output_mass = sum_output_stream_mass(&output_streams)
+        .ok_or(ProcessResolutionError::OutputMassOverflow)?;
+    Ok((output_streams, output_mass))
 }
 
 #[cfg(test)]
@@ -311,122 +317,6 @@ pub(crate) fn make_test_process_resolution_with_streams(
     ) {
         Ok(resolution) => resolution,
         Err(error) => panic!("multi-stream test process resolution fixture failed: {error}"),
-    }
-}
-
-/// Invalid operation-specific output plan produced by a physical resolver.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ProcessResolutionError {
-    ZeroDuration,
-    NoOutputs,
-    ZeroOutputStreamId,
-    DuplicateOutputStreamId {
-        stream: ProcessOutputStreamId,
-    },
-    EmptyOutputStream,
-    ZeroOutputMass {
-        commodity: CommodityKey,
-    },
-    InvalidOutputComposition {
-        commodity: CommodityKey,
-        error: CompositionError,
-    },
-    OutputCompositionMissingHost {
-        commodity: CommodityKey,
-        host: MaterialId,
-    },
-    DuplicateOutputSpecification {
-        commodity: CommodityKey,
-    },
-    OutputMassOverflow,
-    EquipmentConditionImproved {
-        before: Condition,
-        after: Condition,
-    },
-}
-
-impl Display for ProcessResolutionError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ZeroDuration => formatter.write_str("resolved process duration must be nonzero"),
-            Self::NoOutputs => formatter.write_str("resolved process must own output matter"),
-            Self::ZeroOutputStreamId => {
-                formatter.write_str("resolved process output stream id must be nonzero")
-            }
-            Self::DuplicateOutputStreamId { stream } => write!(
-                formatter,
-                "resolved process contains duplicate output stream id {}",
-                stream.value()
-            ),
-            Self::EmptyOutputStream => {
-                formatter.write_str("resolved process output stream must own material")
-            }
-            Self::ZeroOutputMass { commodity } => write!(
-                formatter,
-                "resolved output material {} form {} has zero mass",
-                commodity.material().value(),
-                commodity.form().value()
-            ),
-            Self::InvalidOutputComposition { commodity, error } => write!(
-                formatter,
-                "resolved output material {} form {} has invalid composition: {error}",
-                commodity.material().value(),
-                commodity.form().value()
-            ),
-            Self::OutputCompositionMissingHost { commodity, host } => write!(
-                formatter,
-                "resolved output material {} form {} composition omits host material {}",
-                commodity.material().value(),
-                commodity.form().value(),
-                host.value()
-            ),
-            Self::DuplicateOutputSpecification { commodity } => write!(
-                formatter,
-                "resolved output repeats material {} form {} with identical physical state",
-                commodity.material().value(),
-                commodity.form().value()
-            ),
-            Self::OutputMassOverflow => {
-                formatter.write_str("resolved process output mass overflows authoritative storage")
-            }
-            Self::EquipmentConditionImproved { before, after } => write!(
-                formatter,
-                "production operation cannot improve equipment condition from {} ppm to {} ppm",
-                before.parts_per_million(),
-                after.parts_per_million()
-            ),
-        }
-    }
-}
-
-impl Error for ProcessResolutionError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::InvalidOutputComposition {
-                commodity: _commodity,
-                error,
-            } => Some(error),
-            Self::ZeroDuration
-            | Self::NoOutputs
-            | Self::ZeroOutputStreamId
-            | Self::EmptyOutputStream
-            | Self::OutputMassOverflow => None,
-            Self::DuplicateOutputStreamId { stream: _stream } => None,
-            Self::ZeroOutputMass {
-                commodity: _commodity,
-            }
-            | Self::DuplicateOutputSpecification {
-                commodity: _commodity,
-            } => None,
-            Self::OutputCompositionMissingHost {
-                commodity: _commodity,
-                host: _host,
-            } => None,
-            Self::EquipmentConditionImproved {
-                before: _before,
-                after: _after,
-            } => None,
-        }
     }
 }
 

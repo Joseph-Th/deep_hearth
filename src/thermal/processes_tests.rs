@@ -29,7 +29,7 @@ use crate::inventory::{
     add_stockpile, deposit_lot_for_test, validate_mount_stockpile, validate_unmount_stockpile,
 };
 use crate::maintenance::{Condition, MaintenanceThresholds};
-use crate::material::{CommodityKey, MaterialComposition};
+use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 
 #[cfg(feature = "test-soak")]
 use crate::matter::calculate_matter_accounting;
@@ -48,7 +48,7 @@ use crate::structural::{
     materialize_structural_element_for_test, validate_activate_structural_element,
     validate_set_structural_load,
 };
-use crate::thermal::{PhaseSensibleHeatError, calculate_phase_sensible_heat};
+use crate::thermal::{PhaseSensibleHeatError, SensibleHeatError, calculate_phase_sensible_heat};
 
 const HEATING_POWER: CapabilityId = CapabilityId::new(920_001);
 const MAX_TEMPERATURE: CapabilityId = CapabilityId::new(920_002);
@@ -1690,6 +1690,60 @@ fn trusted_load_rejects_fixed_equipment_job_with_erased_support_requirement() {
 }
 
 #[test]
+fn trusted_load_rejects_fractional_sensible_heat_hidden_by_whole_nanojoule_trace() {
+    let (registries, mut state, source, destination, equipment, energy_store) =
+        make_loaded_fixture(EnergyCarrier::Electrical);
+    let resolved = resolve_test_sensible_heating_process(
+        &registries,
+        &state,
+        PROCESS,
+        source,
+        equipment,
+        energy_store,
+        Temperature::from_millikelvin(303_000),
+    )
+    .unwrap_or_else(|error| panic!("fractional-load heating fixture resolution failed: {error}"));
+    let job = validate_start_process(
+        &registries,
+        &state,
+        resolved.process_resolution(),
+        source,
+        destination,
+    )
+    .unwrap_or_else(|error| panic!("fractional-load heating fixture start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("fractional-load heating fixture commit failed: {error}"));
+
+    let mixed = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_COPPER, 1),
+        CompositionComponent::new(MATERIAL_WOOD, 999_999),
+    ])
+    .unwrap_or_else(|error| panic!("fractional-load composition fixture failed: {error}"));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("fractional-load serialization failed: {error}"));
+    let trace = &mut encoded["state"]["systems"]["production"]["jobs"][job.value().to_string()]["resources"]
+        ["consumed_inputs"][0]["profile"];
+    trace["composition"] = serde_json::to_value(mixed).unwrap_or_else(|error| {
+        panic!("fractional-load composition serialization failed: {error}")
+    });
+    trace["temperature"] = serde_json::json!(302_999_u32);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("fractional-load structural decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::ThermalJob(
+            ThermalJobValidationError::Heat {
+                job,
+                error: PhaseSensibleHeatError::Heat(SensibleHeatError::FractionalNanojoule {
+                    femtojoule_remainder: 986_850,
+                }),
+            }
+        )))
+    );
+}
+
+#[test]
 fn trusted_load_rejects_running_job_whose_support_assignment_was_erased() {
     let registries = make_registries_with_energy_output_power(
         EnergyCarrier::Electrical,
@@ -2070,6 +2124,51 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
             .map(|stockpile| stockpile.reserved_inbound()),
         Some(reserved_output_mass),
         "resume must not release reserved output capacity before completion"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let forged_due = resumed_due
+        .checked_add_span(TickSpan::new(1))
+        .unwrap_or_else(|| panic!("resumed schedule tamper due tick overflowed"));
+    let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("resumed schedule tamper serialization failed: {error}"));
+    tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["schedule"]["completes_at"] =
+        serde_json::json!(forged_due.value());
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+        .unwrap_or_else(|error| panic!("resumed schedule tamper decode failed: {error}"));
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Production(
+            ProductionValidationError::CompletionScheduleMismatch {
+                job,
+                expected_due: resumed_due,
+                actual_due: forged_due,
+            }
+        )))
+    );
+
+    let started_at = state
+        .production()
+        .get_job(job)
+        .map(|record| record.started_at())
+        .unwrap_or_else(|| panic!("resumed schedule job disappeared before history tamper"));
+    let elapsed = TickSpan::new(state.tick().value() - started_at.value());
+    let forged_completed = TickSpan::new(elapsed.value() + 1);
+    let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("suspension history tamper serialization failed: {error}"));
+    tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["schedule"]["completed_suspension_time"] =
+        serde_json::json!(forged_completed.value());
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered)
+        .unwrap_or_else(|error| panic!("suspension history tamper decode failed: {error}"));
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Production(
+            ProductionValidationError::CompletedSuspensionTimeExceedsElapsed {
+                job,
+                completed: forged_completed,
+                elapsed,
+            }
+        )))
     );
 
     while state.production().get_job(job).is_some() {

@@ -8,7 +8,7 @@ use crate::content::{
     PROCESS_KNAP_STONE_TOOL, PROCESS_SHAPE_WOOD_HANDLE, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
     build_registries,
 };
-use crate::core::quantity::{Area, Energy, Force, Length, Temperature, Volume};
+use crate::core::quantity::{Area, Force, Length, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::crafting::{
@@ -26,8 +26,9 @@ use crate::geology::{
     ProspectingResolution, validate_record_prospecting,
 };
 use crate::inventory::{
-    StockpileStructuralLoadError, add_solid_stockpile_for_test, deposit_lot_for_test,
-    validate_mount_stockpile, validate_unmount_stockpile,
+    AMBIENT_PRESERVATION_MULTIPLIER_PPM, STORAGE_AGE_PARTS_PER_TICK, StockpileStructuralLoadError,
+    add_solid_stockpile_for_test, deposit_lot_for_test, validate_mount_stockpile,
+    validate_unmount_stockpile,
 };
 use crate::labor::{
     PlayerWork, PlayerWorkStartError, PlayerWorkValidationError,
@@ -40,7 +41,7 @@ use crate::mining::{
     MiningJobValidationError, MiningTargetRequest, MiningValidationError, resolve_mining_target,
 };
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
-use crate::simulation::{TickError, advance_tick};
+use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralElementId, StructuralLifecycle, StructuralLoadKind, add_structural_element,
@@ -1656,15 +1657,45 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
         !ready_energy.mining_material_thermal().is_zero(),
         "extracted ore must retain explicit thermal ownership while waiting to be claimed"
     );
-    let ready_state = state.clone();
-    assert_eq!(
-        advance_tick(&registries, &mut state),
-        Err(TickError::PendingMiningClaim { job })
-    );
-    assert_eq!(
-        state, ready_state,
-        "pending mining output must not allow simulation time or any owner state to advance"
-    );
+    let completion_tick = state.tick();
+    for _ in 0..3 {
+        let delayed = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("delayed mining-claim tick failed: {error}"));
+        assert!(delayed.ready_mining_jobs().is_empty());
+        assert!(
+            state
+                .mining()
+                .get_job(job)
+                .is_some_and(MiningJobRecord::is_ready_to_claim),
+            "completed mining output must remain durably mining-owned until claim"
+        );
+        assert_eq!(state.player_work().active(), None);
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(ore_destination)
+                .map(|stockpile| stockpile.reserved_inbound()),
+            Some(Mass::from_milligrams(100_000)),
+            "delayed mining output must retain its destination capacity reservation"
+        );
+        assert_eq!(
+            calculate_matter_accounting(&state)
+                .unwrap_or_else(|error| panic!("delayed mining matter audit failed: {error}"))
+                .total(),
+            matter_before
+        );
+        validate_loaded_state(&registries, &state)
+            .unwrap_or_else(|error| panic!("delayed mining state audit failed: {error}"));
+    }
+
+    let delayed_encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("delayed mining save serialization failed: {error}"));
+    let delayed_loaded: LoadedSaveEnvelope = serde_json::from_value(delayed_encoded)
+        .unwrap_or_else(|error| panic!("delayed mining save decode failed: {error}"));
+    let delayed_restored = delayed_loaded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("delayed mining save validation failed: {error}"));
+    assert_eq!(delayed_restored, state);
 
     validate_claim_mining_output(&registries, &state, job)
         .unwrap_or_else(|error| panic!("mining claim validation failed: {error}"))
@@ -1679,11 +1710,34 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
         Mass::from_milligrams(100_000)
     );
     assert_eq!(destination.reserved_inbound(), Mass::ZERO);
+    let claimed_lot = state
+        .inventory()
+        .lot_ids(ore_destination)
+        .next()
+        .and_then(|lot| state.inventory().get_lot(lot))
+        .unwrap_or_else(|| panic!("claimed mining output lot disappeared"));
+    assert_eq!(
+        claimed_lot.created_at(),
+        completion_tick,
+        "delayed claim must preserve physical extraction time as provenance"
+    );
+    assert_eq!(
+        claimed_lot.latest_created_at(),
+        completion_tick,
+        "delayed claim must not rewrite output provenance to the later claim tick"
+    );
+    assert_eq!(
+        claimed_lot
+            .storage_history()
+            .project(state.tick(), AMBIENT_PRESERVATION_MULTIPLIER_PPM,),
+        Some(3 * STORAGE_AGE_PARTS_PER_TICK),
+        "unclaimed output must accumulate ambient storage exposure before inventory admission"
+    );
     assert_eq!(
         calculate_explicit_energy_accounting(&registries, &state)
             .unwrap_or_else(|error| panic!("claimed mining energy ownership audit failed: {error}"))
             .mining_material_thermal(),
-        Energy::ZERO,
+        crate::energy::PreciseEnergy::ZERO,
         "claim must transfer all ready ore thermal ownership out of mining"
     );
     assert_eq!(

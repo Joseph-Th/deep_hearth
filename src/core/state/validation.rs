@@ -7,7 +7,7 @@ use crate::geology::{validate_loaded_geological_knowledge, validate_loaded_geolo
 use crate::inventory::validate_loaded_inventory;
 use crate::labor::validate_loaded_player_work;
 use crate::mining::{validate_loaded_mining, validate_loaded_mining_jobs};
-use crate::production::validate_loaded_production;
+use crate::production::{validate_loaded_production, validate_loaded_production_schedule_history};
 use crate::registry::Registries;
 use crate::structural::validate_loaded_structure;
 use crate::survival::validate_loaded_survival;
@@ -17,11 +17,13 @@ use super::AppState;
 mod error;
 mod inventory;
 mod production;
+mod reservations;
 mod structural;
 
 pub use error::StateValidationError;
 use inventory::validate_inventory_references;
 use production::validate_production_references;
+use reservations::validate_reserved_inbound;
 use structural::validate_structural_integrations;
 
 /// Validates decoded persistent state before it can re-enter the runtime.
@@ -47,8 +49,13 @@ pub fn validate_loaded_state(
         state.tick(),
     )
     .map_err(StateValidationError::Energy)?;
-    validate_loaded_fluid(registries.fluid(), &state.systems.fluid, state.tick())
-        .map_err(StateValidationError::Fluid)?;
+    validate_loaded_fluid(
+        registries.fluid(),
+        registries.materials(),
+        &state.systems.fluid,
+        state.tick(),
+    )
+    .map_err(StateValidationError::Fluid)?;
     validate_loaded_equipment(
         registries.equipment(),
         registries.materials(),
@@ -97,8 +104,11 @@ pub fn validate_loaded_state(
     )
     .map_err(StateValidationError::Survival)?;
 
-    validate_production_references(registries, state)?;
+    let expected_reservations = validate_production_references(registries, state)?;
+    validate_loaded_production_schedule_history(&state.systems.production, state.tick())
+        .map_err(StateValidationError::Production)?;
     validate_loaded_mining_jobs(registries, state).map_err(StateValidationError::MiningJob)?;
+    validate_reserved_inbound(state, expected_reservations)?;
     validate_loaded_player_work(registries, state, &state.systems.player_work)
         .map_err(StateValidationError::PlayerWork)?;
 

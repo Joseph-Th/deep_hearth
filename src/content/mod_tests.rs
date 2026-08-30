@@ -11,13 +11,17 @@ use crate::core::quantity::{
     Energy, Length, Mass, MassFlow, MassSpecificEnergy, Power, Temperature,
 };
 use crate::core::time::TickSpan;
-use crate::energy::EnergyCarrier;
-use crate::material::{CommodityKey, MaterialInputSpec, ParticleSizeRange};
+use crate::energy::{EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId};
+use crate::material::{
+    CommodityKey, MaterialAssemblyProfile, MaterialInputSpec, ParticleSizeRange,
+};
 use crate::ore_processing::{
     ComminutionProcessDefinition, OreProcessingRegistry, PoweredOreProcessProfile,
 };
 use crate::production::{ProcessDefinition, ProcessId, ProductionRegistry};
-use crate::survival::FoodCategory;
+use crate::survival::{
+    ConsumptionTemperatureRange, FoodCategory, FoodDefinition, SurvivalRegistry,
+};
 use crate::thermal::{
     CastingPhaseChange, CastingProcessDefinition, MeltingProcessDefinition, PhaseChangeForms,
     PhaseChangeProcessProfile, SensibleHeatingProcessDefinition, ThermalRegistry,
@@ -29,6 +33,45 @@ const TEST_MASS_FLOW: CapabilityId = CapabilityId::new(700_002);
 const TEST_MAX_BATCH_MASS: CapabilityId = CapabilityId::new(700_003);
 const TEST_HEATING_POWER: CapabilityId = CapabilityId::new(700_004);
 const TEST_MAX_TEMPERATURE: CapabilityId = CapabilityId::new(700_005);
+
+#[test]
+fn infrastructure_assembly_cannot_hide_perishable_food_from_storage_age() {
+    let food = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let base_survival = survival::build_test_survival_registry();
+    let survival = SurvivalRegistry::new(
+        base_survival.physiology(),
+        [FoodDefinition::new(
+            food,
+            FoodCategory::Fruit,
+            MassSpecificEnergy::from_nanojoules_per_milligram(1),
+            0,
+            TickSpan::new(10),
+            ConsumptionTemperatureRange::new(
+                Temperature::from_millikelvin(273_150),
+                Temperature::from_millikelvin(333_150),
+            ),
+        )],
+        std::iter::empty(),
+    );
+    let store = EnergyStoreDefinition::new_with_transfer_limits(
+        EnergyStoreDefinitionId::new(990_001),
+        "perishable embodiment fixture",
+        EnergyCarrier::Mechanical,
+        Energy::from_nanojoules(10),
+        Power::from_picowatts(1_000),
+        Power::from_picowatts(1_000),
+    )
+    .with_assembly_profile(MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
+        food,
+        Mass::from_milligrams(1),
+    )]));
+
+    let result = std::panic::catch_unwind(|| {
+        make_test_registries_with_energy_store_and_survival(store, survival)
+    });
+
+    assert!(result.is_err());
+}
 
 fn assert_thermal_reference_validation_rejects(thermal: ThermalRegistry) {
     let mut capabilities = CapabilityRegistry::new();

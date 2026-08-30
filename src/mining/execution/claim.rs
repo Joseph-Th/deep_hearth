@@ -5,9 +5,10 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
 use crate::inventory::{
-    ReservedDepositPlan, ReservedDepositPlanError, ReservedDepositRequest, StockpileId,
-    StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedStockpileStructuralLoad,
-    apply_reserved_deposits, decide_reserved_deposits, validate_stockpile_stored_mass_changes,
+    ReservedDepositPlan, ReservedDepositPlanError, ReservedDepositRequest,
+    STORAGE_AGE_PARTS_PER_TICK, StockpileId, StockpileStoredMassChange,
+    StockpileStructuralLoadError, ValidatedStockpileStructuralLoad, apply_reserved_deposits,
+    decide_reserved_deposits, validate_stockpile_stored_mass_changes,
 };
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
@@ -21,6 +22,7 @@ pub enum MiningClaimError {
     LotIdExhausted,
     InventoryRevisionExhausted,
     MiningRevisionExhausted,
+    StorageAgeOverflow,
     DestinationMassOverflow { stockpile: StockpileId },
     StructuralLoad(StockpileStructuralLoadError),
 }
@@ -44,6 +46,9 @@ impl Display for MiningClaimError {
             }
             Self::MiningRevisionExhausted => {
                 formatter.write_str("mining revision space is exhausted")
+            }
+            Self::StorageAgeOverflow => {
+                formatter.write_str("unclaimed mining output storage age overflowed")
             }
             Self::DestinationMassOverflow { stockpile } => write!(
                 formatter,
@@ -69,6 +74,7 @@ impl Error for MiningClaimError {
             | Self::LotIdExhausted
             | Self::InventoryRevisionExhausted
             | Self::MiningRevisionExhausted
+            | Self::StorageAgeOverflow
             | Self::DestinationMassOverflow { .. } => None,
         }
     }
@@ -161,14 +167,25 @@ pub fn validate_claim_mining_output(
         return Err(MiningClaimError::NotReady { job });
     }
     let mass = record.output().mass();
+    let unclaimed_ticks = state
+        .tick()
+        .value()
+        .checked_sub(record.completes_at().value())
+        .unwrap_or_else(|| {
+            panic!("validated ready mining output cannot complete after current time")
+        });
+    let storage_age_parts = u128::from(unclaimed_ticks)
+        .checked_mul(STORAGE_AGE_PARTS_PER_TICK)
+        .ok_or(MiningClaimError::StorageAgeOverflow)?;
     let inventory = decide_reserved_deposits(
         registries,
         state.inventory(),
         record.completes_at(),
+        state.tick(),
         vec![ReservedDepositRequest::new(
             record.destination(),
             vec![record.output().clone()],
-            0,
+            storage_age_parts,
         )],
     )
     .map_err(|error| match error {

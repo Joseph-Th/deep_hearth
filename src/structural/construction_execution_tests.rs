@@ -5,10 +5,10 @@ use crate::content::{
     FORM_CRUSHED, FORM_INGOT, FORM_LOG, FORM_MOLTEN, MATERIAL_CHARCOAL, MATERIAL_COPPER,
     MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
-use crate::core::quantity::{Area, Energy, Force, Length};
+use crate::core::quantity::{Area, Force, Length};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
-use crate::energy::{ExplicitEnergyAccountingError, calculate_explicit_energy_accounting};
+use crate::energy::{PreciseEnergy, calculate_explicit_energy_accounting};
 use crate::inventory::{
     StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
     deposit_composed_lot_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
@@ -204,15 +204,11 @@ fn member(
     }
 }
 
-fn explicit_energy(registries: &Registries, state: &AppState) -> Energy {
-    match calculate_explicit_energy_accounting(registries, state).and_then(|accounting| {
-        accounting
-            .total()
-            .ok_or(ExplicitEnergyAccountingError::Overflow)
-    }) {
-        Ok(total) => total,
-        Err(error) => panic!("construction explicit energy accounting failed: {error}"),
-    }
+fn explicit_energy(registries: &Registries, state: &AppState) -> PreciseEnergy {
+    calculate_explicit_energy_accounting(registries, state)
+        .unwrap_or_else(|error| panic!("construction explicit energy accounting failed: {error}"))
+        .total()
+        .unwrap_or_else(|| panic!("construction exact energy total overflowed"))
 }
 
 fn unmaterialized_construction_fixture() -> (

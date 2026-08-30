@@ -157,6 +157,12 @@ pub(super) struct ProductionJobSchedule {
     pub(super) started_at: SimulationTick,
     pub(super) completes_at: SimulationTick,
     pub(super) active_duration: TickSpan,
+    /// Wall-clock suspension time from completed pause intervals.
+    ///
+    /// The currently active suspension, if any, is deliberately excluded until resume. This keeps
+    /// `completes_at = started_at + active_duration + completed_suspension_time` true for both
+    /// running and suspended jobs while retaining enough durable history to replay the schedule.
+    pub(super) completed_suspension_time: TickSpan,
     pub(super) suspension: Option<ProductionSuspension>,
 }
 
@@ -402,6 +408,21 @@ impl ProductionState {
         next_revision: u64,
     ) {
         let id = job.identity.id;
+        assert_eq!(
+            id.value(),
+            self.next_job_id,
+            "production job allocation must consume the current identity cursor"
+        );
+        assert_eq!(
+            self.next_job_id.checked_add(1),
+            Some(next_job_id),
+            "production job allocation must advance the identity cursor exactly once"
+        );
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "production job allocation must advance the owner revision exactly once"
+        );
         let projection = ProductionJobIndexProjection::from_job(&job);
         assert!(
             !self.jobs.contains_key(&id),
@@ -448,7 +469,12 @@ impl ProductionState {
         ));
     }
 
-    pub(super) fn resume_job(&mut self, id: ProductionJobId, scheduled_completion: SimulationTick) {
+    pub(super) fn resume_job(
+        &mut self,
+        id: ProductionJobId,
+        resumed_at: SimulationTick,
+        scheduled_completion: SimulationTick,
+    ) {
         let record = match self.jobs.get_mut(&id) {
             Some(record) => record,
             None => panic!(
@@ -456,10 +482,48 @@ impl ProductionState {
                 id.value()
             ),
         };
-        assert!(
-            record.schedule.suspension.is_some(),
-            "runtime invariant broken: running job received a resume transition"
+        let suspension = record.schedule.suspension.unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: running job {} received a resume transition",
+                id.value()
+            )
+        });
+        let paused_ticks = resumed_at
+            .value()
+            .checked_sub(suspension.suspended_at().value())
+            .unwrap_or_else(|| {
+                panic!(
+                    "runtime invariant broken: production job {} resumed before it suspended",
+                    id.value()
+                )
+            });
+        let completed_suspension_time = record
+            .schedule
+            .completed_suspension_time
+            .value()
+            .checked_add(paused_ticks)
+            .unwrap_or_else(|| {
+                panic!(
+                    "prevalidated production job {} completed suspension time overflowed",
+                    id.value()
+                )
+            });
+        assert_eq!(
+            resumed_at.checked_add_span(suspension.remaining_active_time()),
+            Some(scheduled_completion),
+            "production resume schedule must preserve remaining active time"
         );
+        let expected_completion = record
+            .schedule
+            .started_at
+            .checked_add_span(record.schedule.active_duration)
+            .and_then(|base| base.checked_add_span(TickSpan::new(completed_suspension_time)));
+        assert_eq!(
+            expected_completion,
+            Some(scheduled_completion),
+            "production resume must preserve the durable active-time schedule equation"
+        );
+        record.schedule.completed_suspension_time = TickSpan::new(completed_suspension_time);
         record.schedule.completes_at = scheduled_completion;
         record.schedule.suspension = None;
         self.indexes.insert_due_job(id, scheduled_completion);
@@ -519,4 +583,6 @@ mod validation;
 
 use indexes::{ProductionIndexes, ProductionJobIndexProjection};
 pub use validation::ProductionValidationError;
-pub(crate) use validation::validate_loaded_production;
+pub(crate) use validation::{
+    validate_loaded_production, validate_loaded_production_schedule_history,
+};

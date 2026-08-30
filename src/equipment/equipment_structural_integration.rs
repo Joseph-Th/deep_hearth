@@ -1,14 +1,9 @@
 //! Coordinates equipment support assignments with structure-owned equipment loads.
 
 use std::collections::BTreeMap;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{AggregateMass, Force};
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
-use crate::mining::MiningJobId;
-use crate::production::ProductionJobId;
 use crate::registry::Registries;
 use crate::structural::{
     StructuralAnalysis, StructuralCommitError, StructuralElementId, StructuralLifecycle,
@@ -16,299 +11,11 @@ use crate::structural::{
     calculate_aggregate_weight_force_ceiling, validate_owned_structural_load_change,
 };
 
-use super::{EquipmentDefinitionId, EquipmentId};
+use super::EquipmentId;
 
-/// Failure while resolving one equipment support assignment before any owner mutates.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum EquipmentSupportError {
-    UnknownEquipment {
-        equipment: EquipmentId,
-    },
-    UnknownEquipmentDefinition {
-        equipment: EquipmentId,
-        definition: EquipmentDefinitionId,
-    },
-    AlreadyMounted {
-        equipment: EquipmentId,
-        element: StructuralElementId,
-    },
-    NotMounted {
-        equipment: EquipmentId,
-    },
-    TargetNotActive {
-        element: StructuralElementId,
-        lifecycle: StructuralLifecycle,
-    },
-    EquipmentBusy {
-        equipment: EquipmentId,
-        job: ProductionJobId,
-        completes_at: SimulationTick,
-    },
-    EquipmentBusyMining {
-        equipment: EquipmentId,
-        job: MiningJobId,
-    },
-    EquipmentBusyManualPower {
-        equipment: EquipmentId,
-    },
-    AggregateMassOverflow {
-        element: StructuralElementId,
-    },
-    WeightForceOverflow {
-        element: StructuralElementId,
-    },
-    ExistingEquipmentLoadMismatch {
-        element: StructuralElementId,
-        stored: Force,
-        expected: Force,
-    },
-    EquipmentRevisionExhausted,
-    Structure(StructuralMutationError),
-}
+mod errors;
 
-impl Display for EquipmentSupportError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownEquipment { equipment } => {
-                write!(formatter, "unknown equipment id {}", equipment.value())
-            }
-            Self::UnknownEquipmentDefinition {
-                equipment,
-                definition,
-            } => write!(
-                formatter,
-                "equipment {} references unknown definition {} while resolving structural support",
-                equipment.value(),
-                definition.value()
-            ),
-            Self::AlreadyMounted { equipment, element } => write!(
-                formatter,
-                "equipment {} is already supported by structural element {}",
-                equipment.value(),
-                element.value()
-            ),
-            Self::NotMounted { equipment } => write!(
-                formatter,
-                "equipment {} has no structural support assignment to remove",
-                equipment.value()
-            ),
-            Self::TargetNotActive { element, lifecycle } => write!(
-                formatter,
-                "structural element {} is {lifecycle:?} and cannot receive mounted equipment",
-                element.value()
-            ),
-            Self::EquipmentBusy {
-                equipment,
-                job,
-                completes_at,
-            } => write!(
-                formatter,
-                "equipment {} is occupied by production job {} until tick {} and cannot be moved",
-                equipment.value(),
-                job.value(),
-                completes_at.value()
-            ),
-            Self::EquipmentBusyMining { equipment, job } => write!(
-                formatter,
-                "equipment {} is occupied by mining job {} and cannot be moved",
-                equipment.value(),
-                job.value()
-            ),
-            Self::EquipmentBusyManualPower { equipment } => write!(
-                formatter,
-                "equipment {} is occupied by direct player-powered generation and cannot be moved",
-                equipment.value()
-            ),
-            Self::AggregateMassOverflow { element } => write!(
-                formatter,
-                "mounted equipment mass overflows aggregate accounting on structural element {}",
-                element.value()
-            ),
-            Self::WeightForceOverflow { element } => write!(
-                formatter,
-                "mounted equipment weight exceeds structural force range on element {}",
-                element.value()
-            ),
-            Self::ExistingEquipmentLoadMismatch {
-                element,
-                stored,
-                expected,
-            } => write!(
-                formatter,
-                "structural element {} stores {} mN equipment load but equipment ownership requires {} mN",
-                element.value(),
-                stored.millinewtons(),
-                expected.millinewtons()
-            ),
-            Self::EquipmentRevisionExhausted => {
-                formatter.write_str("equipment revision space is exhausted")
-            }
-            Self::Structure(error) => {
-                write!(formatter, "structural support change failed: {error}")
-            }
-        }
-    }
-}
-
-impl Error for EquipmentSupportError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Structure(error) => Some(error),
-            Self::UnknownEquipment {
-                equipment: _equipment,
-            }
-            | Self::NotMounted {
-                equipment: _equipment,
-            } => None,
-            Self::UnknownEquipmentDefinition {
-                equipment: _equipment,
-                definition: _definition,
-            } => None,
-            Self::AlreadyMounted {
-                equipment: _equipment,
-                element: _element,
-            } => None,
-            Self::TargetNotActive {
-                element: _element,
-                lifecycle: _lifecycle,
-            } => None,
-            Self::EquipmentBusy {
-                equipment: _equipment,
-                job: _job,
-                completes_at: _completes_at,
-            } => None,
-            Self::EquipmentBusyMining {
-                equipment: _equipment,
-                job: _job,
-            } => None,
-            Self::EquipmentBusyManualPower {
-                equipment: _equipment,
-            } => None,
-            Self::AggregateMassOverflow { element: _element }
-            | Self::WeightForceOverflow { element: _element } => None,
-            Self::ExistingEquipmentLoadMismatch {
-                element: _element,
-                stored: _stored,
-                expected: _expected,
-            } => None,
-            Self::EquipmentRevisionExhausted => None,
-        }
-    }
-}
-
-/// Failure to commit a revision-bound equipment/support transaction.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum EquipmentSupportCommitError {
-    StaleEquipmentRevision {
-        expected: u64,
-        actual: u64,
-    },
-    UnknownEquipment {
-        equipment: EquipmentId,
-    },
-    SupportChanged {
-        equipment: EquipmentId,
-        expected: Option<StructuralElementId>,
-        actual: Option<StructuralElementId>,
-    },
-    EquipmentBusy {
-        equipment: EquipmentId,
-        job: ProductionJobId,
-        completes_at: SimulationTick,
-    },
-    EquipmentBusyMining {
-        equipment: EquipmentId,
-        job: MiningJobId,
-    },
-    EquipmentBusyManualPower {
-        equipment: EquipmentId,
-    },
-    Structure(StructuralCommitError),
-}
-
-impl Display for EquipmentSupportCommitError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::StaleEquipmentRevision { expected, actual } => write!(
-                formatter,
-                "validated equipment support change expected equipment revision {expected} but current revision is {actual}"
-            ),
-            Self::UnknownEquipment { equipment } => {
-                write!(
-                    formatter,
-                    "equipment {} disappeared before support commit",
-                    equipment.value()
-                )
-            }
-            Self::SupportChanged {
-                equipment,
-                expected,
-                actual,
-            } => write!(
-                formatter,
-                "equipment {} support changed from expected {expected:?} to {actual:?} before commit",
-                equipment.value()
-            ),
-            Self::EquipmentBusy {
-                equipment,
-                job,
-                completes_at,
-            } => write!(
-                formatter,
-                "equipment {} became occupied by production job {} until tick {} before support commit",
-                equipment.value(),
-                job.value(),
-                completes_at.value()
-            ),
-            Self::EquipmentBusyMining { equipment, job } => write!(
-                formatter,
-                "equipment {} became occupied by mining job {} before support commit",
-                equipment.value(),
-                job.value()
-            ),
-            Self::EquipmentBusyManualPower { equipment } => write!(
-                formatter,
-                "equipment {} became occupied by direct player-powered generation before support commit",
-                equipment.value()
-            ),
-            Self::Structure(error) => {
-                write!(formatter, "structural support commit failed: {error}")
-            }
-        }
-    }
-}
-
-impl Error for EquipmentSupportCommitError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Structure(error) => Some(error),
-            Self::StaleEquipmentRevision {
-                expected: _expected,
-                actual: _actual,
-            } => None,
-            Self::UnknownEquipment {
-                equipment: _equipment,
-            } => None,
-            Self::SupportChanged {
-                equipment: _equipment,
-                expected: _expected,
-                actual: _actual,
-            } => None,
-            Self::EquipmentBusy {
-                equipment: _equipment,
-                job: _job,
-                completes_at: _completes_at,
-            } => None,
-            Self::EquipmentBusyMining {
-                equipment: _equipment,
-                job: _job,
-            } => None,
-            Self::EquipmentBusyManualPower {
-                equipment: _equipment,
-            } => None,
-        }
-    }
-}
+pub use errors::{EquipmentSupportCommitError, EquipmentSupportError};
 
 /// Successful support change including any structural damage caused by the equipment load change.
 #[must_use]
@@ -457,23 +164,7 @@ impl ValidatedEquipmentSupportChange {
     }
 }
 
-fn resolve_definition_mass(
-    registries: &Registries,
-    equipment: EquipmentId,
-    definition: EquipmentDefinitionId,
-) -> Result<crate::core::quantity::Mass, EquipmentSupportError> {
-    registries
-        .equipment()
-        .get_equipment(definition)
-        .map(|entry| entry.mass())
-        .ok_or(EquipmentSupportError::UnknownEquipmentDefinition {
-            equipment,
-            definition,
-        })
-}
-
 fn supported_mass(
-    registries: &Registries,
     state: &AppState,
     element: StructuralElementId,
     excluded: Option<EquipmentId>,
@@ -490,9 +181,8 @@ fn supported_mass(
                 equipment.value()
             ),
         };
-        let mass = resolve_definition_mass(registries, record.id(), record.definition())?;
         total = total
-            .checked_add(AggregateMass::from_mass(mass))
+            .checked_add(AggregateMass::from_mass(record.embodied_mass()))
             .ok_or(EquipmentSupportError::AggregateMassOverflow { element })?;
     }
     Ok(total)
@@ -512,7 +202,7 @@ fn validate_existing_load(
     state: &AppState,
     element: StructuralElementId,
 ) -> Result<AggregateMass, EquipmentSupportError> {
-    let mass = supported_mass(registries, state, element, None)?;
+    let mass = supported_mass(state, element, None)?;
     let expected = support_force(registries, element, mass)?;
     let stored = state
         .structures()
@@ -602,9 +292,8 @@ pub fn validate_mount_equipment(
     }
 
     let current_mass = validate_existing_load(registries, state, element)?;
-    let equipment_mass = resolve_definition_mass(registries, equipment, record.definition())?;
     let next_mass = current_mass
-        .checked_add(AggregateMass::from_mass(equipment_mass))
+        .checked_add(AggregateMass::from_mass(record.embodied_mass()))
         .ok_or(EquipmentSupportError::AggregateMassOverflow { element })?;
     let next_load = support_force(registries, element, next_mass)?;
     let structural = validate_equipment_structural_change(
@@ -646,7 +335,7 @@ pub fn validate_unmount_equipment(
     }
 
     validate_existing_load(registries, state, element)?;
-    let remaining_mass = supported_mass(registries, state, element, Some(equipment))?;
+    let remaining_mass = supported_mass(state, element, Some(equipment))?;
     let next_load = support_force(registries, element, remaining_mass)?;
     let structural = validate_equipment_structural_change(
         registries,
@@ -706,10 +395,9 @@ pub fn validate_relocate_equipment(
 
     validate_existing_load(registries, state, source)?;
     let target_mass = validate_existing_load(registries, state, target)?;
-    let source_mass = supported_mass(registries, state, source, Some(equipment))?;
-    let equipment_mass = resolve_definition_mass(registries, equipment, record.definition())?;
+    let source_mass = supported_mass(state, source, Some(equipment))?;
     let target_mass = target_mass
-        .checked_add(AggregateMass::from_mass(equipment_mass))
+        .checked_add(AggregateMass::from_mass(record.embodied_mass()))
         .ok_or(EquipmentSupportError::AggregateMassOverflow { element: target })?;
 
     let source_load = support_force(registries, source, source_mass)?;

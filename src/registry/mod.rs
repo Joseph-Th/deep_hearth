@@ -11,7 +11,7 @@ use crate::equipment::EquipmentRegistry;
 use crate::fluid::FluidRegistry;
 use crate::inventory::StorageRegistry;
 use crate::labor::LaborRegistry;
-use crate::material::MaterialRegistry;
+use crate::material::{MaterialAssemblyProfile, MaterialRegistry};
 use crate::mining::MiningRegistry;
 use crate::ore_processing::OreProcessingRegistry;
 use crate::production::{ProcessId, ProductionRegistry};
@@ -103,6 +103,62 @@ pub(crate) struct RegistryPresentation {
     pub(crate) shaders: ShaderRegistry,
 }
 
+fn assert_nonperishable_infrastructure_assembly(
+    owner: &str,
+    assembly: &MaterialAssemblyProfile,
+    survival: &SurvivalRegistry,
+) {
+    for input in assembly.inputs() {
+        assert!(
+            survival.get_food(input.commodity()).is_none(),
+            "{owner} cannot embody perishable food commodity {} because embodied infrastructure does not track storage age",
+            input.commodity().value()
+        );
+    }
+}
+
+fn validate_infrastructure_perishability(domains: &RegistryDomains) {
+    for definition in domains.energy.definitions() {
+        if let Some(assembly) = definition.assembly_profile() {
+            assert_nonperishable_infrastructure_assembly(
+                "energy-store assembly",
+                assembly,
+                &domains.survival,
+            );
+        }
+        if let Some(upgrade) = definition.upgrade_profile() {
+            assert_nonperishable_infrastructure_assembly(
+                "energy-store upgrade",
+                upgrade.additions(),
+                &domains.survival,
+            );
+        }
+    }
+    for definition in domains.equipment.definitions() {
+        if let Some(assembly) = definition.assembly_profile() {
+            assert_nonperishable_infrastructure_assembly(
+                "equipment assembly",
+                assembly,
+                &domains.survival,
+            );
+        }
+        if let Some(upgrade) = definition.upgrade_profile() {
+            assert_nonperishable_infrastructure_assembly(
+                "equipment upgrade",
+                upgrade.additions(),
+                &domains.survival,
+            );
+        }
+    }
+    for definition in domains.storage.definitions() {
+        assert_nonperishable_infrastructure_assembly(
+            "storage-enclosure assembly",
+            definition.assembly_profile(),
+            &domains.survival,
+        );
+    }
+}
+
 impl Registries {
     pub(crate) fn new(
         schema_version: RegistrySchemaVersion,
@@ -133,6 +189,7 @@ impl Registries {
         domains
             .survival
             .validate_references(&domains.materials, &domains.fluid);
+        validate_infrastructure_perishability(&domains);
         domains.thermal.validate_references(
             &domains.production,
             &domains.capabilities,

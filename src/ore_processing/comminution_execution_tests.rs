@@ -12,11 +12,12 @@ use crate::content::{
     PROCESS_CRUSH_ORE, PROCESS_HAND_BREAK_ORE, build_registries,
     make_test_registries_with_comminution,
 };
-use crate::core::quantity::{AggregateMass, Length, MassSpecificEnergy};
+use crate::core::quantity::{AggregateMass, Length, Mass, MassSpecificEnergy};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::{TickSpan, WorldSeed};
 use crate::energy::{
-    EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store_with_initial_for_fixture,
+    EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
+    add_energy_store_with_initial_for_fixture,
 };
 use crate::equipment::{
     CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,

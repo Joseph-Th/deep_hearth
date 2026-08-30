@@ -12,7 +12,8 @@ use crate::core::quantity::{Length, MassSpecificEnergy};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::energy::{
-    EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store_with_initial_for_fixture,
+    EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
+    add_energy_store_with_initial_for_fixture,
 };
 use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment};
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_spec_for_test};

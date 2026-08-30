@@ -13,10 +13,20 @@ use super::state::{FluidContents, FluidStoreId, FluidStoreRecord};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AddFluidStoreError {
     ZeroCapacity,
-    UnknownDefinition { definition: FluidDefinitionId },
+    UnknownDefinition {
+        definition: FluidDefinitionId,
+    },
     InitialVolumeZero,
     InitialTemperatureZero,
-    InitialVolumeExceedsCapacity { initial: Volume, capacity: Volume },
+    InitialBelowMeltingPoint {
+        definition: FluidDefinitionId,
+        temperature: Temperature,
+        melting_point: Temperature,
+    },
+    InitialVolumeExceedsCapacity {
+        initial: Volume,
+        capacity: Volume,
+    },
     IdExhausted,
     RevisionExhausted,
 }
@@ -32,6 +42,17 @@ impl Display for AddFluidStoreError {
             Self::InitialTemperatureZero => {
                 formatter.write_str("initial fluid temperature must be above absolute zero")
             }
+            Self::InitialBelowMeltingPoint {
+                definition,
+                temperature,
+                melting_point,
+            } => write!(
+                formatter,
+                "initial fluid definition {} temperature {} mK is below its material melting point {} mK",
+                definition.value(),
+                temperature.millikelvin(),
+                melting_point.millikelvin()
+            ),
             Self::InitialVolumeExceedsCapacity { initial, capacity } => write!(
                 formatter,
                 "initial fluid volume {} uL exceeds store capacity {} uL",
@@ -110,8 +131,19 @@ pub(crate) fn add_fluid_store_with_contents_for_fixture(
     volume: Volume,
     temperature: Temperature,
 ) -> Result<FluidStoreId, AddFluidStoreError> {
-    if registries.fluid().get_fluid(definition).is_none() {
-        return Err(AddFluidStoreError::UnknownDefinition { definition });
+    let definition_record = registries
+        .fluid()
+        .get_fluid(definition)
+        .ok_or(AddFluidStoreError::UnknownDefinition { definition })?;
+    if let Some(melting_point) =
+        definition_record.minimum_modeled_temperature(registries.materials())
+        && temperature < melting_point
+    {
+        return Err(AddFluidStoreError::InitialBelowMeltingPoint {
+            definition,
+            temperature,
+            melting_point,
+        });
     }
     allocate_fluid_store(
         state,

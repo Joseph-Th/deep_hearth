@@ -454,6 +454,21 @@ impl DrinkDefinition {
         self.hydration_multiplier_ppm
     }
 
+    /// Projects the whole-microliter hydration represented by one consumed fluid volume.
+    ///
+    /// Flooring occurs once at the physiological volume boundary. The authored multiplier is at
+    /// most one million ppm, so the result can never exceed the finite source volume.
+    #[must_use]
+    pub(crate) fn hydration_offer(self, volume: Volume) -> Volume {
+        let numerator =
+            u128::from(volume.microliters()) * u128::from(self.hydration_multiplier_ppm);
+        let microliters = numerator / 1_000_000;
+        Volume::from_microliters(
+            u64::try_from(microliters)
+                .unwrap_or_else(|_| unreachable!("drink hydration cannot exceed source volume")),
+        )
+    }
+
     #[must_use]
     pub const fn consumption_temperature(self) -> ConsumptionTemperatureRange {
         self.consumption_temperature

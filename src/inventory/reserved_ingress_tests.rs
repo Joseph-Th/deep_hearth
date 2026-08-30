@@ -3,10 +3,12 @@
 use super::*;
 use crate::content::{FORM_LUMP, MATERIAL_CHARCOAL, build_registries};
 use crate::core::quantity::Temperature;
-use crate::core::state::AppState;
-use crate::core::time::WorldSeed;
-use crate::inventory::add_solid_stockpile_for_test;
-use crate::inventory::deposit_lot_for_test;
+use crate::core::state::{AppState, apply_clock_advance};
+use crate::core::time::{SimulationTick, WorldSeed};
+use crate::inventory::{
+    AMBIENT_PRESERVATION_MULTIPLIER_PPM, STORAGE_AGE_PARTS_PER_TICK, add_solid_stockpile_for_test,
+    deposit_lot_for_test,
+};
 use crate::material::CommodityKey;
 
 #[test]
@@ -28,6 +30,7 @@ fn reserved_deposit_plan_owns_lot_ids_and_revision_advance() {
     let plan = decide_reserved_deposits(
         &registries,
         state.inventory(),
+        SimulationTick::new(7),
         SimulationTick::new(7),
         vec![ReservedDepositRequest::new(destination, vec![output], 0)],
     )
@@ -60,6 +63,7 @@ fn empty_reserved_deposit_plan_is_a_true_noop() {
     let plan = decide_reserved_deposits(
         &registries,
         state.inventory(),
+        SimulationTick::new(1),
         SimulationTick::new(1),
         Vec::new(),
     )
@@ -97,6 +101,7 @@ fn reserved_output_merges_without_consuming_an_unused_lot_identity() {
         &registries,
         state.inventory(),
         state.tick(),
+        state.tick(),
         vec![ReservedDepositRequest::new(destination, vec![output], 0)],
     )
     .unwrap_or_else(|error| panic!("reserved ingress merge planning failed: {error:?}"));
@@ -111,5 +116,63 @@ fn reserved_output_merges_without_consuming_an_unused_lot_identity() {
             .get_stockpile(destination)
             .map(|record| record.stored_mass()),
         Some(Mass::from_milligrams(10))
+    );
+}
+
+#[test]
+fn delayed_reserved_output_uses_admission_time_for_merging_and_preserves_creation_time() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_3004));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("delayed ingress stockpile fixture failed: {error}"));
+    let admitted_at = SimulationTick::new(5);
+    apply_clock_advance(&mut state, admitted_at);
+    let existing = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        destination,
+        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        Mass::from_milligrams(4),
+        Temperature::from_millikelvin(500_000),
+    )
+    .unwrap_or_else(|error| panic!("delayed ingress seed lot failed: {error}"));
+    let cursor_before = state.inventory().next_lot_id();
+    get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
+        Mass::from_milligrams(6);
+    let output = MaterialLotSpec::new(
+        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        Mass::from_milligrams(6),
+        Temperature::from_millikelvin(500_000),
+    );
+    let provenance_created_at = SimulationTick::new(2);
+    let storage_age_parts = 3 * STORAGE_AGE_PARTS_PER_TICK;
+
+    let plan = decide_reserved_deposits(
+        &registries,
+        state.inventory(),
+        provenance_created_at,
+        admitted_at,
+        vec![ReservedDepositRequest::new(
+            destination,
+            vec![output],
+            storage_age_parts,
+        )],
+    )
+    .unwrap_or_else(|error| panic!("delayed reserved ingress planning failed: {error:?}"));
+    apply_reserved_deposits(state.inventory_state_mut(), plan);
+
+    assert_eq!(state.inventory().next_lot_id(), cursor_before);
+    let merged = state
+        .inventory()
+        .get_lot(existing)
+        .unwrap_or_else(|| panic!("delayed reserved ingress did not merge into existing lot"));
+    assert_eq!(merged.mass(), Mass::from_milligrams(10));
+    assert_eq!(merged.created_at(), provenance_created_at);
+    assert_eq!(merged.latest_created_at(), admitted_at);
+    assert_eq!(
+        merged
+            .storage_history()
+            .project(admitted_at, AMBIENT_PRESERVATION_MULTIPLIER_PPM),
+        Some(storage_age_parts)
     );
 }

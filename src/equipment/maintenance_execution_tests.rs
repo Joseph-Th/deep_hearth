@@ -20,7 +20,7 @@ use crate::core::state::validate_loaded_state;
 use crate::core::time::{SimulationTick, WorldSeed};
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::{
-    EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, ExplicitEnergyAccountingError,
+    EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, PreciseEnergy,
     add_energy_store_with_initial_for_fixture, calculate_explicit_energy_accounting,
 };
 use crate::equipment::{
@@ -693,15 +693,11 @@ fn occupied_registries() -> Registries {
     )
 }
 
-fn explicit_energy(registries: &Registries, state: &AppState) -> Energy {
-    match calculate_explicit_energy_accounting(registries, state).and_then(|accounting| {
-        accounting
-            .total()
-            .ok_or(ExplicitEnergyAccountingError::Overflow)
-    }) {
-        Ok(total) => total,
-        Err(error) => panic!("maintenance energy accounting failed: {error}"),
-    }
+fn explicit_energy(registries: &Registries, state: &AppState) -> PreciseEnergy {
+    calculate_explicit_energy_accounting(registries, state)
+        .unwrap_or_else(|error| panic!("maintenance energy accounting failed: {error}"))
+        .total()
+        .unwrap_or_else(|| panic!("maintenance exact energy total overflowed"))
 }
 
 fn add_material(

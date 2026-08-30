@@ -259,6 +259,112 @@ impl Energy {
     }
 }
 
+/// Exact derived energy with femtojoule precision while preserving the full whole-nanojoule range.
+///
+/// Authoritative finite energy stores remain integer nanojoules. Derived physical calculations may
+/// require sub-nanojoule precision, especially ppm-weighted material heat and fractional-milligram
+/// fluid heat. Splitting the value into whole nanojoules plus a normalized femtojoule remainder
+/// avoids narrowing the `u128` whole-energy range by multiplying it by one million.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PreciseEnergy {
+    nanojoules: u128,
+    femtojoule_remainder: u32,
+}
+
+impl PreciseEnergy {
+    pub const FEMTOJOULES_PER_NANOJOULE: u32 = 1_000_000;
+    pub const ZERO: Self = Self {
+        nanojoules: 0,
+        femtojoule_remainder: 0,
+    };
+
+    #[must_use]
+    pub const fn from_energy(energy: Energy) -> Self {
+        Self {
+            nanojoules: energy.nanojoules(),
+            femtojoule_remainder: 0,
+        }
+    }
+
+    /// Builds a normalized exact energy value without discarding a sub-nanojoule remainder.
+    #[must_use]
+    pub const fn from_nanojoules_with_femtojoule_remainder(
+        nanojoules: u128,
+        femtojoule_remainder: u32,
+    ) -> Option<Self> {
+        if femtojoule_remainder < Self::FEMTOJOULES_PER_NANOJOULE {
+            Some(Self {
+                nanojoules,
+                femtojoule_remainder,
+            })
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn nanojoules_floor(self) -> u128 {
+        self.nanojoules
+    }
+
+    #[must_use]
+    pub const fn femtojoule_remainder(self) -> u32 {
+        self.femtojoule_remainder
+    }
+
+    #[must_use]
+    pub const fn is_zero(self) -> bool {
+        self.nanojoules == 0 && self.femtojoule_remainder == 0
+    }
+
+    /// Returns authoritative whole-nanojoule energy only when no exact remainder would be lost.
+    #[must_use]
+    pub const fn whole_nanojoules(self) -> Option<Energy> {
+        if self.femtojoule_remainder == 0 {
+            Some(Energy::from_nanojoules(self.nanojoules))
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub fn checked_add(self, other: Self) -> Option<Self> {
+        let remainder_sum =
+            u64::from(self.femtojoule_remainder) + u64::from(other.femtojoule_remainder);
+        let carry = u128::from(remainder_sum / u64::from(Self::FEMTOJOULES_PER_NANOJOULE));
+        let nanojoules = self
+            .nanojoules
+            .checked_add(other.nanojoules)?
+            .checked_add(carry)?;
+        Some(Self {
+            nanojoules,
+            femtojoule_remainder: (remainder_sum % u64::from(Self::FEMTOJOULES_PER_NANOJOULE))
+                as u32,
+        })
+    }
+
+    #[must_use]
+    pub fn checked_sub(self, other: Self) -> Option<Self> {
+        if self < other {
+            return None;
+        }
+        if self.femtojoule_remainder >= other.femtojoule_remainder {
+            return Some(Self {
+                nanojoules: self.nanojoules.checked_sub(other.nanojoules)?,
+                femtojoule_remainder: self.femtojoule_remainder - other.femtojoule_remainder,
+            });
+        }
+        Some(Self {
+            nanojoules: self
+                .nanojoules
+                .checked_sub(other.nanojoules)?
+                .checked_sub(1)?,
+            femtojoule_remainder: Self::FEMTOJOULES_PER_NANOJOULE
+                - (other.femtojoule_remainder - self.femtojoule_remainder),
+        })
+    }
+}
+
 /// Absolute temperature stored as unsigned integer millikelvin.
 ///
 /// Negative absolute temperatures are intentionally unrepresentable. Subsystems that need a

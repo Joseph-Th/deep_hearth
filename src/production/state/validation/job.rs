@@ -114,6 +114,42 @@ fn validate_job_suspension(
     validate_suspension_reason(id, job, suspension)
 }
 
+pub(super) fn validate_durable_schedule_history(
+    id: ProductionJobId,
+    job: &ProductionJobRecord,
+    current: SimulationTick,
+) -> Result<(), ProductionValidationError> {
+    let elapsed = current
+        .value()
+        .checked_sub(job.schedule.started_at.value())
+        .unwrap_or_else(|| {
+            unreachable!("future production start was rejected before schedule replay")
+        });
+    if job.schedule.completed_suspension_time.value() > elapsed {
+        return Err(
+            ProductionValidationError::CompletedSuspensionTimeExceedsElapsed {
+                job: id,
+                completed: job.schedule.completed_suspension_time,
+                elapsed: crate::core::time::TickSpan::new(elapsed),
+            },
+        );
+    }
+    let expected_due = job
+        .schedule
+        .started_at
+        .checked_add_span(job.schedule.active_duration)
+        .and_then(|base| base.checked_add_span(job.schedule.completed_suspension_time))
+        .ok_or(ProductionValidationError::CompletionScheduleOverflow { job: id })?;
+    if expected_due != job.schedule.completes_at {
+        return Err(ProductionValidationError::CompletionScheduleMismatch {
+            job: id,
+            expected_due,
+            actual_due: job.schedule.completes_at,
+        });
+    }
+    Ok(())
+}
+
 fn validate_suspension_schedule(
     id: ProductionJobId,
     job: &ProductionJobRecord,

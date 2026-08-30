@@ -1,20 +1,19 @@
 //! Validates persisted equipment records, embodiment, support indexes, and authored references.
 
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
-use crate::inventory::ConsumedMaterialTrace;
-use crate::material::{
-    CommodityKey, MaterialAssemblyProfile, MaterialPhaseStateError, MaterialRegistry,
-    ParticleSizeStateError, validate_material_particle_size_state, validate_material_phase_state,
-};
+use crate::material::{MaterialPhaseStateError, MaterialRegistry, ParticleSizeStateError};
 use crate::structural::{StructuralElementId, SupportIndexValidationFault, validate_support_index};
 
-use super::super::definitions::{EquipmentDefinition, EquipmentDefinitionId, EquipmentRegistry};
+use super::super::definitions::{EquipmentDefinitionId, EquipmentRegistry};
 use super::{EquipmentId, EquipmentRecord, EquipmentState};
+
+mod embodiment;
+
+use embodiment::validate_equipment_material;
 
 /// Structural or cross-reference failure in decoded persistent equipment state.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -104,6 +103,11 @@ pub enum EquipmentValidationError {
         equipment: EquipmentId,
         latest_created_at: SimulationTick,
         current: SimulationTick,
+    },
+    EmbodiedProvenanceAfterConstruction {
+        equipment: EquipmentId,
+        latest_created_at: SimulationTick,
+        created_at: SimulationTick,
     },
     AssemblyMaterialMismatch {
         equipment: EquipmentId,
@@ -276,6 +280,17 @@ impl Display for EquipmentValidationError {
                 latest_created_at.value(),
                 current.value()
             ),
+            Self::EmbodiedProvenanceAfterConstruction {
+                equipment,
+                latest_created_at,
+                created_at,
+            } => write!(
+                formatter,
+                "equipment {} embodied material provenance ends at tick {} after construction at tick {} without enough authored upgrade or component-replacement allowance",
+                equipment.value(),
+                latest_created_at.value(),
+                created_at.value()
+            ),
             Self::AssemblyMaterialMismatch {
                 equipment,
                 commodity,
@@ -363,7 +378,7 @@ fn validate_equipment_record(
             definition: record.definition,
         });
     };
-    validate_equipment_material(materials, record, definition, current_tick)?;
+    validate_equipment_material(definitions, materials, record, definition, current_tick)?;
     if record.created_at > current_tick {
         return Err(EquipmentValidationError::CreatedInFuture {
             equipment: record.id,
@@ -395,169 +410,6 @@ fn validate_equipment_support_reference(
         return Err(EquipmentValidationError::MissingSupportIndex {
             equipment: record.id,
             element,
-        });
-    }
-    Ok(())
-}
-
-fn validate_equipment_material(
-    materials: &MaterialRegistry,
-    record: &EquipmentRecord,
-    definition: &EquipmentDefinition,
-    current_tick: SimulationTick,
-) -> Result<(), EquipmentValidationError> {
-    if record.embodied_mass != definition.mass() {
-        return Err(EquipmentValidationError::EmbodiedMassMismatch {
-            equipment: record.id,
-            stored: record.embodied_mass,
-            authored: definition.mass(),
-        });
-    }
-    validate_embodied_material(
-        materials,
-        record,
-        definition.assembly_profile(),
-        current_tick,
-    )
-}
-
-fn validate_embodied_material(
-    materials: &MaterialRegistry,
-    record: &EquipmentRecord,
-    assembly: Option<&MaterialAssemblyProfile>,
-    current_tick: SimulationTick,
-) -> Result<(), EquipmentValidationError> {
-    let Some(assembly) = assembly else {
-        if !record.embodied_material.is_empty() {
-            return Err(EquipmentValidationError::UnexpectedAssemblyMaterial {
-                equipment: record.id,
-            });
-        }
-        return Ok(());
-    };
-    if record.embodied_material.is_empty() {
-        return Err(EquipmentValidationError::MissingAssemblyMaterial {
-            equipment: record.id,
-        });
-    }
-    let mut traced_mass = Mass::ZERO;
-    let mut stored_by_commodity = BTreeMap::new();
-    for trace in &record.embodied_material {
-        let commodity = validate_embodied_trace(materials, record, trace, current_tick)?;
-        traced_mass = traced_mass.checked_add(trace.mass()).ok_or(
-            EquipmentValidationError::EmbodiedTraceMassOverflow {
-                equipment: record.id,
-            },
-        )?;
-        let current = stored_by_commodity
-            .get(&commodity)
-            .copied()
-            .unwrap_or(Mass::ZERO);
-        let next = current.checked_add(trace.mass()).ok_or(
-            EquipmentValidationError::EmbodiedTraceMassOverflow {
-                equipment: record.id,
-            },
-        )?;
-        stored_by_commodity.insert(commodity, next);
-    }
-    validate_embodied_totals(record, assembly, traced_mass, stored_by_commodity)
-}
-
-fn validate_embodied_trace(
-    materials: &MaterialRegistry,
-    record: &EquipmentRecord,
-    trace: &ConsumedMaterialTrace,
-    current_tick: SimulationTick,
-) -> Result<CommodityKey, EquipmentValidationError> {
-    if trace.mass().is_zero() {
-        return Err(EquipmentValidationError::ZeroEmbodiedTrace {
-            equipment: record.id,
-        });
-    }
-    let commodity = trace.profile().commodity();
-    if !materials.has_commodity(commodity) {
-        return Err(EquipmentValidationError::UnknownEmbodiedCommodity {
-            equipment: record.id,
-            commodity,
-        });
-    }
-    if trace.profile().composition().pure_material() != Some(commodity.material()) {
-        return Err(EquipmentValidationError::ImpureEmbodiedMaterial {
-            equipment: record.id,
-            commodity,
-        });
-    }
-    validate_material_phase_state(
-        materials,
-        commodity,
-        trace.profile().composition(),
-        trace.profile().temperature(),
-    )
-    .map_err(
-        |error| EquipmentValidationError::InvalidEmbodiedPhaseState {
-            equipment: record.id,
-            error,
-        },
-    )?;
-    validate_material_particle_size_state(
-        materials,
-        commodity,
-        trace.profile().particle_size_distribution(),
-    )
-    .map_err(
-        |error| EquipmentValidationError::InvalidEmbodiedParticleSizeState {
-            equipment: record.id,
-            error,
-        },
-    )?;
-    let provenance = trace.provenance();
-    if provenance.latest_created_at() < provenance.earliest_created_at() {
-        return Err(EquipmentValidationError::InvalidEmbodiedProvenanceRange {
-            equipment: record.id,
-        });
-    }
-    if provenance.latest_created_at() > current_tick {
-        return Err(EquipmentValidationError::EmbodiedProvenanceInFuture {
-            equipment: record.id,
-            latest_created_at: provenance.latest_created_at(),
-            current: current_tick,
-        });
-    }
-    Ok(commodity)
-}
-
-fn validate_embodied_totals(
-    record: &EquipmentRecord,
-    assembly: &MaterialAssemblyProfile,
-    traced_mass: Mass,
-    mut stored_by_commodity: BTreeMap<CommodityKey, Mass>,
-) -> Result<(), EquipmentValidationError> {
-    if traced_mass != record.embodied_mass {
-        return Err(EquipmentValidationError::EmbodiedTraceMassMismatch {
-            equipment: record.id,
-            stored: record.embodied_mass,
-            traced: traced_mass,
-        });
-    }
-    for input in assembly.inputs() {
-        let stored = stored_by_commodity
-            .remove(&input.commodity())
-            .unwrap_or(Mass::ZERO);
-        if stored != input.mass() {
-            return Err(EquipmentValidationError::AssemblyMaterialMismatch {
-                equipment: record.id,
-                commodity: input.commodity(),
-                stored,
-                authored: input.mass(),
-            });
-        }
-    }
-    if let Some((commodity, stored)) = stored_by_commodity.into_iter().next() {
-        return Err(EquipmentValidationError::AssemblyMaterialMismatch {
-            equipment: record.id,
-            commodity,
-            stored,
-            authored: Mass::ZERO,
         });
     }
     Ok(())

@@ -1,6 +1,6 @@
 //! Immutable definitions for finite energy stores; runtime state owns only changing stored energy.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -289,6 +289,7 @@ impl EnergyRegistry {
                 definition.id().value()
             );
         }
+        self.validate_upgrade_ancestry();
         for target in self.definitions.values() {
             let Some(upgrade) = target.upgrade_profile() else {
                 continue;
@@ -380,6 +381,30 @@ impl EnergyRegistry {
                     target.id().value(),
                     input.commodity().value()
                 );
+            }
+        }
+    }
+
+    fn validate_upgrade_ancestry(&self) {
+        for definition in self.definitions.values() {
+            let mut visited = BTreeSet::new();
+            let mut current = definition;
+            loop {
+                assert!(
+                    visited.insert(current.id()),
+                    "energy store upgrade ancestry contains a cycle at definition {}",
+                    current.id().value()
+                );
+                let Some(upgrade) = current.upgrade_profile() else {
+                    break;
+                };
+                current = self.definitions.get(&upgrade.from()).unwrap_or_else(|| {
+                    panic!(
+                        "energy store definition {} upgrade references missing base definition {}",
+                        current.id().value(),
+                        upgrade.from().value()
+                    )
+                });
             }
         }
     }

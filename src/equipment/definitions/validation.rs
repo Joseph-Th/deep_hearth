@@ -1,6 +1,6 @@
 //! Cross-registry validation for authored equipment definitions.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::capability::CapabilityRegistry;
 use crate::core::quantity::Mass;
@@ -268,6 +268,33 @@ fn validate_equipment_upgrade_references(
     }
 }
 
+fn validate_equipment_upgrade_ancestry(registry: &EquipmentRegistry) {
+    for definition in registry.definitions.values() {
+        let mut visited = BTreeSet::new();
+        let mut current = definition;
+        loop {
+            assert!(
+                visited.insert(current.id()),
+                "equipment upgrade ancestry contains a cycle at definition {}",
+                current.id().value()
+            );
+            let Some(upgrade) = current.upgrade_profile() else {
+                break;
+            };
+            current = registry
+                .definitions
+                .get(&upgrade.from())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "equipment definition {} upgrade references missing base definition {}",
+                        current.id().value(),
+                        upgrade.from().value()
+                    )
+                });
+        }
+    }
+}
+
 impl EquipmentRegistry {
     pub(crate) fn validate_references(
         &self,
@@ -281,6 +308,7 @@ impl EquipmentRegistry {
             validate_worn_recovery_references(definition, materials);
         }
 
+        validate_equipment_upgrade_ancestry(self);
         for target in self.definitions.values() {
             validate_equipment_upgrade_references(self, target, materials);
         }

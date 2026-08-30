@@ -1,22 +1,23 @@
 //! Derives structure-owned loads from supported fluid stores.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Force;
 use crate::core::state::AppState;
 use crate::registry::Registries;
 use crate::structural::{
-    StructuralAnalysis, StructuralCommitError, StructuralElementId, StructuralLifecycle,
-    StructuralLoadKind, StructuralMutationError, StructuralMutationOutcome,
-    ValidatedStructuralLoadChange, calculate_fractional_milligram_weight_force_ceiling,
-    validate_owned_structural_load_change,
+    StructuralAnalysis, StructuralElementId, StructuralLifecycle, StructuralLoadKind,
+    StructuralMutationError, StructuralMutationOutcome, ValidatedStructuralLoadChange,
+    calculate_fractional_milligram_weight_force_ceiling, validate_owned_structural_load_change,
 };
 
-use super::{FluidContents, FluidDefinitionId, FluidStoreId};
+use super::{FluidContents, FluidMassProjectionError, FluidStoreId, project_fluid_material_mass};
 
-const MICROLITERS_DENSITY_PER_MILLIGRAM: u32 = 1_000;
+mod errors;
+
+pub use errors::{FluidStructuralLoadError, FluidSupportCommitError, FluidSupportError};
+
+const MICROGRAMS_PER_MILLIGRAM: u32 = 1_000;
 
 /// Final contents of one store after a validated fluid-owner mutation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,125 +36,7 @@ impl FluidContentsChange {
     }
 }
 
-/// Failure while deriving structure-owned load from supported finite fluid ownership.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FluidStructuralLoadError {
-    UnknownStore {
-        store: FluidStoreId,
-    },
-    UnknownSupport {
-        store: FluidStoreId,
-        element: StructuralElementId,
-    },
-    UnknownFluidDefinition {
-        store: FluidStoreId,
-        definition: FluidDefinitionId,
-    },
-    SupportNotActiveForIncrease {
-        element: StructuralElementId,
-        lifecycle: StructuralLifecycle,
-    },
-    StoreMassNumeratorOverflow {
-        store: FluidStoreId,
-    },
-    AggregateMassNumeratorOverflow {
-        element: StructuralElementId,
-    },
-    WeightForceOverflow {
-        element: StructuralElementId,
-    },
-    ExistingLoadMismatch {
-        element: StructuralElementId,
-        stored: Force,
-        expected: Force,
-    },
-    Structure(StructuralMutationError),
-}
-
-impl Display for FluidStructuralLoadError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownStore { store } => {
-                write!(formatter, "unknown fluid store {}", store.value())
-            }
-            Self::UnknownSupport { store, element } => write!(
-                formatter,
-                "fluid store {} references missing structural support {}",
-                store.value(),
-                element.value()
-            ),
-            Self::UnknownFluidDefinition { store, definition } => write!(
-                formatter,
-                "fluid store {} references missing fluid definition {} while deriving structural load",
-                store.value(),
-                definition.value()
-            ),
-            Self::SupportNotActiveForIncrease { element, lifecycle } => write!(
-                formatter,
-                "aggregate fluid weight cannot increase while structural support {} is {lifecycle:?}",
-                element.value()
-            ),
-            Self::StoreMassNumeratorOverflow { store } => write!(
-                formatter,
-                "fluid store {} volume-density product overflowed mass accounting",
-                store.value()
-            ),
-            Self::AggregateMassNumeratorOverflow { element } => write!(
-                formatter,
-                "supported fluid mass calculation overflowed on structural element {}",
-                element.value()
-            ),
-            Self::WeightForceOverflow { element } => write!(
-                formatter,
-                "supported fluid weight exceeds structural force range on element {}",
-                element.value()
-            ),
-            Self::ExistingLoadMismatch {
-                element,
-                stored,
-                expected,
-            } => write!(
-                formatter,
-                "structural element {} stores {} mN fluid load but supported fluid ownership requires {} mN",
-                element.value(),
-                stored.millinewtons(),
-                expected.millinewtons()
-            ),
-            Self::Structure(error) => write!(formatter, "fluid structural load failed: {error}"),
-        }
-    }
-}
-
-impl Error for FluidStructuralLoadError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Structure(error) => Some(error),
-            Self::UnknownStore { store: _store }
-            | Self::StoreMassNumeratorOverflow { store: _store } => None,
-            Self::UnknownSupport {
-                store: _store,
-                element: _element,
-            } => None,
-            Self::UnknownFluidDefinition {
-                store: _store,
-                definition: _definition,
-            } => None,
-            Self::SupportNotActiveForIncrease {
-                element: _element,
-                lifecycle: _lifecycle,
-            } => None,
-            Self::AggregateMassNumeratorOverflow { element: _element }
-            | Self::WeightForceOverflow { element: _element } => None,
-            Self::ExistingLoadMismatch {
-                element: _element,
-                stored: _stored,
-                expected: _expected,
-            } => None,
-        }
-    }
-}
-
-fn contents_mass_numerator(
+fn contents_mass_micrograms(
     registries: &Registries,
     store: FluidStoreId,
     contents: Option<FluidContents>,
@@ -161,28 +44,16 @@ fn contents_mass_numerator(
     let Some(contents) = contents else {
         return Ok(0);
     };
-    let definition = registries.fluid().get_fluid(contents.fluid()).ok_or(
-        FluidStructuralLoadError::UnknownFluidDefinition {
-            store,
-            definition: contents.fluid(),
-        },
-    )?;
-    let material = registries
-        .materials()
-        .get_material(definition.material())
-        .unwrap_or_else(|| {
-            panic!(
-                "validated fluid definition {} references missing material {}",
-                definition.id().value(),
-                definition.material().value()
-            )
-        });
-    u128::from(contents.volume().microliters())
-        .checked_mul(u128::from(material.properties().density_kg_per_m3()))
-        .ok_or(FluidStructuralLoadError::StoreMassNumeratorOverflow { store })
+    project_fluid_material_mass(registries, store, contents)
+        .map(|mass| mass.micrograms())
+        .map_err(|error| match error {
+            FluidMassProjectionError::UnknownDefinition { store, definition } => {
+                FluidStructuralLoadError::UnknownFluidDefinition { store, definition }
+            }
+        })
 }
 
-fn supported_mass_numerator(
+fn supported_mass_micrograms(
     registries: &Registries,
     state: &AppState,
     element: StructuralElementId,
@@ -199,10 +70,10 @@ fn supported_mass_numerator(
             .get_store(store)
             .ok_or(FluidStructuralLoadError::UnknownStore { store })?;
         let contents = overrides.get(&store).copied().unwrap_or(record.contents());
-        let numerator = contents_mass_numerator(registries, store, contents)?;
+        let micrograms = contents_mass_micrograms(registries, store, contents)?;
         total = total
-            .checked_add(numerator)
-            .ok_or(FluidStructuralLoadError::AggregateMassNumeratorOverflow { element })?;
+            .checked_add(micrograms)
+            .ok_or(FluidStructuralLoadError::AggregateMassOverflow { element })?;
     }
     Ok(total)
 }
@@ -210,11 +81,11 @@ fn supported_mass_numerator(
 fn support_force(
     registries: &Registries,
     element: StructuralElementId,
-    mass_numerator: u128,
+    mass_micrograms: u128,
 ) -> Result<Force, FluidStructuralLoadError> {
     calculate_fractional_milligram_weight_force_ceiling(
-        mass_numerator,
-        MICROLITERS_DENSITY_PER_MILLIGRAM,
+        mass_micrograms,
+        MICROGRAMS_PER_MILLIGRAM,
         registries.core().gravity(),
     )
     .ok_or(FluidStructuralLoadError::WeightForceOverflow { element })
@@ -225,8 +96,8 @@ fn validate_existing_load(
     state: &AppState,
     element: StructuralElementId,
 ) -> Result<u128, FluidStructuralLoadError> {
-    let numerator = supported_mass_numerator(registries, state, element, &BTreeMap::new(), None)?;
-    let expected = support_force(registries, element, numerator)?;
+    let micrograms = supported_mass_micrograms(registries, state, element, &BTreeMap::new(), None)?;
+    let expected = support_force(registries, element, micrograms)?;
     let stored = state
         .structures()
         .get_element(element)
@@ -241,7 +112,7 @@ fn validate_existing_load(
             expected,
         });
     }
-    Ok(numerator)
+    Ok(micrograms)
 }
 
 /// Exhaustively rechecks one structure-owned `Fluid` contribution from authoritative fluid stores.
@@ -291,7 +162,7 @@ pub(crate) fn resolve_fluid_structural_loads(
     let mut loads = BTreeMap::new();
     for element in affected_supports {
         let before = validate_existing_load(registries, state, element)?;
-        let after = supported_mass_numerator(registries, state, element, &overrides, None)?;
+        let after = supported_mass_micrograms(registries, state, element, &overrides, None)?;
         let support = match state.structures().get_element(element) {
             Some(support) => support,
             None => unreachable!("affected fluid support existence was prevalidated"),
@@ -329,140 +200,6 @@ pub(crate) fn validate_fluid_contents_changes(
         return Ok(None);
     }
     validate_structural_load_plan(registries, state, loads).map(Some)
-}
-
-/// Failure while assigning or removing a fluid store's structural support.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FluidSupportError {
-    UnknownStore {
-        store: FluidStoreId,
-    },
-    AlreadyMounted {
-        store: FluidStoreId,
-        element: StructuralElementId,
-    },
-    NotMounted {
-        store: FluidStoreId,
-    },
-    TargetNotActive {
-        element: StructuralElementId,
-        lifecycle: StructuralLifecycle,
-    },
-    FluidRevisionExhausted,
-    Load(FluidStructuralLoadError),
-}
-
-impl Display for FluidSupportError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownStore { store } => {
-                write!(formatter, "unknown fluid store {}", store.value())
-            }
-            Self::AlreadyMounted { store, element } => write!(
-                formatter,
-                "fluid store {} is already supported by structural element {}",
-                store.value(),
-                element.value()
-            ),
-            Self::NotMounted { store } => write!(
-                formatter,
-                "fluid store {} has no structural support assignment to remove",
-                store.value()
-            ),
-            Self::TargetNotActive { element, lifecycle } => write!(
-                formatter,
-                "structural element {} is {lifecycle:?} and cannot receive a fluid store",
-                element.value()
-            ),
-            Self::FluidRevisionExhausted => {
-                formatter.write_str("fluid state revision space is exhausted")
-            }
-            Self::Load(error) => write!(formatter, "fluid store support load failed: {error}"),
-        }
-    }
-}
-
-impl Error for FluidSupportError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Load(error) => Some(error),
-            Self::UnknownStore { store: _store } | Self::NotMounted { store: _store } => None,
-            Self::AlreadyMounted {
-                store: _store,
-                element: _element,
-            } => None,
-            Self::TargetNotActive {
-                element: _element,
-                lifecycle: _lifecycle,
-            } => None,
-            Self::FluidRevisionExhausted => None,
-        }
-    }
-}
-
-/// Failure to commit a revision-bound fluid-store support transaction.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FluidSupportCommitError {
-    StaleFluidRevision {
-        expected: u64,
-        actual: u64,
-    },
-    UnknownStore {
-        store: FluidStoreId,
-    },
-    SupportChanged {
-        store: FluidStoreId,
-        expected: Option<StructuralElementId>,
-        actual: Option<StructuralElementId>,
-    },
-    Structure(StructuralCommitError),
-}
-
-impl Display for FluidSupportCommitError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::StaleFluidRevision { expected, actual } => write!(
-                formatter,
-                "validated fluid support change expected fluid revision {expected} but current revision is {actual}"
-            ),
-            Self::UnknownStore { store } => write!(
-                formatter,
-                "fluid store {} disappeared before support commit",
-                store.value()
-            ),
-            Self::SupportChanged {
-                store,
-                expected,
-                actual,
-            } => write!(
-                formatter,
-                "fluid store {} support changed from expected {expected:?} to {actual:?} before commit",
-                store.value()
-            ),
-            Self::Structure(error) => write!(
-                formatter,
-                "fluid store support structural commit failed: {error}"
-            ),
-        }
-    }
-}
-
-impl Error for FluidSupportCommitError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Structure(error) => Some(error),
-            Self::StaleFluidRevision {
-                expected: _expected,
-                actual: _actual,
-            } => None,
-            Self::UnknownStore { store: _store } => None,
-            Self::SupportChanged {
-                store: _store,
-                expected: _expected,
-                actual: _actual,
-            } => None,
-        }
-    }
 }
 
 /// Successful fluid-store support change plus any resulting structural damage.
@@ -576,10 +313,10 @@ pub fn validate_mount_fluid_store(
     }
     let current =
         validate_existing_load(registries, state, element).map_err(FluidSupportError::Load)?;
-    let added = contents_mass_numerator(registries, store, record.contents())
+    let added = contents_mass_micrograms(registries, store, record.contents())
         .map_err(FluidSupportError::Load)?;
     let next = current.checked_add(added).ok_or(FluidSupportError::Load(
-        FluidStructuralLoadError::AggregateMassNumeratorOverflow { element },
+        FluidStructuralLoadError::AggregateMassOverflow { element },
     ))?;
     let load = support_force(registries, element, next).map_err(FluidSupportError::Load)?;
     let structural =
@@ -616,7 +353,7 @@ pub fn validate_unmount_fluid_store(
     }
     validate_existing_load(registries, state, element).map_err(FluidSupportError::Load)?;
     let remaining =
-        supported_mass_numerator(registries, state, element, &BTreeMap::new(), Some(store))
+        supported_mass_micrograms(registries, state, element, &BTreeMap::new(), Some(store))
             .map_err(FluidSupportError::Load)?;
     let load = support_force(registries, element, remaining).map_err(FluidSupportError::Load)?;
     let structural =

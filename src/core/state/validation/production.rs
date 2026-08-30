@@ -1,8 +1,5 @@
-//! Validates production-job references, reservations, physical traces, and runtime resources across owners.
+//! Validates production-job references, physical traces, output custody, and runtime resources.
 
-use std::collections::BTreeMap;
-
-use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::crafting::validate_loaded_manual_craft_job;
@@ -20,37 +17,17 @@ use crate::registry::Registries;
 use crate::thermal::validate_loaded_thermal_job;
 
 use super::StateValidationError;
-
-#[derive(Default)]
-struct ExpectedReservations(BTreeMap<StockpileId, Mass>);
-
-impl ExpectedReservations {
-    fn add(&mut self, stockpile: StockpileId, mass: Mass) -> Result<(), StateValidationError> {
-        let current = self.0.get(&stockpile).copied().unwrap_or(Mass::ZERO);
-        let expected = current
-            .checked_add(mass)
-            .ok_or(StateValidationError::ReservedMassOverflow { stockpile })?;
-        self.0.insert(stockpile, expected);
-        Ok(())
-    }
-
-    fn get(&self, stockpile: StockpileId) -> Mass {
-        self.0.get(&stockpile).copied().unwrap_or(Mass::ZERO)
-    }
-}
+use super::reservations::ExpectedReservations;
 
 pub(super) fn validate_production_references(
     registries: &Registries,
     state: &AppState,
-) -> Result<(), StateValidationError> {
+) -> Result<ExpectedReservations, StateValidationError> {
     let mut expected_reservations = ExpectedReservations::default();
     for job in state.systems.production.jobs() {
         validate_production_job(registries, state, job, &mut expected_reservations)?;
     }
-    for job in state.systems.mining.jobs() {
-        expected_reservations.add(job.destination(), job.output().mass())?;
-    }
-    validate_reserved_inbound(state, &expected_reservations)
+    Ok(expected_reservations)
 }
 
 fn validate_production_job(
@@ -410,21 +387,4 @@ fn validate_job_output(
         job: job.id(),
         error,
     })
-}
-
-fn validate_reserved_inbound(
-    state: &AppState,
-    expected_reservations: &ExpectedReservations,
-) -> Result<(), StateValidationError> {
-    for stockpile in state.systems.inventory.stockpiles() {
-        let expected = expected_reservations.get(stockpile.id());
-        if stockpile.reserved_inbound() != expected {
-            return Err(StateValidationError::ReservedInboundMismatch {
-                stockpile: stockpile.id(),
-                reserved: stockpile.reserved_inbound(),
-                expected,
-            });
-        }
-    }
-    Ok(())
 }

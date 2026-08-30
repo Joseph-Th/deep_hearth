@@ -11,7 +11,7 @@ use crate::content::{
 use crate::core::quantity::{Area, Mass};
 use crate::core::state::validate_loaded_state;
 use crate::core::time::WorldSeed;
-use crate::equipment::{EquipmentDefinition, add_equipment};
+use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment};
 use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{

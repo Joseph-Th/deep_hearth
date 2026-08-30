@@ -297,6 +297,21 @@ impl GeologicalKnowledgeState {
         next_revision: u64,
     ) {
         let id = record.id;
+        assert_eq!(
+            id.value(),
+            self.next_observation_id,
+            "geological observation allocation must consume the current identity cursor"
+        );
+        assert_eq!(
+            self.next_observation_id.checked_add(1),
+            Some(next_observation_id),
+            "geological observation allocation must advance the identity cursor exactly once"
+        );
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "geological observation allocation must advance the owner revision exactly once"
+        );
         assert!(
             !self.observations.contains_key(&id),
             "validated geological observation ID must be unique"

@@ -134,6 +134,20 @@ fn drink_hydration_multiplier_cannot_create_hydration_volume() {
     );
     let maximum = DrinkDefinition::new(fluid, 1_000_000, temperature);
     assert_eq!(maximum.hydration_multiplier_ppm(), 1_000_000);
+    assert_eq!(
+        maximum.hydration_offer(Volume::from_microliters(625)),
+        Volume::from_microliters(625)
+    );
+    let diluted = DrinkDefinition::new(fluid, 625_000, temperature);
+    assert_eq!(
+        diluted.hydration_offer(Volume::from_microliters(1_000)),
+        Volume::from_microliters(625)
+    );
+    assert_eq!(
+        diluted.hydration_offer(Volume::from_microliters(1)),
+        Volume::ZERO,
+        "sub-microliter physiological hydration remains unrepresented rather than rounded up"
+    );
 
     assert!(std::panic::catch_unwind(|| DrinkDefinition::new(fluid, 0, temperature)).is_err());
     assert!(

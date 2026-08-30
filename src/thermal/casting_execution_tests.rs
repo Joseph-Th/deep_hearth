@@ -6,11 +6,12 @@ use crate::capability::{
     CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{FORM_INGOT, FORM_MOLTEN, MATERIAL_COPPER, make_test_registries_with_casting};
+use crate::core::quantity::Mass;
 use crate::core::state::{StateValidationError, validate_loaded_state};
-use crate::core::time::WorldSeed;
+use crate::core::time::{TickSpan, WorldSeed};
 use crate::energy::{
-    EnergyStoreDefinition, EnergyStoreDefinitionId, EnergyStoreRecord,
-    ExplicitEnergyAccountingError, add_energy_store, add_energy_store_with_initial_for_fixture,
+    EnergySinkError, EnergyStoreDefinition, EnergyStoreDefinitionId, EnergyStoreRecord,
+    PreciseEnergy, add_energy_store, add_energy_store_with_initial_for_fixture,
     calculate_explicit_energy_accounting, validate_energy_sink,
 };
 use crate::equipment::{EquipmentDefinition, EquipmentDefinitionId, add_equipment};
@@ -18,7 +19,7 @@ use crate::inventory::{
     MaterialLotId, StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
     deposit_lot_for_test,
 };
-use crate::maintenance::MaintenanceThresholds;
+use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{
@@ -385,15 +386,11 @@ fn matter_total(state: &AppState) -> crate::core::quantity::AggregateMass {
     }
 }
 
-fn energy_total(registries: &Registries, state: &AppState) -> Energy {
-    match calculate_explicit_energy_accounting(registries, state).and_then(|accounting| {
-        accounting
-            .total()
-            .ok_or(ExplicitEnergyAccountingError::Overflow)
-    }) {
-        Ok(total) => total,
-        Err(error) => panic!("casting energy accounting failed: {error}"),
-    }
+fn energy_total(registries: &Registries, state: &AppState) -> PreciseEnergy {
+    calculate_explicit_energy_accounting(registries, state)
+        .unwrap_or_else(|error| panic!("casting energy accounting failed: {error}"))
+        .total()
+        .unwrap_or_else(|| panic!("casting exact energy total overflowed"))
 }
 
 fn finish_job(registries: &Registries, state: &mut AppState, duration: TickSpan) {

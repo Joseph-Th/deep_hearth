@@ -58,6 +58,29 @@ fn energy_store_definition_rejects_duplicate_upgrade_profiles() {
 }
 
 #[test]
+fn registry_rejects_cyclic_energy_upgrade_ancestry() {
+    let registries = build_registries();
+    let first_id = EnergyStoreDefinitionId::new(930_016);
+    let second_id = EnergyStoreDefinitionId::new(930_017);
+    let first = basic_definition(first_id).with_upgrade_profile(EnergyStoreUpgradeProfile::new(
+        second_id,
+        copper_additions(),
+    ));
+    let second = basic_definition(second_id)
+        .with_upgrade_profile(EnergyStoreUpgradeProfile::new(first_id, copper_additions()));
+    let invalid = EnergyRegistry::new([first, second]);
+
+    let result = std::panic::catch_unwind(|| {
+        invalid.validate_references(
+            registries.materials(),
+            registries.core().physical_tick_duration(),
+        )
+    });
+
+    assert!(result.is_err());
+}
+
+#[test]
 fn registry_rejects_energy_upgrade_with_missing_base_definition() {
     let registries = build_registries();
     let target = basic_definition(EnergyStoreDefinitionId::new(930_008))

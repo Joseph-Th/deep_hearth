@@ -9,7 +9,7 @@ use crate::content::{
     FORM_CONCENTRATE, FORM_INGOT, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SCRAP,
     MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, make_test_registries_with_melting,
 };
-use crate::core::quantity::Length;
+use crate::core::quantity::{Length, Mass};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::energy::{
@@ -21,7 +21,7 @@ use crate::inventory::{
     StockpileStorageError, StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
     deposit_composed_lot_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
 };
-use crate::maintenance::MaintenanceThresholds;
+use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::material::{
     CompositionComponent, MaterialComposition, MaterialLotSpec, ParticleSizeRange,
 };
@@ -440,15 +440,14 @@ fn resolve_selected(
     )
 }
 
-fn explicit_energy_total(registries: &Registries, state: &AppState) -> Energy {
-    match calculate_explicit_energy_accounting(registries, state).and_then(|accounting| {
-        accounting
-            .total()
-            .ok_or(crate::energy::ExplicitEnergyAccountingError::Overflow)
-    }) {
-        Ok(total) => total,
-        Err(error) => panic!("explicit energy accounting failed: {error}"),
-    }
+fn explicit_energy_total(
+    registries: &Registries,
+    state: &AppState,
+) -> crate::energy::PreciseEnergy {
+    calculate_explicit_energy_accounting(registries, state)
+        .unwrap_or_else(|error| panic!("explicit energy accounting failed: {error}"))
+        .total()
+        .unwrap_or_else(|| panic!("exact energy total overflowed"))
 }
 
 fn matter_total(state: &AppState) -> crate::core::quantity::AggregateMass {

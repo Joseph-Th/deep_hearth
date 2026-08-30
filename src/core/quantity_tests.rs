@@ -66,6 +66,29 @@ fn energy_arithmetic_is_exact_and_checked() {
 }
 
 #[test]
+fn precise_energy_preserves_fractional_carry_borrow_and_narrowing() {
+    let first = PreciseEnergy::from_nanojoules_with_femtojoule_remainder(4, 750_000)
+        .unwrap_or_else(|| panic!("precise-energy fixture must be normalized"));
+    let second = PreciseEnergy::from_nanojoules_with_femtojoule_remainder(2, 500_000)
+        .unwrap_or_else(|| panic!("precise-energy fixture must be normalized"));
+    let expected = PreciseEnergy::from_nanojoules_with_femtojoule_remainder(7, 250_000)
+        .unwrap_or_else(|| panic!("precise-energy expectation must be normalized"));
+
+    assert_eq!(first.checked_add(second), Some(expected));
+    assert_eq!(expected.checked_sub(second), Some(first));
+    assert_eq!(first.whole_nanojoules(), None);
+    assert_eq!(
+        PreciseEnergy::from_energy(Energy::from_nanojoules(9)).whole_nanojoules(),
+        Some(Energy::from_nanojoules(9))
+    );
+    assert_eq!(
+        PreciseEnergy::from_nanojoules_with_femtojoule_remainder(1, 1_000_000),
+        None,
+        "precise energy must reject an unnormalized remainder"
+    );
+}
+
+#[test]
 fn aggregate_mass_accumulates_beyond_single_record_range() {
     let largest_record = AggregateMass::from_mass(Mass::from_milligrams(u64::MAX));
 

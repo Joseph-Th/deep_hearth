@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Temperature, Volume};
 use crate::core::time::SimulationTick;
+use crate::material::MaterialRegistry;
 use crate::structural::{StructuralElementId, SupportIndexValidationFault, validate_support_index};
 
 use super::super::definitions::{FluidDefinitionId, FluidRegistry};
@@ -36,6 +37,12 @@ pub enum FluidValidationError {
     UnknownDefinition {
         store: FluidStoreId,
         definition: FluidDefinitionId,
+    },
+    StoredBelowMeltingPoint {
+        store: FluidStoreId,
+        definition: FluidDefinitionId,
+        temperature: Temperature,
+        melting_point: Temperature,
     },
     ZeroSupportElementId {
         store: FluidStoreId,
@@ -108,6 +115,19 @@ impl Display for FluidValidationError {
                 store.value(),
                 definition.value()
             ),
+            Self::StoredBelowMeltingPoint {
+                store,
+                definition,
+                temperature,
+                melting_point,
+            } => write!(
+                formatter,
+                "fluid store {} contains definition {} at {} mK below its material melting point {} mK",
+                store.value(),
+                definition.value(),
+                temperature.millikelvin(),
+                melting_point.millikelvin()
+            ),
             Self::ZeroSupportElementId { store } => write!(
                 formatter,
                 "fluid store {} references zero structural support id",
@@ -167,6 +187,7 @@ impl Error for FluidValidationError {}
 
 pub(crate) fn validate_loaded_fluid(
     registry: &FluidRegistry,
+    materials: &MaterialRegistry,
     state: &FluidState,
     current: SimulationTick,
 ) -> Result<(), FluidValidationError> {
@@ -174,13 +195,14 @@ pub(crate) fn validate_loaded_fluid(
         return Err(FluidValidationError::InvalidIdCursor);
     }
     for (key, record) in &state.records {
-        validate_fluid_store(registry, state, *key, record, current)?;
+        validate_fluid_store(registry, materials, state, *key, record, current)?;
     }
     validate_fluid_support_index(state)
 }
 
 fn validate_fluid_store(
     registry: &FluidRegistry,
+    materials: &MaterialRegistry,
     state: &FluidState,
     key: FluidStoreId,
     record: &FluidStoreRecord,
@@ -190,7 +212,7 @@ fn validate_fluid_store(
     if record.capacity.is_zero() {
         return Err(FluidValidationError::ZeroCapacity { store: record.id });
     }
-    validate_fluid_contents(registry, record)?;
+    validate_fluid_contents(registry, materials, record)?;
     validate_fluid_support_reference(state, record)?;
     if record.created_at > current {
         return Err(FluidValidationError::CreatedInFuture {
@@ -217,6 +239,7 @@ fn validate_fluid_store_identity(
 
 fn validate_fluid_contents(
     registry: &FluidRegistry,
+    materials: &MaterialRegistry,
     record: &FluidStoreRecord,
 ) -> Result<(), FluidValidationError> {
     let Some(contents) = record.contents else {
@@ -235,10 +258,21 @@ fn validate_fluid_contents(
             capacity: record.capacity,
         });
     }
-    if registry.get_fluid(contents.fluid).is_none() {
-        return Err(FluidValidationError::UnknownDefinition {
+    let definition =
+        registry
+            .get_fluid(contents.fluid)
+            .ok_or(FluidValidationError::UnknownDefinition {
+                store: record.id,
+                definition: contents.fluid,
+            })?;
+    if let Some(melting_point) = definition.minimum_modeled_temperature(materials)
+        && contents.temperature < melting_point
+    {
+        return Err(FluidValidationError::StoredBelowMeltingPoint {
             store: record.id,
             definition: contents.fluid,
+            temperature: contents.temperature,
+            melting_point,
         });
     }
     Ok(())

@@ -175,6 +175,16 @@ pub(crate) fn make_test_registries_with_energy_store(
     make_test_registries_with_energy_stores(vec![definition])
 }
 
+pub(crate) fn make_test_registries_with_energy_store_and_survival(
+    definition: EnergyStoreDefinition,
+    survival: SurvivalRegistry,
+) -> Registries {
+    let mut domains = TestRegistryDomains::empty();
+    domains.energy = EnergyRegistry::new([definition]);
+    domains.survival = survival;
+    domains.build()
+}
+
 fn make_test_registries_with_energy_stores(definitions: Vec<EnergyStoreDefinition>) -> Registries {
     let mut domains = TestRegistryDomains::empty();
     domains.energy = EnergyRegistry::new(definitions);

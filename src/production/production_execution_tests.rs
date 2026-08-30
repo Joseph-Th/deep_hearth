@@ -22,8 +22,9 @@ use crate::material::{
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{
     ProcessDefinition, ProcessId, ProcessInputError, ProcessOutputStreamId, ProcessResolution,
-    ProductionJobId, ProductionJobRecord, ProductionValidationError, make_test_process_resolution,
-    make_test_process_resolution_with_streams, validate_process_inputs,
+    ProcessResolutionError, ProductionJobId, ProductionJobRecord, ProductionValidationError,
+    make_test_process_resolution, make_test_process_resolution_with_streams,
+    validate_process_inputs,
 };
 use crate::registry::Registries;
 use crate::simulation::advance_tick;
@@ -571,6 +572,40 @@ fn persisted_running_production_job_cannot_already_be_due() {
 }
 
 #[test]
+fn persisted_running_production_job_cannot_complete_before_active_duration() {
+    let registries = make_test_registries();
+    let mut state = AppState::new(WorldSeed::new(0x9000_0016));
+    let source = add_test_stockpile(&mut state, 100);
+    let destination = add_test_stockpile(&mut state, 100);
+    deposit_test_wood(&registries, &mut state, source, 10);
+    let resolution = make_test_resolution(&registries, &state, source, 3);
+    let token = validate_start_process(&registries, &state, &resolution, source, destination)
+        .unwrap_or_else(|error| panic!("early-due validation fixture failed: {error}"));
+    let job = commit_process_for_test(token, &mut state);
+    apply_clock_advance(&mut state, SimulationTick::new(1));
+
+    let forged_due = SimulationTick::new(2);
+    let expected_due = SimulationTick::new(3);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("early-due fixture serialization failed: {error}"));
+    encoded["state"]["systems"]["production"]["jobs"][job.value().to_string()]["schedule"]["completes_at"] =
+        serde_json::json!(forged_due.value());
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("early-due tamper failed structural decode: {error}"));
+
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Production(
+            ProductionValidationError::CompletionScheduleMismatch {
+                job,
+                expected_due,
+                actual_due: forged_due,
+            }
+        )))
+    );
+}
+
+#[test]
 fn persisted_production_job_rejects_impossible_consumed_material_phase_state() {
     let input = CommodityKey::new(MATERIAL_COPPER, FORM_INGOT);
     let process = ProcessDefinition::new(
@@ -905,28 +940,23 @@ fn resolved_process_cannot_create_or_destroy_unaccounted_matter() {
     let registries = make_test_registries();
     let mut state = AppState::new(WorldSeed::new(111));
     let source = add_test_stockpile(&mut state, 100);
-    let destination = add_test_stockpile(&mut state, 100);
     deposit_test_wood(&registries, &mut state, source, 10);
-    let lossy_resolution = make_resolution_for_process(
-        &registries,
-        &state,
-        source,
-        TEST_PROCESS,
-        3,
+    let inputs = validate_process_inputs(&registries, &state, TEST_PROCESS, source)
+        .unwrap_or_else(|error| panic!("matter-balance input binding failed: {error}"));
+    let before = state.clone();
+
+    let result = inputs.resolve_without_resources(
+        TickSpan::new(3),
         vec![MaterialLotSpec::new(
             charcoal_lump(),
             Mass::from_milligrams(9),
             Temperature::from_millikelvin(600_000),
         )],
     );
-    let before = state.clone();
-
-    let result =
-        validate_start_process(&registries, &state, &lossy_resolution, source, destination);
 
     assert!(matches!(
         result,
-        Err(StartProcessError::MatterBalanceMismatch {
+        Err(ProcessResolutionError::MatterBalanceMismatch {
             input_mass,
             output_mass,
         }) if input_mass == Mass::from_milligrams(10)

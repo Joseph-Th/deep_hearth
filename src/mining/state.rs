@@ -206,20 +206,27 @@ impl MiningState {
         self.due_jobs.get(&tick)
     }
 
-    #[must_use]
-    pub(crate) fn pending_claim_job(&self) -> Option<MiningJobId> {
-        self.jobs
-            .values()
-            .find(|job| job.is_ready_to_claim())
-            .map(MiningJobRecord::id)
-    }
-
     pub(crate) fn insert_job(
         &mut self,
         record: MiningJobRecord,
         next_job_id: u64,
         next_revision: u64,
     ) {
+        assert_eq!(
+            record.id().value(),
+            self.next_job_id,
+            "mining job allocation must consume the current identity cursor"
+        );
+        assert_eq!(
+            self.next_job_id.checked_add(1),
+            Some(next_job_id),
+            "mining job allocation must advance the identity cursor exactly once"
+        );
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "mining job allocation must advance the owner revision exactly once"
+        );
         assert!(record.is_working());
         assert!(!self.equipment_occupancy.contains_key(&record.equipment()));
         let id = record.identity.id;

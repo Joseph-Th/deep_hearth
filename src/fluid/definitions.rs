@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::quantity::Temperature;
 use crate::material::{MaterialId, MaterialRegistry};
 
 /// Stable authored identity for one fluid class.
@@ -58,6 +59,26 @@ impl FluidDefinition {
     #[must_use]
     pub const fn material(&self) -> MaterialId {
         self.material
+    }
+
+    /// Lowest temperature at which the authored material can remain fluid under the current phase
+    /// model. Materials without fusion properties have no modeled lower phase boundary.
+    pub(crate) fn minimum_modeled_temperature(
+        &self,
+        materials: &MaterialRegistry,
+    ) -> Option<Temperature> {
+        materials
+            .get_material(self.material)
+            .unwrap_or_else(|| {
+                panic!(
+                    "validated fluid definition {} references missing material {}",
+                    self.id.value(),
+                    self.material.value()
+                )
+            })
+            .properties()
+            .thermal()
+            .melting_point()
     }
 }
 

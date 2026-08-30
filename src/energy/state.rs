@@ -121,6 +121,21 @@ impl EnergyState {
         next_store_id: u64,
         next_revision: u64,
     ) {
+        assert_eq!(
+            record.id.value(),
+            self.next_store_id,
+            "energy store allocation must consume the current identity cursor"
+        );
+        assert_eq!(
+            self.next_store_id.checked_add(1),
+            Some(next_store_id),
+            "energy store allocation must advance the identity cursor exactly once"
+        );
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "energy store allocation must advance the owner revision exactly once"
+        );
         assert!(
             !self.records.contains_key(&record.id),
             "Runtime Invariant 4 (Index Uniqueness): energy store allocation replaced an existing record"
@@ -210,6 +225,11 @@ impl EnergyState {
     }
 
     pub(super) fn apply_revision(&mut self, next_revision: u64) {
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "energy revision must advance exactly once per canonical mutation batch"
+        );
         self.revision = next_revision;
     }
 

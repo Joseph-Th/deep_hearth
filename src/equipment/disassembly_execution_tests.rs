@@ -294,7 +294,7 @@ fn upgrade_pick(registries: &Registries, state: &mut AppState, pick: EquipmentId
     .unwrap_or_else(|error| panic!("disassembly upgrade commit failed: {error}"));
 }
 
-fn explicit_energy(registries: &Registries, state: &AppState) -> crate::core::quantity::Energy {
+fn explicit_energy(registries: &Registries, state: &AppState) -> crate::energy::PreciseEnergy {
     calculate_explicit_energy_accounting(registries, state)
         .unwrap_or_else(|error| panic!("disassembly explicit energy accounting failed: {error}"))
         .total()

@@ -49,13 +49,14 @@ struct ReservedDepositPlanEntry {
     storage_age_parts: u128,
 }
 
-/// Inventory-owned allocation and revision plan for one tick's reserved production outputs.
+/// Inventory-owned allocation and revision plan for already-reserved material outputs.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ReservedDepositPlan {
     expected_revision: u64,
     next_revision: u64,
     next_lot_id: u64,
-    created_at: SimulationTick,
+    provenance_created_at: SimulationTick,
+    admitted_at: SimulationTick,
     entries: Vec<ReservedDepositPlanEntry>,
 }
 
@@ -65,20 +66,26 @@ impl ReservedDepositPlan {
     }
 }
 
-/// Decides all material-lot identities and the single inventory revision used by one completion tick.
+/// Decides all material-lot identities and the single inventory revision used by one admission.
 pub(crate) fn decide_reserved_deposits(
     registries: &Registries,
     state: &InventoryState,
-    created_at: SimulationTick,
+    provenance_created_at: SimulationTick,
+    admitted_at: SimulationTick,
     requests: Vec<ReservedDepositRequest>,
 ) -> Result<ReservedDepositPlan, ReservedDepositPlanError> {
+    assert!(
+        provenance_created_at <= admitted_at,
+        "reserved output provenance cannot postdate inventory admission"
+    );
     let expected_revision = state.revision();
     if requests.is_empty() {
         return Ok(ReservedDepositPlan {
             expected_revision,
             next_revision: expected_revision,
             next_lot_id: state.next_lot_id(),
-            created_at,
+            provenance_created_at,
+            admitted_at,
             entries: Vec::new(),
         });
     }
@@ -105,7 +112,7 @@ pub(crate) fn decide_reserved_deposits(
             .storage_profile()
             .preservation_multiplier_ppm();
         let storage_history =
-            MaterialStorageHistory::with_ambient_age_parts(storage_age_parts, created_at);
+            MaterialStorageHistory::with_ambient_age_parts(storage_age_parts, admitted_at);
         for (output, merge_policy) in outputs.iter().zip(&merge_policies) {
             let profile = MaterialLotProfile {
                 commodity: output.commodity(),
@@ -119,7 +126,7 @@ pub(crate) fn decide_reserved_deposits(
                         destination,
                         &profile,
                         storage_history,
-                        created_at,
+                        admitted_at,
                         preservation_multiplier_ppm,
                         *merge_policy,
                     )
@@ -139,18 +146,20 @@ pub(crate) fn decide_reserved_deposits(
         expected_revision,
         next_revision,
         next_lot_id: identity_planner.next_lot_id(),
-        created_at,
+        provenance_created_at,
+        admitted_at,
         entries,
     })
 }
 
-/// Applies an inventory-owned reserved-output plan after the cross-owner transaction is prechecked.
+/// Applies an inventory-owned reserved-output plan after its producing owner is prechecked.
 pub(crate) fn apply_reserved_deposits(state: &mut InventoryState, plan: ReservedDepositPlan) {
     let ReservedDepositPlan {
         expected_revision,
         next_revision,
         next_lot_id,
-        created_at,
+        provenance_created_at,
+        admitted_at,
         entries,
     } = plan;
     assert_eq!(
@@ -199,7 +208,7 @@ pub(crate) fn apply_reserved_deposits(state: &mut InventoryState, plan: Reserved
             .storage_profile()
             .preservation_multiplier_ppm();
         let storage_history =
-            MaterialStorageHistory::with_ambient_age_parts(storage_age_parts, created_at);
+            MaterialStorageHistory::with_ambient_age_parts(storage_age_parts, admitted_at);
 
         for ((output, lot_id), merge_policy) in outputs.into_iter().zip(lot_ids).zip(merge_policies)
         {
@@ -216,13 +225,13 @@ pub(crate) fn apply_reserved_deposits(state: &mut InventoryState, plan: Reserved
                         particle_size: output.particle_size_distribution().cloned(),
                     },
                     provenance: MaterialLotProvenance {
-                        earliest_created_at: created_at,
-                        latest_created_at: created_at,
+                        earliest_created_at: provenance_created_at,
+                        latest_created_at: provenance_created_at,
                     },
                     storage_history,
                 },
                 merge_policy,
-                created_at,
+                admitted_at,
                 preservation_multiplier_ppm,
             );
         }

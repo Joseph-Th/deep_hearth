@@ -12,6 +12,7 @@ mod state;
 mod storage_execution;
 mod upgrade_execution;
 
+pub use crate::core::quantity::PreciseEnergy;
 pub use accounting::{
     ExplicitEnergyAccounting, ExplicitEnergyAccountingError, calculate_explicit_energy_accounting,
 };

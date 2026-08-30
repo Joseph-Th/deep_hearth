@@ -65,6 +65,7 @@ Cross-owner operations coordinate owner APIs; they do not mutate another owner's
 | `Mass` / `AggregateMass` | milligram | `u64` / `u128` |
 | `Temperature` | absolute millikelvin | `u32` |
 | `Energy` | nanojoule | `u128` |
+| `PreciseEnergy` | derived nanojoules + femtojoule remainder | `u128` + normalized `u32` |
 | `Pressure` | pascal | `u64` |
 | `Area` | square millimeter | `u64` |
 | `Length` | micrometer | `u64` |
@@ -76,7 +77,10 @@ Cross-owner operations coordinate owner APIs; they do not mutate another owner's
 | `MassFlow` | milligram/second | `u64` |
 
 Potentially overflowing arithmetic is checked. Conservation-sensitive systems account from authoritative
-owners rather than cached totals.
+owners rather than cached totals. Finite energy stores transact authoritative whole-nanojoule `Energy`.
+Read-only derived thermal accounting uses `PreciseEnergy` when material composition or fractional-milligram
+fluid mass can imply sub-nanojoule energy; narrowing to `Energy` is allowed only when the exact femtojoule
+remainder is zero.
 
 ## Materials, inventory, and geology
 
@@ -84,9 +88,11 @@ owners rather than cached totals.
 
 Materials are immutable definitions. Forms define phase, particle-state policy, and physical cohesion.
 Only consolidated non-particulate solids may directly become rigid infrastructure components or structural
-embodiment; loose forms require an explicit shaping or consolidation process first. `CommodityKey` combines
-one material and one form, but runtime ownership is limited to exact pairs explicitly authored in the
-material registry; independently valid material and form IDs do not imply a valid commodity. Composition
+embodiment; loose forms require an explicit shaping or consolidation process first. Infrastructure embodiment
+does not carry stockpile preservation history, so a commodity authored as food cannot appear in equipment,
+energy-store, or storage-enclosure assembly/upgrade inputs until embodied perishability aging is modeled.
+`CommodityKey` combines one material and one form, but runtime ownership is limited to exact pairs explicitly
+authored in the material registry; independently valid material and form IDs do not imply a valid commodity. Composition
 remains a separate exact property. Authoring a liquid commodity requires fusion properties for its material,
 so the registry cannot contain a liquid identity for which no physically valid runtime temperature exists.
 
@@ -168,8 +174,9 @@ never a public tie-breaker.
 
 Mining start validates authorization, tool, labor, capability, wear, destination, and reservation constraints.
 Geology retains ownership of the selected batch during labor. Completion removes the batch from geology,
-applies wear, releases player work, and creates an explicit claim boundary. Time cannot advance while completed
-mining output remains unclaimed; claim failure can therefore be repaired without losing or duplicating matter.
+applies wear, releases player work, and creates an explicit durable claim boundary. Completed output remains
+mining-owned with its destination capacity reserved until claim succeeds, so unrelated simulation time and work
+can continue while a blocked claim is repaired without losing, duplicating, or silently storing matter.
 
 ## Production and processing
 
@@ -182,8 +189,10 @@ energy, wear, and dynamic batch limits belong in resolver output.
 
 `ProcessResolution` binds one concrete operation to exact selected inputs, duration, output streams, and finite
 resource consequences. Production reserves output capacity at start and owns consumed matter and modeled
-in-process energy until completion. Completion is revision-bound and conserves represented matter and modeled
-energy across all streams.
+in-process energy until completion. Inherited material storage exposure remains wall-clock based while work is
+in process, including any suspension interval, so a blocked operation cannot preserve perishable matter merely
+by remaining incomplete. Completion is revision-bound and conserves represented matter and modeled energy
+across all streams.
 
 Manual shaping conserves material identity and mass, preserves temperature, cannot change phase, and only emits
 forms whose particle-size state is untracked. Particulate output requires an owner that defines particle-size
@@ -200,8 +209,11 @@ crushed ore, or concentrate meltable; those feeds still require a separate reduc
 implemented.
 
 Loss of required equipment or output support may suspend a job. Suspension preserves work-in-process,
-reservations, and exact remaining active time. Suspended manual production releases `PlayerWorkState`; resumption
-must reacquire labor and pass the remaining survival-budget admission.
+reservations, and exact remaining active time. Production schedules also persist completed wall-clock suspension
+time so trusted load can replay `completes_at = started_at + active_duration + completed_suspension_time` instead
+of trusting an arbitrary due tick; the currently open suspension is excluded until resume. Suspended manual
+production releases `PlayerWorkState`; resumption must reacquire labor and pass the remaining survival-budget
+admission.
 
 ### Physical resolvers
 
@@ -219,7 +231,10 @@ Implemented resolver contracts:
   Unrecovered constituents remain in physical residue. Sorting and concentration preserve exact composition,
   use deterministic remainder allocation, and emit forms that prevent unsupported repeat-processing loops.
 - **Thermal processing:** sensible heating, pure-material melting, and casting use exact selected matter, finite
-  energy sources/sinks, equipment limits, phase boundaries, and latent heat. Each pure phase-change definition
+  energy sources/sinks, equipment limits, phase boundaries, and latent heat. Ppm-weighted sensible heat is first
+  resolved at femtojoule precision; a runtime transfer that is not exactly representable in whole nanojoules is
+  rejected rather than rounded down, while read-only material thermal accounting retains the remainder. Each
+  pure phase-change definition
   binds one exact authored material rather than inferring material identity from the first selected lot. Melting
   owns a canonical nonempty set of accepted solid feed forms for that material and one liquid output form, so
   physically equivalent recovery feeds can share one fusion resolver without recipe aliases. Casting binds one
@@ -299,8 +314,9 @@ increase, and the target assembly to equal the base assembly plus the authored a
 upgrade requires an empty store with no production or direct-manual-power occupancy, consumes the addition
 traces from inventory, preserves store identity and original creation time, and advances the energy revision.
 Commit rechecks both energy state and occupancy because player-work reservation can change without changing the
-energy revision. Trusted load permits post-construction embodiment only for definitions with an authored
-upgrade route and still requires the full target assembly, valid material state, and nonfuture provenance.
+energy revision. Trusted load accepts post-construction embodiment only up to the cumulative authored additions
+along the current definition's upgrade ancestry, while still requiring the exact target assembly, valid material
+state, and nonfuture provenance.
 Disassembly remains the inverse exact-custody route for empty, idle stores.
 
 The built-in copper-banded stone flywheel adds one 20 g copper reinforcement to the ordinary 900 g stone plus
@@ -311,10 +327,14 @@ that cannot fit in the base accumulator.
 
 Fluid stores own identity, volume, temperature, capacity, revision, and optional structural support. A material
 has at most one fluid identity in the current homogeneous-fluid model. Runtime supports exact withdrawal and
-support changes; generic transfer, pumping, and mixing are absent. Supported-fluid load derives from authored
-density and updates with canonical withdrawal. Fluid thermal transport and the thermal fate of food or fluid
-after either crosses the terminal survival-consumption boundary are outside the explicit-energy ledger;
-biological transformation, body heat, and waste streams are not yet modeled.
+support changes; generic transfer, pumping, and mixing are absent. One fluid-owner mass projection converts
+represented volume and authored density to exact micrograms; structural loading and thermal accounting consume
+that same physical projection rather than re-deriving density arithmetic independently. Stored-fluid sensible
+energy is projected exactly from represented mass, temperature, and specific heat; when the backing material has
+authored fusion properties, the ledger also includes liquid latent heat without rounding sub-nanojoule remainders. Passive fluid heat transport
+remains absent. The thermal fate of food or fluid after either crosses the terminal survival-consumption boundary
+remains outside the explicit-energy ledger; biological transformation, body heat, and waste streams are not yet
+modeled.
 
 ## Structures
 

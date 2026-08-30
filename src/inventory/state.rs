@@ -83,6 +83,21 @@ impl InventoryState {
         next_revision: u64,
     ) {
         let id = record.id;
+        assert_eq!(
+            id.value(),
+            self.next_stockpile_id,
+            "stockpile allocation must consume the current identity cursor"
+        );
+        assert_eq!(
+            self.next_stockpile_id.checked_add(1),
+            Some(next_stockpile_id),
+            "stockpile allocation must advance the identity cursor exactly once"
+        );
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "stockpile allocation must advance the owner revision exactly once"
+        );
         assert!(
             !self.stockpiles.contains_key(&id),
             "validated stockpile ID must be globally unique"
@@ -147,11 +162,25 @@ impl InventoryState {
     }
 
     pub(super) fn apply_lot_cursor_and_revision(&mut self, next_lot_id: u64, next_revision: u64) {
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "inventory revision must advance exactly once per canonical lot mutation batch"
+        );
+        assert!(
+            next_lot_id >= self.next_lot_id,
+            "inventory lot cursor cannot move backward"
+        );
         self.next_lot_id = next_lot_id;
         self.revision = next_revision;
     }
 
     pub(super) fn apply_revision(&mut self, next_revision: u64) {
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "inventory revision must advance exactly once per canonical mutation batch"
+        );
         self.revision = next_revision;
     }
 

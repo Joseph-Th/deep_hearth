@@ -196,6 +196,25 @@ fn equipment_definition_rejects_duplicate_authoritative_profiles() {
 }
 
 #[test]
+fn equipment_registry_rejects_cyclic_upgrade_ancestry() {
+    let registries = crate::content::build_registries();
+    let first_id = EquipmentDefinitionId::new(810_017);
+    let second_id = EquipmentDefinitionId::new(810_018);
+    let first = basic_definition(first_id)
+        .with_upgrade_profile(EquipmentUpgradeProfile::new(second_id, assembly_profile()));
+    let second = basic_definition(second_id)
+        .with_upgrade_profile(EquipmentUpgradeProfile::new(first_id, assembly_profile()));
+    let invalid = EquipmentRegistry::new([first, second]);
+
+    assert!(
+        std::panic::catch_unwind(|| {
+            invalid.validate_references(registries.capabilities(), registries.materials());
+        })
+        .is_err()
+    );
+}
+
+#[test]
 fn equipment_definition_rejects_aggregate_maintenance_on_exact_assembled_matter() {
     let maintenance = || {
         EquipmentMaintenanceProfile::new(

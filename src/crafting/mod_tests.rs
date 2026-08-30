@@ -18,7 +18,10 @@ use crate::inventory::{
     add_solid_stockpile_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
     validate_mount_stockpile, validate_unmount_stockpile,
 };
-use crate::labor::{PlayerWorkValidationError, calculate_player_work_resource_budget};
+use crate::labor::{
+    PlayerWorkCommitError, PlayerWorkStartError, PlayerWorkValidationError,
+    calculate_player_work_resource_budget,
+};
 use crate::material::{CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
@@ -428,14 +431,13 @@ fn stone_scrap_reknapping_is_slower_than_fresh_knapping_and_replays_exactly() {
             .map(|stockpile| { stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_CHIP)) }),
         Some(Mass::from_milligrams(200_000))
     );
-    assert_eq!(
+    assert!(
         state
             .inventory()
             .lot_ids(destination)
             .filter_map(|lot| state.inventory().get_lot(lot))
             .filter(|lot| lot.commodity().material() == MATERIAL_STONE)
-            .all(|lot| lot.temperature() == temperature),
-        true
+            .all(|lot| lot.temperature() == temperature)
     );
     assert_eq!(
         state
@@ -1447,6 +1449,28 @@ fn manual_craft_load_audit_rejects_forged_duration() {
             StateValidationError::ManualCraftJob(ManualCraftJobValidationError::DurationMismatch {
                 job,
                 stored: TickSpan::new(41),
+                required: TickSpan::new(40),
+            })
+        ))
+    );
+
+    let mut coordinated = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| {
+            panic!("manual craft coordinated tamper serialization failed: {error}")
+        });
+    coordinated["state"]["systems"]["production"]["jobs"][job.value().to_string()]["schedule"]["active_duration"] =
+        serde_json::json!(39_u64);
+    coordinated["state"]["systems"]["production"]["jobs"][job.value().to_string()]["schedule"]["completes_at"] =
+        serde_json::json!(39_u64);
+    let coordinated: LoadedSaveEnvelope = serde_json::from_value(coordinated)
+        .unwrap_or_else(|error| panic!("manual craft coordinated tamper decode failed: {error}"));
+
+    assert_eq!(
+        coordinated.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::ManualCraftJob(ManualCraftJobValidationError::DurationMismatch {
+                job,
+                stored: TickSpan::new(39),
                 required: TickSpan::new(40),
             })
         ))

@@ -1,17 +1,14 @@
 //! Coordinates stockpile support assignments with structure-owned stored-matter loads.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{AggregateMass, Force, Mass};
 use crate::core::state::AppState;
-use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 use crate::structural::{
-    StructuralAnalysis, StructuralCommitError, StructuralElementId, StructuralLifecycle,
-    StructuralLoadKind, StructuralMutationError, StructuralMutationOutcome,
-    ValidatedStructuralLoadChange, validate_owned_structural_load_change,
+    StructuralAnalysis, StructuralElementId, StructuralLifecycle, StructuralLoadKind,
+    StructuralMutationError, StructuralMutationOutcome, ValidatedStructuralLoadChange,
+    validate_owned_structural_load_change,
 };
 
 use super::StockpileId;
@@ -33,115 +30,13 @@ impl StockpileStoredMassChange {
     }
 }
 
+mod errors;
 mod projection;
 
+pub use errors::{
+    StockpileStructuralLoadError, StockpileSupportCommitError, StockpileSupportError,
+};
 use projection::{support_force, supported_mass_projection, validate_existing_load};
-
-/// Failure while deriving structure-owned load from stockpile matter ownership.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum StockpileStructuralLoadError {
-    UnknownStockpile {
-        stockpile: StockpileId,
-    },
-    UnknownSupport {
-        stockpile: StockpileId,
-        element: StructuralElementId,
-    },
-    SupportNotActiveForIncrease {
-        stockpile: StockpileId,
-        element: StructuralElementId,
-        lifecycle: StructuralLifecycle,
-    },
-    AggregateMassOverflow {
-        element: StructuralElementId,
-    },
-    WeightForceOverflow {
-        element: StructuralElementId,
-    },
-    ExistingLoadMismatch {
-        element: StructuralElementId,
-        stored: Force,
-        expected: Force,
-    },
-    Structure(StructuralMutationError),
-}
-
-impl Display for StockpileStructuralLoadError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownStockpile { stockpile } => {
-                write!(formatter, "unknown stockpile id {}", stockpile.value())
-            }
-            Self::UnknownSupport { stockpile, element } => write!(
-                formatter,
-                "stockpile {} references missing structural support {}",
-                stockpile.value(),
-                element.value()
-            ),
-            Self::SupportNotActiveForIncrease {
-                stockpile,
-                element,
-                lifecycle,
-            } => write!(
-                formatter,
-                "stockpile {} cannot add stored matter while structural support {} is {lifecycle:?}",
-                stockpile.value(),
-                element.value()
-            ),
-            Self::AggregateMassOverflow { element } => write!(
-                formatter,
-                "stored matter mass overflows aggregate accounting on structural element {}",
-                element.value()
-            ),
-            Self::WeightForceOverflow { element } => write!(
-                formatter,
-                "stored matter weight exceeds structural force range on element {}",
-                element.value()
-            ),
-            Self::ExistingLoadMismatch {
-                element,
-                stored,
-                expected,
-            } => write!(
-                formatter,
-                "structural element {} stores {} mN stored-matter load but inventory ownership requires {} mN",
-                element.value(),
-                stored.millinewtons(),
-                expected.millinewtons()
-            ),
-            Self::Structure(error) => {
-                write!(formatter, "stored-matter structural load failed: {error}")
-            }
-        }
-    }
-}
-
-impl Error for StockpileStructuralLoadError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Structure(error) => Some(error),
-            Self::UnknownStockpile {
-                stockpile: _stockpile,
-            } => None,
-            Self::UnknownSupport {
-                stockpile: _stockpile,
-                element: _element,
-            } => None,
-            Self::SupportNotActiveForIncrease {
-                stockpile: _stockpile,
-                element: _element,
-                lifecycle: _lifecycle,
-            } => None,
-            Self::AggregateMassOverflow { element: _element }
-            | Self::WeightForceOverflow { element: _element } => None,
-            Self::ExistingLoadMismatch {
-                element: _element,
-                stored: _stored,
-                expected: _expected,
-            } => None,
-        }
-    }
-}
 
 pub(crate) type ValidatedStockpileStructuralLoad = ValidatedStructuralLoadChange;
 
@@ -261,187 +156,6 @@ pub(crate) fn validate_stockpile_stored_mass_changes(
         return Ok(None);
     }
     validate_stockpile_structural_load_plan(registries, state, loads).map(Some)
-}
-
-/// Failure while assigning or removing a stockpile's structural support.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum StockpileSupportError {
-    UnknownStockpile {
-        stockpile: StockpileId,
-    },
-    AlreadyMounted {
-        stockpile: StockpileId,
-        element: StructuralElementId,
-    },
-    NotMounted {
-        stockpile: StockpileId,
-    },
-    TargetNotActive {
-        element: StructuralElementId,
-        lifecycle: StructuralLifecycle,
-    },
-    StockpileBusy {
-        stockpile: StockpileId,
-        job: ProductionJobId,
-        release: ProductionOccupancyRelease,
-    },
-    InventoryRevisionExhausted,
-    Load(StockpileStructuralLoadError),
-}
-
-impl Display for StockpileSupportError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownStockpile { stockpile } => {
-                write!(formatter, "unknown stockpile id {}", stockpile.value())
-            }
-            Self::AlreadyMounted { stockpile, element } => write!(
-                formatter,
-                "stockpile {} is already supported by structural element {}",
-                stockpile.value(),
-                element.value()
-            ),
-            Self::NotMounted { stockpile } => write!(
-                formatter,
-                "stockpile {} has no structural support assignment to remove",
-                stockpile.value()
-            ),
-            Self::TargetNotActive { element, lifecycle } => write!(
-                formatter,
-                "structural element {} is {lifecycle:?} and cannot receive a stockpile",
-                element.value()
-            ),
-            Self::StockpileBusy {
-                stockpile,
-                job,
-                release,
-            } => write!(
-                formatter,
-                "stockpile {} is an in-flight output destination for production job {} {release} and cannot be moved",
-                stockpile.value(),
-                job.value()
-            ),
-            Self::InventoryRevisionExhausted => {
-                formatter.write_str("inventory revision space is exhausted")
-            }
-            Self::Load(error) => write!(formatter, "stockpile support load failed: {error}"),
-        }
-    }
-}
-
-impl Error for StockpileSupportError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Load(error) => Some(error),
-            Self::UnknownStockpile {
-                stockpile: _stockpile,
-            }
-            | Self::NotMounted {
-                stockpile: _stockpile,
-            } => None,
-            Self::AlreadyMounted {
-                stockpile: _stockpile,
-                element: _element,
-            } => None,
-            Self::TargetNotActive {
-                element: _element,
-                lifecycle: _lifecycle,
-            } => None,
-            Self::StockpileBusy {
-                stockpile: _stockpile,
-                job: _job,
-                release: _release,
-            } => None,
-            Self::InventoryRevisionExhausted => None,
-        }
-    }
-}
-
-/// Failure to commit a revision-bound stockpile support change.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum StockpileSupportCommitError {
-    StaleInventoryRevision {
-        expected: u64,
-        actual: u64,
-    },
-    UnknownStockpile {
-        stockpile: StockpileId,
-    },
-    SupportChanged {
-        stockpile: StockpileId,
-        expected: Option<StructuralElementId>,
-        actual: Option<StructuralElementId>,
-    },
-    StockpileBusy {
-        stockpile: StockpileId,
-        job: ProductionJobId,
-        release: ProductionOccupancyRelease,
-    },
-    Structure(StructuralCommitError),
-}
-
-impl Display for StockpileSupportCommitError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::StaleInventoryRevision { expected, actual } => write!(
-                formatter,
-                "validated stockpile support change expected inventory revision {expected} but current revision is {actual}"
-            ),
-            Self::UnknownStockpile { stockpile } => write!(
-                formatter,
-                "stockpile {} disappeared before support commit",
-                stockpile.value()
-            ),
-            Self::SupportChanged {
-                stockpile,
-                expected,
-                actual,
-            } => write!(
-                formatter,
-                "stockpile {} support changed from expected {expected:?} to {actual:?} before commit",
-                stockpile.value()
-            ),
-            Self::StockpileBusy {
-                stockpile,
-                job,
-                release,
-            } => write!(
-                formatter,
-                "stockpile {} became an in-flight output destination for production job {} {release} before support commit",
-                stockpile.value(),
-                job.value()
-            ),
-            Self::Structure(error) => write!(
-                formatter,
-                "stockpile support structural commit failed: {error}"
-            ),
-        }
-    }
-}
-
-impl Error for StockpileSupportCommitError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Structure(error) => Some(error),
-            Self::StaleInventoryRevision {
-                expected: _expected,
-                actual: _actual,
-            } => None,
-            Self::UnknownStockpile {
-                stockpile: _stockpile,
-            } => None,
-            Self::SupportChanged {
-                stockpile: _stockpile,
-                expected: _expected,
-                actual: _actual,
-            } => None,
-            Self::StockpileBusy {
-                stockpile: _stockpile,
-                job: _job,
-                release: _release,
-            } => None,
-        }
-    }
 }
 
 /// Successful support assignment change plus any resulting structural damage.

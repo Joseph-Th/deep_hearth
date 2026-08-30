@@ -314,6 +314,7 @@ pub(crate) fn decide_due_completions(
         registries,
         state.inventory(),
         tick,
+        tick,
         planning.deposit_requests,
     )
     .map_err(|error| match error {

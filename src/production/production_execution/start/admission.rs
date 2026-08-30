@@ -16,7 +16,7 @@ use crate::inventory::{
     ReservationError, StockpileId, StockpileStoredMassChange, ValidatedStockpileStructuralLoad,
     validate_consumption_reservation_from_selection, validate_stockpile_stored_mass_changes,
 };
-use crate::production::resolution::{ProcessResolution, sum_output_stream_mass};
+use crate::production::resolution::ProcessResolution;
 use crate::production::state::ProductionJobId;
 use crate::registry::Registries;
 use crate::structural::StructuralLifecycle;
@@ -74,15 +74,6 @@ pub(super) fn validate_material_reservation(
     inbound_by_destination: BTreeMap<StockpileId, Mass>,
     completes_at: SimulationTick,
 ) -> Result<ValidatedMaterialReservation, StartProcessError> {
-    let output_mass = sum_output_stream_mass(resolution.output_streams())
-        .unwrap_or_else(|| panic!("resolved process output mass overflowed after validation"));
-    let input_mass = resolution.input_mass();
-    if output_mass != input_mass {
-        return Err(StartProcessError::MatterBalanceMismatch {
-            input_mass,
-            output_mass,
-        });
-    }
     let reservation = validate_consumption_reservation_from_selection(
         state.inventory(),
         resolution.selection().clone(),

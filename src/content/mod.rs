@@ -41,10 +41,10 @@ use test_support::{
 #[cfg(test)]
 pub(crate) use test_support::{
     make_test_registries_with_casting, make_test_registries_with_comminution,
-    make_test_registries_with_energy_store, make_test_registries_with_equipment,
-    make_test_registries_with_fluids, make_test_registries_with_melting,
-    make_test_registries_with_process, make_test_registries_with_screening,
-    make_test_registries_with_sensible_heating,
+    make_test_registries_with_energy_store, make_test_registries_with_energy_store_and_survival,
+    make_test_registries_with_equipment, make_test_registries_with_fluids,
+    make_test_registries_with_melting, make_test_registries_with_process,
+    make_test_registries_with_screening, make_test_registries_with_sensible_heating,
 };
 
 pub use energy::{

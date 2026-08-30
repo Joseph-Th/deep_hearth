@@ -168,6 +168,21 @@ impl FluidState {
         next_store_id: u64,
         next_revision: u64,
     ) {
+        assert_eq!(
+            record.id.value(),
+            self.next_store_id,
+            "fluid store allocation must consume the current identity cursor"
+        );
+        assert_eq!(
+            self.next_store_id.checked_add(1),
+            Some(next_store_id),
+            "fluid store allocation must advance the identity cursor exactly once"
+        );
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "fluid store allocation must advance the owner revision exactly once"
+        );
         assert!(
             !self.records.contains_key(&record.id),
             "Runtime Invariant 4 (Index Uniqueness): fluid store allocation replaced an existing record"
@@ -188,6 +203,11 @@ impl FluidState {
         contents: Option<FluidContents>,
         next_revision: u64,
     ) {
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "fluid egress must advance the owner revision exactly once"
+        );
         let Some(record) = self.records.get_mut(&store) else {
             unreachable!(
                 "validated fluid egress source cannot disappear without a revision change"

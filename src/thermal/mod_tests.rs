@@ -2,10 +2,37 @@
 
 use super::*;
 use crate::content::{MATERIAL_COPPER, MATERIAL_SLAG, build_registries};
+use crate::core::quantity::{Energy, Mass, PreciseEnergy, Temperature};
 use crate::material::{
-    CompositionComponent, MaterialComposition, MaterialDefinition, MaterialProperties,
-    ThermalProperties,
+    CommodityKey, CompositionComponent, FormDefinition, FormId, MaterialComposition,
+    MaterialDefinition, MaterialFormCohesion, MaterialId, MaterialPhase, MaterialPhaseStateError,
+    MaterialProperties, MaterialRegistry, ParticleSizeStatePolicy, ThermalProperties,
 };
+
+fn fractional_heat_materials() -> (MaterialRegistry, MaterialId, MaterialId, FormId) {
+    let first = MaterialId::new(99_010);
+    let second = MaterialId::new(99_011);
+    let solid = FormId::new(59_010);
+    let mut materials = MaterialRegistry::new();
+    materials.register_material(MaterialDefinition::new(
+        first,
+        "fractional heat first",
+        MaterialProperties::new(1, ThermalProperties::new(1, None), None),
+    ));
+    materials.register_material(MaterialDefinition::new(
+        second,
+        "fractional heat second",
+        MaterialProperties::new(1, ThermalProperties::new(2, None), None),
+    ));
+    materials.register_form(FormDefinition::new(
+        solid,
+        "fractional heat solid",
+        MaterialPhase::Solid,
+        ParticleSizeStatePolicy::Untracked,
+        MaterialFormCohesion::Consolidated,
+    ));
+    (materials, first, second, solid)
+}
 
 #[test]
 fn pure_copper_sensible_heat_is_exact_at_integer_scales() {
@@ -60,6 +87,52 @@ fn mixed_composition_weights_specific_heat_by_normalized_fraction() {
     };
 
     assert_eq!(heat.energy().nanojoules(), expected_energy);
+}
+
+#[test]
+fn sensible_heat_rejects_fractional_nanojoule_requirement_without_rounding() {
+    let (materials, first, second, _solid) = fractional_heat_materials();
+    let composition = MaterialComposition::new(vec![
+        CompositionComponent::new(first, 500_000),
+        CompositionComponent::new(second, 500_000),
+    ])
+    .unwrap_or_else(|error| panic!("fractional sensible-heat composition failed: {error}"));
+
+    assert_eq!(
+        calculate_sensible_heat(
+            &materials,
+            Mass::from_milligrams(1),
+            &composition,
+            Temperature::ZERO,
+            Temperature::from_millikelvin(1),
+        ),
+        Err(SensibleHeatError::FractionalNanojoule {
+            femtojoule_remainder: 500_000,
+        })
+    );
+}
+
+#[test]
+fn material_thermal_energy_retains_fractional_nanojoules_exactly() {
+    let (materials, first, second, solid) = fractional_heat_materials();
+    let composition = MaterialComposition::new(vec![
+        CompositionComponent::new(first, 500_000),
+        CompositionComponent::new(second, 500_000),
+    ])
+    .unwrap_or_else(|error| panic!("fractional material-energy composition failed: {error}"));
+
+    let energy = calculate_material_thermal_energy(
+        &materials,
+        Mass::from_milligrams(1),
+        CommodityKey::new(first, solid),
+        &composition,
+        Temperature::from_millikelvin(1),
+    )
+    .unwrap_or_else(|error| panic!("fractional material-energy accounting failed: {error}"));
+
+    assert_eq!(energy.nanojoules_floor(), 1);
+    assert_eq!(energy.femtojoule_remainder(), 500_000);
+    assert_eq!(energy.whole_nanojoules(), None);
 }
 
 #[test]
@@ -220,7 +293,9 @@ fn liquid_internal_energy_adds_latent_heat_at_the_phase_boundary() {
 
     assert_eq!(
         liquid.checked_sub(solid),
-        Some(Energy::from_nanojoules(205_000_000_000))
+        Some(PreciseEnergy::from_energy(Energy::from_nanojoules(
+            205_000_000_000
+        )))
     );
 }
 

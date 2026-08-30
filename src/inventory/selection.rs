@@ -507,6 +507,9 @@ fn select_input_lot_slices(
     let mut available = Mass::ZERO;
     let mut slices = Vec::new();
 
+    // Fixed-input recipes intentionally use stable persistent identity as their generic allocation
+    // order. This is not a FIFO/FEFO policy: owners whose outcome depends on age or another local
+    // lot property must require explicit lot selection, as direct food consumption does.
     for lot_id in inventories.lot_ids_for_commodity(source.id, input.commodity()) {
         let lot = inventories.get_lot(lot_id).unwrap_or_else(|| {
             panic!(

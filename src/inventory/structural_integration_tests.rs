@@ -2,12 +2,12 @@
 
 use super::*;
 use crate::content::{
-    FORM_LOG, FORM_LUMP, MATERIAL_CHARCOAL, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-    build_registries, make_test_registries_with_process,
+    FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_CHARCOAL, MATERIAL_WOOD,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries, make_test_registries_with_process,
 };
 use crate::core::quantity::{Area, Length, Temperature};
 use crate::core::state::validate_loaded_state;
-use crate::core::time::WorldSeed;
+use crate::core::time::{TickSpan, WorldSeed};
 use crate::inventory::{
     MaterialTransferCommitError, MaterialTransferError, add_solid_stockpile_for_test,
     deposit_lot_for_test, validate_material_transfer_for_test,
@@ -26,6 +26,7 @@ use crate::structural::{
     validate_activate_structural_element, validate_remove_structural_element,
     validate_set_structural_load,
 };
+use crate::survival::{FoodFreshness, assess_food_freshness};
 
 fn active_support(registries: &Registries, state: &mut AppState, x: i64) -> StructuralElementId {
     let bounds = match VoxelBounds::new(VoxelCoord::new(x, 0, 0), VoxelCoord::new(x + 1, 1, 1)) {
@@ -448,6 +449,123 @@ fn production_suspends_until_failed_destination_support_is_recovered() {
         Some(expected_weight(&registries, Mass::from_milligrams(10)))
     );
     assert_eq!(state.production().jobs().count(), 0);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn suspended_perishable_work_in_process_keeps_aging_in_wall_clock_time() {
+    let process = ProcessDefinition::new(
+        ProcessId::new(971_005),
+        "suspended perishable handling fixture",
+        vec![MaterialInputSpec::new(
+            CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+            Mass::from_milligrams(10),
+        )],
+        Vec::new(),
+    );
+    let registries = make_test_registries_with_process(process);
+    let mut state = AppState::new(WorldSeed::new(0x1A71_0011));
+    let support = active_support(&registries, &mut state, 0);
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("perishable suspension source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20))
+        .unwrap_or_else(|error| panic!("perishable suspension destination failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("perishable suspension input failed: {error}"));
+    let _ = mount(&registries, &mut state, destination, support);
+    let inputs = validate_process_inputs(&registries, &state, ProcessId::new(971_005), source)
+        .unwrap_or_else(|error| panic!("perishable suspension inputs failed: {error}"));
+    let resolution = make_test_process_resolution(
+        inputs,
+        2,
+        vec![MaterialLotSpec::new(
+            CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+            Mass::from_milligrams(10),
+            Temperature::from_millikelvin(293_150),
+        )],
+    );
+    let job = validate_start_process(&registries, &state, &resolution, source, destination)
+        .unwrap_or_else(|error| panic!("perishable suspension start failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("perishable suspension start commit failed: {error}"));
+
+    let _ = validate_set_structural_load(
+        &registries,
+        &state,
+        support,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(50_000_000),
+    )
+    .unwrap_or_else(|error| panic!("perishable suspension support failure failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("perishable suspension support commit failed: {error}"));
+    let suspended = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("perishable suspension transition failed: {error}"));
+    assert_eq!(
+        suspended.production_availability_changes(),
+        &[ProductionAvailabilityChange::Suspended {
+            job,
+            reason: ProductionSuspensionReason::OutputSupportUnavailable {
+                stockpile: destination,
+            },
+            suspended_at: crate::core::time::SimulationTick::ZERO,
+            remaining_active_time: TickSpan::new(2),
+        }]
+    );
+
+    for _ in 0..4 {
+        let outcome = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("perishable suspended wait failed: {error}"));
+        assert!(outcome.production_completions().is_empty());
+        assert!(
+            state
+                .production()
+                .get_job(job)
+                .is_some_and(|record| record.is_suspended())
+        );
+    }
+    assert_eq!(state.tick(), crate::core::time::SimulationTick::new(5));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|record| record.stored_mass()),
+        Some(Mass::ZERO)
+    );
+
+    let _ = validate_unmount_stockpile(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("perishable suspension recovery failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("perishable suspension recovery commit failed: {error}"));
+    for _ in 0..3 {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("perishable suspension completion failed: {error}"));
+        if state.production().get_job(job).is_none() {
+            break;
+        }
+    }
+    assert!(state.production().get_job(job).is_none());
+    let output_lot = state
+        .inventory()
+        .lot_ids(destination)
+        .next()
+        .unwrap_or_else(|| panic!("perishable suspended output disappeared"));
+    let output = state
+        .inventory()
+        .get_lot(output_lot)
+        .unwrap_or_else(|| panic!("perishable suspended output record disappeared"));
+    assert_eq!(output.created_at(), state.tick());
+    assert!(matches!(
+        assess_food_freshness(&registries, &state, output_lot),
+        Ok(FoodFreshness::Fresh { age, .. }) if age == TickSpan::new(state.tick().value())
+    ));
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 

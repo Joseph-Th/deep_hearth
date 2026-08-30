@@ -1,20 +1,20 @@
 //! Finite-fluid drinking validation, accounting, and canonical commit.
 
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+mod errors;
 
-use crate::core::quantity::{AggregateVolume, Temperature, Volume};
+pub use errors::{DrinkCommitError, DrinkError};
+
+use crate::core::quantity::{AggregateVolume, Volume};
 use crate::core::state::AppState;
 use crate::fluid::{
-    FluidEgressCommitError, FluidEgressError, FluidStoreId, FluidStructuralLoadError,
-    ValidatedFluidEgress, validate_fluid_egress,
+    FluidEgressCommitError, FluidEgressError, FluidStoreId, ValidatedFluidEgress,
+    validate_fluid_egress,
 };
 use crate::labor::{
     DrinkingWork, PlayerAttentionError, PlayerWork, ValidatedPlayerAttentionHold,
     validate_player_attention,
 };
 use crate::registry::Registries;
-use crate::structural::StructuralCommitError;
 
 use super::super::state::PendingDrinking;
 
@@ -29,215 +29,7 @@ pub(super) fn pending_drink_hydration_offer(
             fluid.value()
         )
     });
-    let numerator = u128::from(volume.microliters()) * u128::from(drink.hydration_multiplier_ppm());
-    let hydration = numerator / 1_000_000;
-    Volume::from_microliters(
-        u64::try_from(hydration)
-            .unwrap_or_else(|_| unreachable!("drink hydration cannot exceed source volume")),
-    )
-}
-
-/// Failure while validating finite-fluid drinking.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum DrinkError {
-    SurvivalNotInitialized,
-    PlayerDead,
-    PlayerBusy {
-        active: PlayerWork,
-    },
-    UnknownStore {
-        store: FluidStoreId,
-    },
-    EmptyStore {
-        store: FluidStoreId,
-    },
-    NotDrinkable,
-    TemperatureOutsideConsumptionRange {
-        store: FluidStoreId,
-        temperature: Temperature,
-        minimum: Temperature,
-        maximum: Temperature,
-    },
-    ZeroVolume,
-    InsufficientVolume {
-        store: FluidStoreId,
-        available: Volume,
-        requested: Volume,
-    },
-    FluidRevisionExhausted,
-    SurvivalRevisionExhausted,
-    PlayerWorkRevisionExhausted,
-    CompletionTickOverflow {
-        duration: crate::core::time::TickSpan,
-    },
-    HydrationOverflow,
-    NoHydrationGain {
-        volume: Volume,
-    },
-    DrinkVolumeExceedsIntakeLimit {
-        volume: Volume,
-        maximum: Volume,
-    },
-    ConsumedFluidOverflow,
-    StructuralLoad(FluidStructuralLoadError),
-}
-
-impl Display for DrinkError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::SurvivalNotInitialized => {
-                formatter.write_str("player survival is not initialized")
-            }
-            Self::PlayerDead => formatter.write_str("dead player cannot drink"),
-            Self::PlayerBusy { active } => {
-                write!(
-                    formatter,
-                    "player cannot drink while occupied by {active:?}"
-                )
-            }
-            Self::UnknownStore { store } => {
-                write!(formatter, "unknown drink source store {}", store.value())
-            }
-            Self::EmptyStore { store } => {
-                write!(formatter, "drink source store {} is empty", store.value())
-            }
-            Self::NotDrinkable => formatter.write_str("stored fluid is not authored as drinkable"),
-            Self::TemperatureOutsideConsumptionRange {
-                store,
-                temperature,
-                minimum,
-                maximum,
-            } => write!(
-                formatter,
-                "drink source {} at {} mK lies outside its direct-consumption range {}..={} mK",
-                store.value(),
-                temperature.millikelvin(),
-                minimum.millikelvin(),
-                maximum.millikelvin()
-            ),
-            Self::ZeroVolume => formatter.write_str("drink volume must be nonzero"),
-            Self::InsufficientVolume {
-                store,
-                available,
-                requested,
-            } => write!(
-                formatter,
-                "drink source {} contains {} uL but {} uL was requested",
-                store.value(),
-                available.microliters(),
-                requested.microliters()
-            ),
-            Self::FluidRevisionExhausted => {
-                formatter.write_str("fluid revision space is exhausted")
-            }
-            Self::SurvivalRevisionExhausted => {
-                formatter.write_str("survival revision space is exhausted")
-            }
-            Self::PlayerWorkRevisionExhausted => {
-                formatter.write_str("player-work revision space is exhausted")
-            }
-            Self::CompletionTickOverflow { duration } => write!(
-                formatter,
-                "drink attention duration of {} ticks exceeds the simulation clock range",
-                duration.value()
-            ),
-            Self::HydrationOverflow => {
-                formatter.write_str("drink hydration calculation overflowed")
-            }
-            Self::NoHydrationGain { volume } => write!(
-                formatter,
-                "drink volume {} uL resolves to zero whole microliters of hydration",
-                volume.microliters()
-            ),
-            Self::DrinkVolumeExceedsIntakeLimit { volume, maximum } => write!(
-                formatter,
-                "drink volume {} uL exceeds the direct-consumption limit of {} uL",
-                volume.microliters(),
-                maximum.microliters()
-            ),
-            Self::ConsumedFluidOverflow => {
-                formatter.write_str("consumed fluid accounting overflowed")
-            }
-            Self::StructuralLoad(error) => write!(
-                formatter,
-                "drink withdrawal structural load failed: {error}"
-            ),
-        }
-    }
-}
-
-impl Error for DrinkError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::StructuralLoad(error) => Some(error),
-            Self::SurvivalNotInitialized
-            | Self::PlayerDead
-            | Self::PlayerBusy { active: _ }
-            | Self::UnknownStore { store: _ }
-            | Self::EmptyStore { store: _ }
-            | Self::NotDrinkable
-            | Self::TemperatureOutsideConsumptionRange { .. }
-            | Self::ZeroVolume
-            | Self::InsufficientVolume { .. }
-            | Self::FluidRevisionExhausted
-            | Self::SurvivalRevisionExhausted
-            | Self::PlayerWorkRevisionExhausted
-            | Self::CompletionTickOverflow { .. }
-            | Self::HydrationOverflow
-            | Self::NoHydrationGain { .. }
-            | Self::DrinkVolumeExceedsIntakeLimit { .. }
-            | Self::ConsumedFluidOverflow => None,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum DrinkCommitError {
-    StalePlayerWorkRevision { expected: u64, actual: u64 },
-    StaleSurvivalRevision { expected: u64, actual: u64 },
-    StaleFluidRevision { expected: u64, actual: u64 },
-    FluidSourceChanged { store: FluidStoreId },
-    Structure(StructuralCommitError),
-}
-
-impl Display for DrinkCommitError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::StalePlayerWorkRevision { expected, actual } => write!(
-                formatter,
-                "validated drinking expected player-work revision {expected} but current revision is {actual}"
-            ),
-            Self::StaleSurvivalRevision { expected, actual } => write!(
-                formatter,
-                "validated drinking expected survival revision {expected} but current revision is {actual}"
-            ),
-            Self::StaleFluidRevision { expected, actual } => write!(
-                formatter,
-                "validated drinking expected fluid revision {expected} but current revision is {actual}"
-            ),
-            Self::FluidSourceChanged { store } => write!(
-                formatter,
-                "drink source store {} changed after validation",
-                store.value()
-            ),
-            Self::Structure(error) => write!(
-                formatter,
-                "validated drinking structural commit failed: {error}"
-            ),
-        }
-    }
-}
-
-impl Error for DrinkCommitError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Structure(error) => Some(error),
-            Self::StalePlayerWorkRevision { .. }
-            | Self::StaleSurvivalRevision { .. }
-            | Self::StaleFluidRevision { .. }
-            | Self::FluidSourceChanged { store: _ } => None,
-        }
-    }
+    drink.hydration_offer(volume)
 }
 
 #[must_use]
@@ -353,12 +145,7 @@ pub fn validate_drink(
             FluidEgressError::RevisionExhausted => DrinkError::FluidRevisionExhausted,
             FluidEgressError::StructuralLoad(error) => DrinkError::StructuralLoad(error),
         })?;
-    let hydration_numerator = u128::from(egress.volume().microliters())
-        .checked_mul(u128::from(drink.hydration_multiplier_ppm()))
-        .ok_or(DrinkError::HydrationOverflow)?;
-    let hydration_gain = u64::try_from(hydration_numerator / 1_000_000)
-        .map_err(|_| DrinkError::HydrationOverflow)?;
-    let hydration_gain = Volume::from_microliters(hydration_gain);
+    let hydration_gain = drink.hydration_offer(egress.volume());
     if hydration_gain.is_zero() {
         return Err(DrinkError::NoHydrationGain { volume });
     }

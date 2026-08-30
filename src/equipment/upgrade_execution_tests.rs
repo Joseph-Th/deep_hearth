@@ -11,7 +11,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Energy, Temperature};
 use crate::core::state::{StateValidationError, validate_loaded_state};
-use crate::core::time::WorldSeed;
+use crate::core::time::{SimulationTick, WorldSeed};
 use crate::energy::{calculate_explicit_energy_accounting, validate_assemble_energy_store};
 use crate::equipment::{
     EquipmentValidationError, apply_equipment_condition_plan, decide_equipment_wear,
@@ -22,6 +22,7 @@ use crate::labor::{ManualPowerRequest, validate_start_manual_power};
 use crate::material::{CommodityKey, MaterialPhaseStateError};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+use crate::simulation::advance_tick;
 use crate::survival::initialize_player_survival;
 
 fn assemble_stone_pick(registries: &Registries, state: &mut AppState) -> EquipmentId {
@@ -51,6 +52,44 @@ fn assemble_stone_pick(registries: &Registries, state: &mut AppState) -> Equipme
         .unwrap_or_else(|error| panic!("upgrade pick assembly validation failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("upgrade pick assembly commit failed: {error}"))
+}
+
+#[test]
+fn upgraded_equipment_load_rejects_late_unreplaceable_base_material() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA66D_1010));
+    let equipment = assemble_stone_pick(&registries, &mut state);
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("equipment chronology audit tick failed: {error}"));
+    let reinforcement = reinforcement_source(&registries, &mut state);
+    validate_upgrade_equipment(
+        &registries,
+        &state,
+        equipment,
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        reinforcement,
+    )
+    .unwrap_or_else(|error| panic!("equipment chronology upgrade validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("equipment chronology upgrade commit failed: {error}"));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("equipment chronology serialization failed: {error}"));
+    encoded["state"]["systems"]["equipment"]["records"][equipment.value().to_string()]["embodied_material"]
+        [0]["provenance"]["latest_created_at"] = serde_json::json!(1_u64);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("equipment chronology tamper decode failed: {error}"));
+
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Equipment(
+            EquipmentValidationError::EmbodiedProvenanceAfterConstruction {
+                equipment,
+                latest_created_at: SimulationTick::new(1),
+                created_at: SimulationTick::ZERO,
+            }
+        )))
+    );
 }
 
 fn assemble_authored_equipment(

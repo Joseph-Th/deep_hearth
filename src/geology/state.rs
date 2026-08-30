@@ -272,6 +272,21 @@ impl GeologyState {
         next_deposit_id: u32,
         next_revision: u64,
     ) {
+        assert_eq!(
+            record.id.value(),
+            self.next_deposit_id,
+            "geological deposit allocation must consume the current identity cursor"
+        );
+        assert_eq!(
+            self.next_deposit_id.checked_add(1),
+            Some(next_deposit_id),
+            "geological deposit allocation must advance the identity cursor exactly once"
+        );
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "geological deposit allocation must advance the owner revision exactly once"
+        );
         assert!(
             !self.deposits.contains_key(&record.id),
             "geological deposit ID allocation must be unique"
@@ -291,6 +306,11 @@ impl GeologyState {
         remaining_after: Mass,
         next_revision: u64,
     ) {
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "geological extraction must advance the owner revision exactly once"
+        );
         let record = self.deposits.get_mut(&deposit).unwrap_or_else(|| {
             panic!("validated geological deposit disappeared without revision change")
         });
