@@ -14,9 +14,7 @@ use crate::energy::{
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
 use crate::inventory::MaterialLotSelection;
 use crate::inventory::StockpileId;
-use crate::maintenance::{
-    ActiveConditionDurationError, Condition, assert_valid_condition_wear_ppm_per_tick,
-};
+use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::material::{CommodityKey, FormId, MaterialComposition, MaterialId, MaterialLotSpec};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
@@ -32,7 +30,7 @@ use super::equipment_physics::{
 use super::phase_change_batch::{
     PurePhaseChangeBatchError, PurePhaseChangeDirection, resolve_pure_phase_change_batch,
 };
-use super::{PhaseChangeForms, calculate_phase_sensible_heat};
+use super::{PhaseChangeForms, PhaseChangeProcessProfile, calculate_phase_sensible_heat};
 #[cfg(test)]
 use super::{calculate_fusion_heat, calculate_sensible_heat};
 
@@ -76,34 +74,24 @@ impl CastingPhaseChange {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CastingProcessDefinition {
     process: ProcessId,
-    cooling_power_capability: CapabilityId,
-    max_temperature_capability: CapabilityId,
-    max_batch_mass_capability: CapabilityId,
-    energy_carrier: EnergyCarrier,
+    profile: PhaseChangeProcessProfile,
+    material: MaterialId,
     phase_change: CastingPhaseChange,
-    condition_wear_ppm_per_active_tick: u32,
 }
 
 impl CastingProcessDefinition {
     #[must_use]
     pub const fn new(
         process: ProcessId,
-        cooling_power_capability: CapabilityId,
-        max_temperature_capability: CapabilityId,
-        max_batch_mass_capability: CapabilityId,
-        energy_carrier: EnergyCarrier,
+        profile: PhaseChangeProcessProfile,
+        material: MaterialId,
         phase_change: CastingPhaseChange,
-        condition_wear_ppm_per_active_tick: u32,
     ) -> Self {
-        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
         Self {
             process,
-            cooling_power_capability,
-            max_temperature_capability,
-            max_batch_mass_capability,
-            energy_carrier,
+            profile,
+            material,
             phase_change,
-            condition_wear_ppm_per_active_tick,
         }
     }
 
@@ -114,22 +102,27 @@ impl CastingProcessDefinition {
 
     #[must_use]
     pub const fn cooling_power_capability(self) -> CapabilityId {
-        self.cooling_power_capability
+        self.profile.transfer_power_capability()
     }
 
     #[must_use]
     pub const fn max_temperature_capability(self) -> CapabilityId {
-        self.max_temperature_capability
+        self.profile.max_temperature_capability()
     }
 
     #[must_use]
     pub const fn max_batch_mass_capability(self) -> CapabilityId {
-        self.max_batch_mass_capability
+        self.profile.max_batch_mass_capability()
     }
 
     #[must_use]
     pub const fn energy_carrier(self) -> EnergyCarrier {
-        self.energy_carrier
+        self.profile.energy_carrier()
+    }
+
+    #[must_use]
+    pub const fn material(self) -> MaterialId {
+        self.material
     }
 
     #[must_use]
@@ -150,7 +143,7 @@ impl CastingProcessDefinition {
 
     #[must_use]
     pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
-        self.condition_wear_ppm_per_active_tick
+        self.profile.condition_wear_ppm_per_active_tick()
     }
 }
 
@@ -159,6 +152,7 @@ pub type CastingBatchError = PurePhaseChangeBatchError;
 
 fn resolve_casting_batch(
     materials: &crate::material::MaterialRegistry,
+    material: MaterialId,
     liquid_form: FormId,
     solid_form: FormId,
     output_temperature: Temperature,
@@ -166,7 +160,8 @@ fn resolve_casting_batch(
 ) -> Result<super::phase_change_batch::PurePhaseChangeBatch, CastingBatchError> {
     let mut batch = resolve_pure_phase_change_batch(
         materials,
-        liquid_form,
+        material,
+        &[liquid_form],
         solid_form,
         PurePhaseChangeDirection::Solidify,
         traces,
@@ -473,6 +468,7 @@ pub fn resolve_casting_process(
 
     let batch = resolve_casting_batch(
         registries.materials(),
+        definition.material(),
         definition.liquid_form(),
         definition.solid_form(),
         definition.output_temperature(),

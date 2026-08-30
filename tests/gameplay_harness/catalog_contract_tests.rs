@@ -3,10 +3,19 @@
 use std::collections::BTreeSet;
 
 use deep_hearth::content::{
-    PROCESS_HAND_BREAK_ORE, PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_SEPARATE_NATIVE_COPPER,
-    build_registries,
+    ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_STONE_FLYWHEEL_DRIVE,
+    EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_COPPER_REINFORCED_PICK,
+    EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+    FORM_BOARD, FORM_CHIP, FORM_REINFORCEMENT, FORM_SCRAP, FORM_TOOL, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+    PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_HAND_BREAK_ORE,
+    PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_KNAP_STONE_TOOL, PROCESS_MELT_PURE_COPPER,
+    PROCESS_REKNAP_STONE_SCRAP_TOOL, PROCESS_SEPARATE_NATIVE_COPPER,
+    STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST, STORAGE_TIMBER_PROVISIONS_CHEST, build_registries,
 };
+use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::inventory::StockpileStorageProfile;
+use deep_hearth::material::CommodityKey;
 
 use super::focused_seeds::{
     EXPLORATORY_VARIATION_COUNT, FocusedProbeCase, FocusedProbeRole, FocusedProbeSeedPlan,
@@ -118,6 +127,175 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
     assert!(!manual.max_batch_mass().is_zero());
     assert!(!manual.processing_rate().is_zero());
 
+    let native_copper_work = catalog
+        .iter()
+        .find(|entry| entry.process == PROCESS_COLD_WORK_COPPER_REINFORCEMENT)
+        .unwrap_or_else(|| {
+            panic!("native-copper reinforcement work is absent from the gameplay catalog")
+        });
+    let scrap_rework = catalog
+        .iter()
+        .find(|entry| entry.process == PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT)
+        .unwrap_or_else(|| panic!("copper-scrap recovery is absent from the gameplay catalog"));
+    assert_eq!(
+        native_copper_work.resolver,
+        ProcessResolverKind::ManualCraft
+    );
+    assert_eq!(scrap_rework.resolver, ProcessResolverKind::ManualCraft);
+    assert_eq!(scrap_rework.nominal_provider_count, 0);
+    assert_eq!(scrap_rework.matching_energy_store_count, 0);
+    let native_definition = registries
+        .crafting()
+        .get_manual(PROCESS_COLD_WORK_COPPER_REINFORCEMENT)
+        .unwrap_or_else(|| panic!("native-copper reinforcement definition disappeared"));
+    let scrap_definition = registries
+        .crafting()
+        .get_manual(PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT)
+        .unwrap_or_else(|| panic!("copper-scrap recovery definition disappeared"));
+    assert!(scrap_definition.duration() > native_definition.duration());
+
+    let fresh_stone = registries
+        .crafting()
+        .get_manual(PROCESS_KNAP_STONE_TOOL)
+        .unwrap_or_else(|| panic!("fresh stone knapping disappeared from gameplay catalog"));
+    let recycled_stone = registries
+        .crafting()
+        .get_manual(PROCESS_REKNAP_STONE_SCRAP_TOOL)
+        .unwrap_or_else(|| panic!("stone scrap reknapping disappeared from gameplay catalog"));
+    let recycled_stone_entry = catalog
+        .iter()
+        .find(|entry| entry.process == PROCESS_REKNAP_STONE_SCRAP_TOOL)
+        .unwrap_or_else(|| panic!("stone scrap reknapping is absent from the gameplay catalog"));
+    assert_eq!(
+        recycled_stone_entry.resolver,
+        ProcessResolverKind::ManualCraft
+    );
+    assert_eq!(recycled_stone_entry.nominal_provider_count, 0);
+    assert_eq!(recycled_stone_entry.matching_energy_store_count, 0);
+    assert_eq!(
+        recycled_stone.input(),
+        CommodityKey::new(MATERIAL_STONE, FORM_SCRAP)
+    );
+    assert_eq!(
+        recycled_stone.input_mass(),
+        Mass::from_milligrams(1_000_000)
+    );
+    assert!(
+        recycled_stone.duration() > fresh_stone.duration(),
+        "recycling irregular stone scrap must remain more attention-intensive than fresh knapping"
+    );
+    assert_eq!(
+        recycled_stone
+            .outputs()
+            .iter()
+            .find(|output| output.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
+            .map(|output| output.mass()),
+        Some(Mass::from_milligrams(800_000))
+    );
+    assert_eq!(
+        recycled_stone
+            .outputs()
+            .iter()
+            .find(|output| output.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_CHIP))
+            .map(|output| output.mass()),
+        Some(Mass::from_milligrams(200_000))
+    );
+    assert_eq!(
+        recycled_stone
+            .outputs()
+            .iter()
+            .map(|output| output.mass().milligrams())
+            .sum::<u64>(),
+        recycled_stone.input_mass().milligrams()
+    );
+
+    let reinforcement_commodity = CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT);
+    let copper_upgrade_targets = registries
+        .equipment()
+        .definitions()
+        .filter_map(|definition| {
+            let upgrade = definition.upgrade_profile()?;
+            let additions = upgrade.additions().inputs();
+            (additions.len() == 1
+                && additions[0].commodity() == reinforcement_commodity
+                && additions[0].mass() == Mass::from_milligrams(20_000))
+            .then_some(definition.id())
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        copper_upgrade_targets,
+        BTreeSet::from([
+            EQUIPMENT_COPPER_REINFORCED_PICK,
+            EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+            EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+            EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+        ]),
+        "ordinary 20 g copper reinforcement must remain usable across extraction, power, crushing, and separation"
+    );
+    for target in copper_upgrade_targets {
+        let target_definition = registries
+            .equipment()
+            .get_equipment(target)
+            .unwrap_or_else(|| panic!("copper upgrade target disappeared"));
+        let upgrade = target_definition
+            .upgrade_profile()
+            .unwrap_or_else(|| panic!("copper upgrade target lost its additive route"));
+        let base = registries
+            .equipment()
+            .get_equipment(upgrade.from())
+            .unwrap_or_else(|| panic!("copper upgrade base definition disappeared"));
+        assert!(
+            base.assembly_profile().is_some(),
+            "copper upgrade base {} must remain ordinarily assemblable",
+            base.id().value()
+        );
+        assert!(target_definition.maintenance_profile().is_some());
+        assert!(target_definition.worn_recovery_form().is_some());
+        assert!(!target_definition.requires_structural_support());
+    }
+
+    let flywheel = registries
+        .energy()
+        .get_store(ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE)
+        .unwrap_or_else(|| panic!("copper-banded flywheel disappeared from the energy catalog"));
+    let flywheel_upgrade = flywheel
+        .upgrade_profile()
+        .unwrap_or_else(|| panic!("copper-banded flywheel lost its additive upgrade route"));
+    assert_eq!(flywheel_upgrade.from(), ENERGY_STONE_FLYWHEEL_DRIVE);
+    assert_eq!(flywheel_upgrade.additions().inputs().len(), 1);
+    assert_eq!(
+        flywheel_upgrade.additions().inputs()[0].commodity(),
+        reinforcement_commodity
+    );
+    assert_eq!(
+        flywheel_upgrade.additions().inputs()[0].mass(),
+        Mass::from_milligrams(20_000)
+    );
+    let base_flywheel = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .unwrap_or_else(|| panic!("stone flywheel disappeared from the energy catalog"));
+    assert!(base_flywheel.has_runtime_assembly_route());
+    assert!(flywheel.has_runtime_assembly_route());
+    assert_eq!(base_flywheel.carrier(), flywheel.carrier());
+    assert_eq!(base_flywheel.max_input_power(), flywheel.max_input_power());
+    assert_eq!(
+        base_flywheel.max_output_power(),
+        flywheel.max_output_power()
+    );
+    assert_eq!(
+        base_flywheel.passive_dissipation_power(),
+        flywheel.passive_dissipation_power()
+    );
+    assert_eq!(
+        base_flywheel.capacity(),
+        Energy::from_nanojoules(500_000_000_000)
+    );
+    assert_eq!(
+        flywheel.capacity(),
+        Energy::from_nanojoules(750_000_000_000)
+    );
+
     let ambient_preservation =
         StockpileStorageProfile::unbounded_solid_only().preservation_multiplier_ppm();
     let storage_definitions = registries.storage().definitions().collect::<Vec<_>>();
@@ -157,6 +335,44 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
                     });
                 assert_eq!(process.resolver, ProcessResolverKind::ManualCraft);
             }
+
+            let salvage_routes = registries
+                .crafting()
+                .definitions()
+                .filter(|definition| definition.input() == input.commodity())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                salvage_routes.len(),
+                1,
+                "storage body commodity {} must expose exactly one authored manual salvage route",
+                input.commodity().value()
+            );
+            let salvage = salvage_routes[0];
+            assert_eq!(salvage.input_mass(), input.mass());
+            let salvage_catalog = catalog
+                .iter()
+                .find(|entry| entry.process == salvage.process())
+                .unwrap_or_else(|| panic!("storage body salvage is absent from gameplay catalog"));
+            assert_eq!(salvage_catalog.resolver, ProcessResolverKind::ManualCraft);
+            let board = salvage
+                .outputs()
+                .iter()
+                .find(|output| output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))
+                .map(|output| output.mass())
+                .unwrap_or_else(|| panic!("storage salvage lost reusable board output"));
+            let chips = salvage
+                .outputs()
+                .iter()
+                .find(|output| output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_CHIP))
+                .map(|output| output.mass())
+                .unwrap_or_else(|| panic!("storage salvage lost physical chip residue"));
+            assert!(!board.is_zero());
+            assert!(!chips.is_zero());
+            assert_eq!(
+                board.checked_add(chips),
+                Some(input.mass()),
+                "storage salvage must conserve the detached enclosure body exactly"
+            );
         }
         let (stages, attention_ticks) =
             preservation_construction_summary(&registries, storage.id());
@@ -165,6 +381,44 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
             "every authored preservation enclosure must expose a nontrivial ordinary manual-production route"
         );
     }
+
+    let standard_storage = registries
+        .storage()
+        .get(STORAGE_TIMBER_PROVISIONS_CHEST)
+        .unwrap_or_else(|| panic!("standard provisions chest disappeared from gameplay catalog"));
+    let double_wall_storage = registries
+        .storage()
+        .get(STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST)
+        .unwrap_or_else(|| {
+            panic!("double-wall provisions chest disappeared from gameplay catalog")
+        });
+    assert_eq!(
+        standard_storage.maximum_stockpile_capacity(),
+        double_wall_storage.maximum_stockpile_capacity(),
+        "preservation choice must not be disguised as a capacity upgrade"
+    );
+    assert!(
+        double_wall_storage
+            .storage_profile()
+            .preservation_multiplier_ppm()
+            > standard_storage
+                .storage_profile()
+                .preservation_multiplier_ppm(),
+        "double-wall enclosure must provide materially stronger future preservation"
+    );
+    assert!(
+        double_wall_storage.assembly_profile().input_mass()
+            > standard_storage.assembly_profile().input_mass(),
+        "stronger preservation must require more embodied construction matter"
+    );
+    let (_, standard_attention) =
+        preservation_construction_summary(&registries, STORAGE_TIMBER_PROVISIONS_CHEST);
+    let (_, double_wall_attention) =
+        preservation_construction_summary(&registries, STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST);
+    assert!(
+        double_wall_attention > standard_attention,
+        "stronger preservation must require more ordinary player construction attention"
+    );
 }
 
 #[test]
@@ -308,13 +562,26 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
     let foundry_setups = (1_u64..=8)
         .map(|seed| foundry_probe_setup(&registries, seed))
         .collect::<Vec<_>>();
+    let authored_foundry_feed_forms = registries
+        .thermal()
+        .get_melting(PROCESS_MELT_PURE_COPPER)
+        .unwrap_or_else(|| panic!("canonical copper melting definition disappeared"))
+        .solid_forms()
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let sampled_foundry_feed_forms = foundry_setups
+        .iter()
+        .map(|setup| setup.feed_form)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        sampled_foundry_feed_forms, authored_foundry_feed_forms,
+        "bounded foundry generation must exercise every authored pure-copper recovery feed form"
+    );
     assert!(
         foundry_setups
             .iter()
-            .map(|setup| (
-                setup.mass.milligrams(),
-                setup.input_temperature.millikelvin()
-            ))
+            .map(|setup| (setup.mass.milligrams(), setup.preheat_target.millikelvin()))
             .collect::<BTreeSet<_>>()
             .len()
             > 1,

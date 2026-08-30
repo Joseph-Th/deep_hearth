@@ -144,8 +144,8 @@ impl ThermalRegistry {
     }
 
     #[must_use]
-    pub fn get_melting(&self, process: ProcessId) -> Option<MeltingProcessDefinition> {
-        self.melting.get(&process).copied()
+    pub fn get_melting(&self, process: ProcessId) -> Option<&MeltingProcessDefinition> {
+        self.melting.get(&process)
     }
 
     #[must_use]
@@ -186,7 +186,7 @@ impl ThermalRegistry {
             );
             validate_casting_material_references(definition, materials);
         }
-        for definition in self.melting.values().copied() {
+        for definition in self.melting.values() {
             validate_common_thermal_references(
                 definition.process(),
                 definition.heating_power_capability(),
@@ -250,64 +250,92 @@ fn validate_casting_applicable_materials(
     definition: CastingProcessDefinition,
     materials: &MaterialRegistry,
 ) {
-    let mut has_applicable_material = false;
-    for material in materials.definitions() {
-        let id = material.id();
-        if !materials.has_commodity(CommodityKey::new(id, definition.liquid_form()))
-            || !materials.has_commodity(CommodityKey::new(id, definition.solid_form()))
-        {
-            continue;
-        }
-        has_applicable_material = true;
-        let melting_point = material
-            .properties()
-            .thermal()
-            .melting_point()
-            .unwrap_or_else(|| {
-                panic!(
-                    "casting process {} material {} has liquid and solid commodities but no fusion properties",
-                    definition.process().value(),
-                    id.value()
-                )
-            });
-        assert!(
-            definition.output_temperature() <= melting_point,
-            "casting process {} output temperature {} mK exceeds material {} melting point {} mK",
-            definition.process().value(),
-            definition.output_temperature().millikelvin(),
-            id.value(),
-            melting_point.millikelvin()
-        );
-    }
+    let material = materials
+        .get_material(definition.material())
+        .unwrap_or_else(|| {
+            panic!(
+                "casting process {} references unknown material {}",
+                definition.process().value(),
+                definition.material().value()
+            )
+        });
     assert!(
-        has_applicable_material,
-        "casting process {} has no material authored in both input form {} and output form {}",
+        materials.has_commodity(CommodityKey::new(
+            definition.material(),
+            definition.liquid_form()
+        )) && materials.has_commodity(CommodityKey::new(
+            definition.material(),
+            definition.solid_form()
+        )),
+        "casting process {} material {} must be authored in both input form {} and output form {}",
         definition.process().value(),
+        definition.material().value(),
         definition.liquid_form().value(),
         definition.solid_form().value()
+    );
+    let melting_point = material
+        .properties()
+        .thermal()
+        .melting_point()
+        .unwrap_or_else(|| {
+            panic!(
+                "casting process {} material {} has no fusion properties",
+                definition.process().value(),
+                definition.material().value()
+            )
+        });
+    assert!(
+        definition.output_temperature() <= melting_point,
+        "casting process {} output temperature {} mK exceeds material {} melting point {} mK",
+        definition.process().value(),
+        definition.output_temperature().millikelvin(),
+        definition.material().value(),
+        melting_point.millikelvin()
     );
 }
 
 fn validate_melting_form_references(
-    definition: MeltingProcessDefinition,
+    definition: &MeltingProcessDefinition,
     materials: &MaterialRegistry,
 ) {
-    let solid_form = materials
-        .get_form(definition.solid_form())
+    let material = materials
+        .get_material(definition.material())
         .unwrap_or_else(|| {
+            panic!(
+                "melting process {} references unknown material {}",
+                definition.process().value(),
+                definition.material().value()
+            )
+        });
+    assert!(
+        material.properties().thermal().melting_point().is_some(),
+        "melting process {} material {} has no fusion properties",
+        definition.process().value(),
+        definition.material().value()
+    );
+    for &solid_form_id in definition.solid_forms() {
+        let solid_form = materials.get_form(solid_form_id).unwrap_or_else(|| {
             panic!(
                 "melting process {} references missing input form {}",
                 definition.process().value(),
-                definition.solid_form().value()
+                solid_form_id.value()
             )
         });
-    assert_eq!(
-        solid_form.phase(),
-        MaterialPhase::Solid,
-        "melting process {} input form {} must be solid",
-        definition.process().value(),
-        definition.solid_form().value()
-    );
+        assert_eq!(
+            solid_form.phase(),
+            MaterialPhase::Solid,
+            "melting process {} input form {} must be solid",
+            definition.process().value(),
+            solid_form_id.value()
+        );
+        assert!(
+            materials.has_commodity(CommodityKey::new(definition.material(), solid_form_id)),
+            "melting process {} material {} is not authored in accepted input form {}",
+            definition.process().value(),
+            definition.material().value(),
+            solid_form_id.value()
+        );
+    }
     let liquid_form = materials
         .get_form(definition.liquid_form())
         .unwrap_or_else(|| {
@@ -322,6 +350,16 @@ fn validate_melting_form_references(
         MaterialPhase::Liquid,
         "melting process {} output form {} must be liquid",
         definition.process().value(),
+        definition.liquid_form().value()
+    );
+    assert!(
+        materials.has_commodity(CommodityKey::new(
+            definition.material(),
+            definition.liquid_form()
+        )),
+        "melting process {} material {} is not authored in output form {}",
+        definition.process().value(),
+        definition.material().value(),
         definition.liquid_form().value()
     );
 }

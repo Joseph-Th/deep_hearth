@@ -49,8 +49,7 @@ pub enum PurePhaseChangeBatchError {
         expected: MaterialPhase,
         found: MaterialPhase,
     },
-    InputFormMismatch {
-        expected: FormId,
+    InputFormNotAccepted {
         found: FormId,
     },
     ImpureInput {
@@ -60,7 +59,7 @@ pub enum PurePhaseChangeBatchError {
         commodity: CommodityKey,
         pure: MaterialId,
     },
-    MixedMaterials {
+    UnexpectedMaterial {
         expected: MaterialId,
         found: MaterialId,
     },
@@ -105,10 +104,9 @@ impl Display for PurePhaseChangeBatchError {
                 "phase-change input form {} is {found:?} rather than required {expected:?}",
                 form.value(),
             ),
-            Self::InputFormMismatch { expected, found } => write!(
+            Self::InputFormNotAccepted { found } => write!(
                 formatter,
-                "phase-change process requires input form {} but selected form {} was provided",
-                expected.value(),
+                "phase-change process does not accept selected input form {}",
                 found.value()
             ),
             Self::ImpureInput { commodity } => write!(
@@ -124,9 +122,9 @@ impl Display for PurePhaseChangeBatchError {
                 commodity.form().value(),
                 pure.value()
             ),
-            Self::MixedMaterials { expected, found } => write!(
+            Self::UnexpectedMaterial { expected, found } => write!(
                 formatter,
-                "phase-change batch mixes material {} with material {}; alloy transitions require a dedicated resolver",
+                "phase-change process is authored for material {} but selected material {} was provided",
                 expected.value(),
                 found.value()
             ),
@@ -177,10 +175,10 @@ impl Error for PurePhaseChangeBatchError {
             Self::EmptyInput
             | Self::UnknownInputForm { .. }
             | Self::InputPhaseMismatch { .. }
-            | Self::InputFormMismatch { .. }
+            | Self::InputFormNotAccepted { .. }
             | Self::ImpureInput { .. }
             | Self::PureMaterialDoesNotMatchCommodity { .. }
-            | Self::MixedMaterials { .. }
+            | Self::UnexpectedMaterial { .. }
             | Self::InputTemperatureOutsidePhaseRange { .. }
             | Self::EnergyOverflow
             | Self::MassOverflow => None,
@@ -205,7 +203,6 @@ struct PhaseChangeTracePhysics {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct PhaseChangeBatchAccumulator {
-    material: Option<MaterialId>,
     melting_point: Option<Temperature>,
     hottest_input: Temperature,
     total_mass: Mass,
@@ -215,26 +212,11 @@ struct PhaseChangeBatchAccumulator {
 impl PhaseChangeBatchAccumulator {
     fn new() -> Self {
         Self {
-            material: None,
             melting_point: None,
             hottest_input: Temperature::ZERO,
             total_mass: Mass::ZERO,
             transfer_energy: Energy::ZERO,
         }
-    }
-
-    fn accept_material(&mut self, material: MaterialId) -> Result<(), PurePhaseChangeBatchError> {
-        if let Some(expected) = self.material {
-            if expected != material {
-                return Err(PurePhaseChangeBatchError::MixedMaterials {
-                    expected,
-                    found: material,
-                });
-            }
-        } else {
-            self.material = Some(material);
-        }
-        Ok(())
     }
 
     fn add_trace(
@@ -261,11 +243,9 @@ impl PhaseChangeBatchAccumulator {
 
     fn finish(
         self,
+        material: MaterialId,
         output_form: FormId,
     ) -> Result<PurePhaseChangeBatch, PurePhaseChangeBatchError> {
-        let Some(material) = self.material else {
-            return Err(PurePhaseChangeBatchError::EmptyInput);
-        };
         let Some(melting_point) = self.melting_point else {
             return Err(PurePhaseChangeBatchError::EmptyInput);
         };
@@ -288,7 +268,8 @@ impl PhaseChangeBatchAccumulator {
 
 fn resolve_phase_change_trace_material(
     materials: &MaterialRegistry,
-    input_form: FormId,
+    expected_material: MaterialId,
+    input_forms: &[FormId],
     direction: PurePhaseChangeDirection,
     trace: &ConsumedMaterialTrace,
 ) -> Result<MaterialId, PurePhaseChangeBatchError> {
@@ -305,11 +286,8 @@ fn resolve_phase_change_trace_material(
             found: form.phase(),
         });
     }
-    if form_id != input_form {
-        return Err(PurePhaseChangeBatchError::InputFormMismatch {
-            expected: input_form,
-            found: form_id,
-        });
+    if !input_forms.contains(&form_id) {
+        return Err(PurePhaseChangeBatchError::InputFormNotAccepted { found: form_id });
     }
     let Some(material) = profile.composition().pure_material() else {
         return Err(PurePhaseChangeBatchError::ImpureInput {
@@ -323,6 +301,12 @@ fn resolve_phase_change_trace_material(
                 pure: material,
             },
         );
+    }
+    if material != expected_material {
+        return Err(PurePhaseChangeBatchError::UnexpectedMaterial {
+            expected: expected_material,
+            found: material,
+        });
     }
     Ok(material)
 }
@@ -372,18 +356,25 @@ fn resolve_phase_change_trace_physics(
 /// the caller decides whether the resolved energy is consumed from a source or released to a sink.
 pub(super) fn resolve_pure_phase_change_batch(
     materials: &MaterialRegistry,
-    input_form: FormId,
+    material: MaterialId,
+    input_forms: &[FormId],
     output_form: FormId,
     direction: PurePhaseChangeDirection,
     traces: &[ConsumedMaterialTrace],
 ) -> Result<PurePhaseChangeBatch, PurePhaseChangeBatchError> {
+    debug_assert!(!input_forms.is_empty());
     let mut batch = PhaseChangeBatchAccumulator::new();
     for trace in traces {
-        let material =
-            resolve_phase_change_trace_material(materials, input_form, direction, trace)?;
-        batch.accept_material(material)?;
-        let physics = resolve_phase_change_trace_physics(materials, direction, trace, material)?;
+        let trace_material = resolve_phase_change_trace_material(
+            materials,
+            material,
+            input_forms,
+            direction,
+            trace,
+        )?;
+        let physics =
+            resolve_phase_change_trace_physics(materials, direction, trace, trace_material)?;
         batch.add_trace(trace, physics)?;
     }
-    batch.finish(output_form)
+    batch.finish(material, output_form)
 }

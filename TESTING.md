@@ -105,11 +105,11 @@ use the same `test-gameplay` feature contract.
 
 | Scope | Contract |
 | --- | --- |
-| `survival` | Hunger/thirst pressure, exact authored food-option availability, food-category coverage, bounded quantity-scaled eating/drinking attention, ordinary raw-timber -> manual-board -> manual-chest-body -> preservation-enclosure construction, completed-profile compatibility for existing contents, non-retroactive preservation-state effects, diet tradeoffs, provisioning, varied prospecting-work cost, reserve recovery, actual diet-supported vitality recovery. |
+| `survival` | Hunger/thirst pressure, exact authored food-option availability, food-category coverage, bounded quantity-scaled eating/drinking attention, ordinary raw-timber -> manual-board -> manual-enclosure-body -> preservation construction, authored lidded-versus-double-wall preservation tradeoffs, bounded sampling across every authored storage option, completed-profile compatibility for existing contents, non-retroactive preservation-state effects, diet tradeoffs, provisioning, varied prospecting-work cost, reserve recovery, actual diet-supported vitality recovery. |
 | `progression` | Coarse-to-fine evidence acquisition and information-value decisions, primitive crafting/mining/power/processing, scarce-copper choice, direct-labor fallback versus mechanization, delegated work, finite-recovery sorting, flywheel self-discharge/recharge, second reinforcement, convergence, finite machine lifecycle, and material-backed service that preserves prior scarce upgrades. |
 | `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structural pressure, hidden world change, and recovery. |
 | `ore` | Installed crush/grind/screen/regrind/concentrate flow with selective recovery, exact constituent accounting, gangue-hosted prepared-feed acceptance, and terminal current-tier tailings. Capability-only. |
-| `foundry` | Installed pure-copper heating/melting/casting, finite electrical and thermal capacity, adaptive batches, molten remainder, passive sink recovery. Capability-only. |
+| `foundry` | Installed room-temperature pure-copper sensible preheating, melting/casting, finite electrical and thermal capacity, adaptive batches, ingot/reinforcement/native-copper/scrap remelting coverage, molten remainder, and passive sink recovery. Capability-only. |
 
 ### Gameplay evidence contract
 
@@ -121,6 +121,23 @@ Routine focused gates combine maintained regression cases with bounded reproduci
 are reserved for behavior that requires executed cross-system consequences. A world may succeed, adapt, or stop
 at a canonical constraint; every partial or blocked outcome must preserve trusted-load validity and relevant
 conservation.
+
+The catalog contract also checks ordinary acquisition graph continuity that should not depend on one actor
+policy branch. Current copper reinforcement coverage requires the exact 20 g reinforcement commodity to reach
+the pick, hand crank, stone crusher, and stone separator through additive upgrades from assemblable bases, with
+maintenance and worn-recovery routes retained. The same reinforcement also upgrades the material-backed stone
+flywheel from 500 J to 750 J through the energy owner while preserving carrier, transfer limits, passive loss,
+and exact disassembly recovery. Preservation coverage requires both timber enclosure definitions to remain
+ordinarily producible and verifies that the stronger double-wall option keeps the same usable capacity while
+requiring more embodied timber and more construction attention for its higher preservation multiplier. Every
+storage body must also expose one manual salvage route that exactly partitions detached body mass into reusable
+boards and explicit chip residue; reverse routes must not create a cheaper construction cycle. Primitive stone
+maintenance recovery must remain a zero-machine manual path from 1 kg pure stone scrap to an exact 0.8 kg working
+component plus 0.2 kg chips, with more attention than fresh lump knapping. Unit evidence also requires
+contaminated or mixed-temperature scrap to reject atomically and an executed maintenance loop to use recovered
+stone for a later service. Bounded survival generation must exercise multiple authored preservation choices when
+multiple definitions exist. The progression episode's matched first-investment counterfactual remains the
+narrower pick-versus-crank behavioral experiment.
 
 Actor decisions may use observable consequences such as attention, material demand, survival cost, throughput,
 capacity, condition, and acquired evidence. They must not use registry order, hidden geology, future controlled

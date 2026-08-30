@@ -85,6 +85,24 @@ fn warning_and_critical_bands_are_authored_independently_of_wear_curve() {
 }
 
 #[test]
+fn maintenance_thresholds_require_nonempty_normal_and_warning_bands() {
+    let warning = condition(600_000);
+    assert_eq!(
+        MaintenanceThresholds::new(warning, warning),
+        Err(MaintenanceThresholdError::CriticalNotBelowWarning {
+            warning_below: warning,
+            critical_below: warning,
+        })
+    );
+    assert_eq!(
+        MaintenanceThresholds::new(Condition::PRISTINE, condition(250_000)),
+        Err(MaintenanceThresholdError::WarningAtPristine {
+            warning_below: Condition::PRISTINE,
+        })
+    );
+}
+
+#[test]
 fn condition_deserialization_rejects_out_of_range_values() {
     let result: Result<Condition, _> = serde_json::from_str("1000001");
     assert!(result.is_err());

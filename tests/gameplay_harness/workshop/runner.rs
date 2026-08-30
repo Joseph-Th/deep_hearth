@@ -29,6 +29,9 @@ pub(super) fn run_scenario(
     let thresholds = crusher_definition.maintenance_thresholds();
     let initial_band = thresholds.classify(variation.crusher.initial_crusher_condition);
     let mut report = ScenarioReport::new(variation, initial_band);
+    // Initial critical condition is resolved before support siting and controlled-event scheduling.
+    // This is intentionally separate from the recurring pre-batch maintenance gate below because
+    // moving it into that loop changes observable scenario ordering and terminal-event timing.
     if initial_band == MaintenanceBand::Critical {
         report.limits.maintenance_warning = true;
         println!(

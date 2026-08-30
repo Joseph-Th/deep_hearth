@@ -8,15 +8,17 @@ use crate::capability::{
 };
 use crate::content::{
     EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_COPPER_REINFORCED_PICK,
+    EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
     EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
     EQUIPMENT_STONE_SEPARATOR, FORM_CHIP, FORM_HANDLE, FORM_LOG, FORM_REINFORCEMENT, FORM_SCRAP,
-    FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_REKNAP_STONE_SCRAP_TOOL,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries, make_test_registries_with_equipment,
     make_test_registries_with_sensible_heating,
 };
 use crate::core::quantity::{AggregateMass, Area, Energy, Force, Length, Power, Temperature};
 use crate::core::state::validate_loaded_state;
 use crate::core::time::{SimulationTick, WorldSeed};
+use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId, ExplicitEnergyAccountingError,
     add_energy_store_with_initial_for_fixture, calculate_explicit_energy_accounting,
@@ -42,6 +44,7 @@ use crate::structural::{
     StructuralLoadKind, add_structural_element, calculate_aggregate_weight_force_ceiling,
     materialize_structural_element_for_test, validate_activate_structural_element,
 };
+use crate::survival::initialize_player_survival;
 use crate::thermal::{
     SensibleHeatingProcessDefinition, SensibleHeatingRequest, resolve_sensible_heating_process,
 };
@@ -71,6 +74,8 @@ fn every_builtin_primitive_component_service_executes_from_its_real_assembly_tra
         EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
         EQUIPMENT_STONE_CRUSHER,
         EQUIPMENT_STONE_SEPARATOR,
+        EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+        EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
     ]
     .into_iter()
     .enumerate()
@@ -170,6 +175,13 @@ fn every_builtin_primitive_component_service_executes_from_its_real_assembly_tra
         assert_eq!(record.definition(), definition_id);
         assert_eq!(record.embodied_mass(), definition.mass());
         assert_eq!(record.condition(), maintenance.restored_condition());
+        if definition.upgrade_profile().is_some() {
+            assert!(record.embodied_material().iter().any(|trace| {
+                trace.profile().commodity()
+                    == CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)
+                    && trace.mass() == Mass::from_milligrams(20_000)
+            }));
+        }
         assert_eq!(
             state
                 .inventory()
@@ -190,6 +202,202 @@ fn every_builtin_primitive_component_service_executes_from_its_real_assembly_tra
         validate_loaded_state(&registries, &state)
             .unwrap_or_else(|error| panic!("primitive service state audit failed: {error}"));
     }
+}
+
+#[test]
+fn accumulated_maintenance_stone_scrap_can_reknap_the_next_pick_component() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x8120_C102));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("stone scrap maintenance survival setup failed: {error}"));
+
+    let assembly = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| {
+            panic!("stone scrap maintenance assembly stockpile failed: {error}")
+        });
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            assembly,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(300_000),
+        )
+        .unwrap_or_else(|error| {
+            panic!("stone scrap maintenance assembly material failed: {error}")
+        });
+    }
+    let pick = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, assembly)
+        .unwrap_or_else(|error| panic!("stone scrap maintenance pick assembly failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| {
+            panic!("stone scrap maintenance pick assembly commit failed: {error}")
+        });
+
+    let fresh_replacements =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_600_000))
+            .unwrap_or_else(|error| panic!("fresh stone replacement stockpile failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        fresh_replacements,
+        CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+        Mass::from_milligrams(1_600_000),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap_or_else(|error| panic!("fresh stone replacement fixture failed: {error}"));
+    let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(3_000_000))
+        .unwrap_or_else(|error| panic!("stone scrap maintenance spent stockpile failed: {error}"));
+    let recovered = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("stone scrap reknap output stockpile failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("stone scrap maintenance matter-before failed: {error}"))
+        .total();
+
+    for service in 0..2 {
+        let wear = decide_equipment_wear(&state, pick, 100_000).unwrap_or_else(|error| {
+            panic!("stone scrap maintenance wear {service} failed: {error}")
+        });
+        apply_equipment_condition_plan(&mut state, wear).unwrap_or_else(|error| {
+            panic!("stone scrap maintenance wear commit {service} failed: {error}")
+        });
+        let resolution = resolve_equipment_maintenance(
+            &registries,
+            &state,
+            EquipmentMaintenanceRequest::new(pick, fresh_replacements, spent),
+        )
+        .unwrap_or_else(|error| panic!("fresh stone service {service} failed: {error}"));
+        assert_eq!(resolution.material_mass(), Mass::from_milligrams(800_000));
+        let outcome = validate_equipment_maintenance(&registries, &state, resolution)
+            .unwrap_or_else(|error| {
+                panic!("fresh stone service validation {service} failed: {error}")
+            })
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("fresh stone service commit {service} failed: {error}"));
+        assert_eq!(outcome.equipment(), pick);
+        assert_eq!(outcome.material_mass(), Mass::from_milligrams(800_000));
+        assert_eq!(outcome.condition_after(), condition(1_000_000));
+    }
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(spent)
+            .map(|stockpile| { stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_SCRAP)) }),
+        Some(Mass::from_milligrams(1_600_000))
+    );
+
+    let reknap_job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(PROCESS_REKNAP_STONE_SCRAP_TOOL, spent, recovered),
+    )
+    .unwrap_or_else(|error| panic!("maintenance scrap reknap start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("maintenance scrap reknap commit failed: {error}"));
+    while state.production().get_job(reknap_job).is_some() {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("maintenance scrap reknap tick failed: {error}"));
+    }
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(spent)
+            .map(|stockpile| { stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_SCRAP)) }),
+        Some(Mass::from_milligrams(600_000))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(recovered)
+            .map(|stockpile| { stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_TOOL)) }),
+        Some(Mass::from_milligrams(800_000))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(recovered)
+            .map(|stockpile| { stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_CHIP)) }),
+        Some(Mass::from_milligrams(200_000))
+    );
+
+    let wear = decide_equipment_wear(&state, pick, 100_000)
+        .unwrap_or_else(|error| panic!("reknapped component wear failed: {error}"));
+    apply_equipment_condition_plan(&mut state, wear)
+        .unwrap_or_else(|error| panic!("reknapped component wear commit failed: {error}"));
+    let recycled_resolution = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(pick, recovered, spent),
+    )
+    .unwrap_or_else(|error| panic!("reknapped component service failed: {error}"));
+    assert_eq!(
+        recycled_resolution.material_mass(),
+        Mass::from_milligrams(800_000)
+    );
+    let recycled_outcome = validate_equipment_maintenance(&registries, &state, recycled_resolution)
+        .unwrap_or_else(|error| panic!("reknapped component service validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("reknapped component service commit failed: {error}"));
+    assert_eq!(recycled_outcome.equipment(), pick);
+    assert_eq!(
+        recycled_outcome.material_mass(),
+        Mass::from_milligrams(800_000)
+    );
+    assert_eq!(recycled_outcome.condition_after(), condition(1_000_000));
+
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(pick)
+            .map(|record| record.condition()),
+        Some(condition(1_000_000))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(recovered)
+            .map(|stockpile| { stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_TOOL)) }),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(recovered)
+            .map(|stockpile| { stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_CHIP)) }),
+        Some(Mass::from_milligrams(200_000))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(spent)
+            .map(|stockpile| { stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_SCRAP)) }),
+        Some(Mass::from_milligrams(1_400_000))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(fresh_replacements)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::ZERO),
+        "the third service must use recovered stone rather than hidden fresh replacement stock"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("stone scrap maintenance matter-after failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

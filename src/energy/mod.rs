@@ -10,6 +10,7 @@ mod integration;
 mod passive_dissipation;
 mod state;
 mod storage_execution;
+mod upgrade_execution;
 
 pub use accounting::{
     ExplicitEnergyAccounting, ExplicitEnergyAccountingError, calculate_explicit_energy_accounting,
@@ -21,6 +22,7 @@ pub use construction_execution::{
 
 pub use definitions::{
     EnergyCarrier, EnergyRegistry, EnergyStoreDefinition, EnergyStoreDefinitionId,
+    EnergyStoreUpgradeProfile,
 };
 pub use disassembly_execution::{
     EnergyStoreDisassemblyCommitError, EnergyStoreDisassemblyError, EnergyStoreDisassemblyOutcome,
@@ -34,6 +36,10 @@ pub use state::{EnergyState, EnergyStoreId, EnergyStoreRecord, EnergyValidationE
 pub use storage_execution::{
     ConsumedEnergyTrace, EnergySinkError, EnergySupplyError, ReleasedEnergyTrace,
     ValidatedEnergySink, ValidatedEnergySupply, validate_energy_sink, validate_energy_supply,
+};
+pub use upgrade_execution::{
+    EnergyStoreUpgradeCommitError, EnergyStoreUpgradeError, ValidatedEnergyStoreUpgrade,
+    validate_upgrade_energy_store,
 };
 
 #[cfg(any(test, feature = "test-gameplay"))]

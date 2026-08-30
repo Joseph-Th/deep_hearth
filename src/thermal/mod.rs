@@ -25,12 +25,70 @@ pub(crate) use processes::validate_loaded_thermal_job;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::capability::CapabilityId;
 use crate::core::arithmetic::checked_mul_div_with_remainder;
 use crate::core::quantity::{Energy, Mass, Temperature};
+use crate::energy::EnergyCarrier;
+use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
 use crate::material::{
     CommodityKey, CompositionError, FormId, MaterialComposition, MaterialId, MaterialPhase,
     MaterialPhaseStateError, MaterialRegistry, validate_material_phase_state,
 };
+
+/// Shared equipment, carrier, and wear contract for one authored pure phase-change process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PhaseChangeProcessProfile {
+    transfer_power_capability: CapabilityId,
+    max_temperature_capability: CapabilityId,
+    max_batch_mass_capability: CapabilityId,
+    energy_carrier: EnergyCarrier,
+    condition_wear_ppm_per_active_tick: u32,
+}
+
+impl PhaseChangeProcessProfile {
+    #[must_use]
+    pub const fn new(
+        transfer_power_capability: CapabilityId,
+        max_temperature_capability: CapabilityId,
+        max_batch_mass_capability: CapabilityId,
+        energy_carrier: EnergyCarrier,
+        condition_wear_ppm_per_active_tick: u32,
+    ) -> Self {
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
+        Self {
+            transfer_power_capability,
+            max_temperature_capability,
+            max_batch_mass_capability,
+            energy_carrier,
+            condition_wear_ppm_per_active_tick,
+        }
+    }
+
+    #[must_use]
+    pub const fn transfer_power_capability(self) -> CapabilityId {
+        self.transfer_power_capability
+    }
+
+    #[must_use]
+    pub const fn max_temperature_capability(self) -> CapabilityId {
+        self.max_temperature_capability
+    }
+
+    #[must_use]
+    pub const fn max_batch_mass_capability(self) -> CapabilityId {
+        self.max_batch_mass_capability
+    }
+
+    #[must_use]
+    pub const fn energy_carrier(self) -> EnergyCarrier {
+        self.energy_carrier
+    }
+
+    #[must_use]
+    pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
+        self.condition_wear_ppm_per_active_tick
+    }
+}
 
 /// Authored material-form transition owned by one phase-change process definition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -82,8 +82,11 @@ impl MaintenanceThresholds {
         warning_below: Condition,
         critical_below: Condition,
     ) -> Result<Self, MaintenanceThresholdError> {
-        if critical_below > warning_below {
-            return Err(MaintenanceThresholdError::CriticalAboveWarning {
+        if warning_below == Condition::PRISTINE {
+            return Err(MaintenanceThresholdError::WarningAtPristine { warning_below });
+        }
+        if critical_below >= warning_below {
+            return Err(MaintenanceThresholdError::CriticalNotBelowWarning {
                 warning_below,
                 critical_below,
             });
@@ -118,7 +121,10 @@ impl MaintenanceThresholds {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MaintenanceThresholdError {
-    CriticalAboveWarning {
+    WarningAtPristine {
+        warning_below: Condition,
+    },
+    CriticalNotBelowWarning {
         warning_below: Condition,
         critical_below: Condition,
     },
@@ -127,12 +133,17 @@ pub enum MaintenanceThresholdError {
 impl Display for MaintenanceThresholdError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::CriticalAboveWarning {
+            Self::WarningAtPristine { warning_below } => write!(
+                formatter,
+                "warning condition {} ppm leaves no normal maintenance band",
+                warning_below.parts_per_million()
+            ),
+            Self::CriticalNotBelowWarning {
                 warning_below,
                 critical_below,
             } => write!(
                 formatter,
-                "critical condition {} ppm exceeds warning condition {} ppm",
+                "critical condition {} ppm must be below warning condition {} ppm so the warning band is nonempty",
                 critical_below.parts_per_million(),
                 warning_below.parts_per_million()
             ),

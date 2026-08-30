@@ -10,16 +10,18 @@ use crate::texture::{
 
 use super::equipment::{
     EQUIPMENT_CASTING_MOLD, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-    EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE,
+    EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+    EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_DRY_SCREEN, EQUIPMENT_ELECTRIC_FURNACE,
     EQUIPMENT_GRAVITY_SEPARATOR, EQUIPMENT_GRINDING_MILL, EQUIPMENT_JAW_CRUSHER,
     EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
     EQUIPMENT_STONE_SEPARATOR,
 };
 use super::materials::{
-    FORM_BOARD, FORM_CHEST_BODY, FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED, FORM_FLYWHEEL,
-    FORM_HANDLE, FORM_INGOT, FORM_LOG, FORM_LUMP, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE,
-    FORM_REINFORCEMENT, FORM_SCRAP, FORM_TAILINGS, FORM_TOOL, MATERIAL_CHARCOAL, MATERIAL_CLAY,
-    MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_CHEST_BODY, FORM_CHIP, FORM_CONCENTRATE, FORM_CRUSHED,
+    FORM_DOUBLE_WALL_CHEST_BODY, FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_LOG, FORM_LUMP,
+    FORM_MOLTEN, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_SCRAP, FORM_TAILINGS,
+    FORM_TOOL, MATERIAL_CHARCOAL, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE,
+    MATERIAL_WOOD,
 };
 
 mod patterns;
@@ -97,6 +99,10 @@ pub const OBJECT_GRAVITY_SEPARATOR: ObjectAppearanceId = ObjectAppearanceId::new
 pub const OBJECT_TAILINGS: ObjectAppearanceId = ObjectAppearanceId::new(29);
 pub const OBJECT_WOOD_BOARD: ObjectAppearanceId = ObjectAppearanceId::new(30);
 pub const OBJECT_TIMBER_CHEST_BODY: ObjectAppearanceId = ObjectAppearanceId::new(31);
+pub const OBJECT_COPPER_REINFORCED_STONE_CRUSHER: ObjectAppearanceId = ObjectAppearanceId::new(32);
+pub const OBJECT_COPPER_REINFORCED_STONE_SEPARATOR: ObjectAppearanceId =
+    ObjectAppearanceId::new(33);
+pub const OBJECT_DOUBLE_WALL_TIMBER_CHEST_BODY: ObjectAppearanceId = ObjectAppearanceId::new(34);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(
@@ -407,6 +413,11 @@ fn build_object_appearances() -> Vec<ObjectAppearanceDefinition> {
             "assembled timber chest body",
             &[TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END],
         ),
+        object(
+            OBJECT_DOUBLE_WALL_TIMBER_CHEST_BODY,
+            "assembled double-wall timber chest body",
+            &[TEXTURE_WOOD_END, TEXTURE_WOOD_SIDE, TEXTURE_WOOD_END],
+        ),
         object(OBJECT_STONE_FLYWHEEL, "stone flywheel", &[TEXTURE_STONE]),
         object(
             OBJECT_STONE_PICK,
@@ -437,6 +448,21 @@ fn build_object_appearances() -> Vec<ObjectAppearanceDefinition> {
             OBJECT_STONE_SEPARATOR,
             "stone rocking separator",
             &[TEXTURE_STONE, TEXTURE_WOOD_SIDE, TEXTURE_SCREEN_MESH],
+        ),
+        object(
+            OBJECT_COPPER_REINFORCED_STONE_CRUSHER,
+            "copper-reinforced stone toggle crusher",
+            &[TEXTURE_STONE, TEXTURE_WOOD_SIDE, TEXTURE_COPPER_HAMMERED],
+        ),
+        object(
+            OBJECT_COPPER_REINFORCED_STONE_SEPARATOR,
+            "copper-reinforced stone rocking separator",
+            &[
+                TEXTURE_STONE,
+                TEXTURE_WOOD_SIDE,
+                TEXTURE_SCREEN_MESH,
+                TEXTURE_COPPER_HAMMERED,
+            ],
         ),
         object(
             OBJECT_GRAVITY_SEPARATOR,
@@ -494,6 +520,11 @@ fn build_commodity_bindings() -> Vec<CommodityAppearanceBinding> {
             CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
             None,
             Some(OBJECT_TIMBER_CHEST_BODY),
+        ),
+        CommodityAppearanceBinding::new(
+            CommodityKey::new(MATERIAL_WOOD, FORM_DOUBLE_WALL_CHEST_BODY),
+            None,
+            Some(OBJECT_DOUBLE_WALL_TIMBER_CHEST_BODY),
         ),
         CommodityAppearanceBinding::new(
             CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
@@ -637,6 +668,14 @@ fn build_equipment_bindings() -> Vec<EquipmentAppearanceBinding> {
         EquipmentAppearanceBinding::new(
             EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
             OBJECT_COPPER_REINFORCED_HAND_CRANK,
+        ),
+        EquipmentAppearanceBinding::new(
+            EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+            OBJECT_COPPER_REINFORCED_STONE_CRUSHER,
+        ),
+        EquipmentAppearanceBinding::new(
+            EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+            OBJECT_COPPER_REINFORCED_STONE_SEPARATOR,
         ),
     ]
 }

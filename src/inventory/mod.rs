@@ -1,6 +1,7 @@
 //! Owns inventory custody, deterministic material selection, and validated matter mutation.
 
 mod coalescing;
+mod enclosure_dismantling;
 mod enclosure_execution;
 mod enclosure_validation;
 #[cfg(any(test, feature = "test-gameplay"))]
@@ -18,6 +19,11 @@ mod structural_integration;
 mod test_support;
 mod transactions;
 
+pub use enclosure_dismantling::{
+    StorageEnclosureDismantleCommitError, StorageEnclosureDismantleError,
+    StorageEnclosureDismantleOutcome, ValidatedStorageEnclosureDismantling,
+    validate_dismantle_storage_enclosure,
+};
 pub use enclosure_execution::{
     StorageEnclosureCommitError, StorageEnclosureConstructionError,
     ValidatedStorageEnclosureConstruction, validate_build_storage_enclosure,

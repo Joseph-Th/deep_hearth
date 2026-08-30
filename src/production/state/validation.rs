@@ -49,6 +49,11 @@ pub enum ProductionValidationError {
     CompletionNotAfterStart {
         job: ProductionJobId,
     },
+    RunningJobAlreadyDue {
+        job: ProductionJobId,
+        due: SimulationTick,
+        current: SimulationTick,
+    },
     ZeroActiveDuration {
         job: ProductionJobId,
     },
@@ -73,6 +78,11 @@ pub enum ProductionValidationError {
     SuspensionBeforeStart {
         job: ProductionJobId,
         started_at: SimulationTick,
+        suspended_at: SimulationTick,
+    },
+    SuspensionInFuture {
+        job: ProductionJobId,
+        current: SimulationTick,
         suspended_at: SimulationTick,
     },
     SuspensionRemainingExceedsActiveDuration {
@@ -258,6 +268,13 @@ impl Display for ProductionValidationError {
                 "production job {} does not complete after its start tick",
                 job.value()
             ),
+            Self::RunningJobAlreadyDue { job, due, current } => write!(
+                formatter,
+                "running production job {} was due at tick {} by current tick {}",
+                job.value(),
+                due.value(),
+                current.value()
+            ),
             Self::ZeroActiveDuration { job } => write!(
                 formatter,
                 "production job {} has zero required active duration",
@@ -305,6 +322,17 @@ impl Display for ProductionValidationError {
                 job.value(),
                 suspended_at.value(),
                 started_at.value()
+            ),
+            Self::SuspensionInFuture {
+                job,
+                current,
+                suspended_at,
+            } => write!(
+                formatter,
+                "production job {} claims suspension at tick {} after current tick {}",
+                job.value(),
+                suspended_at.value(),
+                current.value()
             ),
             Self::SuspensionRemainingExceedsActiveDuration {
                 job,

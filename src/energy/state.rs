@@ -160,6 +160,35 @@ impl EnergyState {
             .unwrap_or_else(|| panic!("runtime invariant broken: prevalidated energy disappeared"));
     }
 
+    /// Applies one additive energy-store upgrade without replacing runtime identity.
+    pub(super) fn apply_upgrade(
+        &mut self,
+        store: EnergyStoreId,
+        expected_definition: EnergyStoreDefinitionId,
+        target_definition: EnergyStoreDefinitionId,
+        additions: Vec<ConsumedMaterialTrace>,
+        expected_revision: u64,
+        next_revision: u64,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        assert!(
+            !additions.is_empty(),
+            "energy-store upgrade additions must be nonempty"
+        );
+        let record = self.records.get_mut(&store).unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: energy store {} disappeared before upgrade",
+                store.value()
+            )
+        });
+        assert_eq!(record.definition, expected_definition);
+        assert_eq!(record.stored, Energy::ZERO);
+        record.definition = target_definition;
+        record.embodied_material.extend(additions);
+        self.revision = next_revision;
+    }
+
     /// Removes one prevalidated empty energy store without rewinding its ID cursor.
     pub(super) fn remove_store(
         &mut self,

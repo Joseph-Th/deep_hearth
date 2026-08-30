@@ -205,16 +205,6 @@ pub enum StateValidationError {
     ScreeningJob(ScreeningJobValidationError),
     ThermalJob(ThermalJobValidationError),
     ManualCraftJob(ManualCraftJobValidationError),
-    JobAlreadyDue {
-        job: ProductionJobId,
-        current: SimulationTick,
-        due: SimulationTick,
-    },
-    JobSuspendedInFuture {
-        job: ProductionJobId,
-        current: SimulationTick,
-        suspended_at: SimulationTick,
-    },
     NonManualJobSuspendedForPlayerLabor {
         job: ProductionJobId,
         process: ProcessId,
@@ -608,24 +598,6 @@ impl Display for StateValidationError {
             Self::ManualCraftJob(error) => {
                 write!(formatter, "invalid manual crafting production job: {error}")
             }
-            Self::JobAlreadyDue { job, current, due } => write!(
-                formatter,
-                "production job {} is due at tick {} but current tick is {}",
-                job.value(),
-                due.value(),
-                current.value()
-            ),
-            Self::JobSuspendedInFuture {
-                job,
-                current,
-                suspended_at,
-            } => write!(
-                formatter,
-                "production job {} claims suspension at tick {} after current tick {}",
-                job.value(),
-                suspended_at.value(),
-                current.value()
-            ),
             Self::NonManualJobSuspendedForPlayerLabor { job, process } => write!(
                 formatter,
                 "production job {} for non-manual process {} claims player-labor suspension",
@@ -842,16 +814,6 @@ impl Error for StateValidationError {
             | Self::FluidSupportedByPlannedElement {
                 store: _store,
                 element: _element,
-            } => None,
-            Self::JobAlreadyDue {
-                job: _job,
-                current: _current,
-                due: _due,
-            } => None,
-            Self::JobSuspendedInFuture {
-                job: _job,
-                current: _current,
-                suspended_at: _suspended_at,
             } => None,
             Self::NonManualJobSuspendedForPlayerLabor {
                 job: _job,

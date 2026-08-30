@@ -92,6 +92,7 @@ fn resolve_loaded_casting_batch(
 ) -> Result<PurePhaseChangeBatch, CastingJobValidationError> {
     let batch = resolve_casting_batch(
         registries.materials(),
+        definition.material(),
         definition.liquid_form(),
         definition.solid_form(),
         definition.output_temperature(),

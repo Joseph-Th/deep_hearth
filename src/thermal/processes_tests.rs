@@ -1984,13 +1984,13 @@ fn supported_heating_suspends_on_collapse_and_resumes_after_relocation() {
         .unwrap_or_else(|error| panic!("future-suspension tamper decode failed: {error}"));
     assert_eq!(
         tampered.into_state(&registries),
-        Err(LoadError::InvalidState(
-            StateValidationError::JobSuspendedInFuture {
+        Err(LoadError::InvalidState(StateValidationError::Production(
+            ProductionValidationError::SuspensionInFuture {
                 job,
                 current: state.tick(),
                 suspended_at: future_suspended_at,
             }
-        ))
+        )))
     );
     state = loaded;
 

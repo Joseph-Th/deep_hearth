@@ -6,8 +6,10 @@ use crate::capability::{
     CapabilityRequirement, CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{
-    FORM_CONCENTRATE, FORM_CRUSHED, FORM_INGOT, FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG,
-    MATERIAL_STONE, PROCESS_HAND_BREAK_ORE, build_registries,
+    ENERGY_MECHANICAL_SMALL_DRIVE, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+    EQUIPMENT_STONE_CRUSHER, FORM_CONCENTRATE, FORM_CRUSHED, FORM_HANDLE, FORM_INGOT, FORM_ORE,
+    FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, MATERIAL_WOOD,
+    PROCESS_CRUSH_ORE, PROCESS_HAND_BREAK_ORE, build_registries,
     make_test_registries_with_comminution,
 };
 use crate::core::quantity::{AggregateMass, Length, MassSpecificEnergy};
@@ -18,11 +20,11 @@ use crate::energy::{
 };
 use crate::equipment::{
     CapabilityConditionCurve, CapabilityConditionPoint, EquipmentDefinition, EquipmentDefinitionId,
-    add_equipment,
+    add_equipment, validate_assemble_equipment, validate_upgrade_equipment,
 };
 use crate::inventory::{
     MaterialLotId, add_solid_stockpile_for_test, deposit_composed_lot_for_test,
-    deposit_lot_spec_for_test,
+    deposit_lot_for_test, deposit_lot_spec_for_test,
 };
 use crate::labor::PlayerWork;
 use crate::maintenance::MaintenanceThresholds;
@@ -52,6 +54,144 @@ fn crushed_particle_size() -> ParticleSizeRange {
         Ok(range) => range,
         Err(error) => panic!("comminution particle-size fixture failed: {error}"),
     }
+}
+
+#[test]
+fn copper_reinforced_stone_crusher_increases_real_throughput_and_single_batch_capacity() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x9700_1001));
+    let full_upgraded_batch = Mass::from_milligrams(1_500_000);
+    let source = add_solid_stockpile_for_test(&mut state, full_upgraded_batch)
+        .unwrap_or_else(|error| panic!("reinforced crusher source failed: {error}"));
+    let lot = deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+        full_upgraded_batch,
+        INPUT_TEMPERATURE,
+        mixed_ore_composition(),
+    )
+    .unwrap_or_else(|error| panic!("reinforced crusher ore failed: {error}"));
+
+    let assembly = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
+        .unwrap_or_else(|error| panic!("reinforced crusher assembly source failed: {error}"));
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(1_600_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(400_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            assembly,
+            commodity,
+            mass,
+            INPUT_TEMPERATURE,
+        )
+        .unwrap_or_else(|error| panic!("reinforced crusher assembly material failed: {error}"));
+    }
+    let crusher =
+        validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_CRUSHER, assembly)
+            .unwrap_or_else(|error| panic!("stone crusher assembly validation failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("stone crusher assembly commit failed: {error}"));
+    let energy = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_MECHANICAL_SMALL_DRIVE,
+        Energy::from_nanojoules(10_000_000_000_000),
+    )
+    .unwrap_or_else(|error| panic!("reinforced crusher energy fixture failed: {error}"));
+
+    let comparison_mass = Mass::from_milligrams(1_000_000);
+    let base = resolve_comminution_process(
+        &registries,
+        &state,
+        ComminutionRequest::new(
+            PROCESS_CRUSH_ORE,
+            source,
+            &[MaterialLotSelection::new(lot, comparison_mass)],
+            crusher,
+            energy,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("base stone crusher resolution failed: {error}"));
+    assert!(matches!(
+        resolve_comminution_process(
+            &registries,
+            &state,
+            ComminutionRequest::new(
+                PROCESS_CRUSH_ORE,
+                source,
+                &[MaterialLotSelection::new(lot, full_upgraded_batch)],
+                crusher,
+                energy,
+            ),
+        ),
+        Err(ComminutionResolutionError::BatchMassExceeded { selected, maximum })
+            if selected == full_upgraded_batch && maximum == comparison_mass
+    ));
+
+    let reinforcement = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
+        .unwrap_or_else(|error| panic!("reinforced crusher copper source failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        reinforcement,
+        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+        Mass::from_milligrams(20_000),
+        INPUT_TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("reinforced crusher copper material failed: {error}"));
+    validate_upgrade_equipment(
+        &registries,
+        &state,
+        crusher,
+        EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+        reinforcement,
+    )
+    .unwrap_or_else(|error| panic!("reinforced crusher upgrade validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("reinforced crusher upgrade commit failed: {error}"));
+
+    let upgraded_same_mass = resolve_comminution_process(
+        &registries,
+        &state,
+        ComminutionRequest::new(
+            PROCESS_CRUSH_ORE,
+            source,
+            &[MaterialLotSelection::new(lot, comparison_mass)],
+            crusher,
+            energy,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("reinforced crusher same-mass resolution failed: {error}"));
+    assert!(
+        upgraded_same_mass.process_resolution().duration() < base.process_resolution().duration(),
+        "copper reinforcement must shorten the same crushing workload"
+    );
+    let upgraded_full_batch = resolve_comminution_process(
+        &registries,
+        &state,
+        ComminutionRequest::new(
+            PROCESS_CRUSH_ORE,
+            source,
+            &[MaterialLotSelection::new(lot, full_upgraded_batch)],
+            crusher,
+            energy,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("reinforced crusher full-batch resolution failed: {error}"));
+    assert_eq!(
+        upgraded_full_batch.process_resolution().input_mass(),
+        full_upgraded_batch
+    );
 }
 
 fn copper_bearing_tailings_composition() -> MaterialComposition {

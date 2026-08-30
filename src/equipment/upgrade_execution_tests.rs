@@ -3,9 +3,11 @@
 use super::*;
 use crate::content::{
     ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-    EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
-    FORM_FLYWHEEL, FORM_HANDLE, FORM_REINFORCEMENT, FORM_TOOL, MANUAL_POWER_HAND_CRANK,
-    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, build_registries,
+    EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+    EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR, EQUIPMENT_STONE_CRUSHER,
+    EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_SEPARATOR, FORM_FLYWHEEL,
+    FORM_HANDLE, FORM_REINFORCEMENT, FORM_TOOL, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD, build_registries,
 };
 use crate::core::quantity::{Energy, Temperature};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -51,6 +53,40 @@ fn assemble_stone_pick(registries: &Registries, state: &mut AppState) -> Equipme
         .unwrap_or_else(|error| panic!("upgrade pick assembly commit failed: {error}"))
 }
 
+fn assemble_authored_equipment(
+    registries: &Registries,
+    state: &mut AppState,
+    definition: EquipmentDefinitionId,
+) -> EquipmentId {
+    let assembly = registries
+        .equipment()
+        .get_equipment(definition)
+        .and_then(|record| record.assembly_profile())
+        .unwrap_or_else(|| panic!("upgrade fixture equipment lost its assembly profile"));
+    let mass = assembly
+        .inputs()
+        .iter()
+        .try_fold(Mass::ZERO, |total, input| total.checked_add(input.mass()))
+        .unwrap_or_else(|| panic!("upgrade fixture assembly mass overflowed"));
+    let source = add_solid_stockpile_for_test(state, mass)
+        .unwrap_or_else(|error| panic!("upgrade fixture assembly source failed: {error}"));
+    for input in assembly.inputs() {
+        deposit_lot_for_test(
+            registries,
+            state,
+            source,
+            input.commodity(),
+            input.mass(),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("upgrade fixture assembly material failed: {error}"));
+    }
+    validate_assemble_equipment(registries, state, definition, source)
+        .unwrap_or_else(|error| panic!("upgrade fixture equipment assembly failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("upgrade fixture equipment commit failed: {error}"))
+}
+
 fn reinforcement_source(registries: &Registries, state: &mut AppState) -> StockpileId {
     let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(20_000))
         .unwrap_or_else(|error| panic!("upgrade reinforcement source failed: {error}"));
@@ -64,6 +100,91 @@ fn reinforcement_source(registries: &Registries, state: &mut AppState) -> Stockp
     )
     .unwrap_or_else(|error| panic!("upgrade reinforcement material failed: {error}"));
     source
+}
+
+#[test]
+fn primitive_processing_upgrades_preserve_identity_wear_matter_and_replay() {
+    let registries = build_registries();
+    for (seed, base, upgraded, expected_mass) in [
+        (
+            0xA66D_1001,
+            EQUIPMENT_STONE_CRUSHER,
+            EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+            Mass::from_milligrams(2_020_000),
+        ),
+        (
+            0xA66D_1002,
+            EQUIPMENT_STONE_SEPARATOR,
+            EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+            Mass::from_milligrams(1_220_000),
+        ),
+    ] {
+        let mut state = AppState::new(WorldSeed::new(seed));
+        let equipment = assemble_authored_equipment(&registries, &mut state, base);
+        let reinforcement = reinforcement_source(&registries, &mut state);
+        let wear = decide_equipment_wear(&state, equipment, 123_456)
+            .unwrap_or_else(|error| panic!("processing upgrade wear decision failed: {error}"));
+        apply_equipment_condition_plan(&mut state, wear)
+            .unwrap_or_else(|error| panic!("processing upgrade wear commit failed: {error}"));
+        let before = state
+            .equipment()
+            .get_equipment(equipment)
+            .unwrap_or_else(|| panic!("processing upgrade equipment disappeared"));
+        let condition_before = before.condition();
+        let created_at_before = before.created_at();
+        let matter_before = calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("processing upgrade matter audit failed: {error}"))
+            .total();
+        let energy_before = calculate_explicit_energy_accounting(&registries, &state)
+            .unwrap_or_else(|error| panic!("processing upgrade energy audit failed: {error}"))
+            .total();
+
+        let result =
+            validate_upgrade_equipment(&registries, &state, equipment, upgraded, reinforcement)
+                .unwrap_or_else(|error| panic!("processing upgrade validation failed: {error}"))
+                .commit(&mut state)
+                .unwrap_or_else(|error| panic!("processing upgrade commit failed: {error}"));
+
+        assert_eq!(result, equipment);
+        let record = state
+            .equipment()
+            .get_equipment(equipment)
+            .unwrap_or_else(|| panic!("processing upgrade result disappeared"));
+        assert_eq!(record.definition(), upgraded);
+        assert_eq!(record.condition(), condition_before);
+        assert_eq!(record.created_at(), created_at_before);
+        assert_eq!(record.embodied_mass(), expected_mass);
+        assert_eq!(record.embodied_material().len(), 3);
+        assert_eq!(
+            calculate_matter_accounting(&state)
+                .unwrap_or_else(|error| panic!(
+                    "processing upgrade final matter audit failed: {error}"
+                ))
+                .total(),
+            matter_before
+        );
+        assert_eq!(
+            calculate_explicit_energy_accounting(&registries, &state)
+                .unwrap_or_else(|error| panic!(
+                    "processing upgrade final energy audit failed: {error}"
+                ))
+                .total(),
+            energy_before
+        );
+        validate_loaded_state(&registries, &state)
+            .unwrap_or_else(|error| panic!("processing upgrade state audit failed: {error}"));
+
+        let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+            .unwrap_or_else(|error| panic!("processing upgrade serialization failed: {error}"));
+        let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+            .unwrap_or_else(|error| panic!("processing upgrade decode failed: {error}"));
+        assert_eq!(
+            decoded
+                .into_state(&registries)
+                .unwrap_or_else(|error| panic!("processing upgrade trusted load failed: {error}")),
+            state
+        );
+    }
 }
 
 fn assemble_stone_crank(registries: &Registries, state: &mut AppState) -> EquipmentId {

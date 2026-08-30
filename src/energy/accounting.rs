@@ -303,7 +303,9 @@ fn account_in_flight_material(
 ///
 /// Material thermal energy uses absolute zero as the accounting reference. Liquid forms include
 /// authored latent heat; unsupported mixed liquid phases fail explicitly rather than inventing an
-/// alloy phase diagram.
+/// alloy phase diagram. Matter and fluid already transferred into the terminal survival-consumption
+/// boundary are excluded because biological transformation, waste, and consumed-material thermal
+/// fate are outside the current explicit-energy model.
 pub fn calculate_explicit_energy_accounting(
     registries: &Registries,
     state: &AppState,

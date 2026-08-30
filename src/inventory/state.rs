@@ -8,6 +8,8 @@ use crate::core::time::SimulationTick;
 use crate::material::CommodityKey;
 use crate::structural::{StructuralElementId, apply_support_index_change};
 
+use super::StorageDefinitionId;
+
 mod lot_mutation;
 mod records;
 
@@ -91,6 +93,56 @@ impl InventoryState {
             "prechecked stockpile insertion unexpectedly replaced a record"
         );
         self.next_stockpile_id = next_stockpile_id;
+        self.revision = next_revision;
+    }
+
+    pub(super) fn apply_storage_enclosure_removal(
+        &mut self,
+        stockpile: StockpileId,
+        expected_profile: StockpileStorageProfile,
+        next_profile: StockpileStorageProfile,
+        expected_definition: StorageDefinitionId,
+        at: SimulationTick,
+        next_revision: u64,
+    ) {
+        assert_eq!(
+            self.revision.checked_add(1),
+            Some(next_revision),
+            "validated storage dismantling must advance inventory revision exactly once after recovered material ingress"
+        );
+        let source_preservation = expected_profile.preservation_multiplier_ppm();
+        for lot in self
+            .lots
+            .values_mut()
+            .filter(|lot| lot.stockpile == stockpile)
+        {
+            lot.storage_history = lot
+                .storage_history
+                .rebase(at, source_preservation)
+                .unwrap_or_else(|| {
+                    panic!("validated storage dismantling overflowed lot storage history")
+                });
+        }
+        let record = self.stockpiles.get_mut(&stockpile).unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: stockpile {} disappeared during enclosure dismantling",
+                stockpile.value()
+            )
+        });
+        assert_eq!(
+            record.storage_profile, expected_profile,
+            "validated storage dismantling target profile changed before apply"
+        );
+        assert_eq!(
+            record
+                .enclosure
+                .as_ref()
+                .map(StockpileEnclosureRecord::definition),
+            Some(expected_definition),
+            "validated storage dismantling target enclosure changed before apply"
+        );
+        record.storage_profile = next_profile;
+        record.enclosure = None;
         self.revision = next_revision;
     }
 

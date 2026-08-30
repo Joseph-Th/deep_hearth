@@ -20,7 +20,7 @@ use crate::production::{ProcessDefinition, ProcessId, ProductionRegistry};
 use crate::survival::FoodCategory;
 use crate::thermal::{
     CastingPhaseChange, CastingProcessDefinition, MeltingProcessDefinition, PhaseChangeForms,
-    SensibleHeatingProcessDefinition, ThermalRegistry,
+    PhaseChangeProcessProfile, SensibleHeatingProcessDefinition, ThermalRegistry,
 };
 
 const TEST_CAPABILITY: CapabilityId = CapabilityId::new(700_001);
@@ -82,21 +82,19 @@ fn assert_thermal_reference_validation_rejects(thermal: ThermalRegistry) {
     assert!(result.is_err());
 }
 
-fn assert_primitive_commodity_reachable(
+fn primitive_commodity_has_root_route(
     registries: &Registries,
     commodity: CommodityKey,
     roots: &BTreeSet<CommodityKey>,
     visiting: &mut BTreeSet<CommodityKey>,
-) {
+) -> bool {
     if roots.contains(&commodity) {
-        return;
+        return true;
     }
-    assert!(
-        visiting.insert(commodity),
-        "primitive component route contains a manual-crafting cycle at commodity {}",
-        commodity.value()
-    );
-    let producers = registries
+    if !visiting.insert(commodity) {
+        return false;
+    }
+    let reachable = registries
         .crafting()
         .definitions()
         .filter(|definition| {
@@ -105,16 +103,24 @@ fn assert_primitive_commodity_reachable(
                 .iter()
                 .any(|output| output.commodity() == commodity)
         })
-        .collect::<Vec<_>>();
-    let [producer] = producers.as_slice() else {
-        panic!(
-            "primitive component commodity {} must have exactly one ordinary manual producer or be an authored primitive root; found {} producers",
-            commodity.value(),
-            producers.len()
-        );
-    };
-    assert_primitive_commodity_reachable(registries, producer.input(), roots, visiting);
+        .any(|producer| {
+            primitive_commodity_has_root_route(registries, producer.input(), roots, visiting)
+        });
     assert!(visiting.remove(&commodity));
+    reachable
+}
+
+fn assert_primitive_commodity_reachable(
+    registries: &Registries,
+    commodity: CommodityKey,
+    roots: &BTreeSet<CommodityKey>,
+    visiting: &mut BTreeSet<CommodityKey>,
+) {
+    assert!(
+        primitive_commodity_has_root_route(registries, commodity, roots, visiting),
+        "primitive component commodity {} must have at least one acyclic ordinary manual route from an authored primitive root",
+        commodity.value()
+    );
 }
 
 #[test]
@@ -245,6 +251,158 @@ fn built_in_preservation_storage_has_a_complete_material_route_and_legible_compo
 }
 
 #[test]
+fn double_wall_preservation_trades_more_timber_and_attention_for_slower_food_aging() {
+    let registries = build_registries();
+    let standard = registries
+        .storage()
+        .get(STORAGE_TIMBER_PROVISIONS_CHEST)
+        .unwrap_or_else(|| panic!("standard timber provisions chest disappeared"));
+    let insulated = registries
+        .storage()
+        .get(STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST)
+        .unwrap_or_else(|| panic!("double-wall timber provisions chest disappeared"));
+
+    assert_eq!(
+        insulated.maximum_stockpile_capacity(),
+        standard.maximum_stockpile_capacity(),
+        "stronger preservation must not silently buy more usable storage capacity"
+    );
+    assert_eq!(
+        insulated.storage_profile().maximum_temperature(),
+        standard.storage_profile().maximum_temperature(),
+        "double timber walls do not create high-temperature containment"
+    );
+    assert_eq!(
+        standard.storage_profile().preservation_multiplier_ppm(),
+        2_000_000
+    );
+    assert_eq!(
+        insulated.storage_profile().preservation_multiplier_ppm(),
+        3_000_000
+    );
+    assert!(insulated.assembly_profile().input_mass() > standard.assembly_profile().input_mass());
+    assert_eq!(
+        insulated.assembly_profile().inputs(),
+        &[MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_WOOD, FORM_DOUBLE_WALL_CHEST_BODY),
+            Mass::from_milligrams(4_000_000),
+        )]
+    );
+
+    let standard_joinery = registries
+        .crafting()
+        .get_manual(PROCESS_ASSEMBLE_TIMBER_CHEST)
+        .unwrap_or_else(|| panic!("standard chest joinery disappeared"));
+    let insulated_joinery = registries
+        .crafting()
+        .get_manual(PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST)
+        .unwrap_or_else(|| panic!("double-wall chest joinery disappeared"));
+    let boards = registries
+        .crafting()
+        .get_manual(PROCESS_SHAPE_WOOD_BOARDS)
+        .unwrap_or_else(|| panic!("timber board shaping disappeared"));
+    let board_output = boards
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))
+        .map(|output| output.mass())
+        .unwrap_or_else(|| panic!("board shaping lost board output"));
+    let standard_board_batches = standard_joinery
+        .input_mass()
+        .milligrams()
+        .div_ceil(board_output.milligrams());
+    let insulated_board_batches = insulated_joinery
+        .input_mass()
+        .milligrams()
+        .div_ceil(board_output.milligrams());
+    assert_eq!(standard_board_batches, 3);
+    assert_eq!(insulated_board_batches, 5);
+    let standard_attention =
+        boards.duration().value() * standard_board_batches + standard_joinery.duration().value();
+    let insulated_attention =
+        boards.duration().value() * insulated_board_batches + insulated_joinery.duration().value();
+    assert_eq!(standard_attention, 230);
+    assert_eq!(insulated_attention, 370);
+    assert!(insulated_attention > standard_attention);
+    assert_eq!(
+        boards.input_mass().milligrams() * standard_board_batches,
+        3_000_000
+    );
+    assert_eq!(
+        boards.input_mass().milligrams() * insulated_board_batches,
+        5_000_000
+    );
+    assert!(
+        registries
+            .textures()
+            .get_commodity_appearance(CommodityKey::new(
+                MATERIAL_WOOD,
+                FORM_DOUBLE_WALL_CHEST_BODY,
+            ))
+            .and_then(|binding| binding.object())
+            .is_some(),
+        "double-wall chest body must remain player-legible"
+    );
+}
+
+#[test]
+fn timber_enclosure_salvage_returns_boards_with_explicit_chip_loss() {
+    let registries = build_registries();
+    for (process, input_form, input_mass, board_mass, duration) in [
+        (
+            PROCESS_SALVAGE_TIMBER_CHEST_BODY,
+            FORM_CHEST_BODY,
+            2_400_000,
+            1_600_000,
+            70,
+        ),
+        (
+            PROCESS_SALVAGE_DOUBLE_WALL_TIMBER_CHEST_BODY,
+            FORM_DOUBLE_WALL_CHEST_BODY,
+            4_000_000,
+            3_200_000,
+            100,
+        ),
+    ] {
+        let salvage = registries
+            .crafting()
+            .get_manual(process)
+            .unwrap_or_else(|| panic!("timber enclosure salvage process disappeared"));
+        assert_eq!(
+            salvage.input(),
+            CommodityKey::new(MATERIAL_WOOD, input_form)
+        );
+        assert_eq!(salvage.input_mass(), Mass::from_milligrams(input_mass));
+        assert_eq!(salvage.duration(), TickSpan::new(duration));
+        assert_eq!(
+            salvage
+                .outputs()
+                .iter()
+                .find(|output| output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))
+                .map(|output| output.mass()),
+            Some(Mass::from_milligrams(board_mass))
+        );
+        assert_eq!(
+            salvage
+                .outputs()
+                .iter()
+                .find(|output| output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_CHIP))
+                .map(|output| output.mass()),
+            Some(Mass::from_milligrams(800_000))
+        );
+        assert_eq!(
+            salvage
+                .outputs()
+                .iter()
+                .map(|output| output.mass().milligrams())
+                .sum::<u64>(),
+            input_mass,
+            "manual enclosure salvage must conserve every milligram"
+        );
+    }
+}
+
+#[test]
 fn primitive_flywheel_loses_stored_rotation_without_erasing_short_work_windows() {
     let registries = build_registries();
     let flywheel = registries
@@ -361,12 +519,16 @@ fn phase_change_definitions_require_authored_phase_directions() {
             std::iter::empty(),
             [MeltingProcessDefinition::new(
                 TEST_PROCESS,
-                TEST_HEATING_POWER,
-                TEST_MAX_TEMPERATURE,
-                TEST_MAX_BATCH_MASS,
-                EnergyCarrier::Electrical,
-                PhaseChangeForms::new(FORM_MOLTEN, FORM_MOLTEN),
-                1,
+                PhaseChangeProcessProfile::new(
+                    TEST_HEATING_POWER,
+                    TEST_MAX_TEMPERATURE,
+                    TEST_MAX_BATCH_MASS,
+                    EnergyCarrier::Electrical,
+                    1,
+                ),
+                MATERIAL_COPPER,
+                vec![FORM_MOLTEN],
+                FORM_MOLTEN,
             )],
             std::iter::empty(),
         ),
@@ -374,12 +536,16 @@ fn phase_change_definitions_require_authored_phase_directions() {
             std::iter::empty(),
             [MeltingProcessDefinition::new(
                 TEST_PROCESS,
-                TEST_HEATING_POWER,
-                TEST_MAX_TEMPERATURE,
-                TEST_MAX_BATCH_MASS,
-                EnergyCarrier::Electrical,
-                PhaseChangeForms::new(FORM_INGOT, FORM_INGOT),
-                1,
+                PhaseChangeProcessProfile::new(
+                    TEST_HEATING_POWER,
+                    TEST_MAX_TEMPERATURE,
+                    TEST_MAX_BATCH_MASS,
+                    EnergyCarrier::Electrical,
+                    1,
+                ),
+                MATERIAL_COPPER,
+                vec![FORM_INGOT],
+                FORM_INGOT,
             )],
             std::iter::empty(),
         ),
@@ -388,15 +554,18 @@ fn phase_change_definitions_require_authored_phase_directions() {
             std::iter::empty(),
             [CastingProcessDefinition::new(
                 TEST_PROCESS,
-                TEST_HEATING_POWER,
-                TEST_MAX_TEMPERATURE,
-                TEST_MAX_BATCH_MASS,
-                EnergyCarrier::Thermal,
+                PhaseChangeProcessProfile::new(
+                    TEST_HEATING_POWER,
+                    TEST_MAX_TEMPERATURE,
+                    TEST_MAX_BATCH_MASS,
+                    EnergyCarrier::Thermal,
+                    1,
+                ),
+                MATERIAL_COPPER,
                 CastingPhaseChange::new(
                     PhaseChangeForms::new(FORM_INGOT, FORM_INGOT),
                     Temperature::from_millikelvin(300_000),
                 ),
-                1,
             )],
         ),
         ThermalRegistry::new(
@@ -404,15 +573,18 @@ fn phase_change_definitions_require_authored_phase_directions() {
             std::iter::empty(),
             [CastingProcessDefinition::new(
                 TEST_PROCESS,
-                TEST_HEATING_POWER,
-                TEST_MAX_TEMPERATURE,
-                TEST_MAX_BATCH_MASS,
-                EnergyCarrier::Thermal,
+                PhaseChangeProcessProfile::new(
+                    TEST_HEATING_POWER,
+                    TEST_MAX_TEMPERATURE,
+                    TEST_MAX_BATCH_MASS,
+                    EnergyCarrier::Thermal,
+                    1,
+                ),
+                MATERIAL_COPPER,
                 CastingPhaseChange::new(
                     PhaseChangeForms::new(FORM_MOLTEN, FORM_MOLTEN),
                     Temperature::from_millikelvin(300_000),
                 ),
-                1,
             )],
         ),
     ] {
@@ -433,6 +605,10 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         EQUIPMENT_GRINDING_MILL,
         EQUIPMENT_STONE_CRUSHER,
         EQUIPMENT_STONE_SEPARATOR,
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+        EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+        EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
     ] {
         assert!(registries.equipment().get_equipment(equipment).is_some());
     }
@@ -442,17 +618,24 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
         ENERGY_ELECTRICAL_BUFFER,
         ENERGY_THERMAL_SINK,
         ENERGY_STONE_FLYWHEEL_DRIVE,
+        ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
     ] {
         assert!(registries.energy().get_store(energy).is_some());
     }
     for process in [
         PROCESS_CRUSH_ORE,
+        PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST,
+        PROCESS_SALVAGE_TIMBER_CHEST_BODY,
+        PROCESS_SALVAGE_DOUBLE_WALL_TIMBER_CHEST_BODY,
+        PROCESS_REKNAP_STONE_SCRAP_TOOL,
         PROCESS_MELT_PURE_COPPER,
         PROCESS_CAST_PURE_COPPER,
         PROCESS_SCREEN_CRUSHED_ORE,
         PROCESS_GRIND_CRUSHED_ORE,
         PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
         PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+        PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
+        PROCESS_HEAT_MATERIAL_BATCH,
         PROCESS_HAND_BREAK_ORE,
         PROCESS_HAND_SORT_NATIVE_COPPER,
         PROCESS_SEPARATE_NATIVE_COPPER,
@@ -511,6 +694,12 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
     assert!(
         registries
             .thermal()
+            .get_sensible_heating(PROCESS_HEAT_MATERIAL_BATCH)
+            .is_some()
+    );
+    assert!(
+        registries
+            .thermal()
             .get_melting(PROCESS_MELT_PURE_COPPER)
             .is_some()
     );
@@ -520,6 +709,26 @@ fn built_in_workshop_ids_resolve_canonical_gameplay_content() {
             .get_casting(PROCESS_CAST_PURE_COPPER)
             .is_some()
     );
+    let melting = registries
+        .thermal()
+        .get_melting(PROCESS_MELT_PURE_COPPER)
+        .unwrap_or_else(|| panic!("built-in copper melting definition disappeared"));
+    assert_eq!(melting.material(), MATERIAL_COPPER);
+    assert_eq!(
+        melting.solid_forms(),
+        &[
+            FORM_INGOT,
+            FORM_REINFORCEMENT,
+            FORM_NATIVE_METAL,
+            FORM_SCRAP
+        ]
+    );
+    assert_eq!(melting.liquid_form(), FORM_MOLTEN);
+    let casting = registries
+        .thermal()
+        .get_casting(PROCESS_CAST_PURE_COPPER)
+        .unwrap_or_else(|| panic!("built-in copper casting definition disappeared"));
+    assert_eq!(casting.material(), MATERIAL_COPPER);
 }
 
 #[test]
@@ -785,6 +994,16 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
             OBJECT_WOOD_HANDLE,
         ),
         (
+            CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
+            None,
+            OBJECT_TIMBER_CHEST_BODY,
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_DOUBLE_WALL_CHEST_BODY),
+            None,
+            OBJECT_DOUBLE_WALL_TIMBER_CHEST_BODY,
+        ),
+        (
             CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
             None,
             OBJECT_WOOD_CHIP,
@@ -827,6 +1046,22 @@ fn built_in_texture_bindings_resolve_for_material_forms_and_equipment() {
         (EQUIPMENT_STONE_HAND_CRANK, OBJECT_STONE_HAND_CRANK),
         (EQUIPMENT_STONE_CRUSHER, OBJECT_STONE_CRUSHER),
         (EQUIPMENT_STONE_SEPARATOR, OBJECT_STONE_SEPARATOR),
+        (
+            EQUIPMENT_COPPER_REINFORCED_PICK,
+            OBJECT_COPPER_REINFORCED_PICK,
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+            OBJECT_COPPER_REINFORCED_HAND_CRANK,
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+            OBJECT_COPPER_REINFORCED_STONE_CRUSHER,
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+            OBJECT_COPPER_REINFORCED_STONE_SEPARATOR,
+        ),
     ] {
         let binding = match textures.get_equipment_appearance(equipment) {
             Some(binding) => binding,

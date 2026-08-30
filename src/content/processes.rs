@@ -13,8 +13,8 @@ use super::capabilities::{
 };
 use super::materials::COPPER_MELTING_POINT;
 use super::{
-    FORM_BOARD, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_COPPER, MATERIAL_STONE,
-    MATERIAL_WOOD,
+    FORM_BOARD, FORM_CHEST_BODY, FORM_DOUBLE_WALL_CHEST_BODY, FORM_LOG, FORM_LUMP,
+    FORM_NATIVE_METAL, FORM_SCRAP, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 pub const PROCESS_CRUSH_ORE: ProcessId = ProcessId::new(1);
@@ -33,6 +33,12 @@ pub const PROCESS_HAND_SORT_NATIVE_COPPER: ProcessId = ProcessId::new(13);
 pub const PROCESS_SHAPE_WOOD_BOARDS: ProcessId = ProcessId::new(14);
 pub const PROCESS_HAND_BREAK_ORE: ProcessId = ProcessId::new(15);
 pub const PROCESS_ASSEMBLE_TIMBER_CHEST: ProcessId = ProcessId::new(16);
+pub const PROCESS_HEAT_MATERIAL_BATCH: ProcessId = ProcessId::new(17);
+pub const PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT: ProcessId = ProcessId::new(18);
+pub const PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST: ProcessId = ProcessId::new(19);
+pub const PROCESS_SALVAGE_TIMBER_CHEST_BODY: ProcessId = ProcessId::new(20);
+pub const PROCESS_SALVAGE_DOUBLE_WALL_TIMBER_CHEST_BODY: ProcessId = ProcessId::new(21);
+pub const PROCESS_REKNAP_STONE_SCRAP_TOOL: ProcessId = ProcessId::new(22);
 
 pub(crate) fn build_production_registry() -> ProductionRegistry {
     let mut registry = ProductionRegistry::new();
@@ -56,6 +62,27 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
         ProcessDefinition::new_selected_batch(
             PROCESS_MELT_PURE_COPPER,
             "melt pure copper",
+            vec![
+                CapabilityRequirement::new(
+                    CAPABILITY_HEATING_POWER,
+                    CapabilityComparison::AtLeast,
+                    CapabilityValue::Power(Power::from_microwatts(100_000_000_000)),
+                ),
+                CapabilityRequirement::new(
+                    CAPABILITY_THERMAL_MAX_TEMPERATURE,
+                    CapabilityComparison::AtLeast,
+                    CapabilityValue::Temperature(COPPER_MELTING_POINT),
+                ),
+                CapabilityRequirement::new(
+                    CAPABILITY_THERMAL_BATCH,
+                    CapabilityComparison::AtLeast,
+                    CapabilityValue::Mass(Mass::from_milligrams(1)),
+                ),
+            ],
+        ),
+        ProcessDefinition::new_selected_batch(
+            PROCESS_HEAT_MATERIAL_BATCH,
+            "sensible heat material batch",
             vec![
                 CapabilityRequirement::new(
                     CAPABILITY_HEATING_POWER,
@@ -149,11 +176,47 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
             Vec::new(),
         ),
         ProcessDefinition::new(
+            PROCESS_REKNAP_STONE_SCRAP_TOOL,
+            "reknap stone scrap tool",
+            vec![MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+                Mass::from_milligrams(1_000_000),
+            )],
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
             PROCESS_ASSEMBLE_TIMBER_CHEST,
             "assemble timber chest body",
             vec![MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
                 Mass::from_milligrams(2_400_000),
+            )],
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST,
+            "assemble double-wall timber chest body",
+            vec![MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(4_000_000),
+            )],
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_SALVAGE_TIMBER_CHEST_BODY,
+            "salvage timber chest body",
+            vec![MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
+                Mass::from_milligrams(2_400_000),
+            )],
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_SALVAGE_DOUBLE_WALL_TIMBER_CHEST_BODY,
+            "salvage double-wall timber chest body",
+            vec![MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_DOUBLE_WALL_CHEST_BODY),
+                Mass::from_milligrams(4_000_000),
             )],
             Vec::new(),
         ),
@@ -231,6 +294,15 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
             "cold-work native copper reinforcement",
             vec![MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+                Mass::from_milligrams(20_000),
+            )],
+            Vec::new(),
+        ),
+        ProcessDefinition::new(
+            PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
+            "rework copper scrap reinforcement",
+            vec![MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
                 Mass::from_milligrams(20_000),
             )],
             Vec::new(),

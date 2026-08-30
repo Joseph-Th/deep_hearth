@@ -50,6 +50,23 @@ fn validate_job_schedule(
     if job.schedule.completes_at <= job.schedule.started_at {
         return Err(ProductionValidationError::CompletionNotAfterStart { job: id });
     }
+    match job.schedule.suspension {
+        Some(suspension) if suspension.suspended_at() > current => {
+            return Err(ProductionValidationError::SuspensionInFuture {
+                job: id,
+                current,
+                suspended_at: suspension.suspended_at(),
+            });
+        }
+        None if job.schedule.completes_at <= current => {
+            return Err(ProductionValidationError::RunningJobAlreadyDue {
+                job: id,
+                due: job.schedule.completes_at,
+                current,
+            });
+        }
+        Some(_) | None => {}
+    }
     if job.schedule.active_duration.value() == 0 {
         return Err(ProductionValidationError::ZeroActiveDuration { job: id });
     }

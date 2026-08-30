@@ -2,8 +2,9 @@
 
 use super::*;
 use crate::content::{
-    ENERGY_MECHANICAL_SMALL_DRIVE, EQUIPMENT_STONE_SEPARATOR, FORM_CONCENTRATE, FORM_CRUSHED,
-    FORM_NATIVE_METAL, FORM_TAILINGS, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_SLAG,
+    ENERGY_MECHANICAL_SMALL_DRIVE, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+    EQUIPMENT_STONE_SEPARATOR, FORM_CONCENTRATE, FORM_CRUSHED, FORM_NATIVE_METAL,
+    FORM_REINFORCEMENT, FORM_TAILINGS, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_SLAG,
     MATERIAL_STONE, MATERIAL_WOOD, PROCESS_CONCENTRATE_COPPER, PROCESS_HAND_SORT_NATIVE_COPPER,
     PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
 };
@@ -11,7 +12,7 @@ use crate::core::quantity::{Energy, Length, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::energy::add_energy_store_with_initial_for_fixture;
-use crate::equipment::validate_assemble_equipment;
+use crate::equipment::{validate_assemble_equipment, validate_upgrade_equipment};
 use crate::inventory::{
     add_solid_stockpile_for_test, deposit_lot_for_test, deposit_lot_spec_for_test,
 };
@@ -34,6 +35,97 @@ fn liberated_particle_size() -> ParticleSizeRange {
         Length::from_micrometers(10_000),
     )
     .unwrap_or_else(|error| panic!("separation particle-size fixture failed: {error}"))
+}
+
+#[test]
+fn copper_reinforced_stone_separator_increases_real_throughput_and_single_batch_capacity() {
+    let full_upgraded_batch = Mass::from_milligrams(750_000);
+    let comparison_mass = Mass::from_milligrams(500_000);
+    let mut fixture = fixture(full_upgraded_batch, copper_stone_composition(600_000));
+
+    let base = resolve_constituent_separation_process(
+        &fixture.registries,
+        &fixture.state,
+        ConstituentSeparationRequest::new(
+            PROCESS_SEPARATE_NATIVE_COPPER,
+            fixture.source,
+            &[MaterialLotSelection::new(fixture.lot, comparison_mass)],
+            fixture.separator,
+            fixture.energy,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("base stone separator resolution failed: {error}"));
+    assert!(matches!(
+        resolve_constituent_separation_process(
+            &fixture.registries,
+            &fixture.state,
+            ConstituentSeparationRequest::new(
+                PROCESS_SEPARATE_NATIVE_COPPER,
+                fixture.source,
+                &[MaterialLotSelection::new(fixture.lot, full_upgraded_batch)],
+                fixture.separator,
+                fixture.energy,
+            ),
+        ),
+        Err(ConstituentSeparationResolutionError::BatchMassExceeded { selected, maximum })
+            if selected == full_upgraded_batch && maximum == comparison_mass
+    ));
+
+    let reinforcement =
+        add_solid_stockpile_for_test(&mut fixture.state, Mass::from_milligrams(20_000))
+            .unwrap_or_else(|error| panic!("reinforced separator copper source failed: {error}"));
+    deposit_lot_for_test(
+        &fixture.registries,
+        &mut fixture.state,
+        reinforcement,
+        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+        Mass::from_milligrams(20_000),
+        TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("reinforced separator copper material failed: {error}"));
+    validate_upgrade_equipment(
+        &fixture.registries,
+        &fixture.state,
+        fixture.separator,
+        EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+        reinforcement,
+    )
+    .unwrap_or_else(|error| panic!("reinforced separator upgrade validation failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("reinforced separator upgrade commit failed: {error}"));
+
+    let upgraded_same_mass = resolve_constituent_separation_process(
+        &fixture.registries,
+        &fixture.state,
+        ConstituentSeparationRequest::new(
+            PROCESS_SEPARATE_NATIVE_COPPER,
+            fixture.source,
+            &[MaterialLotSelection::new(fixture.lot, comparison_mass)],
+            fixture.separator,
+            fixture.energy,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("reinforced separator same-mass resolution failed: {error}"));
+    assert!(
+        upgraded_same_mass.process_resolution().duration() < base.process_resolution().duration(),
+        "copper reinforcement must shorten the same separation workload"
+    );
+    let upgraded_full_batch = resolve_constituent_separation_process(
+        &fixture.registries,
+        &fixture.state,
+        ConstituentSeparationRequest::new(
+            PROCESS_SEPARATE_NATIVE_COPPER,
+            fixture.source,
+            &[MaterialLotSelection::new(fixture.lot, full_upgraded_batch)],
+            fixture.separator,
+            fixture.energy,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("reinforced separator full-batch resolution failed: {error}"));
+    assert_eq!(
+        upgraded_full_batch.process_resolution().input_mass(),
+        full_upgraded_batch
+    );
 }
 
 fn hand_sortable_particle_size() -> ParticleSizeRange {

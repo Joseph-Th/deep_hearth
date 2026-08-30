@@ -38,6 +38,31 @@ pub enum EnergyCarrier {
     Mechanical,
 }
 
+/// Exact additive matter required to convert one energy-store definition into another while
+/// preserving runtime identity and existing embodied material.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnergyStoreUpgradeProfile {
+    from: EnergyStoreDefinitionId,
+    additions: MaterialAssemblyProfile,
+}
+
+impl EnergyStoreUpgradeProfile {
+    #[must_use]
+    pub fn new(from: EnergyStoreDefinitionId, additions: MaterialAssemblyProfile) -> Self {
+        Self { from, additions }
+    }
+
+    #[must_use]
+    pub const fn from(&self) -> EnergyStoreDefinitionId {
+        self.from
+    }
+
+    #[must_use]
+    pub const fn additions(&self) -> &MaterialAssemblyProfile {
+        &self.additions
+    }
+}
+
 /// Immutable authored capacity and directional transfer envelopes for one energy-store class.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EnergyStoreDefinition {
@@ -49,6 +74,7 @@ pub struct EnergyStoreDefinition {
     max_output_power: Power,
     passive_dissipation_power: Power,
     assembly_profile: Option<MaterialAssemblyProfile>,
+    upgrade_profile: Option<EnergyStoreUpgradeProfile>,
 }
 
 impl EnergyStoreDefinition {
@@ -84,6 +110,7 @@ impl EnergyStoreDefinition {
             max_output_power,
             passive_dissipation_power: Power::ZERO,
             assembly_profile: None,
+            upgrade_profile: None,
         }
     }
 
@@ -114,6 +141,24 @@ impl EnergyStoreDefinition {
             self.id.value()
         );
         self.assembly_profile = Some(profile);
+        self
+    }
+
+    /// Adds one additive, material-conserving upgrade route from an existing store definition.
+    #[must_use]
+    pub fn with_upgrade_profile(mut self, profile: EnergyStoreUpgradeProfile) -> Self {
+        assert!(
+            self.upgrade_profile.is_none(),
+            "energy store definition {} cannot define more than one upgrade profile",
+            self.id.value()
+        );
+        assert_ne!(
+            profile.from(),
+            self.id,
+            "energy store definition {} cannot upgrade from itself",
+            self.id.value()
+        );
+        self.upgrade_profile = Some(profile);
         self
     }
 
@@ -156,6 +201,11 @@ impl EnergyStoreDefinition {
     #[must_use]
     pub fn assembly_profile(&self) -> Option<&MaterialAssemblyProfile> {
         self.assembly_profile.as_ref()
+    }
+
+    #[must_use]
+    pub fn upgrade_profile(&self) -> Option<&EnergyStoreUpgradeProfile> {
+        self.upgrade_profile.as_ref()
     }
 
     /// Returns whether ordinary gameplay declares a construction route for this store definition.
@@ -238,6 +288,99 @@ impl EnergyRegistry {
                 "energy store definition {} passive dissipation must resolve to exact whole nanojoules per authoritative tick",
                 definition.id().value()
             );
+        }
+        for target in self.definitions.values() {
+            let Some(upgrade) = target.upgrade_profile() else {
+                continue;
+            };
+            let base = self.definitions.get(&upgrade.from()).unwrap_or_else(|| {
+                panic!(
+                    "energy store definition {} upgrade references missing base definition {}",
+                    target.id().value(),
+                    upgrade.from().value()
+                )
+            });
+            assert!(
+                upgrade
+                    .additions()
+                    .validate_infrastructure_references(materials)
+                    .is_ok(),
+                "energy store definition {} upgrade additions must use existing consolidated solid commodities",
+                target.id().value()
+            );
+            assert_eq!(
+                target.carrier(),
+                base.carrier(),
+                "energy store definition {} additive upgrade cannot change energy carrier",
+                target.id().value()
+            );
+            assert!(
+                target.capacity() >= base.capacity(),
+                "energy store definition {} additive upgrade cannot reduce capacity",
+                target.id().value()
+            );
+            assert!(
+                target.max_input_power() >= base.max_input_power(),
+                "energy store definition {} additive upgrade cannot reduce input power",
+                target.id().value()
+            );
+            assert!(
+                target.max_output_power() >= base.max_output_power(),
+                "energy store definition {} additive upgrade cannot reduce output power",
+                target.id().value()
+            );
+            assert!(
+                target.passive_dissipation_power() <= base.passive_dissipation_power(),
+                "energy store definition {} additive upgrade cannot increase passive loss",
+                target.id().value()
+            );
+            let base_assembly = base.assembly_profile().unwrap_or_else(|| {
+                panic!(
+                    "energy store definition {} upgrade base {} has no material assembly profile",
+                    target.id().value(),
+                    base.id().value()
+                )
+            });
+            let target_assembly = target.assembly_profile().unwrap_or_else(|| {
+                panic!(
+                    "energy store definition {} has an upgrade profile but no material assembly profile",
+                    target.id().value()
+                )
+            });
+            let mut expected_inputs = BTreeMap::new();
+            for input in base_assembly
+                .inputs()
+                .iter()
+                .chain(upgrade.additions().inputs())
+            {
+                let previous = expected_inputs
+                    .get(&input.commodity())
+                    .copied()
+                    .unwrap_or(crate::core::quantity::Mass::ZERO);
+                let combined = previous.checked_add(input.mass()).unwrap_or_else(|| {
+                    panic!(
+                        "energy store definition {} upgrade material quantity overflows for commodity {}",
+                        target.id().value(),
+                        input.commodity().value()
+                    )
+                });
+                expected_inputs.insert(input.commodity(), combined);
+            }
+            assert_eq!(
+                expected_inputs.len(),
+                target_assembly.inputs().len(),
+                "energy store definition {} upgrade target assembly has extra or missing commodities",
+                target.id().value()
+            );
+            for input in target_assembly.inputs() {
+                assert_eq!(
+                    expected_inputs.get(&input.commodity()).copied(),
+                    Some(input.mass()),
+                    "energy store definition {} upgrade target assembly disagrees with base plus additive material for commodity {}",
+                    target.id().value(),
+                    input.commodity().value()
+                );
+            }
         }
     }
 }

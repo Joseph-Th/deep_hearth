@@ -13,9 +13,7 @@ use crate::energy::{
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_equipment_provider};
 use crate::inventory::MaterialLotSelection;
 use crate::inventory::StockpileId;
-use crate::maintenance::{
-    ActiveConditionDurationError, Condition, assert_valid_condition_wear_ppm_per_tick,
-};
+use crate::maintenance::{ActiveConditionDurationError, Condition};
 use crate::material::{FormId, MaterialId};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
@@ -23,7 +21,7 @@ use crate::production::{
 };
 use crate::registry::Registries;
 
-use super::PhaseChangeForms;
+use super::PhaseChangeProcessProfile;
 use super::equipment_physics::{
     ThermalBatchLimitError, ThermalPowerTemperatureError, ThermalTransferTimingError,
     resolve_thermal_power_temperature_limits, resolve_thermal_transfer_timing,
@@ -38,78 +36,84 @@ use super::{calculate_fusion_heat, calculate_sensible_heat};
 use crate::material::{CommodityKey, MaterialPhase};
 
 /// Immutable declaration that one selected-batch process performs pure-material melting.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MeltingProcessDefinition {
     process: ProcessId,
-    heating_power_capability: CapabilityId,
-    max_temperature_capability: CapabilityId,
-    max_batch_mass_capability: CapabilityId,
-    energy_carrier: EnergyCarrier,
-    forms: PhaseChangeForms,
-    condition_wear_ppm_per_active_tick: u32,
+    profile: PhaseChangeProcessProfile,
+    material: MaterialId,
+    solid_forms: Vec<FormId>,
+    liquid_form: FormId,
 }
 
 impl MeltingProcessDefinition {
     #[must_use]
-    pub const fn new(
+    pub fn new(
         process: ProcessId,
-        heating_power_capability: CapabilityId,
-        max_temperature_capability: CapabilityId,
-        max_batch_mass_capability: CapabilityId,
-        energy_carrier: EnergyCarrier,
-        forms: PhaseChangeForms,
-        condition_wear_ppm_per_active_tick: u32,
+        profile: PhaseChangeProcessProfile,
+        material: MaterialId,
+        solid_forms: Vec<FormId>,
+        liquid_form: FormId,
     ) -> Self {
-        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
+        assert!(
+            !solid_forms.is_empty(),
+            "melting process must accept at least one solid input form"
+        );
+        assert!(
+            solid_forms.windows(2).all(|pair| pair[0] < pair[1]),
+            "melting input forms must be strictly ordered and unique"
+        );
         Self {
             process,
-            heating_power_capability,
-            max_temperature_capability,
-            max_batch_mass_capability,
-            energy_carrier,
-            forms,
-            condition_wear_ppm_per_active_tick,
+            profile,
+            material,
+            solid_forms,
+            liquid_form,
         }
     }
 
     #[must_use]
-    pub const fn process(self) -> ProcessId {
+    pub const fn process(&self) -> ProcessId {
         self.process
     }
 
     #[must_use]
-    pub const fn heating_power_capability(self) -> CapabilityId {
-        self.heating_power_capability
+    pub const fn heating_power_capability(&self) -> CapabilityId {
+        self.profile.transfer_power_capability()
     }
 
     #[must_use]
-    pub const fn max_temperature_capability(self) -> CapabilityId {
-        self.max_temperature_capability
+    pub const fn max_temperature_capability(&self) -> CapabilityId {
+        self.profile.max_temperature_capability()
     }
 
     #[must_use]
-    pub const fn max_batch_mass_capability(self) -> CapabilityId {
-        self.max_batch_mass_capability
+    pub const fn max_batch_mass_capability(&self) -> CapabilityId {
+        self.profile.max_batch_mass_capability()
     }
 
     #[must_use]
-    pub const fn energy_carrier(self) -> EnergyCarrier {
-        self.energy_carrier
+    pub const fn energy_carrier(&self) -> EnergyCarrier {
+        self.profile.energy_carrier()
     }
 
     #[must_use]
-    pub const fn solid_form(self) -> FormId {
-        self.forms.input()
+    pub const fn material(&self) -> MaterialId {
+        self.material
     }
 
     #[must_use]
-    pub const fn liquid_form(self) -> FormId {
-        self.forms.output()
+    pub fn solid_forms(&self) -> &[FormId] {
+        &self.solid_forms
     }
 
     #[must_use]
-    pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
-        self.condition_wear_ppm_per_active_tick
+    pub const fn liquid_form(&self) -> FormId {
+        self.liquid_form
+    }
+
+    #[must_use]
+    pub const fn condition_wear_ppm_per_active_tick(&self) -> u32 {
+        self.profile.condition_wear_ppm_per_active_tick()
     }
 }
 
@@ -118,14 +122,14 @@ pub type MeltingBatchError = PurePhaseChangeBatchError;
 
 fn resolve_melting_batch(
     materials: &crate::material::MaterialRegistry,
-    solid_form: FormId,
-    liquid_form: FormId,
+    definition: &MeltingProcessDefinition,
     traces: &[crate::inventory::ConsumedMaterialTrace],
 ) -> Result<super::phase_change_batch::PurePhaseChangeBatch, MeltingBatchError> {
     resolve_pure_phase_change_batch(
         materials,
-        solid_form,
-        liquid_form,
+        definition.material(),
+        definition.solid_forms(),
+        definition.liquid_form(),
         PurePhaseChangeDirection::Melt,
         traces,
     )
@@ -408,13 +412,8 @@ pub fn resolve_melting_process(
         }
     })?;
 
-    let batch = resolve_melting_batch(
-        registries.materials(),
-        definition.solid_form(),
-        definition.liquid_form(),
-        inputs.consumed_inputs(),
-    )
-    .map_err(MeltingResolutionError::Batch)?;
+    let batch = resolve_melting_batch(registries.materials(), definition, inputs.consumed_inputs())
+        .map_err(MeltingResolutionError::Batch)?;
     if batch.melting_point > limits.maximum_temperature() {
         return Err(
             MeltingResolutionError::MeltingPointExceedsEquipmentMaximum {

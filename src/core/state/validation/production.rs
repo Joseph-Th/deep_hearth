@@ -61,7 +61,6 @@ fn validate_production_job(
 ) -> Result<(), StateValidationError> {
     validate_job_process_and_source(registries, state, job)?;
     validate_job_consumed_energy(registries, state, job)?;
-    validate_job_schedule(state, job)?;
     validate_job_released_energy(registries, state, job)?;
     validate_job_equipment(registries, state, job)?;
     validate_job_subsystem_contracts(registries, job)?;
@@ -286,28 +285,6 @@ fn validate_job_subsystem_contracts(
     validate_loaded_screening_job(registries, job).map_err(StateValidationError::ScreeningJob)?;
     validate_loaded_thermal_job(registries, job).map_err(StateValidationError::ThermalJob)?;
     validate_loaded_manual_craft_job(registries, job).map_err(StateValidationError::ManualCraftJob)
-}
-
-fn validate_job_schedule(
-    state: &AppState,
-    job: &ProductionJobRecord,
-) -> Result<(), StateValidationError> {
-    if let Some(suspension) = job.suspension() {
-        if suspension.suspended_at() > state.tick() {
-            return Err(StateValidationError::JobSuspendedInFuture {
-                job: job.id(),
-                current: state.tick(),
-                suspended_at: suspension.suspended_at(),
-            });
-        }
-    } else if job.completes_at() <= state.tick() {
-        return Err(StateValidationError::JobAlreadyDue {
-            job: job.id(),
-            current: state.tick(),
-            due: job.completes_at(),
-        });
-    }
-    Ok(())
 }
 
 fn validate_job_consumed_inputs(

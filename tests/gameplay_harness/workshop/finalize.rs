@@ -127,9 +127,8 @@ pub(super) fn finalize_scenario(
                     ),
                 ),
                 Err(MeltingResolutionError::Batch(
-                    MeltingBatchError::InputFormMismatch {
-                        expected: FORM_INGOT,
-                        found: FORM_CRUSHED,
+                    MeltingBatchError::InputFormNotAccepted {
+                        found: FORM_CRUSHED
                     }
                 ))
             )

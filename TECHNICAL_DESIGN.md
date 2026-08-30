@@ -119,6 +119,28 @@ material-phase, and particle-state containment rules. Existing lots checkpoint a
 new preservation multiplier takes effect, so improved storage affects future spoilage only. Trusted load
 validates enclosure definition, construction time, storage profile, and embodied traces.
 
+Built-in ordinary storage deliberately exposes a preparation tradeoff at equal 20 kg usable capacity. The
+lidded timber chest embodies 2.4 kg of joined boards and provides a 2x preservation multiplier; its full raw
+route consumes three 1 kg logs, emits 0.6 kg of chips, and occupies 230 player-attention ticks. The double-wall
+chest embodies 4.0 kg, provides a 3x preservation multiplier, consumes five logs, emits 1.0 kg of chips, and
+occupies 370 ticks. Both retain the same 333.15 K containment ceiling, so heavier joinery improves future food
+preservation without acting as extra capacity or high-temperature containment.
+
+Enclosure dismantling is the inverse custody transition for that exact embodied matter, not generic demolition.
+The target must be unmounted, have no reserved inbound work, and remain valid under the ambient storage profile.
+Retained lots checkpoint exposure under the enclosure's current preservation multiplier before the profile
+reverts, so dismantling cannot reset or improve food age. The enclosure traces then enter a distinct recovery
+stockpile with their exact temperature, composition, particle state, and provenance. Recovery capacity, lot-ID
+space, inventory revisions, and any destination structural-load increase are prevalidated before mutation. This
+transition does not itself model player dismantling labor, tools, or duration.
+
+Detached timber bodies may then be reused intact or entered into explicit manual salvage. Standard-body salvage
+occupies 70 player-attention ticks and reforms 2.4 kg of body into 1.6 kg boards plus 0.8 kg chips; double-wall
+salvage occupies 100 ticks and reforms 4.0 kg into 3.2 kg boards plus the same 0.8 kg chip residue. The one-board-
+equivalent loss makes reconfiguration costly without deleting matter. Recovered boards can immediately feed the
+ordinary enclosure joinery chain, so a dismantled double-wall chest can become a standard chest while leaving
+0.8 kg reusable boards and 0.8 kg represented chips.
+
 Supported stockpiles contribute `StructuralLoadKind::StoredMatter` for stored contents plus enclosure matter.
 Stored-mass mutations and their structural-load consequences commit atomically.
 
@@ -165,8 +187,17 @@ energy across all streams.
 
 Manual shaping conserves material identity and mass, preserves temperature, cannot change phase, and only emits
 forms whose particle-size state is untracked. Particulate output requires an owner that defines particle-size
-state. `chip` and `scrap` outputs remain represented matter; no current owner may reinterpret them as fuel or
-fresh components without an explicit recovery process.
+state. `chip` and `scrap` outputs remain represented matter; no owner may reinterpret them as fuel or fresh
+components without an explicit recovery process. Clean built-in copper scrap has two such routes: a slower
+manual cold-work process reforms an exact reinforcement mass without phase change, while pure-copper melting
+accepts authored copper ingot, reinforcement, native-metal, and scrap forms and resolves all of them through the
+same conserved fusion physics. Pure stone scrap has a separate cold reknapping route: one 1 kg batch produces
+0.8 kg consolidated stone tooling plus 0.2 kg stone chips in 60 attention ticks, compared with 40 ticks when
+starting from a fresh 1 kg lump. Reknapping preserves the selected scrap temperature and cannot combine lots at
+different temperatures because no thermal-mixing owner exists. This does not make wood scrap or stone/wood chips
+fresh components; those remain represented terminal matter in the current ordinary loop. Nor does it make ore,
+crushed ore, or concentrate meltable; those feeds still require a separate reduction/smelting owner that is not
+implemented.
 
 Loss of required equipment or output support may suspend a job. Suspension preserves work-in-process,
 reservations, and exact remaining active time. Suspended manual production releases `PlayerWorkState`; resumption
@@ -188,9 +219,12 @@ Implemented resolver contracts:
   Unrecovered constituents remain in physical residue. Sorting and concentration preserve exact composition,
   use deterministic remainder allocation, and emit forms that prevent unsupported repeat-processing loops.
 - **Thermal processing:** sensible heating, pure-material melting, and casting use exact selected matter, finite
-  energy sources/sinks, equipment limits, phase boundaries, and latent heat. Melting/casting bind authored forms;
-  casting also owns the completed-solid temperature. Persisted jobs replay the same physical resolution used at
-  admission.
+  energy sources/sinks, equipment limits, phase boundaries, and latent heat. Each pure phase-change definition
+  binds one exact authored material rather than inferring material identity from the first selected lot. Melting
+  owns a canonical nonempty set of accepted solid feed forms for that material and one liquid output form, so
+  physically equivalent recovery feeds can share one fusion resolver without recipe aliases. Casting binds one
+  liquid-to-solid form pair for its exact material and also owns the completed-solid temperature. Persisted jobs
+  replay the same material, accepted forms, and physical resolution used at admission.
 
 ## Equipment, labor, survival, energy, and fluids
 
@@ -209,6 +243,16 @@ adding authored matter. Disassembly and worn recovery are allowed only through a
 physical: aggregate replacement consumes an exact commodity and emits conserved spent matter; traced component
 service replaces one complete authored component while preserving unrelated traces and upgrades. Phase or
 particle transformations remain owned by their physical process.
+
+Built-in primitive copper reinforcement uses that additive path for extraction, manual power, crushing, and
+separation equipment. Reinforced processors increase authored flow and maximum batch capability without
+replacing the machine instance. Their condition curves degrade both productive flow and safe batch capacity;
+component service replaces only the stone working component and leaves copper reinforcement embodied. Worn
+disassembly returns the copper trace as copper scrap, which can re-enter the manual reinforcement-recovery route.
+Stone working-component service emits the exact replaced mass as stone scrap. Once at least 1 kg of compatible
+pure scrap has accumulated, manual reknapping can produce another exact 0.8 kg pick/separator component. The
+remaining scrap and produced chips stay represented, so repeated service reduces but does not eliminate fresh
+stone demand.
 
 ### Player work and survival
 
@@ -249,11 +293,28 @@ integrate to exact whole nanojoules per tick. Tick execution derives loss from t
 applies it after same-tick ingress. Generic store-to-store transfer is absent because no transfer path or
 carrier-conversion owner exists.
 
+Material-backed energy stores may define one additive upgrade from another store definition. Registry assembly
+requires the target carrier to match the base, capacity and transfer limits not to regress, passive loss not to
+increase, and the target assembly to equal the base assembly plus the authored additions exactly. Runtime
+upgrade requires an empty store with no production or direct-manual-power occupancy, consumes the addition
+traces from inventory, preserves store identity and original creation time, and advances the energy revision.
+Commit rechecks both energy state and occupancy because player-work reservation can change without changing the
+energy revision. Trusted load permits post-construction embodiment only for definitions with an authored
+upgrade route and still requires the full target assembly, valid material state, and nonfuture provenance.
+Disassembly remains the inverse exact-custody route for empty, idle stores.
+
+The built-in copper-banded stone flywheel adds one 20 g copper reinforcement to the ordinary 900 g stone plus
+200 g wood accumulator. It keeps the base 150 W input limit, 500 W output limit, and 0.05 W passive loss but
+raises stored-work capacity from 500 J to 750 J. That reserve is directly usable by primitive processing: the
+built-in crusher requires 1 J per gram, so a fully charged upgraded flywheel can cover a 750 g crushing charge
+that cannot fit in the base accumulator.
+
 Fluid stores own identity, volume, temperature, capacity, revision, and optional structural support. A material
 has at most one fluid identity in the current homogeneous-fluid model. Runtime supports exact withdrawal and
 support changes; generic transfer, pumping, and mixing are absent. Supported-fluid load derives from authored
-density and updates with canonical withdrawal. Fluid thermal transport and consumed-fluid thermal fate are
-outside the explicit-energy ledger.
+density and updates with canonical withdrawal. Fluid thermal transport and the thermal fate of food or fluid
+after either crosses the terminal survival-consumption boundary are outside the explicit-energy ledger;
+biological transformation, body heat, and waste streams are not yet modeled.
 
 ## Structures
 

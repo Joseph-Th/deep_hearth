@@ -87,6 +87,16 @@ fn primitive_equipment_services_replace_authored_embodied_components() {
             CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
             Mass::from_milligrams(800_000),
         ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(1_600_000),
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
     ] {
         let maintenance = registry
             .get_equipment(equipment)
@@ -173,6 +183,26 @@ fn primitive_copper_upgrades_improve_their_intended_nominal_capability() {
             EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
             CAPABILITY_MANUAL_POWER_OUTPUT,
         ),
+        (
+            EQUIPMENT_STONE_CRUSHER,
+            EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+            CAPABILITY_CRUSHER_FLOW,
+        ),
+        (
+            EQUIPMENT_STONE_CRUSHER,
+            EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+            CAPABILITY_CRUSHER_BATCH,
+        ),
+        (
+            EQUIPMENT_STONE_SEPARATOR,
+            EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+            CAPABILITY_SEPARATOR_FLOW,
+        ),
+        (
+            EQUIPMENT_STONE_SEPARATOR,
+            EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+            CAPABILITY_SEPARATOR_BATCH,
+        ),
     ] {
         let base_definition = registry
             .get_equipment(base)
@@ -216,6 +246,49 @@ fn primitive_copper_upgrades_improve_their_intended_nominal_capability() {
 }
 
 #[test]
+fn primitive_processing_wear_reduces_safe_batch_capacity_before_failure() {
+    let registry = build_equipment_registry();
+    for (equipment, capability, pristine, degraded) in [
+        (
+            EQUIPMENT_STONE_CRUSHER,
+            CAPABILITY_CRUSHER_BATCH,
+            Mass::from_milligrams(1_000_000),
+            Mass::from_milligrams(500_000),
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+            CAPABILITY_CRUSHER_BATCH,
+            Mass::from_milligrams(1_500_000),
+            Mass::from_milligrams(750_000),
+        ),
+        (
+            EQUIPMENT_STONE_SEPARATOR,
+            CAPABILITY_SEPARATOR_BATCH,
+            Mass::from_milligrams(500_000),
+            Mass::from_milligrams(250_000),
+        ),
+        (
+            EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+            CAPABILITY_SEPARATOR_BATCH,
+            Mass::from_milligrams(750_000),
+            Mass::from_milligrams(375_000),
+        ),
+    ] {
+        let definition = registry
+            .get_equipment(equipment)
+            .unwrap_or_else(|| panic!("primitive processing equipment disappeared"));
+        assert_eq!(
+            resolve_equipment_capability(definition, Condition::PRISTINE, capability),
+            Some(CapabilityValue::Mass(pristine))
+        );
+        assert_eq!(
+            resolve_equipment_capability(definition, condition(600_000), capability),
+            Some(CapabilityValue::Mass(degraded))
+        );
+    }
+}
+
+#[test]
 fn industrial_machines_are_fixed_while_primitive_equipment_remains_portable() {
     let registry = build_equipment_registry();
     for equipment in [
@@ -241,6 +314,8 @@ fn industrial_machines_are_fixed_while_primitive_equipment_remains_portable() {
         EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
         EQUIPMENT_STONE_CRUSHER,
         EQUIPMENT_STONE_SEPARATOR,
+        EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+        EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
     ] {
         assert!(
             registry

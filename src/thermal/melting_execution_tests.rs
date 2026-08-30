@@ -6,8 +6,8 @@ use crate::capability::{
     CapabilityValue, CapabilityValueKind,
 };
 use crate::content::{
-    FORM_CONCENTRATE, FORM_INGOT, FORM_MOLTEN, MATERIAL_COPPER, MATERIAL_SLAG,
-    make_test_registries_with_melting,
+    FORM_CONCENTRATE, FORM_INGOT, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SCRAP,
+    MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, make_test_registries_with_melting,
 };
 use crate::core::quantity::Length;
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -29,7 +29,7 @@ use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{ProcessDefinition, StartProcessError, validate_start_process};
 use crate::simulation::advance_tick;
-use crate::thermal::ThermalJobValidationError;
+use crate::thermal::{PhaseChangeProcessProfile, ThermalJobValidationError};
 
 const HEATING_POWER: CapabilityId = CapabilityId::new(950_001);
 const MAX_TEMPERATURE: CapabilityId = CapabilityId::new(950_002);
@@ -143,12 +143,21 @@ fn make_registries(maximum_temperature: Temperature, carrier: EnergyCarrier) -> 
         process,
         MeltingProcessDefinition::new(
             PROCESS,
-            HEATING_POWER,
-            MAX_TEMPERATURE,
-            MAX_BATCH_MASS,
-            EnergyCarrier::Electrical,
-            PhaseChangeForms::new(FORM_INGOT, FORM_MOLTEN),
-            10,
+            PhaseChangeProcessProfile::new(
+                HEATING_POWER,
+                MAX_TEMPERATURE,
+                MAX_BATCH_MASS,
+                EnergyCarrier::Electrical,
+                10,
+            ),
+            MATERIAL_COPPER,
+            vec![
+                FORM_INGOT,
+                FORM_REINFORCEMENT,
+                FORM_NATIVE_METAL,
+                FORM_SCRAP,
+            ],
+            FORM_MOLTEN,
         ),
     )
 }
@@ -197,9 +206,157 @@ fn melting_rejects_pure_concentrate_without_a_reduction_step() {
             ),
         ),
         Err(MeltingResolutionError::Batch(
-            MeltingBatchError::InputFormMismatch {
-                expected: FORM_INGOT,
+            MeltingBatchError::InputFormNotAccepted {
                 found: FORM_CONCENTRATE,
+            }
+        ))
+    );
+    assert_eq!(fixture.state, before);
+}
+
+#[test]
+fn melting_accepts_mixed_recoverable_pure_copper_forms_and_replays() {
+    let mut fixture = make_fixture(
+        Temperature::from_millikelvin(1_500_000),
+        EnergyCarrier::Electrical,
+        Mass::from_milligrams(1),
+    );
+    let reinforcement = deposit_lot_for_test(
+        &fixture.registries,
+        &mut fixture.state,
+        fixture.ids.source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+        Mass::from_milligrams(1),
+        INPUT_TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("copper reinforcement melting fixture failed: {error}"));
+    let native = deposit_lot_for_test(
+        &fixture.registries,
+        &mut fixture.state,
+        fixture.ids.source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
+        Mass::from_milligrams(1),
+        INPUT_TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("native copper melting fixture failed: {error}"));
+    let scrap = deposit_lot_for_test(
+        &fixture.registries,
+        &mut fixture.state,
+        fixture.ids.source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+        Mass::from_milligrams(1),
+        INPUT_TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("copper scrap melting fixture failed: {error}"));
+    let selections = [
+        MaterialLotSelection::new(fixture.ids.source_lot, Mass::from_milligrams(1)),
+        MaterialLotSelection::new(reinforcement, Mass::from_milligrams(1)),
+        MaterialLotSelection::new(native, Mass::from_milligrams(1)),
+        MaterialLotSelection::new(scrap, Mass::from_milligrams(1)),
+    ];
+    let matter_before = matter_total(&fixture.state);
+
+    let resolved = resolve_melting_process(
+        &fixture.registries,
+        &fixture.state,
+        MeltingRequest::new(
+            PROCESS,
+            fixture.ids.source,
+            &selections,
+            fixture.ids.equipment,
+            fixture.ids.energy_store,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("mixed recoverable copper melting failed: {error}"));
+    assert_eq!(resolved.material(), MATERIAL_COPPER);
+    assert_eq!(resolved.process_resolution().outputs().len(), 1);
+    let output = &resolved.process_resolution().outputs()[0];
+    assert_eq!(
+        output.commodity(),
+        CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN)
+    );
+    assert_eq!(output.mass(), Mass::from_milligrams(4));
+
+    let duration = resolved.process_resolution().duration();
+    let job = validate_start_process(
+        &fixture.registries,
+        &fixture.state,
+        resolved.process_resolution(),
+        fixture.ids.source,
+        fixture.ids.destination,
+    )
+    .unwrap_or_else(|error| panic!("mixed recoverable copper start failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("mixed recoverable copper commit failed: {error}"));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&fixture.registries, &fixture.state))
+        .unwrap_or_else(|error| panic!("mixed recoverable copper save failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("mixed recoverable copper decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&fixture.registries)
+        .unwrap_or_else(|error| panic!("mixed recoverable copper trusted load failed: {error}"));
+    assert_eq!(loaded, fixture.state);
+    assert!(loaded.production().get_job(job).is_some());
+    for _ in 0..duration.value() {
+        let _ = advance_tick(&fixture.registries, &mut loaded)
+            .unwrap_or_else(|error| panic!("mixed recoverable copper completion failed: {error}"));
+    }
+    assert_eq!(loaded.production().get_job(job), None);
+    assert_eq!(
+        loaded
+            .inventory()
+            .get_stockpile(fixture.ids.destination)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::from_milligrams(4))
+    );
+    assert_eq!(
+        loaded
+            .inventory()
+            .get_stockpile(fixture.ids.source)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(matter_total(&loaded), matter_before);
+    assert_eq!(validate_loaded_state(&fixture.registries, &loaded), Ok(()));
+}
+
+#[test]
+fn copper_melting_rejects_other_material_even_in_an_accepted_scrap_form() {
+    let mut fixture = make_fixture(
+        Temperature::from_millikelvin(1_500_000),
+        EnergyCarrier::Electrical,
+        Mass::from_milligrams(1),
+    );
+    let stone_scrap = deposit_lot_for_test(
+        &fixture.registries,
+        &mut fixture.state,
+        fixture.ids.source,
+        CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+        Mass::from_milligrams(1),
+        INPUT_TEMPERATURE,
+    )
+    .unwrap_or_else(|error| panic!("stone scrap melting fixture failed: {error}"));
+    let before = fixture.state.clone();
+
+    assert_eq!(
+        resolve_melting_process(
+            &fixture.registries,
+            &fixture.state,
+            MeltingRequest::new(
+                PROCESS,
+                fixture.ids.source,
+                &[MaterialLotSelection::new(
+                    stone_scrap,
+                    Mass::from_milligrams(1)
+                )],
+                fixture.ids.equipment,
+                fixture.ids.energy_store,
+            ),
+        ),
+        Err(MeltingResolutionError::Batch(
+            MeltingBatchError::UnexpectedMaterial {
+                expected: MATERIAL_COPPER,
+                found: MATERIAL_STONE,
             }
         ))
     );
@@ -670,8 +827,7 @@ fn melting_job_tampering_is_rejected_by_physics_and_destination_audits() {
         Err(LoadError::InvalidState(StateValidationError::ThermalJob(
             ThermalJobValidationError::Melting(MeltingJobValidationError::Batch {
                 job,
-                error: MeltingBatchError::InputFormMismatch {
-                    expected: FORM_INGOT,
+                error: MeltingBatchError::InputFormNotAccepted {
                     found: FORM_CONCENTRATE,
                 },
             })

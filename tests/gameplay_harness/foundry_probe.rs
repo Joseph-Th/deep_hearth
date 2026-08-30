@@ -12,13 +12,13 @@ use super::seed::mix64;
 use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,
     EQUIPMENT_ELECTRIC_FURNACE, MATERIAL_COPPER, PROCESS_CAST_PURE_COPPER,
-    PROCESS_MELT_PURE_COPPER,
+    PROCESS_HEAT_MATERIAL_BATCH, PROCESS_MELT_PURE_COPPER,
 };
 use deep_hearth::core::quantity::{Energy, Mass, Temperature};
 use deep_hearth::core::state::validate_loaded_state;
 use deep_hearth::core::time::TickSpan;
 use deep_hearth::energy::{EnergySinkError, EnergySupplyError, PowerRemainder, integrate_power};
-use deep_hearth::inventory::MaterialLotSelection;
+use deep_hearth::inventory::StockpileId;
 use deep_hearth::material::MaterialComposition;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::production::validate_start_process;
@@ -26,8 +26,9 @@ use deep_hearth::registry::Registries;
 use deep_hearth::simulation::advance_tick;
 use deep_hearth::thermal::{
     CastingRequest, CastingResolutionError, MeltingRequest, MeltingResolutionError,
-    ResolvedCasting, ResolvedMelting, calculate_fusion_heat, calculate_sensible_heat,
-    resolve_casting_process, resolve_melting_process,
+    ResolvedCasting, ResolvedMelting, SensibleHeatingRequest, SensibleHeatingResolutionError,
+    calculate_fusion_heat, calculate_sensible_heat, resolve_casting_process,
+    resolve_melting_process, resolve_sensible_heating_process,
 };
 
 pub(super) fn probe_setup(registries: &Registries, seed: u64) -> FoundrySetup {
@@ -35,6 +36,10 @@ pub(super) fn probe_setup(registries: &Registries, seed: u64) -> FoundrySetup {
         .thermal()
         .get_melting(PROCESS_MELT_PURE_COPPER)
         .unwrap_or_else(|| panic!("canonical melting definition disappeared"));
+    let heating = registries
+        .thermal()
+        .get_sensible_heating(PROCESS_HEAT_MATERIAL_BATCH)
+        .unwrap_or_else(|| panic!("canonical sensible-heating definition disappeared"));
     let casting = registries
         .thermal()
         .get_casting(PROCESS_CAST_PURE_COPPER)
@@ -44,13 +49,27 @@ pub(super) fn probe_setup(registries: &Registries, seed: u64) -> FoundrySetup {
         EQUIPMENT_ELECTRIC_FURNACE,
         melting.max_batch_mass_capability(),
     );
+    let heat_maximum = nominal_equipment_mass_capability(
+        registries,
+        EQUIPMENT_ELECTRIC_FURNACE,
+        heating.max_batch_mass_capability(),
+    );
     let cast_maximum = nominal_equipment_mass_capability(
         registries,
         EQUIPMENT_CASTING_MOLD,
         casting.max_batch_mass_capability(),
     );
-    let maximum = melt_maximum.milligrams().min(cast_maximum.milligrams());
+    let maximum = heat_maximum
+        .milligrams()
+        .min(melt_maximum.milligrams())
+        .min(cast_maximum.milligrams());
     assert!(maximum > 0, "foundry probe requires a nonzero legal batch");
+    let feed_forms = melting.solid_forms();
+    let feed_form_count = u64::try_from(feed_forms.len())
+        .unwrap_or_else(|_| panic!("foundry feed-form count exceeded u64"));
+    let feed_index = usize::try_from(seed % feed_form_count)
+        .unwrap_or_else(|_| panic!("foundry feed-form index exceeded usize"));
+    let feed_form = feed_forms[feed_index];
     let minimum = maximum.div_ceil(2);
     let mass = Mass::from_milligrams(minimum + mix64(seed ^ 0xF0A1_DA7A) % (maximum - minimum + 1));
     let melting_point = registries
@@ -65,15 +84,17 @@ pub(super) fn probe_setup(registries: &Registries, seed: u64) -> FoundrySetup {
         "foundry probe requires copper to melt above room temperature"
     );
     let preheat_span = (melting - ambient) * 3 / 4;
-    let input_temperature = Temperature::from_millikelvin(
-        ambient + (mix64(seed ^ 0x5448_4552_4D41_4C49) % (u64::from(preheat_span) + 1)) as u32,
-    );
+    assert!(preheat_span > 0, "foundry preheat span must be nonzero");
+    let preheat_offset =
+        u32::try_from(1 + mix64(seed ^ 0x5448_4552_4D41_4C49) % u64::from(preheat_span))
+            .unwrap_or_else(|_| panic!("foundry preheat offset exceeded u32"));
+    let preheat_target = Temperature::from_millikelvin(ambient + preheat_offset);
     let composition = MaterialComposition::pure(MATERIAL_COPPER);
     let sensible = calculate_sensible_heat(
         registries.materials(),
         mass,
         &composition,
-        input_temperature,
+        ROOM_TEMPERATURE,
         melting_point,
     )
     .unwrap_or_else(|error| panic!("foundry probe sensible heating calculation failed: {error}"))
@@ -126,7 +147,8 @@ pub(super) fn probe_setup(registries: &Registries, seed: u64) -> FoundrySetup {
     );
     FoundrySetup {
         mass,
-        input_temperature,
+        feed_form,
+        preheat_target,
         furnace_condition: varied_healthy_condition(
             registries,
             EQUIPMENT_ELECTRIC_FURNACE,
@@ -190,20 +212,95 @@ fn resolve_melt_for_mass(
     registries: &Registries,
     state: &deep_hearth::core::state::AppState,
     ids: FoundryIds,
+    source: StockpileId,
     mass: Mass,
 ) -> Result<ResolvedMelting, MeltingResolutionError> {
-    let selection = [MaterialLotSelection::new(ids.pure_copper_lot, mass)];
+    let selection = select_stockpile_mass(state, source, mass, "foundry melt offer");
     resolve_melting_process(
         registries,
         state,
         MeltingRequest::new(
             PROCESS_MELT_PURE_COPPER,
-            ids.pure_copper_source,
-            &selection,
+            source,
+            selection.as_slice(),
             ids.furnace,
             ids.electrical_buffer,
         ),
     )
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PreheatResult {
+    source: StockpileId,
+    energy: Energy,
+    duration: TickSpan,
+    applied: bool,
+}
+
+fn execute_optional_preheat(
+    registries: &Registries,
+    state: &mut deep_hearth::core::state::AppState,
+    ids: FoundryIds,
+    mass: Mass,
+    target: Temperature,
+) -> PreheatResult {
+    let selection = select_stockpile_mass(
+        state,
+        ids.pure_copper_source,
+        mass,
+        "foundry sensible-preheat offer",
+    );
+    let resolved = match resolve_sensible_heating_process(
+        registries,
+        state,
+        SensibleHeatingRequest::new(
+            PROCESS_HEAT_MATERIAL_BATCH,
+            ids.pure_copper_source,
+            selection.as_slice(),
+            ids.furnace,
+            ids.electrical_buffer,
+            target,
+        ),
+    ) {
+        Ok(resolved) => resolved,
+        Err(SensibleHeatingResolutionError::Energy(EnergySupplyError::InsufficientEnergy {
+            ..
+        }))
+        | Err(SensibleHeatingResolutionError::ConditionDuration(_)) => {
+            return PreheatResult {
+                source: ids.pure_copper_source,
+                energy: Energy::ZERO,
+                duration: TickSpan::new(0),
+                applied: false,
+            };
+        }
+        Err(error) => panic!("foundry sensible-preheat resolution failed unexpectedly: {error}"),
+    };
+    let energy = resolved.required_energy();
+    let duration = resolved.process_resolution().duration();
+    let job = validate_start_process(
+        registries,
+        state,
+        resolved.process_resolution(),
+        ids.pure_copper_source,
+        ids.preheated_source,
+    )
+    .unwrap_or_else(|error| panic!("foundry sensible-preheat start failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("foundry sensible-preheat commit failed: {error}"));
+    finish_uninterrupted_production_job(
+        registries,
+        state,
+        job,
+        duration,
+        "foundry sensible preheat",
+    );
+    PreheatResult {
+        source: ids.preheated_source,
+        energy,
+        duration,
+        applied: true,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -368,9 +465,10 @@ pub(super) fn resolve_largest_feasible_melt(
     registries: &Registries,
     state: &deep_hearth::core::state::AppState,
     ids: FoundryIds,
+    source: StockpileId,
     offered: Mass,
 ) -> Option<(ResolvedMelting, Mass, MeltBatchLimit)> {
-    match resolve_melt_for_mass(registries, state, ids, offered) {
+    match resolve_melt_for_mass(registries, state, ids, source, offered) {
         Ok(resolved) => return Some((resolved, offered, MeltBatchLimit::OfferedBatch)),
         Err(error) if melt_scaling_limit(&error).is_some() => {}
         Err(error) => panic!("foundry offered-batch melt resolution failed unexpectedly: {error}"),
@@ -381,7 +479,7 @@ pub(super) fn resolve_largest_feasible_melt(
     let mut best = 0_u64;
     while low <= high {
         let mid = low + (high - low) / 2;
-        match resolve_melt_for_mass(registries, state, ids, Mass::from_milligrams(mid)) {
+        match resolve_melt_for_mass(registries, state, ids, source, Mass::from_milligrams(mid)) {
             Ok(_) => {
                 best = mid;
                 low = mid + 1;
@@ -396,9 +494,9 @@ pub(super) fn resolve_largest_feasible_melt(
         return None;
     }
     let processed = Mass::from_milligrams(best);
-    let resolved = resolve_melt_for_mass(registries, state, ids, processed)
+    let resolved = resolve_melt_for_mass(registries, state, ids, source, processed)
         .unwrap_or_else(|error| panic!("foundry selected feasible melt became invalid: {error}"));
-    let offered_error = resolve_melt_for_mass(registries, state, ids, offered)
+    let offered_error = resolve_melt_for_mass(registries, state, ids, source, offered)
         .err()
         .unwrap_or_else(|| unreachable!("offered batch was already known to be constrained"));
     let limit = melt_scaling_limit(&offered_error)
@@ -410,7 +508,8 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
     let seed = case.seed();
     let setup = probe_setup(registries, seed);
     let mass = setup.mass;
-    let input_temperature = setup.input_temperature;
+    let feed_form = setup.feed_form;
+    let preheat_target = setup.preheat_target;
     let initial_furnace_condition = setup.furnace_condition;
     let initial_mold_condition = setup.mold_condition;
     let (mut state, ids) = setup_foundry_probe(registries, seed, setup);
@@ -427,8 +526,15 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
         .get_store(ids.heat_sink)
         .map(|store| store.stored())
         .unwrap_or_else(|| panic!("foundry heat sink disappeared after setup"));
+    let preheat = execute_optional_preheat(registries, &mut state, ids, mass, preheat_target);
+    if case.role() == FocusedProbeRole::MaintainedAnchor {
+        assert!(
+            preheat.applied,
+            "maintained foundry anchor must execute canonical sensible preheating"
+        );
+    }
     let Some((melt, processed_mass, melt_limit)) =
-        resolve_largest_feasible_melt(registries, &state, ids, mass)
+        resolve_largest_feasible_melt(registries, &state, ids, preheat.source, mass)
     else {
         assert!(
             case.role() != FocusedProbeRole::MaintainedAnchor,
@@ -443,8 +549,13 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
             initial_matter
         );
         std::println!(
-            "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome=stopped stage=melt blocker=no-feasible-batch electrical={}nJ matter=conserved",
+            "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome=stopped stage=melt feed-form={} preheat=[applied:{} target:{}mK energy:{}nJ duration:{}t] blocker=no-feasible-batch electrical={}nJ matter=conserved",
             focused_probe_role_label(case.role()),
+            feed_form.value(),
+            preheat.applied,
+            preheat_target.millikelvin(),
+            preheat.energy.nanojoules(),
+            preheat.duration.value(),
             initial_electrical.nanojoules(),
         );
         return;
@@ -455,12 +566,46 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
             "maintained foundry anchor must preserve the full offered-batch capability contract"
         );
     }
+    if preheat.applied && processed_mass == mass {
+        let melting_point = registries
+            .materials()
+            .get_material(MATERIAL_COPPER)
+            .and_then(|material| material.properties().thermal().melting_point())
+            .unwrap_or_else(|| panic!("foundry copper melting point disappeared during replay"));
+        let direct_sensible = calculate_sensible_heat(
+            registries.materials(),
+            mass,
+            &MaterialComposition::pure(MATERIAL_COPPER),
+            ROOM_TEMPERATURE,
+            melting_point,
+        )
+        .unwrap_or_else(|error| panic!("foundry direct-melt sensible heat failed: {error}"))
+        .energy();
+        let direct_fusion = calculate_fusion_heat(registries.materials(), mass, MATERIAL_COPPER)
+            .unwrap_or_else(|error| panic!("foundry direct-melt fusion heat failed: {error}"))
+            .energy();
+        let direct_melt_energy = direct_sensible
+            .checked_add(direct_fusion)
+            .unwrap_or_else(|| panic!("foundry direct-melt energy overflowed"));
+        let split_energy = preheat
+            .energy
+            .checked_add(melt.required_energy())
+            .unwrap_or_else(|| panic!("foundry split-heating energy overflowed"));
+        assert_eq!(
+            split_energy, direct_melt_energy,
+            "lossless sensible preheating must partition, not discount or duplicate, direct melting energy"
+        );
+        assert!(
+            melt.required_energy() < direct_melt_energy,
+            "successful preheating must reduce the later melting-stage energy requirement"
+        );
+    }
     let melt_duration = melt.process_resolution().duration();
     let melt_job = validate_start_process(
         registries,
         &state,
         melt.process_resolution(),
-        ids.pure_copper_source,
+        preheat.source,
         ids.molten_vessel,
     )
     .unwrap_or_else(|error| panic!("foundry probe melt start failed: {error}"))
@@ -495,8 +640,9 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
             initial_matter
         );
         std::println!(
-            "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome=stopped stage=cast blocker=no-feasible-batch melted={}mg molten={}mg matter=conserved",
+            "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome=stopped stage=cast feed-form={} blocker=no-feasible-batch melted={}mg molten={}mg matter=conserved",
             focused_probe_role_label(case.role()),
+            feed_form.value(),
             processed_mass.milligrams(),
             processed_mass.milligrams(),
         );
@@ -565,9 +711,11 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
         "foundry melt/cast cycle must conserve represented matter"
     );
     assert_eq!(
-        initial_electrical.checked_sub(melt.required_energy()),
+        initial_electrical
+            .checked_sub(preheat.energy)
+            .and_then(|remaining| remaining.checked_sub(melt.required_energy())),
         Some(final_electrical),
-        "foundry melt must consume exactly its resolved electrical energy"
+        "foundry preheat and melt must consume exactly their resolved electrical energy"
     );
     assert_eq!(
         thermal_without_cast.checked_add(released_heat),
@@ -686,12 +834,20 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
     let unmelted_mass = mass.checked_sub(processed_mass).unwrap_or_else(|| {
         unreachable!("adaptive melt cannot process more than the offered batch")
     });
+    let remaining_feed_mass = [ids.pure_copper_source, ids.preheated_source]
+        .into_iter()
+        .fold(Mass::ZERO, |total, stockpile| {
+            let stored = state
+                .inventory()
+                .get_stockpile(stockpile)
+                .map(|record| record.stored_mass())
+                .unwrap_or_else(|| panic!("foundry feed stockpile disappeared"));
+            total
+                .checked_add(stored)
+                .unwrap_or_else(|| panic!("foundry remaining feed mass overflowed"))
+        });
     assert_eq!(
-        state
-            .inventory()
-            .get_stockpile(ids.pure_copper_source)
-            .map(|stockpile| stockpile.stored_mass()),
-        Some(unmelted_mass),
+        remaining_feed_mass, unmelted_mass,
         "adaptive melting must leave the unprocessed portion of the offered order physically owned"
     );
     let outcome = match (
@@ -731,8 +887,9 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
     }
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
-            "CAPABILITY FOUNDRY seed=0x{seed:016X} sample={} outcome={outcome} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[phase-change,finite-electrical-input,finite-thermal-recovery,passive-heat-rejection,wear] offered={}mg melted={}mg unmelted={}mg melt-limit={} first-cast={}mg cast-limit={} molten-after-first={}mg recovery-cast={}mg recovery-limit={} molten-final={}mg input={}mK initial-condition=[furnace:{} mold:{}ppm] electrical=[initial:{}nJ melt:{}nJ remaining:{}nJ] thermal=[initial:{}nJ pre-cast:{}nJ no-cast-baseline:{}nJ released:{}nJ captured:{}nJ cooled:{}nJ cooldown:{}t recovery-heat:{}nJ] durations=[melt:{}t cast:{}t recovery-cast:{}t] matter=conserved",
+            "CAPABILITY FOUNDRY seed=0x{seed:016X} sample={} outcome={outcome} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[sensible-heating,phase-change,copper-recovery,finite-electrical-input,finite-thermal-recovery,passive-heat-rejection,wear] feed-form={} offered={}mg melted={}mg unmelted={}mg melt-limit={} first-cast={}mg cast-limit={} molten-after-first={}mg recovery-cast={}mg recovery-limit={} molten-final={}mg preheat=[applied:{} target:{}mK energy:{}nJ duration:{}t] initial-condition=[furnace:{} mold:{}ppm] electrical=[initial:{}nJ melt:{}nJ remaining:{}nJ] thermal=[initial:{}nJ pre-cast:{}nJ no-cast-baseline:{}nJ released:{}nJ captured:{}nJ cooled:{}nJ cooldown:{}t recovery-heat:{}nJ] durations=[melt:{}t cast:{}t recovery-cast:{}t] matter=conserved",
             focused_probe_role_label(case.role()),
+            feed_form.value(),
             mass.milligrams(),
             processed_mass.milligrams(),
             unmelted_mass.milligrams(),
@@ -743,7 +900,10 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
             recovered_cast_mass.milligrams(),
             recovery_limit,
             final_molten_remaining.milligrams(),
-            input_temperature.millikelvin(),
+            preheat.applied,
+            preheat_target.millikelvin(),
+            preheat.energy.nanojoules(),
+            preheat.duration.value(),
             initial_furnace_condition.parts_per_million(),
             initial_mold_condition.parts_per_million(),
             initial_electrical.nanojoules(),
@@ -763,8 +923,9 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
         );
     } else {
         std::println!(
-            "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome={outcome} pipeline=heat->melt->cast->passive-cool->retry offered={}mg melted={}mg unmelted={}mg melt-limit={} first-cast={}mg cast-limit={} molten-after-first={}mg recovery-cast={}mg recovery-limit={} molten-final={}mg input={}mK electrical=[used:{}nJ remaining:{}nJ] thermal=[initial:{}nJ pre-cast:{}nJ no-cast-baseline:{}nJ captured:{}nJ cooldown:{}t cooled:{}nJ recovery-heat:{}nJ] durations=[melt:{}t cast:{}t recovery-cast:{}t] matter=conserved",
+            "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome={outcome} pipeline=preheat->melt->cast->passive-cool->retry feed-form={} offered={}mg melted={}mg unmelted={}mg melt-limit={} first-cast={}mg cast-limit={} molten-after-first={}mg recovery-cast={}mg recovery-limit={} molten-final={}mg preheat=[applied:{} target:{}mK energy:{}nJ duration:{}t] electrical=[melt:{}nJ remaining:{}nJ] thermal=[initial:{}nJ pre-cast:{}nJ no-cast-baseline:{}nJ captured:{}nJ cooldown:{}t cooled:{}nJ recovery-heat:{}nJ] durations=[melt:{}t cast:{}t recovery-cast:{}t] matter=conserved",
             focused_probe_role_label(case.role()),
+            feed_form.value(),
             mass.milligrams(),
             processed_mass.milligrams(),
             unmelted_mass.milligrams(),
@@ -775,7 +936,10 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
             recovered_cast_mass.milligrams(),
             recovery_limit,
             final_molten_remaining.milligrams(),
-            input_temperature.millikelvin(),
+            preheat.applied,
+            preheat_target.millikelvin(),
+            preheat.energy.nanojoules(),
+            preheat.duration.value(),
             melt.required_energy().nanojoules(),
             final_electrical.nanojoules(),
             initial_thermal.nanojoules(),

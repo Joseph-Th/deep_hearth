@@ -25,7 +25,7 @@ struct MeltingReplayContext {
 fn resolve_melting_replay_context(
     registries: &Registries,
     job: &ProductionJobRecord,
-    definition: MeltingProcessDefinition,
+    definition: &MeltingProcessDefinition,
 ) -> Result<MeltingReplayContext, MeltingJobValidationError> {
     let Some(consumed_energy) = job.consumed_energy() else {
         return Err(MeltingJobValidationError::MissingEnergy { job: job.id() });
@@ -84,19 +84,14 @@ fn resolve_melting_replay_context(
 fn resolve_loaded_melting_batch(
     registries: &Registries,
     job: &ProductionJobRecord,
-    definition: MeltingProcessDefinition,
+    definition: &MeltingProcessDefinition,
     context: &MeltingReplayContext,
 ) -> Result<PurePhaseChangeBatch, MeltingJobValidationError> {
-    let batch = resolve_melting_batch(
-        registries.materials(),
-        definition.solid_form(),
-        definition.liquid_form(),
-        job.consumed_inputs(),
-    )
-    .map_err(|error| MeltingJobValidationError::Batch {
-        job: job.id(),
-        error,
-    })?;
+    let batch = resolve_melting_batch(registries.materials(), definition, job.consumed_inputs())
+        .map_err(|error| MeltingJobValidationError::Batch {
+            job: job.id(),
+            error,
+        })?;
     if batch.melting_point > context.limits.maximum_temperature() {
         return Err(
             MeltingJobValidationError::MeltingPointExceedsEquipmentMaximum {
@@ -126,7 +121,7 @@ fn resolve_loaded_melting_batch(
 fn resolve_melting_replay_timing(
     registries: &Registries,
     job: &ProductionJobRecord,
-    definition: MeltingProcessDefinition,
+    definition: &MeltingProcessDefinition,
     context: &MeltingReplayContext,
     batch: &PurePhaseChangeBatch,
 ) -> Result<ThermalTransferTiming, MeltingJobValidationError> {
@@ -191,7 +186,7 @@ fn validate_melting_replay_outcome(
 pub(in crate::thermal) fn validate_loaded_melting_job(
     registries: &Registries,
     job: &ProductionJobRecord,
-    definition: MeltingProcessDefinition,
+    definition: &MeltingProcessDefinition,
 ) -> Result<(), MeltingJobValidationError> {
     let context = resolve_melting_replay_context(registries, job, definition)?;
     let batch = resolve_loaded_melting_batch(registries, job, definition, &context)?;

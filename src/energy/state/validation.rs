@@ -266,7 +266,13 @@ fn validate_energy_store_record(
             capacity: definition.capacity(),
         });
     }
-    validate_embodied_material(materials, record, definition.assembly_profile(), current)?;
+    validate_embodied_material(
+        materials,
+        record,
+        definition.assembly_profile(),
+        definition.upgrade_profile().is_some(),
+        current,
+    )?;
     if record.created_at > current {
         return Err(EnergyValidationError::CreatedInFuture {
             store: record.id,
@@ -294,6 +300,7 @@ fn validate_embodied_material(
     materials: &MaterialRegistry,
     record: &EnergyStoreRecord,
     assembly: Option<&MaterialAssemblyProfile>,
+    allows_post_construction_additions: bool,
     current: SimulationTick,
 ) -> Result<(), EnergyValidationError> {
     let Some(assembly) = assembly else {
@@ -310,7 +317,13 @@ fn validate_embodied_material(
     let mut traced_mass = Mass::ZERO;
     let mut stored_by_commodity = BTreeMap::new();
     for trace in &record.embodied_material {
-        let commodity = validate_embodied_trace(materials, record, trace, current)?;
+        let commodity = validate_embodied_trace(
+            materials,
+            record,
+            trace,
+            allows_post_construction_additions,
+            current,
+        )?;
         traced_mass = traced_mass
             .checked_add(trace.mass())
             .ok_or(EnergyValidationError::EmbodiedTraceMassOverflow { store: record.id })?;
@@ -331,6 +344,7 @@ fn validate_embodied_trace(
     materials: &MaterialRegistry,
     record: &EnergyStoreRecord,
     trace: &ConsumedMaterialTrace,
+    allows_post_construction_additions: bool,
     current: SimulationTick,
 ) -> Result<CommodityKey, EnergyValidationError> {
     if trace.mass().is_zero() {
@@ -382,7 +396,7 @@ fn validate_embodied_trace(
             current,
         });
     }
-    if provenance.latest_created_at() > record.created_at {
+    if !allows_post_construction_additions && provenance.latest_created_at() > record.created_at {
         return Err(EnergyValidationError::EmbodiedProvenanceAfterConstruction {
             store: record.id,
             latest_created_at: provenance.latest_created_at(),

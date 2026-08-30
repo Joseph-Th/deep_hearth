@@ -26,7 +26,7 @@ use crate::production::{
     decide_due_completions, validate_start_process,
 };
 use crate::simulation::advance_tick;
-use crate::thermal::ThermalJobValidationError;
+use crate::thermal::{PhaseChangeProcessProfile, ThermalJobValidationError};
 
 const COOLING_POWER: CapabilityId = CapabilityId::new(960_001);
 const MAX_TEMPERATURE: CapabilityId = CapabilityId::new(960_002);
@@ -163,15 +163,18 @@ fn make_registries_with_sink_dissipation(
         process,
         CastingProcessDefinition::new(
             PROCESS,
-            COOLING_POWER,
-            MAX_TEMPERATURE,
-            MAX_BATCH_MASS,
-            EnergyCarrier::Thermal,
+            PhaseChangeProcessProfile::new(
+                COOLING_POWER,
+                MAX_TEMPERATURE,
+                MAX_BATCH_MASS,
+                EnergyCarrier::Thermal,
+                10,
+            ),
+            MATERIAL_COPPER,
             CastingPhaseChange::new(
                 PhaseChangeForms::new(FORM_MOLTEN, FORM_INGOT),
                 OUTPUT_TEMPERATURE,
             ),
-            10,
         ),
     )
 }
@@ -885,6 +888,63 @@ fn trusted_load_rejects_energy_sink_contents_that_invalidate_pending_release_cap
             }
         ))
     );
+}
+
+#[test]
+fn same_tick_casting_release_and_passive_loss_prebudget_energy_revision_capacity() {
+    let input_mass = Mass::from_milligrams(1);
+    let mut fixture = make_fixture_with_sink_configuration(
+        input_mass,
+        MELTING_POINT,
+        Energy::from_nanojoules(100_000_000_000),
+        Power::from_microwatts(10_000_000),
+        Power::from_microwatts(1),
+        Energy::from_nanojoules(1_000),
+    );
+    let resolved = resolve_selected(&fixture.registries, &fixture.state, fixture.ids, input_mass)
+        .unwrap_or_else(|error| panic!("revision-budget casting resolution failed: {error}"));
+    assert_eq!(
+        resolved.process_resolution().duration(),
+        crate::core::time::TickSpan::new(1),
+        "revision-budget fixture requires casting to finish on the next tick"
+    );
+    validate_start_process(
+        &fixture.registries,
+        &fixture.state,
+        resolved.process_resolution(),
+        fixture.ids.source,
+        fixture.ids.destination,
+    )
+    .unwrap_or_else(|error| panic!("revision-budget casting start failed: {error}"))
+    .commit(&mut fixture.state)
+    .unwrap_or_else(|error| panic!("revision-budget casting commit failed: {error}"));
+    assert!(fixture.state.production().jobs().next().is_some());
+    assert!(
+        fixture
+            .state
+            .energy()
+            .get_store(fixture.ids.heat_sink)
+            .is_some_and(|record| !record.stored().is_zero()),
+        "passive-loss fixture must own pre-tick energy on the casting due tick"
+    );
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&fixture.registries, &fixture.state))
+        .unwrap_or_else(|error| panic!("revision-budget casting serialization failed: {error}"));
+    encoded["state"]["systems"]["energy"]["revision"] = serde_json::json!(u64::MAX - 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("revision-budget casting decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&fixture.registries)
+        .unwrap_or_else(|error| {
+            panic!("near-exhausted revision-budget casting fixture should load: {error}")
+        });
+    let before = loaded.clone();
+
+    assert_eq!(
+        advance_tick(&fixture.registries, &mut loaded),
+        Err(crate::simulation::TickError::EnergyRevisionExhausted)
+    );
+    assert_eq!(loaded, before);
 }
 
 #[cfg(feature = "test-soak")]

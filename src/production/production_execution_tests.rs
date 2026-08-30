@@ -539,6 +539,38 @@ fn persisted_production_job_cannot_start_in_the_future() {
 }
 
 #[test]
+fn persisted_running_production_job_cannot_already_be_due() {
+    let registries = make_test_registries();
+    let mut state = AppState::new(WorldSeed::new(0x9000_0006));
+    let source = add_test_stockpile(&mut state, 100);
+    let destination = add_test_stockpile(&mut state, 100);
+    deposit_test_wood(&registries, &mut state, source, 10);
+    let resolution = make_test_resolution(&registries, &state, source, 3);
+    let token = validate_start_process(&registries, &state, &resolution, source, destination)
+        .unwrap_or_else(|error| panic!("already-due validation fixture failed: {error}"));
+    let job = commit_process_for_test(token, &mut state);
+    apply_clock_advance(&mut state, SimulationTick::new(1));
+
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("already-due fixture serialization failed: {error}"));
+    encoded["state"]["systems"]["production"]["jobs"][job.value().to_string()]["schedule"]["completes_at"] =
+        serde_json::json!(1_u64);
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(encoded)
+        .unwrap_or_else(|error| panic!("already-due tamper failed structural decode: {error}"));
+
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Production(
+            ProductionValidationError::RunningJobAlreadyDue {
+                job,
+                due: SimulationTick::new(1),
+                current: SimulationTick::new(1),
+            }
+        )))
+    );
+}
+
+#[test]
 fn persisted_production_job_rejects_impossible_consumed_material_phase_state() {
     let input = CommodityKey::new(MATERIAL_COPPER, FORM_INGOT);
     let process = ProcessDefinition::new(

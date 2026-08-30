@@ -35,6 +35,10 @@ pub const EQUIPMENT_COPPER_REINFORCED_HAND_CRANK: EquipmentDefinitionId =
 pub const EQUIPMENT_STONE_CRUSHER: EquipmentDefinitionId = EquipmentDefinitionId::new(10);
 pub const EQUIPMENT_STONE_SEPARATOR: EquipmentDefinitionId = EquipmentDefinitionId::new(11);
 pub const EQUIPMENT_GRAVITY_SEPARATOR: EquipmentDefinitionId = EquipmentDefinitionId::new(12);
+pub const EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(13);
+pub const EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(14);
 
 const JAW_CRUSHER_MASS: Mass = Mass::from_milligrams(3_600_000_000);
 const ELECTRIC_FURNACE_MASS: Mass = Mass::from_milligrams(500_000_000);
@@ -49,6 +53,23 @@ fn condition(parts_per_million: u32) -> Condition {
         Ok(condition) => condition,
         Err(error) => panic!("built-in equipment condition is invalid: {error}"),
     }
+}
+
+fn mass_condition_curve(
+    capability: CapabilityId,
+    degraded_condition_ppm: u32,
+    degraded_mass: Mass,
+) -> CapabilityConditionCurve {
+    CapabilityConditionCurve::new(
+        capability,
+        vec![
+            CapabilityConditionPoint::new(Condition::FAILED, CapabilityValue::Mass(Mass::ZERO)),
+            CapabilityConditionPoint::new(
+                condition(degraded_condition_ppm),
+                CapabilityValue::Mass(degraded_mass),
+            ),
+        ],
+    )
 }
 
 fn component_maintenance(
@@ -144,10 +165,40 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
         600_000,
         MassFlow::from_milligrams_per_second(1_000),
     );
+    let stone_crusher_batch_curve = mass_condition_curve(
+        CAPABILITY_CRUSHER_BATCH,
+        600_000,
+        Mass::from_milligrams(500_000),
+    );
+    let reinforced_stone_crusher_curve = mass_flow_condition_curve(
+        CAPABILITY_CRUSHER_FLOW,
+        600_000,
+        MassFlow::from_milligrams_per_second(1_500),
+    );
+    let reinforced_stone_crusher_batch_curve = mass_condition_curve(
+        CAPABILITY_CRUSHER_BATCH,
+        600_000,
+        Mass::from_milligrams(750_000),
+    );
     let stone_separator_curve = mass_flow_condition_curve(
         CAPABILITY_SEPARATOR_FLOW,
         600_000,
         MassFlow::from_milligrams_per_second(1_500),
+    );
+    let stone_separator_batch_curve = mass_condition_curve(
+        CAPABILITY_SEPARATOR_BATCH,
+        600_000,
+        Mass::from_milligrams(250_000),
+    );
+    let reinforced_stone_separator_curve = mass_flow_condition_curve(
+        CAPABILITY_SEPARATOR_FLOW,
+        600_000,
+        MassFlow::from_milligrams_per_second(2_250),
+    );
+    let reinforced_stone_separator_batch_curve = mass_condition_curve(
+        CAPABILITY_SEPARATOR_BATCH,
+        600_000,
+        Mass::from_milligrams(375_000),
     );
     let gravity_separator_curve = mass_flow_condition_curve(
         CAPABILITY_SEPARATOR_FLOW,
@@ -459,7 +510,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 ),
             ]),
             thresholds(),
-            vec![stone_crusher_curve],
+            vec![stone_crusher_curve, stone_crusher_batch_curve],
         )
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::pure(
@@ -491,7 +542,7 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
                 ),
             ]),
             thresholds(),
-            vec![stone_separator_curve],
+            vec![stone_separator_curve, stone_separator_batch_curve],
         )
         .with_assembly_profile(MaterialAssemblyProfile::new(vec![
             MaterialInputSpec::pure(
@@ -508,6 +559,98 @@ pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
             Mass::from_milligrams(800_000),
         ))
         .with_worn_recovery_form(FORM_SCRAP),
+        EquipmentDefinition::new_with_capability_condition_curves(
+            EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+            "copper-reinforced stone toggle crusher",
+            Mass::from_milligrams(2_020_000),
+            profile([
+                (
+                    CAPABILITY_CRUSHER_FLOW,
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(3_000)),
+                ),
+                (
+                    CAPABILITY_CRUSHER_BATCH,
+                    CapabilityValue::Mass(Mass::from_milligrams(1_500_000)),
+                ),
+            ]),
+            thresholds(),
+            vec![
+                reinforced_stone_crusher_curve,
+                reinforced_stone_crusher_batch_curve,
+            ],
+        )
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(1_600_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(400_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                Mass::from_milligrams(20_000),
+            ),
+        ]))
+        .with_maintenance_profile(component_maintenance(
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(1_600_000),
+        ))
+        .with_worn_recovery_form(FORM_SCRAP)
+        .with_upgrade_profile(EquipmentUpgradeProfile::new(
+            EQUIPMENT_STONE_CRUSHER,
+            MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                Mass::from_milligrams(20_000),
+            )]),
+        )),
+        EquipmentDefinition::new_with_capability_condition_curves(
+            EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+            "copper-reinforced stone rocking separator",
+            Mass::from_milligrams(1_220_000),
+            profile([
+                (
+                    CAPABILITY_SEPARATOR_FLOW,
+                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(4_500)),
+                ),
+                (
+                    CAPABILITY_SEPARATOR_BATCH,
+                    CapabilityValue::Mass(Mass::from_milligrams(750_000)),
+                ),
+            ]),
+            thresholds(),
+            vec![
+                reinforced_stone_separator_curve,
+                reinforced_stone_separator_batch_curve,
+            ],
+        )
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+                Mass::from_milligrams(800_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+                Mass::from_milligrams(400_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                Mass::from_milligrams(20_000),
+            ),
+        ]))
+        .with_maintenance_profile(component_maintenance(
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ))
+        .with_worn_recovery_form(FORM_SCRAP)
+        .with_upgrade_profile(EquipmentUpgradeProfile::new(
+            EQUIPMENT_STONE_SEPARATOR,
+            MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+                Mass::from_milligrams(20_000),
+            )]),
+        )),
         EquipmentDefinition::new_with_capability_condition_curves(
             EQUIPMENT_GRAVITY_SEPARATOR,
             "workshop gravity separator",

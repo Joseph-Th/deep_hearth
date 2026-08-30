@@ -38,6 +38,7 @@ pub const FORM_SCRAP: FormId = FormId::new(15);
 pub const FORM_TAILINGS: FormId = FormId::new(16);
 pub const FORM_BOARD: FormId = FormId::new(17);
 pub const FORM_CHEST_BODY: FormId = FormId::new(18);
+pub const FORM_DOUBLE_WALL_CHEST_BODY: FormId = FormId::new(19);
 
 fn consolidated_form(id: FormId, name: &'static str) -> FormDefinition {
     FormDefinition::new(
@@ -85,6 +86,7 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
         consolidated_form(FORM_HANDLE, "handle"),
         consolidated_form(FORM_BOARD, "board"),
         consolidated_form(FORM_CHEST_BODY, "timber chest body"),
+        consolidated_form(FORM_DOUBLE_WALL_CHEST_BODY, "double-wall timber chest body"),
         consolidated_form(FORM_FLYWHEEL, "flywheel"),
         consolidated_form(FORM_REINFORCEMENT, "reinforcement"),
         loose_form(
@@ -206,6 +208,7 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
         CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
         CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
         CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
+        CommodityKey::new(MATERIAL_WOOD, FORM_DOUBLE_WALL_CHEST_BODY),
         CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
         CommodityKey::new(MATERIAL_WOOD, FORM_SCRAP),
         CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),

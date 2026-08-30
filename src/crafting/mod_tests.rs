@@ -2,11 +2,13 @@
 
 use super::*;
 use crate::content::{
-    FORM_BOARD, FORM_CHEST_BODY, FORM_CHIP, FORM_CRUSHED, FORM_INGOT, FORM_LOG, FORM_LUMP,
-    FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE,
-    MATERIAL_WOOD, PROCESS_ASSEMBLE_TIMBER_CHEST, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
-    PROCESS_KNAP_STONE_TOOL, PROSPECTING_FIELD_INSPECTION, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-    build_registries,
+    FORM_BOARD, FORM_CHEST_BODY, FORM_CHIP, FORM_CRUSHED, FORM_DOUBLE_WALL_CHEST_BODY, FORM_INGOT,
+    FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_SCRAP, FORM_TOOL,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST,
+    PROCESS_ASSEMBLE_TIMBER_CHEST, PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
+    PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT, PROCESS_KNAP_STONE_TOOL,
+    PROCESS_REKNAP_STONE_SCRAP_TOOL, PROSPECTING_FIELD_INSPECTION,
+    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Energy, Force, Length, Temperature, Volume};
 use crate::core::state::{StateValidationError, validate_loaded_state};
@@ -237,6 +239,353 @@ fn native_copper_reinforcement_skips_contaminated_stock_when_pure_metal_exists()
     .unwrap_or_else(|error| panic!("mixed-stock manual craft should select pure copper: {error}"));
 }
 
+#[test]
+fn copper_scrap_rework_is_slower_than_native_work_and_replays_exactly() {
+    let registries = build_registries();
+    let native = registries
+        .crafting()
+        .get_manual(PROCESS_COLD_WORK_COPPER_REINFORCEMENT)
+        .unwrap_or_else(|| panic!("native copper reinforcement process disappeared"));
+    let scrap = registries
+        .crafting()
+        .get_manual(PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT)
+        .unwrap_or_else(|| panic!("copper scrap recovery process disappeared"));
+    assert!(
+        scrap.duration() > native.duration(),
+        "irregular scrap rework must cost more player attention than starting from native copper"
+    );
+
+    let mut state = AppState::new(WorldSeed::new(0xC4AF_7012));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("scrap recovery survival setup failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
+        .unwrap_or_else(|error| panic!("scrap recovery source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
+        .unwrap_or_else(|error| panic!("scrap recovery destination failed: {error}"));
+    let temperature = Temperature::from_millikelvin(320_000);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+        Mass::from_milligrams(20_000),
+        temperature,
+    )
+    .unwrap_or_else(|error| panic!("scrap recovery copper fixture failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("scrap recovery matter-before audit failed: {error}"))
+        .total();
+
+    let job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(
+            PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
+            source,
+            destination,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("scrap recovery validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("scrap recovery commit failed: {error}"));
+    for _ in 0..20 {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("scrap recovery pre-save tick failed: {error}"));
+    }
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("scrap recovery serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("scrap recovery decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("scrap recovery trusted load failed: {error}"));
+    assert_eq!(loaded, state);
+
+    while state.production().get_job(job).is_some() {
+        let expected = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("scrap recovery source continuation failed: {error}"));
+        let actual = advance_tick(&registries, &mut loaded)
+            .unwrap_or_else(|error| panic!("scrap recovery loaded continuation failed: {error}"));
+        assert_eq!(actual, expected);
+    }
+    assert_eq!(loaded, state);
+    let output_lot = state
+        .inventory()
+        .lot_ids(destination)
+        .next()
+        .unwrap_or_else(|| panic!("scrap recovery reinforcement lot disappeared"));
+    let output = state
+        .inventory()
+        .get_lot(output_lot)
+        .unwrap_or_else(|| panic!("scrap recovery reinforcement record disappeared"));
+    assert_eq!(
+        output.commodity(),
+        CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT)
+    );
+    assert_eq!(output.mass(), Mass::from_milligrams(20_000));
+    assert_eq!(output.temperature(), temperature);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(source)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("scrap recovery matter-after audit failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn stone_scrap_reknapping_is_slower_than_fresh_knapping_and_replays_exactly() {
+    let registries = build_registries();
+    let fresh = registries
+        .crafting()
+        .get_manual(PROCESS_KNAP_STONE_TOOL)
+        .unwrap_or_else(|| panic!("fresh stone knapping process disappeared"));
+    let reknap = registries
+        .crafting()
+        .get_manual(PROCESS_REKNAP_STONE_SCRAP_TOOL)
+        .unwrap_or_else(|| panic!("stone scrap reknapping process disappeared"));
+    assert!(
+        reknap.duration() > fresh.duration(),
+        "irregular spent stone must cost more player attention than fresh lump knapping"
+    );
+    assert_eq!(reknap.duration().value(), 60);
+    assert_eq!(
+        reknap.input(),
+        CommodityKey::new(MATERIAL_STONE, FORM_SCRAP)
+    );
+    assert_eq!(reknap.input_mass(), Mass::from_milligrams(1_000_000));
+
+    let mut state = AppState::new(WorldSeed::new(0xC4AF_7018));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("stone scrap reknap survival setup failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("stone scrap reknap source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("stone scrap reknap destination failed: {error}"));
+    let temperature = Temperature::from_millikelvin(315_000);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+        Mass::from_milligrams(1_000_000),
+        temperature,
+    )
+    .unwrap_or_else(|error| panic!("stone scrap reknap fixture failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("stone scrap reknap matter-before failed: {error}"))
+        .total();
+
+    let job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(PROCESS_REKNAP_STONE_SCRAP_TOOL, source, destination),
+    )
+    .unwrap_or_else(|error| panic!("stone scrap reknap validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("stone scrap reknap commit failed: {error}"));
+    for _ in 0..25 {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("stone scrap reknap pre-save tick failed: {error}"));
+    }
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("stone scrap reknap serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("stone scrap reknap decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("stone scrap reknap trusted load failed: {error}"));
+    assert_eq!(loaded, state);
+
+    while state.production().get_job(job).is_some() {
+        let expected = advance_tick(&registries, &mut state).unwrap_or_else(|error| {
+            panic!("stone scrap reknap source continuation failed: {error}")
+        });
+        let actual = advance_tick(&registries, &mut loaded).unwrap_or_else(|error| {
+            panic!("stone scrap reknap loaded continuation failed: {error}")
+        });
+        assert_eq!(actual, expected);
+    }
+    assert_eq!(loaded, state);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| { stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_TOOL)) }),
+        Some(Mass::from_milligrams(800_000))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| { stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_CHIP)) }),
+        Some(Mass::from_milligrams(200_000))
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .lot_ids(destination)
+            .filter_map(|lot| state.inventory().get_lot(lot))
+            .filter(|lot| lot.commodity().material() == MATERIAL_STONE)
+            .all(|lot| lot.temperature() == temperature),
+        true
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(source)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("stone scrap reknap matter-after failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn stone_scrap_reknapping_rejects_contaminated_scrap_without_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xC4AF_7019));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("contaminated stone scrap survival setup failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("contaminated stone scrap source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("contaminated stone scrap destination failed: {error}"));
+    let composition = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_STONE, 900_000),
+        CompositionComponent::new(MATERIAL_WOOD, 100_000),
+    ])
+    .unwrap_or_else(|error| panic!("contaminated stone scrap composition failed: {error}"));
+    deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+        Mass::from_milligrams(1_000_000),
+        Temperature::from_millikelvin(293_150),
+        composition,
+    )
+    .unwrap_or_else(|error| panic!("contaminated stone scrap fixture failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_manual_craft(
+            &registries,
+            &state,
+            ManualCraftStartRequest::single(PROCESS_REKNAP_STONE_SCRAP_TOOL, source, destination),
+        )
+        .err(),
+        Some(StartManualCraftError::Resolution(ManualCraftError::Input(
+            ProcessInputError::InsufficientMass {
+                stockpile: source,
+                commodity: CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+                available: Mass::ZERO,
+                requested: Mass::from_milligrams(1_000_000),
+            }
+        )))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn stone_scrap_reknapping_rejects_mixed_temperatures_without_inventing_heat_exchange() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xC4AF_7020));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("mixed-temperature reknap survival setup failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("mixed-temperature reknap source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("mixed-temperature reknap destination failed: {error}"));
+    for temperature in [300_000, 310_000] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
+            Mass::from_milligrams(500_000),
+            Temperature::from_millikelvin(temperature),
+        )
+        .unwrap_or_else(|error| panic!("mixed-temperature reknap fixture failed: {error}"));
+    }
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_manual_craft(
+            &registries,
+            &state,
+            ManualCraftStartRequest::single(PROCESS_REKNAP_STONE_SCRAP_TOOL, source, destination),
+        )
+        .err(),
+        Some(StartManualCraftError::Resolution(
+            ManualCraftError::MixedInputTemperature
+        ))
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn copper_scrap_rework_rejects_contaminated_scrap_without_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xC4AF_7013));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("contaminated scrap survival setup failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
+        .unwrap_or_else(|error| panic!("contaminated scrap source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
+        .unwrap_or_else(|error| panic!("contaminated scrap destination failed: {error}"));
+    let composition = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_COPPER, 900_000),
+        CompositionComponent::new(MATERIAL_STONE, 100_000),
+    ])
+    .unwrap_or_else(|error| panic!("contaminated scrap composition failed: {error}"));
+    deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+        Mass::from_milligrams(20_000),
+        Temperature::from_millikelvin(293_150),
+        composition,
+    )
+    .unwrap_or_else(|error| panic!("contaminated scrap fixture failed: {error}"));
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_manual_craft(
+            &registries,
+            &state,
+            ManualCraftStartRequest::single(
+                PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
+                source,
+                destination,
+            ),
+        )
+        .err(),
+        Some(StartManualCraftError::Resolution(ManualCraftError::Input(
+            ProcessInputError::InsufficientMass {
+                stockpile: source,
+                commodity: CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
+                available: Mass::ZERO,
+                requested: Mass::from_milligrams(20_000),
+            }
+        )))
+    );
+    assert_eq!(state, before);
+}
+
 fn make_fixture() -> (Registries, AppState, StockpileId, StockpileId) {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xC4AF_7001));
@@ -259,7 +608,18 @@ fn make_fixture() -> (Registries, AppState, StockpileId, StockpileId) {
 }
 
 fn active_stockpile_support(registries: &Registries, state: &mut AppState) -> StructuralElementId {
-    let bounds = VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(1, 1, 1))
+    active_stockpile_support_at(registries, state, 0)
+}
+
+fn active_stockpile_support_at(
+    registries: &Registries,
+    state: &mut AppState,
+    x: i64,
+) -> StructuralElementId {
+    let max_x = x
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("manual craft support x-coordinate overflowed"));
+    let bounds = VoxelBounds::new(VoxelCoord::new(x, 0, 0), VoxelCoord::new(max_x, 1, 1))
         .unwrap_or_else(|error| panic!("manual craft support bounds failed: {error}"));
     let support = add_structural_element(
         registries,
@@ -507,6 +867,158 @@ fn suspended_manual_craft_releases_attention_and_waits_while_other_player_work_r
     assert_eq!(
         state.player_work().active(),
         Some(PlayerWork::ManualProduction { job })
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn simultaneously_recoverable_manual_crafts_resume_one_at_a_time_in_job_order() {
+    let (registries, mut state, source, first_destination) = make_fixture();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        stone_lump(),
+        Mass::from_milligrams(1_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("second manual craft input failed: {error}"));
+    let second_destination =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
+            .unwrap_or_else(|error| panic!("second manual craft destination failed: {error}"));
+    let first_support = active_stockpile_support_at(&registries, &mut state, 0);
+    let second_support = active_stockpile_support_at(&registries, &mut state, 10);
+    for (destination, support) in [
+        (first_destination, first_support),
+        (second_destination, second_support),
+    ] {
+        let _ = validate_mount_stockpile(&registries, &state, destination, support)
+            .unwrap_or_else(|error| panic!("manual craft destination mount failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("manual craft destination mount commit failed: {error}")
+            });
+    }
+
+    let first = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, first_destination),
+    )
+    .unwrap_or_else(|error| panic!("first serial-resume craft start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("first serial-resume craft commit failed: {error}"));
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("first serial-resume active tick failed: {error}"));
+    let _ = validate_set_structural_load(
+        &registries,
+        &state,
+        first_support,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(50_000_000),
+    )
+    .unwrap_or_else(|error| panic!("first serial-resume support failure failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("first serial-resume support failure commit failed: {error}"));
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("first serial-resume suspension tick failed: {error}"));
+    assert_eq!(state.player_work().active(), None);
+
+    let second = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, second_destination),
+    )
+    .unwrap_or_else(|error| panic!("second serial-resume craft start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("second serial-resume craft commit failed: {error}"));
+    let _ = validate_set_structural_load(
+        &registries,
+        &state,
+        second_support,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(50_000_000),
+    )
+    .unwrap_or_else(|error| panic!("second serial-resume support failure failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("second serial-resume support failure commit failed: {error}"));
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("second serial-resume suspension tick failed: {error}"));
+    assert_eq!(state.player_work().active(), None);
+
+    for destination in [first_destination, second_destination] {
+        let _ = validate_unmount_stockpile(&registries, &state, destination)
+            .unwrap_or_else(|error| panic!("serial-resume destination recovery failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| {
+                panic!("serial-resume destination recovery commit failed: {error}")
+            });
+    }
+
+    let first_resume_at = state.tick();
+    let first_remaining = state
+        .production()
+        .get_job(first)
+        .and_then(|job| job.suspension())
+        .map(|suspension| suspension.remaining_active_time())
+        .unwrap_or_else(|| panic!("first serial-resume job was not suspended before recovery"));
+    let first_due = first_resume_at
+        .checked_add_span(first_remaining)
+        .unwrap_or_else(|| panic!("first serial-resume completion tick overflowed"));
+    let recovered = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("serial-resume arbitration tick failed: {error}"));
+    assert_eq!(
+        recovered.production_availability_changes(),
+        &[
+            ProductionAvailabilityChange::Resumed {
+                job: first,
+                reason: ProductionSuspensionReason::OutputSupportUnavailable {
+                    stockpile: first_destination,
+                },
+                resumed_at: first_resume_at,
+                scheduled_completion: first_due,
+            },
+            ProductionAvailabilityChange::SuspensionReasonChanged {
+                job: second,
+                previous: ProductionSuspensionReason::OutputSupportUnavailable {
+                    stockpile: second_destination,
+                },
+                reason: ProductionSuspensionReason::PlayerLaborUnavailable,
+            },
+        ]
+    );
+    assert_eq!(
+        state.player_work().active(),
+        Some(PlayerWork::ManualProduction { job: first })
+    );
+    assert_eq!(
+        state
+            .production()
+            .get_job(second)
+            .and_then(|job| job.suspension())
+            .map(|suspension| suspension.reason()),
+        Some(ProductionSuspensionReason::PlayerLaborUnavailable)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    while state.production().get_job(first).is_some() {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("first serial-resume completion failed: {error}"));
+    }
+    assert_eq!(state.player_work().active(), None);
+    let second_resume = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("second serial-resume arbitration failed: {error}"));
+    assert!(matches!(
+        second_resume.production_availability_changes(),
+        [ProductionAvailabilityChange::Resumed {
+            job,
+            reason: ProductionSuspensionReason::PlayerLaborUnavailable,
+            ..
+        }] if *job == second
+    ));
+    assert_eq!(
+        state.player_work().active(),
+        Some(PlayerWork::ManualProduction { job: second })
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
@@ -1029,6 +1541,99 @@ fn in_progress_timber_chest_joinery_round_trip_preserves_deterministic_continuat
     );
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("timber chest joinery final state audit failed: {error}"));
+}
+
+#[test]
+fn double_wall_chest_joinery_round_trip_preserves_full_cost_and_output() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xC4AF_7017));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("double-wall chest survival setup failed: {error}"));
+    let body_mass = Mass::from_milligrams(4_000_000);
+    let source = add_solid_stockpile_for_test(&mut state, body_mass)
+        .unwrap_or_else(|error| panic!("double-wall chest source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, body_mass)
+        .unwrap_or_else(|error| panic!("double-wall chest destination failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+        body_mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("double-wall chest board fixture failed: {error}"));
+    let matter_before = calculate_matter_accounting(&state)
+        .unwrap_or_else(|error| panic!("double-wall chest matter setup failed: {error}"))
+        .total();
+    let job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(
+            PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST,
+            source,
+            destination,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("double-wall chest joinery start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("double-wall chest joinery commit failed: {error}"));
+    assert_eq!(
+        state
+            .production()
+            .get_job(job)
+            .map(|record| record.active_duration()),
+        Some(TickSpan::new(120))
+    );
+    for _ in 0..30 {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("double-wall chest pre-save tick failed: {error}"));
+    }
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("double-wall chest serialization failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("double-wall chest decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("double-wall chest trusted load failed: {error}"));
+    assert_eq!(loaded, state);
+
+    for _ in 30..120 {
+        let expected = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("double-wall chest source tick failed: {error}"));
+        let actual = advance_tick(&registries, &mut loaded)
+            .unwrap_or_else(|error| panic!("double-wall chest loaded tick failed: {error}"));
+        assert_eq!(actual, expected);
+    }
+    assert_eq!(loaded, state);
+    assert_eq!(state.player_work().active(), None);
+    assert!(state.production().get_job(job).is_none());
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(source)
+            .map(|stockpile| stockpile.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| {
+                stockpile.get_mass(CommodityKey::new(
+                    MATERIAL_WOOD,
+                    FORM_DOUBLE_WALL_CHEST_BODY,
+                ))
+            }),
+        Some(body_mass)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap_or_else(|error| panic!("double-wall chest matter final failed: {error}"))
+            .total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]
