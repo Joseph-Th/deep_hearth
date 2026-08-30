@@ -34,3 +34,7 @@ pub(crate) use transfer::{MaterialTransferResolution, validate_material_transfer
 #[cfg(test)]
 #[path = "transactions_tests.rs"]
 mod tests;
+
+#[cfg(all(test, feature = "test-soak"))]
+#[path = "transactions_soak_tests.rs"]
+mod soak_tests;

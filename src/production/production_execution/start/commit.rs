@@ -174,6 +174,16 @@ impl ValidatedStartProcess {
         if let Some(structural_load) = &structural_load {
             validate_structure_revision(state, structural_load.expected_revision())?;
         }
+        reservation.assert_matches_state(state.inventory());
+        if let Some(energy) = &energy_reservation {
+            energy.assert_matches_state(state.energy());
+        }
+        if let Some(energy) = &energy_ingress_reservation {
+            energy.assert_matches_state(state.energy());
+        }
+        state
+            .production()
+            .assert_job_insertable(&job, next_job_id, next_production_revision);
         if let Some(structural_load) = structural_load {
             structural_load
                 .commit(state)

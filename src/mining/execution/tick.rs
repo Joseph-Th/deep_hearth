@@ -129,16 +129,33 @@ pub(crate) fn apply_mining_tick(
         return Vec::new();
     };
     assert_eq!(state.geology().revision(), plan.expected_geology_revision);
+    state.mining().assert_due_jobs_ready_available(
+        plan.expected_revision,
+        plan.next_revision,
+        plan.completion_tick,
+    );
+    let equipment_revision = if plan.equipment_outcomes.is_empty() {
+        None
+    } else {
+        let expected = state.equipment().revision();
+        let next = expected
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("prebudgeted mining equipment revision exhausted"));
+        state
+            .equipment()
+            .assert_operation_condition_outcomes_available(
+                expected,
+                next,
+                &plan.equipment_outcomes,
+            );
+        Some((expected, next))
+    };
     state.geology_state_mut().apply_extraction(
         plan.extraction.deposit,
         plan.extraction.remaining_after,
         plan.next_geology_revision,
     );
-    if !plan.equipment_outcomes.is_empty() {
-        let expected_equipment_revision = state.equipment().revision();
-        let next_equipment_revision = expected_equipment_revision
-            .checked_add(1)
-            .unwrap_or_else(|| panic!("prevalidated mining equipment revision exhausted"));
+    if let Some((expected_equipment_revision, next_equipment_revision)) = equipment_revision {
         state
             .equipment_state_mut()
             .apply_operation_condition_outcomes(

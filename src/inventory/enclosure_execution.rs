@@ -288,6 +288,7 @@ impl ValidatedStorageEnclosureConstruction {
                 stockpile: self.target,
             });
         }
+        self.egress.assert_matches_state(state.inventory());
         if let Some(structural_load) = self.structural_load {
             structural_load
                 .commit(state)

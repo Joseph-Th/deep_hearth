@@ -152,7 +152,63 @@ impl ProductionIndexes {
         }
     }
 
+    pub(super) fn assert_due_job_present(&self, id: ProductionJobId, due: SimulationTick) {
+        assert!(
+            self.due_jobs
+                .get(&due)
+                .is_some_and(|jobs| jobs.contains(&id)),
+            "runtime invariant broken: production due index is missing job {}",
+            id.value()
+        );
+    }
+
+    pub(super) fn assert_due_job_absent(&self, id: ProductionJobId) {
+        assert!(
+            self.due_jobs.values().all(|jobs| !jobs.contains(&id)),
+            "runtime invariant broken: production due index already contains job {}",
+            id.value()
+        );
+    }
+
+    pub(super) fn assert_job_removable(
+        &self,
+        id: ProductionJobId,
+        projection: &ProductionJobIndexProjection,
+    ) {
+        if let Some(due_tick) = projection.due_tick {
+            self.assert_due_job_present(id, due_tick);
+        } else {
+            self.assert_due_job_absent(id);
+        }
+        for store in &projection.energy_stores {
+            assert_eq!(
+                self.energy_occupancy.get(store).copied(),
+                Some(id),
+                "runtime invariant broken: energy occupancy index disagrees with production job {}",
+                id.value()
+            );
+        }
+        if let Some(equipment) = projection.equipment {
+            assert_eq!(
+                self.equipment_occupancy.get(&equipment).copied(),
+                Some(id),
+                "runtime invariant broken: equipment occupancy index disagrees with production job {}",
+                id.value()
+            );
+        }
+        for stockpile in &projection.output_stockpiles {
+            assert!(
+                self.output_stockpile_occupancy
+                    .get(stockpile)
+                    .is_some_and(|occupants| occupants.contains(&id)),
+                "runtime invariant broken: output-stockpile occupancy index disagrees with production job {}",
+                id.value()
+            );
+        }
+    }
+
     pub(super) fn insert_due_job(&mut self, id: ProductionJobId, due: SimulationTick) {
+        self.assert_due_job_absent(id);
         assert!(
             self.due_jobs.entry(due).or_default().insert(id),
             "runtime invariant broken: production due index already contains job {}",
@@ -161,6 +217,7 @@ impl ProductionIndexes {
     }
 
     pub(super) fn remove_due_job(&mut self, id: ProductionJobId, due: SimulationTick) {
+        self.assert_due_job_present(id, due);
         let remove_bucket = {
             let due_jobs = self.due_jobs.get_mut(&due).unwrap_or_else(|| {
                 panic!(

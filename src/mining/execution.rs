@@ -280,6 +280,12 @@ impl ValidatedMiningStart {
         self.precheck_target(state)?;
         self.precheck_owner_revisions(state)?;
         self.precheck_equipment_occupancy(state)?;
+        self.reservation.assert_matches_state(state.inventory());
+        state.mining().assert_job_insertable(
+            &self.record,
+            self.next_mining_job_id,
+            self.revisions.mining.next,
+        );
         let id = self.record.id();
         self.reservation.apply(state.inventory_state_mut());
         state.mining_state_mut().insert_job(

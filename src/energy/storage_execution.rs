@@ -19,8 +19,8 @@ pub use supply::{
 
 pub(crate) use sink::{
     EnergyIngressReservation, EnergyIngressReservationError, apply_released_energy_outcomes,
-    project_energy_sink_stored_at_release, validate_energy_ingress_reservation,
-    validate_energy_sink_access, validate_energy_sink_release,
+    assert_released_energy_outcomes_available, project_energy_sink_stored_at_release,
+    validate_energy_ingress_reservation, validate_energy_sink_access, validate_energy_sink_release,
 };
 pub(crate) use supply::{
     EnergyConsumptionReservation, EnergyReservationError,

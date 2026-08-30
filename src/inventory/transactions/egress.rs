@@ -3,7 +3,10 @@
 use crate::core::quantity::Mass;
 use crate::material::MaterialInputSpec;
 
-use super::super::selection::ConsumptionSelection;
+use super::super::selection::{
+    ConsumptionSelection, assert_consumption_parts_match_state,
+    assert_consumption_parts_well_formed,
+};
 use super::super::state::{
     ConsumedMaterialTrace, InventoryState, LotSlice, StockpileId, apply_aggregate_withdraw,
     apply_consume_lot_slice, checked_consumed_material_mass,
@@ -60,6 +63,33 @@ impl ValidatedMaterialEgress {
     pub(crate) fn consumed_inputs(&self) -> &[ConsumedMaterialTrace] {
         &self.consumed_inputs
     }
+
+    /// Fails closed if the aggregate withdrawal and its exact lot/trace representation diverge.
+    pub(crate) fn assert_well_formed(&self) {
+        assert_consumption_parts_well_formed(&self.inputs, &self.lot_slices, &self.consumed_inputs);
+        assert_eq!(
+            self.expected_revision.checked_add(1),
+            Some(self.next_revision),
+            "material egress must advance inventory revision exactly once"
+        );
+    }
+
+    /// Replays exact selected lots and traces against the inventory snapshot before any owner mutates.
+    pub(crate) fn assert_matches_state(&self, state: &InventoryState) {
+        self.assert_well_formed();
+        assert_eq!(
+            state.revision(),
+            self.expected_revision,
+            "material egress must match its validated inventory revision"
+        );
+        assert_consumption_parts_match_state(
+            state,
+            self.source,
+            &self.inputs,
+            &self.lot_slices,
+            &self.consumed_inputs,
+        );
+    }
 }
 
 /// Converts an exact read-only selection into a one-shot inventory withdrawal for another owner.
@@ -95,6 +125,7 @@ pub(crate) fn validate_material_egress_from_selection(
 
 /// Applies exact validated withdrawal after a cross-owner transaction has prechecked all owners.
 pub(crate) fn apply_material_egress(state: &mut InventoryState, egress: ValidatedMaterialEgress) {
+    egress.assert_matches_state(state);
     let ValidatedMaterialEgress {
         expected_revision,
         next_revision,

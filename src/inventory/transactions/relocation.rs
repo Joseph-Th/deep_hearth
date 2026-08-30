@@ -1,5 +1,6 @@
 //! Exact revision-bound relocation of preselected material between inventory stockpiles.
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -22,6 +23,8 @@ use super::super::structural_integration::{
     StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedStockpileStructuralLoad,
     validate_stockpile_stored_mass_changes,
 };
+
+mod integrity;
 
 /// Revision-bound relocation of one already-resolved exact lot selection between stockpiles.
 ///
@@ -66,6 +69,7 @@ impl ValidatedMaterialRelocation {
                 actual,
             });
         }
+        self.assert_matches_state(state);
         let current_tick = state.tick();
         let source_preservation_multiplier_ppm = state
             .inventory()
@@ -462,6 +466,7 @@ fn plan_lot_transfers(
     destination_record: &StockpileRecord,
     lot_slices: &[LotSlice],
 ) -> Result<(Vec<RelocationLotTransfer>, Option<u64>), MaterialRelocationError> {
+    let lot_slices = consolidate_lot_slices(lot_slices);
     let inventories = state.inventory();
     let source_preservation_multiplier_ppm = source_record
         .storage_profile()
@@ -471,7 +476,7 @@ fn plan_lot_transfers(
         .preservation_multiplier_ppm();
     let mut identity_planner = LotIdentityPlanner::new(inventories, std::iter::empty());
 
-    for slice in lot_slices {
+    for slice in &lot_slices {
         let lot = inventories.get_lot(slice.lot).unwrap_or_else(|| {
             panic!(
                 "validated exact selection references missing lot {}",
@@ -496,7 +501,7 @@ fn plan_lot_transfers(
     }
 
     let mut transfers = Vec::with_capacity(lot_slices.len());
-    for slice in lot_slices {
+    for slice in &lot_slices {
         let lot = inventories.get_lot(slice.lot).unwrap_or_else(|| {
             panic!(
                 "validated exact selection references missing lot {}",
@@ -536,4 +541,19 @@ fn plan_lot_transfers(
         .allocated_any()
         .then_some(identity_planner.next_lot_id());
     Ok((transfers, next_lot_id_after))
+}
+
+fn consolidate_lot_slices(lot_slices: &[LotSlice]) -> Vec<LotSlice> {
+    let mut by_lot = BTreeMap::<MaterialLotId, Mass>::new();
+    for slice in lot_slices {
+        let current = by_lot.get(&slice.lot).copied().unwrap_or(Mass::ZERO);
+        let mass = current
+            .checked_add(slice.mass)
+            .unwrap_or_else(|| panic!("validated relocation lot-slice mass overflowed"));
+        by_lot.insert(slice.lot, mass);
+    }
+    by_lot
+        .into_iter()
+        .map(|(lot, mass)| LotSlice { lot, mass })
+        .collect()
 }

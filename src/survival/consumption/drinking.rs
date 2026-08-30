@@ -195,6 +195,10 @@ impl ValidatedDrink {
                 actual: actual_survival_revision,
             });
         }
+        state.survival().assert_direct_consumption_begin_available(
+            self.expected_survival_revision,
+            self.next_survival_revision,
+        );
         self.egress.commit(state).map_err(|error| match error {
             FluidEgressCommitError::StaleRevision { expected, actual } => {
                 DrinkCommitError::StaleFluidRevision { expected, actual }

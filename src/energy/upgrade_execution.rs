@@ -15,6 +15,7 @@ use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
+use super::state::EnergyStoreUpgradeMutation;
 use super::{EnergyStoreDefinitionId, EnergyStoreId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -284,6 +285,7 @@ impl ValidatedEnergyStoreUpgrade {
                 actual: state.energy().revision(),
             });
         }
+        self.egress.assert_matches_state(state.inventory());
         let record = state
             .energy()
             .get_store(self.store)
@@ -307,16 +309,25 @@ impl ValidatedEnergyStoreUpgrade {
         {
             return Err(EnergyStoreUpgradeCommitError::StoreBusyManualPower { store: self.store });
         }
+        let mutation = EnergyStoreUpgradeMutation {
+            store: self.store,
+            expected_definition: self.expected_definition,
+            target_definition: self.target_definition,
+            expected_embodied_mass: self.expected_embodied_mass,
+            additions: self.additions,
+        };
+        state.energy().assert_upgrade_available(
+            &mutation,
+            self.expected_energy_revision,
+            self.next_energy_revision,
+        );
         if let Some(load) = self.structural_load {
             load.commit(state)
                 .map_err(EnergyStoreUpgradeCommitError::Structure)?;
         }
         apply_material_egress(state.inventory_state_mut(), self.egress);
         state.energy_state_mut().apply_upgrade(
-            self.store,
-            self.expected_definition,
-            self.target_definition,
-            self.additions,
+            mutation,
             self.expected_energy_revision,
             self.next_energy_revision,
         );

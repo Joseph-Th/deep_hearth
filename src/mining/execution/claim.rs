@@ -134,12 +134,18 @@ impl ValidatedMiningClaim {
                 actual: state.inventory().revision(),
             });
         }
+        self.inventory.assert_matches_state(state.inventory());
         if state.mining().revision() != self.expected_mining_revision {
             return Err(MiningClaimCommitError::StaleMining {
                 expected: self.expected_mining_revision,
                 actual: state.mining().revision(),
             });
         }
+        state.mining().assert_ready_job_removable(
+            self.job,
+            self.expected_mining_revision,
+            self.next_mining_revision,
+        );
         if let Some(load) = self.structural_load {
             load.commit(state)
                 .map_err(MiningClaimCommitError::Structure)?;

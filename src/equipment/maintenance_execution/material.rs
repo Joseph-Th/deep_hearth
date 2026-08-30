@@ -54,6 +54,11 @@ impl ValidatedMaintenanceMaterial {
     ) -> Result<(), EquipmentMaintenanceCommitError> {
         match self {
             Self::Aggregate(material) => {
+                state.equipment().assert_condition_change_available(
+                    equipment,
+                    condition_before,
+                    next_equipment_revision,
+                );
                 material.commit(state).map_err(map_reform_commit_error)?;
                 state.equipment_state_mut().apply_condition_change(
                     equipment,
@@ -69,12 +74,31 @@ impl ValidatedMaintenanceMaterial {
                 worn_ingress,
                 structural,
             } => {
+                let mutation = EquipmentComponentMaintenanceMutation {
+                    equipment,
+                    component,
+                    condition_before,
+                    condition_after,
+                    replacement,
+                };
+                state.equipment().assert_component_maintenance_available(
+                    &mutation,
+                    expected_equipment_revision,
+                    next_equipment_revision,
+                );
                 if state.inventory().revision() != egress.expected_revision() {
                     return Err(EquipmentMaintenanceCommitError::StaleInventoryRevision {
                         expected: egress.expected_revision(),
                         actual: state.inventory().revision(),
                     });
                 }
+                egress.assert_matches_state(state.inventory());
+                assert_eq!(
+                    state.inventory().revision().checked_add(1),
+                    Some(worn_ingress.expected_revision()),
+                    "maintenance spent-material ingress must follow replacement-material egress"
+                );
+                worn_ingress.assert_matches_state_after_egress(state.inventory(), &egress);
                 if let Some(structural) = structural {
                     structural
                         .commit(state)
@@ -82,13 +106,7 @@ impl ValidatedMaintenanceMaterial {
                 }
                 apply_material_egress(state.inventory_state_mut(), egress);
                 state.equipment_state_mut().apply_component_maintenance(
-                    EquipmentComponentMaintenanceMutation {
-                        equipment,
-                        component,
-                        condition_before,
-                        condition_after,
-                        replacement,
-                    },
+                    mutation,
                     expected_equipment_revision,
                     next_equipment_revision,
                 );

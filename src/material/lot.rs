@@ -68,17 +68,7 @@ impl MaterialInputSpec {
         if mass.is_zero() {
             return Err(MaterialInputSpecError::ZeroMass);
         }
-        constraints.sort_by_key(|constraint| constraint.material());
-        for pair in constraints.windows(2) {
-            if pair[0].material() == pair[1].material() {
-                return Err(MaterialInputSpecError::DuplicateConstraint {
-                    material: pair[0].material(),
-                });
-            }
-        }
-        let minimum_total_ppm = constraints.iter().fold(0_u64, |total, constraint| {
-            total.saturating_add(u64::from(constraint.minimum_parts_per_million()))
-        });
+        let minimum_total_ppm = canonicalize_constraints(&mut constraints)?;
         let host_constraint = constraints
             .iter()
             .find(|constraint| constraint.material() == commodity.material());
@@ -91,8 +81,7 @@ impl MaterialInputSpec {
         let host_minimum_ppm = host_constraint
             .map(|constraint| constraint.minimum_parts_per_million())
             .unwrap_or(0);
-        let minimum_required_ppm =
-            minimum_total_ppm.saturating_add(u64::from((host_minimum_ppm == 0) as u8));
+        let minimum_required_ppm = minimum_total_ppm + u64::from(host_minimum_ppm == 0);
         if minimum_required_ppm > u64::from(COMPOSITION_PARTS_PER_MILLION) {
             return Err(MaterialInputSpecError::ImpossibleMinimumTotal {
                 total_ppm: minimum_required_ppm,
@@ -138,6 +127,31 @@ impl MaterialInputSpec {
             .iter()
             .all(|constraint| constraint.is_satisfied_by(composition))
     }
+}
+
+fn canonicalize_constraints(
+    constraints: &mut [CompositionConstraint],
+) -> Result<u64, MaterialInputSpecError> {
+    constraints.sort_by_key(|constraint| constraint.material());
+    for pair in constraints.windows(2) {
+        if pair[0].material() == pair[1].material() {
+            return Err(MaterialInputSpecError::DuplicateConstraint {
+                material: pair[0].material(),
+            });
+        }
+    }
+
+    let maximum_total_ppm = u64::from(COMPOSITION_PARTS_PER_MILLION);
+    let mut minimum_total_ppm = 0_u64;
+    for constraint in constraints {
+        minimum_total_ppm += u64::from(constraint.minimum_parts_per_million());
+        if minimum_total_ppm > maximum_total_ppm {
+            return Err(MaterialInputSpecError::ImpossibleMinimumTotal {
+                total_ppm: minimum_total_ppm,
+            });
+        }
+    }
+    Ok(minimum_total_ppm)
 }
 
 /// Construction failure for a composition-aware material input requirement.

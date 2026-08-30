@@ -148,6 +148,12 @@ impl ValidatedEquipmentSupportChange {
                 completes_at: job.completes_at(),
             });
         }
+        state.equipment().assert_support_change_available(
+            self.equipment,
+            self.before,
+            self.after,
+            self.next_equipment_revision,
+        );
 
         let structural = self
             .structural

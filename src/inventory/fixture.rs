@@ -180,6 +180,7 @@ pub(crate) fn deposit_lot_spec_for_fixture(
         [StockpileStoredMassChange::new(stockpile, stored_after)],
     )
     .map_err(MaterialFixtureError::StructuralLoad)?;
+    ingress.assert_matches_state(state.inventory());
     if let Some(structural) = structural {
         structural
             .commit(state)

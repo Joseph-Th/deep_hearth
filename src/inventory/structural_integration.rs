@@ -220,6 +220,12 @@ impl ValidatedStockpileSupportChange {
                 release: job.occupancy_release(),
             });
         }
+        state.inventory().assert_support_change_available(
+            self.stockpile,
+            self.before,
+            self.after,
+            self.next_inventory_revision,
+        );
 
         let structural = self
             .structural

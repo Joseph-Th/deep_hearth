@@ -58,7 +58,8 @@ pub(crate) use structural_execution::{
     ValidatedStructuralLoadChange, validate_owned_structural_load_change,
 };
 pub(crate) use support_index::{
-    SupportIndexValidationFault, apply_support_index_change, validate_support_index,
+    SupportIndexValidationFault, apply_support_index_change, assert_support_index_change_available,
+    validate_support_index,
 };
 
 #[cfg(test)]

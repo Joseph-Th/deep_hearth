@@ -11,6 +11,8 @@ use crate::content::{
 };
 use crate::core::quantity::{Length, Mass};
 use crate::core::state::{StateValidationError, validate_loaded_state};
+#[cfg(feature = "test-soak")]
+use crate::core::time::TickSpan;
 use crate::core::time::WorldSeed;
 use crate::energy::{
     EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store_with_initial_for_fixture,

@@ -176,3 +176,151 @@ fn delayed_reserved_output_uses_admission_time_for_merging_and_preserves_creatio
         Some(storage_age_parts)
     );
 }
+
+#[test]
+fn malformed_reserved_deposit_identity_plan_fails_before_authoritative_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_3005));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("malformed reserved ingress stockpile failed: {error}"));
+    get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
+        Mass::from_milligrams(10);
+    let output = MaterialLotSpec::new(
+        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(500_000),
+    );
+    let mut plan = decide_reserved_deposits(
+        &registries,
+        state.inventory(),
+        state.tick(),
+        state.tick(),
+        vec![ReservedDepositRequest::new(destination, vec![output], 0)],
+    )
+    .unwrap_or_else(|error| panic!("malformed reserved ingress planning failed: {error:?}"));
+    plan.entries[0].lot_ids.clear();
+    let before = state.clone();
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        apply_reserved_deposits(state.inventory_state_mut(), plan);
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(state, before);
+}
+
+#[test]
+fn shape_valid_but_wrong_reserved_identity_fails_before_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_3006));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("wrong reserved identity stockpile failed: {error}"));
+    get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
+        Mass::from_milligrams(10);
+    let output = MaterialLotSpec::new(
+        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(500_000),
+    );
+    let mut plan = decide_reserved_deposits(
+        &registries,
+        state.inventory(),
+        state.tick(),
+        state.tick(),
+        vec![ReservedDepositRequest::new(destination, vec![output], 0)],
+    )
+    .unwrap_or_else(|error| panic!("wrong reserved identity planning failed: {error:?}"));
+    plan.entries[0].lot_ids[0] = MaterialLotId::new(plan.entries[0].lot_ids[0].value() + 1);
+    let before = state.clone();
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        apply_reserved_deposits(state.inventory_state_mut(), plan);
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(state, before);
+}
+
+#[test]
+fn shape_valid_but_wrong_reserved_cursor_fails_before_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_3007));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("wrong reserved cursor stockpile failed: {error}"));
+    get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
+        Mass::from_milligrams(10);
+    let output = MaterialLotSpec::new(
+        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(500_000),
+    );
+    let mut plan = decide_reserved_deposits(
+        &registries,
+        state.inventory(),
+        state.tick(),
+        state.tick(),
+        vec![ReservedDepositRequest::new(destination, vec![output], 0)],
+    )
+    .unwrap_or_else(|error| panic!("wrong reserved cursor planning failed: {error:?}"));
+    plan.next_lot_id += 1;
+    let before = state.clone();
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        apply_reserved_deposits(state.inventory_state_mut(), plan);
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(state, before);
+}
+
+#[test]
+fn same_destination_reserved_entries_are_preflighted_as_one_total() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_3008));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("combined reserved stockpile failed: {error}"));
+    get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
+        Mass::from_milligrams(10);
+    let first = MaterialLotSpec::new(
+        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        Mass::from_milligrams(6),
+        Temperature::from_millikelvin(500_000),
+    );
+    let second = MaterialLotSpec::new(
+        CommodityKey::new(MATERIAL_CHARCOAL, FORM_LUMP),
+        Mass::from_milligrams(4),
+        Temperature::from_millikelvin(500_000),
+    );
+    let plan = decide_reserved_deposits(
+        &registries,
+        state.inventory(),
+        state.tick(),
+        state.tick(),
+        vec![
+            ReservedDepositRequest::new(destination, vec![first], 0),
+            ReservedDepositRequest::new(destination, vec![second], 0),
+        ],
+    )
+    .unwrap_or_else(|error| panic!("combined reserved planning failed: {error:?}"));
+
+    // Simulate an internal ownership defect that preserves the inventory revision while reducing
+    // the aggregate reservation below the two planned entries combined.
+    get_stockpile_mut_or_panic(state.inventory_state_mut(), destination).reserved_inbound =
+        Mass::from_milligrams(9);
+    let before = state.clone();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        apply_reserved_deposits(state.inventory_state_mut(), plan);
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(state, before);
+}
+
+#[test]
+fn empty_reserved_deposit_request_is_rejected_at_construction() {
+    let destination = StockpileId::new(1);
+    assert!(
+        std::panic::catch_unwind(|| ReservedDepositRequest::new(destination, Vec::new(), 0))
+            .is_err()
+    );
+}

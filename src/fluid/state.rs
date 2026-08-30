@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Temperature, Volume};
 use crate::core::time::SimulationTick;
-use crate::structural::{StructuralElementId, apply_support_index_change};
+use crate::structural::{
+    StructuralElementId, apply_support_index_change, assert_support_index_change_available,
+};
 
 use super::definitions::FluidDefinitionId;
 
@@ -228,8 +230,8 @@ impl FluidState {
             .flat_map(|stores| stores.iter().copied())
     }
 
-    pub(super) fn apply_support_change(
-        &mut self,
+    pub(super) fn assert_support_change_available(
+        &self,
         store: FluidStoreId,
         before: Option<StructuralElementId>,
         after: Option<StructuralElementId>,
@@ -251,6 +253,17 @@ impl FluidState {
             record.supported_by, before,
             "runtime invariant broken: fluid store support record disagrees with support index"
         );
+        assert_support_index_change_available(&self.stores_by_support, store, before, after);
+    }
+
+    pub(super) fn apply_support_change(
+        &mut self,
+        store: FluidStoreId,
+        before: Option<StructuralElementId>,
+        after: Option<StructuralElementId>,
+        next_revision: u64,
+    ) {
+        self.assert_support_change_available(store, before, after, next_revision);
         apply_support_index_change(&mut self.stores_by_support, store, before, after);
         let record = match self.records.get_mut(&store) {
             Some(record) => record,

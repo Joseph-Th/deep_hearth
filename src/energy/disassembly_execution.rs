@@ -350,6 +350,12 @@ impl ValidatedEnergyStoreDisassembly {
                 store: self.store,
             });
         }
+        self.ingress.assert_matches_state(state.inventory());
+        state.energy().assert_removal_available(
+            self.store,
+            self.expected_energy_revision,
+            self.next_energy_revision,
+        );
         if let Some(load) = self.structural_load {
             load.commit(state)
                 .map_err(EnergyStoreDisassemblyCommitError::Structure)?;

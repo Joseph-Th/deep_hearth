@@ -88,13 +88,8 @@ where
     Ok(())
 }
 
-/// Applies one already-validated structural-support reassignment to an owner's reverse index.
-///
-/// The owning subsystem remains responsible for its authoritative record and revision. This operation
-/// owns only the repeated derived-index invariant: the prior membership must exist, a distinct target
-/// membership must not already exist, empty buckets are removed, and the final membership is unique.
-pub(crate) fn apply_support_index_change<Id>(
-    index: &mut BTreeMap<StructuralElementId, BTreeSet<Id>>,
+pub(crate) fn assert_support_index_change_available<Id>(
+    index: &BTreeMap<StructuralElementId, BTreeSet<Id>>,
     item: Id,
     before: Option<StructuralElementId>,
     after: Option<StructuralElementId>,
@@ -119,6 +114,22 @@ pub(crate) fn apply_support_index_change<Id>(
             "runtime invariant broken: structural support index {after:?} already contains {item:?}"
         );
     }
+}
+
+/// Applies one already-validated structural-support reassignment to an owner's reverse index.
+///
+/// The owning subsystem remains responsible for its authoritative record and revision. This operation
+/// owns only the repeated derived-index invariant: the prior membership must exist, a distinct target
+/// membership must not already exist, empty buckets are removed, and the final membership is unique.
+pub(crate) fn apply_support_index_change<Id>(
+    index: &mut BTreeMap<StructuralElementId, BTreeSet<Id>>,
+    item: Id,
+    before: Option<StructuralElementId>,
+    after: Option<StructuralElementId>,
+) where
+    Id: Copy + Debug + Ord,
+{
+    assert_support_index_change_available(index, item, before, after);
 
     if let Some(before) = before {
         let remove_bucket = {

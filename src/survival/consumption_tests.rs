@@ -61,6 +61,84 @@ fn finish_direct_consumption(registries: &Registries, state: &mut AppState) -> u
 }
 
 #[test]
+fn death_during_drinking_releases_attention_and_discards_unabsorbed_intake_next_tick() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0026));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("death-during-drink survival setup failed: {error}"));
+    let physiology = registries.survival().physiology();
+    let expected_revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        expected_revision,
+        expected_revision + 1,
+        player_record(
+            Energy::ZERO,
+            physiology.maximum_hydration(),
+            Vitality::from_parts_per_million_unchecked(
+                physiology.starvation_vitality_loss_ppm_per_tick(),
+            ),
+            NutritionReserves::FULL,
+            0,
+        ),
+    );
+    let volume = physiology.direct_consumption().maximum_drink_volume();
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        volume,
+        FLUID_WATER,
+        volume,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("death-during-drink water fixture failed: {error}"));
+    let _ = validate_drink(&registries, &state, store, volume)
+        .unwrap_or_else(|error| panic!("death-during-drink validation failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("death-during-drink commit failed: {error}"));
+    let PlayerWork::Drinking { work } = state
+        .player_work()
+        .active()
+        .unwrap_or_else(|| panic!("death-during-drink did not claim player attention"))
+    else {
+        panic!("death-during-drink claimed the wrong player-work kind");
+    };
+    assert!(work.completes_at().value() > state.tick().value() + 1);
+
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("death-during-drink fatal tick failed: {error}"));
+    assert_eq!(
+        state.survival().player().map(|player| player.vitality()),
+        Some(Vitality::ZERO)
+    );
+    assert!(matches!(
+        state.player_work().active(),
+        Some(PlayerWork::Drinking { .. })
+    ));
+    assert!(state.survival().pending_direct_consumption().is_some());
+    let hydration_at_death = state
+        .survival()
+        .player()
+        .unwrap_or_else(|| panic!("death-during-drink player disappeared"))
+        .hydration();
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("death-during-drink fatal state failed audit: {error}"));
+
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("death-during-drink cleanup tick failed: {error}"));
+    assert_eq!(state.player_work().active(), None);
+    assert!(state.survival().pending_direct_consumption().is_none());
+    assert_eq!(
+        state
+            .survival()
+            .player()
+            .map(|player| (player.vitality(), player.hydration())),
+        Some((Vitality::ZERO, hydration_at_death))
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("death-during-drink cleanup state failed audit: {error}"));
+}
+
+#[test]
 fn direct_consumption_rejects_unsafe_food_and_water_temperatures_without_mutation() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5A70_0018));

@@ -206,9 +206,9 @@ impl MiningState {
         self.due_jobs.get(&tick)
     }
 
-    pub(crate) fn insert_job(
-        &mut self,
-        record: MiningJobRecord,
+    pub(crate) fn assert_job_insertable(
+        &self,
+        record: &MiningJobRecord,
         next_job_id: u64,
         next_revision: u64,
     ) {
@@ -239,6 +239,16 @@ impl MiningState {
             "runtime invariant broken: mining due index already contains job {}",
             id.value()
         );
+    }
+
+    pub(crate) fn insert_job(
+        &mut self,
+        record: MiningJobRecord,
+        next_job_id: u64,
+        next_revision: u64,
+    ) {
+        self.assert_job_insertable(&record, next_job_id, next_revision);
+        let id = record.identity.id;
         let inserted = self
             .due_jobs
             .entry(record.schedule.completes_at)
@@ -266,19 +276,17 @@ impl MiningState {
         next_revision: u64,
         completion_tick: SimulationTick,
     ) -> Vec<MiningJobId> {
-        assert_eq!(self.revision, expected_revision);
-        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        self.assert_due_jobs_ready_available(expected_revision, next_revision, completion_tick);
         let jobs = self
             .due_jobs
             .remove(&completion_tick)
-            .unwrap_or_else(|| panic!("validated due mining bucket disappeared"));
+            .unwrap_or_else(|| unreachable!("due mining bucket was prechecked"));
         let mut ready = Vec::with_capacity(jobs.len());
         for id in jobs {
             let record = self
                 .jobs
                 .get_mut(&id)
-                .unwrap_or_else(|| panic!("validated mining job disappeared"));
-            assert!(record.is_working());
+                .unwrap_or_else(|| unreachable!("due mining job was prechecked"));
             record.schedule.phase = MiningJobPhase::ReadyToClaim;
             let removed = self.equipment_occupancy.remove(&record.equipment());
             assert_eq!(removed, Some(id));
@@ -288,19 +296,64 @@ impl MiningState {
         ready
     }
 
+    pub(crate) fn assert_due_jobs_ready_available(
+        &self,
+        expected_revision: u64,
+        next_revision: u64,
+        completion_tick: SimulationTick,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        let jobs = self
+            .due_jobs
+            .get(&completion_tick)
+            .unwrap_or_else(|| panic!("validated due mining bucket disappeared"));
+        assert!(!jobs.is_empty(), "due mining bucket cannot be empty");
+        for &id in jobs {
+            let record = self
+                .jobs
+                .get(&id)
+                .unwrap_or_else(|| panic!("validated mining job disappeared"));
+            assert!(record.is_working());
+            assert_eq!(record.completes_at(), completion_tick);
+            assert_eq!(self.equipment_occupancy.get(&record.equipment()), Some(&id));
+        }
+    }
+
+    pub(crate) fn assert_ready_job_removable(
+        &self,
+        id: MiningJobId,
+        expected_revision: u64,
+        next_revision: u64,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        let record = self
+            .jobs
+            .get(&id)
+            .unwrap_or_else(|| panic!("validated mining claim job disappeared"));
+        assert!(record.is_ready_to_claim());
+        assert!(
+            self.due_jobs.values().all(|jobs| !jobs.contains(&id)),
+            "ready mining job remained in due index"
+        );
+        assert!(
+            self.equipment_occupancy.values().all(|job| *job != id),
+            "ready mining job retained equipment occupancy"
+        );
+    }
+
     pub(crate) fn remove_ready_job(
         &mut self,
         id: MiningJobId,
         expected_revision: u64,
         next_revision: u64,
     ) -> MiningJobRecord {
-        assert_eq!(self.revision, expected_revision);
-        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        self.assert_ready_job_removable(id, expected_revision, next_revision);
         let record = self
             .jobs
             .remove(&id)
-            .unwrap_or_else(|| panic!("validated mining claim job disappeared"));
-        assert!(record.is_ready_to_claim());
+            .unwrap_or_else(|| unreachable!("ready mining claim job was prechecked"));
         self.revision = next_revision;
         record
     }

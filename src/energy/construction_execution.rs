@@ -179,6 +179,12 @@ impl ValidatedEnergyStoreAssembly {
                 actual: state.energy().revision(),
             });
         }
+        state.energy().assert_allocation_available(
+            &self.record,
+            self.next_store_id,
+            self.next_energy_revision,
+        );
+        self.egress.assert_matches_state(state.inventory());
         if let Some(load) = self.structural_load {
             load.commit(state)
                 .map_err(EnergyStoreAssemblyCommitError::Structure)?;

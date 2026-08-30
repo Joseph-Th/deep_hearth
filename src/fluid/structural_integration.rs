@@ -258,6 +258,12 @@ impl ValidatedFluidSupportChange {
                 actual: record.supported_by(),
             });
         }
+        state.fluid().assert_support_change_available(
+            self.store,
+            self.before,
+            self.after,
+            self.next_fluid_revision,
+        );
         let structural = self
             .structural
             .commit(state)

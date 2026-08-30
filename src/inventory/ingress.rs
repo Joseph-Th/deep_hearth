@@ -28,6 +28,7 @@ use super::storage_validation::{
     validate_stockpile_storage,
 };
 
+mod integrity;
 mod projection;
 
 pub(crate) use projection::validate_material_ingress_after_egress;
@@ -243,6 +244,7 @@ pub(crate) struct ValidatedMaterialIngress {
     entries: Vec<MaterialIngressEntry>,
     lot_ids: Vec<MaterialLotId>,
     merge_policies: Vec<LotMergePolicy>,
+    excluded_existing: BTreeSet<MaterialLotId>,
     next_lot_id: u64,
     current_tick: SimulationTick,
 }
@@ -263,6 +265,7 @@ struct IngressMassSummary {
 struct IngressIdentityPlan {
     lot_ids: Vec<MaterialLotId>,
     merge_policies: Vec<LotMergePolicy>,
+    excluded_existing: BTreeSet<MaterialLotId>,
     next_lot_id: u64,
 }
 
@@ -426,11 +429,36 @@ fn plan_ingress_identities(
         .iter()
         .map(|entry| LotMergePolicy::for_commodity(registries, entry.profile.commodity()))
         .collect::<Vec<_>>();
+    replay_ingress_identity_plan(
+        state,
+        destination_record,
+        destination,
+        entries,
+        current_tick,
+        excluded_existing,
+        merge_policies,
+    )
+}
+
+fn replay_ingress_identity_plan(
+    state: &InventoryState,
+    destination_record: &StockpileRecord,
+    destination: StockpileId,
+    entries: &[MaterialIngressEntry],
+    current_tick: SimulationTick,
+    excluded_existing: BTreeSet<MaterialLotId>,
+    merge_policies: Vec<LotMergePolicy>,
+) -> Result<IngressIdentityPlan, MaterialIngressError> {
+    assert_eq!(
+        entries.len(),
+        merge_policies.len(),
+        "ingress identity planning requires one merge policy per parcel"
+    );
     let preservation_multiplier_ppm = destination_record
         .storage_profile()
         .preservation_multiplier_ppm();
     let storage_history = MaterialStorageHistory::new(current_tick);
-    let mut identity_planner = LotIdentityPlanner::new(state, excluded_existing);
+    let mut identity_planner = LotIdentityPlanner::new(state, excluded_existing.iter().copied());
     let mut lot_ids = Vec::with_capacity(entries.len());
     for (entry, merge_policy) in entries.iter().zip(&merge_policies) {
         lot_ids.push(
@@ -449,6 +477,7 @@ fn plan_ingress_identities(
     Ok(IngressIdentityPlan {
         lot_ids,
         merge_policies,
+        excluded_existing,
         next_lot_id: identity_planner.next_lot_id(),
     })
 }
@@ -499,6 +528,7 @@ pub(crate) fn validate_material_ingress(
         entries,
         lot_ids: identity_plan.lot_ids,
         merge_policies: identity_plan.merge_policies,
+        excluded_existing: identity_plan.excluded_existing,
         next_lot_id: identity_plan.next_lot_id,
         current_tick,
     })
@@ -509,6 +539,7 @@ pub(crate) fn apply_material_ingress(
     state: &mut InventoryState,
     ingress: ValidatedMaterialIngress,
 ) -> Vec<MaterialLotId> {
+    ingress.assert_matches_state(state);
     let ValidatedMaterialIngress {
         expected_revision,
         next_revision,
@@ -516,6 +547,7 @@ pub(crate) fn apply_material_ingress(
         entries,
         lot_ids,
         merge_policies,
+        excluded_existing: _,
         next_lot_id,
         current_tick,
     } = ingress;
@@ -523,16 +555,6 @@ pub(crate) fn apply_material_ingress(
         state.revision(),
         expected_revision,
         "material ingress commit requires its validated inventory revision"
-    );
-    debug_assert_eq!(
-        entries.len(),
-        lot_ids.len(),
-        "validated material ingress must bind one lot identity per parcel"
-    );
-    debug_assert_eq!(
-        entries.len(),
-        merge_policies.len(),
-        "validated material ingress must bind one lot merge policy per parcel"
     );
 
     let preservation_multiplier_ppm = state

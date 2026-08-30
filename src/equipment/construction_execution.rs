@@ -189,6 +189,12 @@ impl ValidatedEquipmentAssembly {
                 actual: state.equipment().revision(),
             });
         }
+        state.equipment().assert_allocation_available(
+            &self.record,
+            self.next_equipment_id,
+            self.next_equipment_revision,
+        );
+        self.egress.assert_matches_state(state.inventory());
         if let Some(load) = self.structural_load {
             load.commit(state)
                 .map_err(EquipmentAssemblyCommitError::Structure)?;

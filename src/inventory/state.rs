@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::time::SimulationTick;
 use crate::material::CommodityKey;
-use crate::structural::{StructuralElementId, apply_support_index_change};
+use crate::structural::{
+    StructuralElementId, apply_support_index_change, assert_support_index_change_available,
+};
 
 use super::StorageDefinitionId;
 
@@ -353,8 +355,8 @@ impl InventoryState {
             .flat_map(|stockpiles| stockpiles.iter().copied())
     }
 
-    pub(super) fn apply_support_change(
-        &mut self,
+    pub(super) fn assert_support_change_available(
+        &self,
         stockpile: StockpileId,
         before: Option<StructuralElementId>,
         after: Option<StructuralElementId>,
@@ -376,6 +378,22 @@ impl InventoryState {
             record.supported_by, before,
             "runtime invariant broken: stockpile support record disagrees with support index"
         );
+        assert_support_index_change_available(
+            &self.stockpiles_by_support,
+            stockpile,
+            before,
+            after,
+        );
+    }
+
+    pub(super) fn apply_support_change(
+        &mut self,
+        stockpile: StockpileId,
+        before: Option<StructuralElementId>,
+        after: Option<StructuralElementId>,
+        next_revision: u64,
+    ) {
+        self.assert_support_change_available(stockpile, before, after, next_revision);
         apply_support_index_change(&mut self.stockpiles_by_support, stockpile, before, after);
         let record = match self.stockpiles.get_mut(&stockpile) {
             Some(record) => record,

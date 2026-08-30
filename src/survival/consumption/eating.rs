@@ -306,6 +306,11 @@ impl ValidatedEat {
                 actual: actual_inventory_revision,
             });
         }
+        self.egress.assert_matches_state(state.inventory());
+        state.survival().assert_direct_consumption_begin_available(
+            self.expected_survival_revision,
+            self.next_survival_revision,
+        );
         if let Some(structural) = self.structural {
             structural
                 .commit(state)

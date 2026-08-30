@@ -35,8 +35,34 @@ impl ValidatedInboundReservation {
         self.expected_revision
     }
 
-    pub(crate) fn apply(self, state: &mut InventoryState) {
+    pub(crate) fn assert_matches_state(&self, state: &InventoryState) {
         assert_eq!(state.revision(), self.expected_revision);
+        assert_eq!(
+            self.expected_revision.checked_add(1),
+            Some(self.next_revision),
+            "inbound reservation must advance the inventory revision exactly once"
+        );
+        let record = state.get_stockpile(self.stockpile).unwrap_or_else(|| {
+            panic!(
+                "validated inbound reservation stockpile {} disappeared",
+                self.stockpile.value()
+            )
+        });
+        let committed = record
+            .stored_mass()
+            .checked_add(record.reserved_inbound())
+            .unwrap_or_else(|| panic!("validated inbound reservation committed mass overflowed"));
+        let after = committed
+            .checked_add(self.mass)
+            .unwrap_or_else(|| panic!("validated inbound reservation mass overflowed"));
+        assert!(
+            after <= record.capacity(),
+            "validated inbound reservation exceeds stockpile capacity"
+        );
+    }
+
+    pub(crate) fn apply(self, state: &mut InventoryState) {
+        self.assert_matches_state(state);
         let record = get_stockpile_mut_or_panic(state, self.stockpile);
         record.reserved_inbound = match record.reserved_inbound.checked_add(self.mass) {
             Some(value) => value,

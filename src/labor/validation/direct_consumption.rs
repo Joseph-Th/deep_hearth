@@ -2,51 +2,56 @@
 
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
-use crate::labor::{DrinkingWork, EatingWork};
+use crate::labor::{DrinkingWork, EatingWork, PlayerWork};
 use crate::registry::Registries;
 use crate::survival::PendingDirectConsumption;
 
 use super::{ActivePlayerJobs, PlayerWorkValidationError};
 
+fn validate_eating_binding(
+    work: EatingWork,
+    pending: Option<&PendingDirectConsumption>,
+) -> Result<(), PlayerWorkValidationError> {
+    match pending {
+        None => Err(PlayerWorkValidationError::EatingConsumptionMissing),
+        Some(PendingDirectConsumption::Eating(pending))
+            if pending.total_mass() == Some(work.mass())
+                && pending.started_at() == work.started_at()
+                && pending.completes_at() == work.completes_at() =>
+        {
+            Ok(())
+        }
+        Some(_) => Err(PlayerWorkValidationError::EatingConsumptionMismatch),
+    }
+}
+
+fn validate_drinking_binding(
+    work: DrinkingWork,
+    pending: Option<&PendingDirectConsumption>,
+) -> Result<(), PlayerWorkValidationError> {
+    match pending {
+        None => Err(PlayerWorkValidationError::DrinkingConsumptionMissing),
+        Some(PendingDirectConsumption::Drinking(pending))
+            if pending.volume() == work.volume()
+                && pending.started_at() == work.started_at()
+                && pending.completes_at() == work.completes_at() =>
+        {
+            Ok(())
+        }
+        Some(_) => Err(PlayerWorkValidationError::DrinkingConsumptionMismatch),
+    }
+}
+
 pub(super) fn validate_direct_consumption_binding(
     state: &AppState,
-    active: Option<crate::labor::PlayerWork>,
+    active: Option<PlayerWork>,
 ) -> Result<(), PlayerWorkValidationError> {
-    match (active, state.survival().pending_direct_consumption()) {
-        (None, None) => Ok(()),
-        (None, Some(_)) => Err(PlayerWorkValidationError::PendingDirectConsumptionWithoutWork),
-        (
-            Some(crate::labor::PlayerWork::Eating { work }),
-            Some(PendingDirectConsumption::Eating(pending)),
-        ) if pending.total_mass() == Some(work.mass())
-            && pending.started_at() == work.started_at()
-            && pending.completes_at() == work.completes_at() =>
-        {
-            Ok(())
-        }
-        (Some(crate::labor::PlayerWork::Eating { .. }), None) => {
-            Err(PlayerWorkValidationError::EatingConsumptionMissing)
-        }
-        (Some(crate::labor::PlayerWork::Eating { .. }), Some(_)) => {
-            Err(PlayerWorkValidationError::EatingConsumptionMismatch)
-        }
-        (
-            Some(crate::labor::PlayerWork::Drinking { work }),
-            Some(PendingDirectConsumption::Drinking(pending)),
-        ) if pending.volume() == work.volume()
-            && pending.started_at() == work.started_at()
-            && pending.completes_at() == work.completes_at() =>
-        {
-            Ok(())
-        }
-        (Some(crate::labor::PlayerWork::Drinking { .. }), None) => {
-            Err(PlayerWorkValidationError::DrinkingConsumptionMissing)
-        }
-        (Some(crate::labor::PlayerWork::Drinking { .. }), Some(_)) => {
-            Err(PlayerWorkValidationError::DrinkingConsumptionMismatch)
-        }
-        (Some(_), None) => Ok(()),
-        (Some(_), Some(_)) => Err(PlayerWorkValidationError::PendingDirectConsumptionWithoutWork),
+    let pending = state.survival().pending_direct_consumption();
+    match active {
+        Some(PlayerWork::Eating { work }) => validate_eating_binding(work, pending),
+        Some(PlayerWork::Drinking { work }) => validate_drinking_binding(work, pending),
+        Some(_) | None if pending.is_none() => Ok(()),
+        Some(_) | None => Err(PlayerWorkValidationError::PendingDirectConsumptionWithoutWork),
     }
 }
 

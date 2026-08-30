@@ -910,23 +910,48 @@ fn retained_primitive_residue_has_one_coherent_later_concentration_route() {
 }
 
 #[test]
-fn copper_melting_capability_requires_the_authored_fusion_temperature() {
+fn built_in_thermal_process_discovery_leaves_dynamic_limits_to_resolvers() {
     let registries = build_registries();
-    let melting_point = registries
-        .materials()
-        .get_material(MATERIAL_COPPER)
-        .and_then(|material| material.properties().thermal().melting_point())
-        .unwrap_or_else(|| panic!("built-in copper lost its fusion temperature"));
-    let process = registries
-        .production()
-        .get_process(PROCESS_MELT_PURE_COPPER)
-        .unwrap_or_else(|| panic!("built-in copper melting process disappeared"));
-
-    assert!(process.capability_requirements().iter().any(|requirement| {
-        requirement.capability() == super::capabilities::CAPABILITY_THERMAL_MAX_TEMPERATURE
-            && requirement.comparison() == CapabilityComparison::AtLeast
-            && requirement.threshold() == CapabilityValue::Temperature(melting_point)
-    }));
+    for (process, transfer_power_capability) in [
+        (
+            PROCESS_HEAT_MATERIAL_BATCH,
+            super::capabilities::CAPABILITY_HEATING_POWER,
+        ),
+        (
+            PROCESS_MELT_PURE_COPPER,
+            super::capabilities::CAPABILITY_HEATING_POWER,
+        ),
+        (
+            PROCESS_CAST_PURE_COPPER,
+            super::capabilities::CAPABILITY_COOLING_POWER,
+        ),
+    ] {
+        let process = registries
+            .production()
+            .get_process(process)
+            .unwrap_or_else(|| panic!("built-in thermal process disappeared"));
+        assert_eq!(
+            process.capability_requirements(),
+            &[
+                CapabilityRequirement::new(
+                    transfer_power_capability,
+                    CapabilityComparison::AtLeast,
+                    CapabilityValue::Power(Power::from_picowatts(1)),
+                ),
+                CapabilityRequirement::new(
+                    super::capabilities::CAPABILITY_THERMAL_MAX_TEMPERATURE,
+                    CapabilityComparison::AtLeast,
+                    CapabilityValue::Temperature(Temperature::from_millikelvin(1)),
+                ),
+                CapabilityRequirement::new(
+                    super::capabilities::CAPABILITY_THERMAL_BATCH,
+                    CapabilityComparison::AtLeast,
+                    CapabilityValue::Mass(Mass::from_milligrams(1)),
+                ),
+            ],
+            "generic thermal provider discovery must not duplicate operation-specific physical limits"
+        );
+    }
 }
 
 #[test]

@@ -12,6 +12,12 @@ use super::state::{
     apply_consume_lot_slice, checked_consumed_material_mass, get_stockpile_mut_or_panic,
 };
 
+mod integrity;
+
+pub(in crate::inventory) use integrity::{
+    assert_consumption_parts_match_state, assert_consumption_parts_well_formed,
+};
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ConsumptionSelectionError {
     UnknownStockpile {
@@ -459,6 +465,7 @@ pub(crate) fn apply_prechecked_consumption_reservation(
     state: &mut InventoryState,
     reservation: ConsumptionReservation,
 ) {
+    reservation.assert_matches_state(state);
     let ConsumptionReservation {
         expected_revision,
         next_revision,

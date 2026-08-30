@@ -54,6 +54,90 @@ fn empty_ingress_is_rejected_without_mutation() {
 }
 
 #[test]
+fn malformed_ingress_identity_plan_fails_before_authoritative_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A61_0007));
+    let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
+    let current_tick = state.tick();
+    let mut ingress = validate_material_ingress(
+        &registries,
+        state.inventory(),
+        destination,
+        [MaterialIngressEntry::from_lot_spec(
+            wood_log_spec(Mass::from_milligrams(2)),
+            current_tick,
+        )],
+        current_tick,
+    )
+    .unwrap_or_else(|error| panic!("malformed-ingress fixture validation failed: {error:?}"));
+    ingress.lot_ids.clear();
+    let before = state.clone();
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = apply_material_ingress(state.inventory_state_mut(), ingress);
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(state, before);
+}
+
+#[test]
+fn shape_valid_but_wrong_ingress_identity_fails_before_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A61_0008));
+    let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
+    let current_tick = state.tick();
+    let mut ingress = validate_material_ingress(
+        &registries,
+        state.inventory(),
+        destination,
+        [MaterialIngressEntry::from_lot_spec(
+            wood_log_spec(Mass::from_milligrams(2)),
+            current_tick,
+        )],
+        current_tick,
+    )
+    .unwrap_or_else(|error| panic!("wrong-identity ingress validation failed: {error:?}"));
+    ingress.lot_ids[0] = MaterialLotId::new(ingress.lot_ids[0].value() + 1);
+    let before = state.clone();
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = apply_material_ingress(state.inventory_state_mut(), ingress);
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(state, before);
+}
+
+#[test]
+fn shape_valid_but_wrong_ingress_cursor_fails_before_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A61_0009));
+    let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
+    let current_tick = state.tick();
+    let mut ingress = validate_material_ingress(
+        &registries,
+        state.inventory(),
+        destination,
+        [MaterialIngressEntry::from_lot_spec(
+            wood_log_spec(Mass::from_milligrams(2)),
+            current_tick,
+        )],
+        current_tick,
+    )
+    .unwrap_or_else(|error| panic!("wrong-cursor ingress validation failed: {error:?}"));
+    ingress.next_lot_id += 1;
+    let before = state.clone();
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = apply_material_ingress(state.inventory_state_mut(), ingress);
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(state, before);
+}
+
+#[test]
 fn compatible_ingress_reuses_existing_identity_without_advancing_lot_cursor() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x1A61_0004));

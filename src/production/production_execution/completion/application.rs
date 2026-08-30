@@ -1,7 +1,11 @@
 //! Atomic application of precomputed production completion and availability decisions.
 
+use std::collections::BTreeSet;
+
 use crate::core::state::AppState;
-use crate::energy::{ReleasedEnergyTrace, apply_released_energy_outcomes};
+use crate::energy::{
+    ReleasedEnergyTrace, apply_released_energy_outcomes, assert_released_energy_outcomes_available,
+};
 use crate::equipment::EquipmentOperationConditionOutcome;
 use crate::inventory::{ReservedDepositPlan, apply_reserved_deposits};
 
@@ -45,10 +49,31 @@ pub(crate) fn apply_completion_plan(
         revisions.expected_structure_revision,
         structural_load.is_some() || !availability_changes.is_empty(),
     )?;
+    inventory_deposits.assert_matches_state(state.inventory());
+    assert_availability_changes_match_state(state, &availability_changes);
+    assert_completion_entries_match_state(state, &entries);
+    if !equipment_outcomes.is_empty() {
+        state
+            .equipment()
+            .assert_operation_condition_outcomes_available(
+                revisions.expected_equipment_revision,
+                revisions.next_equipment_revision,
+                &equipment_outcomes,
+            );
+    }
+    if !released_energy_outcomes.is_empty() {
+        assert_released_energy_outcomes_available(
+            state.energy(),
+            revisions.expected_energy_revision,
+            revisions.next_energy_revision,
+            &released_energy_outcomes,
+        );
+    }
     if let Some(structural_load) = structural_load {
-        debug_assert_eq!(
+        assert_eq!(
             structural_load.expected_revision(),
-            revisions.expected_structure_revision
+            revisions.expected_structure_revision,
+            "completion structural load must bind the planned structure revision"
         );
         structural_load
             .commit(state)
@@ -74,6 +99,98 @@ pub(crate) fn apply_completion_plan(
         completions,
         availability_changes,
     })
+}
+
+fn assert_completion_entries_match_state(state: &AppState, entries: &[CompletionPlanEntry]) {
+    let mut seen_jobs = BTreeSet::new();
+    for entry in entries {
+        assert!(
+            seen_jobs.insert(entry.job),
+            "completion plan contains duplicate production job {}",
+            entry.job.value()
+        );
+        let stored = state
+            .production()
+            .get_job(entry.job)
+            .unwrap_or_else(|| panic!("validated completion references missing production job"));
+        assert_eq!(
+            stored.process(),
+            entry.process,
+            "validated completion process must match its persistent production job"
+        );
+        assert_eq!(
+            stored.output_streams().len(),
+            entry.output_streams.len(),
+            "validated completion must preserve persistent output-stream cardinality"
+        );
+        for (stored_stream, planned_stream) in
+            stored.output_streams().iter().zip(&entry.output_streams)
+        {
+            assert_eq!(
+                stored_stream.id(),
+                planned_stream.id,
+                "validated completion output stream identity changed before commit"
+            );
+            assert_eq!(
+                stored_stream.destination(),
+                planned_stream.destination,
+                "validated completion output destination changed before commit"
+            );
+        }
+        state.production().assert_job_removable(entry.job);
+    }
+}
+
+fn assert_availability_changes_match_state(
+    state: &AppState,
+    changes: &[ProductionAvailabilityChange],
+) {
+    let mut seen_jobs = BTreeSet::new();
+    for change in changes {
+        let job = match *change {
+            ProductionAvailabilityChange::Suspended {
+                job,
+                suspended_at,
+                remaining_active_time,
+                ..
+            } => {
+                state.production().assert_suspend_job_available(
+                    job,
+                    suspended_at,
+                    remaining_active_time,
+                );
+                job
+            }
+            ProductionAvailabilityChange::SuspensionReasonChanged {
+                job,
+                previous,
+                reason,
+            } => {
+                state
+                    .production()
+                    .assert_suspension_reason_change_available(job, previous, reason);
+                job
+            }
+            ProductionAvailabilityChange::Resumed {
+                job,
+                resumed_at,
+                scheduled_completion,
+                ..
+            } => {
+                let _ = state.production().assert_resume_job_available(
+                    job,
+                    resumed_at,
+                    scheduled_completion,
+                );
+                job
+            }
+        };
+        assert!(
+            seen_jobs.insert(job),
+            "completion availability plan contains duplicate production job {}",
+            job.value()
+        );
+    }
 }
 
 fn validate_completion_inventory_revision(
@@ -220,13 +337,7 @@ fn apply_completion_entries(
             .map(|stream| ProcessOutputRoute::new(stream.id, stream.destination))
             .collect::<Vec<_>>();
         let removed = state.production_state_mut().remove_job(job);
-        debug_assert_eq!(removed.process(), process);
-        debug_assert_eq!(removed.output_streams().len(), output_streams.len());
-        for (removed_stream, planned_stream) in removed.output_streams().iter().zip(&output_streams)
-        {
-            debug_assert_eq!(removed_stream.id(), planned_stream.id);
-            debug_assert_eq!(removed_stream.destination(), planned_stream.destination);
-        }
+        assert_eq!(removed.process(), process);
         completions.push(ProcessCompletion {
             job,
             process,

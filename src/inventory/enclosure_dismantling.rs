@@ -328,6 +328,7 @@ impl ValidatedStorageEnclosureDismantling {
                 },
             );
         }
+        self.ingress.assert_matches_state(state.inventory());
         if let Some(structural_load) = self.structural_load {
             structural_load
                 .commit(state)
@@ -453,7 +454,11 @@ pub fn validate_dismantle_storage_enclosure(
     let next_inventory_revision = expected_inventory_revision
         .checked_add(2)
         .ok_or(StorageEnclosureDismantleError::InventoryRevisionExhausted)?;
-    debug_assert_eq!(ingress.expected_revision(), expected_inventory_revision);
+    assert_eq!(
+        ingress.expected_revision(),
+        expected_inventory_revision,
+        "enclosure recovery ingress must bind the dismantling inventory revision"
+    );
     Ok(ValidatedStorageEnclosureDismantling {
         target,
         definition,

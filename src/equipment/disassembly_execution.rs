@@ -416,6 +416,12 @@ impl ValidatedEquipmentDisassembly {
                 equipment: self.equipment,
             });
         }
+        self.ingress.assert_matches_state(state.inventory());
+        state.equipment().assert_removal_available(
+            self.equipment,
+            self.expected_equipment_revision,
+            self.next_equipment_revision,
+        );
         if let Some(load) = self.structural_load {
             load.commit(state)
                 .map_err(EquipmentDisassemblyCommitError::Structure)?;

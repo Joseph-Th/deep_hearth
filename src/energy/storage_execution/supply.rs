@@ -216,6 +216,34 @@ impl EnergyConsumptionReservation {
     pub(crate) const fn trace(&self) -> ConsumedEnergyTrace {
         self.trace
     }
+
+    pub(crate) fn assert_matches_state(&self, state: &EnergyState) {
+        assert_eq!(
+            state.revision(),
+            self.expected_revision,
+            "energy consumption reservation requires its validated owner revision"
+        );
+        assert_eq!(
+            self.expected_revision.checked_add(1),
+            Some(self.next_revision),
+            "energy consumption reservation must advance the energy revision exactly once"
+        );
+        let record = state.get_store(self.trace.source).unwrap_or_else(|| {
+            panic!(
+                "validated energy source {} disappeared before commit",
+                self.trace.source.value()
+            )
+        });
+        assert_eq!(
+            record.definition(),
+            self.trace.definition,
+            "validated energy source definition changed before commit"
+        );
+        assert!(
+            record.stored() >= self.trace.energy,
+            "validated energy source no longer contains reserved energy"
+        );
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -300,11 +328,7 @@ pub(crate) fn apply_prechecked_energy_consumption_reservation(
     state: &mut EnergyState,
     reservation: EnergyConsumptionReservation,
 ) -> ConsumedEnergyTrace {
-    assert_eq!(
-        state.revision(),
-        reservation.expected_revision,
-        "prechecked energy reservation requires its validated energy revision"
-    );
+    reservation.assert_matches_state(state);
     let trace = reservation.trace;
     state.subtract_stored_energy(trace.source, trace.energy);
     state.apply_revision(reservation.next_revision);

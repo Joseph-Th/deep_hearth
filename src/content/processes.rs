@@ -1,6 +1,8 @@
 //! Built-in workshop material transformations with physical resolver ownership.
 
-use crate::capability::{CapabilityComparison, CapabilityRequirement, CapabilityValue};
+use crate::capability::{
+    CapabilityComparison, CapabilityId, CapabilityRequirement, CapabilityValue,
+};
 use crate::core::quantity::{Mass, MassFlow, Power, Temperature};
 use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::production::{ProcessDefinition, ProcessId, ProductionRegistry};
@@ -11,7 +13,6 @@ use super::capabilities::{
     CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW, CAPABILITY_SEPARATOR_BATCH,
     CAPABILITY_SEPARATOR_FLOW, CAPABILITY_THERMAL_BATCH, CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
-use super::materials::COPPER_MELTING_POINT;
 use super::{
     FORM_BOARD, FORM_CHEST_BODY, FORM_DOUBLE_WALL_CHEST_BODY, FORM_LOG, FORM_LUMP,
     FORM_NATIVE_METAL, FORM_SCRAP, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
@@ -40,135 +41,86 @@ pub const PROCESS_SALVAGE_TIMBER_CHEST_BODY: ProcessId = ProcessId::new(20);
 pub const PROCESS_SALVAGE_DOUBLE_WALL_TIMBER_CHEST_BODY: ProcessId = ProcessId::new(21);
 pub const PROCESS_REKNAP_STONE_SCRAP_TOOL: ProcessId = ProcessId::new(22);
 
+fn mass_flow_resolver_requirements(
+    flow_capability: CapabilityId,
+    batch_capability: CapabilityId,
+) -> Vec<CapabilityRequirement> {
+    vec![
+        CapabilityRequirement::new(
+            flow_capability,
+            CapabilityComparison::AtLeast,
+            CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1)),
+        ),
+        CapabilityRequirement::new(
+            batch_capability,
+            CapabilityComparison::AtLeast,
+            CapabilityValue::Mass(Mass::from_milligrams(1)),
+        ),
+    ]
+}
+
+fn thermal_resolver_requirements(
+    transfer_power_capability: CapabilityId,
+) -> Vec<CapabilityRequirement> {
+    // Generic provider discovery only requires the resolver-owned capability dimensions to be
+    // productive. The thermal resolver owns actual target/input temperature, batch, power-duration,
+    // finite-energy, and condition-adjusted admission for each concrete operation.
+    vec![
+        CapabilityRequirement::new(
+            transfer_power_capability,
+            CapabilityComparison::AtLeast,
+            CapabilityValue::Power(Power::from_picowatts(1)),
+        ),
+        CapabilityRequirement::new(
+            CAPABILITY_THERMAL_MAX_TEMPERATURE,
+            CapabilityComparison::AtLeast,
+            CapabilityValue::Temperature(Temperature::from_millikelvin(1)),
+        ),
+        CapabilityRequirement::new(
+            CAPABILITY_THERMAL_BATCH,
+            CapabilityComparison::AtLeast,
+            CapabilityValue::Mass(Mass::from_milligrams(1)),
+        ),
+    ]
+}
+
 pub(crate) fn build_production_registry() -> ProductionRegistry {
     let mut registry = ProductionRegistry::new();
     for process in [
         ProcessDefinition::new_selected_batch(
             PROCESS_CRUSH_ORE,
             "crush ore",
-            vec![
-                CapabilityRequirement::new(
-                    CAPABILITY_CRUSHER_FLOW,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1)),
-                ),
-                CapabilityRequirement::new(
-                    CAPABILITY_CRUSHER_BATCH,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::Mass(Mass::from_milligrams(1)),
-                ),
-            ],
+            mass_flow_resolver_requirements(CAPABILITY_CRUSHER_FLOW, CAPABILITY_CRUSHER_BATCH),
         ),
         ProcessDefinition::new_selected_batch(
             PROCESS_MELT_PURE_COPPER,
             "melt pure copper",
-            vec![
-                CapabilityRequirement::new(
-                    CAPABILITY_HEATING_POWER,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::Power(Power::from_microwatts(100_000_000_000)),
-                ),
-                CapabilityRequirement::new(
-                    CAPABILITY_THERMAL_MAX_TEMPERATURE,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::Temperature(COPPER_MELTING_POINT),
-                ),
-                CapabilityRequirement::new(
-                    CAPABILITY_THERMAL_BATCH,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::Mass(Mass::from_milligrams(1)),
-                ),
-            ],
+            thermal_resolver_requirements(CAPABILITY_HEATING_POWER),
         ),
         ProcessDefinition::new_selected_batch(
             PROCESS_HEAT_MATERIAL_BATCH,
             "sensible heat material batch",
-            vec![
-                CapabilityRequirement::new(
-                    CAPABILITY_HEATING_POWER,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::Power(Power::from_microwatts(100_000_000_000)),
-                ),
-                CapabilityRequirement::new(
-                    CAPABILITY_THERMAL_MAX_TEMPERATURE,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::Temperature(COPPER_MELTING_POINT),
-                ),
-                CapabilityRequirement::new(
-                    CAPABILITY_THERMAL_BATCH,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::Mass(Mass::from_milligrams(1)),
-                ),
-            ],
+            thermal_resolver_requirements(CAPABILITY_HEATING_POWER),
         ),
         ProcessDefinition::new_selected_batch(
             PROCESS_CAST_PURE_COPPER,
             "cast pure copper",
-            vec![
-                CapabilityRequirement::new(
-                    CAPABILITY_COOLING_POWER,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::Power(Power::from_microwatts(100_000_000_000)),
-                ),
-                CapabilityRequirement::new(
-                    CAPABILITY_THERMAL_MAX_TEMPERATURE,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::Temperature(Temperature::from_millikelvin(1_400_000)),
-                ),
-                CapabilityRequirement::new(
-                    CAPABILITY_THERMAL_BATCH,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::Mass(Mass::from_milligrams(1)),
-                ),
-            ],
+            thermal_resolver_requirements(CAPABILITY_COOLING_POWER),
         ),
         ProcessDefinition::new_selected_batch(
             PROCESS_SCREEN_CRUSHED_ORE,
             "screen crushed ore",
-            vec![
-                CapabilityRequirement::new(
-                    CAPABILITY_SCREEN_FLOW,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1)),
-                ),
-                CapabilityRequirement::new(
-                    CAPABILITY_SCREEN_BATCH,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::Mass(Mass::from_milligrams(1)),
-                ),
-            ],
+            mass_flow_resolver_requirements(CAPABILITY_SCREEN_FLOW, CAPABILITY_SCREEN_BATCH),
         ),
         ProcessDefinition::new_selected_batch(
             PROCESS_GRIND_CRUSHED_ORE,
             "grind crushed ore",
-            vec![
-                CapabilityRequirement::new(
-                    CAPABILITY_GRINDER_FLOW,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1)),
-                ),
-                CapabilityRequirement::new(
-                    CAPABILITY_GRINDER_BATCH,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::Mass(Mass::from_milligrams(1)),
-                ),
-            ],
+            mass_flow_resolver_requirements(CAPABILITY_GRINDER_FLOW, CAPABILITY_GRINDER_BATCH),
         ),
         ProcessDefinition::new_selected_batch(
             PROCESS_FINE_GRIND_SCREEN_OVERSIZE,
             "fine grind screen oversize",
-            vec![
-                CapabilityRequirement::new(
-                    CAPABILITY_GRINDER_FLOW,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1)),
-                ),
-                CapabilityRequirement::new(
-                    CAPABILITY_GRINDER_BATCH,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::Mass(Mass::from_milligrams(1)),
-                ),
-            ],
+            mass_flow_resolver_requirements(CAPABILITY_GRINDER_FLOW, CAPABILITY_GRINDER_BATCH),
         ),
         ProcessDefinition::new_selected_batch(
             PROCESS_HAND_SORT_NATIVE_COPPER,
@@ -233,34 +185,12 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
         ProcessDefinition::new_selected_batch(
             PROCESS_SEPARATE_NATIVE_COPPER,
             "separate native copper from crushed ore",
-            vec![
-                CapabilityRequirement::new(
-                    CAPABILITY_SEPARATOR_FLOW,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1)),
-                ),
-                CapabilityRequirement::new(
-                    CAPABILITY_SEPARATOR_BATCH,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::Mass(Mass::from_milligrams(1)),
-                ),
-            ],
+            mass_flow_resolver_requirements(CAPABILITY_SEPARATOR_FLOW, CAPABILITY_SEPARATOR_BATCH),
         ),
         ProcessDefinition::new_selected_batch(
             PROCESS_CONCENTRATE_COPPER,
             "concentrate copper from liberated ore",
-            vec![
-                CapabilityRequirement::new(
-                    CAPABILITY_SEPARATOR_FLOW,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::MassFlow(MassFlow::from_milligrams_per_second(1)),
-                ),
-                CapabilityRequirement::new(
-                    CAPABILITY_SEPARATOR_BATCH,
-                    CapabilityComparison::AtLeast,
-                    CapabilityValue::Mass(Mass::from_milligrams(1)),
-                ),
-            ],
+            mass_flow_resolver_requirements(CAPABILITY_SEPARATOR_FLOW, CAPABILITY_SEPARATOR_BATCH),
         ),
         ProcessDefinition::new(
             PROCESS_KNAP_STONE_TOOL,

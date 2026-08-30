@@ -150,11 +150,15 @@ impl DirectConsumptionState {
         self.pending.as_ref()
     }
 
-    pub(crate) fn begin(&mut self, pending: PendingDirectConsumption) {
+    pub(crate) fn assert_begin_available(&self) {
         assert!(
             self.pending.is_none(),
             "direct consumption cannot begin while another intake remains pending"
         );
+    }
+
+    pub(crate) fn begin(&mut self, pending: PendingDirectConsumption) {
+        self.assert_begin_available();
         self.pending = Some(pending);
     }
 

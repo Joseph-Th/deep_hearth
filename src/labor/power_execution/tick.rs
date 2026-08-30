@@ -89,6 +89,15 @@ pub(crate) fn apply_manual_power_tick(
     let next_energy_revision = energy_revision
         .checked_add(1)
         .unwrap_or_else(|| panic!("prevalidated manual power energy revision exhausted"));
+    let equipment_revision = state.equipment().revision();
+    let next_equipment_revision = equipment_revision
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("prevalidated manual power equipment revision exhausted"));
+    state.equipment().assert_condition_change_available(
+        work.equipment(),
+        work.equipment_trace().condition(),
+        next_equipment_revision,
+    );
     apply_released_energy_outcomes(
         state.energy_state_mut(),
         energy_revision,
@@ -96,10 +105,6 @@ pub(crate) fn apply_manual_power_tick(
         &[work.output()],
     );
 
-    let equipment_revision = state.equipment().revision();
-    let next_equipment_revision = equipment_revision
-        .checked_add(1)
-        .unwrap_or_else(|| panic!("prevalidated manual power equipment revision exhausted"));
     state.equipment_state_mut().apply_condition_change(
         work.equipment(),
         work.equipment_trace().condition(),

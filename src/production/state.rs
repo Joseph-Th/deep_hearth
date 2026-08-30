@@ -401,9 +401,9 @@ impl ProductionState {
             })
     }
 
-    pub(super) fn insert_job(
-        &mut self,
-        job: ProductionJobRecord,
+    pub(super) fn assert_job_insertable(
+        &self,
+        job: &ProductionJobRecord,
         next_job_id: u64,
         next_revision: u64,
     ) {
@@ -423,12 +423,23 @@ impl ProductionState {
             Some(next_revision),
             "production job allocation must advance the owner revision exactly once"
         );
-        let projection = ProductionJobIndexProjection::from_job(&job);
+        let projection = ProductionJobIndexProjection::from_job(job);
         assert!(
             !self.jobs.contains_key(&id),
             "validated production job ID must be unique"
         );
         self.indexes.assert_job_available(id, &projection);
+    }
+
+    pub(super) fn insert_job(
+        &mut self,
+        job: ProductionJobRecord,
+        next_job_id: u64,
+        next_revision: u64,
+    ) {
+        let id = job.identity.id;
+        self.assert_job_insertable(&job, next_job_id, next_revision);
+        let projection = ProductionJobIndexProjection::from_job(&job);
         let replaced = self.jobs.insert(id, job);
         assert!(
             replaced.is_none(),
@@ -439,6 +450,39 @@ impl ProductionState {
         self.revision = next_revision;
     }
 
+    pub(super) fn assert_suspend_job_available(
+        &self,
+        id: ProductionJobId,
+        suspended_at: SimulationTick,
+        remaining_active_time: TickSpan,
+    ) {
+        let record = match self.jobs.get(&id) {
+            Some(record) => record.schedule.completes_at,
+            None => panic!(
+                "runtime invariant broken: production job {} disappeared before suspension",
+                id.value()
+            ),
+        };
+        let stored = self
+            .jobs
+            .get(&id)
+            .unwrap_or_else(|| unreachable!("job was just checked"));
+        assert!(
+            stored.schedule.suspension.is_none(),
+            "runtime invariant broken: already-suspended job received another suspension"
+        );
+        assert_eq!(
+            record.value().checked_sub(suspended_at.value()),
+            Some(remaining_active_time.value()),
+            "production suspension must preserve the remaining active-time schedule"
+        );
+        assert!(
+            !remaining_active_time.is_zero(),
+            "running production job cannot suspend with zero active time"
+        );
+        self.indexes.assert_due_job_present(id, record);
+    }
+
     pub(super) fn suspend_job(
         &mut self,
         id: ProductionJobId,
@@ -446,22 +490,17 @@ impl ProductionState {
         remaining_active_time: TickSpan,
         reason: ProductionSuspensionReason,
     ) {
-        let due = match self.jobs.get(&id) {
-            Some(record) => record.schedule.completes_at,
-            None => panic!(
-                "runtime invariant broken: production job {} disappeared before suspension",
-                id.value()
-            ),
-        };
+        self.assert_suspend_job_available(id, suspended_at, remaining_active_time);
+        let due = self
+            .jobs
+            .get(&id)
+            .map(|record| record.schedule.completes_at)
+            .unwrap_or_else(|| unreachable!("production suspension job was prechecked"));
         self.indexes.remove_due_job(id, due);
-        let record = match self.jobs.get_mut(&id) {
-            Some(record) => record,
-            None => unreachable!("production job existence was checked before due-index mutation"),
-        };
-        assert!(
-            record.schedule.suspension.is_none(),
-            "runtime invariant broken: already-suspended job received another suspension"
-        );
+        let record = self
+            .jobs
+            .get_mut(&id)
+            .unwrap_or_else(|| unreachable!("production suspension job was prechecked"));
         record.schedule.suspension = Some(ProductionSuspension::new(
             suspended_at,
             remaining_active_time,
@@ -469,13 +508,13 @@ impl ProductionState {
         ));
     }
 
-    pub(super) fn resume_job(
-        &mut self,
+    pub(super) fn assert_resume_job_available(
+        &self,
         id: ProductionJobId,
         resumed_at: SimulationTick,
         scheduled_completion: SimulationTick,
-    ) {
-        let record = match self.jobs.get_mut(&id) {
+    ) -> u64 {
+        let record = match self.jobs.get(&id) {
             Some(record) => record,
             None => panic!(
                 "runtime invariant broken: production job {} disappeared before resume",
@@ -523,25 +562,41 @@ impl ProductionState {
             Some(scheduled_completion),
             "production resume must preserve the durable active-time schedule equation"
         );
+        self.indexes.assert_due_job_absent(id);
+        completed_suspension_time
+    }
+
+    pub(super) fn resume_job(
+        &mut self,
+        id: ProductionJobId,
+        resumed_at: SimulationTick,
+        scheduled_completion: SimulationTick,
+    ) {
+        let completed_suspension_time =
+            self.assert_resume_job_available(id, resumed_at, scheduled_completion);
+        let record = self
+            .jobs
+            .get_mut(&id)
+            .unwrap_or_else(|| unreachable!("production resume job was prechecked"));
         record.schedule.completed_suspension_time = TickSpan::new(completed_suspension_time);
         record.schedule.completes_at = scheduled_completion;
         record.schedule.suspension = None;
         self.indexes.insert_due_job(id, scheduled_completion);
     }
 
-    pub(super) fn change_suspension_reason(
-        &mut self,
+    pub(super) fn assert_suspension_reason_change_available(
+        &self,
         id: ProductionJobId,
         previous: ProductionSuspensionReason,
         reason: ProductionSuspensionReason,
     ) {
-        let record = self.jobs.get_mut(&id).unwrap_or_else(|| {
+        let record = self.jobs.get(&id).unwrap_or_else(|| {
             panic!(
                 "runtime invariant broken: production job {} disappeared before suspension reason change",
                 id.value()
             )
         });
-        let suspension = record.schedule.suspension.as_mut().unwrap_or_else(|| {
+        let suspension = record.schedule.suspension.unwrap_or_else(|| {
             panic!(
                 "runtime invariant broken: running job {} received a suspension reason change",
                 id.value()
@@ -552,6 +607,20 @@ impl ProductionState {
             "runtime invariant broken: production suspension reason changed after planning"
         );
         assert_ne!(previous, reason);
+    }
+
+    pub(super) fn change_suspension_reason(
+        &mut self,
+        id: ProductionJobId,
+        previous: ProductionSuspensionReason,
+        reason: ProductionSuspensionReason,
+    ) {
+        self.assert_suspension_reason_change_available(id, previous, reason);
+        let suspension = self
+            .jobs
+            .get_mut(&id)
+            .and_then(|record| record.schedule.suspension.as_mut())
+            .unwrap_or_else(|| unreachable!("production suspension reason change was prechecked"));
         suspension.reason = reason;
     }
 
@@ -564,7 +633,19 @@ impl ProductionState {
         self.revision = next_revision;
     }
 
+    pub(super) fn assert_job_removable(&self, id: ProductionJobId) {
+        let job = self.jobs.get(&id).unwrap_or_else(|| {
+            panic!(
+                "runtime invariant broken: missing production job {}",
+                id.value()
+            )
+        });
+        let projection = ProductionJobIndexProjection::from_job(job);
+        self.indexes.assert_job_removable(id, &projection);
+    }
+
     pub(super) fn remove_job(&mut self, id: ProductionJobId) -> ProductionJobRecord {
+        self.assert_job_removable(id);
         let job = match self.jobs.remove(&id) {
             Some(job) => job,
             None => panic!(

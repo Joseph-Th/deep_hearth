@@ -230,6 +230,7 @@ impl ValidatedStructuralConstruction {
                 });
             }
         }
+        self.egress.assert_matches_state(state.inventory());
 
         if let Some(stockpile_load) = self.stockpile_load {
             stockpile_load
@@ -326,7 +327,11 @@ pub fn validate_structural_construction(
             StructuralConstructionError::InventoryRevisionExhausted
         }
     })?;
-    debug_assert_eq!(egress.total_consumed(), required_mass);
+    assert_eq!(
+        egress.total_consumed(),
+        required_mass,
+        "validated structural construction must consume its exact geometry-derived material mass"
+    );
     let source_record = state.inventory().get_stockpile(source).ok_or(
         StructuralConstructionError::StructuralLoad(
             StockpileStructuralLoadError::UnknownStockpile { stockpile: source },

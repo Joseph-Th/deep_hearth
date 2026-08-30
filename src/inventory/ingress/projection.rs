@@ -5,12 +5,41 @@ use std::collections::BTreeSet;
 use crate::core::time::SimulationTick;
 use crate::registry::Registries;
 
+use super::integrity::summarize_planned_ingress_mass;
 use super::{
     IngressMassSummary, MaterialIngressEntry, MaterialIngressError, ValidatedMaterialIngress,
     plan_ingress_identities, summarize_ingress_mass,
 };
 use crate::inventory::state::{InventoryState, StockpileId, StockpileRecord};
 use crate::inventory::transactions::ValidatedMaterialEgress;
+
+impl ValidatedMaterialIngress {
+    /// Proves a projected ingress against the exact inventory state produced by its preceding egress.
+    pub(crate) fn assert_matches_state_after_egress(
+        &self,
+        state: &InventoryState,
+        egress: &ValidatedMaterialEgress,
+    ) {
+        egress.assert_matches_state(state);
+        assert_eq!(
+            self.expected_revision,
+            egress.next_revision(),
+            "projected material ingress must immediately follow its planned egress"
+        );
+        self.assert_identity_plan_matches_state(state);
+        let destination_record = state.get_stockpile(self.destination).unwrap_or_else(|| {
+            panic!("projected material ingress destination disappeared before commit")
+        });
+        let summary = summarize_planned_ingress_mass(&self.entries, self.current_tick);
+        validate_ingress_capacity_after_egress(
+            destination_record,
+            self.destination,
+            &summary,
+            egress,
+        )
+        .unwrap_or_else(|error| panic!("projected material ingress capacity changed: {error:?}"));
+    }
+}
 
 fn validate_ingress_capacity_after_egress(
     destination_record: &StockpileRecord,
@@ -140,6 +169,7 @@ pub(crate) fn validate_material_ingress_after_egress(
         entries,
         lot_ids: identity_plan.lot_ids,
         merge_policies: identity_plan.merge_policies,
+        excluded_existing: identity_plan.excluded_existing,
         next_lot_id: identity_plan.next_lot_id,
         current_tick,
     })

@@ -165,7 +165,10 @@ fn validate_output_destination_supports(
             .map_err(StartProcessError::StructuralLoad)?
         {
             if let Some(existing) = destination_structure_revision {
-                debug_assert_eq!(existing, revision);
+                assert_eq!(
+                    existing, revision,
+                    "one process start must bind every output support check to one structure revision"
+                );
             } else {
                 destination_structure_revision = Some(revision);
             }

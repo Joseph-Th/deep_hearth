@@ -155,6 +155,149 @@ fn explicit_selection_binds_partial_lot_without_mutation() {
 }
 
 #[test]
+fn consumption_plan_integrity_rejects_divergent_parallel_representations() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_0005));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("integrity source fixture failed: {error}"));
+    let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap_or_else(|error| panic!("integrity source lot failed: {error}"));
+    let selection = validate_consumption_selection(
+        state.inventory(),
+        source,
+        &[MaterialInputSpec::new(commodity, Mass::from_milligrams(6))],
+    )
+    .unwrap_or_else(|error| panic!("integrity selection failed: {error:?}"));
+
+    assert!(
+        std::panic::catch_unwind(|| {
+            assert_consumption_parts_well_formed(
+                &selection.inputs,
+                &[],
+                &selection.consumed_inputs,
+            );
+        })
+        .is_err()
+    );
+
+    let wrong_inputs = [MaterialInputSpec::new(
+        CommodityKey::new(MATERIAL_STONE, FORM_LOG),
+        Mass::from_milligrams(6),
+    )];
+    assert!(
+        std::panic::catch_unwind(|| {
+            assert_consumption_parts_well_formed(
+                &wrong_inputs,
+                &selection.lot_slices,
+                &selection.consumed_inputs,
+            );
+        })
+        .is_err()
+    );
+    assert_eq!(
+        assert_consumption_parts_well_formed(
+            &selection.inputs,
+            &selection.lot_slices,
+            &selection.consumed_inputs,
+        ),
+        ()
+    );
+
+    let mut wrong_trace = selection.clone();
+    wrong_trace.consumed_inputs[0].profile.temperature = Temperature::from_millikelvin(301_000);
+    assert!(
+        std::panic::catch_unwind(|| {
+            assert_consumption_parts_match_state(
+                state.inventory(),
+                source,
+                &wrong_trace.inputs,
+                &wrong_trace.lot_slices,
+                &wrong_trace.consumed_inputs,
+            );
+        })
+        .is_err()
+    );
+    assert_eq!(
+        assert_consumption_parts_match_state(
+            state.inventory(),
+            source,
+            &selection.inputs,
+            &selection.lot_slices,
+            &selection.consumed_inputs,
+        ),
+        ()
+    );
+}
+
+#[test]
+fn consumption_plan_integrity_rejects_corrupt_source_aggregates_and_lot_index() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_0006));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("aggregate integrity source fixture failed: {error}"));
+    let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap_or_else(|error| panic!("aggregate integrity source lot failed: {error}"));
+    let selection = validate_consumption_selection(
+        state.inventory(),
+        source,
+        &[MaterialInputSpec::new(commodity, Mass::from_milligrams(6))],
+    )
+    .unwrap_or_else(|error| panic!("aggregate integrity selection failed: {error:?}"));
+
+    let mut corrupt_aggregate = state.clone();
+    let aggregate_record =
+        get_stockpile_mut_or_panic(corrupt_aggregate.inventory_state_mut(), source);
+    aggregate_record
+        .contents
+        .insert(commodity, Mass::from_milligrams(5));
+    assert!(
+        std::panic::catch_unwind(|| {
+            assert_consumption_parts_match_state(
+                corrupt_aggregate.inventory(),
+                source,
+                &selection.inputs,
+                &selection.lot_slices,
+                &selection.consumed_inputs,
+            );
+        })
+        .is_err()
+    );
+
+    let mut corrupt_index = state.clone();
+    corrupt_index
+        .inventory_state_mut()
+        .remove_lot_index(source, commodity, lot);
+    assert!(
+        std::panic::catch_unwind(|| {
+            assert_consumption_parts_match_state(
+                corrupt_index.inventory(),
+                source,
+                &selection.inputs,
+                &selection.lot_slices,
+                &selection.consumed_inputs,
+            );
+        })
+        .is_err()
+    );
+}
+
+#[test]
 fn explicit_selection_rejects_duplicate_lot_and_wrong_source() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x1A70_0002));

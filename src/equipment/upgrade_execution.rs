@@ -361,20 +361,27 @@ impl ValidatedEquipmentUpgrade {
                 equipment: self.equipment,
             });
         }
+        self.egress.assert_matches_state(state.inventory());
+        let mutation = EquipmentUpgradeMutation {
+            equipment: self.equipment,
+            expected_definition: self.expected_definition,
+            target_definition: self.target_definition,
+            expected_embodied_mass: self.expected_embodied_mass,
+            target_embodied_mass: self.target_embodied_mass,
+            additions: self.additions,
+        };
+        state.equipment().assert_upgrade_available(
+            &mutation,
+            self.expected_equipment_revision,
+            self.next_equipment_revision,
+        );
         if let Some(load) = self.structural_load {
             load.commit(state)
                 .map_err(EquipmentUpgradeCommitError::Structure)?;
         }
         apply_material_egress(state.inventory_state_mut(), self.egress);
         state.equipment_state_mut().apply_upgrade(
-            EquipmentUpgradeMutation {
-                equipment: self.equipment,
-                expected_definition: self.expected_definition,
-                target_definition: self.target_definition,
-                expected_embodied_mass: self.expected_embodied_mass,
-                target_embodied_mass: self.target_embodied_mass,
-                additions: self.additions,
-            },
+            mutation,
             self.expected_equipment_revision,
             self.next_equipment_revision,
         );

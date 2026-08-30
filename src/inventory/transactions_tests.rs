@@ -1344,6 +1344,105 @@ fn exact_relocation_preserves_inventory_quantity() {
 }
 
 #[test]
+fn relocation_consolidates_repeated_slices_that_exhaust_one_source_lot() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_2020));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("consolidated relocation source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("consolidated relocation destination failed: {error}"));
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap_or_else(|error| panic!("consolidated relocation lot failed: {error}"));
+    let cursor_before = state.inventory().next_lot_id();
+    let inputs = [
+        MaterialInputSpec::new(wood_log(), Mass::from_milligrams(4)),
+        MaterialInputSpec::new(wood_log(), Mass::from_milligrams(6)),
+    ];
+    let selection = validate_consumption_selection(state.inventory(), source, &inputs)
+        .unwrap_or_else(|error| panic!("consolidated relocation selection failed: {error:?}"));
+    assert_eq!(selection.lot_slices.len(), 2);
+
+    validate_material_relocation_from_selection(&registries, &state, destination, selection)
+        .unwrap_or_else(|error| panic!("consolidated relocation validation failed: {error:?}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("consolidated relocation commit failed: {error:?}"));
+
+    assert_eq!(
+        state
+            .inventory()
+            .get_lot(lot)
+            .map(MaterialLotRecord::stockpile),
+        Some(destination)
+    );
+    assert_eq!(state.inventory().next_lot_id(), cursor_before);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(source)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::ZERO)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .map(|stockpile| stockpile.stored_mass()),
+        Some(Mass::from_milligrams(10))
+    );
+}
+
+#[test]
+fn relocation_rejects_corrupt_source_lot_index_before_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_2021));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("corrupt relocation source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100))
+        .unwrap_or_else(|error| panic!("corrupt relocation destination failed: {error}"));
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap_or_else(|error| panic!("corrupt relocation lot failed: {error}"));
+    let selection = validate_consumption_selection(
+        state.inventory(),
+        source,
+        &[MaterialInputSpec::new(
+            wood_log(),
+            Mass::from_milligrams(10),
+        )],
+    )
+    .unwrap_or_else(|error| panic!("corrupt relocation selection failed: {error:?}"));
+    let relocation =
+        validate_material_relocation_from_selection(&registries, &state, destination, selection)
+            .unwrap_or_else(|error| panic!("corrupt relocation validation failed: {error:?}"));
+
+    state
+        .inventory_state_mut()
+        .remove_lot_index(source, wood_log(), lot);
+    let before = state.clone();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        relocation
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("corrupt relocation returned commit error: {error:?}"));
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(state, before);
+}
+
+#[test]
 fn exact_reform_changes_only_physical_form_and_conserves_matter() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x1A70_2007));

@@ -1,7 +1,7 @@
 //! Contract tests for material registry and commodity semantics.
 
 use super::*;
-use crate::core::quantity::Length;
+use crate::core::quantity::{Length, Temperature};
 
 fn make_test_properties() -> MaterialProperties {
     MaterialProperties::new(

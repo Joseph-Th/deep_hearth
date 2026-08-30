@@ -23,6 +23,8 @@ use super::super::{
     validate_stockpile_stored_mass_changes,
 };
 
+mod integrity;
+
 /// Revision-bound reforming of exact selected matter into another physical form of the same material.
 ///
 /// The caller owns the physical reason for the form change. Inventory owns only exact withdrawal,
@@ -61,6 +63,7 @@ impl ValidatedMaterialReform {
                 actual,
             });
         }
+        self.assert_matches_state(state);
         if let Some(structural) = self.structural {
             structural
                 .commit(state)

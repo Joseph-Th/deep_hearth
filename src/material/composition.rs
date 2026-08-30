@@ -235,8 +235,10 @@ impl MaterialComposition {
         let numerator =
             u128::from(total_mass.milligrams()) * u128::from(self.parts_per_million(material));
         let milligrams = numerator / u128::from(COMPOSITION_PARTS_PER_MILLION);
-        debug_assert!(milligrams <= u128::from(u64::MAX));
-        Mass::from_milligrams(milligrams as u64)
+        let milligrams = u64::try_from(milligrams).unwrap_or_else(|_| {
+            unreachable!("constituent mass cannot exceed its authoritative total mass")
+        });
+        Mass::from_milligrams(milligrams)
     }
 }
 

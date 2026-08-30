@@ -77,6 +77,15 @@ impl EnergyStoreRecord {
     }
 }
 
+/// Complete owner-local payload for one prevalidated additive energy-store upgrade.
+pub(super) struct EnergyStoreUpgradeMutation {
+    pub(super) store: EnergyStoreId,
+    pub(super) expected_definition: EnergyStoreDefinitionId,
+    pub(super) target_definition: EnergyStoreDefinitionId,
+    pub(super) expected_embodied_mass: Mass,
+    pub(super) additions: Vec<ConsumedMaterialTrace>,
+}
+
 /// Persistent owner for finite energy stores and their monotonic identity/revision cursors.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -115,9 +124,9 @@ impl EnergyState {
         self.records.values()
     }
 
-    pub(super) fn insert_store(
-        &mut self,
-        record: EnergyStoreRecord,
+    pub(super) fn assert_allocation_available(
+        &self,
+        record: &EnergyStoreRecord,
         next_store_id: u64,
         next_revision: u64,
     ) {
@@ -140,6 +149,15 @@ impl EnergyState {
             !self.records.contains_key(&record.id),
             "Runtime Invariant 4 (Index Uniqueness): energy store allocation replaced an existing record"
         );
+    }
+
+    pub(super) fn insert_store(
+        &mut self,
+        record: EnergyStoreRecord,
+        next_store_id: u64,
+        next_revision: u64,
+    ) {
+        self.assert_allocation_available(&record, next_store_id, next_revision);
         let previous = self.records.insert(record.id, record);
         assert!(
             previous.is_none(),
@@ -175,38 +193,48 @@ impl EnergyState {
             .unwrap_or_else(|| panic!("runtime invariant broken: prevalidated energy disappeared"));
     }
 
-    /// Applies one additive energy-store upgrade without replacing runtime identity.
-    pub(super) fn apply_upgrade(
-        &mut self,
-        store: EnergyStoreId,
-        expected_definition: EnergyStoreDefinitionId,
-        target_definition: EnergyStoreDefinitionId,
-        additions: Vec<ConsumedMaterialTrace>,
+    pub(super) fn assert_upgrade_available(
+        &self,
+        mutation: &EnergyStoreUpgradeMutation,
         expected_revision: u64,
         next_revision: u64,
     ) {
         assert_eq!(self.revision, expected_revision);
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
         assert!(
-            !additions.is_empty(),
+            !mutation.additions.is_empty(),
             "energy-store upgrade additions must be nonempty"
         );
-        let record = self.records.get_mut(&store).unwrap_or_else(|| {
+        let record = self.records.get(&mutation.store).unwrap_or_else(|| {
             panic!(
                 "runtime invariant broken: energy store {} disappeared before upgrade",
-                store.value()
+                mutation.store.value()
             )
         });
-        assert_eq!(record.definition, expected_definition);
+        assert_eq!(record.definition, mutation.expected_definition);
         assert_eq!(record.stored, Energy::ZERO);
-        record.definition = target_definition;
-        record.embodied_material.extend(additions);
+        assert_eq!(record.embodied_mass(), mutation.expected_embodied_mass);
+    }
+
+    /// Applies one additive energy-store upgrade without replacing runtime identity.
+    pub(super) fn apply_upgrade(
+        &mut self,
+        mutation: EnergyStoreUpgradeMutation,
+        expected_revision: u64,
+        next_revision: u64,
+    ) {
+        self.assert_upgrade_available(&mutation, expected_revision, next_revision);
+        let record = self
+            .records
+            .get_mut(&mutation.store)
+            .unwrap_or_else(|| unreachable!("energy-store upgrade record was prechecked"));
+        record.definition = mutation.target_definition;
+        record.embodied_material.extend(mutation.additions);
         self.revision = next_revision;
     }
 
-    /// Removes one prevalidated empty energy store without rewinding its ID cursor.
-    pub(super) fn remove_store(
-        &mut self,
+    pub(super) fn assert_removal_available(
+        &self,
         store: EnergyStoreId,
         expected_revision: u64,
         next_revision: u64,
@@ -220,6 +248,16 @@ impl EnergyState {
             )
         });
         assert_eq!(record.stored, Energy::ZERO);
+    }
+
+    /// Removes one prevalidated empty energy store without rewinding its ID cursor.
+    pub(super) fn remove_store(
+        &mut self,
+        store: EnergyStoreId,
+        expected_revision: u64,
+        next_revision: u64,
+    ) {
+        self.assert_removal_available(store, expected_revision, next_revision);
         assert!(self.records.remove(&store).is_some());
         self.revision = next_revision;
     }

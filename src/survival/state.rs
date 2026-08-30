@@ -270,6 +270,23 @@ impl SurvivalState {
         self.direct_consumption.set_pending(pending);
     }
 
+    pub(crate) fn assert_direct_consumption_begin_available(
+        &self,
+        expected_revision: u64,
+        next_revision: u64,
+    ) {
+        assert_eq!(
+            self.revision, expected_revision,
+            "direct consumption requires its validated survival revision"
+        );
+        assert_eq!(
+            expected_revision.checked_add(1),
+            Some(next_revision),
+            "direct consumption must advance survival revision exactly once"
+        );
+        self.direct_consumption.assert_begin_available();
+    }
+
     pub(crate) fn begin_food_consumption(
         &mut self,
         expected_revision: u64,
@@ -277,6 +294,7 @@ impl SurvivalState {
         pending: PendingEating,
         next_consumed_masses: Vec<(MaterialId, AggregateMass)>,
     ) {
+        self.assert_direct_consumption_begin_available(expected_revision, next_revision);
         self.advance_revision(expected_revision, next_revision);
         self.direct_consumption
             .begin(PendingDirectConsumption::Eating(pending));
@@ -293,6 +311,7 @@ impl SurvivalState {
         fluid: FluidDefinitionId,
         next_consumed_volume: AggregateVolume,
     ) {
+        self.assert_direct_consumption_begin_available(expected_revision, next_revision);
         self.advance_revision(expected_revision, next_revision);
         self.direct_consumption
             .begin(PendingDirectConsumption::Drinking(pending));
