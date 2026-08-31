@@ -13,6 +13,7 @@ use crate::material::{
 };
 use crate::structural::StructuralElementId;
 
+use super::storage_history::MaterialStorageHistory;
 use crate::inventory::storage::StorageDefinitionId;
 
 /// Persistent identifier for a runtime stockpile record.
@@ -152,71 +153,6 @@ impl Display for StockpileStorageProfileError {
 
 impl Error for StockpileStorageProfileError {}
 
-pub(crate) const STORAGE_AGE_PARTS_PER_TICK: u128 = 1_000_000;
-
-/// Ambient-equivalent storage age retained across stockpile moves.
-///
-/// `ambient_age_parts` records exposure accumulated before `last_transition_at`; the current
-/// stockpile's preservation multiplier determines the rate after that tick. One ambient tick equals
-/// `STORAGE_AGE_PARTS_PER_TICK` parts. This keeps preservation history independent from any one food
-/// definition while preventing later movement into better storage from retroactively improving prior
-/// exposure.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct MaterialStorageHistory {
-    ambient_age_parts: u128,
-    last_transition_at: SimulationTick,
-}
-
-impl MaterialStorageHistory {
-    #[must_use]
-    pub(crate) const fn new(at: SimulationTick) -> Self {
-        Self {
-            ambient_age_parts: 0,
-            last_transition_at: at,
-        }
-    }
-
-    #[must_use]
-    pub(crate) const fn last_transition_at(self) -> SimulationTick {
-        self.last_transition_at
-    }
-
-    pub(crate) fn project(
-        self,
-        at: SimulationTick,
-        preservation_multiplier_ppm: u32,
-    ) -> Option<u128> {
-        let elapsed = at.value().checked_sub(self.last_transition_at.value())?;
-        let numerator =
-            u128::from(elapsed) * STORAGE_AGE_PARTS_PER_TICK * STORAGE_AGE_PARTS_PER_TICK;
-        let increment = numerator.div_ceil(u128::from(preservation_multiplier_ppm));
-        self.ambient_age_parts.checked_add(increment)
-    }
-
-    pub(crate) fn rebase(
-        self,
-        at: SimulationTick,
-        preservation_multiplier_ppm: u32,
-    ) -> Option<Self> {
-        Some(Self {
-            ambient_age_parts: self.project(at, preservation_multiplier_ppm)?,
-            last_transition_at: at,
-        })
-    }
-
-    #[must_use]
-    pub(crate) const fn with_ambient_age_parts(
-        ambient_age_parts: u128,
-        at: SimulationTick,
-    ) -> Self {
-        Self {
-            ambient_age_parts,
-            last_transition_at: at,
-        }
-    }
-}
-
 /// Physical/provenance snapshot of one material slice consumed by an in-flight operation.
 ///
 /// Source lot identity is omitted because a fully consumed lot may cease to exist. The trace records
@@ -274,9 +210,10 @@ impl MaterialLotId {
 ///
 /// Physical properties that determine process interchangeability belong here. Storage age and provenance
 /// stay outside this profile. Age-sensitive commodities only coalesce when projected storage exposure is
-/// identical, preserving exact perishability cohorts instead of aging newer matter to match older
-/// matter. Commodities without authored age-dependent behavior may coalesce conservatively across
-/// exposure histories to keep lot fragmentation bounded.
+/// equivalent for current and future projection under the destination preservation rate, preserving
+/// exact perishability cohorts instead of collapsing histories that only coincide at one tick.
+/// Commodities without authored age-dependent behavior may coalesce conservatively across exposure
+/// histories to keep lot fragmentation bounded.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MaterialLotProfile {

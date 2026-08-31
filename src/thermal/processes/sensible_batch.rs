@@ -2,11 +2,12 @@
 
 use std::collections::BTreeMap;
 
-use crate::core::quantity::{Energy, Mass, Temperature};
+use crate::core::quantity::{Energy, Mass, PreciseEnergy, Temperature};
 use crate::inventory::ConsumedMaterialTrace;
 use crate::material::{MaterialLotSpec, MaterialLotSpecError, MaterialRegistry};
 
-use super::super::{HeatDirection, PhaseSensibleHeatError, calculate_phase_sensible_heat};
+use super::super::physics::calculate_phase_sensible_heat_precise;
+use super::super::{HeatDirection, PhaseSensibleHeatError, SensibleHeatError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum SensibleHeatingBatchError {
@@ -41,7 +42,7 @@ pub(super) fn resolve_sensible_heating_batch(
     inputs: &[ConsumedMaterialTrace],
     target: Temperature,
 ) -> Result<ResolvedSensibleHeatingBatch, SensibleHeatingBatchError> {
-    let mut required_energy = Energy::ZERO;
+    let mut required_energy = PreciseEnergy::ZERO;
     let mut output_masses = BTreeMap::new();
 
     for trace in inputs {
@@ -52,7 +53,7 @@ pub(super) fn resolve_sensible_heating_batch(
                 target,
             });
         }
-        let heat = calculate_phase_sensible_heat(
+        let (heat, direction) = calculate_phase_sensible_heat_precise(
             materials,
             trace.mass(),
             profile.commodity(),
@@ -62,11 +63,11 @@ pub(super) fn resolve_sensible_heating_batch(
         )
         .map_err(SensibleHeatingBatchError::Heat)?;
         debug_assert!(matches!(
-            heat.direction(),
+            direction,
             HeatDirection::None | HeatDirection::IntoMaterial
         ));
         required_energy = required_energy
-            .checked_add(heat.energy())
+            .checked_add(heat)
             .ok_or(SensibleHeatingBatchError::ArithmeticOverflow)?;
 
         let key = (
@@ -98,6 +99,16 @@ pub(super) fn resolve_sensible_heating_batch(
         .map_err(SensibleHeatingBatchError::Output)?;
         outputs.push(output);
     }
+
+    let femtojoule_remainder = required_energy.femtojoule_remainder();
+    let required_energy =
+        required_energy
+            .whole_nanojoules()
+            .ok_or(SensibleHeatingBatchError::Heat(
+                PhaseSensibleHeatError::Heat(SensibleHeatError::FractionalNanojoule {
+                    femtojoule_remainder,
+                }),
+            ))?;
 
     Ok(ResolvedSensibleHeatingBatch {
         required_energy,

@@ -110,9 +110,9 @@ fn assert_nonperishable_infrastructure_assembly(
 ) {
     for input in assembly.inputs() {
         assert!(
-            survival.get_food(input.commodity()).is_none(),
-            "{owner} cannot embody perishable food commodity {} because embodied infrastructure does not track storage age",
-            input.commodity().value()
+            !survival.has_food_material(input.commodity().material()),
+            "{owner} cannot embody material {} because that material has an authored edible form and embodied infrastructure does not track storage age",
+            input.commodity().material().value()
         );
     }
 }

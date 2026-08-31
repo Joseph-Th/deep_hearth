@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use crate::core::quantity::Mass;
 use crate::material::{CommodityKey, MaterialInputSpec};
 
-use super::ConsumptionReservation;
+use super::reservation::ConsumptionReservation;
 use crate::inventory::state::{
     ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, StockpileId,
     checked_consumed_material_mass,

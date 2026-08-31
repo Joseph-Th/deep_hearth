@@ -1,20 +1,24 @@
 //! Finite-energy ingress selection, deferred-capacity projection, reservation, and completion.
 
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Energy, Power};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
-use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::registry::Registries;
 
 use super::get_energy_store_occupant;
 use crate::energy::definitions::{EnergyCarrier, EnergyStoreDefinitionId};
-use crate::energy::passive_dissipation::project_stored_energy_after_passive_dissipation;
 use crate::energy::state::{EnergyState, EnergyStoreId};
+
+mod capacity;
+mod errors;
+
+#[cfg(test)]
+pub(crate) use capacity::project_energy_sink_stored_at_release;
+pub(crate) use capacity::{EnergySinkCapacityError, validate_energy_sink_capacity_at_release};
+pub(crate) use errors::EnergyIngressReservationError;
+pub use errors::EnergySinkError;
 
 /// Revision-bound access to one available finite sink before a deferred release amount is known to
 /// fit. Thermal resolution uses this to discover the sink power limit before duration determines
@@ -27,7 +31,6 @@ pub(crate) struct ValidatedEnergySinkAccess {
     definition: EnergyStoreDefinitionId,
     carrier: EnergyCarrier,
     stored: Energy,
-    capacity: Energy,
     max_input_power: Power,
 }
 
@@ -94,96 +97,6 @@ impl ValidatedEnergySink {
     }
 }
 
-/// Failure while binding exact released energy to a finite sink.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EnergySinkError {
-    UnknownStore {
-        store: EnergyStoreId,
-    },
-    UnknownDefinition {
-        store: EnergyStoreId,
-        definition: EnergyStoreDefinitionId,
-    },
-    ZeroEnergy,
-    NoInputPower {
-        store: EnergyStoreId,
-    },
-    StoreBusy {
-        store: EnergyStoreId,
-        job: ProductionJobId,
-        release: ProductionOccupancyRelease,
-    },
-    StoreBusyManualPower {
-        store: EnergyStoreId,
-    },
-    CapacityOverflow {
-        store: EnergyStoreId,
-    },
-    InsufficientCapacity {
-        store: EnergyStoreId,
-        stored: Energy,
-        requested: Energy,
-        capacity: Energy,
-    },
-}
-
-impl Display for EnergySinkError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownStore { store } => {
-                write!(formatter, "unknown energy sink store {}", store.value())
-            }
-            Self::UnknownDefinition { store, definition } => write!(
-                formatter,
-                "energy sink store {} references unknown definition {}",
-                store.value(),
-                definition.value()
-            ),
-            Self::ZeroEnergy => formatter.write_str("energy sink request must be nonzero"),
-            Self::NoInputPower { store } => write!(
-                formatter,
-                "energy store {} has no authored input-power capability",
-                store.value()
-            ),
-            Self::StoreBusy {
-                store,
-                job,
-                release,
-            } => write!(
-                formatter,
-                "energy store {} is reserved by production job {} {release}",
-                store.value(),
-                job.value()
-            ),
-            Self::StoreBusyManualPower { store } => write!(
-                formatter,
-                "energy store {} is reserved by direct player-powered generation",
-                store.value()
-            ),
-            Self::CapacityOverflow { store } => write!(
-                formatter,
-                "energy sink store {} capacity accounting overflowed",
-                store.value()
-            ),
-            Self::InsufficientCapacity {
-                store,
-                stored,
-                requested,
-                capacity,
-            } => write!(
-                formatter,
-                "energy sink store {} contains {} nJ and cannot accept {} nJ within capacity {} nJ",
-                store.value(),
-                stored.nanojoules(),
-                requested.nanojoules(),
-                capacity.nanojoules()
-            ),
-        }
-    }
-}
-
-impl Error for EnergySinkError {}
-
 /// Binds exact released energy to current sink capacity without mutation.
 pub fn validate_energy_sink(
     registries: &Registries,
@@ -235,32 +148,8 @@ pub(crate) fn validate_energy_sink_access(
         definition: record.definition(),
         carrier: definition.carrier(),
         stored: record.stored(),
-        capacity: definition.capacity(),
         max_input_power: definition.max_input_power(),
     })
-}
-
-/// Projects sink contents immediately before a deferred completion releases energy. Completion is
-/// applied before passive loss on its due tick, so only the preceding `release_after - 1` ticks can
-/// be credited as guaranteed recovery. This is conservative across suspension because extra wall
-/// time can only create additional passive capacity.
-pub(crate) fn project_energy_sink_stored_at_release(
-    registries: &Registries,
-    definition: EnergyStoreDefinitionId,
-    stored: Energy,
-    release_after: TickSpan,
-) -> Energy {
-    let definition = registries
-        .energy()
-        .get_store(definition)
-        .unwrap_or_else(|| {
-            panic!(
-                "validated deferred energy sink references missing immutable definition {}",
-                definition.value()
-            )
-        });
-    let passive_ticks = TickSpan::new(release_after.value().saturating_sub(1));
-    project_stored_energy_after_passive_dissipation(registries, definition, stored, passive_ticks)
 }
 
 pub(crate) fn validate_energy_sink_release(
@@ -272,26 +161,28 @@ pub(crate) fn validate_energy_sink_release(
     if requested.is_zero() {
         return Err(EnergySinkError::ZeroEnergy);
     }
-    let projected_stored = project_energy_sink_stored_at_release(
+    validate_energy_sink_capacity_at_release(
         registries,
         access.definition,
         access.stored,
+        requested,
         release_after,
-    );
-    let after =
-        projected_stored
-            .checked_add(requested)
-            .ok_or(EnergySinkError::CapacityOverflow {
-                store: access.store,
-            })?;
-    if after > access.capacity {
-        return Err(EnergySinkError::InsufficientCapacity {
+    )
+    .map_err(|error| match error {
+        EnergySinkCapacityError::Overflow => EnergySinkError::CapacityOverflow {
             store: access.store,
-            stored: projected_stored,
+        },
+        EnergySinkCapacityError::Insufficient {
+            stored,
             requested,
-            capacity: access.capacity,
-        });
-    }
+            capacity,
+        } => EnergySinkError::InsufficientCapacity {
+            store: access.store,
+            stored,
+            requested,
+            capacity,
+        },
+    })?;
     Ok(ValidatedEnergySink {
         expected_revision: access.expected_revision,
         trace: ReleasedEnergyTrace {
@@ -339,26 +230,6 @@ impl EnergyIngressReservation {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum EnergyIngressReservationError {
-    StaleSelection {
-        expected: u64,
-        actual: u64,
-    },
-    UnknownStore {
-        store: EnergyStoreId,
-    },
-    CapacityOverflow {
-        store: EnergyStoreId,
-    },
-    InsufficientCapacity {
-        store: EnergyStoreId,
-        stored: Energy,
-        requested: Energy,
-        capacity: Energy,
-    },
-}
-
 pub(crate) fn validate_energy_ingress_reservation(
     registries: &Registries,
     state: &EnergyState,
@@ -377,31 +248,28 @@ pub(crate) fn validate_energy_ingress_reservation(
             store: trace.destination,
         });
     };
-    let capacity = match registries.energy().get_store(record.definition()) {
-        Some(definition) => definition.capacity(),
-        None => {
-            unreachable!("validated energy sink definition disappeared from immutable registry")
-        }
-    };
-    let projected_stored = project_energy_sink_stored_at_release(
+    validate_energy_sink_capacity_at_release(
         registries,
         record.definition(),
         record.stored(),
+        trace.energy,
         release_after,
-    );
-    let after = projected_stored.checked_add(trace.energy).ok_or(
-        EnergyIngressReservationError::CapacityOverflow {
+    )
+    .map_err(|error| match error {
+        EnergySinkCapacityError::Overflow => EnergyIngressReservationError::CapacityOverflow {
             store: trace.destination,
         },
-    )?;
-    if after > capacity {
-        return Err(EnergyIngressReservationError::InsufficientCapacity {
-            store: trace.destination,
-            stored: projected_stored,
-            requested: trace.energy,
+        EnergySinkCapacityError::Insufficient {
+            stored,
+            requested,
             capacity,
-        });
-    }
+        } => EnergyIngressReservationError::InsufficientCapacity {
+            store: trace.destination,
+            stored,
+            requested,
+            capacity,
+        },
+    })?;
     Ok(EnergyIngressReservation {
         expected_revision: state.revision(),
         trace,

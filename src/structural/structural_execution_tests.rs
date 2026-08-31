@@ -9,8 +9,9 @@ use crate::core::time::WorldSeed;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
-    AddStructuralElementError, StructuralElementGeometry, StructuralFailureCause, StructuralStage,
-    add_structural_element, materialize_structural_element_for_test,
+    AddStructuralElementError, StructuralAnalysisError, StructuralElementGeometry,
+    StructuralFailureCause, StructuralStage, add_structural_element,
+    materialize_structural_element_for_test,
 };
 
 const MEMBER_AREA: Area = Area::from_square_millimeters(1_000);

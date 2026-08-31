@@ -36,7 +36,8 @@ const TEST_MAX_TEMPERATURE: CapabilityId = CapabilityId::new(700_005);
 
 #[test]
 fn infrastructure_assembly_cannot_hide_perishable_food_from_storage_age() {
-    let food = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let food = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+    let infrastructure = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
     let base_survival = survival::build_test_survival_registry();
     let survival = SurvivalRegistry::new(
         base_survival.physiology(),
@@ -62,7 +63,7 @@ fn infrastructure_assembly_cannot_hide_perishable_food_from_storage_age() {
         Power::from_picowatts(1_000),
     )
     .with_assembly_profile(MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
-        food,
+        infrastructure,
         Mass::from_milligrams(1),
     )]));
 

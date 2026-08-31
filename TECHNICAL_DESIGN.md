@@ -89,8 +89,9 @@ remainder is zero.
 Materials are immutable definitions. Forms define phase, particle-state policy, and physical cohesion.
 Only consolidated non-particulate solids may directly become rigid infrastructure components or structural
 embodiment; loose forms require an explicit shaping or consolidation process first. Infrastructure embodiment
-does not carry stockpile preservation history, so a commodity authored as food cannot appear in equipment,
-energy-store, or storage-enclosure assembly/upgrade inputs until embodied perishability aging is modeled.
+does not carry stockpile preservation history, so any material with an authored edible form is excluded from
+equipment, energy-store, and storage-enclosure assembly/upgrade inputs in every form until embodied
+perishability aging is modeled.
 `CommodityKey` combines one material and one form, but runtime ownership is limited to exact pairs explicitly
 authored in the material registry; independently valid material and form IDs do not imply a valid commodity. Composition
 remains a separate exact property. Authoring a liquid commodity requires fusion properties for its material,
@@ -116,7 +117,14 @@ General stockpile transport is not implemented. The gameplay harness may authori
 transfers only as setup or controlled-event infrastructure.
 
 Same-material reform may change form without changing material phase. It preserves temperature, composition,
-and particle state; phase transitions remain owned by thermal processing.
+and particle state; phase transitions remain owned by thermal processing. Within inventory custody, storage
+exposure is checkpointed only when the effective preservation multiplier changes. Equal-rate relocation, reform,
+and lot coalescing preserve the selected cohort's existing history representation so equivalent physical
+histories cannot age differently because they were split across inventory transaction boundaries. Any material
+with an authored edible form retains exact future-equivalent exposure cohorts in every form, so non-edible
+intermediate storage cannot erase perishability history before a later same-material food reform. Freshness
+reporting derives the remaining shelf-life horizon from the retained rational projection phase, not only from
+rounded current age, so the reported final fresh tick is the tick immediately before authoritative spoilage.
 
 Storage enclosures are immutable definitions with a capacity limit, storage profile, and exact consolidated
 assembly profile. Construction transfers selected traces from inventory into persistent stockpile-owned
@@ -232,8 +240,11 @@ Implemented resolver contracts:
   use deterministic remainder allocation, and emit forms that prevent unsupported repeat-processing loops.
 - **Thermal processing:** sensible heating, pure-material melting, and casting use exact selected matter, finite
   energy sources/sinks, equipment limits, phase boundaries, and latent heat. Ppm-weighted sensible heat is first
-  resolved at femtojoule precision; a runtime transfer that is not exactly representable in whole nanojoules is
-  rejected rather than rounded down, while read-only material thermal accounting retains the remainder. Each
+  resolved at femtojoule precision. Selected-batch heating sums exact trace energies before narrowing once at the
+  aggregate energy-transaction boundary, so physically identical work does not become invalid merely because
+  matter is split across lots. A runtime transfer whose aggregate is still not exactly representable in whole
+  nanojoules is rejected rather than rounded down, while read-only material thermal accounting retains the
+  remainder. Each
   pure phase-change definition
   binds one exact authored material rather than inferring material identity from the first selected lot. Melting
   owns a canonical nonempty set of accepted solid feed forms for that material and one liquid output form, so
@@ -278,7 +289,10 @@ remaining budget.
 
 Direct manual power requires portable unmounted equipment and a compatible finite energy destination. Duration
 is limited by provider capability, destination input power, sustainable metabolic output, and requested work.
-Energy creation, physiological cost, and equipment wear share one validated operation.
+Energy creation, physiological cost, and equipment wear share one validated operation. Generated work remains
+in player-work custody until completion. Sink-capacity admission therefore credits passive dissipation guaranteed
+before the release tick, but never the completion tick itself because same-tick ingress is applied before passive
+loss. Trusted load reprojects the same rule from current stored energy and the exact remaining work interval.
 
 `SurvivalState` owns metabolic energy, hydration, vitality, recent nutrition, terminal consumed matter/fluid
 totals, and exact pending direct-consumption custody. Eating and drinking transfer selected physical quantities

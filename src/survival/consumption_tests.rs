@@ -1732,6 +1732,84 @@ fn preservation_transfer_slows_future_spoilage_without_rewriting_prior_age() {
 }
 
 #[test]
+fn freshness_remaining_horizon_preserves_storage_projection_phase() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0027));
+    let source_profile = StockpileStorageProfile::with_preservation(
+        true,
+        false,
+        Temperature::from_millikelvin(350_000),
+        3_000_004,
+    )
+    .unwrap_or_else(|error| panic!("phase-aware freshness source profile failed: {error}"));
+    let destination_profile = StockpileStorageProfile::with_preservation(
+        true,
+        false,
+        Temperature::from_millikelvin(350_000),
+        3_000_000,
+    )
+    .unwrap_or_else(|error| panic!("phase-aware freshness destination profile failed: {error}"));
+    let source = add_stockpile(&mut state, Mass::from_milligrams(1_000), source_profile)
+        .unwrap_or_else(|error| panic!("phase-aware freshness source failed: {error}"));
+    let destination = add_stockpile(
+        &mut state,
+        Mass::from_milligrams(1_000),
+        destination_profile,
+    )
+    .unwrap_or_else(|error| panic!("phase-aware freshness destination failed: {error}"));
+    let berries = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        berries,
+        Mass::from_milligrams(100),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("phase-aware freshness berries failed: {error}"));
+    apply_clock_advance(&mut state, SimulationTick::new(1));
+    validate_material_transfer_for_test(
+        &registries,
+        &state,
+        source,
+        destination,
+        berries,
+        Mass::from_milligrams(100),
+    )
+    .unwrap_or_else(|error| panic!("phase-aware freshness relocation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("phase-aware freshness relocation commit failed: {error}"));
+
+    let shelf_life = registries
+        .survival()
+        .get_food(berries)
+        .unwrap_or_else(|| panic!("berry food definition disappeared"))
+        .shelf_life();
+    let expected_remaining = TickSpan::new(shelf_life.value() * 3 - 1);
+    assert_eq!(
+        assess_food_freshness(&registries, &state, lot),
+        Ok(FoodFreshness::Fresh {
+            age: TickSpan::new(1),
+            remaining: expected_remaining,
+        })
+    );
+
+    let one_before_spoilage =
+        SimulationTick::new(state.tick().value() + expected_remaining.value() - 1);
+    apply_clock_advance(&mut state, one_before_spoilage);
+    assert!(matches!(
+        assess_food_freshness(&registries, &state, lot),
+        Ok(FoodFreshness::Fresh { remaining, .. }) if remaining == TickSpan::new(1)
+    ));
+    let spoilage_tick = SimulationTick::new(state.tick().value() + 1);
+    apply_clock_advance(&mut state, spoilage_tick);
+    assert!(matches!(
+        assess_food_freshness(&registries, &state, lot),
+        Ok(FoodFreshness::Spoiled { .. })
+    ));
+}
+
+#[test]
 fn partial_transfer_preserves_distinct_food_storage_age_cohorts() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0x5A70_0008));

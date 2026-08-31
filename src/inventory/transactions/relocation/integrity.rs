@@ -130,7 +130,11 @@ impl ValidatedMaterialRelocation {
             );
             let storage_history = lot
                 .storage_history()
-                .rebase(state.tick(), source_preservation_multiplier_ppm)
+                .transition_preservation(
+                    state.tick(),
+                    source_preservation_multiplier_ppm,
+                    destination_preservation_multiplier_ppm,
+                )
                 .unwrap_or_else(|| panic!("validated full relocation storage history is invalid"));
             identity_planner.note_preserved_arrival(
                 lot.id(),
@@ -152,7 +156,11 @@ impl ValidatedMaterialRelocation {
             }
             let storage_history = lot
                 .storage_history()
-                .rebase(state.tick(), source_preservation_multiplier_ppm)
+                .transition_preservation(
+                    state.tick(),
+                    source_preservation_multiplier_ppm,
+                    destination_preservation_multiplier_ppm,
+                )
                 .unwrap_or_else(|| {
                     panic!("validated partial relocation storage history is invalid")
                 });

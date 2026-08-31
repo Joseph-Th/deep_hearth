@@ -3,7 +3,9 @@
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::crafting::validate_loaded_manual_craft_job;
-use crate::energy::{EnergyValidationError, project_energy_sink_stored_at_release};
+use crate::energy::{
+    EnergySinkCapacityError, EnergyValidationError, validate_energy_sink_capacity_at_release,
+};
 use crate::inventory::{StockpileId, validate_stockpile_storage};
 use crate::material::{validate_material_particle_size_state, validate_material_phase_state};
 use crate::ore_processing::{
@@ -164,27 +166,32 @@ fn validate_job_released_energy(
         },
         |suspension| suspension.remaining_active_time(),
     );
-    let projected_stored = project_energy_sink_stored_at_release(
+    validate_energy_sink_capacity_at_release(
         registries,
         store.definition(),
         store.stored(),
+        trace.energy(),
         release_after,
-    );
-    let after = projected_stored.checked_add(trace.energy()).ok_or(
-        StateValidationError::JobReleasedEnergyCapacityOverflow {
+    )
+    .map_err(|error| match error {
+        EnergySinkCapacityError::Overflow => {
+            StateValidationError::JobReleasedEnergyCapacityOverflow {
+                job: job.id(),
+                store: trace.destination(),
+            }
+        }
+        EnergySinkCapacityError::Insufficient {
+            stored,
+            requested,
+            capacity,
+        } => StateValidationError::JobReleasedEnergyCapacityExceeded {
             job: job.id(),
             store: trace.destination(),
+            stored,
+            released: requested,
+            capacity,
         },
-    )?;
-    if after > definition.capacity() {
-        return Err(StateValidationError::JobReleasedEnergyCapacityExceeded {
-            job: job.id(),
-            store: trace.destination(),
-            stored: projected_stored,
-            released: trace.energy(),
-            capacity: definition.capacity(),
-        });
-    }
+    })?;
     Ok(())
 }
 

@@ -2,9 +2,8 @@
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::material::{CommodityKey, FormId, MaterialId, MaterialInputSpec};
+use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::registry::Registries;
-use crate::structural::StructuralCommitError;
 
 use super::super::coalescing::LotMergePolicy;
 use super::super::lot_identity::LotIdentityPlanner;
@@ -19,11 +18,14 @@ use super::super::storage_validation::{
     validate_stockpile_storage,
 };
 use super::super::{
-    StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedStockpileStructuralLoad,
+    StockpileStoredMassChange, ValidatedStockpileStructuralLoad,
     validate_stockpile_stored_mass_changes,
 };
 
+mod errors;
 mod integrity;
+
+pub(crate) use errors::{MaterialReformCommitError, MaterialReformError};
 
 /// Revision-bound reforming of exact selected matter into another physical form of the same material.
 ///
@@ -104,56 +106,6 @@ impl ValidatedMaterialReform {
         inventories.apply_lot_cursor_and_revision(self.next_lot_id, self.next_revision);
         Ok(())
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MaterialReformError {
-    StaleSelection {
-        expected: u64,
-        actual: u64,
-    },
-    UnknownSource {
-        stockpile: StockpileId,
-    },
-    UnknownDestination {
-        stockpile: StockpileId,
-    },
-    UnknownTargetMaterial {
-        material: MaterialId,
-    },
-    UnknownTargetForm {
-        form: FormId,
-    },
-    MaterialChanged {
-        source: MaterialId,
-        target: MaterialId,
-    },
-    PhaseChanged {
-        source: FormId,
-        target: FormId,
-    },
-    TargetUnchanged {
-        commodity: CommodityKey,
-    },
-    DestinationStorage(StockpileStorageError),
-    DestinationMassOverflow {
-        stockpile: StockpileId,
-    },
-    DestinationCapacityExceeded {
-        stockpile: StockpileId,
-        capacity: Mass,
-        committed: Mass,
-        requested: Mass,
-    },
-    LotIdExhausted,
-    RevisionExhausted,
-    StructuralLoad(StockpileStructuralLoadError),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MaterialReformCommitError {
-    StaleInventoryRevision { expected: u64, actual: u64 },
-    Structure(StructuralCommitError),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -330,11 +282,15 @@ fn plan_reform_mass_and_structure(
 fn build_reform_outputs(
     state: &AppState,
     source_record: &StockpileRecord,
+    destination_record: &StockpileRecord,
     lot_slices: &[LotSlice],
     consumed_inputs: Vec<ConsumedMaterialTrace>,
 ) -> Vec<(ConsumedMaterialTrace, MaterialStorageHistory)> {
     let inventories = state.inventory();
     let source_preservation_multiplier_ppm = source_record
+        .storage_profile()
+        .preservation_multiplier_ppm();
+    let destination_preservation_multiplier_ppm = destination_record
         .storage_profile()
         .preservation_multiplier_ppm();
     let output_storage_histories = lot_slices
@@ -349,9 +305,13 @@ fn build_reform_outputs(
                     )
                 })
                 .storage_history()
-                .rebase(state.tick(), source_preservation_multiplier_ppm)
+                .transition_preservation(
+                    state.tick(),
+                    source_preservation_multiplier_ppm,
+                    destination_preservation_multiplier_ppm,
+                )
                 .unwrap_or_else(|| {
-                    panic!("valid inventory lot storage history could not be rebased for reform")
+                    panic!("valid inventory lot storage history could not transition for reform")
                 })
         })
         .collect::<Vec<_>>();
@@ -459,7 +419,13 @@ pub(crate) fn validate_material_reform_from_selection(
         total_consumed,
         expected_revision,
     )?;
-    let outputs = build_reform_outputs(state, source_record, &lot_slices, consumed_inputs);
+    let outputs = build_reform_outputs(
+        state,
+        source_record,
+        destination_record,
+        &lot_slices,
+        consumed_inputs,
+    );
     let identity_plan = plan_reform_identities(
         registries,
         state,

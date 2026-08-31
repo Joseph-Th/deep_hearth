@@ -2,26 +2,27 @@
 
 use super::*;
 use crate::content::{
-    ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE, ENERGY_THERMAL_SINK,
-    EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_STONE_HAND_CRANK, FORM_FLYWHEEL, FORM_HANDLE,
-    FORM_LOG, FORM_LUMP, FORM_REINFORCEMENT, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER,
-    MATERIAL_STONE, MATERIAL_WOOD, PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE,
-    STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
+    ENERGY_MECHANICAL_LARGE_DRIVE, ENERGY_MECHANICAL_SMALL_DRIVE, ENERGY_STONE_FLYWHEEL_DRIVE,
+    ENERGY_THERMAL_SINK, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_STONE_HAND_CRANK,
+    FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG, FORM_LUMP, FORM_REINFORCEMENT, MANUAL_POWER_HAND_CRANK,
+    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_SHAPE_STONE_FLYWHEEL,
+    PROCESS_SHAPE_WOOD_HANDLE, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Area, Length, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
-use crate::core::time::WorldSeed;
+use crate::core::time::{TickSpan, WorldSeed};
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::{
-    EnergyStoreRecord, EnergySupplyError, add_energy_store,
-    add_energy_store_with_initial_for_fixture, validate_energy_supply,
+    EnergySinkError, EnergyStoreRecord, EnergySupplyError, PowerRemainder, add_energy_store,
+    add_energy_store_with_initial_for_fixture, integrate_power, validate_assemble_energy_store,
+    validate_energy_supply,
 };
 use crate::equipment::{
     EquipmentConditionPlanError, decide_equipment_wear, validate_assemble_equipment,
     validate_mount_equipment, validate_unmount_equipment,
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
-use crate::labor::PlayerWorkValidationError;
+use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError, PlayerWorkValidationError};
 use crate::material::CommodityKey;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::registry::Registries;
@@ -84,6 +85,35 @@ fn assemble_crank_fixture(
         .unwrap_or_else(|error| panic!("crank comparison assembly failed: {error}"))
         .commit(state)
         .unwrap_or_else(|error| panic!("crank comparison assembly commit failed: {error}"))
+}
+
+fn assemble_flywheel_fixture(registries: &Registries, state: &mut AppState) -> EnergyStoreId {
+    let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_100_000))
+        .unwrap_or_else(|error| panic!("flywheel recharge source failed: {error}"));
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL),
+            Mass::from_milligrams(900_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            registries,
+            state,
+            source,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap_or_else(|error| panic!("flywheel recharge material failed: {error}"));
+    }
+    validate_assemble_energy_store(registries, state, ENERGY_STONE_FLYWHEEL_DRIVE, source)
+        .unwrap_or_else(|error| panic!("flywheel recharge assembly failed: {error}"))
+        .commit(state)
+        .unwrap_or_else(|error| panic!("flywheel recharge assembly commit failed: {error}"))
 }
 
 fn active_support(registries: &Registries, state: &mut AppState) -> StructuralElementId {
@@ -310,6 +340,195 @@ fn shared_energy_revision_budget_rejects_manual_power_plus_passive_loss_atomical
         Err(crate::simulation::TickError::EnergyRevisionExhausted)
     );
     assert_eq!(loaded, before);
+}
+
+#[test]
+fn partial_flywheel_recharge_preserves_passive_loss_of_preexisting_work() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A80_0005));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("partial-recharge survival setup failed: {error}"));
+    let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
+    let initial = Energy::from_nanojoules(100_000_000_000);
+    let requested = Energy::from_nanojoules(300_000_000_000);
+    let drive = assemble_flywheel_fixture(&registries, &mut state);
+    let initial_charge = validate_start_manual_power(
+        &registries,
+        &state,
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, initial),
+    )
+    .unwrap_or_else(|error| panic!("partial-recharge initial charge failed: {error}"));
+    let initial_duration = initial_charge.work().completes_at().value() - state.tick().value();
+    initial_charge
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("partial-recharge initial commit failed: {error}"));
+    advance_exact(&registries, &mut state, initial_duration);
+    assert_eq!(
+        state
+            .energy()
+            .get_store(drive)
+            .map(EnergyStoreRecord::stored),
+        Some(initial),
+        "initial work must exist before the partial recharge begins"
+    );
+    let definition = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .unwrap_or_else(|| panic!("partial-recharge flywheel definition disappeared"));
+    let passive_per_tick = integrate_power(
+        definition.passive_dissipation_power(),
+        TickSpan::new(1),
+        registries.core().physical_tick_duration(),
+        PowerRemainder::ZERO,
+    )
+    .unwrap_or_else(|error| panic!("partial-recharge passive loss failed: {error}"));
+    assert_eq!(passive_per_tick.remainder(), PowerRemainder::ZERO);
+
+    let start = validate_start_manual_power(
+        &registries,
+        &state,
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested),
+    )
+    .unwrap_or_else(|error| panic!("partial-recharge validation failed: {error}"));
+    let duration = start.work().completes_at().value() - state.tick().value();
+    assert!(
+        duration > 1,
+        "fixture must exercise passive loss before completion"
+    );
+    let total_passive_loss = Energy::from_nanojoules(
+        passive_per_tick
+            .energy()
+            .nanojoules()
+            .checked_mul(u128::from(duration))
+            .unwrap_or_else(|| panic!("partial-recharge passive loss overflowed")),
+    );
+    let expected = initial
+        .checked_sub(total_passive_loss)
+        .and_then(|stored| stored.checked_add(requested))
+        .unwrap_or_else(|| panic!("partial-recharge expected energy overflowed"));
+
+    start
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("partial-recharge commit failed: {error}"));
+    advance_exact(&registries, &mut state, duration);
+
+    assert_eq!(
+        state
+            .energy()
+            .get_store(drive)
+            .map(EnergyStoreRecord::stored),
+        Some(expected),
+        "preexisting flywheel work must keep dissipating while newly generated work arrives only at completion"
+    );
+    assert_eq!(state.player_work().active(), None);
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("partial-recharge final audit failed: {error}"));
+}
+
+#[test]
+fn manual_power_topoff_credits_guaranteed_pre_completion_flywheel_loss() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A80_0006));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("topoff survival setup failed: {error}"));
+    let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
+    let drive = assemble_flywheel_fixture(&registries, &mut state);
+    let initial = Energy::from_nanojoules(300_100_000_000);
+    let requested = Energy::from_nanojoules(200_000_000_000);
+    let initial_charge = validate_start_manual_power(
+        &registries,
+        &state,
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, initial),
+    )
+    .unwrap_or_else(|error| panic!("topoff initial charge failed: {error}"));
+    let initial_duration = initial_charge.work().completes_at().value() - state.tick().value();
+    initial_charge
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("topoff initial commit failed: {error}"));
+    advance_exact(&registries, &mut state, initial_duration);
+
+    let capacity = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .unwrap_or_else(|| panic!("topoff flywheel definition disappeared"))
+        .capacity();
+    assert!(
+        initial
+            .checked_add(requested)
+            .is_some_and(|sum| sum > capacity),
+        "fixture must exceed capacity if deferred passive recovery is ignored"
+    );
+    let topoff = validate_start_manual_power(
+        &registries,
+        &state,
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested),
+    )
+    .unwrap_or_else(|error| panic!("physically feasible deferred topoff was rejected: {error}"));
+    let duration = topoff.work().completes_at().value() - state.tick().value();
+    assert!(
+        duration > 1,
+        "topoff fixture requires a pre-completion loss tick"
+    );
+    topoff
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("topoff commit failed: {error}"));
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("topoff active-work save failed: {error}"));
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("topoff active-work decode failed: {error}"));
+    let mut loaded = decoded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("topoff active-work replay validation failed: {error}"));
+    advance_exact(&registries, &mut loaded, duration);
+    assert!(
+        loaded
+            .energy()
+            .get_store(drive)
+            .is_some_and(|record| record.stored() <= capacity),
+        "deferred topoff must never overfill the finite flywheel"
+    );
+    validate_loaded_state(&registries, &loaded)
+        .unwrap_or_else(|error| panic!("topoff final audit failed: {error}"));
+}
+
+#[test]
+fn manual_power_topoff_does_not_credit_completion_tick_passive_loss() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A80_0007));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("overfill-boundary survival setup failed: {error}"));
+    let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
+    let drive = assemble_flywheel_fixture(&registries, &mut state);
+    let initial = Energy::from_nanojoules(300_500_000_000);
+    let requested = Energy::from_nanojoules(200_000_000_000);
+    let initial_charge = validate_start_manual_power(
+        &registries,
+        &state,
+        ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, initial),
+    )
+    .unwrap_or_else(|error| panic!("overfill-boundary initial charge failed: {error}"));
+    let initial_duration = initial_charge.work().completes_at().value() - state.tick().value();
+    initial_charge
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("overfill-boundary initial commit failed: {error}"));
+    advance_exact(&registries, &mut state, initial_duration);
+    let before = state.clone();
+
+    assert!(matches!(
+        validate_start_manual_power(
+            &registries,
+            &state,
+            ManualPowerRequest::new(MANUAL_POWER_HAND_CRANK, crank, drive, requested),
+        ),
+        Err(ManualPowerError::EnergySink(
+            EnergySinkError::InsufficientCapacity { .. }
+        ))
+    ));
+    assert_eq!(
+        state, before,
+        "manual power must not borrow capacity from passive loss that occurs after same-tick ingress"
+    );
 }
 
 #[test]

@@ -9,19 +9,19 @@ use crate::content::{
     build_registries,
 };
 use crate::core::quantity::{Mass, Temperature};
-use crate::core::state::{AppState, apply_clock_advance};
+use crate::core::state::{AppState, apply_clock_advance, validate_loaded_state};
 use crate::core::time::SimulationTick;
 use crate::core::time::WorldSeed;
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::inventory::selection::apply_consumption_reservation;
 use crate::inventory::{
-    MaterialFixtureError, MaterialIngressEntry, MaterialIngressError, MaterialLotRecord,
-    ReservedDepositRequest, StockpileId, StockpileStorageError, StockpileStorageProfile,
-    add_solid_stockpile_for_test, add_stockpile, apply_material_ingress, apply_reserved_deposits,
-    decide_reserved_deposits, deposit_bulk_for_test, deposit_composed_lot_for_test,
-    deposit_lot_for_test, validate_consumption_reservation_from_selection,
-    validate_consumption_selection, validate_loaded_inventory, validate_material_ingress,
-    validate_material_transfer_for_test,
+    MaterialFixtureError, MaterialIngressEntry, MaterialIngressError, MaterialLotId,
+    MaterialLotRecord, ReservedDepositRequest, StockpileId, StockpileStorageError,
+    StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile, apply_material_ingress,
+    apply_reserved_deposits, decide_reserved_deposits, deposit_bulk_for_test,
+    deposit_composed_lot_for_test, deposit_lot_for_test,
+    validate_consumption_reservation_from_selection, validate_consumption_selection,
+    validate_loaded_inventory, validate_material_ingress, validate_material_transfer_for_test,
 };
 use crate::material::{
     CommodityKey, CompositionComponent, MaterialComposition, MaterialInputSpec, MaterialLotSpec,
@@ -33,6 +33,33 @@ use crate::registry::Registries;
 
 fn wood_log() -> CommodityKey {
     CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
+}
+
+fn projected_storage_age_parts(state: &AppState, lot: MaterialLotId) -> u128 {
+    let record = state
+        .inventory()
+        .get_lot(lot)
+        .unwrap_or_else(|| panic!("storage-age fixture lot {} disappeared", lot.value()));
+    let preservation = state
+        .inventory()
+        .get_stockpile(record.stockpile())
+        .unwrap_or_else(|| panic!("storage-age fixture stockpile disappeared"))
+        .storage_profile()
+        .preservation_multiplier_ppm();
+    record
+        .storage_history()
+        .project(state.tick(), preservation)
+        .unwrap_or_else(|| panic!("storage-age fixture projection overflowed"))
+}
+
+fn triple_preservation_profile() -> StockpileStorageProfile {
+    StockpileStorageProfile::with_preservation(
+        true,
+        false,
+        Temperature::from_millikelvin(350_000),
+        3_000_000,
+    )
+    .unwrap_or_else(|error| panic!("triple-preservation fixture profile failed: {error}"))
 }
 
 fn split_transfer_fixture() -> (Registries, AppState, StockpileId, StockpileId) {
@@ -1691,6 +1718,306 @@ fn material_reform_rejects_a_noop_target_form_without_mutation() {
         })
     );
     assert_eq!(state, before);
+}
+
+#[test]
+fn equal_preservation_relocations_do_not_accumulate_checkpoint_rounding() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_2012));
+    let source = add_stockpile(
+        &mut state,
+        Mass::from_milligrams(100),
+        triple_preservation_profile(),
+    )
+    .unwrap_or_else(|error| panic!("same-rate relocation source failed: {error}"));
+    let destination = add_stockpile(
+        &mut state,
+        Mass::from_milligrams(100),
+        triple_preservation_profile(),
+    )
+    .unwrap_or_else(|error| panic!("same-rate relocation destination failed: {error}"));
+    let control = add_stockpile(
+        &mut state,
+        Mass::from_milligrams(100),
+        triple_preservation_profile(),
+    )
+    .unwrap_or_else(|error| panic!("same-rate relocation control failed: {error}"));
+    let moved = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("same-rate relocation moved lot failed: {error}"));
+    let stationary = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        control,
+        wood_log(),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("same-rate relocation control lot failed: {error}"));
+
+    apply_clock_advance(&mut state, SimulationTick::new(1));
+    validate_material_transfer_for_test(
+        &registries,
+        &state,
+        source,
+        destination,
+        wood_log(),
+        Mass::from_milligrams(10),
+    )
+    .unwrap_or_else(|error| panic!("same-rate first relocation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("same-rate first relocation commit failed: {error}"));
+    apply_clock_advance(&mut state, SimulationTick::new(2));
+    validate_material_transfer_for_test(
+        &registries,
+        &state,
+        destination,
+        source,
+        wood_log(),
+        Mass::from_milligrams(10),
+    )
+    .unwrap_or_else(|error| panic!("same-rate second relocation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("same-rate second relocation commit failed: {error}"));
+    apply_clock_advance(&mut state, SimulationTick::new(3));
+
+    assert_eq!(projected_storage_age_parts(&state, stationary), 1_000_000);
+    assert_eq!(
+        projected_storage_age_parts(&state, moved),
+        projected_storage_age_parts(&state, stationary),
+        "equal-rate relocation must not age matter based on transaction segmentation"
+    );
+}
+
+#[test]
+fn equal_preservation_coalescing_does_not_reencode_storage_age() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_2013));
+    let source = add_stockpile(
+        &mut state,
+        Mass::from_milligrams(100),
+        triple_preservation_profile(),
+    )
+    .unwrap_or_else(|error| panic!("same-rate merge source failed: {error}"));
+    let destination = add_stockpile(
+        &mut state,
+        Mass::from_milligrams(100),
+        triple_preservation_profile(),
+    )
+    .unwrap_or_else(|error| panic!("same-rate merge destination failed: {error}"));
+    let control = add_stockpile(
+        &mut state,
+        Mass::from_milligrams(100),
+        triple_preservation_profile(),
+    )
+    .unwrap_or_else(|error| panic!("same-rate merge control failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("same-rate merge incoming lot failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        destination,
+        wood_log(),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("same-rate merge destination lot failed: {error}"));
+    let stationary = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        control,
+        wood_log(),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("same-rate merge control lot failed: {error}"));
+
+    apply_clock_advance(&mut state, SimulationTick::new(1));
+    validate_material_transfer_for_test(
+        &registries,
+        &state,
+        source,
+        destination,
+        wood_log(),
+        Mass::from_milligrams(10),
+    )
+    .unwrap_or_else(|error| panic!("same-rate coalescing relocation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("same-rate coalescing commit failed: {error}"));
+    assert_eq!(state.inventory().lot_ids(destination).count(), 1);
+    let merged = state
+        .inventory()
+        .lot_ids(destination)
+        .next()
+        .unwrap_or_else(|| panic!("same-rate merged lot disappeared"));
+    apply_clock_advance(&mut state, SimulationTick::new(3));
+
+    assert_eq!(projected_storage_age_parts(&state, stationary), 1_000_000);
+    assert_eq!(
+        projected_storage_age_parts(&state, merged),
+        projected_storage_age_parts(&state, stationary),
+        "coalescing equal-rate cohorts must not create a storage-age checkpoint"
+    );
+}
+
+#[test]
+fn age_sensitive_lots_with_equal_current_age_but_divergent_future_age_do_not_merge() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_2015));
+    let source_profile = StockpileStorageProfile::with_preservation(
+        true,
+        false,
+        Temperature::from_millikelvin(350_000),
+        2_999_999,
+    )
+    .unwrap_or_else(|error| panic!("phase-sensitive source profile failed: {error}"));
+    let source = add_stockpile(&mut state, Mass::from_milligrams(100), source_profile)
+        .unwrap_or_else(|error| panic!("phase-sensitive source stockpile failed: {error}"));
+    let destination = add_stockpile(
+        &mut state,
+        Mass::from_milligrams(100),
+        triple_preservation_profile(),
+    )
+    .unwrap_or_else(|error| panic!("phase-sensitive destination stockpile failed: {error}"));
+    let berries = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    let incoming = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        berries,
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("phase-sensitive incoming berries failed: {error}"));
+    let existing = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        destination,
+        berries,
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("phase-sensitive existing berries failed: {error}"));
+
+    apply_clock_advance(&mut state, SimulationTick::new(1));
+    let source_age = projected_storage_age_parts(&state, incoming);
+    let destination_age = projected_storage_age_parts(&state, existing);
+    assert_eq!(source_age, 333_334);
+    assert_eq!(destination_age, source_age);
+
+    validate_material_transfer_for_test(
+        &registries,
+        &state,
+        source,
+        destination,
+        berries,
+        Mass::from_milligrams(10),
+    )
+    .unwrap_or_else(|error| panic!("phase-sensitive relocation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("phase-sensitive relocation commit failed: {error}"));
+
+    assert_eq!(
+        state.inventory().lot_ids(destination).count(),
+        2,
+        "age-sensitive cohorts that merely coincide now must not merge when their future projections diverge"
+    );
+    assert!(state.inventory().get_lot(incoming).is_some());
+    assert!(state.inventory().get_lot(existing).is_some());
+
+    apply_clock_advance(&mut state, SimulationTick::new(2));
+    assert_eq!(projected_storage_age_parts(&state, existing), 666_667);
+    assert_eq!(projected_storage_age_parts(&state, incoming), 666_668);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn same_rate_reform_preserves_uninterrupted_storage_history() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x1A70_2014));
+    let stockpile = add_stockpile(
+        &mut state,
+        Mass::from_milligrams(100),
+        triple_preservation_profile(),
+    )
+    .unwrap_or_else(|error| panic!("same-rate reform stockpile failed: {error}"));
+    let control = add_stockpile(
+        &mut state,
+        Mass::from_milligrams(100),
+        triple_preservation_profile(),
+    )
+    .unwrap_or_else(|error| panic!("same-rate reform control failed: {error}"));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        wood_log(),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("same-rate reform source lot failed: {error}"));
+    let stationary = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        control,
+        wood_log(),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("same-rate reform control lot failed: {error}"));
+
+    apply_clock_advance(&mut state, SimulationTick::new(1));
+    let selection = validate_consumption_selection(
+        state.inventory(),
+        stockpile,
+        &[MaterialInputSpec::new(
+            wood_log(),
+            Mass::from_milligrams(10),
+        )],
+    )
+    .unwrap_or_else(|error| panic!("same-rate reform selection failed: {error:?}"));
+    validate_material_reform_from_selection(
+        &registries,
+        &state,
+        stockpile,
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+        selection,
+    )
+    .unwrap_or_else(|error| panic!("same-rate reform validation failed: {error:?}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("same-rate reform commit failed: {error:?}"));
+    let reformed = state
+        .inventory()
+        .lot_ids(stockpile)
+        .find(|id| {
+            state
+                .inventory()
+                .get_lot(*id)
+                .is_some_and(|lot| lot.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_CHIP))
+        })
+        .unwrap_or_else(|| panic!("same-rate reform output disappeared"));
+    apply_clock_advance(&mut state, SimulationTick::new(3));
+
+    assert_eq!(projected_storage_age_parts(&state, stationary), 1_000_000);
+    assert_eq!(
+        projected_storage_age_parts(&state, reformed),
+        projected_storage_age_parts(&state, stationary),
+        "same-rate reform must not age matter based on the reform transaction boundary"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

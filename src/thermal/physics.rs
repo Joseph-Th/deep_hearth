@@ -284,11 +284,44 @@ pub fn calculate_phase_sensible_heat(
     current: Temperature,
     target: Temperature,
 ) -> Result<SensibleHeat, PhaseSensibleHeatError> {
+    let (precise, direction) = calculate_phase_sensible_heat_precise(
+        materials,
+        mass,
+        commodity,
+        composition,
+        current,
+        target,
+    )?;
+    let femtojoule_remainder = precise.femtojoule_remainder();
+    let energy = precise
+        .whole_nanojoules()
+        .ok_or(PhaseSensibleHeatError::Heat(
+            SensibleHeatError::FractionalNanojoule {
+                femtojoule_remainder,
+            },
+        ))?;
+    Ok(SensibleHeat { energy, direction })
+}
+
+/// Resolves exact sensible heat for one unchanged material phase without narrowing to the
+/// whole-nanojoule transaction representation.
+///
+/// Batch owners use this form so complementary sub-nanojoule trace remainders can cancel before a
+/// single aggregate energy transaction is validated. Public single-lot calculations retain their
+/// strict whole-nanojoule boundary through `calculate_phase_sensible_heat`.
+pub(in crate::thermal) fn calculate_phase_sensible_heat_precise(
+    materials: &MaterialRegistry,
+    mass: Mass,
+    commodity: CommodityKey,
+    composition: &MaterialComposition,
+    current: Temperature,
+    target: Temperature,
+) -> Result<(PreciseEnergy, HeatDirection), PhaseSensibleHeatError> {
     validate_material_phase_state(materials, commodity, composition, current)
         .map_err(PhaseSensibleHeatError::InvalidCurrentState)?;
     validate_material_phase_state(materials, commodity, composition, target)
         .map_err(PhaseSensibleHeatError::InvalidTargetState)?;
-    calculate_linear_sensible_heat(materials, mass, composition, current, target)
+    calculate_linear_sensible_heat_precise(materials, mass, composition, current, target)
         .map_err(PhaseSensibleHeatError::Heat)
 }
 

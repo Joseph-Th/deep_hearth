@@ -14,6 +14,7 @@ use super::StorageDefinitionId;
 
 mod lot_mutation;
 mod records;
+mod storage_history;
 
 pub(super) use lot_mutation::{
     LotSlice, apply_aggregate_withdraw, apply_consume_lot_slice, apply_insert_or_merge_new_lot,
@@ -23,15 +24,13 @@ pub(super) use lot_mutation::{
 pub(super) use lot_mutation::{
     LotStorageTransition, apply_aggregate_deposit, apply_move_full_lot, apply_split_lot,
 };
-pub(crate) use records::{
-    AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialStorageHistory, STORAGE_AGE_PARTS_PER_TICK,
-    checked_consumed_material_mass,
-};
+pub(crate) use records::{AMBIENT_PRESERVATION_MULTIPLIER_PPM, checked_consumed_material_mass};
 pub use records::{
     ConsumedMaterialTrace, MaterialLotId, MaterialLotProfile, MaterialLotProvenance,
     MaterialLotRecord, StockpileEnclosureRecord, StockpileId, StockpileRecord,
     StockpileStorageProfile, StockpileStorageProfileError,
 };
+pub(crate) use storage_history::{MaterialStorageHistory, STORAGE_AGE_PARTS_PER_TICK};
 
 /// Runtime owner for stockpile records and their generated identifiers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,6 +127,7 @@ impl InventoryState {
             "validated storage dismantling must advance inventory revision exactly once after recovered material ingress"
         );
         let source_preservation = expected_profile.preservation_multiplier_ppm();
+        let destination_preservation = next_profile.preservation_multiplier_ppm();
         for lot in self
             .lots
             .values_mut()
@@ -135,7 +135,7 @@ impl InventoryState {
         {
             lot.storage_history = lot
                 .storage_history
-                .rebase(at, source_preservation)
+                .transition_preservation(at, source_preservation, destination_preservation)
                 .unwrap_or_else(|| {
                     panic!("validated storage dismantling overflowed lot storage history")
                 });
@@ -201,6 +201,7 @@ impl InventoryState {
             "validated storage construction must advance inventory revision exactly once after material egress"
         );
         let source_preservation = expected_profile.preservation_multiplier_ppm();
+        let destination_preservation = next_profile.preservation_multiplier_ppm();
         for lot in self
             .lots
             .values_mut()
@@ -208,7 +209,7 @@ impl InventoryState {
         {
             lot.storage_history = lot
                 .storage_history
-                .rebase(at, source_preservation)
+                .transition_preservation(at, source_preservation, destination_preservation)
                 .unwrap_or_else(|| {
                     panic!("validated storage construction overflowed lot storage history")
                 });

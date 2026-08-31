@@ -58,19 +58,14 @@ pub fn assess_food_freshness(
     if age_parts >= shelf_life_parts {
         Ok(FoodFreshness::Spoiled { age })
     } else {
-        let remaining_parts = shelf_life_parts - age_parts;
-        let remaining_ticks = remaining_parts
-            .checked_mul(u128::from(
+        let remaining = record
+            .storage_history()
+            .ticks_until_projected_age(
+                state.tick(),
                 stockpile.storage_profile().preservation_multiplier_ppm(),
-            ))
-            .ok_or(FoodFreshnessError::ShelfLifeOverflow)?
-            .div_ceil(STORAGE_AGE_PARTS_PER_TICK * STORAGE_AGE_PARTS_PER_TICK);
-        Ok(FoodFreshness::Fresh {
-            age,
-            remaining: TickSpan::new(
-                u64::try_from(remaining_ticks)
-                    .map_err(|_| FoodFreshnessError::ShelfLifeOverflow)?,
-            ),
-        })
+                shelf_life_parts,
+            )
+            .ok_or(FoodFreshnessError::ShelfLifeOverflow)?;
+        Ok(FoodFreshness::Fresh { age, remaining })
     }
 }

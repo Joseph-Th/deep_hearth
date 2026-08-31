@@ -49,6 +49,9 @@ impl ValidatedMaterialReform {
         let source_preservation_multiplier_ppm = source_record
             .storage_profile()
             .preservation_multiplier_ppm();
+        let destination_preservation_multiplier_ppm = destination_record
+            .storage_profile()
+            .preservation_multiplier_ppm();
         for (slice, (_, planned_history)) in self.lot_slices.iter().zip(&self.outputs) {
             let lot = inventories.get_lot(slice.lot).unwrap_or_else(|| {
                 panic!(
@@ -58,9 +61,13 @@ impl ValidatedMaterialReform {
             });
             let replayed_history = lot
                 .storage_history()
-                .rebase(state.tick(), source_preservation_multiplier_ppm)
+                .transition_preservation(
+                    state.tick(),
+                    source_preservation_multiplier_ppm,
+                    destination_preservation_multiplier_ppm,
+                )
                 .unwrap_or_else(|| {
-                    panic!("validated material reform storage history no longer rebases")
+                    panic!("validated material reform storage history no longer transitions")
                 });
             assert_eq!(
                 replayed_history, *planned_history,
@@ -73,9 +80,6 @@ impl ValidatedMaterialReform {
                 .get_lot(slice.lot)
                 .and_then(|lot| (slice.mass == lot.mass()).then_some(slice.lot))
         });
-        let destination_preservation_multiplier_ppm = destination_record
-            .storage_profile()
-            .preservation_multiplier_ppm();
         let mut identity_planner = LotIdentityPlanner::new(inventories, excluded_existing);
         for ((trace, storage_history), planned_lot) in self.outputs.iter().zip(&self.lot_ids) {
             let mut profile: MaterialLotProfile = trace.profile().clone();

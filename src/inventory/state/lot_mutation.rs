@@ -150,9 +150,13 @@ pub(in crate::inventory) fn apply_move_full_lot(
         "validated lot owner changed before commit"
     );
     let commodity = record.commodity();
-    let rebased_storage_history = record
+    let transitioned_storage_history = record
         .storage_history
-        .rebase(storage.at, storage.source_preservation_multiplier_ppm)
+        .transition_preservation(
+            storage.at,
+            storage.source_preservation_multiplier_ppm,
+            storage.destination_preservation_multiplier_ppm,
+        )
         .unwrap_or_else(|| panic!("validated full-lot transfer has invalid storage history"));
     state.remove_lot_index(source, commodity, lot);
     let mut record = match state.lots.remove(&lot) {
@@ -162,7 +166,7 @@ pub(in crate::inventory) fn apply_move_full_lot(
             lot.value()
         ),
     };
-    record.storage_history = rebased_storage_history;
+    record.storage_history = transitioned_storage_history;
     record.stockpile = destination;
     if let Some(existing_id) = find_mergeable_lot(
         state,
@@ -230,7 +234,11 @@ pub(in crate::inventory) fn apply_split_lot(
         profile: source_profile,
         provenance: source_provenance,
         storage_history: source_storage_history
-            .rebase(storage.at, storage.source_preservation_multiplier_ppm)
+            .transition_preservation(
+                storage.at,
+                storage.source_preservation_multiplier_ppm,
+                storage.destination_preservation_multiplier_ppm,
+            )
             .unwrap_or_else(|| panic!("validated split-lot transfer has invalid storage history")),
     };
     if let Some(existing_id) = find_mergeable_lot(
@@ -378,15 +386,20 @@ fn apply_merge_lot_record(
         .storage_history
         .project(at, destination_preservation_multiplier_ppm)
         .unwrap_or_else(|| panic!("validated incoming lot has invalid storage history"));
-    let merged_age = match merge_policy {
-        LotMergePolicy::OldestStorageExposure => existing_age.max(incoming_age),
+    let merged_history = match merge_policy {
+        LotMergePolicy::OldestStorageExposure if incoming_age > existing_age => lot.storage_history,
+        LotMergePolicy::OldestStorageExposure => existing.storage_history,
         LotMergePolicy::ExactStorageExposure => {
-            assert_eq!(
-                existing_age, incoming_age,
-                "age-sensitive material lots with different storage exposure must remain distinct"
+            assert!(
+                existing.storage_history.is_projection_equivalent(
+                    lot.storage_history,
+                    at,
+                    destination_preservation_multiplier_ppm,
+                ) == Some(true),
+                "age-sensitive material lots with divergent storage projections must remain distinct"
             );
-            existing_age
+            existing.storage_history
         }
     };
-    existing.storage_history = MaterialStorageHistory::with_ambient_age_parts(merged_age, at);
+    existing.storage_history = merged_history;
 }

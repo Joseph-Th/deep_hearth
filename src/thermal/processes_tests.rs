@@ -26,7 +26,8 @@ use crate::equipment::{
 };
 use crate::inventory::{
     MaterialLotSelection, StockpileId, StockpileStorageProfile, add_solid_stockpile_for_test,
-    add_stockpile, deposit_lot_for_test, validate_mount_stockpile, validate_unmount_stockpile,
+    add_stockpile, deposit_composed_lot_for_test, deposit_lot_for_test, validate_mount_stockpile,
+    validate_unmount_stockpile,
 };
 use crate::maintenance::{Condition, MaintenanceThresholds};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
@@ -62,6 +63,144 @@ fn condition(parts_per_million: u32) -> Condition {
         Ok(condition) => condition,
         Err(error) => panic!("thermal test condition fixture failed: {error}"),
     }
+}
+
+#[test]
+fn sensible_heating_sums_fractional_trace_energy_before_transaction_quantization() {
+    let registries = make_registries_with_energy_output_power(
+        EnergyCarrier::Electrical,
+        Temperature::from_millikelvin(400_000),
+        Power::from_microwatts(5_000),
+    );
+    let mut state = AppState::new(WorldSeed::new(0x9200_0102));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
+        .unwrap_or_else(|error| panic!("fractional-batch source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10))
+        .unwrap_or_else(|error| panic!("fractional-batch destination failed: {error}"));
+    let half_copper = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_COPPER, 500_000),
+        CompositionComponent::new(crate::content::MATERIAL_SLAG, 500_000),
+    ])
+    .unwrap_or_else(|error| panic!("fractional-batch half-copper composition failed: {error}"));
+    let lean_copper = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_COPPER, 100_000),
+        CompositionComponent::new(crate::content::MATERIAL_SLAG, 900_000),
+    ])
+    .unwrap_or_else(|error| panic!("fractional-batch lean-copper composition failed: {error}"));
+    let input_temperature = Temperature::from_millikelvin(300_000);
+    let target = Temperature::from_millikelvin(300_001);
+    let first = deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+        Mass::from_milligrams(1),
+        input_temperature,
+        half_copper,
+    )
+    .unwrap_or_else(|error| panic!("fractional-batch first lot failed: {error}"));
+    let second = deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+        Mass::from_milligrams(1),
+        input_temperature,
+        lean_copper,
+    )
+    .unwrap_or_else(|error| panic!("fractional-batch second lot failed: {error}"));
+    let equipment = add_equipment(&registries, &mut state, HEATER, Condition::PRISTINE)
+        .unwrap_or_else(|error| panic!("fractional-batch equipment failed: {error}"));
+    let energy_store = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        BATTERY,
+        Energy::from_nanojoules(10_000),
+    )
+    .unwrap_or_else(|error| panic!("fractional-batch energy store failed: {error}"));
+
+    let initial_explicit_energy = calculate_explicit_energy_accounting(&registries, &state)
+        .and_then(|accounting| {
+            accounting
+                .total()
+                .ok_or(crate::energy::ExplicitEnergyAccountingError::Overflow)
+        })
+        .unwrap_or_else(|error| {
+            panic!("fractional-batch initial energy accounting failed: {error}")
+        });
+    let selections = [
+        MaterialLotSelection::new(first, Mass::from_milligrams(1)),
+        MaterialLotSelection::new(second, Mass::from_milligrams(1)),
+    ];
+    let resolved = resolve_sensible_heating_process(
+        &registries,
+        &state,
+        SensibleHeatingRequest::new(
+            PROCESS,
+            source,
+            &selections,
+            equipment,
+            energy_store,
+            target,
+        ),
+    )
+    .unwrap_or_else(|error| {
+        panic!("complementary fractional trace energy should resolve as one batch: {error}")
+    });
+    assert_eq!(resolved.required_energy(), Energy::from_nanojoules(1_491));
+
+    let job = validate_start_process(
+        &registries,
+        &state,
+        resolved.process_resolution(),
+        source,
+        destination,
+    )
+    .unwrap_or_else(|error| panic!("fractional-batch production start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("fractional-batch production commit failed: {error}"));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let in_flight_explicit_energy = calculate_explicit_energy_accounting(&registries, &state)
+        .and_then(|accounting| {
+            accounting
+                .total()
+                .ok_or(crate::energy::ExplicitEnergyAccountingError::Overflow)
+        })
+        .unwrap_or_else(|error| panic!("fractional-batch in-flight accounting failed: {error}"));
+    assert_eq!(in_flight_explicit_energy, initial_explicit_energy);
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("fractional-batch save failed: {error}"));
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("fractional-batch decode failed: {error}"));
+    let mut loaded = loaded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("fractional-batch trusted replay failed: {error}"));
+    assert_eq!(loaded, state);
+    assert!(loaded.production().get_job(job).is_some());
+
+    let duration = state
+        .production()
+        .get_job(job)
+        .map(|record| record.completes_at().value() - state.tick().value())
+        .unwrap_or_else(|| panic!("fractional-batch job disappeared before completion"));
+    for _ in 0..duration {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("fractional-batch source completion failed: {error}"));
+        let _ = advance_tick(&registries, &mut loaded)
+            .unwrap_or_else(|error| panic!("fractional-batch loaded completion failed: {error}"));
+    }
+    assert_eq!(loaded, state);
+    assert!(state.production().get_job(job).is_none());
+    let final_explicit_energy = calculate_explicit_energy_accounting(&registries, &state)
+        .and_then(|accounting| {
+            accounting
+                .total()
+                .ok_or(crate::energy::ExplicitEnergyAccountingError::Overflow)
+        })
+        .unwrap_or_else(|error| panic!("fractional-batch final accounting failed: {error}"));
+    assert_eq!(final_explicit_energy, initial_explicit_energy);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

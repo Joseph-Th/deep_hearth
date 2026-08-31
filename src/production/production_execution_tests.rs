@@ -507,6 +507,32 @@ fn persisted_production_storage_history_must_be_rebased_to_job_start() {
 }
 
 #[test]
+fn production_started_after_time_elapsed_rebases_storage_history_to_ownership_boundary() {
+    let registries = make_test_registries();
+    let mut state = AppState::new(WorldSeed::new(0x9000_0017));
+    let source = add_test_stockpile(&mut state, 100);
+    let destination = add_test_stockpile(&mut state, 100);
+    deposit_test_wood(&registries, &mut state, source, 10);
+    apply_clock_advance(&mut state, SimulationTick::new(5));
+    let resolution = make_test_resolution(&registries, &state, source, 3);
+    let token = validate_start_process(&registries, &state, &resolution, source, destination)
+        .unwrap_or_else(|error| panic!("later production start failed: {error}"));
+    let job = commit_process_for_test(token, &mut state);
+    let record = state
+        .production()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("later-start production job disappeared"));
+
+    assert_eq!(record.started_at(), SimulationTick::new(5));
+    assert_eq!(
+        record.material_storage_history().last_transition_at(),
+        record.started_at(),
+        "production custody must checkpoint storage exposure exactly at its ownership boundary"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn persisted_production_job_cannot_start_in_the_future() {
     let registries = make_test_registries();
     let mut state = AppState::new(WorldSeed::new(0x9000_0005));

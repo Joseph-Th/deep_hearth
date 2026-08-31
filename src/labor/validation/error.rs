@@ -111,9 +111,9 @@ impl Display for PlayerWorkValidationError {
                 .write_str("manual power destination carrier disagrees with its authored method"),
             Self::ManualPowerDestinationCannotAcceptEnergy => formatter
                 .write_str("manual power destination has no authored input-power capability"),
-            Self::ManualPowerDestinationCapacityExceeded => {
-                formatter.write_str("manual power output exceeds remaining destination capacity")
-            }
+            Self::ManualPowerDestinationCapacityExceeded => formatter.write_str(
+                "manual power output exceeds destination capacity available by completion",
+            ),
             Self::ManualPowerEquipmentCapabilityMissing => {
                 formatter.write_str("manual power equipment lacks its authored power capability")
             }

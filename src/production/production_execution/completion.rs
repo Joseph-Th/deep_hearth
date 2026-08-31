@@ -9,12 +9,11 @@ use crate::energy::ReleasedEnergyTrace;
 use crate::equipment::EquipmentOperationConditionOutcome;
 use crate::inventory::{
     AMBIENT_PRESERVATION_MULTIPLIER_PPM, ReservedDepositPlan, ReservedDepositPlanError,
-    ReservedDepositRequest, StockpileId, StockpileStoredMassChange, StockpileStructuralLoadError,
+    ReservedDepositRequest, StockpileId, StockpileStoredMassChange,
     ValidatedStockpileStructuralLoad, decide_reserved_deposits,
     validate_stockpile_stored_mass_changes,
 };
 use crate::registry::Registries;
-use crate::structural::StructuralCommitError;
 
 use super::super::definitions::ProcessId;
 use super::super::resolution::{ProcessOutputStreamId, sum_lot_spec_mass};
@@ -23,9 +22,11 @@ use super::start::ProcessOutputRoute;
 
 mod application;
 mod availability;
+mod errors;
 
 pub(crate) use application::apply_completion_plan;
 use availability::decide_availability_changes;
+pub(crate) use errors::{CompletionCommitError, CompletionPlanError};
 
 /// Observable active-time scheduling change caused by a production provider becoming unavailable or
 /// usable again. Work-in-process remains owned by the same job across both transitions.
@@ -241,43 +242,9 @@ fn build_completion_revision_plan(
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum CompletionPlanError {
-    MaterialLotIds,
-    InventoryRevision,
-    ProductionRevision,
-    EquipmentRevision,
-    EnergyRevision,
-    PlayerWorkRevision,
-    ResumeTickOverflow {
-        job: ProductionJobId,
-        current: SimulationTick,
-        remaining: TickSpan,
-    },
-    DestinationMassOverflow {
-        stockpile: StockpileId,
-    },
-    StorageAgeOverflow {
-        job: ProductionJobId,
-    },
-    StructuralLoad(StockpileStructuralLoadError),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CompletionApplication {
     pub(crate) completions: Vec<ProcessCompletion>,
     pub(crate) availability_changes: Vec<ProductionAvailabilityChange>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum CompletionCommitError {
-    InventoryStale { expected: u64, actual: u64 },
-    ProductionRevisionChanged { expected: u64, actual: u64 },
-    EquipmentRevisionConflict { expected: u64, actual: u64 },
-    EnergyRevisionConflict { expected: u64, actual: u64 },
-    StructureRevisionConflict { expected: u64, actual: u64 },
-    PlayerWorkRevisionConflict { expected: u64, actual: u64 },
-    SurvivalRevisionConflict { expected: u64, actual: u64 },
-    Structure(StructuralCommitError),
 }
 
 /// Decides provider availability transitions and all jobs due on one exact tick without mutating

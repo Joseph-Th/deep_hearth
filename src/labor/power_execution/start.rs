@@ -3,7 +3,10 @@
 use crate::capability::CapabilityValue;
 use crate::core::quantity::Power;
 use crate::core::state::AppState;
-use crate::energy::{calculate_power_duration_ceiling, validate_energy_sink};
+use crate::energy::{
+    EnergySinkError, calculate_power_duration_ceiling, validate_energy_sink_access,
+    validate_energy_sink_release,
+};
 use crate::equipment::resolve_equipment_provider;
 use crate::maintenance::calculate_usable_condition_after_active_ticks;
 use crate::registry::Registries;
@@ -141,15 +144,18 @@ pub fn validate_start_manual_power(
             capability: definition.power_capability(),
         });
     }
-    let sink = validate_energy_sink(registries, state, request.destination, request.energy)
+    if request.energy.is_zero() {
+        return Err(ManualPowerError::EnergySink(EnergySinkError::ZeroEnergy));
+    }
+    let sink_access = validate_energy_sink_access(registries, state, request.destination)
         .map_err(ManualPowerError::EnergySink)?;
-    if sink.trace().carrier() != definition.carrier() {
+    if sink_access.carrier() != definition.carrier() {
         return Err(ManualPowerError::WrongCarrier {
             required: definition.carrier(),
-            provided: sink.trace().carrier(),
+            provided: sink_access.carrier(),
         });
     }
-    let transfer_power = std::cmp::min(equipment_power, sink.max_input_power());
+    let transfer_power = std::cmp::min(equipment_power, sink_access.max_input_power());
     if transfer_power == Power::ZERO {
         return Err(ManualPowerError::ZeroTransferPower {
             equipment: request.equipment,
@@ -184,6 +190,8 @@ pub fn validate_start_manual_power(
             }
         })?;
     let duration = std::cmp::max(power_duration, metabolic_duration);
+    let sink = validate_energy_sink_release(registries, sink_access, request.energy, duration)
+        .map_err(ManualPowerError::EnergySink)?;
     let exertion = resolve_manual_power_exertion(
         request.energy,
         duration,

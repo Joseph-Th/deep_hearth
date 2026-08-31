@@ -13,8 +13,8 @@ use crate::core::time::{TickSpan, WorldSeed};
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::inventory::{
-    StorageEnclosureValidationError, add_solid_stockpile_for_test, deposit_lot_for_test,
-    validate_mount_stockpile,
+    MaterialLotId, StockpileStorageError, StorageEnclosureValidationError,
+    add_solid_stockpile_for_test, deposit_lot_for_test, validate_mount_stockpile,
 };
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;

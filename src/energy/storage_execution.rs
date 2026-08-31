@@ -18,15 +18,18 @@ pub use supply::{
 };
 
 pub(crate) use sink::{
-    EnergyIngressReservation, EnergyIngressReservationError, apply_released_energy_outcomes,
-    assert_released_energy_outcomes_available, project_energy_sink_stored_at_release,
-    validate_energy_ingress_reservation, validate_energy_sink_access, validate_energy_sink_release,
+    EnergyIngressReservation, EnergyIngressReservationError, EnergySinkCapacityError,
+    apply_released_energy_outcomes, assert_released_energy_outcomes_available,
+    validate_energy_ingress_reservation, validate_energy_sink_access,
+    validate_energy_sink_capacity_at_release, validate_energy_sink_release,
 };
 pub(crate) use supply::{
     EnergyConsumptionReservation, EnergyReservationError,
     apply_prechecked_energy_consumption_reservation, validate_energy_consumption_reservation,
 };
 
+#[cfg(test)]
+use sink::project_energy_sink_stored_at_release;
 #[cfg(test)]
 pub(crate) use supply::apply_energy_consumption_reservation;
 

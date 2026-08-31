@@ -1,60 +1,15 @@
 //! Immutable survival, food, and drink definitions.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::core::quantity::{Energy, Mass, MassSpecificEnergy, Temperature, Volume};
+use crate::core::quantity::{Energy, Mass, Volume};
 use crate::core::time::TickSpan;
 use crate::fluid::{FluidDefinitionId, FluidRegistry};
 use crate::material::{CommodityKey, MaterialId, MaterialRegistry};
 
-/// Broad dietary identity used for dietary balance and planning.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum FoodCategory {
-    Grain,
-    Fruit,
-    Protein,
-}
+mod intake;
 
-/// Inclusive authored temperature envelope for direct human consumption.
-///
-/// This is deliberately separate from storage compatibility. A container may physically tolerate
-/// material that is too hot or too cold to consume safely without another thermal operation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ConsumptionTemperatureRange {
-    minimum: Temperature,
-    maximum: Temperature,
-}
-
-impl ConsumptionTemperatureRange {
-    #[must_use]
-    pub fn new(minimum: Temperature, maximum: Temperature) -> Self {
-        assert!(
-            minimum.millikelvin() != 0,
-            "consumption minimum temperature must be above absolute zero"
-        );
-        assert!(
-            minimum <= maximum,
-            "consumption minimum temperature cannot exceed maximum temperature"
-        );
-        Self { minimum, maximum }
-    }
-
-    #[must_use]
-    pub const fn minimum(self) -> Temperature {
-        self.minimum
-    }
-
-    #[must_use]
-    pub const fn maximum(self) -> Temperature {
-        self.maximum
-    }
-
-    #[must_use]
-    pub const fn contains(self, temperature: Temperature) -> bool {
-        temperature.millikelvin() >= self.minimum.millikelvin()
-            && temperature.millikelvin() <= self.maximum.millikelvin()
-    }
-}
+pub use intake::{ConsumptionTemperatureRange, DrinkDefinition, FoodCategory, FoodDefinition};
 
 /// Authored rate at which recent dietary balance fades and can support vitality recovery.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -351,135 +306,12 @@ impl PhysiologyDefinition {
 #[path = "definitions_tests.rs"]
 mod tests;
 
-/// Edibility and perishability of one exact material/form identity.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FoodDefinition {
-    commodity: CommodityKey,
-    category: FoodCategory,
-    dietary_energy: MassSpecificEnergy,
-    hydration_microliters_per_milligram: u32,
-    shelf_life: TickSpan,
-    consumption_temperature: ConsumptionTemperatureRange,
-}
-
-impl FoodDefinition {
-    #[must_use]
-    pub fn new(
-        commodity: CommodityKey,
-        category: FoodCategory,
-        dietary_energy: MassSpecificEnergy,
-        hydration_microliters_per_milligram: u32,
-        shelf_life: TickSpan,
-        consumption_temperature: ConsumptionTemperatureRange,
-    ) -> Self {
-        assert!(
-            !dietary_energy.is_zero(),
-            "food dietary energy must be nonzero"
-        );
-        assert!(!shelf_life.is_zero(), "food shelf life must be nonzero");
-        Self {
-            commodity,
-            category,
-            dietary_energy,
-            hydration_microliters_per_milligram,
-            shelf_life,
-            consumption_temperature,
-        }
-    }
-
-    #[must_use]
-    pub const fn commodity(self) -> CommodityKey {
-        self.commodity
-    }
-
-    #[must_use]
-    pub const fn category(self) -> FoodCategory {
-        self.category
-    }
-
-    #[must_use]
-    pub const fn dietary_energy(self) -> MassSpecificEnergy {
-        self.dietary_energy
-    }
-
-    #[must_use]
-    pub const fn hydration_microliters_per_milligram(self) -> u32 {
-        self.hydration_microliters_per_milligram
-    }
-
-    #[must_use]
-    pub const fn shelf_life(self) -> TickSpan {
-        self.shelf_life
-    }
-
-    #[must_use]
-    pub const fn consumption_temperature(self) -> ConsumptionTemperatureRange {
-        self.consumption_temperature
-    }
-}
-
-/// Hydration contribution of one exact finite fluid identity.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DrinkDefinition {
-    fluid: FluidDefinitionId,
-    hydration_multiplier_ppm: u32,
-    consumption_temperature: ConsumptionTemperatureRange,
-}
-
-impl DrinkDefinition {
-    #[must_use]
-    pub fn new(
-        fluid: FluidDefinitionId,
-        hydration_multiplier_ppm: u32,
-        consumption_temperature: ConsumptionTemperatureRange,
-    ) -> Self {
-        assert!(
-            (1..=1_000_000).contains(&hydration_multiplier_ppm),
-            "drink hydration multiplier must be inside 1..=1,000,000 ppm"
-        );
-        Self {
-            fluid,
-            hydration_multiplier_ppm,
-            consumption_temperature,
-        }
-    }
-
-    #[must_use]
-    pub const fn fluid(self) -> FluidDefinitionId {
-        self.fluid
-    }
-
-    #[must_use]
-    pub const fn hydration_multiplier_ppm(self) -> u32 {
-        self.hydration_multiplier_ppm
-    }
-
-    /// Projects the whole-microliter hydration represented by one consumed fluid volume.
-    ///
-    /// Flooring occurs once at the physiological volume boundary. The authored multiplier is at
-    /// most one million ppm, so the result can never exceed the finite source volume.
-    #[must_use]
-    pub(crate) fn hydration_offer(self, volume: Volume) -> Volume {
-        let numerator =
-            u128::from(volume.microliters()) * u128::from(self.hydration_multiplier_ppm);
-        let microliters = numerator / 1_000_000;
-        Volume::from_microliters(
-            u64::try_from(microliters)
-                .unwrap_or_else(|_| unreachable!("drink hydration cannot exceed source volume")),
-        )
-    }
-
-    #[must_use]
-    pub const fn consumption_temperature(self) -> ConsumptionTemperatureRange {
-        self.consumption_temperature
-    }
-}
-
 /// Immutable survival lookup bundle.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SurvivalRegistry {
     physiology: PhysiologyDefinition,
     foods: BTreeMap<CommodityKey, FoodDefinition>,
+    food_materials: BTreeSet<MaterialId>,
     drinks: BTreeMap<FluidDefinitionId, DrinkDefinition>,
 }
 
@@ -490,12 +322,15 @@ impl SurvivalRegistry {
         drinks: impl IntoIterator<Item = DrinkDefinition>,
     ) -> Self {
         let mut foods_by_commodity = BTreeMap::new();
+        let mut food_materials = BTreeSet::new();
         for food in foods {
+            let commodity = food.commodity();
             assert!(
-                foods_by_commodity.insert(food.commodity(), food).is_none(),
+                foods_by_commodity.insert(commodity, food).is_none(),
                 "duplicate food definition for commodity {}",
-                food.commodity().value()
+                commodity.value()
             );
+            food_materials.insert(commodity.material());
         }
         let mut drinks_by_fluid = BTreeMap::new();
         for drink in drinks {
@@ -508,6 +343,7 @@ impl SurvivalRegistry {
         Self {
             physiology,
             foods: foods_by_commodity,
+            food_materials,
             drinks: drinks_by_fluid,
         }
     }
@@ -539,9 +375,7 @@ impl SurvivalRegistry {
 
     #[must_use]
     pub(crate) fn has_food_material(&self, material: MaterialId) -> bool {
-        self.foods
-            .values()
-            .any(|definition| definition.commodity().material() == material)
+        self.food_materials.contains(&material)
     }
 
     pub(crate) fn validate_references(&self, materials: &MaterialRegistry, fluids: &FluidRegistry) {

@@ -5,6 +5,7 @@ use crate::content::{FORM_LOG, MATERIAL_STONE, MATERIAL_WOOD, build_registries};
 use crate::core::quantity::Temperature;
 use crate::core::state::AppState;
 use crate::core::time::WorldSeed;
+use crate::inventory::state::get_stockpile_mut_or_panic;
 use crate::inventory::{
     add_solid_stockpile_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
 };

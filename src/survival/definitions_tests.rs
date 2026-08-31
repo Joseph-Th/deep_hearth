@@ -1,7 +1,7 @@
 //! Contract tests for survival definitions and intake limits.
 
 use super::*;
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Mass, Temperature};
 
 fn physiology(starvation_loss: u32, dehydration_loss: u32) -> PhysiologyDefinition {
     PhysiologyDefinition::new(
