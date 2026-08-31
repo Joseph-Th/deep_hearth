@@ -196,9 +196,9 @@ pub(super) struct PurePhaseChangeBatch {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct PhaseChangeTracePhysics {
-    melting_point: Temperature,
-    transfer_energy: Energy,
+pub(super) struct PhaseChangeTracePhysics {
+    pub(super) melting_point: Temperature,
+    pub(super) transfer_energy: Energy,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -266,7 +266,7 @@ impl PhaseChangeBatchAccumulator {
     }
 }
 
-fn resolve_phase_change_trace_material(
+pub(super) fn resolve_phase_change_trace_material(
     materials: &MaterialRegistry,
     expected_material: MaterialId,
     input_forms: &[FormId],
@@ -311,14 +311,15 @@ fn resolve_phase_change_trace_material(
     Ok(material)
 }
 
-fn resolve_phase_change_trace_physics(
+pub(super) fn resolve_phase_change_trace_physics(
     materials: &MaterialRegistry,
     direction: PurePhaseChangeDirection,
     trace: &ConsumedMaterialTrace,
+    mass: Mass,
     material: MaterialId,
 ) -> Result<PhaseChangeTracePhysics, PurePhaseChangeBatchError> {
     let profile = trace.profile();
-    let fusion = calculate_fusion_heat(materials, trace.mass(), material)
+    let fusion = calculate_fusion_heat(materials, mass, material)
         .map_err(|error| PurePhaseChangeBatchError::FusionHeat { material, error })?;
     let melting_point = fusion.melting_point();
     if !direction.input_temperature_is_valid(profile.temperature(), melting_point) {
@@ -333,7 +334,7 @@ fn resolve_phase_change_trace_physics(
     }
     let sensible = calculate_sensible_heat(
         materials,
-        trace.mass(),
+        mass,
         profile.composition(),
         profile.temperature(),
         melting_point,
@@ -372,8 +373,13 @@ pub(super) fn resolve_pure_phase_change_batch(
             direction,
             trace,
         )?;
-        let physics =
-            resolve_phase_change_trace_physics(materials, direction, trace, trace_material)?;
+        let physics = resolve_phase_change_trace_physics(
+            materials,
+            direction,
+            trace,
+            trace.mass(),
+            trace_material,
+        )?;
         batch.add_trace(trace, physics)?;
     }
     batch.finish(material, output_form)

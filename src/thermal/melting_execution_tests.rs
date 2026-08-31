@@ -370,6 +370,22 @@ fn make_fixture(
     carrier: EnergyCarrier,
     input_mass: Mass,
 ) -> MeltingFixture {
+    make_fixture_with_resources(
+        maximum_temperature,
+        carrier,
+        input_mass,
+        Condition::PRISTINE,
+        Energy::from_nanojoules(1_000_000_000_000),
+    )
+}
+
+fn make_fixture_with_resources(
+    maximum_temperature: Temperature,
+    carrier: EnergyCarrier,
+    input_mass: Mass,
+    equipment_condition: Condition,
+    initial_energy: Energy,
+) -> MeltingFixture {
     let registries = make_registries(maximum_temperature, carrier);
     let mut state = AppState::new(WorldSeed::new(0x9500_0001));
     let source = match add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000)) {
@@ -397,7 +413,7 @@ fn make_fixture(
         Ok(lot) => lot,
         Err(error) => panic!("melting copper fixture failed: {error}"),
     };
-    let equipment = match add_equipment(&registries, &mut state, FURNACE, Condition::PRISTINE) {
+    let equipment = match add_equipment(&registries, &mut state, FURNACE, equipment_condition) {
         Ok(equipment) => equipment,
         Err(error) => panic!("melting equipment fixture failed: {error}"),
     };
@@ -405,7 +421,7 @@ fn make_fixture(
         &registries,
         &mut state,
         ENERGY_STORE,
-        Energy::from_nanojoules(1_000_000_000_000),
+        initial_energy,
     ) {
         Ok(store) => store,
         Err(error) => panic!("melting energy fixture failed: {error}"),
@@ -421,6 +437,114 @@ fn make_fixture(
             source_lot,
         },
     }
+}
+
+#[test]
+fn melting_mass_envelope_agrees_with_canonical_equipment_and_energy_boundaries() {
+    let equipment_limited = make_fixture(
+        Temperature::from_millikelvin(1_500_000),
+        EnergyCarrier::Electrical,
+        Mass::from_milligrams(30),
+    );
+    let envelope = crate::thermal::assess_melting_lot_mass_envelope(
+        &equipment_limited.registries,
+        &equipment_limited.state,
+        crate::thermal::MeltingLotMassRequest::new(
+            PROCESS,
+            equipment_limited.ids.source,
+            MaterialLotSelection::new(equipment_limited.ids.source_lot, Mass::from_milligrams(30)),
+            equipment_limited.ids.equipment,
+            equipment_limited.ids.energy_store,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("melting equipment envelope failed: {error}"));
+    assert_eq!(envelope.maximum_mass(), Mass::from_milligrams(20));
+    assert_eq!(
+        envelope.limiting_constraint(),
+        Some(crate::thermal::MeltingLotMassConstraint::EquipmentCapacity)
+    );
+    assert!(
+        resolve_selected(
+            &equipment_limited.registries,
+            &equipment_limited.state,
+            equipment_limited.ids,
+            Mass::from_milligrams(20),
+        )
+        .is_ok()
+    );
+    assert!(matches!(
+        resolve_selected(
+            &equipment_limited.registries,
+            &equipment_limited.state,
+            equipment_limited.ids,
+            Mass::from_milligrams(21),
+        ),
+        Err(MeltingResolutionError::BatchMassExceedsEquipmentCapacity { .. })
+    ));
+
+    let baseline = make_fixture(
+        Temperature::from_millikelvin(1_500_000),
+        EnergyCarrier::Electrical,
+        Mass::from_milligrams(1),
+    );
+    let unit_energy = resolve_selected(
+        &baseline.registries,
+        &baseline.state,
+        baseline.ids,
+        Mass::from_milligrams(1),
+    )
+    .unwrap_or_else(|error| panic!("melting unit-energy baseline failed: {error}"))
+    .required_energy();
+    let three_units = Energy::from_nanojoules(
+        unit_energy
+            .nanojoules()
+            .checked_mul(3)
+            .unwrap_or_else(|| panic!("melting three-unit energy overflowed")),
+    );
+    let energy_limited = make_fixture_with_resources(
+        Temperature::from_millikelvin(1_500_000),
+        EnergyCarrier::Electrical,
+        Mass::from_milligrams(10),
+        Condition::PRISTINE,
+        three_units,
+    );
+    let envelope = crate::thermal::assess_melting_lot_mass_envelope(
+        &energy_limited.registries,
+        &energy_limited.state,
+        crate::thermal::MeltingLotMassRequest::new(
+            PROCESS,
+            energy_limited.ids.source,
+            MaterialLotSelection::new(energy_limited.ids.source_lot, Mass::from_milligrams(10)),
+            energy_limited.ids.equipment,
+            energy_limited.ids.energy_store,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("melting energy envelope failed: {error}"));
+    assert_eq!(envelope.maximum_mass(), Mass::from_milligrams(3));
+    assert_eq!(
+        envelope.limiting_constraint(),
+        Some(crate::thermal::MeltingLotMassConstraint::FiniteEnergy)
+    );
+    assert!(
+        resolve_selected(
+            &energy_limited.registries,
+            &energy_limited.state,
+            energy_limited.ids,
+            Mass::from_milligrams(3),
+        )
+        .is_ok()
+    );
+    assert!(matches!(
+        resolve_selected(
+            &energy_limited.registries,
+            &energy_limited.state,
+            energy_limited.ids,
+            Mass::from_milligrams(4),
+        ),
+        Err(MeltingResolutionError::Energy(
+            crate::energy::EnergySupplyError::InsufficientEnergy { .. }
+        ))
+    ));
 }
 
 fn resolve_selected(

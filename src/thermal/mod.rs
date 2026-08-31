@@ -5,6 +5,7 @@ mod equipment_physics;
 mod melting_execution;
 mod phase_change_batch;
 mod physics;
+mod planning;
 mod processes;
 
 pub use casting_execution::{
@@ -19,6 +20,11 @@ pub use physics::{
     FusionHeat, FusionHeatError, HeatDirection, MaterialThermalEnergyError, PhaseSensibleHeatError,
     SensibleHeat, SensibleHeatError, calculate_fusion_heat, calculate_material_thermal_energy,
     calculate_phase_sensible_heat, calculate_sensible_heat,
+};
+pub use planning::{
+    CastingLotMassConstraint, CastingLotMassEnvelope, CastingLotMassRequest,
+    MeltingLotMassConstraint, MeltingLotMassEnvelope, MeltingLotMassRequest,
+    assess_casting_lot_mass_envelope, assess_melting_lot_mass_envelope,
 };
 pub use processes::{
     ResolvedSensibleHeating, SensibleHeatingProcessDefinition, SensibleHeatingRequest,

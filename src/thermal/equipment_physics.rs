@@ -71,10 +71,7 @@ pub(super) fn validate_thermal_batch_mass(
     selected_mass: Mass,
 ) -> Result<(), ThermalBatchLimitError> {
     let maximum =
-        match resolve_equipment_capability(equipment, condition, maximum_batch_mass_capability) {
-            Some(CapabilityValue::Mass(mass)) => mass,
-            Some(_) | None => return Err(ThermalBatchLimitError::MissingMaximumBatchMass),
-        };
+        resolve_thermal_batch_mass_limit(equipment, condition, maximum_batch_mass_capability)?;
     if selected_mass > maximum {
         return Err(ThermalBatchLimitError::BatchMassExceeded {
             selected: selected_mass,
@@ -82,6 +79,18 @@ pub(super) fn validate_thermal_batch_mass(
         });
     }
     Ok(())
+}
+
+/// Resolves the condition-adjusted single-batch mass ceiling without selecting a batch amount.
+pub(super) fn resolve_thermal_batch_mass_limit(
+    equipment: &EquipmentDefinition,
+    condition: Condition,
+    maximum_batch_mass_capability: CapabilityId,
+) -> Result<Mass, ThermalBatchLimitError> {
+    match resolve_equipment_capability(equipment, condition, maximum_batch_mass_capability) {
+        Some(CapabilityValue::Mass(mass)) => Ok(mass),
+        Some(_) | None => Err(ThermalBatchLimitError::MissingMaximumBatchMass),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -13,9 +13,14 @@ fn condition_lifetime_is_an_adaptive_crush_constraint() {
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("condition-lifetime fixture mount commit failed: {error}"));
 
+    let envelopes = assess_crush_envelopes(&registries, &state, ids);
+    assert_eq!(
+        envelopes.small.constraint_for(desired),
+        Some(PoweredOreMassConstraint::ConditionLifetime)
+    );
     assert!(matches!(
         resolve_crush_option(&registries, &state, ids, desired, "small", ids.small_drive,),
-        Err(CrushConstraint::ConditionLifetime)
+        Err(PoweredOreMassConstraint::ConditionLifetime)
     ));
 
     let adaptive = largest_resolvable_crush_batch(&registries, &state, ids, desired)

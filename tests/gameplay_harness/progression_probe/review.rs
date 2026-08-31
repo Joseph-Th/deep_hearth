@@ -280,7 +280,7 @@ fn evaluate_primitive_progression_probe(
     registries: &Registries,
     case: FocusedProbeCase,
 ) -> PrimitiveProgressionReview {
-    assert_progression_runtime_dependencies(registries);
+    assert_progression_authored_dependencies(registries);
     let seed = case.seed();
     let sample = focused_probe_role_label(case.role());
     let behavior_seed = case

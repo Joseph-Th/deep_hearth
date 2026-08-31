@@ -54,9 +54,10 @@ pub(crate) use passive_dissipation::{
 pub(crate) use state::validate_loaded_energy;
 pub(crate) use storage_execution::{
     EnergyConsumptionReservation, EnergyIngressReservation, EnergyIngressReservationError,
-    EnergyReservationError, EnergySinkCapacityError,
+    EnergyReservationError, EnergySinkCapacityError, ValidatedEnergySinkAccess,
     apply_prechecked_energy_consumption_reservation, apply_released_energy_outcomes,
-    assert_released_energy_outcomes_available, validate_energy_consumption_reservation,
-    validate_energy_ingress_reservation, validate_energy_sink_access,
-    validate_energy_sink_capacity_at_release, validate_energy_sink_release,
+    assert_released_energy_outcomes_available, assess_energy_supply_access,
+    validate_energy_consumption_reservation, validate_energy_ingress_reservation,
+    validate_energy_sink_access, validate_energy_sink_capacity_at_release,
+    validate_energy_sink_release,
 };

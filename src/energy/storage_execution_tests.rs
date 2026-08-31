@@ -26,6 +26,31 @@ fn registries() -> Registries {
     )
 }
 
+#[test]
+fn supply_access_reports_an_empty_but_currently_usable_store_without_reserving_it() {
+    let registries = registries();
+    let mut state = AppState::new(WorldSeed::new(0x9300_0010));
+    let store = add_energy_store(&registries, &mut state, STORE_DEFINITION)
+        .unwrap_or_else(|error| panic!("empty supply-access fixture failed: {error}"));
+
+    let access = assess_energy_supply_access(&registries, &state, store).unwrap_or_else(|error| {
+        panic!("empty output-capable store should remain assessable: {error}")
+    });
+    assert_eq!(access.store(), store);
+    assert_eq!(access.definition(), STORE_DEFINITION);
+    assert_eq!(access.carrier(), EnergyCarrier::Electrical);
+    assert_eq!(access.available(), Energy::ZERO);
+    assert_eq!(access.max_output_power(), Power::from_microwatts(25));
+    assert_eq!(
+        validate_energy_supply(&registries, &state, store, Energy::from_nanojoules(1)),
+        Err(EnergySupplyError::InsufficientEnergy {
+            store,
+            available: Energy::ZERO,
+            requested: Energy::from_nanojoules(1),
+        })
+    );
+}
+
 fn dissipative_sink_registries() -> Registries {
     make_test_registries_with_energy_store(
         super::super::EnergyStoreDefinition::new_with_transfer_limits(

@@ -101,7 +101,7 @@ fn basic_definition(id: EquipmentDefinitionId) -> EquipmentDefinition {
 }
 
 #[test]
-fn runtime_acquisition_classification_follows_assembly_and_upgrade_routes() {
+fn authored_acquisition_edge_classification_follows_assembly_and_upgrade_fields() {
     let unavailable = basic_definition(EquipmentDefinitionId::new(810_011));
     let assembled = basic_definition(EquipmentDefinitionId::new(810_012))
         .with_assembly_profile(assembly_profile());
@@ -109,9 +109,9 @@ fn runtime_acquisition_classification_follows_assembly_and_upgrade_routes() {
         EquipmentUpgradeProfile::new(EquipmentDefinitionId::new(810_014), assembly_profile()),
     );
 
-    assert!(!unavailable.has_runtime_acquisition_route());
-    assert!(assembled.has_runtime_acquisition_route());
-    assert!(upgraded.has_runtime_acquisition_route());
+    assert!(!unavailable.has_authored_acquisition_edge());
+    assert!(assembled.has_authored_acquisition_edge());
+    assert!(upgraded.has_authored_acquisition_edge());
 }
 
 fn maintenance_registry(spent: CommodityKey) -> EquipmentRegistry {

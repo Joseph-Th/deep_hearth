@@ -175,6 +175,37 @@ pub(crate) fn calculate_condition_after_active_ticks(
     Condition(before.0.saturating_sub(bounded_wear))
 }
 
+/// Returns the greatest active duration that can start from `before` without requiring productive
+/// work after equipment failure. The final admitted tick may end exactly at failed condition.
+#[must_use]
+pub(crate) fn maximum_usable_active_ticks(
+    wear_ppm_per_active_tick: u32,
+    before: Condition,
+) -> TickSpan {
+    assert_valid_condition_wear_ppm_per_tick(wear_ppm_per_active_tick);
+    TickSpan::new(
+        u64::from(before.parts_per_million()).div_ceil(u64::from(wear_ppm_per_active_tick)),
+    )
+}
+
+/// Returns the greatest active duration whose resulting condition remains strictly above `floor`.
+///
+/// This is useful for caller-selected maintenance policy without moving the policy threshold into
+/// equipment physics. A current condition at or below the floor has no admissible active ticks.
+#[must_use]
+pub(crate) fn maximum_active_ticks_above_condition_floor(
+    wear_ppm_per_active_tick: u32,
+    before: Condition,
+    floor: Condition,
+) -> TickSpan {
+    assert_valid_condition_wear_ppm_per_tick(wear_ppm_per_active_tick);
+    if before <= floor {
+        return TickSpan::ZERO;
+    }
+    let remaining_strict_margin = u64::from(before.parts_per_million() - floor.parts_per_million());
+    TickSpan::new((remaining_strict_margin - 1) / u64::from(wear_ppm_per_active_tick))
+}
+
 /// Failure to schedule productive active time entirely inside an equipment instance's remaining
 /// usable condition lifetime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -210,11 +241,7 @@ pub(crate) fn calculate_usable_condition_after_active_ticks(
     before: Condition,
     duration: TickSpan,
 ) -> Result<Condition, ActiveConditionDurationError> {
-    assert_valid_condition_wear_ppm_per_tick(wear_ppm_per_active_tick);
-    let remaining = u64::from(before.parts_per_million());
-    let wear = u64::from(wear_ppm_per_active_tick);
-    let maximum_ticks = remaining.div_ceil(wear);
-    let maximum = TickSpan::new(maximum_ticks);
+    let maximum = maximum_usable_active_ticks(wear_ppm_per_active_tick, before);
     if duration > maximum {
         return Err(ActiveConditionDurationError {
             before,

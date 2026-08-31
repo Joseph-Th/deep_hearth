@@ -215,6 +215,8 @@ impl ManualCraftDefinition {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CraftingRegistry {
     manual: BTreeMap<ProcessId, ManualCraftDefinition>,
+    producers_by_output: BTreeMap<CommodityKey, Vec<ProcessId>>,
+    consumers_by_input: BTreeMap<CommodityKey, Vec<ProcessId>>,
 }
 
 impl CraftingRegistry {
@@ -228,7 +230,25 @@ impl CraftingRegistry {
                 process.value()
             );
         }
-        Self { manual }
+        let mut producers_by_output: BTreeMap<CommodityKey, Vec<ProcessId>> = BTreeMap::new();
+        let mut consumers_by_input: BTreeMap<CommodityKey, Vec<ProcessId>> = BTreeMap::new();
+        for definition in manual.values() {
+            consumers_by_input
+                .entry(definition.input())
+                .or_default()
+                .push(definition.process());
+            for output in definition.outputs() {
+                producers_by_output
+                    .entry(output.commodity())
+                    .or_default()
+                    .push(definition.process());
+            }
+        }
+        Self {
+            manual,
+            producers_by_output,
+            consumers_by_input,
+        }
     }
 
     #[must_use]
@@ -240,8 +260,38 @@ impl CraftingRegistry {
         self.manual.values()
     }
 
-    pub(crate) fn process_ids(&self) -> impl Iterator<Item = ProcessId> + '_ {
-        self.manual.keys().copied()
+    /// Iterates manual processes that directly produce the requested commodity in stable process-ID
+    /// order. This is a direct authored edge, not a transitive reachability claim.
+    pub fn manual_producers(
+        &self,
+        output: CommodityKey,
+    ) -> impl Iterator<Item = &ManualCraftDefinition> {
+        self.producers_by_output
+            .get(&output)
+            .into_iter()
+            .flat_map(|processes| processes.iter())
+            .map(|process| {
+                self.manual.get(process).unwrap_or_else(|| {
+                    unreachable!("crafting producer index references known process")
+                })
+            })
+    }
+
+    /// Iterates manual processes that directly consume the requested commodity in stable process-ID
+    /// order. This is a direct authored edge, not a transitive reachability claim.
+    pub fn manual_consumers(
+        &self,
+        input: CommodityKey,
+    ) -> impl Iterator<Item = &ManualCraftDefinition> {
+        self.consumers_by_input
+            .get(&input)
+            .into_iter()
+            .flat_map(|processes| processes.iter())
+            .map(|process| {
+                self.manual.get(process).unwrap_or_else(|| {
+                    unreachable!("crafting consumer index references known process")
+                })
+            })
     }
 
     pub(crate) fn validate_references(
@@ -450,6 +500,10 @@ pub fn validate_start_manual_craft(
     .map_err(StartManualCraftError::Work)?;
     Ok(ValidatedManualCraftStart { process, work })
 }
+
+#[cfg(test)]
+#[path = "index_tests.rs"]
+mod index_tests;
 
 #[cfg(test)]
 #[path = "mod_tests.rs"]

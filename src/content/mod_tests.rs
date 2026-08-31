@@ -35,6 +35,35 @@ const TEST_HEATING_POWER: CapabilityId = CapabilityId::new(700_004);
 const TEST_MAX_TEMPERATURE: CapabilityId = CapabilityId::new(700_005);
 
 #[test]
+fn built_in_water_has_an_authoritative_liquid_phase_boundary() {
+    let registries = build_registries();
+    let water = registries
+        .materials()
+        .get_material(MATERIAL_WATER)
+        .unwrap_or_else(|| panic!("built-in water material disappeared"));
+    let fusion = water
+        .properties()
+        .thermal()
+        .fusion()
+        .unwrap_or_else(|| panic!("built-in liquid water must define fusion physics"));
+
+    assert_eq!(fusion.melting_point(), materials::WATER_MELTING_POINT);
+    assert_eq!(
+        fusion.latent_heat_j_per_kg(),
+        materials::WATER_LATENT_HEAT_OF_FUSION_J_PER_KG
+    );
+    assert_eq!(
+        registries
+            .fluid()
+            .get_fluid(FLUID_WATER)
+            .and_then(|definition| {
+                definition.minimum_modeled_temperature(registries.materials())
+            }),
+        Some(materials::WATER_MELTING_POINT)
+    );
+}
+
+#[test]
 fn infrastructure_assembly_cannot_hide_perishable_food_from_storage_age() {
     let food = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
     let infrastructure = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
@@ -178,7 +207,7 @@ fn every_declared_primitive_infrastructure_component_has_a_transitive_runtime_ro
     let mut required = BTreeSet::new();
 
     for definition in registries.equipment().definitions() {
-        if !definition.has_runtime_acquisition_route() {
+        if !definition.has_authored_acquisition_edge() {
             continue;
         }
         if let Some(assembly) = definition.assembly_profile() {
@@ -190,8 +219,8 @@ fn every_declared_primitive_infrastructure_component_has_a_transitive_runtime_ro
                 .get_equipment(upgrade.from())
                 .unwrap_or_else(|| unreachable!("registry validation resolves upgrade bases"));
             assert!(
-                base.has_runtime_acquisition_route(),
-                "runtime equipment upgrade {} starts from base {} with no ordinary acquisition route",
+                base.has_authored_acquisition_edge(),
+                "equipment upgrade {} starts from base {} with no direct authored acquisition edge",
                 definition.id().value(),
                 base.id().value()
             );

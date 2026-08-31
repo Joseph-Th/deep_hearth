@@ -205,13 +205,13 @@ fn registry_rejects_energy_upgrade_that_increases_passive_loss() {
 }
 
 #[test]
-fn runtime_assembly_classification_follows_the_authored_route() {
+fn authored_assembly_edge_classification_follows_the_assembly_field() {
     let unavailable = basic_definition(EnergyStoreDefinitionId::new(930_002));
     let available = basic_definition(EnergyStoreDefinitionId::new(930_003))
         .with_assembly_profile(assembly_profile());
 
-    assert!(!unavailable.has_runtime_assembly_route());
-    assert!(available.has_runtime_assembly_route());
+    assert!(!unavailable.has_authored_assembly_edge());
+    assert!(available.has_authored_assembly_edge());
 }
 
 #[test]

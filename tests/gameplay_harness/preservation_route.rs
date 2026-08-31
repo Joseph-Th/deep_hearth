@@ -45,13 +45,7 @@ fn discover_manual_construction_route(
     }
     let producers = registries
         .crafting()
-        .definitions()
-        .filter(|definition| {
-            definition
-                .outputs()
-                .iter()
-                .any(|candidate| candidate.commodity() == output)
-        })
+        .manual_producers(output)
         .collect::<Vec<_>>();
     if producers.is_empty() {
         assert!(visiting.remove(&output));

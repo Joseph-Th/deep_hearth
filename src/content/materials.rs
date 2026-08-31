@@ -19,6 +19,8 @@ pub const MATERIAL_STONE: MaterialId = MaterialId::new(9);
 pub const MATERIAL_CLAY: MaterialId = MaterialId::new(10);
 pub const MATERIAL_LEGUMES: MaterialId = MaterialId::new(11);
 pub(crate) const COPPER_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_357_770);
+pub(crate) const WATER_MELTING_POINT: Temperature = Temperature::from_millikelvin(273_150);
+pub(crate) const WATER_LATENT_HEAT_OF_FUSION_J_PER_KG: u32 = 333_550;
 
 pub const FORM_LOG: FormId = FormId::new(1);
 pub const FORM_LUMP: FormId = FormId::new(2);
@@ -166,7 +168,17 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
     registry.register_material(MaterialDefinition::new(
         MATERIAL_WATER,
         "water",
-        MaterialProperties::new(1_000, ThermalProperties::new(4_184, None), None),
+        MaterialProperties::new(
+            1_000,
+            ThermalProperties::new(
+                4_184,
+                Some(FusionProperties::new(
+                    WATER_MELTING_POINT,
+                    WATER_LATENT_HEAT_OF_FUSION_J_PER_KG,
+                )),
+            ),
+            None,
+        ),
     ));
     registry.register_material(MaterialDefinition::new(
         MATERIAL_GRAIN,

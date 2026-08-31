@@ -58,7 +58,8 @@ use deep_hearth::maintenance::{Condition, MaintenanceBand};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::ore_processing::{
-    ComminutionRequest, ComminutionResolutionError, PoweredOreBottleneck, ResolvedComminution,
+    ComminutionRequest, ComminutionResolutionError, PoweredOreBottleneck, PoweredOreMassConstraint,
+    PoweredOreMassEnvelope, ResolvedComminution, assess_powered_ore_mass_envelope,
     resolve_comminution_process,
 };
 use deep_hearth::production::{

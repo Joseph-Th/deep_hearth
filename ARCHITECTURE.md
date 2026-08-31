@@ -149,7 +149,10 @@ Three contracts keep that working model cheap and safe:
 - **Feasibility:** when one requested dimension is monotonic and production already computes its limiting
   quantities, expose the useful bound or bottleneck through the narrowest domain resolver/assessment. Repeated
   binary search or validator probing merely to discover a maximum feasible batch, duration, capacity, or rate is
-  control-surface debt. Candidate preferences and search order remain caller policy.
+  control-surface debt. If feasibility is not globally monotonic because authoritative timing changes another
+  resource bound, keep that coupling inside an exact owner-side projection rather than teaching callers a false
+  monotonic search rule. Candidate preferences and search order among physically distinct alternatives remain
+  caller policy.
 - **Receipt:** after a consequential commit or tick, return or expose the stable identity, schedule, lifecycle,
   and consequential deltas needed to continue the operation. A caller should not need a whole-state rescan just
   to learn which admitted job exists, what completed, or which owner-local facts changed.
@@ -272,9 +275,11 @@ encode actor preference, hidden runtime truth, or mutable availability into them
 
 When topology spans several validated registries, the aggregate `Registries` assembly boundary is the natural
 owner of the derived cross-registry index. Domain registries continue to own their definitions; the aggregate
-may cache relationships already established by cross-validation. For example, one process-topology projection
-could bind a `ProcessId` to exactly one resolver family, its typed energy role, and nominal matching definition
-IDs without making any claim about runtime instances or ordinary acquisition.
+may cache relationships already established by cross-validation. `Registries::process_topology()` binds each
+physically resolvable `ProcessId` to exactly one execution family, its typed energy role, nominal matching
+equipment definitions, and compatible energy-store definitions without making any claim about runtime instances
+or ordinary acquisition. `CraftingRegistry` similarly owns direct producer/consumer reverse indexes for manual
+material edges so callers do not rescan every craft definition.
 
 ### Claim-strength vocabulary
 

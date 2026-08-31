@@ -23,11 +23,12 @@ use deep_hearth::survival::{assess_survival, initialize_player_survival};
 
 use super::super::environment::ROOM_TEMPERATURE;
 use super::super::inventory_support::add_solid_stockpile;
+use super::super::material_selection::select_stockpile_mass;
 use super::super::ore_fixture::copper_ore_composition;
 use super::super::seed::mix64;
 use super::{
     advance_exact, craft_batches, feed_mass_for_exact_recovered_constituent,
-    native_input_for_upgrade, select_stockpile_mass,
+    native_input_for_upgrade,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -95,7 +96,12 @@ pub(super) fn evaluate_owned_ore_manual_bridge(
         .total();
     let survival_before = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("owned-ore manual bridge player disappeared at decision point"));
-    let ore_selections = select_stockpile_mass(&state, plan.ore_source, feed_mass);
+    let ore_selections = select_stockpile_mass(
+        &state,
+        plan.ore_source,
+        feed_mass,
+        "owned-ore manual bridge feed",
+    );
     let breaking = resolve_manual_comminution_process(
         registries,
         &state,
@@ -115,7 +121,12 @@ pub(super) fn evaluate_owned_ore_manual_bridge(
     .unwrap_or_else(|error| panic!("owned-ore manual bridge breaking commit failed: {error}"));
     advance_exact(registries, &mut state, break_ticks);
 
-    let crushed_selections = select_stockpile_mass(&state, plan.crushed_destination, feed_mass);
+    let crushed_selections = select_stockpile_mass(
+        &state,
+        plan.crushed_destination,
+        feed_mass,
+        "owned-ore manual sorting feed",
+    );
     let sorting = resolve_manual_constituent_separation_process(
         registries,
         &state,
@@ -338,7 +349,12 @@ pub(super) fn evaluate_manual_processing_fallback(
         setup.ore_mass
     );
 
-    let selections = select_stockpile_mass(&state, crushed, setup.ore_mass);
+    let selections = select_stockpile_mass(
+        &state,
+        crushed,
+        setup.ore_mass,
+        "manual processing fallback sorting feed",
+    );
     let sorting = resolve_manual_constituent_separation_process(
         registries,
         &state,

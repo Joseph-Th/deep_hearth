@@ -63,7 +63,7 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
                 | ProcessResolverKind::ManualSeparation
         ) {
             assert_eq!(entry.nominal_provider_count, 0);
-            assert_eq!(entry.matching_energy_store_count, 0);
+            assert_eq!(entry.compatible_energy_store_count, 0);
             continue;
         }
         assert!(
@@ -73,7 +73,7 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
             entry.name,
         );
         assert!(
-            entry.matching_energy_store_count > 0,
+            entry.compatible_energy_store_count > 0,
             "machine process {} ({}) has no energy store with the required carrier and transfer direction",
             entry.process.value(),
             entry.name,
@@ -89,7 +89,7 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
         });
     assert_eq!(manual_entry.resolver, ProcessResolverKind::ManualSeparation);
     assert_eq!(manual_entry.nominal_provider_count, 0);
-    assert_eq!(manual_entry.matching_energy_store_count, 0);
+    assert_eq!(manual_entry.compatible_energy_store_count, 0);
 
     let hand_break_entry = catalog
         .iter()
@@ -100,7 +100,7 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
         ProcessResolverKind::ManualComminution
     );
     assert_eq!(hand_break_entry.nominal_provider_count, 0);
-    assert_eq!(hand_break_entry.matching_energy_store_count, 0);
+    assert_eq!(hand_break_entry.compatible_energy_store_count, 0);
     let hand_breaking = registries
         .ore_processing()
         .get_manual_comminution(PROCESS_HAND_BREAK_ORE)
@@ -143,7 +143,7 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
     );
     assert_eq!(scrap_rework.resolver, ProcessResolverKind::ManualCraft);
     assert_eq!(scrap_rework.nominal_provider_count, 0);
-    assert_eq!(scrap_rework.matching_energy_store_count, 0);
+    assert_eq!(scrap_rework.compatible_energy_store_count, 0);
     let native_definition = registries
         .crafting()
         .get_manual(PROCESS_COLD_WORK_COPPER_REINFORCEMENT)
@@ -171,7 +171,7 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
         ProcessResolverKind::ManualCraft
     );
     assert_eq!(recycled_stone_entry.nominal_provider_count, 0);
-    assert_eq!(recycled_stone_entry.matching_energy_store_count, 0);
+    assert_eq!(recycled_stone_entry.compatible_energy_store_count, 0);
     assert_eq!(
         recycled_stone.input(),
         CommodityKey::new(MATERIAL_STONE, FORM_SCRAP)
@@ -275,8 +275,8 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
         .energy()
         .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
         .unwrap_or_else(|| panic!("stone flywheel disappeared from the energy catalog"));
-    assert!(base_flywheel.has_runtime_assembly_route());
-    assert!(flywheel.has_runtime_assembly_route());
+    assert!(base_flywheel.has_authored_assembly_edge());
+    assert!(flywheel.has_authored_assembly_edge());
     assert_eq!(base_flywheel.carrier(), flywheel.carrier());
     assert_eq!(base_flywheel.max_input_power(), flywheel.max_input_power());
     assert_eq!(
@@ -313,13 +313,7 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
         for input in storage.assembly_profile().inputs() {
             let producers = registries
                 .crafting()
-                .definitions()
-                .filter(|definition| {
-                    definition
-                        .outputs()
-                        .iter()
-                        .any(|output| output.commodity() == input.commodity())
-                })
+                .manual_producers(input.commodity())
                 .collect::<Vec<_>>();
             assert!(
                 !producers.is_empty(),
@@ -338,8 +332,7 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
 
             let salvage_routes = registries
                 .crafting()
-                .definitions()
-                .filter(|definition| definition.input() == input.commodity())
+                .manual_consumers(input.commodity())
                 .collect::<Vec<_>>();
             assert_eq!(
                 salvage_routes.len(),

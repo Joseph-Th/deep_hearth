@@ -11,7 +11,7 @@ use crate::fluid::{FluidDefinition, FluidDefinitionId, add_fluid_store_with_cont
 use super::{PreciseEnergy, calculate_explicit_energy_accounting};
 
 #[test]
-fn stored_water_sensible_heat_participates_in_whole_nanojoule_total() {
+fn stored_liquid_water_thermal_energy_includes_sensible_and_fusion_energy() {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xEACC_0001));
     let volume = Volume::from_microliters(10);
@@ -28,8 +28,10 @@ fn stored_water_sensible_heat_participates_in_whole_nanojoule_total() {
 
     let accounting = calculate_explicit_energy_accounting(&registries, &state)
         .unwrap_or_else(|error| panic!("water energy accounting failed: {error}"));
-    let expected_nanojoules =
+    let sensible_nanojoules =
         u128::from(volume.microliters()) * u128::from(temperature.millikelvin()) * 4_184_u128;
+    let latent_nanojoules = u128::from(volume.microliters()) * 1_000_u128 * 333_550_u128;
+    let expected_nanojoules = sensible_nanojoules + latent_nanojoules;
 
     assert_eq!(
         accounting.fluid_material_thermal(),

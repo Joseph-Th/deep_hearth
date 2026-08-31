@@ -26,6 +26,25 @@ pub enum PoweredOreBottleneck {
     Balanced,
 }
 
+/// Condition-adjusted rate and single-batch ceiling shared by resolution and planning.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct PoweredOreEquipmentLimits {
+    processing_rate: MassFlow,
+    maximum_batch_mass: Mass,
+}
+
+impl PoweredOreEquipmentLimits {
+    #[must_use]
+    pub(super) const fn processing_rate(self) -> MassFlow {
+        self.processing_rate
+    }
+
+    #[must_use]
+    pub(super) const fn maximum_batch_mass(self) -> Mass {
+        self.maximum_batch_mass
+    }
+}
+
 pub(super) fn classify_powered_ore_bottleneck(
     throughput_duration: TickSpan,
     energy_duration: TickSpan,
@@ -103,6 +122,30 @@ pub(super) fn resolve_powered_ore_equipment(
     maximum_batch_mass_capability: CapabilityId,
     selected_mass: Mass,
 ) -> Result<PoweredOreEquipment, PoweredOreEquipmentError> {
+    let limits = resolve_powered_ore_equipment_limits(
+        equipment,
+        condition_before,
+        mass_flow_capability,
+        maximum_batch_mass_capability,
+    )?;
+    if selected_mass > limits.maximum_batch_mass() {
+        return Err(PoweredOreEquipmentError::BatchMassExceeded {
+            selected: selected_mass,
+            maximum: limits.maximum_batch_mass(),
+        });
+    }
+    Ok(PoweredOreEquipment {
+        processing_rate: limits.processing_rate(),
+    })
+}
+
+/// Resolves the condition-adjusted physical rate and batch ceiling without choosing a batch mass.
+pub(super) fn resolve_powered_ore_equipment_limits(
+    equipment: &EquipmentDefinition,
+    condition_before: Condition,
+    mass_flow_capability: CapabilityId,
+    maximum_batch_mass_capability: CapabilityId,
+) -> Result<PoweredOreEquipmentLimits, PoweredOreEquipmentError> {
     let processing_rate =
         match resolve_equipment_capability(equipment, condition_before, mass_flow_capability) {
             Some(CapabilityValue::MassFlow(rate)) => rate,
@@ -118,14 +161,10 @@ pub(super) fn resolve_powered_ore_equipment(
             return Err(PoweredOreEquipmentError::MissingMaximumBatchMassCapability);
         }
     };
-    if selected_mass > maximum_batch_mass {
-        return Err(PoweredOreEquipmentError::BatchMassExceeded {
-            selected: selected_mass,
-            maximum: maximum_batch_mass,
-        });
-    }
-
-    Ok(PoweredOreEquipment { processing_rate })
+    Ok(PoweredOreEquipmentLimits {
+        processing_rate,
+        maximum_batch_mass,
+    })
 }
 
 /// Resolves common rate-bottleneck timing and condition wear after finite energy is validated.

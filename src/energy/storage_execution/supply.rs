@@ -49,6 +49,49 @@ impl ConsumedEnergyTrace {
     }
 }
 
+/// Current read-only supply envelope for one unoccupied finite energy store.
+///
+/// This is a planning projection, not a reservation. A later mutation may invalidate it, so
+/// consequential callers must still bind an exact amount through [`validate_energy_supply`].
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EnergySupplyAccess {
+    store: EnergyStoreId,
+    definition: EnergyStoreDefinitionId,
+    carrier: EnergyCarrier,
+    available: Energy,
+    max_output_power: Power,
+}
+
+impl EnergySupplyAccess {
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn store(self) -> EnergyStoreId {
+        self.store
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn definition(self) -> EnergyStoreDefinitionId {
+        self.definition
+    }
+
+    #[must_use]
+    pub(crate) const fn carrier(self) -> EnergyCarrier {
+        self.carrier
+    }
+
+    #[must_use]
+    pub(crate) const fn available(self) -> Energy {
+        self.available
+    }
+
+    #[must_use]
+    pub(crate) const fn max_output_power(self) -> Power {
+        self.max_output_power
+    }
+}
+
 /// Read-only revision-bound proof that one store can supply an exact energy amount.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,16 +113,16 @@ impl ValidatedEnergySupply {
     }
 }
 
-/// Binds an exact energy amount to the current energy-state revision without mutation.
-pub fn validate_energy_supply(
+/// Assesses whether one finite store is currently usable as a supply and exposes its exact envelope.
+///
+/// Empty stores return successfully with zero available energy. Occupied stores and stores without
+/// an authored output direction are not currently usable supplies and return the same typed access
+/// errors used by exact validation.
+pub(crate) fn assess_energy_supply_access(
     registries: &Registries,
     state: &AppState,
     store: EnergyStoreId,
-    requested: Energy,
-) -> Result<ValidatedEnergySupply, EnergySupplyError> {
-    if requested.is_zero() {
-        return Err(EnergySupplyError::ZeroEnergy);
-    }
+) -> Result<EnergySupplyAccess, EnergySupplyError> {
     let Some(record) = state.energy().get_store(store) else {
         return Err(EnergySupplyError::UnknownStore { store });
     };
@@ -106,10 +149,30 @@ pub fn validate_energy_supply(
     {
         return Err(EnergySupplyError::StoreBusyManualPower { store });
     }
-    if record.stored() < requested {
+    Ok(EnergySupplyAccess {
+        store,
+        definition: record.definition(),
+        carrier: definition.carrier(),
+        available: record.stored(),
+        max_output_power: definition.max_output_power(),
+    })
+}
+
+/// Binds an exact energy amount to the current energy-state revision without mutation.
+pub fn validate_energy_supply(
+    registries: &Registries,
+    state: &AppState,
+    store: EnergyStoreId,
+    requested: Energy,
+) -> Result<ValidatedEnergySupply, EnergySupplyError> {
+    if requested.is_zero() {
+        return Err(EnergySupplyError::ZeroEnergy);
+    }
+    let access = assess_energy_supply_access(registries, state, store)?;
+    if access.available < requested {
         return Err(EnergySupplyError::InsufficientEnergy {
             store,
-            available: record.stored(),
+            available: access.available,
             requested,
         });
     }
@@ -117,11 +180,11 @@ pub fn validate_energy_supply(
         expected_revision: state.energy().revision(),
         trace: ConsumedEnergyTrace {
             source: store,
-            definition: record.definition(),
-            carrier: definition.carrier(),
+            definition: access.definition,
+            carrier: access.carrier,
             energy: requested,
         },
-        max_output_power: definition.max_output_power(),
+        max_output_power: access.max_output_power,
     })
 }
 

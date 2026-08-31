@@ -39,6 +39,33 @@ pub(crate) fn project_energy_sink_stored_at_release(
     project_stored_energy_after_passive_dissipation(registries, definition, stored, passive_ticks)
 }
 
+/// Returns exact free capacity immediately before a deferred completion releases energy.
+///
+/// This shares the completion-before-passive-loss timing used by exact sink admission. The caller
+/// must already have validated that `stored` belongs to `definition` and does not exceed capacity.
+pub(crate) fn available_energy_sink_capacity_at_release(
+    registries: &Registries,
+    definition: EnergyStoreDefinitionId,
+    stored: Energy,
+    release_after: TickSpan,
+) -> Energy {
+    let capacity = registries
+        .energy()
+        .get_store(definition)
+        .unwrap_or_else(|| {
+            panic!(
+                "validated deferred energy sink references missing immutable definition {}",
+                definition.value()
+            )
+        })
+        .capacity();
+    let projected_stored =
+        project_energy_sink_stored_at_release(registries, definition, stored, release_after);
+    capacity.checked_sub(projected_stored).unwrap_or_else(|| {
+        panic!("validated energy sink projected stored energy exceeds authored capacity")
+    })
+}
+
 /// Validates exact energy against the capacity guaranteed to exist at its future release point.
 /// Returns the projected pre-release stored energy for caller diagnostics.
 pub(crate) fn validate_energy_sink_capacity_at_release(

@@ -208,11 +208,12 @@ impl EnergyStoreDefinition {
         self.upgrade_profile.as_ref()
     }
 
-    /// Returns whether ordinary gameplay declares a construction route for this store definition.
-    /// Discovery/reporting code consumes this owner classification instead of inferring it from
-    /// implementation fields.
+    /// Returns whether this store declares a direct authored assembly edge.
+    ///
+    /// This local classification does not prove a transitive material path, ordinary reachability,
+    /// a current world opportunity, or authorization.
     #[must_use]
-    pub const fn has_runtime_assembly_route(&self) -> bool {
+    pub const fn has_authored_assembly_edge(&self) -> bool {
         self.assembly_profile.is_some()
     }
 }

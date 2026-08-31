@@ -9,6 +9,7 @@ use super::equipment_support::nominal_equipment_mass_capability;
 use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
+use super::material_selection::select_stockpile_mass;
 use super::ore_fixture::copper_ore_composition;
 use super::seed::mix64;
 use deep_hearth::capability::{CapabilityId, CapabilityValue};
@@ -40,7 +41,6 @@ use deep_hearth::geology::{
     FieldProspectingRequest, GeologicalEvidenceConsistency, assess_geological_knowledge,
     validate_start_field_prospecting,
 };
-use deep_hearth::inventory::MaterialLotSelection;
 use deep_hearth::labor::{
     ManualPowerError, ManualPowerRequest, ProspectingMethodId, validate_start_manual_power,
 };
@@ -158,7 +158,7 @@ fn progression_clue_bounds(slot: usize) -> VoxelBounds {
 /// The broader cold-agent catalog is discovered dynamically by the aggregate harness report. This
 /// probe therefore does not freeze the whole playable catalog to an exact ID list just to protect its
 /// own scenario. New routes may coexist without making this established primitive episode stale.
-fn assert_progression_runtime_dependencies(registries: &Registries) {
+fn assert_progression_authored_dependencies(registries: &Registries) {
     for equipment in [
         EQUIPMENT_STONE_PICK,
         EQUIPMENT_STONE_HAND_CRANK,
@@ -177,8 +177,8 @@ fn assert_progression_runtime_dependencies(registries: &Registries) {
                 )
             });
         assert!(
-            definition.has_runtime_acquisition_route(),
-            "primitive progression equipment {} lost its runtime acquisition route",
+            definition.has_authored_acquisition_edge(),
+            "primitive progression equipment {} lost its direct authored acquisition edge",
             equipment.value()
         );
         assert!(
@@ -207,8 +207,8 @@ fn assert_progression_runtime_dependencies(registries: &Registries) {
         registries
             .energy()
             .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
-            .is_some_and(|definition| definition.has_runtime_assembly_route()),
-        "primitive progression flywheel lost its runtime assembly route"
+            .is_some_and(|definition| definition.has_authored_assembly_edge()),
+        "primitive progression flywheel lost its direct authored assembly edge"
     );
     for process in [
         PROCESS_KNAP_STONE_TOOL,
@@ -315,13 +315,7 @@ fn manual_craft_plan_for_output(
     assert!(!required.is_zero());
     let candidates = registries
         .crafting()
-        .definitions()
-        .filter(|definition| {
-            definition
-                .outputs()
-                .iter()
-                .any(|output| output.commodity() == commodity)
-        })
+        .manual_producers(commodity)
         .map(|definition| {
             let batches =
                 batches_for_output(required, output_mass_per_batch(definition, commodity));
@@ -415,7 +409,7 @@ fn primitive_material_plan(registries: &Registries) -> PrimitiveMaterialPlan {
             .and_then(|definition| definition.assembly_profile())
             .unwrap_or_else(|| {
                 panic!(
-                    "primitive progression equipment {} lost its runtime assembly route",
+                    "primitive progression equipment {} lost its authored assembly profile",
                     equipment.value()
                 )
             });
@@ -578,7 +572,7 @@ fn equipment_assembly_profile(
         .and_then(|definition| definition.assembly_profile())
         .unwrap_or_else(|| {
             panic!(
-                "primitive progression equipment {} is not runtime-assemblable",
+                "primitive progression equipment {} has no authored assembly profile",
                 equipment.value()
             )
         })
@@ -768,27 +762,50 @@ fn acquire_copper_evidence(
     method: ProspectingMethodId,
     region: VoxelBounds,
 ) -> u64 {
-    let before = state.geological_knowledge().observations().count();
-    let definition = registries
-        .labor()
-        .get_prospecting(method)
-        .copied()
-        .unwrap_or_else(|| panic!("primitive progression prospecting definition disappeared"));
-    validate_start_field_prospecting(
+    let start = validate_start_field_prospecting(
         registries,
         state,
         FieldProspectingRequest::new(method, region, MATERIAL_COPPER),
     )
-    .unwrap_or_else(|error| panic!("primitive progression prospecting failed: {error}"))
-    .commit(state)
-    .unwrap_or_else(|error| panic!("primitive progression prospecting commit failed: {error}"));
-    advance_exact(registries, state, definition.duration().value());
-    assert_eq!(
-        state.geological_knowledge().observations().count(),
-        before + 1,
-        "completed prospecting work must persist exactly one acquired observation"
+    .unwrap_or_else(|error| panic!("primitive progression prospecting failed: {error}"));
+    let work = start.work();
+    let duration = work
+        .completes_at()
+        .value()
+        .checked_sub(work.started_at().value())
+        .unwrap_or_else(|| panic!("primitive progression prospecting schedule is inverted"));
+    start
+        .commit(state)
+        .unwrap_or_else(|error| panic!("primitive progression prospecting commit failed: {error}"));
+    let mut completion = None;
+    for elapsed in 1..=duration {
+        let outcome = advance_tick(registries, state).unwrap_or_else(|error| {
+            panic!("primitive progression prospecting tick failed: {error}")
+        });
+        let acquired = outcome.field_prospecting();
+        if elapsed < duration {
+            assert_eq!(
+                acquired, None,
+                "primitive progression prospecting completed before its validated schedule"
+            );
+        } else {
+            completion = acquired;
+        }
+    }
+    let completion = completion.unwrap_or_else(|| {
+        panic!("primitive progression prospecting produced no completion outcome")
+    });
+    assert_eq!(completion.method(), method);
+    assert_eq!(completion.region(), region);
+    assert_eq!(completion.material(), MATERIAL_COPPER);
+    assert!(
+        state
+            .geological_knowledge()
+            .get_observation(completion.observation())
+            .is_some(),
+        "prospecting completion receipt must identify the persisted observation"
     );
-    definition.duration().value()
+    duration
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1772,40 +1789,6 @@ struct ConcurrentMiningPlan {
     mass: Mass,
 }
 
-fn select_stockpile_mass(
-    state: &AppState,
-    stockpile: deep_hearth::inventory::StockpileId,
-    mass: Mass,
-) -> Vec<MaterialLotSelection> {
-    assert!(!mass.is_zero());
-    let mut remaining = mass;
-    let mut selections = Vec::new();
-    for lot in state.inventory().lot_ids(stockpile) {
-        if remaining.is_zero() {
-            break;
-        }
-        let available = state
-            .inventory()
-            .get_lot(lot)
-            .unwrap_or_else(|| panic!("primitive progression selected ore lot disappeared"))
-            .mass();
-        let selected = Mass::from_milligrams(available.milligrams().min(remaining.milligrams()));
-        if selected.is_zero() {
-            continue;
-        }
-        selections.push(MaterialLotSelection::new(lot, selected));
-        remaining = remaining
-            .checked_sub(selected)
-            .unwrap_or_else(|| unreachable!("selected ore mass is bounded by remaining demand"));
-    }
-    assert!(
-        remaining.is_zero(),
-        "primitive progression lacks {}mg of claimed ore for the selected crusher work order",
-        remaining.milligrams()
-    );
-    selections
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ObservedMaterialSample {
     commodity: CommodityKey,
@@ -1888,7 +1871,12 @@ fn separate_native_copper(
         machine.separation_required_energy,
     )
     .unwrap_or_else(|error| panic!("primitive separation recharge failed: {error}"));
-    let selections = select_stockpile_mass(state, crushed_storage, feed_mass);
+    let selections = select_stockpile_mass(
+        state,
+        crushed_storage,
+        feed_mass,
+        "primitive separation feed",
+    );
     let native = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
     let target_before = state
         .inventory()
@@ -1973,7 +1961,7 @@ fn crush_while_mining(
         expected_energy,
     } = batch;
     let machine_started_at = state.tick().value();
-    let selection = select_stockpile_mass(state, ore_storage, crush_mass);
+    let selection = select_stockpile_mass(state, ore_storage, crush_mass, "primitive crusher feed");
     let resolved = resolve_comminution_process(
         registries,
         state,
@@ -2133,10 +2121,43 @@ fn finish_autonomous_crush(
         .value()
         .checked_sub(state.tick().value())
         .unwrap_or_else(|| panic!("primitive crusher completion fell behind authoritative time"));
-    advance_exact(registries, state, player_free_ticks);
+    let mut completion_seen = false;
+    for elapsed in 1..=player_free_ticks {
+        let outcome = advance_tick(registries, state)
+            .unwrap_or_else(|error| panic!("primitive autonomous crusher tick failed: {error}"));
+        assert!(
+            !outcome
+                .production_availability_changes()
+                .iter()
+                .any(|change| {
+                    matches!(
+                        change,
+                        deep_hearth::production::ProductionAvailabilityChange::Suspended {
+                            job: changed_job,
+                            ..
+                        } | deep_hearth::production::ProductionAvailabilityChange::Resumed {
+                            job: changed_job,
+                            ..
+                        } if *changed_job == concurrent.job
+                    )
+                }),
+            "primitive autonomous crusher unexpectedly changed availability"
+        );
+        if outcome
+            .production_completions()
+            .iter()
+            .any(|completion| completion.job() == concurrent.job)
+        {
+            assert_eq!(
+                elapsed, player_free_ticks,
+                "primitive autonomous crusher completed before its authoritative schedule"
+            );
+            completion_seen = true;
+        }
+    }
     assert!(
-        state.production().get_job(concurrent.job).is_none(),
-        "primitive crusher should complete after its remaining autonomous work"
+        completion_seen,
+        "primitive autonomous crusher produced no completion receipt at its authoritative schedule"
     );
     player_free_ticks
 }

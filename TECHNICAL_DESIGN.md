@@ -61,17 +61,14 @@ If a new value seems to belong to two rows, separate the concepts before storing
 
 ### Planning topology
 
-The implemented definition set already forms typed authored topology even though it is currently exposed mostly
-through per-registry iteration and lookup. Examples include manual-craft input/output relationships, equipment
-and energy-store assembly/upgrade ancestry, capability requirements/providers, maintenance/recovery material
-relationships, thermal/ore transformation ownership, and energy-carrier compatibility.
-
-`Registries::new` is already the cross-registry admission boundary: it validates domain references and rejects a
-`ProcessId` owned by more than one crafting/ore/thermal resolver family. Therefore a future cross-registry
-process-topology index should be derived there after validation rather than rebuilt independently by reports or
-actors. It may classify execution family, typed energy role, and nominal definition providers using existing
-capability semantics. Runtime `resolve_equipment_provider` remains the separate operation for one known
-equipment instance because it adds mutable condition and structural-support facts.
+The implemented definition set forms typed authored topology. `CraftingRegistry` owns deterministic reverse
+indexes for direct manual producers and consumers, while `Registries::new` derives the cross-registry
+`ProcessTopology` projection after validating all domain references. That projection also enforces that one
+`ProcessId` cannot own more than one crafting/ore/thermal execution family and records each process's execution
+family, typed energy role, nominal provider definitions, and compatible energy-store definitions. Equipment and
+energy-store assembly/upgrade ancestry plus maintenance/recovery material relationships remain with their
+domain definitions. Runtime `resolve_equipment_provider` remains separate because a known equipment instance
+adds mutable condition and structural-support facts that immutable topology cannot prove.
 
 Treat three levels separately:
 
@@ -106,12 +103,20 @@ callers to rediscover whether an edge means material transformation, provider co
 or recovery.
 
 Likewise, shared planning constraints belong at the narrowest physical abstraction that actually shares them.
-Powered ore operations already reuse `PoweredOreProcessProfile` concepts such as throughput capability, maximum
-batch, carrier/work demand, and wear. If crush/grind/screen/separate callers repeatedly need the same feasible
-batch envelope, derive that vocabulary there or in the ore-processing owner/overlay. Thermal melting/casting
-have different phase/heat-sink semantics and should retain thermal-specific envelopes. Mining supply, hardness,
-destination capacity, and player-work blockers remain mining semantics even when an actor later maps them into a
-similar high-level strategy such as resize or replenish.
+Powered ore operations reuse `PoweredOreProcessProfile` concepts such as throughput capability, maximum batch,
+carrier/work demand, and wear. `assess_powered_ore_mass_envelope` derives their current monotonic scale bounds
+from condition-adjusted equipment capacity, finite stored work, delivery power, and usable condition lifetime.
+The result deliberately does not inspect a selected material batch, so process-specific form, composition,
+particle-state, and output legality still belongs to the canonical comminution/screening/separation resolver.
+Callers may also apply a strict caller-chosen condition floor through the envelope without moving maintenance
+policy into ore physics. Homogeneous pure-material melting and casting use separate thermal lot-mass envelopes
+that reuse canonical phase-change energy, condition-adjusted equipment, finite energy, and transfer timing.
+Melting has monotonic scale bounds. Casting additionally evaluates exact transfer-duration buckets against the
+same deferred sink-capacity projection used by canonical admission, because a longer cast can gain more
+guaranteed passive sink recovery and therefore make feasibility non-monotonic across nearby masses. The
+envelopes remain disposable planning evidence; canonical melting/casting resolution still binds exact selected
+matter before authorization. Mining supply, hardness, destination capacity, and player-work blockers remain
+mining semantics even when an actor maps them into a similar high-level strategy such as resize or replenish.
 
 Use claim-strength terms consistently when exposing or interpreting this topology:
 
@@ -119,14 +124,15 @@ Use claim-strength terms consistently when exposing or interpreting this topolog
 - recursive traversal over such edges establishes an **authored path** only for the declared roots and edge
   families included by that traversal;
 - **ordinary reachability** is a stronger current-scope claim owned by [`STATUS.md`](STATUS.md), not inferred
-  from a local `has_runtime_*_route` predicate;
+  from a local direct-edge predicate;
 - a **current opportunity** requires legitimate observable runtime state plus canonical domain resolution;
 - **authorization** requires validation against the current mutable dependencies.
 
-Existing `has_runtime_acquisition_route` / `has_runtime_assembly_route` definition helpers are local declaration
-classifications. Their gameplay reports already label them as declarations rather than end-to-end reachability.
-If these APIs are touched, prefer naming/documentation that makes their direct-edge strength unmistakable rather
-than broadening their implementation to perform recursive or stateful planning.
+Equipment `has_authored_acquisition_edge()` and energy `has_authored_assembly_edge()` are deliberately local
+definition classifications. `CraftingRegistry::manual_producers()` and `manual_consumers()` are immutable direct
+material-edge reverse indexes. `Registries::process_topology()` is the aggregate cross-registry projection for a
+process's unique execution family, typed energy role, nominal equipment definitions, and compatible energy-store
+definitions. None of these surfaces performs recursive reachability or current-state planning.
 
 ### Temporal stepping contract
 
@@ -212,8 +218,8 @@ then read the owning section/source for exact semantics and errors.
 | Fluids | `FluidRegistry`, fluid definitions | `AppState::fluid()`, store records, fluid accounting | consumers validate exact egress internally; no generic routing planner exists | support validators and canonical consumers; generic transfer/pumping/mixing absent |
 | Structures | `StructuralRegistry`, profiles and geometry | `AppState::structures()`, `analyze_structure`, `StructuralAssessment` | owner-specific support/load validation plans final aggregate load | support/load commits through inventory/equipment/fluid/structural owners; general player construction remains absent |
 | Manual crafting overlay | `CraftingRegistry`, manual craft definitions | inventory, survival, and authored craft definitions | `resolve_manual_craft` is folded into `validate_start_manual_craft` for ordinary admission | `validate_start_manual_craft` -> production job + player work -> tick |
-| Ore-processing overlay | `OreProcessingRegistry`, manual/powered process profiles | inventory, equipment, energy, production state | `resolve_comminution_process`, `resolve_screening_process`, `resolve_constituent_separation_process`; manual counterparts expose their own resolutions | powered resolutions enter `validate_start_process*`; manual start validators also bind player work |
-| Thermal overlay | `ThermalRegistry`, heating/melting/casting definitions | inventory, equipment, energy, production state | `resolve_sensible_heating_process`, `resolve_melting_process`, `resolve_casting_process` | resolved work enters `validate_start_process*`; tick applies outputs, wear, and energy consequences |
+| Ore-processing overlay | `OreProcessingRegistry`, manual/powered process profiles | inventory, equipment, energy, production state | `assess_powered_ore_mass_envelope` for shared current scale bounds; `resolve_comminution_process`, `resolve_screening_process`, `resolve_constituent_separation_process` for exact selected-batch legality; manual counterparts expose their own resolutions | powered resolutions enter `validate_start_process*`; manual start validators also bind player work |
+| Thermal overlay | `ThermalRegistry`, heating/melting/casting definitions | inventory, equipment, energy, production state | `assess_melting_lot_mass_envelope` and `assess_casting_lot_mass_envelope` for current homogeneous-lot scale bounds; `resolve_sensible_heating_process`, `resolve_melting_process`, `resolve_casting_process` for exact selected-batch legality | resolved work enters `validate_start_process*`; tick applies outputs, wear, and energy consequences |
 | Conservation/accounting | authored material/fluid/energy properties | `calculate_matter_accounting`, `calculate_fluid_volume_accounting`, `calculate_explicit_energy_accounting` | read-only reconciliation only | none; accounting never mutates or authorizes custody |
 | Persistence | current save schema + registry schema | `SaveEnvelope` for output, decoded `LoadedSaveEnvelope` before trust | exact-version admission plus deterministic index rebuild/graph validation | `LoadedSaveEnvelope::into_state`; adapters own bytes/storage, not state promotion |
 | Presentation definitions | texture/shader registries and authored assets | immutable definition access and deterministic bake/assembly results | deterministic renderer-neutral assembly | graphics resources/frame effects belong to adapters, outside `AppState` |
@@ -506,6 +512,17 @@ admission.
 Powered ore-processing definitions share `PoweredOreProcessProfile` for throughput capability, batch limit,
 energy carrier, mass-specific work, and active-tick wear. Runtime admission and trusted-load replay derive those
 consequences from the shared profile; each resolver owns only its material transformation.
+
+`assess_powered_ore_mass_envelope` is the read-only current-state planning surface for the scale dimensions
+shared by powered comminution, screening, and constituent separation. It resolves the current equipment
+provider, generic process capability requirements, condition-adjusted throughput and batch capacity, current
+energy-supply access, stored work, transfer power, and condition lifetime. Its `maximum_mass()` is the minimum of
+equipment capacity, finite-work capacity, and the mass whose throughput/energy duration still fits usable
+condition life. `constraint_for` reports the first shared scale constraint in canonical powered-resolution
+order. A caller-selected condition floor can further reduce the mass while remaining policy rather than
+physical authoring. The envelope is disposable guidance, not authorization: a later owner mutation invalidates
+its assumptions, and the exact process-specific resolver must still validate the selected matter before any
+production start can be authorized.
 
 Implemented resolver contracts:
 

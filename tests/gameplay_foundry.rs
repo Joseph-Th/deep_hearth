@@ -20,6 +20,8 @@ mod fresh_seed;
 mod industrial_support;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
+#[path = "gameplay_harness/material_selection.rs"]
+mod material_selection;
 #[path = "gameplay_harness/production_support.rs"]
 mod production_support;
 #[path = "gameplay_harness/seed.rs"]

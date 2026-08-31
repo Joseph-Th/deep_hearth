@@ -45,3 +45,27 @@ pub fn calculate_mass_flow_duration_ceiling(
     let ticks = u64::try_from(ticks).map_err(|_| MassFlowDurationError::TickRangeExceeded)?;
     Ok(TickSpan::new(ticks))
 }
+
+/// Returns the greatest representable whole-milligram mass processable within an exact tick span.
+///
+/// This is the monotonic inverse of [`calculate_mass_flow_duration_ceiling`] for planning bounds.
+/// When the physical capacity exceeds the `u64`-backed [`Mass`] range, the result is the largest
+/// representable mass because no authoritative single-batch request can exceed that value.
+#[must_use]
+pub fn calculate_mass_flow_capacity(
+    rate: MassFlow,
+    duration: TickSpan,
+    physical_tick_duration: PhysicalTickDuration,
+) -> Mass {
+    if rate.is_zero() || duration.is_zero() {
+        return Mass::ZERO;
+    }
+    let capacity_numerator = u128::from(rate.milligrams_per_second())
+        .checked_mul(u128::from(physical_tick_duration.microseconds()))
+        .and_then(|value| value.checked_mul(u128::from(duration.value())));
+    let Some(capacity_numerator) = capacity_numerator else {
+        return Mass::from_milligrams(u64::MAX);
+    };
+    let milligrams = capacity_numerator / 1_000_000;
+    Mass::from_milligrams(u64::try_from(milligrams).unwrap_or(u64::MAX))
+}

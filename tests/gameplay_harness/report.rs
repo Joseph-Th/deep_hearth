@@ -2,62 +2,38 @@
 
 use std::collections::BTreeSet;
 
-use deep_hearth::capability::evaluate_capabilities;
 use deep_hearth::core::quantity::{Energy, Mass, Volume};
 use deep_hearth::energy::EnergyCarrier;
 use deep_hearth::maintenance::MaintenanceBand;
 use deep_hearth::production::ProcessId;
-use deep_hearth::registry::Registries;
+pub(super) use deep_hearth::registry::ProcessExecutionFamily as ProcessResolverKind;
+use deep_hearth::registry::{ProcessEnergyRole, Registries};
 
 use super::scenario::ScenarioVariation;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum ProcessResolverKind {
-    ManualCraft,
-    ManualComminution,
-    ManualSeparation,
-    Comminution,
-    Screening,
-    ConstituentSeparation,
-    SensibleHeating,
-    Melting,
-    Casting,
-}
-
-impl ProcessResolverKind {
-    const fn label(self) -> &'static str {
-        match self {
-            Self::ManualCraft => "manual-craft",
-            Self::ManualComminution => "manual-comminution",
-            Self::ManualSeparation => "manual-separation",
-            Self::Comminution => "comminution",
-            Self::Screening => "screening",
-            Self::ConstituentSeparation => "constituent-separation",
-            Self::SensibleHeating => "sensible-heating",
-            Self::Melting => "melting",
-            Self::Casting => "casting",
-        }
+fn process_resolver_label(resolver: ProcessResolverKind) -> &'static str {
+    match resolver {
+        ProcessResolverKind::ManualCraft => "manual-craft",
+        ProcessResolverKind::ManualComminution => "manual-comminution",
+        ProcessResolverKind::ManualSeparation => "manual-separation",
+        ProcessResolverKind::Comminution => "comminution",
+        ProcessResolverKind::Screening => "screening",
+        ProcessResolverKind::ConstituentSeparation => "constituent-separation",
+        ProcessResolverKind::SensibleHeating => "sensible-heating",
+        ProcessResolverKind::Melting => "melting",
+        ProcessResolverKind::Casting => "casting",
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ProcessEnergyRole {
-    None,
-    Supply(EnergyCarrier),
-    Sink(EnergyCarrier),
-}
-
-impl ProcessEnergyRole {
-    const fn label(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::Supply(EnergyCarrier::Mechanical) => "mechanical-supply",
-            Self::Supply(EnergyCarrier::Electrical) => "electrical-supply",
-            Self::Supply(EnergyCarrier::Thermal) => "thermal-supply",
-            Self::Sink(EnergyCarrier::Mechanical) => "mechanical-sink",
-            Self::Sink(EnergyCarrier::Electrical) => "electrical-sink",
-            Self::Sink(EnergyCarrier::Thermal) => "thermal-sink",
-        }
+fn process_energy_role_label(role: ProcessEnergyRole) -> &'static str {
+    match role {
+        ProcessEnergyRole::None => "none",
+        ProcessEnergyRole::Supply(EnergyCarrier::Mechanical) => "mechanical-supply",
+        ProcessEnergyRole::Supply(EnergyCarrier::Electrical) => "electrical-supply",
+        ProcessEnergyRole::Supply(EnergyCarrier::Thermal) => "thermal-supply",
+        ProcessEnergyRole::Sink(EnergyCarrier::Mechanical) => "mechanical-sink",
+        ProcessEnergyRole::Sink(EnergyCarrier::Electrical) => "electrical-sink",
+        ProcessEnergyRole::Sink(EnergyCarrier::Thermal) => "thermal-sink",
     }
 }
 
@@ -67,101 +43,10 @@ pub(super) struct ProcessCatalogEntry {
     pub(super) name: String,
     pub(super) resolver: ProcessResolverKind,
     pub(super) nominal_provider_count: usize,
-    pub(super) runtime_provider_count: usize,
-    pub(super) matching_energy_store_count: usize,
-    pub(super) runtime_energy_store_count: usize,
+    pub(super) authored_acquisition_provider_count: usize,
+    pub(super) compatible_energy_store_count: usize,
+    pub(super) authored_assembly_energy_store_count: usize,
     energy_role: ProcessEnergyRole,
-}
-
-fn process_resolver_and_energy(
-    registries: &Registries,
-    process: ProcessId,
-) -> (ProcessResolverKind, ProcessEnergyRole) {
-    let mut matches = Vec::with_capacity(1);
-    if registries.crafting().get_manual(process).is_some() {
-        matches.push((ProcessResolverKind::ManualCraft, ProcessEnergyRole::None));
-    }
-    if registries
-        .ore_processing()
-        .get_manual_comminution(process)
-        .is_some()
-    {
-        matches.push((
-            ProcessResolverKind::ManualComminution,
-            ProcessEnergyRole::None,
-        ));
-    }
-    if registries
-        .ore_processing()
-        .get_manual_constituent_separation(process)
-        .is_some()
-    {
-        matches.push((
-            ProcessResolverKind::ManualSeparation,
-            ProcessEnergyRole::None,
-        ));
-    }
-    if let Some(definition) = registries.ore_processing().get_comminution(process) {
-        matches.push((
-            ProcessResolverKind::Comminution,
-            ProcessEnergyRole::Supply(definition.energy_carrier()),
-        ));
-    }
-    if let Some(definition) = registries.ore_processing().get_screening(process) {
-        matches.push((
-            ProcessResolverKind::Screening,
-            ProcessEnergyRole::Supply(definition.energy_carrier()),
-        ));
-    }
-    if let Some(definition) = registries
-        .ore_processing()
-        .get_constituent_separation(process)
-    {
-        matches.push((
-            ProcessResolverKind::ConstituentSeparation,
-            ProcessEnergyRole::Supply(definition.energy_carrier()),
-        ));
-    }
-    if let Some(definition) = registries.thermal().get_sensible_heating(process) {
-        matches.push((
-            ProcessResolverKind::SensibleHeating,
-            ProcessEnergyRole::Supply(definition.energy_carrier()),
-        ));
-    }
-    if let Some(definition) = registries.thermal().get_melting(process) {
-        matches.push((
-            ProcessResolverKind::Melting,
-            ProcessEnergyRole::Supply(definition.energy_carrier()),
-        ));
-    }
-    if let Some(definition) = registries.thermal().get_casting(process) {
-        matches.push((
-            ProcessResolverKind::Casting,
-            ProcessEnergyRole::Sink(definition.energy_carrier()),
-        ));
-    }
-    assert_eq!(
-        matches.len(),
-        1,
-        "authored process {} must resolve through exactly one gameplay execution family",
-        process.value()
-    );
-    matches[0]
-}
-
-fn energy_store_matches_role(
-    definition: &deep_hearth::energy::EnergyStoreDefinition,
-    role: ProcessEnergyRole,
-) -> bool {
-    match role {
-        ProcessEnergyRole::None => false,
-        ProcessEnergyRole::Supply(carrier) => {
-            definition.carrier() == carrier && !definition.max_output_power().is_zero()
-        }
-        ProcessEnergyRole::Sink(carrier) => {
-            definition.carrier() == carrier && !definition.max_input_power().is_zero()
-        }
-    }
 }
 
 pub(super) fn process_catalog_entries(registries: &Registries) -> Vec<ProcessCatalogEntry> {
@@ -169,51 +54,46 @@ pub(super) fn process_catalog_entries(registries: &Registries) -> Vec<ProcessCat
         .production()
         .definitions()
         .map(|process| {
-            let (resolver, energy_role) = process_resolver_and_energy(registries, process.id());
-            let (nominal_provider_count, runtime_provider_count) = if matches!(
-                resolver,
-                ProcessResolverKind::ManualCraft
-                    | ProcessResolverKind::ManualComminution
-                    | ProcessResolverKind::ManualSeparation
-            ) {
-                (0, 0)
-            } else {
-                registries
-                    .equipment()
-                    .definitions()
-                    .filter(|equipment| {
-                        evaluate_capabilities(
-                            registries.capabilities(),
-                            equipment.capabilities(),
-                            process.capability_requirements(),
-                        )
-                        .is_ok()
-                    })
-                    .fold((0_usize, 0_usize), |(all, runtime), equipment| {
-                        (
-                            all + 1,
-                            runtime + usize::from(equipment.has_runtime_acquisition_route()),
-                        )
-                    })
-            };
-            let (matching_energy_store_count, runtime_energy_store_count) = registries
-                .energy()
-                .definitions()
-                .filter(|store| energy_store_matches_role(store, energy_role))
-                .fold((0_usize, 0_usize), |(all, runtime), store| {
-                    (
-                        all + 1,
-                        runtime + usize::from(store.has_runtime_assembly_route()),
+            let topology = registries
+                .process_topology(process.id())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "authored process {} has no physical execution family",
+                        process.id().value()
                     )
                 });
+            let resolver = topology.execution_family();
+            let energy_role = topology.energy_role();
+            let nominal_provider_count = topology.nominal_providers().len();
+            let authored_acquisition_provider_count = topology
+                .nominal_providers()
+                .iter()
+                .filter(|provider| {
+                    registries
+                        .equipment()
+                        .get_equipment(**provider)
+                        .is_some_and(|definition| definition.has_authored_acquisition_edge())
+                })
+                .count();
+            let compatible_energy_store_count = topology.compatible_energy_stores().len();
+            let authored_assembly_energy_store_count = topology
+                .compatible_energy_stores()
+                .iter()
+                .filter(|store| {
+                    registries
+                        .energy()
+                        .get_store(**store)
+                        .is_some_and(|definition| definition.has_authored_assembly_edge())
+                })
+                .count();
             ProcessCatalogEntry {
                 process: process.id(),
                 name: process.name().to_owned(),
                 resolver,
                 nominal_provider_count,
-                runtime_provider_count,
-                matching_energy_store_count,
-                runtime_energy_store_count,
+                authored_acquisition_provider_count,
+                compatible_energy_store_count,
+                authored_assembly_energy_store_count,
                 energy_role,
             }
         })
@@ -452,12 +332,12 @@ pub(super) struct ScenarioProgressReport {
 
 pub(super) fn print_content_summary(registries: &Registries, include_catalog: bool) {
     let equipment_count = registries.equipment().definitions().count();
-    let runtime_assemblable_equipment = registries
+    let equipment_assembly_edges = registries
         .equipment()
         .definitions()
         .filter(|definition| definition.assembly_profile().is_some())
         .count();
-    let equipment_upgrade_routes = registries
+    let equipment_upgrade_edges = registries
         .equipment()
         .definitions()
         .filter(|definition| definition.upgrade_profile().is_some())
@@ -468,7 +348,7 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
         .filter(|definition| definition.requires_structural_support())
         .count();
     let energy_count = registries.energy().definitions().count();
-    let runtime_assemblable_energy = registries
+    let energy_assembly_edges = registries
         .energy()
         .definitions()
         .filter(|definition| definition.assembly_profile().is_some())
@@ -492,14 +372,14 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
     let food_count = registries.survival().foods().count();
     let drink_count = registries.survival().drinks().count();
     std::println!(
-        "CONTENT registry_schema={} equipment=[authored:{} runtime_assemblable:{} upgrade_routes:{} structural_installation_required:{}] energy=[authored:{} runtime_assemblable:{}] storage=[authored:{}] processes=[authored:{} manual:{} machine:{}] mining_methods={} prospecting_methods={} survival=[foods:{} drinks:{}]",
+        "CONTENT registry_schema={} equipment=[authored:{} assembly_edges:{} upgrade_edges:{} structural_installation_required:{}] energy=[authored:{} assembly_edges:{}] storage=[authored:{}] processes=[authored:{} manual:{} machine:{}] mining_methods={} prospecting_methods={} survival=[foods:{} drinks:{}]",
         registries.schema_version().value(),
         equipment_count,
-        runtime_assemblable_equipment,
-        equipment_upgrade_routes,
+        equipment_assembly_edges,
+        equipment_upgrade_edges,
         structurally_installed_equipment,
         energy_count,
-        runtime_assemblable_energy,
+        energy_assembly_edges,
         storage_count,
         process_count,
         manual_process_count,
@@ -510,20 +390,20 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
         drink_count,
     );
 
-    let runtime_path_equipment = registries
+    let authored_edge_equipment = registries
         .equipment()
         .definitions()
-        .filter(|definition| definition.has_runtime_acquisition_route())
+        .filter(|definition| definition.has_authored_acquisition_edge())
         .count();
-    let runtime_path_energy = registries
+    let authored_edge_energy = registries
         .energy()
         .definitions()
-        .filter(|definition| definition.has_runtime_assembly_route())
+        .filter(|definition| definition.has_authored_assembly_edge())
         .count();
     std::println!(
-        "CONTENT ACQUISITION DECLARATIONS equipment=[runtime-path:{runtime_path_equipment} no-runtime-path:{}] energy=[runtime-path:{runtime_path_energy} no-runtime-path:{}] reachability=registry-declarations-not-end-to-end-proof",
-        equipment_count - runtime_path_equipment,
-        energy_count - runtime_path_energy,
+        "CONTENT ACQUISITION EDGES equipment=[authored-edge:{authored_edge_equipment} no-authored-edge:{}] energy=[authored-edge:{authored_edge_energy} no-authored-edge:{}] reachability=direct-edge-not-end-to-end-proof",
+        equipment_count - authored_edge_equipment,
+        energy_count - authored_edge_energy,
     );
     if !include_catalog {
         return;
@@ -532,33 +412,33 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
     let acquisition_declared_equipment = registries
         .equipment()
         .definitions()
-        .filter(|definition| definition.has_runtime_acquisition_route())
+        .filter(|definition| definition.has_authored_acquisition_edge())
         .map(|definition| definition.name())
         .collect::<Vec<_>>()
         .join(",");
     let no_acquisition_equipment = registries
         .equipment()
         .definitions()
-        .filter(|definition| !definition.has_runtime_acquisition_route())
+        .filter(|definition| !definition.has_authored_acquisition_edge())
         .map(|definition| definition.name())
         .collect::<Vec<_>>()
         .join(",");
     let assembly_declared_energy = registries
         .energy()
         .definitions()
-        .filter(|definition| definition.has_runtime_assembly_route())
+        .filter(|definition| definition.has_authored_assembly_edge())
         .map(|definition| definition.name())
         .collect::<Vec<_>>()
         .join(",");
     let no_assembly_energy = registries
         .energy()
         .definitions()
-        .filter(|definition| !definition.has_runtime_assembly_route())
+        .filter(|definition| !definition.has_authored_assembly_edge())
         .map(|definition| definition.name())
         .collect::<Vec<_>>()
         .join(",");
     std::println!(
-        "CONTENT ACQUISITION declared-equipment=[{acquisition_declared_equipment}] declared-energy=[{assembly_declared_energy}] no-runtime-path-equipment=[{no_acquisition_equipment}] no-runtime-path-energy=[{no_assembly_energy}] evidence-note=declaration-is-not-end-to-end-reachability"
+        "CONTENT ACQUISITION authored-edge-equipment=[{acquisition_declared_equipment}] authored-edge-energy=[{assembly_declared_energy}] no-authored-edge-equipment=[{no_acquisition_equipment}] no-authored-edge-energy=[{no_assembly_energy}] evidence-note=direct-edge-is-not-end-to-end-reachability"
     );
 
     let equipment = registries
@@ -572,7 +452,7 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
                 (true, true) => "assemble+upgrade",
                 (true, false) => "assemble",
                 (false, true) => "upgrade-only",
-                (false, false) => "no-runtime-acquisition",
+                (false, false) => "no-authored-acquisition-edge",
             };
             let installation = if definition.requires_structural_support() {
                 "fixed"
@@ -596,7 +476,7 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
             let acquisition = if definition.assembly_profile().is_some() {
                 "assemble"
             } else {
-                "no-runtime-acquisition"
+                "no-authored-assembly-edge"
             };
             format!(
                 "{}:{}:{}",
@@ -698,15 +578,15 @@ pub(super) fn print_content_summary(registries: &Registries, include_catalog: bo
         .into_iter()
         .map(|entry| {
             format!(
-                "{}:{}:resolver={}:capability-providers={}/{}runtime:energy={}:compatible-stores={}/{}runtime",
+                "{}:{}:resolver={}:capability-providers={}/{}authored-acquisition:energy={}:compatible-stores={}/{}authored-assembly",
                 entry.process.value(),
                 entry.name,
-                entry.resolver.label(),
+                process_resolver_label(entry.resolver),
                 entry.nominal_provider_count,
-                entry.runtime_provider_count,
-                entry.energy_role.label(),
-                entry.matching_energy_store_count,
-                entry.runtime_energy_store_count,
+                entry.authored_acquisition_provider_count,
+                process_energy_role_label(entry.energy_role),
+                entry.compatible_energy_store_count,
+                entry.authored_assembly_energy_store_count,
             )
         })
         .collect::<Vec<_>>()
@@ -786,6 +666,281 @@ fn print_capability_highlight(kind: &str, report: &ScenarioReport) {
         report.resources.elapsed_ticks,
         scenario_outcome(report),
         scenario_constraint(report),
+    );
+}
+
+fn print_summary_highlights(reports: &[ScenarioReport]) {
+    let mut highlighted = BTreeSet::new();
+    if let Some(report) = reports.iter().find(|report| {
+        report.structure.support_relocation || report.structure.production_suspension
+    }) {
+        highlighted.insert((report.world_seed, report.behavior_seed));
+        print_capability_highlight("world-disruption-recovery", report);
+    }
+    if let Some(report) = reports
+        .iter()
+        .filter(|report| {
+            report.choices.manual_recharges > 0
+                && !highlighted.contains(&(report.world_seed, report.behavior_seed))
+        })
+        .max_by_key(|report| report.choices.manual_recharges)
+    {
+        highlighted.insert((report.world_seed, report.behavior_seed));
+        print_capability_highlight("manual-energy-recovery", report);
+    }
+    if let Some(report) = reports
+        .iter()
+        .filter(|report| {
+            report.progress.processed_mass < report.progress.target_mass
+                && !highlighted.contains(&(report.world_seed, report.behavior_seed))
+        })
+        .min_by_key(|report| report.progress.processed_mass.milligrams())
+    {
+        print_capability_highlight("terminal-constraint", report);
+    }
+}
+
+fn print_scenario_experiences(reports: &[ScenarioReport]) {
+    for report in reports {
+        let outcome = scenario_outcome(report);
+        let survival_start = if report.inputs.start_at_hydration_warning_boundary {
+            "hydration-warning-boundary"
+        } else {
+            "full-reserve"
+        };
+        let event_progress = if report.progress.delivery_applied {
+            format!(
+                "scheduled:{}t reached:true operations-before:{}",
+                report.inputs.delivery_at_tick, report.progress.operations_before_delivery
+            )
+        } else {
+            format!(
+                "scheduled:{}t reached:false operations-before:n/a",
+                report.inputs.delivery_at_tick
+            )
+        };
+        std::println!(
+            "CAPABILITY EXPERIENCE world=0x{:016X} behavior=0x{:016X} start=[crusher:{:?} survival:{}] policy=[power:{} recovery:{} maintenance:{} structure:{}] initial=[small:{}+{}ppm nominal-batches large:{}+{}ppm nominal-batches maintenance:{}unit] order=[processed:{}/{}mg operations:{} adaptive:[total:{} condition:{} stored-work:{}] event:[{}]] power=[small:{} large:{} manual-recharges:{} generated:{}nJ manual-ticks:{}] maintenance={} relocation={} suspension={} stranded={} final=[crusher:{}ppm crank:{}ppm small:{}nJ large:{}nJ maintenance:{}mg ticks:{} survival-energy:-{}nJ hydration:-{}uL vitality:{}ppm] outcome={}",
+            report.world_seed,
+            report.behavior_seed,
+            report.inputs.initial_maintenance_band,
+            survival_start,
+            report.policy.power_preference.label(),
+            report.policy.energy_recovery_preference.label(),
+            report.policy.maintenance_preference.label(),
+            report.policy.structural_preference.label(),
+            report.inputs.small_drive_batch_budget,
+            report.inputs.small_drive_partial_batch_ppm,
+            report.inputs.large_drive_batch_budget,
+            report.inputs.large_drive_partial_batch_ppm,
+            report.inputs.maintenance_replacement_units,
+            report.progress.processed_mass.milligrams(),
+            report.progress.target_mass.milligrams(),
+            report.progress.operations_completed,
+            report.progress.adaptive_batch_operations,
+            report.progress.condition_adaptive_batch_operations,
+            report.progress.energy_adaptive_batch_operations,
+            event_progress,
+            report.choices.small_drive_batches,
+            report.choices.large_drive_batches,
+            report.choices.manual_recharges,
+            report.resources.manually_generated_energy.nanojoules(),
+            report.resources.manual_power_ticks,
+            report.maintenance.services,
+            report.structure.support_relocation,
+            report.structure.production_suspension,
+            report.structure.stranded_work_in_process,
+            report.resources.final_condition_ppm,
+            report.resources.final_hand_crank_condition_ppm,
+            report.resources.small_drive_remaining.nanojoules(),
+            report.resources.large_drive_remaining.nanojoules(),
+            report.resources.maintenance_stock_remaining.milligrams(),
+            report.resources.elapsed_ticks,
+            report.resources.metabolic_energy_spent.nanojoules(),
+            report.resources.hydration_spent.microliters(),
+            report.resources.final_vitality_ppm,
+            outcome,
+        );
+    }
+}
+
+#[derive(Clone, Copy)]
+struct HarnessObservationStats {
+    controlled_deliveries: usize,
+    adaptive_operations: u32,
+    manual_recharges: u32,
+    relocations: usize,
+    suspensions: usize,
+    recovered_work_in_process: usize,
+    stranded_work_in_process: usize,
+    structural_consequences: usize,
+    stored_work_pressure: usize,
+    body_power_pressure: usize,
+    wear_maintenance_pressure: usize,
+    structure_production_pressure: usize,
+    multi_system_adaptation: usize,
+    maintenance_terminal: usize,
+    energy_terminal: usize,
+    structural_terminal: usize,
+    prework_terminal: usize,
+}
+
+fn harness_observation_stats(reports: &[ScenarioReport]) -> HarnessObservationStats {
+    HarnessObservationStats {
+        controlled_deliveries: reports
+            .iter()
+            .filter(|report| report.progress.delivery_applied)
+            .count(),
+        adaptive_operations: reports
+            .iter()
+            .map(|report| u32::from(report.progress.adaptive_batch_operations))
+            .sum(),
+        manual_recharges: reports
+            .iter()
+            .map(|report| u32::from(report.choices.manual_recharges))
+            .sum(),
+        relocations: reports
+            .iter()
+            .filter(|report| report.structure.support_relocation)
+            .count(),
+        suspensions: reports
+            .iter()
+            .filter(|report| report.structure.production_suspension)
+            .count(),
+        recovered_work_in_process: reports
+            .iter()
+            .filter(|report| {
+                report.structure.production_suspension && !report.structure.stranded_work_in_process
+            })
+            .count(),
+        stranded_work_in_process: reports
+            .iter()
+            .filter(|report| report.structure.stranded_work_in_process)
+            .count(),
+        structural_consequences: reports
+            .iter()
+            .filter(|report| report.structure.structural_consequence)
+            .count(),
+        stored_work_pressure: reports
+            .iter()
+            .filter(|report| {
+                report.progress.energy_adaptive_batch_operations > 0
+                    || report.limits.energy_bottleneck_batches > 0
+                    || report.limits.energy_stop
+            })
+            .count(),
+        body_power_pressure: reports
+            .iter()
+            .filter(|report| {
+                report.choices.manual_recharges > 0
+                    || report.limits.manual_recovery_declined
+                    || report.limits.manual_recovery_survival_limited
+            })
+            .count(),
+        wear_maintenance_pressure: reports
+            .iter()
+            .filter(|report| report.limits.maintenance_warning || report.maintenance.services > 0)
+            .count(),
+        structure_production_pressure: reports
+            .iter()
+            .filter(|report| {
+                report.structure.structural_consequence
+                    || report.structure.support_relocation
+                    || report.structure.production_suspension
+            })
+            .count(),
+        multi_system_adaptation: reports
+            .iter()
+            .filter(|report| {
+                let dimensions = u8::from(
+                    report.progress.energy_adaptive_batch_operations > 0
+                        || report.limits.energy_bottleneck_batches > 0
+                        || report.limits.energy_stop,
+                ) + u8::from(
+                    report.choices.manual_recharges > 0
+                        || report.limits.manual_recovery_declined
+                        || report.limits.manual_recovery_survival_limited,
+                ) + u8::from(
+                    report.limits.maintenance_warning || report.maintenance.services > 0,
+                ) + u8::from(
+                    report.structure.structural_consequence
+                        || report.structure.support_relocation
+                        || report.structure.production_suspension,
+                );
+                dimensions >= 2
+            })
+            .count(),
+        maintenance_terminal: reports
+            .iter()
+            .filter(|report| report.limits.maintenance_stop)
+            .count(),
+        energy_terminal: reports
+            .iter()
+            .filter(|report| report.limits.energy_stop)
+            .count(),
+        structural_terminal: reports
+            .iter()
+            .filter(|report| report.structure.structural_stop)
+            .count(),
+        prework_terminal: reports
+            .iter()
+            .filter(|report| {
+                report.progress.operations_completed == 0
+                    && (report.limits.maintenance_stop
+                        || report.limits.energy_stop
+                        || report.structure.structural_stop)
+            })
+            .count(),
+    }
+}
+
+fn print_capability_scope(stats: HarnessObservationStats) {
+    let observations = [
+        ("structural-consequence", stats.structural_consequences > 0),
+        ("support-relocation", stats.relocations > 0),
+        ("production-suspension", stats.suspensions > 0),
+        ("wip-recovery", stats.recovered_work_in_process > 0),
+        ("stranded-wip", stats.stranded_work_in_process > 0),
+        ("manual-energy-recovery", stats.manual_recharges > 0),
+        ("adaptive-batching", stats.adaptive_operations > 0),
+        (
+            "controlled-supported-stockpile-delivery",
+            stats.controlled_deliveries > 0,
+        ),
+    ];
+    let observed = observations
+        .iter()
+        .filter_map(|(name, observed)| observed.then_some(*name))
+        .collect::<Vec<_>>()
+        .join(",");
+    let unobserved = observations
+        .iter()
+        .filter_map(|(name, observed)| (!observed).then_some(*name))
+        .collect::<Vec<_>>()
+        .join(",");
+    std::println!(
+        "CAPABILITY SCOPE evidence=bootstrapped-industrial surface=[canonical-industrial-comminution,adaptive-batching,manual-energy-recovery,power-choice,wear,maintenance,structural-siting,controlled-supported-stockpile-delivery] observed=[{observed}] unobserved=[{unobserved}] outside-this-workshop-test=[survival,primitive-progression,industrial-ore-preparation,pure-copper-foundry] bootstrap=[industrial-workshop-equipment,industrial-energy-stores,constructed-bays,starting-workshop-matter,preauthorized-controlled-delivery] actor-oracle=none fixture-guard=fail-if-injected-machine-becomes-runtime-acquirable global-runtime-scope=STATUS.md"
+    );
+}
+
+fn print_experience_review(stats: HarnessObservationStats, scenario_count: usize) {
+    std::println!(
+        "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt-physical-infrastructure sample=pressure-rich+hidden-controlled-delivery reached-events:{}/{} loop=observe-pressure->choose-power/batch/service/site->run->recover dynamic-scenarios:{}/{} interlocks=[stored-work+throughput:{} body+power:{} wear+maintenance:{} structure+production:{}] terminal=[maintenance:{} energy:{} structural:{} before-first-operation:{}] recovery=[suspensions:{} resumed:{} stranded:{}] agency=matched-policy-counterfactuals-in-AGENCY-SUMMARY dormant=[ore-grade:composition-only-in-this-workshop-scenario;concentration-is-exercised-by-the-separate-ore-probe]",
+        stats.controlled_deliveries,
+        scenario_count,
+        stats.multi_system_adaptation,
+        scenario_count,
+        stats.stored_work_pressure,
+        stats.body_power_pressure,
+        stats.wear_maintenance_pressure,
+        stats.structure_production_pressure,
+        stats.maintenance_terminal,
+        stats.energy_terminal,
+        stats.structural_terminal,
+        stats.prework_terminal,
+        stats.suspensions,
+        stats.recovered_work_in_process,
+        stats.stranded_work_in_process,
     );
 }
 
@@ -1009,97 +1164,10 @@ pub(super) fn print_harness_summary(
         .max()
         .unwrap_or_else(|| unreachable!("nonempty reports have an elapsed-tick maximum"));
 
-    if !include_scenarios {
-        let mut highlighted = BTreeSet::new();
-        if let Some(report) = reports.iter().find(|report| {
-            report.structure.support_relocation || report.structure.production_suspension
-        }) {
-            highlighted.insert((report.world_seed, report.behavior_seed));
-            print_capability_highlight("world-disruption-recovery", report);
-        }
-        if let Some(report) = reports
-            .iter()
-            .filter(|report| {
-                report.choices.manual_recharges > 0
-                    && !highlighted.contains(&(report.world_seed, report.behavior_seed))
-            })
-            .max_by_key(|report| report.choices.manual_recharges)
-        {
-            highlighted.insert((report.world_seed, report.behavior_seed));
-            print_capability_highlight("manual-energy-recovery", report);
-        }
-        if let Some(report) = reports
-            .iter()
-            .filter(|report| {
-                report.progress.processed_mass < report.progress.target_mass
-                    && !highlighted.contains(&(report.world_seed, report.behavior_seed))
-            })
-            .min_by_key(|report| report.progress.processed_mass.milligrams())
-        {
-            print_capability_highlight("terminal-constraint", report);
-        }
-    }
-
-    for report in reports.iter().filter(|_| include_scenarios) {
-        let outcome = scenario_outcome(report);
-        let survival_start = if report.inputs.start_at_hydration_warning_boundary {
-            "hydration-warning-boundary"
-        } else {
-            "full-reserve"
-        };
-        let event_progress = if report.progress.delivery_applied {
-            format!(
-                "scheduled:{}t reached:true operations-before:{}",
-                report.inputs.delivery_at_tick, report.progress.operations_before_delivery
-            )
-        } else {
-            format!(
-                "scheduled:{}t reached:false operations-before:n/a",
-                report.inputs.delivery_at_tick
-            )
-        };
-        std::println!(
-            "CAPABILITY EXPERIENCE world=0x{:016X} behavior=0x{:016X} start=[crusher:{:?} survival:{}] policy=[power:{} recovery:{} maintenance:{} structure:{}] initial=[small:{}+{}ppm nominal-batches large:{}+{}ppm nominal-batches maintenance:{}unit] order=[processed:{}/{}mg operations:{} adaptive:[total:{} condition:{} stored-work:{}] event:[{}]] power=[small:{} large:{} manual-recharges:{} generated:{}nJ manual-ticks:{}] maintenance={} relocation={} suspension={} stranded={} final=[crusher:{}ppm crank:{}ppm small:{}nJ large:{}nJ maintenance:{}mg ticks:{} survival-energy:-{}nJ hydration:-{}uL vitality:{}ppm] outcome={}",
-            report.world_seed,
-            report.behavior_seed,
-            report.inputs.initial_maintenance_band,
-            survival_start,
-            report.policy.power_preference.label(),
-            report.policy.energy_recovery_preference.label(),
-            report.policy.maintenance_preference.label(),
-            report.policy.structural_preference.label(),
-            report.inputs.small_drive_batch_budget,
-            report.inputs.small_drive_partial_batch_ppm,
-            report.inputs.large_drive_batch_budget,
-            report.inputs.large_drive_partial_batch_ppm,
-            report.inputs.maintenance_replacement_units,
-            report.progress.processed_mass.milligrams(),
-            report.progress.target_mass.milligrams(),
-            report.progress.operations_completed,
-            report.progress.adaptive_batch_operations,
-            report.progress.condition_adaptive_batch_operations,
-            report.progress.energy_adaptive_batch_operations,
-            event_progress,
-            report.choices.small_drive_batches,
-            report.choices.large_drive_batches,
-            report.choices.manual_recharges,
-            report.resources.manually_generated_energy.nanojoules(),
-            report.resources.manual_power_ticks,
-            report.maintenance.services,
-            report.structure.support_relocation,
-            report.structure.production_suspension,
-            report.structure.stranded_work_in_process,
-            report.resources.final_condition_ppm,
-            report.resources.final_hand_crank_condition_ppm,
-            report.resources.small_drive_remaining.nanojoules(),
-            report.resources.large_drive_remaining.nanojoules(),
-            report.resources.maintenance_stock_remaining.milligrams(),
-            report.resources.elapsed_ticks,
-            report.resources.metabolic_energy_spent.nanojoules(),
-            report.resources.hydration_spent.microliters(),
-            report.resources.final_vitality_ppm,
-            outcome,
-        );
+    if include_scenarios {
+        print_scenario_experiences(reports);
+    } else {
+        print_summary_highlights(reports);
     }
 
     std::println!(
@@ -1184,22 +1252,7 @@ pub(super) fn print_harness_summary(
             .count(),
         reports.len(),
     );
-    let relocations = reports
-        .iter()
-        .filter(|report| report.structure.support_relocation)
-        .count();
-    let suspensions = reports
-        .iter()
-        .filter(|report| report.structure.production_suspension)
-        .count();
-    let stranded_work_in_process = reports
-        .iter()
-        .filter(|report| report.structure.stranded_work_in_process)
-        .count();
-    let structural_consequences = reports
-        .iter()
-        .filter(|report| report.structure.structural_consequence)
-        .count();
+    let observation_stats = harness_observation_stats(reports);
     std::println!(
         "CAPABILITY SYSTEMS policy=[power:reserve:{} speed:{} recovery:protect:{} spend:{} maintenance:warning:{} critical:{} structure:margin:{} failure-only:{}] machine-work=[small-drive:{small_drive_batches} high-power:{large_drive_batches}] decisions=[power-policy:{policy_power_choices} single-source:{single_source_power_choices} manual-recharges:{manual_recharges} adaptive:[total:{adaptive_operations} condition:{condition_adaptive_operations} stored-work:{energy_adaptive_operations}]] survival=[elapsed:{elapsed_ticks_min}..{elapsed_ticks_max}t manual-metabolic:{manual_metabolic_energy}nJ manual-hydration:{manual_hydration}uL] recovery=[relocations:{} resumed-wip:{recovered_work_in_process} stranded-wip:{} maintenance-services:{maintenance_services}] pressure=[structural:{} maintenance-warning:{}] bottlenecks=[energy-delivery:{energy_bottleneck_batches} throughput:{throughput_bottleneck_batches} balanced:{balanced_bottleneck_batches}]",
         reports
@@ -1248,137 +1301,16 @@ pub(super) fn print_harness_summary(
                 report.policy.structural_preference == StructuralPreference::MoveOnlyForFailure
             })
             .count(),
-        relocations,
-        stranded_work_in_process,
-        structural_consequences,
+        observation_stats.relocations,
+        observation_stats.stranded_work_in_process,
+        observation_stats.structural_consequences,
         reports
             .iter()
             .filter(|report| report.limits.maintenance_warning)
             .count(),
     );
-    let mut observed = Vec::new();
-    let mut unobserved = Vec::new();
-    if structural_consequences > 0 {
-        observed.push("structural-consequence");
-    } else {
-        unobserved.push("structural-consequence");
-    }
-    if relocations > 0 {
-        observed.push("support-relocation");
-    } else {
-        unobserved.push("support-relocation");
-    }
-    if suspensions > 0 {
-        observed.push("production-suspension");
-    } else {
-        unobserved.push("production-suspension");
-    }
-    if recovered_work_in_process > 0 {
-        observed.push("wip-recovery");
-    } else {
-        unobserved.push("wip-recovery");
-    }
-    if stranded_work_in_process > 0 {
-        observed.push("stranded-wip");
-    } else {
-        unobserved.push("stranded-wip");
-    }
-    if manual_recharges > 0 {
-        observed.push("manual-energy-recovery");
-    } else {
-        unobserved.push("manual-energy-recovery");
-    }
-    if adaptive_operations > 0 {
-        observed.push("adaptive-batching");
-    } else {
-        unobserved.push("adaptive-batching");
-    }
-    if controlled_deliveries > 0 {
-        observed.push("controlled-supported-stockpile-delivery");
-    } else {
-        unobserved.push("controlled-supported-stockpile-delivery");
-    }
-    let observed = observed.join(",");
-    let unobserved = unobserved.join(",");
     if include_scenarios {
-        std::println!(
-            "CAPABILITY SCOPE evidence=bootstrapped-industrial surface=[canonical-industrial-comminution,adaptive-batching,manual-energy-recovery,power-choice,wear,maintenance,structural-siting,controlled-supported-stockpile-delivery] observed=[{observed}] unobserved=[{unobserved}] outside-this-workshop-test=[survival,primitive-progression,industrial-ore-preparation,pure-copper-foundry] bootstrap=[industrial-workshop-equipment,industrial-energy-stores,constructed-bays,starting-workshop-matter,preauthorized-controlled-delivery] actor-oracle=none fixture-guard=fail-if-injected-machine-becomes-runtime-acquirable global-runtime-scope=STATUS.md"
-        );
+        print_capability_scope(observation_stats);
     }
-
-    let stored_work_pressure = reports
-        .iter()
-        .filter(|report| {
-            report.progress.energy_adaptive_batch_operations > 0
-                || report.limits.energy_bottleneck_batches > 0
-                || report.limits.energy_stop
-        })
-        .count();
-    let body_power_pressure = reports
-        .iter()
-        .filter(|report| {
-            report.choices.manual_recharges > 0
-                || report.limits.manual_recovery_declined
-                || report.limits.manual_recovery_survival_limited
-        })
-        .count();
-    let wear_maintenance_pressure = reports
-        .iter()
-        .filter(|report| report.limits.maintenance_warning || report.maintenance.services > 0)
-        .count();
-    let structure_production_pressure = reports
-        .iter()
-        .filter(|report| {
-            report.structure.structural_consequence
-                || report.structure.support_relocation
-                || report.structure.production_suspension
-        })
-        .count();
-    let multi_system_adaptation = reports
-        .iter()
-        .filter(|report| {
-            let dimensions = u8::from(
-                report.progress.energy_adaptive_batch_operations > 0
-                    || report.limits.energy_bottleneck_batches > 0
-                    || report.limits.energy_stop,
-            ) + u8::from(
-                report.choices.manual_recharges > 0
-                    || report.limits.manual_recovery_declined
-                    || report.limits.manual_recovery_survival_limited,
-            ) + u8::from(
-                report.limits.maintenance_warning || report.maintenance.services > 0,
-            ) + u8::from(
-                report.structure.structural_consequence
-                    || report.structure.support_relocation
-                    || report.structure.production_suspension,
-            );
-            dimensions >= 2
-        })
-        .count();
-    let maintenance_terminal = reports
-        .iter()
-        .filter(|report| report.limits.maintenance_stop)
-        .count();
-    let energy_terminal = reports
-        .iter()
-        .filter(|report| report.limits.energy_stop)
-        .count();
-    let structural_terminal = reports
-        .iter()
-        .filter(|report| report.structure.structural_stop)
-        .count();
-    let prework_terminal = reports
-        .iter()
-        .filter(|report| {
-            report.progress.operations_completed == 0
-                && (report.limits.maintenance_stop
-                    || report.limits.energy_stop
-                    || report.structure.structural_stop)
-        })
-        .count();
-    std::println!(
-        "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt-physical-infrastructure sample=pressure-rich+hidden-controlled-delivery reached-events:{controlled_deliveries}/{} loop=observe-pressure->choose-power/batch/service/site->run->recover dynamic-scenarios:{multi_system_adaptation}/{} interlocks=[stored-work+throughput:{stored_work_pressure} body+power:{body_power_pressure} wear+maintenance:{wear_maintenance_pressure} structure+production:{structure_production_pressure}] terminal=[maintenance:{maintenance_terminal} energy:{energy_terminal} structural:{structural_terminal} before-first-operation:{prework_terminal}] recovery=[suspensions:{suspensions} resumed:{recovered_work_in_process} stranded:{stranded_work_in_process}] agency=matched-policy-counterfactuals-in-AGENCY-SUMMARY dormant=[ore-grade:composition-only-in-this-workshop-scenario;concentration-is-exercised-by-the-separate-ore-probe]",
-        reports.len(),
-        reports.len(),
-    );
+    print_experience_review(observation_stats, reports.len());
 }

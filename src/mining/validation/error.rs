@@ -49,9 +49,14 @@ pub enum MiningJobValidationError {
         traced: Mass,
         output: Mass,
     },
-    DepositMassStateMismatch {
+    WorkingDepositMassMismatch {
         job: MiningJobId,
         expected: Mass,
+        actual: Mass,
+    },
+    ReadyDepositMassAbovePostExtraction {
+        job: MiningJobId,
+        maximum: Mass,
         actual: Mass,
     },
     OutputStorageInvalid {
@@ -178,15 +183,26 @@ impl Display for MiningJobValidationError {
                 output.milligrams(),
                 traced.milligrams()
             ),
-            Self::DepositMassStateMismatch {
+            Self::WorkingDepositMassMismatch {
                 job,
                 expected,
                 actual,
             } => write!(
                 formatter,
-                "mining job {} expects geological source mass {} mg in its current phase but found {} mg",
+                "working mining job {} expects geological source mass {} mg but found {} mg",
                 job.value(),
                 expected.milligrams(),
+                actual.milligrams()
+            ),
+            Self::ReadyDepositMassAbovePostExtraction {
+                job,
+                maximum,
+                actual,
+            } => write!(
+                formatter,
+                "ready mining job {} requires its extraction to have reduced geological source mass to at most {} mg but found {} mg",
+                job.value(),
+                maximum.milligrams(),
                 actual.milligrams()
             ),
             Self::OutputStorageInvalid { job } => write!(
@@ -305,7 +321,8 @@ impl Error for MiningJobValidationError {
             | Self::EquipmentConditionMismatch { .. }
             | Self::OutputProfileMismatch { .. }
             | Self::OutputExceedsDepositTrace { .. }
-            | Self::DepositMassStateMismatch { .. }
+            | Self::WorkingDepositMassMismatch { .. }
+            | Self::ReadyDepositMassAbovePostExtraction { .. }
             | Self::OutputStorageInvalid { .. }
             | Self::EquipmentAlsoUsedByProduction { .. }
             | Self::MissingCapability { .. }

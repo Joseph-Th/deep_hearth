@@ -2,6 +2,7 @@
 
 mod comminution_execution;
 mod definitions;
+mod planning;
 mod powered_physics;
 mod screening_execution;
 mod separation_execution;
@@ -9,6 +10,10 @@ mod throughput;
 mod validation;
 
 use crate::production::ProcessId;
+pub use planning::{
+    PoweredOreMassConstraint, PoweredOreMassEnvelope, PoweredOreMassEnvelopeError,
+    assess_powered_ore_mass_envelope,
+};
 pub use powered_physics::{PoweredOreBottleneck, PoweredOreJobValidationError};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -48,7 +53,9 @@ pub use screening_execution::{
 
 pub(crate) use screening_execution::validate_loaded_screening_job;
 
-pub use throughput::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
+pub use throughput::{
+    MassFlowDurationError, calculate_mass_flow_capacity, calculate_mass_flow_duration_ceiling,
+};
 
 /// Immutable lookup table for ore/material-preparation process semantics.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -190,24 +197,6 @@ impl OreProcessingRegistry {
         process: ProcessId,
     ) -> Option<ManualConstituentSeparationProcessDefinition> {
         self.manual_separation.get(&process).copied()
-    }
-
-    pub(crate) fn process_ids(&self) -> impl Iterator<Item = ProcessId> + '_ {
-        self.comminution
-            .keys()
-            .chain(self.manual_comminution.keys())
-            .chain(self.screening.keys())
-            .chain(self.separation.keys())
-            .chain(self.manual_separation.keys())
-            .copied()
-    }
-
-    pub(crate) fn has_process(&self, process: ProcessId) -> bool {
-        self.comminution.contains_key(&process)
-            || self.manual_comminution.contains_key(&process)
-            || self.screening.contains_key(&process)
-            || self.separation.contains_key(&process)
-            || self.manual_separation.contains_key(&process)
     }
 }
 

@@ -14,8 +14,8 @@ fn assert_capability_only_equipment(registries: &Registries, equipment: Equipmen
         .get_equipment(equipment)
         .unwrap_or_else(|| panic!("gameplay harness equipment definition disappeared"));
     assert!(
-        !definition.has_runtime_acquisition_route(),
-        "capability fixture directly injects equipment {} ({}) even though it now has a runtime acquisition route; update the harness to acquire it through gameplay",
+        !definition.has_authored_acquisition_edge(),
+        "capability fixture directly injects equipment {} ({}) even though it now has a direct authored acquisition edge; update the harness to acquire it through gameplay",
         equipment.value(),
         definition.name(),
     );
@@ -27,8 +27,8 @@ fn assert_capability_only_energy_store(registries: &Registries, store: EnergySto
         .get_store(store)
         .unwrap_or_else(|| panic!("gameplay harness energy-store definition disappeared"));
     assert!(
-        !definition.has_runtime_assembly_route(),
-        "capability fixture directly injects energy store {} ({}) even though it now has a runtime assembly route; update the harness to construct it through gameplay",
+        !definition.has_authored_assembly_edge(),
+        "capability fixture directly injects energy store {} ({}) even though it now has a direct authored assembly edge; update the harness to construct it through gameplay",
         store.value(),
         definition.name(),
     );

@@ -541,11 +541,12 @@ impl EquipmentDefinition {
         self.upgrade_profile.as_ref()
     }
 
-    /// Returns whether ordinary gameplay declares an acquisition route for this equipment
-    /// definition. Discovery/reporting code consumes this authoritative classification instead of
-    /// reconstructing it from individual route fields.
+    /// Returns whether this definition declares a direct authored equipment-acquisition edge.
+    ///
+    /// This local classification does not prove a transitive material path, ordinary reachability,
+    /// a current world opportunity, or authorization.
     #[must_use]
-    pub const fn has_runtime_acquisition_route(&self) -> bool {
+    pub const fn has_authored_acquisition_edge(&self) -> bool {
         self.assembly_profile.is_some() || self.upgrade_profile.is_some()
     }
 

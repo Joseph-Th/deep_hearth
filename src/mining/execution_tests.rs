@@ -924,13 +924,138 @@ fn loaded_working_mining_job_rejects_forged_source_mass_trace() {
     assert_eq!(
         tampered.into_state(&registries),
         Err(LoadError::InvalidState(StateValidationError::MiningJob(
-            MiningJobValidationError::DepositMassStateMismatch {
+            MiningJobValidationError::WorkingDepositMassMismatch {
                 job,
                 expected: Mass::from_milligrams(900_000),
                 actual: Mass::from_milligrams(1_000_000),
             }
         )))
     );
+}
+
+#[test]
+fn unclaimed_output_allows_follow_on_extraction_from_the_same_deposit() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xA11E_0038));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("follow-on mining survival setup failed: {error}"));
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let first_destination =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+            .unwrap_or_else(|error| panic!("first follow-on mining destination failed: {error}"));
+    let second_destination =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+            .unwrap_or_else(|error| panic!("second follow-on mining destination failed: {error}"));
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec())
+        .unwrap_or_else(|error| panic!("follow-on mining deposit failed: {error}"));
+    let extraction_mass = Mass::from_milligrams(100_000);
+
+    let first_job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        first_destination,
+        pick,
+        extraction_mass,
+    )
+    .unwrap_or_else(|error| panic!("first follow-on mining start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("first follow-on mining commit failed: {error}"));
+    let first_duration = state
+        .mining()
+        .get_job(first_job)
+        .map(|record| record.completes_at().value() - record.started_at().value())
+        .unwrap_or_else(|| panic!("first follow-on mining job disappeared"));
+    for _ in 0..first_duration {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("first follow-on mining tick failed: {error}"));
+    }
+    assert!(
+        state
+            .mining()
+            .get_job(first_job)
+            .is_some_and(MiningJobRecord::is_ready_to_claim)
+    );
+    assert_eq!(
+        state
+            .geology()
+            .get_deposit(deposit)
+            .map(|record| record.remaining_mass()),
+        Some(Mass::from_milligrams(900_000))
+    );
+
+    let second_job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        second_destination,
+        pick,
+        extraction_mass,
+    )
+    .unwrap_or_else(|error| panic!("second follow-on mining start failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("second follow-on mining commit failed: {error}"));
+    let second_duration = state
+        .mining()
+        .get_job(second_job)
+        .map(|record| record.completes_at().value() - record.started_at().value())
+        .unwrap_or_else(|| panic!("second follow-on mining job disappeared"));
+    for _ in 0..second_duration {
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("second follow-on mining tick failed: {error}"));
+    }
+
+    for job in [first_job, second_job] {
+        assert!(
+            state
+                .mining()
+                .get_job(job)
+                .is_some_and(MiningJobRecord::is_ready_to_claim),
+            "completed extraction {job:?} must remain claimable after later extraction"
+        );
+    }
+    assert_eq!(
+        state
+            .geology()
+            .get_deposit(deposit)
+            .map(|record| record.remaining_mass()),
+        Some(Mass::from_milligrams(800_000))
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("follow-on mining state audit failed: {error}"));
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+        .unwrap_or_else(|error| panic!("follow-on mining save failed: {error}"));
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
+        .unwrap_or_else(|error| panic!("follow-on mining decode failed: {error}"));
+    let restored = loaded
+        .into_state(&registries)
+        .unwrap_or_else(|error| panic!("follow-on mining load failed: {error}"));
+    assert_eq!(restored, state);
+
+    validate_claim_mining_output(&registries, &state, first_job)
+        .unwrap_or_else(|error| panic!("older follow-on mining claim failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("older follow-on mining claim commit failed: {error}"));
+    validate_claim_mining_output(&registries, &state, second_job)
+        .unwrap_or_else(|error| panic!("newer follow-on mining claim failed: {error}"))
+        .commit(&mut state)
+        .unwrap_or_else(|error| panic!("newer follow-on mining claim commit failed: {error}"));
+    for destination in [first_destination, second_destination] {
+        assert_eq!(
+            state.inventory().get_stockpile(destination).map(|record| {
+                (
+                    record.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_ORE)),
+                    record.reserved_inbound(),
+                )
+            }),
+            Some((extraction_mass, Mass::ZERO))
+        );
+    }
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("claimed follow-on mining audit failed: {error}"));
 }
 
 #[test]

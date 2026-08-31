@@ -135,6 +135,9 @@ pub(crate) fn add_fluid_store_with_contents_for_fixture(
         .fluid()
         .get_fluid(definition)
         .ok_or(AddFluidStoreError::UnknownDefinition { definition })?;
+    if temperature == Temperature::ZERO {
+        return Err(AddFluidStoreError::InitialTemperatureZero);
+    }
     if let Some(melting_point) =
         definition_record.minimum_modeled_temperature(registries.materials())
         && temperature < melting_point

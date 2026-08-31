@@ -1,10 +1,8 @@
-//! Provides registry-derived industrial setup, selection, and tick advancement for gameplay probes.
+//! Provides registry-derived condition variation and bounded production advancement for gameplay probes.
 
-use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::AppState;
 use deep_hearth::core::time::TickSpan;
 use deep_hearth::equipment::EquipmentDefinitionId;
-use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
 use deep_hearth::maintenance::{CONDITION_PARTS_PER_MILLION, Condition};
 use deep_hearth::production::ProductionJobId;
 use deep_hearth::registry::Registries;
@@ -36,44 +34,6 @@ pub(super) fn varied_healthy_condition(
         .unwrap_or_else(|error| panic!("gameplay harness varied condition failed: {error}"))
 }
 
-pub(super) fn select_stockpile_mass(
-    state: &AppState,
-    stockpile: StockpileId,
-    mass: Mass,
-    context: &'static str,
-) -> Vec<MaterialLotSelection> {
-    assert!(
-        !mass.is_zero(),
-        "gameplay harness {context} requires a positive material selection"
-    );
-    let mut remaining = mass;
-    let mut selections = Vec::new();
-    for lot in state.inventory().lot_ids(stockpile) {
-        if remaining.is_zero() {
-            break;
-        }
-        let available = state
-            .inventory()
-            .get_lot(lot)
-            .unwrap_or_else(|| panic!("gameplay harness {context} output lot disappeared"))
-            .mass();
-        let selected = Mass::from_milligrams(available.milligrams().min(remaining.milligrams()));
-        if selected.is_zero() {
-            continue;
-        }
-        selections.push(MaterialLotSelection::new(lot, selected));
-        remaining = remaining
-            .checked_sub(selected)
-            .unwrap_or_else(|| unreachable!("selected output mass is bounded by remaining demand"));
-    }
-    assert!(
-        remaining.is_zero(),
-        "gameplay harness {context} is missing {}mg of the requested runtime output",
-        remaining.milligrams()
-    );
-    selections
-}
-
 /// Advances an already-admitted capability-probe job whose providers are intentionally stable.
 ///
 /// This function is not a general actor scheduler. It asserts that no suspension or other world event
@@ -92,9 +52,31 @@ pub(super) fn finish_uninterrupted_production_job(
         "gameplay harness {context} resolved a zero-tick production job"
     );
     for elapsed in 1..=expected_ticks {
-        let _ = advance_tick(registries, state)
+        let outcome = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("gameplay harness {context} tick failed: {error}"));
-        if state.production().get_job(job).is_none() {
+        assert!(
+            !outcome
+                .production_availability_changes()
+                .iter()
+                .any(|change| {
+                    matches!(
+                        change,
+                        deep_hearth::production::ProductionAvailabilityChange::Suspended {
+                            job: changed_job,
+                            ..
+                        } | deep_hearth::production::ProductionAvailabilityChange::Resumed {
+                            job: changed_job,
+                            ..
+                        } if *changed_job == job
+                    )
+                }),
+            "gameplay harness {context} job changed availability inside an uninterrupted completion helper"
+        );
+        if outcome
+            .production_completions()
+            .iter()
+            .any(|completion| completion.job() == job)
+        {
             assert_eq!(
                 elapsed, expected_ticks,
                 "gameplay harness {context} completed before its resolved duration"

@@ -14,7 +14,7 @@ pub(super) struct CrushBatchPlan {
     pub(super) small: Option<CrushOption>,
     pub(super) large: Option<CrushOption>,
     pub(super) energy_limited: bool,
-    pub(super) condition_capacity_limited: bool,
+    pub(super) equipment_capacity_limited: bool,
     pub(super) condition_lifetime_limited: bool,
     pub(super) maintenance_limited: bool,
 }
@@ -25,41 +25,14 @@ pub(super) enum CrushBatchSearch {
     MaintenanceBlocked,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CrushConstraint {
-    StoredEnergy,
-    ConditionCapacity,
-    ConditionLifetime,
-}
-
 struct CrushOptions {
     small: Option<CrushOption>,
     large: Option<CrushOption>,
-    small_constraint: Option<CrushConstraint>,
-    large_constraint: Option<CrushConstraint>,
 }
 
 impl CrushOptions {
     fn has_viable_option(&self) -> bool {
         self.small.is_some() || self.large.is_some()
-    }
-
-    fn constrained_by(&self, constraint: CrushConstraint) -> bool {
-        self.small_constraint == Some(constraint) || self.large_constraint == Some(constraint)
-    }
-
-    fn maintenance_only_failure(&self) -> bool {
-        !self.has_viable_option()
-            && [self.small_constraint, self.large_constraint]
-                .into_iter()
-                .all(|constraint| {
-                    matches!(
-                        constraint,
-                        Some(
-                            CrushConstraint::ConditionCapacity | CrushConstraint::ConditionLifetime
-                        )
-                    )
-                })
     }
 
     fn into_options(self) -> (Option<CrushOption>, Option<CrushOption>) {
@@ -70,17 +43,64 @@ impl CrushOptions {
 #[derive(Clone, Copy, Default)]
 struct CrushConstraintFlags {
     stored_energy: bool,
-    condition_capacity: bool,
+    equipment_capacity: bool,
     condition_lifetime: bool,
 }
 
 impl CrushConstraintFlags {
-    fn from_options(options: &CrushOptions) -> Self {
-        Self {
-            stored_energy: options.constrained_by(CrushConstraint::StoredEnergy),
-            condition_capacity: options.constrained_by(CrushConstraint::ConditionCapacity),
-            condition_lifetime: options.constrained_by(CrushConstraint::ConditionLifetime),
+    fn from_envelopes(envelopes: CrushEnvelopes, desired: Mass) -> Self {
+        let mut flags = Self::default();
+        for constraint in [
+            envelopes.small.constraint_for(desired),
+            envelopes.large.constraint_for(desired),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            match constraint {
+                PoweredOreMassConstraint::EquipmentCapacity => flags.equipment_capacity = true,
+                PoweredOreMassConstraint::StoredEnergy => flags.stored_energy = true,
+                PoweredOreMassConstraint::ConditionLifetime => flags.condition_lifetime = true,
+            }
         }
+        flags
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CrushEnvelopes {
+    small: PoweredOreMassEnvelope,
+    large: PoweredOreMassEnvelope,
+}
+
+impl CrushEnvelopes {
+    fn maximum_mass(self) -> Mass {
+        std::cmp::max(self.small.maximum_mass(), self.large.maximum_mass())
+    }
+
+    fn maximum_mass_preserving_condition_above(self, floor: Condition) -> Mass {
+        std::cmp::max(
+            self.small.maximum_mass_preserving_condition_above(floor),
+            self.large.maximum_mass_preserving_condition_above(floor),
+        )
+    }
+
+    fn minimum_is_maintenance_only(self) -> bool {
+        let minimum = Mass::from_milligrams(1);
+        [
+            self.small.constraint_for(minimum),
+            self.large.constraint_for(minimum),
+        ]
+        .into_iter()
+        .all(|constraint| {
+            matches!(
+                constraint,
+                Some(
+                    PoweredOreMassConstraint::EquipmentCapacity
+                        | PoweredOreMassConstraint::ConditionLifetime
+                )
+            )
+        })
     }
 }
 
@@ -107,7 +127,7 @@ fn resolve_crush_option(
     mass: Mass,
     name: &'static str,
     store: EnergyStoreId,
-) -> Result<CrushOption, CrushConstraint> {
+) -> Result<CrushOption, PoweredOreMassConstraint> {
     let stored_before = state
         .energy()
         .get_store(store)
@@ -133,14 +153,36 @@ fn resolve_crush_option(
         }),
         Err(ComminutionResolutionError::Energy(EnergySupplyError::InsufficientEnergy {
             ..
-        })) => Err(CrushConstraint::StoredEnergy),
+        })) => Err(PoweredOreMassConstraint::StoredEnergy),
         Err(ComminutionResolutionError::BatchMassExceeded { .. }) => {
-            Err(CrushConstraint::ConditionCapacity)
+            Err(PoweredOreMassConstraint::EquipmentCapacity)
         }
         Err(ComminutionResolutionError::ConditionDuration(_)) => {
-            Err(CrushConstraint::ConditionLifetime)
+            Err(PoweredOreMassConstraint::ConditionLifetime)
         }
         Err(error) => panic!("gameplay harness {name} drive resolution failed: {error}"),
+    }
+}
+
+fn assess_crush_envelope(
+    registries: &Registries,
+    state: &AppState,
+    ids: WorkshopIds,
+    name: &'static str,
+    store: EnergyStoreId,
+) -> PoweredOreMassEnvelope {
+    assess_powered_ore_mass_envelope(registries, state, PROCESS_CRUSH_ORE, ids.crusher, store)
+        .unwrap_or_else(|error| panic!("gameplay harness {name} drive planning failed: {error}"))
+}
+
+fn assess_crush_envelopes(
+    registries: &Registries,
+    state: &AppState,
+    ids: WorkshopIds,
+) -> CrushEnvelopes {
+    CrushEnvelopes {
+        small: assess_crush_envelope(registries, state, ids, "small", ids.small_drive),
+        large: assess_crush_envelope(registries, state, ids, "large", ids.large_drive),
     }
 }
 
@@ -150,22 +192,9 @@ fn resolve_crush_options(
     ids: WorkshopIds,
     mass: Mass,
 ) -> CrushOptions {
-    let (small, small_constraint) =
-        match resolve_crush_option(registries, state, ids, mass, "small", ids.small_drive) {
-            Ok(option) => (Some(option), None),
-            Err(constraint) => (None, Some(constraint)),
-        };
-    let (large, large_constraint) =
-        match resolve_crush_option(registries, state, ids, mass, "large", ids.large_drive) {
-            Ok(option) => (Some(option), None),
-            Err(constraint) => (None, Some(constraint)),
-        };
-    CrushOptions {
-        small,
-        large,
-        small_constraint,
-        large_constraint,
-    }
+    let small = resolve_crush_option(registries, state, ids, mass, "small", ids.small_drive).ok();
+    let large = resolve_crush_option(registries, state, ids, mass, "large", ids.large_drive).ok();
+    CrushOptions { small, large }
 }
 
 fn largest_resolvable_crush_batch(
@@ -177,34 +206,20 @@ fn largest_resolvable_crush_batch(
     if desired.is_zero() {
         return None;
     }
-    let desired_options = resolve_crush_options(registries, state, ids, desired);
-    let desired_constraints = CrushConstraintFlags::from_options(&desired_options);
-    if desired_options.has_viable_option() {
-        return Some(ResolvableCrushBatch {
-            mass: desired,
-            options: desired_options,
-            desired_constraints,
-        });
+    let envelopes = assess_crush_envelopes(registries, state, ids);
+    let mass = std::cmp::min(desired, envelopes.maximum_mass());
+    if mass.is_zero() {
+        return None;
     }
-
-    let mut low = 1_u64;
-    let mut high = desired.milligrams().saturating_sub(1);
-    let mut best = None;
-    while low <= high {
-        let midpoint = low + (high - low) / 2;
-        let mass = Mass::from_milligrams(midpoint);
-        let options = resolve_crush_options(registries, state, ids, mass);
-        if options.has_viable_option() {
-            best = Some((mass, options));
-            low = midpoint + 1;
-        } else {
-            high = midpoint.saturating_sub(1);
-        }
-    }
-    best.map(|(mass, options)| ResolvableCrushBatch {
+    let options = resolve_crush_options(registries, state, ids, mass);
+    assert!(
+        options.has_viable_option(),
+        "powered crush envelope admitted a mass rejected by both canonical supply choices"
+    );
+    Some(ResolvableCrushBatch {
         mass,
         options,
-        desired_constraints,
+        desired_constraints: CrushConstraintFlags::from_envelopes(envelopes, desired),
     })
 }
 
@@ -226,68 +241,49 @@ pub(super) fn largest_safe_powered_crush_batch(
     desired: Mass,
     thresholds: deep_hearth::maintenance::MaintenanceThresholds,
 ) -> CrushBatchSearch {
-    let resolved = match largest_resolvable_crush_batch(registries, state, ids, desired) {
-        Some(resolved) => resolved,
-        None => {
-            let minimum = resolve_crush_options(registries, state, ids, Mass::from_milligrams(1));
-            return if minimum.maintenance_only_failure() {
-                CrushBatchSearch::MaintenanceBlocked
-            } else {
-                CrushBatchSearch::EnergyUnavailable
-            };
-        }
-    };
-    let powered_mass = resolved.mass;
-    let reduced_for_powered_constraints = powered_mass < desired;
-    let energy_limited =
-        reduced_for_powered_constraints && resolved.desired_constraints.stored_energy;
-    let condition_capacity_limited =
-        reduced_for_powered_constraints && resolved.desired_constraints.condition_capacity;
-    let condition_lifetime_limited =
-        reduced_for_powered_constraints && resolved.desired_constraints.condition_lifetime;
-    let safe_at_powered =
-        maintenance_safe_crush_options(resolved.options.into_options(), thresholds);
-    if safe_at_powered.0.is_some() || safe_at_powered.1.is_some() {
-        return CrushBatchSearch::Available(Box::new(CrushBatchPlan {
-            mass: powered_mass,
-            small: safe_at_powered.0,
-            large: safe_at_powered.1,
-            energy_limited,
-            condition_capacity_limited,
-            condition_lifetime_limited,
-            maintenance_limited: false,
-        }));
+    if desired.is_zero() {
+        return CrushBatchSearch::EnergyUnavailable;
     }
-
-    let mut low = 1_u64;
-    let mut high = powered_mass.milligrams().saturating_sub(1);
-    let mut best = None;
-    while low <= high {
-        let midpoint = low + (high - low) / 2;
-        let mass = Mass::from_milligrams(midpoint);
-        let options = maintenance_safe_crush_options(
-            resolve_crush_options(registries, state, ids, mass).into_options(),
-            thresholds,
-        );
-        if options.0.is_some() || options.1.is_some() {
-            best = Some((mass, options.0, options.1));
-            low = midpoint + 1;
+    let envelopes = assess_crush_envelopes(registries, state, ids);
+    let powered_mass = std::cmp::min(desired, envelopes.maximum_mass());
+    if powered_mass.is_zero() {
+        return if envelopes.minimum_is_maintenance_only() {
+            CrushBatchSearch::MaintenanceBlocked
         } else {
-            high = midpoint.saturating_sub(1);
-        }
+            CrushBatchSearch::EnergyUnavailable
+        };
     }
-    match best {
-        Some((mass, small, large)) => CrushBatchSearch::Available(Box::new(CrushBatchPlan {
-            mass,
-            small,
-            large,
-            energy_limited,
-            condition_capacity_limited,
-            condition_lifetime_limited,
-            maintenance_limited: true,
-        })),
-        None => CrushBatchSearch::MaintenanceBlocked,
+    let desired_constraints = CrushConstraintFlags::from_envelopes(envelopes, desired);
+    let reduced_for_powered_constraints = powered_mass < desired;
+    let energy_limited = reduced_for_powered_constraints && desired_constraints.stored_energy;
+    let equipment_capacity_limited =
+        reduced_for_powered_constraints && desired_constraints.equipment_capacity;
+    let condition_lifetime_limited =
+        reduced_for_powered_constraints && desired_constraints.condition_lifetime;
+    let safe_mass = std::cmp::min(
+        powered_mass,
+        envelopes.maximum_mass_preserving_condition_above(thresholds.critical_below()),
+    );
+    if safe_mass.is_zero() {
+        return CrushBatchSearch::MaintenanceBlocked;
     }
+    let options = maintenance_safe_crush_options(
+        resolve_crush_options(registries, state, ids, safe_mass).into_options(),
+        thresholds,
+    );
+    assert!(
+        options.0.is_some() || options.1.is_some(),
+        "powered crush condition-floor projection admitted a mass rejected by canonical resolution"
+    );
+    CrushBatchSearch::Available(Box::new(CrushBatchPlan {
+        mass: safe_mass,
+        small: options.0,
+        large: options.1,
+        energy_limited,
+        equipment_capacity_limited,
+        condition_lifetime_limited,
+        maintenance_limited: safe_mass < powered_mass,
+    }))
 }
 
 pub(super) fn schedule_controlled_delivery_event(

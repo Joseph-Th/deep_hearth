@@ -2012,11 +2012,31 @@ fn evaluate_survival_work_pressure_probe(
     prospecting_start
         .commit(&mut prospecting)
         .unwrap_or_else(|error| panic!("work-pressure prospecting commit failed: {error}"));
-    advance_exact(registries, &mut prospecting, prospecting_ticks);
-    assert_eq!(
-        prospecting.geological_knowledge().observations().count(),
-        1,
-        "matched work-pressure prospecting must persist its actual field observation"
+    let mut prospecting_completion = None;
+    for elapsed in 1..=prospecting_ticks {
+        let outcome = advance_tick(registries, &mut prospecting)
+            .unwrap_or_else(|error| panic!("work-pressure prospecting tick failed: {error}"));
+        let completion = outcome.field_prospecting();
+        if elapsed < prospecting_ticks {
+            assert_eq!(
+                completion, None,
+                "work-pressure prospecting completed before its validated schedule"
+            );
+        } else {
+            prospecting_completion = completion;
+        }
+    }
+    let prospecting_completion = prospecting_completion
+        .unwrap_or_else(|| panic!("work-pressure prospecting produced no completion outcome"));
+    assert_eq!(prospecting_completion.method(), prospecting_method);
+    assert_eq!(prospecting_completion.region(), region);
+    assert_eq!(prospecting_completion.material(), MATERIAL_COPPER);
+    assert!(
+        prospecting
+            .geological_knowledge()
+            .get_observation(prospecting_completion.observation())
+            .is_some(),
+        "work-pressure prospecting completion must identify its persisted observation"
     );
     let prospecting_after = assess_survival(registries, &prospecting)
         .unwrap_or_else(|| panic!("work-pressure prospecting player disappeared after work"));

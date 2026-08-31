@@ -16,7 +16,10 @@ mod errors;
 
 #[cfg(test)]
 pub(crate) use capacity::project_energy_sink_stored_at_release;
-pub(crate) use capacity::{EnergySinkCapacityError, validate_energy_sink_capacity_at_release};
+pub(crate) use capacity::{
+    EnergySinkCapacityError, available_energy_sink_capacity_at_release,
+    validate_energy_sink_capacity_at_release,
+};
 pub(crate) use errors::EnergyIngressReservationError;
 pub use errors::EnergySinkError;
 
@@ -41,6 +44,20 @@ impl ValidatedEnergySinkAccess {
 
     pub(crate) const fn max_input_power(self) -> Power {
         self.max_input_power
+    }
+
+    /// Exact capacity guaranteed to remain free when a deferred release becomes authoritative.
+    pub(crate) fn available_capacity_at_release(
+        self,
+        registries: &Registries,
+        release_after: TickSpan,
+    ) -> Energy {
+        available_energy_sink_capacity_at_release(
+            registries,
+            self.definition,
+            self.stored,
+            release_after,
+        )
     }
 }
 

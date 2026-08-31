@@ -65,6 +65,48 @@ fn usable_condition_rejects_ticks_after_equipment_has_failed() {
 }
 
 #[test]
+fn usable_active_tick_projection_matches_condition_admission_boundary() {
+    assert_eq!(
+        maximum_usable_active_ticks(60, condition(100)),
+        TickSpan::new(2)
+    );
+    assert_eq!(
+        maximum_usable_active_ticks(1, Condition::FAILED),
+        TickSpan::ZERO
+    );
+    assert_eq!(
+        calculate_usable_condition_after_active_ticks(
+            60,
+            condition(100),
+            maximum_usable_active_ticks(60, condition(100)),
+        ),
+        Ok(Condition::FAILED)
+    );
+}
+
+#[test]
+fn condition_floor_projection_preserves_strict_noncritical_margin() {
+    let floor = condition(250_000);
+    assert_eq!(
+        maximum_active_ticks_above_condition_floor(60_000, condition(310_000), floor),
+        TickSpan::ZERO,
+        "a full wear tick would land exactly on the excluded floor"
+    );
+    assert_eq!(
+        maximum_active_ticks_above_condition_floor(60_000, condition(311_000), floor),
+        TickSpan::new(1)
+    );
+    assert_eq!(
+        calculate_condition_after_active_ticks(60_000, condition(311_000), TickSpan::new(1)),
+        condition(251_000)
+    );
+    assert_eq!(
+        maximum_active_ticks_above_condition_floor(60_000, floor, floor),
+        TickSpan::ZERO
+    );
+}
+
+#[test]
 fn warning_and_critical_bands_are_authored_independently_of_wear_curve() {
     let thresholds = match MaintenanceThresholds::new(condition(600_000), condition(250_000)) {
         Ok(thresholds) => thresholds,

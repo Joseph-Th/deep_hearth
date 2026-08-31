@@ -60,6 +60,118 @@ fn condition(parts_per_million: u32) -> Condition {
     }
 }
 
+#[test]
+fn casting_mass_envelope_handles_non_monotonic_deferred_sink_capacity_exactly() {
+    let baseline = make_fixture(Mass::from_milligrams(1), MELTING_POINT);
+    let unit_energy = resolve_selected(
+        &baseline.registries,
+        &baseline.state,
+        baseline.ids,
+        Mass::from_milligrams(1),
+    )
+    .unwrap_or_else(|error| panic!("casting unit-energy baseline failed: {error}"))
+    .released_energy();
+    let tick_microseconds = baseline
+        .registries
+        .core()
+        .physical_tick_duration()
+        .microseconds();
+    let transfer_per_tick_nj = unit_energy
+        .nanojoules()
+        .checked_div(9)
+        .and_then(|quotient| quotient.checked_add(1))
+        .and_then(|quotient| quotient.checked_mul(9))
+        .unwrap_or_else(|| panic!("casting exact transfer-per-tick energy overflowed"));
+    assert!(transfer_per_tick_nj > unit_energy.nanojoules());
+    assert!(transfer_per_tick_nj < unit_energy.nanojoules() * 2);
+    let power_numerator = transfer_per_tick_nj
+        .checked_mul(1_000_000_000)
+        .unwrap_or_else(|| panic!("casting transfer power numerator overflowed"));
+    assert_eq!(
+        power_numerator % u128::from(tick_microseconds),
+        0,
+        "casting test transfer must integrate to exact whole nanojoules per tick"
+    );
+    let transfer_power = Power::from_picowatts(power_numerator / u128::from(tick_microseconds));
+    let sink_capacity = Energy::from_nanojoules(
+        unit_energy
+            .nanojoules()
+            .checked_mul(3)
+            .unwrap_or_else(|| panic!("casting three-unit sink capacity overflowed")),
+    );
+    let initial_sink_energy = Energy::from_nanojoules(
+        unit_energy
+            .nanojoules()
+            .checked_add(transfer_per_tick_nj)
+            .and_then(|energy| energy.checked_add(1))
+            .unwrap_or_else(|| panic!("casting adversarial initial sink energy overflowed")),
+    );
+    assert!(initial_sink_energy < sink_capacity);
+    let fixture = make_fixture_with_sink_configuration(
+        Mass::from_milligrams(4),
+        MELTING_POINT,
+        sink_capacity,
+        transfer_power,
+        transfer_power,
+        initial_sink_energy,
+    );
+
+    for mass in [1, 2] {
+        assert!(matches!(
+            resolve_selected(
+                &fixture.registries,
+                &fixture.state,
+                fixture.ids,
+                Mass::from_milligrams(mass),
+            ),
+            Err(CastingResolutionError::EnergySink(
+                EnergySinkError::InsufficientCapacity { .. }
+            ))
+        ));
+    }
+    let three = resolve_selected(
+        &fixture.registries,
+        &fixture.state,
+        fixture.ids,
+        Mass::from_milligrams(3),
+    )
+    .unwrap_or_else(|error| panic!("three-unit deferred casting should be feasible: {error}"));
+    assert_eq!(three.process_resolution().duration(), TickSpan::new(3));
+    assert_eq!(
+        three.released_energy(),
+        Energy::from_nanojoules(unit_energy.nanojoules() * 3)
+    );
+    assert!(matches!(
+        resolve_selected(
+            &fixture.registries,
+            &fixture.state,
+            fixture.ids,
+            Mass::from_milligrams(4),
+        ),
+        Err(CastingResolutionError::EnergySink(
+            EnergySinkError::InsufficientCapacity { .. }
+        ))
+    ));
+
+    let envelope = crate::thermal::assess_casting_lot_mass_envelope(
+        &fixture.registries,
+        &fixture.state,
+        crate::thermal::CastingLotMassRequest::new(
+            PROCESS,
+            fixture.ids.source,
+            MaterialLotSelection::new(fixture.ids.source_lot, Mass::from_milligrams(4)),
+            fixture.ids.equipment,
+            fixture.ids.heat_sink,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("casting adversarial mass envelope failed: {error}"));
+    assert_eq!(envelope.maximum_mass(), Mass::from_milligrams(3));
+    assert_eq!(
+        envelope.limiting_constraint(),
+        Some(crate::thermal::CastingLotMassConstraint::ThermalSinkCapacity)
+    );
+}
+
 fn make_registries(
     sink_carrier: EnergyCarrier,
     sink_capacity: Energy,

@@ -153,12 +153,6 @@ impl ThermalRegistry {
         self.casting.get(&process).copied()
     }
 
-    pub(crate) fn has_process(&self, process: ProcessId) -> bool {
-        self.sensible_heating.contains_key(&process)
-            || self.melting.contains_key(&process)
-            || self.casting.contains_key(&process)
-    }
-
     pub(crate) fn validate_references(
         &self,
         production: &ProductionRegistry,

@@ -1,5 +1,7 @@
 //! Immutable definition aggregate loaded once and passed explicitly to simulation systems.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::capability::CapabilityRegistry;
@@ -20,6 +22,15 @@ use crate::structural::StructuralRegistry;
 use crate::survival::{SurvivalExertion, SurvivalRegistry};
 use crate::texture::TextureRegistry;
 use crate::thermal::ThermalRegistry;
+
+mod process_topology;
+
+#[cfg(test)]
+#[path = "process_topology_tests.rs"]
+mod process_topology_tests;
+
+use process_topology::build_process_topology;
+pub use process_topology::{ProcessEnergyRole, ProcessExecutionFamily, ProcessTopology};
 
 /// Schema version for stable authored registry identities and cross-reference semantics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -75,6 +86,7 @@ pub struct Registries {
     schema_version: RegistrySchemaVersion,
     core: CoreDefinitions,
     domains: RegistryDomains,
+    process_topology: BTreeMap<ProcessId, ProcessTopology>,
 }
 
 /// Domain registry bundle used to assemble the immutable root without a wide positional API.
@@ -117,46 +129,63 @@ fn assert_nonperishable_infrastructure_assembly(
     }
 }
 
-fn validate_infrastructure_perishability(domains: &RegistryDomains) {
-    for definition in domains.energy.definitions() {
+fn validate_energy_infrastructure_perishability(
+    energy: &EnergyRegistry,
+    survival: &SurvivalRegistry,
+) {
+    for definition in energy.definitions() {
         if let Some(assembly) = definition.assembly_profile() {
             assert_nonperishable_infrastructure_assembly(
                 "energy-store assembly",
                 assembly,
-                &domains.survival,
+                survival,
             );
         }
         if let Some(upgrade) = definition.upgrade_profile() {
             assert_nonperishable_infrastructure_assembly(
                 "energy-store upgrade",
                 upgrade.additions(),
-                &domains.survival,
+                survival,
             );
         }
     }
-    for definition in domains.equipment.definitions() {
+}
+
+fn validate_equipment_infrastructure_perishability(
+    equipment: &EquipmentRegistry,
+    survival: &SurvivalRegistry,
+) {
+    for definition in equipment.definitions() {
         if let Some(assembly) = definition.assembly_profile() {
-            assert_nonperishable_infrastructure_assembly(
-                "equipment assembly",
-                assembly,
-                &domains.survival,
-            );
+            assert_nonperishable_infrastructure_assembly("equipment assembly", assembly, survival);
         }
         if let Some(upgrade) = definition.upgrade_profile() {
             assert_nonperishable_infrastructure_assembly(
                 "equipment upgrade",
                 upgrade.additions(),
-                &domains.survival,
+                survival,
             );
         }
     }
-    for definition in domains.storage.definitions() {
+}
+
+fn validate_storage_infrastructure_perishability(
+    storage: &StorageRegistry,
+    survival: &SurvivalRegistry,
+) {
+    for definition in storage.definitions() {
         assert_nonperishable_infrastructure_assembly(
             "storage-enclosure assembly",
             definition.assembly_profile(),
-            &domains.survival,
+            survival,
         );
     }
+}
+
+fn validate_infrastructure_perishability(domains: &RegistryDomains) {
+    validate_energy_infrastructure_perishability(&domains.energy, &domains.survival);
+    validate_equipment_infrastructure_perishability(&domains.equipment, &domains.survival);
+    validate_storage_infrastructure_perishability(&domains.storage, &domains.survival);
 }
 
 impl Registries {
@@ -199,25 +228,12 @@ impl Registries {
             .presentation
             .textures
             .validate_references(&domains.materials, &domains.equipment);
-        for process in domains.ore_processing.process_ids() {
-            assert!(
-                !domains.thermal.has_process(process),
-                "process {} cannot own both ore-processing and thermal resolver semantics",
-                process.value()
-            );
-        }
-        for process in domains.crafting.process_ids() {
-            assert!(
-                !domains.ore_processing.has_process(process)
-                    && !domains.thermal.has_process(process),
-                "manual craft process {} cannot also own ore-processing or thermal resolver semantics",
-                process.value()
-            );
-        }
+        let process_topology = build_process_topology(&domains);
         Self {
             schema_version,
             core,
             domains,
+            process_topology,
         }
     }
 
@@ -309,6 +325,16 @@ impl Registries {
     #[must_use]
     pub const fn production(&self) -> &ProductionRegistry {
         &self.domains.production
+    }
+
+    /// Returns immutable authored execution/provider/energy topology for one resolvable process.
+    ///
+    /// Absence means the process definition has no registered physical execution family. The
+    /// returned relationships describe definition-level possibilities, not current reachability or
+    /// authorization.
+    #[must_use]
+    pub fn process_topology(&self, process: ProcessId) -> Option<&ProcessTopology> {
+        self.process_topology.get(&process)
     }
 
     /// Returns immutable physiology and edible/drinkable definitions.

@@ -140,17 +140,22 @@ fn validate_mining_source_ownership(
             traced: job.deposit_mass_before(),
             output: job.output().mass(),
         })?;
-    let expected = if job.is_working() {
-        job.deposit_mass_before()
-    } else {
-        remaining_after
-    };
-    if references.deposit_remaining_mass != expected {
-        return Err(MiningJobValidationError::DepositMassStateMismatch {
-            job: job.id(),
-            expected,
-            actual: references.deposit_remaining_mass,
-        });
+    if job.is_working() {
+        if references.deposit_remaining_mass != job.deposit_mass_before() {
+            return Err(MiningJobValidationError::WorkingDepositMassMismatch {
+                job: job.id(),
+                expected: job.deposit_mass_before(),
+                actual: references.deposit_remaining_mass,
+            });
+        }
+    } else if references.deposit_remaining_mass > remaining_after {
+        return Err(
+            MiningJobValidationError::ReadyDepositMassAbovePostExtraction {
+                job: job.id(),
+                maximum: remaining_after,
+                actual: references.deposit_remaining_mass,
+            },
+        );
     }
     Ok(())
 }

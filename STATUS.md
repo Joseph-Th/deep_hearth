@@ -1,8 +1,9 @@
 # Status
 
 This page is the authority for current runtime scope and reachability. Use [`README.md`](README.md) for
-project routing and [`GAME_DESIGN.md`](GAME_DESIGN.md) for intended player experience. Source presence or
-controlled-harness execution does not by itself make a capability ordinarily reachable.
+project routing, [`GAME_DESIGN.md`](GAME_DESIGN.md) for intended player experience, and
+[`DIRECTION.md`](DIRECTION.md) for future integration priority. Source presence or controlled-harness execution
+does not by itself make a capability ordinarily reachable.
 
 ## Ordinary play
 
@@ -19,6 +20,23 @@ Current progression:
 | Crafting and equipment | Manual shaping/joinery, persistent equipment, assembly, additive upgrades, condition-dependent capability, occupancy, installation, disassembly/recovery, maintenance, and exact component service. The same 20 g copper reinforcement can improve the stone pick, hand crank, toggle crusher, or rocking separator while preserving equipment identity and prior wear; component service preserves the reinforcement and worn disassembly returns it as copper scrap. Accumulated pure stone service scrap can re-enter the same working-component economy through slower manual reknapping, reducing repeated dependence on fresh stone lumps without making repair lossless or free. |
 | Primitive power | Portable manual generation into finite mechanical storage. Stored mechanical work dissipates passively, so powered work plans from remaining stored energy. An empty, idle stone flywheel can accept the same 20 g copper reinforcement used by primitive equipment, preserving store identity and transfer behavior while increasing reserve capacity from 500 J to 750 J; exact disassembly returns the reinforcement for reuse. |
 | Primitive processing | Hand breaking and sorting provide a zero-machine ore-processing route. Crusher/separator equipment trades construction, stored work, and wear for higher throughput, better recovery, and returned player attention. Copper-reinforced variants increase both throughput and safe single-batch capacity; wear reduces both productive rate and safe batch size before failure. Unrecovered target material remains in residue; primitive sorting cannot be repeated on its own gangue-hosted residue. |
+
+## Current integration frontier
+
+These are current graph boundaries, not future priorities. They identify where an otherwise implemented or
+player-relevant flow stops today. [`DIRECTION.md`](DIRECTION.md) owns which boundary should be closed next.
+
+| From | Missing edge | Current consequence |
+| --- | --- | --- |
+| Prepared ore / concentrate | reduction or smelting into pure metal | Ordinary progression can recover native copper but cannot turn prepared copper-bearing ore or concentrate into foundry-ready pure copper. The foundry therefore remains a capability island rather than the continuation of the ore-preparation chain. |
+| Local inventory custody | world-space carrying, haulage, delivery, access, and path cost | Matter can move through explicit local owner transitions, but there is no general player/world transport authority. Controlled harness delivery does not establish ordinary logistics. |
+| Structural physics and material embodiment | ordinary player construction/deconstruction authorization | Structures can own conserved members, support, load, damage, and failure, but ordinary play cannot yet construct the general structural graph. |
+| Physical equipment maintenance | maintenance labor, tools, and access | Replacement material and equipment-condition transitions are modeled; the missing player-work/access layer means service itself is not yet a full world action. |
+| Finite energy stores | routed mechanical/electrical transmission or conversion | Stores have exact capacity, power limits, passive loss, and process integration, but no generic physical network moves energy between endpoints. |
+| Finite fluid stores | routed transport, pumping, mixing, or pressure network | Stores have exact volume, temperature, withdrawal, and structural load, but fluid movement beyond canonical consumption/egress remains absent. |
+| Capability-level industrial machinery and energy infrastructure | ordinary acquisition/construction routes | Workshop, ore-preparation, and foundry execution can be evaluated after controlled setup but their required industrial infrastructure is not normally obtainable. |
+| Conserved storage-enclosure dismantling | timed/labor-authorized player dismantling | The physical custody transition exists and preserves storage history/matter, but ordinary play does not yet pay or authorize the dismantling work itself. |
+| Checked persistent coordinates and bounded geological evidence | runtime voxel world, clue-location discovery, terrain access | Spatial identity and evidence semantics exist without a world/chunk owner; controlled scenarios supply locations that ordinary runtime world generation cannot yet provide. |
 
 ## Implemented infrastructure
 
