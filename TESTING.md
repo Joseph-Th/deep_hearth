@@ -29,23 +29,68 @@ Use the smallest lane that completely proves the changed contract.
 | Changed-source BCA review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 | Current BCA hotspot review | `python ci.py bca --hotspots [--path <scope>] [--since <revision>]` |
 
-`python ci.py quick` is the build-free repository-policy loop. Use `cargo check-fast` for production type
-checking, `run_test.py --check` for test-code type checking, and an exact test or suite for executable proof.
-Do not pair a compile-only lane with an executable lane that already compiles the same surface.
+`python ci.py quick` is build-free policy validation. Use `cargo check-fast` for production typing,
+`run_test.py --check` for test typing, and exact/suite execution for behavior. Do not duplicate compile work.
+Selectors fail closed on ambiguity/zero matches; focused gameplay shares the `test-gameplay` feature shape.
 
-Exact test selectors must resolve uniquely. Suite selectors must match at least one test. Both fail before
-building when the source catalog cannot satisfy the request. Focused gameplay targets share the same
-`test-gameplay` feature shape as the broad gameplay audit.
+## Evidence ladder
+
+Stop at the smallest evidence level that distinguishes the changed contract:
+
+1. **Owner proof:** exact local success/rejection, lifecycle, arithmetic, or invariant behavior.
+2. **Boundary proof:** one crossed ownership/custody edge, including stale-state rejection and atomicity where
+   applicable.
+3. **Continuation proof:** save/load replay or schedule continuation when future state depends on the change.
+4. **System proof:** a focused cross-owner or gameplay scenario when the result depends on interaction rather
+   than one owner alone.
+5. **Exploration/audit:** bounded broader sampling only when looking for unknown interactions or at explicit
+   checkpoints.
+
+Define the owner contract before broad audit; local proof is insufficient for cross-owner/player claims. Treat
+verification as a proof graph: reuse stronger evidence. A proof receipt names contract, owner/edge, command/test,
+result, replay input, and relevant freshness basis, mapped to the task control coordinate.
+
+A new production projection/envelope that replaces caller reconstruction must agree with canonical semantics on
+representative feasible, limiting, infeasible, and stale cases. The harness is not its oracle.
+
+### Diagnostic contract
+
+Diagnostics should route directly to the controlling owner/action with stable identities, expected/actual
+quantities/lifecycle, and replay input when relevant. Behavior evidence preserves world/policy seeds, observable
+decision inputs, and canonical blocker/outcome; conservation/persistence failures name owners and discrepancy.
+
+### Failure triage map
+
+Start from the semantic failure class, not from the broadest available command. The first row that explains the
+observed failure defines the initial read/test cone; widen only when that evidence crosses another boundary.
+
+| Symptom / claim | Inspect first | Minimum distinguishing evidence | Widen when |
+| --- | --- | --- | --- |
+| Command rejected unexpectedly | operation resolver/validator and its dedicated typed error | exact error variant/fields plus the relevant immutable definitions and authoritative precondition record | the error wraps or names another owner boundary |
+| Rejected command changed state | validated commit path and transaction-owned IDs/indexes/reservations | exact pre/post equality for the promised atomic surface | rollback spans another owner or scheduled work |
+| Previously validated command became stale | `Validated*` token fields and every mutable dependency it binds | one focused intervening mutation per dependency class plus typed stale rejection | a dependency can change without the token's revision/identity noticing it |
+| Wrong matter/fluid/energy total | owning custody edge plus `calculate_matter_accounting`, `calculate_fluid_volume_accounting`, or `calculate_explicit_energy_accounting` | exact owner-by-owner discrepancy before/after the one transition | the discrepancy first appears only after a later tick or load |
+| Save fails trusted load | `LoadedSaveEnvelope::into_state`, then the named local/cross-owner validator | exact schema or typed `StateValidationError` / owner validation error; reproduce from the smallest corrupted/current-schema state | reconstruction changes data before the failing invariant or several owners disagree |
+| Save loads but continuation diverges | persisted job/schedule/RNG/provider traces plus operation-specific replay validator | equal pre-save state semantics, exact replay input, and first differing authoritative outcome/tick | divergence starts in a different phase than the persisted work owner |
+| Unexpected tick result | `TickOutcome` field for the effect, then `advance_tick` phase decision/apply pair | first tick where expected/actual outcome differs and the pre-tick owner revisions/state that drive that phase | another phase mutates a shared dependency before apply |
+| Production completed/suspended/resumed incorrectly | `ProductionJobRecord`, `ProcessResolution`, availability changes, provider/support state | job identity, remaining active time, suspension reason, scheduled completion, and matching `TickOutcome` change | support, energy, labor, or destination reservation is the actual blocker |
+| Mining extraction/claim mismatch | `MiningJobRecord`, geological remaining mass, destination reservation, claim validator | job lifecycle, before/post-extraction mass bound, ready custody, reserved inbound, claimed lot mass | another mining job or inventory mutation legitimately changed shared state |
+| Actor did nothing or chose poorly | decision window: legitimate observation, generated candidates, production blockers, actor policy | classify as unobserved, generator gap, policy gate, validation gate, information gap, execution failure, inconsequential, dormant, or insufficient data | the classification itself requires hidden diagnostic truth |
+| Capability appears implemented but cannot be reached | [`STATUS.md`](STATUS.md) current integration frontier plus acquisition graph/catalog contract | prove owner/canonical execution separately from ordinary acquisition | the missing edge is claimed reachable by current status/content |
+| Gameplay result changed | focused scope matching the affected player-visible loop | exact replay seeds, observable decision inputs, selected action, typed result, relevant conserved totals | the behavior depends on another gameplay scope or an intentionally broad cross-system checkpoint |
+| Caller probes nearby requests for one feasible bound | owning resolver and its capability/resource/lifetime limits | prove monotonicity and envelope agreement without copied formulas | alternatives are physically distinct or search order is itself under evaluation |
+| Complexity or maintainability regression | BCA changed-source review and owner/control-flow shape | identify the specific branch/ownership cost, not only a numeric score | refactoring would cross ownership or public API boundaries |
+
+Repair direct tooling failures before behavioral probes. Use `python ci.py gate --gameplay <scope>` rather than
+reconstructing gameplay Cargo flags or treating a zero-match default catalog as absence.
 
 ## Complexity review
 
 `bca.toml` and `.bca-baseline.toml` own the cognitive-complexity ratchet used by `python ci.py quick`.
 New or worsened over-threshold cognitive complexity fails the ratchet; other BCA metrics are advisory.
 
-Use `python ci.py bca` to review changed code and `python ci.py bca --hotspots` to identify current high-cost
-areas. Scope with `--path` or change the comparison base with `--since`. Treat metrics as diagnostic evidence:
-refactor only when the result supports clearer ownership or control flow. Do not fragment cohesive code or
-refresh the baseline merely to improve a score.
+Use `python ci.py bca` for changed code and `python ci.py bca --hotspots` for current hotspots. Metrics are
+diagnostic: refactor for clearer ownership/control flow, not to game the baseline.
 
 ## Unit tests
 
@@ -56,120 +101,23 @@ Assertions prove durable contracts:
 
 - rejection: typed error and unchanged authoritative state when atomicity matters;
 - success: resulting identity, quantity, lifecycle, relationship, ownership, or other durable state;
+- receipt sufficiency: when the operation creates/chooses continuation identity or landing state, prove the
+  returned outcome matches the durable owner result; do not require an outcome when caller-known identity is
+  already sufficient;
 - conservation: totals across authoritative owners;
 - persistence: serialized continuation and trusted-load admission for state that survives load;
 - authored values: read from registries instead of duplicating balance constants.
 
-Avoid assertions on error prose, wall-clock duration, incidental ordering, transient implementation counts,
-or balance values outside the test's owned contract.
+Avoid error-prose, wall-clock, incidental-order/count, or unowned balance assertions. Prefer one canonical-path
+regression naming the invariant; interaction bugs reproduce the interacting states.
 
 Soak tests are ignored tests whose qualified name includes `soak`. Use them only when repeated ownership,
 persistence, conservation, or numerical accumulation adds evidence that focused tests cannot provide.
 
-## Gameplay harness
+## Gameplay evaluation
 
-`tests/gameplay_harness/` evaluates player-facing behavior through production APIs. Controlled setup may
-create capability-only state; setup does not make that state ordinarily reachable.
-
-### Actor boundary
-
-After setup, actor code must:
-
-- use production validators, resolvers, commits, and simulation ticks;
-- read only observable runtime state, actor policy, and canonical projections;
-- never inspect hidden geology, future controlled events, setup authorization, or cloned-state previews;
-- preserve normal ownership, persistence, conservation, capability, and survival rules;
-- keep balance-sensitive measurements observational unless a test explicitly owns the threshold.
-
-`src/content/gameplay_fixture.rs` owns controlled scenario construction before actor admission.
-
-### Evidence modes
-
-| Mode | Surface | Supported conclusion |
-| --- | --- | --- |
-| Ordinary/runtime experience | `survival` and `progression` focused episodes | Canonical mechanics and automated-player outcomes under the documented observable policy and ordinary acquisition routes. |
-| Controlled capability | `workshop`, `ore`, and `foundry` | Canonical mechanics under disclosed prearranged infrastructure. This is capability evidence, not ordinary reachability evidence. |
-| Counterfactual | Matched branches inside focused probes | Action-attributable differences from the same actor-visible decision state over the same comparison horizon. |
-| Exploratory | `python ci.py report` and explicit replay/sweep inputs | Bounded discovery, diagnostics, and reproducible examples. Exploration does not add a pass/fail requirement to routine gates. |
-
-Automation can establish reproducible mechanical consequences, blockers, conservation, persistence, and the
-behavior of the documented actor policy for evaluated inputs. It does not establish human comprehension,
-enjoyment, subjective fairness or balance, visual quality, likely human strategy, or population/world
-frequencies beyond the declared sample. Absence from a bounded search is unverified unless canonical production
-logic or an exhaustive check establishes unavailability.
-
-### Gameplay scopes
-
-Each gameplay scope has a focused target. `gameplay_audit` is the broad checkpoint and report surface. All
-use the same `test-gameplay` feature contract.
-
-| Scope | Contract |
-| --- | --- |
-| `survival` | Hunger/thirst pressure, exact authored food-option availability, food-category coverage, bounded quantity-scaled eating/drinking attention, ordinary raw-timber -> manual-board -> manual-enclosure-body -> preservation construction, authored lidded-versus-double-wall preservation tradeoffs, bounded sampling across every authored storage option, completed-profile compatibility for existing contents, non-retroactive preservation-state effects, diet tradeoffs, provisioning, varied prospecting-work cost, reserve recovery, actual diet-supported vitality recovery. |
-| `progression` | Coarse-to-fine evidence acquisition and information-value decisions, primitive crafting/mining/power/processing, scarce-copper choice, direct-labor fallback versus mechanization, delegated work, finite-recovery sorting, flywheel self-discharge/recharge, second reinforcement, convergence, finite machine lifecycle, and material-backed service that preserves prior scarce upgrades. |
-| `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structural pressure, hidden world change, and recovery. |
-| `ore` | Installed crush/grind/screen/regrind/concentrate flow with selective recovery, exact constituent accounting, gangue-hosted prepared-feed acceptance, and terminal current-tier tailings. Capability-only. |
-| `foundry` | Installed room-temperature pure-copper sensible preheating, melting/casting, finite electrical and thermal capacity, adaptive batches, ingot/reinforcement/native-copper/scrap remelting coverage, molten remainder, and passive sink recovery. Capability-only. |
-
-### Gameplay evidence contract
-
-Gameplay harnesses use production owners as the rules authority. Controlled setup may establish unavailable
-prerequisites, but actor legality and consequences come from registries, resolvers, validators, commits, and
-simulation ticks. Harness policy must not duplicate balance values or physical formulas.
-
-Routine focused gates combine maintained regression cases with bounded reproducible variation. Full episodes
-are reserved for behavior that requires executed cross-system consequences. A world may succeed, adapt, or stop
-at a canonical constraint; every partial or blocked outcome must preserve trusted-load validity and relevant
-conservation.
-
-The catalog contract also checks ordinary acquisition graph continuity that should not depend on one actor
-policy branch. Current copper reinforcement coverage requires the exact 20 g reinforcement commodity to reach
-the pick, hand crank, stone crusher, and stone separator through additive upgrades from assemblable bases, with
-maintenance and worn-recovery routes retained. The same reinforcement also upgrades the material-backed stone
-flywheel from 500 J to 750 J through the energy owner while preserving carrier, transfer limits, passive loss,
-and exact disassembly recovery. Preservation coverage requires both timber enclosure definitions to remain
-ordinarily producible and verifies that the stronger double-wall option keeps the same usable capacity while
-requiring more embodied timber and more construction attention for its higher preservation multiplier. Every
-storage body must also expose one manual salvage route that exactly partitions detached body mass into reusable
-boards and explicit chip residue; reverse routes must not create a cheaper construction cycle. Primitive stone
-maintenance recovery must remain a zero-machine manual path from 1 kg pure stone scrap to an exact 0.8 kg working
-component plus 0.2 kg chips, with more attention than fresh lump knapping. Unit evidence also requires
-contaminated or mixed-temperature scrap to reject atomically and an executed maintenance loop to use recovered
-stone for a later service. Bounded survival generation must exercise multiple authored preservation choices when
-multiple definitions exist. The progression episode's matched first-investment counterfactual remains the
-narrower pick-versus-crank behavioral experiment.
-
-Actor decisions may use observable consequences such as attention, material demand, survival cost, throughput,
-capacity, condition, and acquired evidence. They must not use registry order, hidden geology, future controlled
-events, comparison-branch outcomes, or other implementation identity as tie-breakers. Observable ties require
-an explicit actor policy.
-
-Counterfactual evaluation may compute a shared observation horizon outside actor policy, then replay matched
-branches to that fixed tick. Branch outcomes and future controlled events never enter actor choice. Assertions
-follow production equivalence: when production treats multiple internal representations as equivalent, the
-harness checks their aggregate observable contract.
-
-Fresh sampling is replayable. `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` controls physical-world variation;
-`DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` independently controls actor policy where applicable;
-`DEEP_HEARTH_GAMEPLAY_SEEDS` selects explicit focused worlds. Failure output must retain the replay input.
-
-### Exploration and replay
-
-`python ci.py report` is the exploration surface for bounded gameplay variation and exact replay inputs. It is
-not an additional required gate. Default output summarizes registry/acquisition state and player-visible
-behavior. Use verbose output for full registry-derived catalogs and focused accounting; use trace for
-operation-level workshop execution.
-
-| Variable | Meaning |
-| --- | --- |
-| `DEEP_HEARTH_GAMEPLAY_VARIATION_SEED` | physical variation root |
-| `DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED` | actor-policy root for scopes that expose behavior choices |
-| `DEEP_HEARTH_GAMEPLAY_SEEDS` | exact comma-separated world seeds |
-| `DEEP_HEARTH_GAMEPLAY_VERBOSE` | expanded decisions, blockers, tradeoffs, focused-probe diagnostics |
-| `DEEP_HEARTH_GAMEPLAY_TRACE` | operation-level workshop narration plus verbose diagnostics |
-
-Keep routine samples bounded. Increase breadth through the report or explicit replay/sweep inputs rather than
-turning the edit loop into a multi-seed soak.
+Automated-player boundaries/evidence semantics live in [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md); read
+it only for gameplay-harness behavior or interpretation.
 
 ## Completion
 

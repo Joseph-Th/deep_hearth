@@ -25,9 +25,7 @@ use deep_hearth::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, StorageDefinitionId,
     validate_build_storage_enclosure,
 };
-use deep_hearth::labor::{
-    ManualPowerRequest, PlayerWork, ProspectingMethodId, validate_start_manual_power,
-};
+use deep_hearth::labor::{ManualPowerRequest, ProspectingMethodId, validate_start_manual_power};
 use deep_hearth::material::CommodityKey;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::registry::Registries;
@@ -55,13 +53,11 @@ fn mass_for_target_energy(food: FoodDefinition, target: u128) -> Mass {
     Mass::from_milligrams(milligrams)
 }
 
-fn finish_direct_consumption(registries: &Registries, state: &mut AppState) -> u64 {
-    let completes_at = match state.player_work().active() {
-        Some(PlayerWork::Eating { work }) => work.completes_at(),
-        Some(PlayerWork::Drinking { work }) => work.completes_at(),
-        Some(other) => panic!("expected direct-consumption attention, found {other:?}"),
-        None => panic!("direct-consumption commit did not claim player attention"),
-    };
+fn finish_direct_consumption(
+    registries: &Registries,
+    state: &mut AppState,
+    completes_at: SimulationTick,
+) -> u64 {
     let ticks = completes_at
         .value()
         .checked_sub(state.tick().value())
@@ -786,12 +782,16 @@ fn run_diet_recovery_branch(
         .zip(&selected_masses)
         .map(|(index, mass)| MaterialLotSelection::new(branch.food_lots[*index], *mass))
         .collect::<Vec<_>>();
-    let _meal = validate_eat(registries, &state, branch.food_store, &selections)
+    let meal = validate_eat(registries, &state, branch.food_store, &selections)
         .unwrap_or_else(|error| panic!("diet-recovery meal validation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("diet-recovery meal commit failed: {error}"));
     provisioning_elapsed_ticks = provisioning_elapsed_ticks
-        .checked_add(finish_direct_consumption(registries, &mut state))
+        .checked_add(finish_direct_consumption(
+            registries,
+            &mut state,
+            meal.completes_at(),
+        ))
         .unwrap_or_else(|| panic!("diet-recovery provisioning duration overflowed"));
 
     let after_meal = assess_survival(registries, &state)
@@ -812,12 +812,16 @@ fn run_diet_recovery_branch(
         );
         let drink_volume =
             required_drink_volume.min(physiology.direct_consumption().maximum_drink_volume());
-        let _drink = validate_drink(registries, &state, branch.drink_store, drink_volume)
+        let drink = validate_drink(registries, &state, branch.drink_store, drink_volume)
             .unwrap_or_else(|error| panic!("diet-recovery drink validation failed: {error}"))
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("diet-recovery drink commit failed: {error}"));
         provisioning_elapsed_ticks = provisioning_elapsed_ticks
-            .checked_add(finish_direct_consumption(registries, &mut state))
+            .checked_add(finish_direct_consumption(
+                registries,
+                &mut state,
+                drink.completes_at(),
+            ))
             .unwrap_or_else(|| panic!("diet-recovery provisioning duration overflowed"));
     }
     let provisioned = assess_survival(registries, &state)
@@ -1599,14 +1603,22 @@ fn run_provisioning_case(
         drank_volume = drank.volume();
         hydration_offered = drank.hydration_offered();
         provisioning_elapsed_ticks = provisioning_elapsed_ticks
-            .checked_add(finish_direct_consumption(registries, &mut state))
+            .checked_add(finish_direct_consumption(
+                registries,
+                &mut state,
+                drank.completes_at(),
+            ))
             .unwrap_or_else(|| panic!("survival provisioning attention duration overflowed"));
         meal = validate_eat(registries, &state, prepared.ambient_meal, &selections)
             .unwrap_or_else(|error| panic!("survival probe varied meal validation failed: {error}"))
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("survival probe varied meal commit failed: {error}"));
         provisioning_elapsed_ticks = provisioning_elapsed_ticks
-            .checked_add(finish_direct_consumption(registries, &mut state))
+            .checked_add(finish_direct_consumption(
+                registries,
+                &mut state,
+                meal.completes_at(),
+            ))
             .unwrap_or_else(|| panic!("survival provisioning attention duration overflowed"));
         action_order = "drink->eat";
     } else {
@@ -1615,7 +1627,11 @@ fn run_provisioning_case(
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("survival probe varied meal commit failed: {error}"));
         provisioning_elapsed_ticks = provisioning_elapsed_ticks
-            .checked_add(finish_direct_consumption(registries, &mut state))
+            .checked_add(finish_direct_consumption(
+                registries,
+                &mut state,
+                meal.completes_at(),
+            ))
             .unwrap_or_else(|| panic!("survival provisioning attention duration overflowed"));
         if drink_volume.is_zero() {
             action_order = "eat-only";
@@ -1629,7 +1645,11 @@ fn run_provisioning_case(
             drank_volume = drank.volume();
             hydration_offered = drank.hydration_offered();
             provisioning_elapsed_ticks = provisioning_elapsed_ticks
-                .checked_add(finish_direct_consumption(registries, &mut state))
+                .checked_add(finish_direct_consumption(
+                    registries,
+                    &mut state,
+                    drank.completes_at(),
+                ))
                 .unwrap_or_else(|| panic!("survival provisioning attention duration overflowed"));
             action_order = "eat->drink";
         }
@@ -1841,7 +1861,8 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
     .commit(&mut hunger)
     .unwrap_or_else(|error| panic!("hunger-pressure meal commit failed: {error}"));
     assert!(!hunger_meal.energy_offered().is_zero());
-    let hunger_ticks = finish_direct_consumption(registries, &mut hunger);
+    let hunger_ticks =
+        finish_direct_consumption(registries, &mut hunger, hunger_meal.completes_at());
     advance_exact(registries, &mut hunger_baseline, hunger_ticks);
     let hunger_after = assess_survival(registries, &hunger)
         .unwrap_or_else(|| panic!("hunger-pressure player disappeared after eating"));
@@ -1897,7 +1918,8 @@ fn evaluate_survival_pressure_response_probe(registries: &Registries, seed: u64)
         .commit(&mut thirst)
         .unwrap_or_else(|error| panic!("thirst-pressure drink commit failed: {error}"));
     assert!(!thirst_drink.hydration_offered().is_zero());
-    let thirst_ticks = finish_direct_consumption(registries, &mut thirst);
+    let thirst_ticks =
+        finish_direct_consumption(registries, &mut thirst, thirst_drink.completes_at());
     advance_exact(registries, &mut thirst_baseline, thirst_ticks);
     let thirst_after = assess_survival(registries, &thirst)
         .unwrap_or_else(|| panic!("thirst-pressure player disappeared after drinking"));

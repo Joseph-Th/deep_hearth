@@ -6,6 +6,7 @@ pub use errors::{DrinkCommitError, DrinkError};
 
 use crate::core::quantity::{AggregateVolume, Volume};
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::fluid::{
     FluidEgressCommitError, FluidEgressError, FluidStoreId, ValidatedFluidEgress,
     validate_fluid_egress,
@@ -38,6 +39,7 @@ pub struct DrinkOutcome {
     store: FluidStoreId,
     volume: Volume,
     hydration_offered: Volume,
+    completes_at: SimulationTick,
 }
 
 impl DrinkOutcome {
@@ -52,6 +54,11 @@ impl DrinkOutcome {
     #[must_use]
     pub const fn hydration_offered(self) -> Volume {
         self.hydration_offered
+    }
+    /// Returns the authoritative tick when this admitted drink finishes releasing attention.
+    #[must_use]
+    pub const fn completes_at(self) -> SimulationTick {
+        self.completes_at
     }
 }
 
@@ -176,6 +183,7 @@ pub fn validate_drink(
             store,
             volume,
             hydration_offered: hydration_gain,
+            completes_at,
         },
     })
 }

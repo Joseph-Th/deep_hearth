@@ -8,11 +8,12 @@ use crate::core::time::{SimulationTick, TickSpan};
 use crate::energy::ReleasedEnergyTrace;
 use crate::equipment::EquipmentOperationConditionOutcome;
 use crate::inventory::{
-    AMBIENT_PRESERVATION_MULTIPLIER_PPM, ReservedDepositPlan, ReservedDepositPlanError,
-    ReservedDepositRequest, StockpileId, StockpileStoredMassChange,
+    AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialLotId, ReservedDepositPlan,
+    ReservedDepositPlanError, ReservedDepositRequest, StockpileId, StockpileStoredMassChange,
     ValidatedStockpileStructuralLoad, decide_reserved_deposits,
     validate_stockpile_stored_mass_changes,
 };
+use crate::material::MaterialLotSpec;
 use crate::registry::Registries;
 
 use super::super::definitions::ProcessId;
@@ -82,6 +83,56 @@ pub struct ProcessCompletion {
     job: ProductionJobId,
     process: ProcessId,
     routes: Vec<ProcessOutputRoute>,
+    landings: Vec<ProcessOutputLanding>,
+}
+
+/// Inventory landing receipt for one completed production output stream.
+///
+/// `parcels` preserves both the exact contributed output and the surviving inventory identity for
+/// each resolved parcel. The identity may predate this process when canonical coalescing merged the
+/// contribution into an existing lot.
+#[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcessOutputLanding {
+    stream: ProcessOutputStreamId,
+    destination: StockpileId,
+    parcels: Vec<ProcessParcelLanding>,
+}
+
+/// One exact production contribution paired with the inventory lot that survived ingress.
+#[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcessParcelLanding {
+    lot: MaterialLotId,
+    output: MaterialLotSpec,
+}
+
+impl ProcessParcelLanding {
+    #[must_use]
+    pub const fn lot(&self) -> MaterialLotId {
+        self.lot
+    }
+
+    #[must_use]
+    pub const fn output(&self) -> &MaterialLotSpec {
+        &self.output
+    }
+}
+
+impl ProcessOutputLanding {
+    #[must_use]
+    pub const fn stream(&self) -> ProcessOutputStreamId {
+        self.stream
+    }
+
+    #[must_use]
+    pub const fn destination(&self) -> StockpileId {
+        self.destination
+    }
+
+    pub fn parcels(&self) -> &[ProcessParcelLanding] {
+        &self.parcels
+    }
 }
 
 impl ProcessCompletion {
@@ -98,6 +149,11 @@ impl ProcessCompletion {
     #[must_use]
     pub fn routes(&self) -> &[ProcessOutputRoute] {
         &self.routes
+    }
+
+    /// Returns merge-aware destination identities for each output stream in stable stream order.
+    pub fn landings(&self) -> &[ProcessOutputLanding] {
+        &self.landings
     }
 }
 
@@ -155,6 +211,7 @@ struct CompletionPlanEntry {
 struct CompletionOutputStreamPlan {
     id: ProcessOutputStreamId,
     destination: StockpileId,
+    outputs: Vec<MaterialLotSpec>,
 }
 
 struct DueCompletionPlanning {
@@ -362,6 +419,7 @@ fn plan_due_job_outputs(
         output_streams.push(CompletionOutputStreamPlan {
             id: stream.id(),
             destination: stream.destination(),
+            outputs: stream.outputs().to_vec(),
         });
         planning.deposit_requests.push(ReservedDepositRequest::new(
             stream.destination(),

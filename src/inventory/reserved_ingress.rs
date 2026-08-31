@@ -20,6 +20,32 @@ pub(crate) enum ReservedDepositPlanError {
     RevisionExhausted,
 }
 
+/// Inventory-owned receipt for one reserved deposit request after authoritative admission.
+///
+/// `lot_ids` preserves one contribution-to-surviving-lot identity per requested output parcel.
+/// Compatible parcels may therefore name an already-existing lot, and multiple parcels may name the
+/// same surviving identity when coalescing is canonical.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ReservedDepositReceipt {
+    destination: StockpileId,
+    lot_ids: Vec<MaterialLotId>,
+}
+
+impl ReservedDepositReceipt {
+    pub(crate) const fn destination(&self) -> StockpileId {
+        self.destination
+    }
+
+    #[cfg(test)]
+    pub(crate) fn lot_ids(&self) -> &[MaterialLotId] {
+        &self.lot_ids
+    }
+
+    pub(crate) fn into_lot_ids(self) -> Vec<MaterialLotId> {
+        self.lot_ids
+    }
+}
+
 /// One already-reserved output stream awaiting authoritative inventory ingress.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ReservedDepositRequest {
@@ -294,7 +320,12 @@ pub(crate) fn decide_reserved_deposits(
 }
 
 /// Applies an inventory-owned reserved-output plan after its producing owner is prechecked.
-pub(crate) fn apply_reserved_deposits(state: &mut InventoryState, plan: ReservedDepositPlan) {
+///
+/// Returns one merge-aware landing receipt per reserved request in request order.
+pub(crate) fn apply_reserved_deposits(
+    state: &mut InventoryState,
+    plan: ReservedDepositPlan,
+) -> Vec<ReservedDepositReceipt> {
     plan.assert_matches_state(state);
     let ReservedDepositPlan {
         expected_revision,
@@ -315,9 +346,10 @@ pub(crate) fn apply_reserved_deposits(state: &mut InventoryState, plan: Reserved
             state.next_lot_id(),
             "empty reserved deposit plan cannot advance material lot identity"
         );
-        return;
+        return Vec::new();
     }
 
+    let mut receipts = Vec::with_capacity(entries.len());
     for entry in entries {
         let ReservedDepositPlanEntry {
             destination,
@@ -353,9 +385,10 @@ pub(crate) fn apply_reserved_deposits(state: &mut InventoryState, plan: Reserved
         let storage_history =
             MaterialStorageHistory::with_ambient_age_parts(storage_age_parts, admitted_at);
 
+        let mut resulting_lots = Vec::with_capacity(outputs.len());
         for ((output, lot_id), merge_policy) in outputs.into_iter().zip(lot_ids).zip(merge_policies)
         {
-            apply_insert_or_merge_new_lot(
+            let resulting = apply_insert_or_merge_new_lot(
                 state,
                 MaterialLotRecord {
                     id: lot_id,
@@ -377,9 +410,15 @@ pub(crate) fn apply_reserved_deposits(state: &mut InventoryState, plan: Reserved
                 admitted_at,
                 preservation_multiplier_ppm,
             );
+            resulting_lots.push(resulting);
         }
+        receipts.push(ReservedDepositReceipt {
+            destination,
+            lot_ids: resulting_lots,
+        });
     }
     state.apply_lot_cursor_and_revision(next_lot_id, next_revision);
+    receipts
 }
 
 #[cfg(test)]

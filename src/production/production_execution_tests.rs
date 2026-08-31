@@ -857,6 +857,38 @@ fn routed_output_streams_reserve_and_complete_by_identity_not_route_order() {
             ProcessOutputRoute::new(ProcessOutputStreamId::new(20), slag_destination),
         ]
     );
+    let completion = &outcome.production_completions()[0];
+    assert_eq!(completion.landings().len(), 2);
+    assert_eq!(
+        completion.landings()[0].stream(),
+        ProcessOutputStreamId::new(10)
+    );
+    assert_eq!(completion.landings()[0].destination(), charcoal_destination);
+    assert_eq!(completion.landings()[0].parcels().len(), 1);
+    assert_eq!(
+        completion.landings()[1].stream(),
+        ProcessOutputStreamId::new(20)
+    );
+    assert_eq!(completion.landings()[1].destination(), slag_destination);
+    assert_eq!(completion.landings()[1].parcels().len(), 1);
+    let charcoal_parcel = &completion.landings()[0].parcels()[0];
+    assert_eq!(charcoal_parcel.output().commodity(), charcoal_lump());
+    assert_eq!(charcoal_parcel.output().mass(), Mass::from_milligrams(6));
+    let charcoal_landing = state
+        .inventory()
+        .get_lot(charcoal_parcel.lot())
+        .unwrap_or_else(|| panic!("charcoal completion landing disappeared"));
+    assert_eq!(charcoal_landing.stockpile(), charcoal_destination);
+    assert_eq!(charcoal_landing.commodity(), charcoal_lump());
+    let slag_parcel = &completion.landings()[1].parcels()[0];
+    assert_eq!(slag_parcel.output().commodity(), slag_lump());
+    assert_eq!(slag_parcel.output().mass(), Mass::from_milligrams(4));
+    let slag_landing = state
+        .inventory()
+        .get_lot(slag_parcel.lot())
+        .unwrap_or_else(|| panic!("slag completion landing disappeared"));
+    assert_eq!(slag_landing.stockpile(), slag_destination);
+    assert_eq!(slag_landing.commodity(), slag_lump());
     let charcoal_record = match state.inventory().get_stockpile(charcoal_destination) {
         Some(record) => record,
         None => panic!("charcoal destination disappeared"),
@@ -1125,9 +1157,11 @@ fn compatible_nonperishable_production_outputs_coalesce_and_preserve_provenance_
             Err(error) => panic!("first process validation failed: {error}"),
         };
     commit_process_for_test(first, &mut state);
-    if let Err(error) = advance_tick(&registries, &mut state) {
-        panic!("first completion failed: {error}");
-    }
+    let first_outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("first completion failed: {error}"));
+    let first_parcel = &first_outcome.production_completions()[0].landings()[0].parcels()[0];
+    assert_eq!(first_parcel.output().mass(), Mass::from_milligrams(10));
+    let surviving_lot = first_parcel.lot();
 
     let second_resolution = make_test_resolution(&registries, &state, source, 1);
     let second = match validate_start_process(
@@ -1141,12 +1175,19 @@ fn compatible_nonperishable_production_outputs_coalesce_and_preserve_provenance_
         Err(error) => panic!("second process validation failed: {error}"),
     };
     commit_process_for_test(second, &mut state);
-    if let Err(error) = advance_tick(&registries, &mut state) {
-        panic!("second completion failed: {error}");
-    }
+    let second_outcome = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("second completion failed: {error}"));
+    let second_parcel = &second_outcome.production_completions()[0].landings()[0].parcels()[0];
+    assert_eq!(second_parcel.output().mass(), Mass::from_milligrams(10));
+    assert_eq!(
+        second_parcel.lot(),
+        surviving_lot,
+        "coalesced production receipt must retain the pre-existing surviving lot identity"
+    );
 
     let lot_ids: Vec<_> = state.inventory().lot_ids(destination).collect();
     assert_eq!(lot_ids.len(), 1);
+    assert_eq!(lot_ids[0], surviving_lot);
     let lot = state
         .inventory()
         .get_lot(lot_ids[0])

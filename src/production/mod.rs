@@ -9,9 +9,9 @@ mod test_support;
 
 pub use definitions::{ProcessDefinition, ProcessId, ProcessInputPolicy, ProductionRegistry};
 pub use production_execution::{
-    ProcessCompletion, ProcessOutputRoute, ProductionAvailabilityChange, StartProcessCommitError,
-    StartProcessError, ValidatedStartProcess, validate_start_process,
-    validate_start_process_routed,
+    ProcessCompletion, ProcessOutputLanding, ProcessOutputRoute, ProcessParcelLanding,
+    ProductionAvailabilityChange, StartProcessCommitError, StartProcessError,
+    ValidatedStartProcess, validate_start_process, validate_start_process_routed,
 };
 pub use resolution::{
     ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,

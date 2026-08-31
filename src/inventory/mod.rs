@@ -42,8 +42,8 @@ pub(crate) use ingress::{
     validate_material_ingress, validate_material_ingress_after_egress,
 };
 pub(crate) use reserved_ingress::{
-    ReservedDepositPlan, ReservedDepositPlanError, ReservedDepositRequest, apply_reserved_deposits,
-    decide_reserved_deposits,
+    ReservedDepositPlan, ReservedDepositPlanError, ReservedDepositReceipt, ReservedDepositRequest,
+    apply_reserved_deposits, decide_reserved_deposits,
 };
 pub use selection::MaterialLotSelection;
 pub(crate) use selection::{

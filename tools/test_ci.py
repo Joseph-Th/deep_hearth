@@ -1075,6 +1075,136 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("assets/shaders/README.md", documents)
         self.assertFalse(any(path.startswith("target/") for path in documents))
 
+    def test_agent_orientation_maps_track_live_module_and_owner_topology(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        technical_design = (ROOT / "TECHNICAL_DESIGN.md").read_text(encoding="utf-8")
+
+        documented_modules = check_authority_docs.documented_source_role_modules(readme)
+        source_modules = check_authority_docs.public_top_level_modules()
+        self.assertEqual(len(documented_modules), len(set(documented_modules)))
+        self.assertEqual(set(documented_modules), set(source_modules))
+        self.assertEqual(
+            check_authority_docs.documented_runtime_owner_types(technical_design),
+            check_authority_docs.system_state_owner_types(),
+        )
+        state_source = (ROOT / "src" / "core" / "state.rs").read_text(encoding="utf-8")
+        self.assertEqual(check_authority_docs.public_root_mutator_names(state_source), [])
+
+    def test_cold_start_authority_context_stays_bounded(self) -> None:
+        documents = {
+            relative: (ROOT / relative).read_text(encoding="utf-8")
+            for relative in check_authority_docs.COLD_START_DOCUMENT_MAX_BYTES
+        }
+        self.assertEqual(check_authority_docs.check_cold_start_context_budget(documents), [])
+
+        per_file = dict(documents)
+        per_file["AGENTS.md"] = "x" * (
+            check_authority_docs.COLD_START_DOCUMENT_MAX_BYTES["AGENTS.md"] + 1
+        )
+        self.assertTrue(
+            any(
+                "AGENTS.md: cold-start document" in error
+                for error in check_authority_docs.check_cold_start_context_budget(per_file)
+            )
+        )
+
+        aggregate = {
+            relative: "x" * maximum
+            for relative, maximum in check_authority_docs.COLD_START_DOCUMENT_MAX_BYTES.items()
+        }
+        self.assertTrue(
+            any(
+                "aggregate budget" in error
+                for error in check_authority_docs.check_cold_start_context_budget(aggregate)
+            )
+        )
+
+    def test_cold_start_usage_reports_current_cost_and_reserved_headroom(self) -> None:
+        documents = {
+            relative: "x" * (index + 1)
+            for index, relative in enumerate(
+                check_authority_docs.COLD_START_DOCUMENT_MAX_BYTES
+            )
+        }
+        expected_used = sum(range(1, len(documents) + 1))
+        used, reserve = check_authority_docs.cold_start_context_usage(documents)
+        self.assertEqual(used, expected_used)
+        self.assertEqual(
+            reserve,
+            check_authority_docs.COLD_START_TOTAL_MAX_BYTES - expected_used,
+        )
+
+    def test_authority_routing_sections_stay_present_and_unambiguous(self) -> None:
+        documents = {
+            relative: (ROOT / relative).read_text(encoding="utf-8")
+            for relative in check_authority_docs.AUTHORITY_FILES
+        }
+        self.assertEqual(check_authority_docs.check_required_authority_sections(documents), [])
+
+        missing = dict(documents)
+        missing["README.md"] = missing["README.md"].replace(
+            "## Control coordinate", "## Renamed coordinate", 1
+        )
+        errors = check_authority_docs.check_required_authority_sections(missing)
+        self.assertTrue(
+            any(
+                "README.md: missing required authority sections: Control coordinate" in error
+                for error in errors
+            )
+        )
+
+        duplicate = dict(documents)
+        duplicate["DIRECTION.md"] += "\n## Accretion objective\n"
+        errors = check_authority_docs.check_required_authority_sections(duplicate)
+        self.assertTrue(
+            any(
+                "DIRECTION.md: duplicate level-two authority headings: Accretion objective" in error
+                for error in errors
+            )
+        )
+
+    def test_public_root_mutator_guard_rejects_a_second_command_surface(self) -> None:
+        fixture = "impl AppState {\n    pub fn inventory_mut(&mut self) {}\n}"
+        self.assertEqual(
+            check_authority_docs.public_root_mutator_names(fixture),
+            ["inventory_mut"],
+        )
+
+    def test_agent_orientation_checker_rejects_missing_and_duplicate_module_roles(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        technical_design = (ROOT / "TECHNICAL_DESIGN.md").read_text(encoding="utf-8")
+
+        missing = readme.replace("`src/thermal/`", "`src/not_real/`", 1)
+        errors = check_authority_docs.check_source_orientation_maps(
+            {"README.md": missing, "TECHNICAL_DESIGN.md": technical_design}
+        )
+        self.assertTrue(any("missing public top-level modules: thermal" in error for error in errors))
+        self.assertTrue(any("non-public top-level modules: not_real" in error for error in errors))
+
+        duplicate = readme.replace(
+            "`src/core/`, `src/capability/`",
+            "`src/core/`, `src/core/`, `src/capability/`",
+            1,
+        )
+        errors = check_authority_docs.check_source_orientation_maps(
+            {"README.md": duplicate, "TECHNICAL_DESIGN.md": technical_design}
+        )
+        self.assertTrue(any("classifies modules more than once: core" in error for error in errors))
+
+    def test_agent_orientation_checker_rejects_runtime_owner_atlas_drift(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        technical_design = (ROOT / "TECHNICAL_DESIGN.md").read_text(encoding="utf-8")
+        drifted = technical_design.replace(
+            "| `EnergyState` | `AppState::energy()`",
+            "| `MissingEnergyState` | `AppState::energy()`",
+            1,
+        )
+
+        errors = check_authority_docs.check_source_orientation_maps(
+            {"README.md": readme, "TECHNICAL_DESIGN.md": drifted}
+        )
+        self.assertTrue(any("runtime owner atlas must match SystemState" in error for error in errors))
+
     def test_execution_card_checker_requires_portfolio_profiles_and_bca_policy(self) -> None:
         valid = {
             "AGENTS.md": (
@@ -1117,6 +1247,27 @@ class LocalCiPlanTests(unittest.TestCase):
             check_authority_docs.resolve_route(nested, "src/shader/"),
             ROOT / "src" / "shader",
         )
+
+    def test_documentation_checker_validates_semantic_markdown_anchors(self) -> None:
+        valid_errors, _, valid_checked = check_authority_docs.inspect_markdown_links(
+            "README.md",
+            "[trusted load](TECHNICAL_DESIGN.md#trusted-load)\n## Task map\n[task map](#task-map)\n",
+        )
+        self.assertEqual(valid_errors, [])
+        self.assertEqual(valid_checked, 2)
+
+        broken_errors, _, broken_checked = check_authority_docs.inspect_markdown_links(
+            "README.md",
+            "[missing](TECHNICAL_DESIGN.md#not-a-real-contract)\n[local](#not-a-real-section)\n",
+        )
+        self.assertEqual(broken_checked, 2)
+        self.assertTrue(
+            any(
+                "TECHNICAL_DESIGN.md#not-a-real-contract" in error
+                for error in broken_errors
+            )
+        )
+        self.assertTrue(any("#not-a-real-section" in error for error in broken_errors))
 
 
 class ExactTestCommandTests(unittest.TestCase):

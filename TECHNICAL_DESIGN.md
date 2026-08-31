@@ -18,6 +18,208 @@ Read only the section for the subsystem being changed.
 | Structural support, loads, failure | Structures |
 | Coordinates, textures, shaders, renderer boundary | Spatial and presentation boundaries |
 | Trusted-load graph validation | Trusted load |
+| Cross-owner custody, reservations, and continuation | Cross-owner edge atlas |
+| Definitions, reads, planning, and command surface by subsystem | Subsystem control index |
+
+## System control model
+
+Implemented subsystems form one control graph rather than independent simulations. The common currencies and
+constraints are:
+
+| Flow | Typical owners and transitions |
+| --- | --- |
+| Matter | geology -> mining custody -> inventory -> production/infrastructure -> inventory/recovery or terminal survival consumption |
+| Fluid | fluid stores -> validated withdrawal -> terminal survival consumption; generic transport is not yet implemented |
+| Energy | finite stores -> durable work/process custody -> physical result or explicit sink/loss; manual labor can generate stored mechanical work through its own validated path |
+| Attention/labor | `PlayerWorkState` arbitrates exclusive player attention while `SurvivalState` supplies the physiological budget of active work |
+| Information | hidden world truth -> authorized observation -> `GeologicalKnowledgeState` -> evidence-based action authorization; hidden truth never becomes an actor shortcut |
+| Support/load | structures provide support; inventory, equipment, and fluid owners contribute source-separated load; support state can gate productive availability |
+| Capacity/exclusivity | reservations and occupancy bind future outputs/resources so delayed work cannot double-book them |
+| Time | persisted schedules and active/suspended durations make future consequences replayable rather than implicit |
+
+When debugging or extending a cross-system mechanic, start from the changed flow and follow custody from owner
+to owner. A valid implementation should make every handoff visible as a canonical operation or durable work
+record. If a quantity or authorization appears to jump between endpoints without an owner at the boundary, the
+model is incomplete.
+
+### Truth classes
+
+Keep these classes distinct when reading or extending the system. Many expensive agent mistakes come from
+treating one class as another:
+
+| Class | Meaning | May persist? | May authorize mutation? |
+| --- | --- | --- | --- |
+| Authored definition | Immutable possibility, identity, physical/capability limit, or reference. | Registry identity/version only as required | No, except as one input to validation. |
+| Authoritative runtime fact | Generated state required for continuation. | Yes | Owner commands read it. |
+| Derived projection | Recomputable interpretation, aggregate, assessment, or index. | Only when explicitly rebuildable/validated semantics justify it | No by itself. |
+| Resolution/plan | Concrete predicted consequence for one request against current facts. | Normally no | No; it feeds authorization. |
+| Validated authorization | State-bound proof that a consequential commit is currently legal. | No | Yes, exactly through its consuming canonical commit/apply path. |
+| Durable work/custody | In-flight ownership, reservation, schedule, provider trace, or pending consequence. | Yes | Governs continuation through its owner/tick path. |
+| Diagnostic/evaluation evidence | Explanation, sample, counterfactual result, accounting report, or replay metadata. | Outside authoritative simulation as needed | Never. |
+
+If a new value seems to belong to two rows, separate the concepts before storing or exposing it.
+
+### Planning topology
+
+The implemented definition set already forms typed authored topology even though it is currently exposed mostly
+through per-registry iteration and lookup. Examples include manual-craft input/output relationships, equipment
+and energy-store assembly/upgrade ancestry, capability requirements/providers, maintenance/recovery material
+relationships, thermal/ore transformation ownership, and energy-carrier compatibility.
+
+`Registries::new` is already the cross-registry admission boundary: it validates domain references and rejects a
+`ProcessId` owned by more than one crafting/ore/thermal resolver family. Therefore a future cross-registry
+process-topology index should be derived there after validation rather than rebuilt independently by reports or
+actors. It may classify execution family, typed energy role, and nominal definition providers using existing
+capability semantics. Runtime `resolve_equipment_provider` remains the separate operation for one known
+equipment instance because it adds mutable condition and structural-support facts.
+
+Treat three levels separately:
+
+1. **Possibility:** immutable definition relationships. A reverse lookup such as producers of one commodity or
+   nominal providers of one capability requirement is a derived registry projection. It may answer authored
+   connectivity but not current legality or ordinary reachability.
+2. **State:** current owner records, custody, quantities, condition, support, occupation, knowledge, and
+   schedules. Hidden owners remain hidden from actor-facing queries.
+3. **Opportunity:** a request-scoped projection that intersects relevant possibility with legitimate observable
+   state and canonical domain resolution. It may report candidates or typed blockers, but only validation can
+   authorize mutation.
+
+Do not persist possibility/opportunity indexes as world truth. A registry-derived reverse index must rebuild
+deterministically from the exact validated definitions. An opportunity result must either be consumed
+immediately as read-side guidance or carry explicit freshness semantics if retaining it is materially useful.
+
+Topology lookup should normally be exhaustive for its narrow declared key: for example all authored manual
+producers of one `CommodityKey`, all process definitions assigned to one exact execution family, or all nominal
+equipment definitions satisfying one exact typed requirement set. Return results in stable domain-identity order
+unless another domain ordering is itself authoritative. If a future topology domain becomes too large for one
+bounded response, expose explicit continuation and completeness rather than a hidden `take(N)`.
+
+Opportunity discovery may be intentionally bounded because current candidate combinations can be larger. Such a
+surface must distinguish "no candidate in this bounded search" from an exhaustive proof of unavailability, name
+the searched domain/budget, and bind continuation to the same relevant state dependencies. Validation remains
+the only authorization even when discovery reports an exhaustive current candidate set.
+
+Goal-directed discovery should preserve domain shape. Useful examples are producers for one commodity,
+construction/upgrade ancestry for one infrastructure definition, providers satisfying one typed capability
+profile, or processes using one energy carrier. Avoid an untyped `Node -> Edge -> Node` API that would force
+callers to rediscover whether an edge means material transformation, provider compatibility, upgrade ancestry,
+or recovery.
+
+Likewise, shared planning constraints belong at the narrowest physical abstraction that actually shares them.
+Powered ore operations already reuse `PoweredOreProcessProfile` concepts such as throughput capability, maximum
+batch, carrier/work demand, and wear. If crush/grind/screen/separate callers repeatedly need the same feasible
+batch envelope, derive that vocabulary there or in the ore-processing owner/overlay. Thermal melting/casting
+have different phase/heat-sink semantics and should retain thermal-specific envelopes. Mining supply, hardness,
+destination capacity, and player-work blockers remain mining semantics even when an actor later maps them into a
+similar high-level strategy such as resize or replenish.
+
+Use claim-strength terms consistently when exposing or interpreting this topology:
+
+- a definition's assembly/upgrade/recovery field establishes a **direct authored edge**;
+- recursive traversal over such edges establishes an **authored path** only for the declared roots and edge
+  families included by that traversal;
+- **ordinary reachability** is a stronger current-scope claim owned by [`STATUS.md`](STATUS.md), not inferred
+  from a local `has_runtime_*_route` predicate;
+- a **current opportunity** requires legitimate observable runtime state plus canonical domain resolution;
+- **authorization** requires validation against the current mutable dependencies.
+
+Existing `has_runtime_acquisition_route` / `has_runtime_assembly_route` definition helpers are local declaration
+classifications. Their gameplay reports already label them as declarations rather than end-to-end reachability.
+If these APIs are touched, prefer naming/documentation that makes their direct-edge strength unmistakable rather
+than broadening their implementation to perform recursive or stateful planning.
+
+### Temporal stepping contract
+
+`advance_tick(registries, state)` remains the only authoritative simulation-time mutation. Current gameplay and
+tests often know a work record's `completes_at` and call it repeatedly until that horizon. A future batched
+stepping surface may wrap that exact operation for caller efficiency, but it must preserve the same state and
+the same ordered sequence of material `TickOutcome` events as the equivalent repeated calls.
+
+Batching may stop early on caller-declared observable events such as production completion, suspension/resume,
+manual-power completion, prospecting completion, mining output readiness, or a survival condition. It may not
+peek at hidden geology, controlled future events, or later outcomes to choose an earlier stopping point.
+
+No semantic interval-skipping/fast-forward contract is currently implemented. Any future optimized interval
+integrator must first prove equivalence across all tick phases it skips. Static `PeriodicSchedule` next-due
+queries and persisted dynamic completion ticks identify boundaries; they do not establish that the interval
+between those boundaries is semantically empty.
+
+### Cross-owner edge contract
+
+For a new materially distinct handoff, document and implement enough of this contract that an agent can trace
+the edge without reconstructing the transaction from incidental fields:
+
+1. source owner and destination owner;
+2. canonical admission boundary and stable identities involved;
+3. exact quantity/relationship transferred, reserved, or newly owned;
+4. capacity, exclusivity, support, information, and lifecycle prerequisites;
+5. mutable dependencies bound for stale-state protection;
+6. custody or schedule owner between admission and completion, if delayed;
+7. atomic rejection boundary and any intentionally modeled failure-side mutation;
+8. typed committed outcome or continuation identity;
+9. trusted-load reconstruction/validation obligations;
+10. smallest owner/boundary/continuation proof that distinguishes the edge from a nearby invalid transfer.
+
+The [cross-owner edge atlas](#cross-owner-edge-atlas) is the routing index for implemented instances of this
+contract. Add a row only for genuinely new ownership semantics, not every new operation over an existing edge.
+
+## Subsystem contract card
+
+Use this compact schema when reading or adding a subsystem. Existing sections below provide the concrete facts;
+source and adjacent tests remain the edge-case authority.
+
+1. **Definitions:** immutable authored identities, limits, and physical/capability references.
+2. **Authoritative state:** generated facts, identity cursors, revisions, lifecycle, custody, and schedules.
+3. **Observable projections:** canonical read models suitable for callers, presentation, and automated actors.
+4. **Decisions/resolution:** deterministic derivation of consequences from definitions plus current state.
+5. **Authorization:** typed rejection and stale-state binding before consequential mutation.
+6. **Mutation:** one owner or cross-owner commit/apply path.
+7. **Flows:** exact quantities, reservations, occupancy, support, information, and time that cross owner boundaries.
+8. **Persistence:** what must survive, what can rebuild, and what trusted load re-derives.
+9. **Evidence:** local invariant tests plus the smallest cross-system/gameplay proof when behavior crosses owners.
+10. **Addressability:** stable semantic landmarks identify the owner, canonical request/resolution/validation/
+    commit path, durable identity when present, typed error family, outcome/assessment, trusted-load validator,
+    and adjacent proof.
+11. **Freshness/continuation:** which authoritative dependencies invalidate retained planning and which stable
+    identity, revision, schedule, or outcome lets a caller continue without reconstructing unrelated state.
+12. **Feasibility, when scalable:** which production surface exposes the controlling bound or bottleneck when a
+    caller would otherwise have to probe many nearby requests to discover one monotonic feasible envelope.
+13. **Query completeness, when discoverable:** whether candidate/topology queries are exhaustive, bounded with
+    continuation, or sampled, including deterministic ordering and the claim an empty result actually supports.
+
+New subsystem design is incomplete until these questions have explicit answers. Not every answer requires a new
+type or file; the goal is one legible ownership/control story, not ceremony. Addressability describes semantic
+landmarks, not mandated file names, and feasibility requires no extra API when the operation has no meaningful
+scalable planning dimension.
+
+### Subsystem control index
+
+This is a routing index, not a duplicate behavior specification. Use it to find the correct abstraction level,
+then read the owning section/source for exact semantics and errors.
+
+| Surface | Definitions / immutable input | Authoritative read / observation | Plan / resolve | Mutate / continue |
+| --- | --- | --- | --- | --- |
+| Root simulation and time | core definitions, `WorldSeed`, typed quantities/time | `AppState::tick()`, immutable owner accessors | per-phase `decide_*` is crate-owned orchestration | `advance_tick`; direct clock/owner applies stay crate-private |
+| Registries and built-in content | `Registries` plus domain registries; `build_registries` validates cross-references | public immutable `Registries::*()` accessors; derived authored topology may provide goal-directed reverse lookup | callers inspect authored possibilities; topology never claims current legality or ordinary reachability | none; registries and derived definition indexes are immutable after construction |
+| Inventory and storage | material/form/storage definitions | `AppState::inventory()`, stockpile/lot records and stable iterators | feature owners construct explicit lot selections; enclosure validators derive storage consequences | no generic public transport command; feature-specific validators own ingress/egress/reform, enclosure, and support transitions |
+| Geological knowledge | prospecting methods plus hidden finite geology | `AppState::geological_knowledge()`, `assess_geological_knowledge`, knowledge map | field prospecting authorization; evidence combination remains actor-safe | `validate_start_field_prospecting` -> tick records observations |
+| Mining | `MiningRegistry` methods and physical hardness/tool constraints | `AppState::mining()` plus acquired geological knowledge; hidden `GeologyState` is not public | `resolve_mining_target` | `validate_start_mining` -> tick -> `validate_claim_mining_output` |
+| Production | `ProductionRegistry`, `ProcessDefinition` | `AppState::production()`, job records, reservations/occupancy | operation-specific resolvers produce `ProcessResolution` / `Resolved*` | `validate_start_process` / `validate_start_process_routed` -> tick completion |
+| Equipment | `EquipmentRegistry`, capability/maintenance/upgrade profiles | `AppState::equipment()`, equipment records | `resolve_equipment_provider`, `resolve_equipment_maintenance` | assembly, upgrade, maintenance, disassembly, mount/unmount/relocate validators |
+| Player labor | `LaborRegistry`, manual-power/prospecting definitions | `AppState::player_work()` | owner commands calculate/bind required attention and resource budget | manual power/prospecting/manual production commands -> tick; attention lifecycle is crate-owned |
+| Survival | `SurvivalRegistry`, physiology, food/drink definitions | `AppState::survival()`, `assess_survival`, `assess_food_freshness` | consumption validators derive bounded direct intake and physiological schedule | `validate_eat` / `validate_drink` -> tick; `initialize_player_survival` is the ordinary initialization boundary |
+| Energy | `EnergyRegistry`, store definitions, carrier/power contracts | `AppState::energy()`, store records, explicit energy accounting | process/manual-power resolvers use `validate_energy_supply` / `validate_energy_sink` as part of their plan | assembly/upgrade/disassembly validators; reserved consumption/release and passive loss apply through canonical owners/tick |
+| Fluids | `FluidRegistry`, fluid definitions | `AppState::fluid()`, store records, fluid accounting | consumers validate exact egress internally; no generic routing planner exists | support validators and canonical consumers; generic transfer/pumping/mixing absent |
+| Structures | `StructuralRegistry`, profiles and geometry | `AppState::structures()`, `analyze_structure`, `StructuralAssessment` | owner-specific support/load validation plans final aggregate load | support/load commits through inventory/equipment/fluid/structural owners; general player construction remains absent |
+| Manual crafting overlay | `CraftingRegistry`, manual craft definitions | inventory, survival, and authored craft definitions | `resolve_manual_craft` is folded into `validate_start_manual_craft` for ordinary admission | `validate_start_manual_craft` -> production job + player work -> tick |
+| Ore-processing overlay | `OreProcessingRegistry`, manual/powered process profiles | inventory, equipment, energy, production state | `resolve_comminution_process`, `resolve_screening_process`, `resolve_constituent_separation_process`; manual counterparts expose their own resolutions | powered resolutions enter `validate_start_process*`; manual start validators also bind player work |
+| Thermal overlay | `ThermalRegistry`, heating/melting/casting definitions | inventory, equipment, energy, production state | `resolve_sensible_heating_process`, `resolve_melting_process`, `resolve_casting_process` | resolved work enters `validate_start_process*`; tick applies outputs, wear, and energy consequences |
+| Conservation/accounting | authored material/fluid/energy properties | `calculate_matter_accounting`, `calculate_fluid_volume_accounting`, `calculate_explicit_energy_accounting` | read-only reconciliation only | none; accounting never mutates or authorizes custody |
+| Persistence | current save schema + registry schema | `SaveEnvelope` for output, decoded `LoadedSaveEnvelope` before trust | exact-version admission plus deterministic index rebuild/graph validation | `LoadedSaveEnvelope::into_state`; adapters own bytes/storage, not state promotion |
+| Presentation definitions | texture/shader registries and authored assets | immutable definition access and deterministic bake/assembly results | deterministic renderer-neutral assembly | graphics resources/frame effects belong to adapters, outside `AppState` |
+
+If a caller appears to need a surface not shown here, first determine whether it is a missing canonical
+projection/command or whether the caller is trying to cross an ownership boundary it should not control.
 
 ## Global runtime facts
 
@@ -28,6 +230,8 @@ Read only the section for the subsystem being changed.
 - Implemented authoritative physical calculations use checked integer arithmetic, not floating point.
 - Dynamic scheduled work persists as explicit records. `PeriodicSchedule` is for static clock-derived
   phase scheduling.
+- Known due ticks may bound batched caller stepping, but do not authorize skipping intervening canonical tick
+  semantics.
 - `advance_tick` decides all fallible phase work against one pre-tick snapshot. Its application stage
   prechecks shared-owner revisions before mutation; after the completion transaction succeeds, remaining
   phase applies are infallible and assertion-backed before the clock advances.
@@ -42,21 +246,95 @@ Read only the section for the subsystem being changed.
 `AppState` is the root of generated state. Each subsystem owns its records, generated IDs, revisions, and
 synchronized indexes.
 
-| Owner | Authoritative state |
-| --- | --- |
-| `InventoryState` | Stockpiles, material lots, reservations, routing, preservation, material-backed storage enclosures, stockpile support |
-| `EnergyState` | Finite energy stores and embodied construction traces |
-| `FluidState` | Finite homogeneous fluid stores and support assignments |
-| `EquipmentState` | Equipment instances, condition, embodied traces, support assignments |
-| `StructureState` | Members, topology, embodied matter, source-separated loads, damage |
-| `GeologyState` | Finite hidden geological deposits and depletion |
-| `GeologicalKnowledgeState` | Acquired observations only |
-| `ProductionState` | Active jobs, schedules, routing, exclusive resource occupancy |
-| `MiningState` | Mining work-in-process and schedules |
-| `PlayerWorkState` | At most one active player labor operation |
-| `SurvivalState` | Metabolic energy, hydration, vitality, nutrition, fractional vitality-recovery carry, terminal consumed matter/fluid totals, pending direct-consumption custody |
+| Root owner | Root read boundary | Caller visibility | Authoritative state |
+| --- | --- | --- | --- |
+| `EnergyState` | `AppState::energy()` | public read | Finite energy stores and embodied construction traces |
+| `FluidState` | `AppState::fluid()` | public read | Finite homogeneous fluid stores and support assignments |
+| `EquipmentState` | `AppState::equipment()` | public read | Equipment instances, condition, embodied traces, support assignments |
+| `StructureState` | `AppState::structures()` | public read | Members, topology, embodied matter, source-separated loads, damage |
+| `GeologyState` | `AppState::geology()` | core-only hidden truth | Finite hidden geological deposits and depletion; actor code must not enumerate this owner |
+| `GeologicalKnowledgeState` | `AppState::geological_knowledge()` | public actor-safe evidence | Acquired bounded observations only |
+| `InventoryState` | `AppState::inventory()` | public read | Stockpiles, material lots, reservations, routing, preservation, material-backed storage enclosures, stockpile support |
+| `ProductionState` | `AppState::production()` | public read | Active jobs, schedules, routing, exclusive resource occupancy |
+| `MiningState` | `AppState::mining()` | public read without hidden deposit identity | Mining work-in-process, output-claim custody, and schedules |
+| `PlayerWorkState` | `AppState::player_work()` | public read | At most one active player-attention operation |
+| `SurvivalState` | `AppState::survival()` | public read | Metabolic energy, hydration, vitality, nutrition, fractional vitality-recovery carry, terminal consumed matter/fluid totals, pending direct-consumption custody |
 
 Cross-owner operations coordinate owner APIs; they do not mutate another owner's private storage directly.
+
+This table is intentionally ordered exactly as the fields in `SystemState`; the documentation checker rejects
+owner additions, removals, or drift until the atlas is updated. A top-level directory absent from this table is
+not a root runtime owner merely because it contains domain logic.
+
+Public `AppState` access to these owners is read-only. Their mutable root accessors are crate-private and are
+used only by canonical owner operations and tick application. This keeps inspection cheap for callers without
+turning state records into a second command surface.
+
+### Canonical custody chains
+
+Several high-value chains are intentionally explicit because they connect much of the simulation:
+
+```text
+geology -> working mining job -> ready mining output -> inventory lot
+inventory lots -> production job custody -> routed output lots
+inventory traces -> equipment / energy store / storage enclosure / structural embodiment
+embodiment -> authored maintenance, disassembly, dismantling, or salvage -> inventory traces
+finite energy store -> reserved/consumed process energy -> modeled work/heat or explicit loss sink
+hidden geology -> bounded prospecting observation -> geological knowledge -> mining authorization
+structure -> support assignment -> source-separated load -> availability/failure consequence
+survival reserves + PlayerWorkState -> timed direct labor -> physical operation consequence
+```
+
+These are control paths as well as accounting paths. Planning code should inspect the canonical projection at
+each edge when the owner exposes one and invoke the canonical transition, not reach through to a later owner.
+If a legitimate caller lacks the read surface needed to control an edge without reconstructing private domain
+meaning, treat that as control-surface debt under [`DIRECTION.md`](DIRECTION.md), not permission for a parallel
+rules implementation.
+
+### Cross-owner edge atlas
+
+Use this atlas when a task is about an interaction rather than a local calculation. The named boundary is the
+semantic entry point; inspect its implementation and adjacent tests before reading every endpoint owner.
+
+| Edge | Canonical boundary | Authoritative handoff and continuation |
+| --- | --- | --- |
+| Hidden geology -> acquired knowledge | `validate_start_field_prospecting` -> simulation tick | `PlayerWorkState` holds exclusive prospecting labor; completion records one bounded `GeologicalObservationRecord` in `GeologicalKnowledgeState`. `TickOutcome::field_prospecting()` exposes the actor-safe result without deposit identity. |
+| Acquired knowledge -> extraction authorization | `resolve_mining_target` | Read-only `MiningTargetResolution` proves that legitimate evidence currently resolves one extractable owner while keeping the geological deposit identity crate-private. No custody changes yet. |
+| Geology + equipment + labor -> mining work | `validate_start_mining` -> simulation tick | Start binds tool, destination reservation, player attention, and a durable `MiningJobRecord`. Geology keeps the batch during labor; completion removes it from `GeologyState`, applies tool wear, releases attention, and places the physical output in mining-owned claim custody. |
+| Mining claim custody -> inventory | `validate_claim_mining_output` | A ready job retains its reserved destination capacity until claim. Claim moves the exact output into `InventoryState`, retires mining custody without a second extraction decision, and returns `MiningClaimReceipt` with the exact contribution plus its merge-aware surviving lot identity. |
+| Inventory + providers -> production work | resolver-specific `Resolved*` / `ProcessResolution` -> `validate_start_process` or `validate_start_process_routed` | Start consumes exact selected input into `ProductionState` work-in-process, reserves routed output capacity, binds provider occupancy, and records modeled finite-energy consequences needed for replay. |
+| Production work -> inventory / equipment / energy | `advance_tick` completion planning and apply | Due completion routes exact material streams to reserved inventory destinations, applies condition consequences, releases/consumes modeled energy as resolved, clears occupancy/reservations, and emits `ProcessCompletion` through `TickOutcome`; each stream has merge-aware inventory landing identities. |
+| Inventory -> equipment embodiment | `validate_assemble_equipment` / `validate_upgrade_equipment` | Exact material traces leave inventory custody and become `EquipmentState` embodiment. Upgrade preserves equipment identity and prior embodiment/condition while adding only the authored trace. |
+| Equipment embodiment -> inventory recovery | `validate_disassemble_equipment` / `validate_equipment_maintenance` | Disassembly returns authored recoverable traces as inventory lots. Maintenance consumes exact replacement matter, changes equipment condition/component state, and emits represented spent matter rather than deleting it. |
+| Inventory -> finite energy-store embodiment | `validate_assemble_energy_store` / `validate_upgrade_energy_store` | Exact material traces become `EnergyState` embodiment; upgrade preserves store identity and carrier/transfer semantics while changing the authored store definition. `validate_disassemble_energy_store` is the exact reverse custody route for empty idle stores. |
+| Inventory enclosure matter <-> inventory storage profile | `validate_build_storage_enclosure` / `validate_dismantle_storage_enclosure` | Inventory remains the owner on both sides: construction embeds exact traces into a stockpile enclosure and checkpoints preservation before the new profile; dismantling checkpoints again, restores ambient storage, and returns exact enclosure matter to a recovery stockpile. |
+| Inventory / equipment / fluid -> structural load | owner-specific mount/unmount validators | The mounted owner retains object custody while `StructureState` owns its source-separated load. Final aggregate load is validated before support assignment changes, and returned support outcomes expose the structural consequence. |
+| Player physiology + equipment -> stored mechanical work | `validate_start_manual_power` -> simulation tick | `PlayerWorkState` owns pending generation during direct labor; admission binds survival budget, equipment wear, and energy-store capacity. Completion deposits exact work into `EnergyState`, applies wear/physiological expenditure, releases attention, and exposes `ManualPowerOutcome`. |
+| Inventory / fluid -> terminal survival consumption | `validate_eat` / `validate_drink` -> simulation tick | Admission transfers selected matter/fluid into `SurvivalState` pending-consumption custody, reserves exclusive attention, and returns the exact completion tick with the accepted intake outcome. Tick installments release only earned physiological benefit; terminal consumed totals retain represented custody after the explicit food/fluid simulation boundary. |
+| Authoritative owners -> whole-system accounting | `calculate_matter_accounting`, `calculate_explicit_energy_accounting`, `calculate_fluid_volume_accounting` | Read-only accounting recomputes from owners and never becomes another custody store. Use it to prove conservation/reconciliation, not to drive mutation. |
+
+If a new feature creates a materially new row, first decide whether it is a new owner edge or merely another
+operation over an existing edge. Prefer reusing an existing edge contract when ownership, custody, and failure
+semantics are genuinely the same.
+
+#### Destination landing identity
+
+Inventory ingress already resolves merge-aware persistent identity. `apply_material_ingress` returns one
+surviving `MaterialLotId` per admitted parcel, reusing an existing identity when compatible matter coalesces.
+Reserved delayed ingress uses the same rule: `apply_reserved_deposits` returns one inventory-owned receipt per
+reserved request, containing one surviving identity per admitted parcel in request order.
+
+Production completion composes those receipts into `ProcessOutputLanding` values keyed by stream/destination;
+each `ProcessParcelLanding` pairs the exact `MaterialLotSpec` contribution with the surviving lot identity.
+Mining claim likewise returns its exact claimed `MaterialLotSpec` plus one merge-aware surviving identity in
+`MiningClaimReceipt`. A landing identity may therefore refer to an existing lot when compatible matter
+coalesced. Other delayed custody edges needing the same answer should propagate this inventory-owned result
+rather than infer a new lot from pre/post stockpile contents or mint a coordinator-owned identity.
+
+For multi-stream/multi-parcel production, preserve correspondence between `(job, stream, parcel contribution)`
+and the surviving lot identity even when several contributions resolve to one lot. The contribution's mass and
+material profile remain those of the authoritative resolved output; the landing identity identifies the durable
+inventory record that now contains that contribution.
 
 ## Physical quantities
 

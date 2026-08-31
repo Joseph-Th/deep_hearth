@@ -5,11 +5,12 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
 use crate::inventory::{
-    ReservedDepositPlan, ReservedDepositPlanError, ReservedDepositRequest,
+    MaterialLotId, ReservedDepositPlan, ReservedDepositPlanError, ReservedDepositRequest,
     STORAGE_AGE_PARTS_PER_TICK, StockpileId, StockpileStoredMassChange,
     StockpileStructuralLoadError, ValidatedStockpileStructuralLoad, apply_reserved_deposits,
     decide_reserved_deposits, validate_stockpile_stored_mass_changes,
 };
+use crate::material::MaterialLotSpec;
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
@@ -25,6 +26,39 @@ pub enum MiningClaimError {
     StorageAgeOverflow,
     DestinationMassOverflow { stockpile: StockpileId },
     StructuralLoad(StockpileStructuralLoadError),
+}
+
+/// Observable result of transferring one ready mining output into inventory custody.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MiningClaimReceipt {
+    job: MiningJobId,
+    destination: StockpileId,
+    output: MaterialLotSpec,
+    landed_lot: MaterialLotId,
+}
+
+impl MiningClaimReceipt {
+    #[must_use]
+    pub const fn job(&self) -> MiningJobId {
+        self.job
+    }
+
+    #[must_use]
+    pub const fn destination(&self) -> StockpileId {
+        self.destination
+    }
+
+    /// Returns the exact claimed contribution before any inventory coalescing.
+    #[must_use]
+    pub const fn output(&self) -> &MaterialLotSpec {
+        &self.output
+    }
+
+    /// Returns the merge-aware inventory identity that survived admission of the claimed output.
+    #[must_use]
+    pub const fn landed_lot(&self) -> MaterialLotId {
+        self.landed_lot
+    }
 }
 
 impl Display for MiningClaimError {
@@ -120,6 +154,7 @@ impl Error for MiningClaimCommitError {
 #[must_use]
 pub struct ValidatedMiningClaim {
     job: MiningJobId,
+    output: MaterialLotSpec,
     expected_mining_revision: u64,
     next_mining_revision: u64,
     inventory: ReservedDepositPlan,
@@ -127,7 +162,10 @@ pub struct ValidatedMiningClaim {
 }
 
 impl ValidatedMiningClaim {
-    pub fn commit(self, state: &mut AppState) -> Result<(), MiningClaimCommitError> {
+    pub fn commit(
+        self,
+        state: &mut AppState,
+    ) -> Result<MiningClaimReceipt, MiningClaimCommitError> {
         if state.inventory().revision() != self.inventory.expected_revision() {
             return Err(MiningClaimCommitError::StaleInventory {
                 expected: self.inventory.expected_revision(),
@@ -150,13 +188,36 @@ impl ValidatedMiningClaim {
             load.commit(state)
                 .map_err(MiningClaimCommitError::Structure)?;
         }
-        apply_reserved_deposits(state.inventory_state_mut(), self.inventory);
+        let mut receipts = apply_reserved_deposits(state.inventory_state_mut(), self.inventory);
+        assert_eq!(
+            receipts.len(),
+            1,
+            "one mining claim must produce exactly one reserved inventory landing receipt"
+        );
+        let receipt = receipts
+            .pop()
+            .unwrap_or_else(|| unreachable!("mining claim receipt cardinality checked above"));
+        let destination = receipt.destination();
+        let mut landed_lots = receipt.into_lot_ids();
+        assert_eq!(
+            landed_lots.len(),
+            1,
+            "one mining claim must land exactly one output parcel"
+        );
+        let landed_lot = landed_lots
+            .pop()
+            .unwrap_or_else(|| unreachable!("mining claim landing cardinality checked above"));
         state.mining_state_mut().remove_ready_job(
             self.job,
             self.expected_mining_revision,
             self.next_mining_revision,
         );
-        Ok(())
+        Ok(MiningClaimReceipt {
+            job: self.job,
+            destination,
+            output: self.output,
+            landed_lot,
+        })
     }
 }
 
@@ -172,7 +233,8 @@ pub fn validate_claim_mining_output(
     if !record.is_ready_to_claim() {
         return Err(MiningClaimError::NotReady { job });
     }
-    let mass = record.output().mass();
+    let output = record.output().clone();
+    let mass = output.mass();
     let unclaimed_ticks = state
         .tick()
         .value()
@@ -190,7 +252,7 @@ pub fn validate_claim_mining_output(
         state.tick(),
         vec![ReservedDepositRequest::new(
             record.destination(),
-            vec![record.output().clone()],
+            vec![output.clone()],
             storage_age_parts,
         )],
     )
@@ -224,9 +286,14 @@ pub fn validate_claim_mining_output(
         .ok_or(MiningClaimError::MiningRevisionExhausted)?;
     Ok(ValidatedMiningClaim {
         job,
+        output,
         expected_mining_revision,
         next_mining_revision,
         inventory,
         structural_load,
     })
 }
+
+#[cfg(test)]
+#[path = "claim_tests.rs"]
+mod tests;

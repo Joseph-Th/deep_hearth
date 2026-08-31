@@ -3,7 +3,9 @@
 mod completion;
 mod start;
 
-pub use completion::{ProcessCompletion, ProductionAvailabilityChange};
+pub use completion::{
+    ProcessCompletion, ProcessOutputLanding, ProcessParcelLanding, ProductionAvailabilityChange,
+};
 pub use start::{
     ProcessOutputRoute, StartProcessCommitError, StartProcessError, ValidatedStartProcess,
     validate_start_process, validate_start_process_routed,

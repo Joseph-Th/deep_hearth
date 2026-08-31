@@ -7,13 +7,13 @@ use crate::energy::{
     ReleasedEnergyTrace, apply_released_energy_outcomes, assert_released_energy_outcomes_available,
 };
 use crate::equipment::EquipmentOperationConditionOutcome;
-use crate::inventory::{ReservedDepositPlan, apply_reserved_deposits};
+use crate::inventory::{ReservedDepositPlan, ReservedDepositReceipt, apply_reserved_deposits};
 
 use super::super::start::ProcessOutputRoute;
 use super::{
     CompletionApplication, CompletionCommitError, CompletionPlan, CompletionPlanEntry,
     CompletionRevisionPlan, PlayerLaborRevisionDependencies, ProcessCompletion,
-    ProductionAvailabilityChange,
+    ProcessOutputLanding, ProcessParcelLanding, ProductionAvailabilityChange,
 };
 
 /// Applies a decided due-job plan in stable job-ID order.
@@ -81,8 +81,8 @@ pub(crate) fn apply_completion_plan(
     }
 
     apply_availability_changes(state, &availability_changes);
-    apply_reserved_deposits(state.inventory_state_mut(), inventory_deposits);
-    let completions = apply_completion_entries(state, entries);
+    let landing_receipts = apply_reserved_deposits(state.inventory_state_mut(), inventory_deposits);
+    let completions = apply_completion_entries(state, entries, landing_receipts);
     apply_completion_resource_outcomes(
         state,
         !completions.is_empty(),
@@ -135,6 +135,11 @@ fn assert_completion_entries_match_state(state: &AppState, entries: &[Completion
                 stored_stream.destination(),
                 planned_stream.destination,
                 "validated completion output destination changed before commit"
+            );
+            assert_eq!(
+                stored_stream.outputs(),
+                planned_stream.outputs,
+                "validated completion output parcels changed before commit"
             );
         }
         state.production().assert_job_removable(entry.job);
@@ -324,7 +329,18 @@ fn apply_availability_changes(state: &mut AppState, changes: &[ProductionAvailab
 fn apply_completion_entries(
     state: &mut AppState,
     entries: Vec<CompletionPlanEntry>,
+    landing_receipts: Vec<ReservedDepositReceipt>,
 ) -> Vec<ProcessCompletion> {
+    let expected_landings = entries
+        .iter()
+        .map(|entry| entry.output_streams.len())
+        .sum::<usize>();
+    assert_eq!(
+        landing_receipts.len(),
+        expected_landings,
+        "production completion must receive one inventory landing receipt per output stream"
+    );
+    let mut landing_receipts = landing_receipts.into_iter();
     let mut completions = Vec::with_capacity(entries.len());
     for entry in entries {
         let CompletionPlanEntry {
@@ -336,14 +352,50 @@ fn apply_completion_entries(
             .iter()
             .map(|stream| ProcessOutputRoute::new(stream.id, stream.destination))
             .collect::<Vec<_>>();
+        let landings = output_streams
+            .iter()
+            .map(|stream| {
+                let receipt = landing_receipts.next().unwrap_or_else(|| {
+                    unreachable!("validated completion landing count was checked above")
+                });
+                assert_eq!(
+                    receipt.destination(),
+                    stream.destination,
+                    "inventory landing receipt destination must match its production output route"
+                );
+                let lot_ids = receipt.into_lot_ids();
+                assert_eq!(
+                    lot_ids.len(),
+                    stream.outputs.len(),
+                    "production completion must receive one landing identity per output parcel"
+                );
+                let parcels = stream
+                    .outputs
+                    .iter()
+                    .cloned()
+                    .zip(lot_ids)
+                    .map(|(output, lot)| ProcessParcelLanding { lot, output })
+                    .collect();
+                ProcessOutputLanding {
+                    stream: stream.id,
+                    destination: stream.destination,
+                    parcels,
+                }
+            })
+            .collect::<Vec<_>>();
         let removed = state.production_state_mut().remove_job(job);
         assert_eq!(removed.process(), process);
         completions.push(ProcessCompletion {
             job,
             process,
             routes,
+            landings,
         });
     }
+    assert!(
+        landing_receipts.next().is_none(),
+        "production completion left an unmatched inventory landing receipt"
+    );
     completions
 }
 

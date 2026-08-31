@@ -391,7 +391,8 @@ mod errors;
 mod tick;
 
 pub use claim::{
-    MiningClaimCommitError, MiningClaimError, ValidatedMiningClaim, validate_claim_mining_output,
+    MiningClaimCommitError, MiningClaimError, MiningClaimReceipt, ValidatedMiningClaim,
+    validate_claim_mining_output,
 };
 pub use errors::{MiningStartCommitError, MiningStartError};
 pub(crate) use tick::{MiningTickError, apply_mining_tick, decide_mining_tick};

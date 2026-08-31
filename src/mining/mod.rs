@@ -9,8 +9,8 @@ mod validation;
 
 pub use definitions::{MiningMethodDefinition, MiningMethodId, MiningRegistry};
 pub use execution::{
-    MiningClaimCommitError, MiningClaimError, MiningStartCommitError, MiningStartError,
-    ValidatedMiningClaim, ValidatedMiningStart, validate_claim_mining_output,
+    MiningClaimCommitError, MiningClaimError, MiningClaimReceipt, MiningStartCommitError,
+    MiningStartError, ValidatedMiningClaim, ValidatedMiningStart, validate_claim_mining_output,
     validate_start_mining,
 };
 pub(crate) use execution::{MiningTickError, apply_mining_tick, decide_mining_tick};

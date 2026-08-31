@@ -219,7 +219,7 @@ fn direct_consumption_claims_quantity_scaled_player_attention() {
     )
     .unwrap_or_else(|error| panic!("attention drink fixture failed: {error}"));
 
-    let _meal = validate_eat(
+    let meal = validate_eat(
         &registries,
         &state,
         stockpile,
@@ -239,6 +239,7 @@ fn direct_consumption_claims_quantity_scaled_player_attention() {
     let PlayerWork::Eating { work } = active else {
         panic!("eating claimed wrong player-work kind: {active:?}");
     };
+    assert_eq!(meal.completes_at(), work.completes_at());
     assert_eq!(work.mass(), Mass::from_milligrams(100_000));
     assert_eq!(
         work.completes_at().value() - work.started_at().value(),

@@ -26,6 +26,8 @@ AUTHORITY_FILES = (
     "ARCHITECTURE.md",
     "TECHNICAL_DESIGN.md",
     "GAME_DESIGN.md",
+    "DIRECTION.md",
+    "GAMEPLAY_EVALUATION.md",
 )
 
 EXPECTED_BCA_POLICY = "**BCA policy:** ratchet"
@@ -37,6 +39,101 @@ EXPECTED_PROFILES = {
 }
 
 IGNORED_DOCUMENTATION_ROOTS = {".git", "target"}
+COLD_START_DOCUMENT_MAX_BYTES = {
+    "AGENTS.md": 4_200,
+    "README.md": 11_000,
+    "STATUS.md": 12_500,
+    "TESTING.md": 10_500,
+}
+# Preserve reserve below the tool-facing cold-start envelope. New orientation prose must earn
+# context budget rather than consuming the entire envelope by default.
+COLD_START_TOTAL_MAX_BYTES = 38_000
+
+REQUIRED_AUTHORITY_SECTIONS = {
+    "AGENTS.md": ("Cold start", "Operating protocol", "Guardrails", "Completion"),
+    "README.md": (
+        "Orientation",
+        "Abstraction ladder",
+        "Control coordinate",
+        "Source role map",
+        "Authorities",
+        "Task map",
+        "Change-impact map",
+    ),
+    "STATUS.md": (
+        "Ordinary play",
+        "Current integration frontier",
+        "Implemented infrastructure",
+        "Capability-only evaluation",
+        "Absent scope",
+    ),
+    "TESTING.md": (
+        "Fast path",
+        "Evidence ladder",
+        "Complexity review",
+        "Unit tests",
+        "Gameplay evaluation",
+        "Completion",
+    ),
+    "ARCHITECTURE.md": (
+        "Contract map",
+        "State model",
+        "Agent-legible control grammar",
+        "Abstraction and dependency direction",
+        "Ownership",
+        "Mutation and failure",
+        "Determinism",
+        "Persistence and adapters",
+        "Invariants",
+        "Cross-owner flow discipline",
+        "API and representation rules",
+        "Naming",
+        "Source and comment contracts",
+    ),
+    "TECHNICAL_DESIGN.md": (
+        "Contract map",
+        "System control model",
+        "Subsystem contract card",
+        "Global runtime facts",
+        "Runtime owners",
+        "Physical quantities",
+        "Materials, inventory, and geology",
+        "Production and processing",
+        "Equipment, labor, survival, energy, and fluids",
+        "Structures",
+        "Spatial and presentation boundaries",
+        "Trusted load",
+    ),
+    "GAME_DESIGN.md": (
+        "Design map",
+        "Core experience",
+        "Design laws",
+        "Control-oriented legibility",
+        "Player loop",
+        "System direction",
+        "Progression",
+        "Player information",
+        "Mechanic acceptance",
+        "Development direction",
+        "Boundary",
+    ),
+    "DIRECTION.md": (
+        "Planning map",
+        "Accretion objective",
+        "Control-surface program",
+        "Default integration sequence",
+        "Vertical-slice completion contract",
+        "What not to accrete",
+    ),
+    "GAMEPLAY_EVALUATION.md": (
+        "Evaluation map",
+        "Actor contract",
+        "Evidence modes",
+        "Decision evidence",
+        "Focused scopes",
+        "Counterfactual and replay discipline",
+    ),
+}
 
 REQUIRED_LINKS = {
     # README is the routing hub. Other authority pages link back to it instead of reproducing
@@ -44,6 +141,8 @@ REQUIRED_LINKS = {
     "README.md": {
         "AGENTS.md",
         "ARCHITECTURE.md",
+        "DIRECTION.md",
+        "GAMEPLAY_EVALUATION.md",
         "GAME_DESIGN.md",
         "TECHNICAL_DESIGN.md",
         "STATUS.md",
@@ -52,12 +151,15 @@ REQUIRED_LINKS = {
     "AGENTS.md": {"README.md"},
     "ARCHITECTURE.md": {"README.md"},
     "GAME_DESIGN.md": {"README.md"},
+    "DIRECTION.md": {"README.md"},
+    "GAMEPLAY_EVALUATION.md": {"README.md", "TESTING.md"},
     "TECHNICAL_DESIGN.md": {"README.md"},
     "STATUS.md": {"README.md"},
     "TESTING.md": {"README.md"},
 }
 
 MARKDOWN_LINK = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+MARKDOWN_HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$", re.MULTILINE)
 CARGO_COMMAND = re.compile(r"\bcargo\s+([^\s`]+)")
 INLINE_CODE = re.compile(r"`([^`\n]+)`")
 CI_BRACED_CHOICE = re.compile(r"\{([^{}]+)\}")
@@ -66,19 +168,60 @@ ROUTE_REFERENCE = re.compile(
     r"(\.\./[A-Za-z0-9_./-]+|"
     r"(?:src|tests|tools|assets|\.cargo)/[A-Za-z0-9_./-]+|"
     r"(?:ci\.py|Cargo\.toml|README\.md|STATUS\.md|TESTING\.md|ARCHITECTURE\.md|"
-    r"TECHNICAL_DESIGN\.md|GAME_DESIGN\.md|AGENTS\.md|TASKS\.md))"
+    r"TECHNICAL_DESIGN\.md|GAME_DESIGN\.md|DIRECTION\.md|GAMEPLAY_EVALUATION\.md|AGENTS\.md|TASKS\.md))"
 )
+PUBLIC_TOP_LEVEL_MODULE = re.compile(r"^pub mod ([a-z_][a-z0-9_]*);$", re.MULTILINE)
+SYSTEM_STATE_FIELD = re.compile(
+    r"^\s*[a-z_][A-Za-z0-9_]*:\s*([A-Za-z][A-Za-z0-9_]*),\s*$", re.MULTILINE
+)
+DOCUMENTED_RUNTIME_OWNER = re.compile(
+    r"^\|\s*`([A-Za-z][A-Za-z0-9_]*State)`\s*\|", re.MULTILINE
+)
+DOCUMENTED_SOURCE_MODULE = re.compile(r"`src/([a-z_][a-z0-9_]*)/`")
+PUBLIC_MUT_SELF = re.compile(
+    r"^\s*pub(?:\s+const)?\s+fn\s+([a-z_][a-z0-9_]*)\s*\(\s*&mut\s+self",
+    re.MULTILINE,
+)
+LEVEL_TWO_HEADING = re.compile(r"^## ([^\r\n]+?)\s*$", re.MULTILINE)
 
 
-def link_target(raw: str) -> str | None:
+def local_link_parts(raw: str) -> tuple[str, str | None] | None:
     target = raw.strip()
     if target.startswith("<") and ">" in target:
         target = target[1 : target.index(">")]
     else:
         target = target.split(maxsplit=1)[0]
-    if not target or target.startswith(("#", "http://", "https://", "mailto:")):
+    if not target or target.startswith(("http://", "https://", "mailto:")):
         return None
-    return unquote(target.split("#", maxsplit=1)[0])
+    path, separator, fragment = target.partition("#")
+    return unquote(path), unquote(fragment) if separator else None
+
+
+def link_target(raw: str) -> str | None:
+    """Return only the local path portion retained for callers that do not need anchors."""
+
+    parts = local_link_parts(raw)
+    if parts is None or not parts[0]:
+        return None
+    return parts[0]
+
+
+def markdown_heading_anchors(text: str) -> set[str]:
+    """Return GitHub-style anchors for maintained Markdown headings, including duplicate suffixes."""
+
+    counts: dict[str, int] = {}
+    anchors: set[str] = set()
+    for raw_heading in MARKDOWN_HEADING.findall(text):
+        heading = re.sub(r"`([^`]*)`", r"\1", raw_heading)
+        heading = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", heading)
+        base = re.sub(r"[^\w\- ]", "", heading.lower(), flags=re.UNICODE)
+        base = re.sub(r"\s+", "-", base.strip())
+        if not base:
+            continue
+        duplicate_index = counts.get(base, 0)
+        counts[base] = duplicate_index + 1
+        anchors.add(base if duplicate_index == 0 else f"{base}-{duplicate_index}")
+    return anchors
 
 
 def project_relative(path: Path) -> str:
@@ -94,6 +237,153 @@ def resolve_route(document: Path, route: str) -> Path:
     if route.startswith("../"):
         return (document.parent / route).resolve()
     return (ROOT / route).resolve()
+
+
+def markdown_section(text: str, heading: str) -> str:
+    """Return one level-two Markdown section body without lower-level heading parsing."""
+
+    marker = f"## {heading}"
+    start = text.find(marker)
+    if start < 0:
+        return ""
+    body_start = start + len(marker)
+    next_heading = text.find("\n## ", body_start)
+    if next_heading < 0:
+        return text[body_start:]
+    return text[body_start:next_heading]
+
+
+def public_top_level_modules() -> list[str]:
+    """Return the crate's public top-level modules in source declaration order."""
+
+    text = (ROOT / "src" / "lib.rs").read_text(encoding="utf-8")
+    return PUBLIC_TOP_LEVEL_MODULE.findall(text)
+
+
+def documented_source_role_modules(readme: str) -> list[str]:
+    """Return top-level modules classified by README's source-role map."""
+
+    return DOCUMENTED_SOURCE_MODULE.findall(markdown_section(readme, "Source role map"))
+
+
+def system_state_owner_types() -> list[str]:
+    """Return durable root owner types from `SystemState` in persisted field order."""
+
+    text = (ROOT / "src" / "core" / "state.rs").read_text(encoding="utf-8")
+    match = re.search(r"struct SystemState\s*\{(?P<body>.*?)\n\}", text, re.DOTALL)
+    if match is None:
+        return []
+    return SYSTEM_STATE_FIELD.findall(match.group("body"))
+
+
+def documented_runtime_owner_types(technical_design: str) -> list[str]:
+    """Return the runtime-owner atlas types in documented order."""
+
+    return DOCUMENTED_RUNTIME_OWNER.findall(markdown_section(technical_design, "Runtime owners"))
+
+
+def public_root_mutator_names(state_source: str) -> list[str]:
+    """Return public mutable-self methods forbidden on the AppState/root-state source surface."""
+
+    return PUBLIC_MUT_SELF.findall(state_source)
+
+
+def check_cold_start_context_budget(documents: dict[str, str]) -> list[str]:
+    """Bound automatically loaded orientation prose so cold-start context cannot grow invisibly."""
+
+    errors: list[str] = []
+    total = 0
+    for relative, maximum in COLD_START_DOCUMENT_MAX_BYTES.items():
+        size = len(documents.get(relative, "").encode("utf-8"))
+        total += size
+        if size > maximum:
+            errors.append(
+                f"{relative}: cold-start document is {size} bytes; budget is {maximum} bytes"
+            )
+    if total > COLD_START_TOTAL_MAX_BYTES:
+        errors.append(
+            "cold-start authority set is "
+            f"{total} bytes; aggregate budget is {COLD_START_TOTAL_MAX_BYTES} bytes"
+        )
+    return errors
+
+
+def cold_start_context_usage(documents: dict[str, str]) -> tuple[int, int]:
+    """Return current cold-start bytes and reserved aggregate headroom."""
+
+    used = sum(
+        len(documents.get(relative, "").encode("utf-8"))
+        for relative in COLD_START_DOCUMENT_MAX_BYTES
+    )
+    return used, max(0, COLD_START_TOTAL_MAX_BYTES - used)
+
+
+def check_required_authority_sections(documents: dict[str, str]) -> list[str]:
+    """Keep stable level-two routing landmarks present and unambiguous in authority pages."""
+
+    errors: list[str] = []
+    for relative, required in REQUIRED_AUTHORITY_SECTIONS.items():
+        headings = LEVEL_TWO_HEADING.findall(documents.get(relative, ""))
+        duplicate_headings = sorted(
+            heading for heading in set(headings) if headings.count(heading) > 1
+        )
+        if duplicate_headings:
+            errors.append(
+                f"{relative}: duplicate level-two authority headings: "
+                + ", ".join(duplicate_headings)
+            )
+        missing = [heading for heading in required if heading not in headings]
+        if missing:
+            errors.append(
+                f"{relative}: missing required authority sections: " + ", ".join(missing)
+            )
+    return errors
+
+
+def check_source_orientation_maps(documents: dict[str, str]) -> list[str]:
+    """Keep agent routing maps synchronized with the live crate and persistent root state."""
+
+    errors: list[str] = []
+    readme_modules = documented_source_role_modules(documents.get("README.md", ""))
+    source_modules = public_top_level_modules()
+    duplicate_modules = sorted(
+        module for module in set(readme_modules) if readme_modules.count(module) != 1
+    )
+    missing_modules = sorted(set(source_modules) - set(readme_modules))
+    extra_modules = sorted(set(readme_modules) - set(source_modules))
+    if duplicate_modules:
+        errors.append(
+            "README.md: source role map classifies modules more than once: "
+            + ", ".join(duplicate_modules)
+        )
+    if missing_modules:
+        errors.append(
+            "README.md: source role map is missing public top-level modules: "
+            + ", ".join(missing_modules)
+        )
+    if extra_modules:
+        errors.append(
+            "README.md: source role map names non-public top-level modules: "
+            + ", ".join(extra_modules)
+        )
+
+    source_owners = system_state_owner_types()
+    documented_owners = documented_runtime_owner_types(documents.get("TECHNICAL_DESIGN.md", ""))
+    if not source_owners:
+        errors.append("src/core/state.rs: could not discover SystemState runtime owners")
+    elif documented_owners != source_owners:
+        errors.append(
+            "TECHNICAL_DESIGN.md: runtime owner atlas must match SystemState field types in order; "
+            f"documented={documented_owners!r} source={source_owners!r}"
+        )
+    state_source = (ROOT / "src" / "core" / "state.rs").read_text(encoding="utf-8")
+    public_mutators = public_root_mutator_names(state_source)
+    if public_mutators:
+        errors.append(
+            "src/core/state.rs: root state exposes public mutable-self methods: "
+            + ", ".join(public_mutators)
+        )
+    return errors
 
 
 def documentation_files() -> tuple[str, ...]:
@@ -168,15 +458,21 @@ def inspect_markdown_links(relative: str, text: str) -> tuple[list[str], set[str
     checked = 0
     document = ROOT / relative
     for match in MARKDOWN_LINK.finditer(text):
-        target = link_target(match.group(1))
-        if target is None:
+        parts = local_link_parts(match.group(1))
+        if parts is None:
             continue
+        target, fragment = parts
         checked += 1
-        resolved = (document.parent / target).resolve()
+        resolved = document.resolve() if not target else (document.parent / target).resolve()
         if not resolved.exists():
             errors.append(f"{relative}: broken local Markdown link: {target}")
             continue
         links.add(project_relative(resolved))
+        if fragment and resolved.suffix.lower() == ".md":
+            target_text = text if resolved == document.resolve() else resolved.read_text(encoding="utf-8")
+            if fragment.lower() not in markdown_heading_anchors(target_text):
+                display = f"{target}#{fragment}" if target else f"#{fragment}"
+                errors.append(f"{relative}: broken local Markdown anchor: {display}")
     return errors, links, checked
 
 
@@ -299,6 +595,9 @@ def check_authority_graph() -> list[str]:
         checked_aliases += alias_count
 
     errors.extend(check_execution_card(documents))
+    errors.extend(check_cold_start_context_budget(documents))
+    errors.extend(check_required_authority_sections(documents))
+    errors.extend(check_source_orientation_maps(documents))
 
     for command, sources in sorted(documented_ci_commands.items()):
         error = ci_command_error(command)
@@ -310,11 +609,15 @@ def check_authority_graph() -> list[str]:
     if errors:
         return errors
 
+    cold_start_used, cold_start_reserve = cold_start_context_usage(documents)
+
     print(
         "documentation-contracts: PASS "
         f"({len(documents)} documents, {len(AUTHORITY_FILES)} authority pages, {checked_links} links, "
         f"{checked_routes} routes, {checked_aliases} Cargo aliases, "
-        f"{len(documented_ci_commands)} local CI commands)"
+        f"{len(documented_ci_commands)} local CI commands, "
+        f"cold-start {cold_start_used}/{COLD_START_TOTAL_MAX_BYTES} bytes, "
+        f"reserve {cold_start_reserve} bytes)"
     )
     return []
 

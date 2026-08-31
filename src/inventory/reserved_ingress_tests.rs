@@ -38,9 +38,12 @@ fn reserved_deposit_plan_owns_lot_ids_and_revision_advance() {
     assert_eq!(plan.expected_revision(), expected_revision);
     assert_eq!(state.inventory().revision(), expected_revision);
 
-    apply_reserved_deposits(state.inventory_state_mut(), plan);
+    let receipts = apply_reserved_deposits(state.inventory_state_mut(), plan);
 
     assert_eq!(state.inventory().revision(), expected_revision + 1);
+    assert_eq!(receipts.len(), 1);
+    assert_eq!(receipts[0].destination(), destination);
+    assert_eq!(receipts[0].lot_ids(), [MaterialLotId::new(first_lot_id)]);
     let destination_record = state
         .inventory()
         .get_stockpile(destination)
@@ -69,9 +72,10 @@ fn empty_reserved_deposit_plan_is_a_true_noop() {
     )
     .unwrap_or_else(|error| panic!("empty reserved ingress planning failed: {error:?}"));
 
-    apply_reserved_deposits(state.inventory_state_mut(), plan);
+    let receipts = apply_reserved_deposits(state.inventory_state_mut(), plan);
 
     assert_eq!(state, before);
+    assert!(receipts.is_empty());
 }
 
 #[test]
@@ -106,10 +110,16 @@ fn reserved_output_merges_without_consuming_an_unused_lot_identity() {
     )
     .unwrap_or_else(|error| panic!("reserved ingress merge planning failed: {error:?}"));
 
-    apply_reserved_deposits(state.inventory_state_mut(), plan);
+    let receipts = apply_reserved_deposits(state.inventory_state_mut(), plan);
 
     assert_eq!(state.inventory().next_lot_id(), cursor_before);
     assert_eq!(state.inventory().lot_ids(destination).count(), 1);
+    let surviving = state
+        .inventory()
+        .lot_ids(destination)
+        .next()
+        .unwrap_or_else(|| panic!("reserved ingress merge lost its surviving lot"));
+    assert_eq!(receipts[0].lot_ids(), [surviving]);
     assert_eq!(
         state
             .inventory()

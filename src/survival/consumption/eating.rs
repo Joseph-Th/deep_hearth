@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 use crate::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass};
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::inventory::{
     ExplicitConsumptionSelectionError, MaterialEgressError, MaterialLotId, MaterialLotSelection,
     StockpileId, StockpileStoredMassChange, ValidatedMaterialEgress,
@@ -96,6 +97,7 @@ pub struct EatOutcome {
     energy_offered: Energy,
     hydration_offered: AggregateVolume,
     nutrition_offered: NutritionGain,
+    completes_at: SimulationTick,
 }
 
 impl EatOutcome {
@@ -117,6 +119,11 @@ impl EatOutcome {
     #[must_use]
     pub const fn nutrition_offered(&self) -> NutritionGain {
         self.nutrition_offered
+    }
+    /// Returns the authoritative tick when this admitted meal finishes releasing attention.
+    #[must_use]
+    pub const fn completes_at(&self) -> SimulationTick {
+        self.completes_at
     }
 }
 
@@ -280,6 +287,7 @@ pub fn validate_eat(
             energy_offered: absorption_offer.energy(),
             hydration_offered: absorption_offer.hydration(),
             nutrition_offered: absorption_offer.nutrition(),
+            completes_at,
         },
     })
 }
