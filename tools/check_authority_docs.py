@@ -62,7 +62,6 @@ REQUIRED_AUTHORITY_SECTIONS = {
     ),
     "STATUS.md": (
         "Ordinary play",
-        "Current integration frontier",
         "Implemented infrastructure",
         "Capability-only evaluation",
         "Absent scope",
