@@ -12,6 +12,9 @@ pub(in super::super) enum PreservationInvestmentPolicy {
 }
 
 impl PreservationInvestmentPolicy {
+    #[cfg(test)]
+    pub(in super::super) const ALL: [Self; 2] = [Self::AttentionEfficient, Self::MaximumProtection];
+
     pub(super) const fn label(self) -> &'static str {
         match self {
             Self::AttentionEfficient => "attention-efficient",

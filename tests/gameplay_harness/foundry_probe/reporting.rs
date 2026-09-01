@@ -21,6 +21,11 @@ pub(super) struct FoundryReport {
     pub(super) recovery_cast: Mass,
     pub(super) recovery_limit: &'static str,
     pub(super) molten_final: Mass,
+    pub(super) heating_strategy: &'static str,
+    pub(super) direct_heating_mass: Mass,
+    pub(super) direct_heating_duration: TickSpan,
+    pub(super) preheated_mass: Mass,
+    pub(super) preheated_duration: TickSpan,
     pub(super) preheat_applied: bool,
     pub(super) preheat_target: Temperature,
     pub(super) preheat_energy: Energy,
@@ -54,7 +59,7 @@ impl FoundryReport {
 
     fn print_verbose(self) {
         std::println!(
-            "CAPABILITY FOUNDRY seed=0x{:016X} sample={} outcome={} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[sensible-heating,phase-change,copper-recovery,finite-electrical-input,finite-thermal-recovery,passive-heat-rejection,wear] feed-form={} offered={}mg melted={}mg unmelted={}mg melt-limit={} first-cast={}mg cast-limit={} molten-after-first={}mg recovery-cast={}mg recovery-limit={} molten-final={}mg preheat=[applied:{} target:{}mK energy:{}nJ duration:{}t] initial-condition=[furnace:{} mold:{}ppm] electrical=[initial:{}nJ melt:{}nJ remaining:{}nJ] thermal=[initial:{}nJ pre-cast:{}nJ no-cast-baseline:{}nJ released:{}nJ captured:{}nJ cooled:{}nJ cooldown:{}t recovery-heat:{}nJ] durations=[melt:{}t cast:{}t recovery-cast:{}t] matter=conserved",
+            "CAPABILITY FOUNDRY seed=0x{:016X} sample={} outcome={} reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[sensible-heating-counterfactual,phase-change,copper-recovery,finite-electrical-input,finite-thermal-recovery,passive-heat-rejection,wear] feed-form={} offered={}mg melted={}mg unmelted={}mg melt-limit={} first-cast={}mg cast-limit={} molten-after-first={}mg recovery-cast={}mg recovery-limit={} molten-final={}mg heating=[chosen:{} direct:{}mg/{}t preheated:{}mg/{}t] preheat=[applied:{} target:{}mK energy:{}nJ duration:{}t] initial-condition=[furnace:{} mold:{}ppm] electrical=[initial:{}nJ melt:{}nJ remaining:{}nJ] thermal=[initial:{}nJ pre-cast:{}nJ no-cast-baseline:{}nJ released:{}nJ captured:{}nJ cooled:{}nJ cooldown:{}t recovery-heat:{}nJ] durations=[melt:{}t cast:{}t recovery-cast:{}t] matter=conserved",
             self.seed,
             self.sample,
             self.outcome,
@@ -69,6 +74,11 @@ impl FoundryReport {
             self.recovery_cast.milligrams(),
             self.recovery_limit,
             self.molten_final.milligrams(),
+            self.heating_strategy,
+            self.direct_heating_mass.milligrams(),
+            self.direct_heating_duration.value(),
+            self.preheated_mass.milligrams(),
+            self.preheated_duration.value(),
             self.preheat_applied,
             self.preheat_target.millikelvin(),
             self.preheat_energy.nanojoules(),
@@ -94,7 +104,7 @@ impl FoundryReport {
 
     fn print_review(self) {
         std::println!(
-            "FOUNDRY REVIEW seed=0x{:016X} sample={} role=capability-only outcome={} pipeline=preheat->melt->cast->passive-cool->retry feed-form={} offered={}mg melted={}mg unmelted={}mg melt-limit={} first-cast={}mg cast-limit={} molten-after-first={}mg recovery-cast={}mg recovery-limit={} molten-final={}mg preheat=[applied:{} target:{}mK energy:{}nJ duration:{}t] electrical=[melt:{}nJ remaining:{}nJ] thermal=[initial:{}nJ pre-cast:{}nJ no-cast-baseline:{}nJ captured:{}nJ cooldown:{}t cooled:{}nJ recovery-heat:{}nJ] durations=[melt:{}t cast:{}t recovery-cast:{}t] matter=conserved",
+            "FOUNDRY REVIEW seed=0x{:016X} sample={} role=capability-only outcome={} pipeline=choose-heating->melt->cast->passive-cool->retry feed-form={} offered={}mg melted={}mg unmelted={}mg melt-limit={} first-cast={}mg cast-limit={} molten-after-first={}mg recovery-cast={}mg recovery-limit={} molten-final={}mg heating=[chosen:{} direct:{}mg/{}t preheated:{}mg/{}t] preheat=[applied:{} target:{}mK energy:{}nJ duration:{}t] electrical=[melt:{}nJ remaining:{}nJ] thermal=[initial:{}nJ pre-cast:{}nJ no-cast-baseline:{}nJ captured:{}nJ cooldown:{}t cooled:{}nJ recovery-heat:{}nJ] durations=[melt:{}t cast:{}t recovery-cast:{}t] matter=conserved",
             self.seed,
             self.sample,
             self.outcome,
@@ -109,6 +119,11 @@ impl FoundryReport {
             self.recovery_cast.milligrams(),
             self.recovery_limit,
             self.molten_final.milligrams(),
+            self.heating_strategy,
+            self.direct_heating_mass.milligrams(),
+            self.direct_heating_duration.value(),
+            self.preheated_mass.milligrams(),
+            self.preheated_duration.value(),
             self.preheat_applied,
             self.preheat_target.millikelvin(),
             self.preheat_energy.nanojoules(),

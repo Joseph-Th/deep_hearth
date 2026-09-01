@@ -44,6 +44,92 @@ fn greatest_common_divisor(mut left: u64, mut right: u64) -> u64 {
     left
 }
 
+fn ore_chain_energy_requirement(registries: &Registries, batch_mass: Mass) -> Energy {
+    let crusher = registries
+        .ore_processing()
+        .get_comminution(PROCESS_CRUSH_ORE)
+        .unwrap_or_else(|| panic!("canonical crusher definition disappeared"));
+    let grinder = registries
+        .ore_processing()
+        .get_comminution(PROCESS_GRIND_CRUSHED_ORE)
+        .unwrap_or_else(|| panic!("canonical grinder definition disappeared"));
+    let screening = registries
+        .ore_processing()
+        .get_screening(PROCESS_SCREEN_CRUSHED_ORE)
+        .unwrap_or_else(|| panic!("canonical screen definition disappeared"));
+    let fine_grind = registries
+        .ore_processing()
+        .get_comminution(PROCESS_FINE_GRIND_SCREEN_OVERSIZE)
+        .unwrap_or_else(|| panic!("canonical fine-grind definition disappeared"));
+    let concentration = registries
+        .ore_processing()
+        .get_constituent_separation(PROCESS_CONCENTRATE_COPPER)
+        .unwrap_or_else(|| panic!("canonical copper concentration definition disappeared"));
+    let distribution = grinder.output_particle_size_distribution();
+    let aperture = screening.aperture();
+    let undersize_weight = distribution
+        .classes()
+        .iter()
+        .filter(|class| class.range().maximum_diameter() <= aperture)
+        .map(|class| u64::from(class.weight()))
+        .sum::<u64>();
+    let total_weight = distribution.total_weight();
+    let oversize_weight = total_weight
+        .checked_sub(undersize_weight)
+        .unwrap_or_else(|| unreachable!("screen undersize weight cannot exceed total weight"));
+    let weighted_oversize = u128::from(batch_mass.milligrams()) * u128::from(oversize_weight);
+    assert_eq!(
+        weighted_oversize % u128::from(total_weight),
+        0,
+        "planned ore batch must preserve the authored screen partition at whole-milligram resolution"
+    );
+    let oversize_mass = Mass::from_milligrams(
+        u64::try_from(weighted_oversize / u128::from(total_weight))
+            .unwrap_or_else(|_| unreachable!("screened oversize mass fits u64")),
+    );
+    [
+        calculate_mass_specific_energy(batch_mass, crusher.specific_energy()),
+        calculate_mass_specific_energy(batch_mass, grinder.specific_energy()),
+        calculate_mass_specific_energy(batch_mass, screening.specific_energy()),
+        calculate_mass_specific_energy(oversize_mass, fine_grind.specific_energy()),
+        calculate_mass_specific_energy(batch_mass, concentration.specific_energy()),
+    ]
+    .into_iter()
+    .try_fold(Energy::ZERO, |total, energy| total.checked_add(energy))
+    .unwrap_or_else(|| panic!("ore preparation chain energy requirement overflowed"))
+}
+
+pub(super) fn energy_fundable_batch_mass(
+    registries: &Registries,
+    offered: Mass,
+    representable_unit_mg: u64,
+    available: Energy,
+) -> Mass {
+    assert!(representable_unit_mg > 0);
+    assert_eq!(offered.milligrams() % representable_unit_mg, 0);
+    let offered_units = offered.milligrams() / representable_unit_mg;
+    let mut admitted = 0_u64;
+    let mut rejected = offered_units;
+    while admitted < rejected {
+        let candidate_units = admitted + (rejected - admitted).div_ceil(2);
+        let candidate = Mass::from_milligrams(
+            candidate_units
+                .checked_mul(representable_unit_mg)
+                .unwrap_or_else(|| panic!("planned ore batch mass overflowed")),
+        );
+        if ore_chain_energy_requirement(registries, candidate) <= available {
+            admitted = candidate_units;
+        } else {
+            rejected = candidate_units - 1;
+        }
+    }
+    Mass::from_milligrams(
+        admitted
+            .checked_mul(representable_unit_mg)
+            .unwrap_or_else(|| panic!("planned ore batch mass overflowed")),
+    )
+}
+
 fn represented_copper_ppm_mg(state: &AppState, stockpiles: &[StockpileId]) -> u128 {
     stockpiles
         .iter()
@@ -76,11 +162,6 @@ pub(super) fn probe_parameters(registries: &Registries, seed: u64) -> OrePrepara
         .ore_processing()
         .get_comminution(PROCESS_FINE_GRIND_SCREEN_OVERSIZE)
         .unwrap_or_else(|| panic!("canonical fine-grind definition disappeared"));
-    let concentration = registries
-        .ore_processing()
-        .get_constituent_separation(PROCESS_CONCENTRATE_COPPER)
-        .unwrap_or_else(|| panic!("canonical copper concentration definition disappeared"));
-
     let distribution = grinder.output_particle_size_distribution();
     let aperture = screening.aperture();
     let mut undersize_weight = 0_u64;
@@ -140,32 +221,22 @@ pub(super) fn probe_parameters(registries: &Registries, seed: u64) -> OrePrepara
     let batch_mass = Mass::from_milligrams(representable_unit * unit_count);
     let copper_ppm = 300_000 + (mix64(seed ^ 0xC0FF_EE11) % 400_001) as u32;
     let clay_share_ppm = 100_000 + (mix64(seed ^ 0x4741_4E47_5545_4D49) % 500_001) as u32;
-    let required_energy_upper_bound = [
-        crusher.specific_energy(),
-        grinder.specific_energy(),
-        screening.specific_energy(),
-        fine_grind.specific_energy(),
-        concentration.specific_energy(),
-    ]
-    .into_iter()
-    .map(|specific| calculate_mass_specific_energy(batch_mass, specific))
-    .try_fold(Energy::ZERO, |total, energy| total.checked_add(energy))
-    .unwrap_or_else(|| panic!("ore preparation chain energy upper bound overflowed"));
+    let required_energy = ore_chain_energy_requirement(registries, batch_mass);
     let drive_capacity = registries
         .energy()
         .get_store(ENERGY_MECHANICAL_LARGE_DRIVE)
         .map(|definition| definition.capacity())
         .unwrap_or_else(|| panic!("ore preparation drive definition disappeared"));
     assert!(
-        drive_capacity >= required_energy_upper_bound,
+        drive_capacity >= required_energy,
         "authored industrial drive must remain capable of the maintained full-chain ore contract"
     );
     // Seed-only pressure makes exact replays independent of runner role. Fresh samples range from
-    // materially under-provisioned to comfortably funded, so the actor can encounter real finite-
-    // energy stops instead of every generated world being pre-funded to success.
+    // materially under-provisioned to comfortably funded so the actor must size work to visible
+    // stored energy instead of receiving a pre-funded success path.
     let energy_budget_ppm = 400_000 + (mix64(seed ^ 0x454E_4552_4759_4845) % 950_001) as u32;
     let varied_budget = Energy::from_nanojoules(
-        required_energy_upper_bound
+        required_energy
             .nanojoules()
             .checked_mul(u128::from(energy_budget_ppm))
             .map(|scaled| scaled / 1_000_000)
@@ -174,6 +245,7 @@ pub(super) fn probe_parameters(registries: &Registries, seed: u64) -> OrePrepara
     let drive_energy = std::cmp::min(varied_budget, drive_capacity);
     OrePreparationSetup {
         batch_mass,
+        representable_unit_mg: representable_unit,
         copper_ppm,
         clay_share_ppm,
         crusher_condition: varied_healthy_condition(
@@ -219,7 +291,10 @@ impl OreStopReason {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum OreProbeOutcome {
-    Completed,
+    Completed {
+        offered_mass: Mass,
+        processed_mass: Mass,
+    },
     Stopped {
         stage: &'static str,
         reason: OreStopReason,
@@ -308,6 +383,7 @@ struct OreProbeEpisode {
     case: FocusedProbeCase,
     state: AppState,
     ids: OrePreparationProbeIds,
+    offered_batch_mass: Mass,
     batch_mass: Mass,
     initial_matter: AggregateMass,
     initial_energy: Energy,
@@ -324,7 +400,17 @@ struct OreProbeEpisode {
 fn prepare_ore_probe(registries: &Registries, case: FocusedProbeCase) -> OreProbeEpisode {
     let seed = case.seed();
     let setup = probe_parameters(registries, seed);
-    let batch_mass = setup.batch_mass;
+    let offered_batch_mass = setup.batch_mass;
+    let batch_mass = energy_fundable_batch_mass(
+        registries,
+        offered_batch_mass,
+        setup.representable_unit_mg,
+        setup.drive_energy,
+    );
+    assert!(
+        !batch_mass.is_zero(),
+        "ore preparation generated stored work below one screen-representable full-chain batch"
+    );
     let initial_crusher_condition = setup.crusher_condition;
     let initial_grinder_condition = setup.grinder_condition;
     let initial_screen_condition = setup.screen_condition;
@@ -356,6 +442,7 @@ fn prepare_ore_probe(registries: &Registries, case: FocusedProbeCase) -> OreProb
         case,
         state,
         ids,
+        offered_batch_mass,
         batch_mass,
         initial_matter,
         initial_energy,
@@ -1004,12 +1091,12 @@ pub(super) fn run_ore_preparation_capability_probe(
         assert!(
             matches!(
                 outcome,
-                OreProbeOutcome::Stopped {
-                    reason: OreStopReason::FiniteEnergy,
-                    ..
-                }
+                OreProbeOutcome::Completed {
+                    offered_mass,
+                    processed_mass,
+                } if processed_mass < offered_mass
             ),
-            "ore coverage seed 2 must preserve a canonical finite-work stop"
+            "ore coverage seed 2 must preserve visible finite-work pressure through adaptive batching"
         );
     }
 }

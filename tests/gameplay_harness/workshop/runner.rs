@@ -860,6 +860,7 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     let variation_raw = env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok();
     let behavior_raw = env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok();
     let mode_salt = match mode {
+        #[cfg(test)]
         ScenarioPlanMode::Gate => 0x4741_5445_5EED_2026_u64,
         ScenarioPlanMode::Explore => 0x4558_504C_5EED_2026_u64,
     };
@@ -934,6 +935,7 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
         assert_anchor_diversity(&anchor_reports);
     }
     let evidence_mode = match mode {
+        #[cfg(test)]
         ScenarioPlanMode::Gate => "gate-bounded-organic",
         ScenarioPlanMode::Explore => "exploratory",
     };

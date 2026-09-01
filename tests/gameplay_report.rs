@@ -1,15 +1,11 @@
-//! Broad gameplay verification and exploratory report target.
-//!
-//! Focused developer gates use smaller scope-specific binaries. This aggregate target remains the
-//! checkpoint for cross-harness contracts, agency checks, seed contracts, and exploratory reporting.
+//! Explicit exploratory gameplay report. Routine verification uses the focused test binaries.
 
 #[path = "gameplay_harness/agency.rs"]
 mod agency;
 #[path = "gameplay_harness/capability_boundary.rs"]
 mod capability_boundary;
-#[cfg(test)]
-#[path = "gameplay_harness/catalog_contract_tests.rs"]
-mod catalog_contract_tests;
+#[path = "gameplay_harness/catalog.rs"]
+mod catalog;
 #[path = "gameplay_harness/configuration.rs"]
 mod configuration;
 #[path = "gameplay_harness/contracts.rs"]
@@ -61,9 +57,6 @@ mod progression_probe;
 mod report;
 #[path = "gameplay_harness/scenario.rs"]
 mod scenario;
-#[cfg(test)]
-#[path = "gameplay_harness/scenario_tests.rs"]
-mod scenario_tests;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
@@ -74,46 +67,10 @@ mod structural_fixture;
 mod survival_probe;
 #[path = "gameplay_harness/temporal.rs"]
 mod temporal;
-
 #[path = "gameplay_harness/workshop.rs"]
 mod workshop;
 
-#[cfg(test)]
-#[path = "gameplay_harness/workshop_contract_tests.rs"]
-mod workshop_contract_tests;
-
-#[cfg(test)]
-mod focused {
-    use super::focused_runner::run_focused_probe;
-    use super::foundry_probe::run_foundry_capability_probe;
-    use super::ore_probe::run_ore_preparation_capability_probe;
-    use super::progression_probe::run_primitive_progression_probe;
-    use super::survival_probe::run_survival_provisioning_probe;
-
-    #[test]
-    fn gameplay_survival_provisioning_probe() {
-        run_focused_probe("survival-provisioning", run_survival_provisioning_probe);
-    }
-
-    #[test]
-    fn gameplay_primitive_progression_probe() {
-        run_focused_probe("primitive-progression", run_primitive_progression_probe);
-    }
-
-    #[test]
-    fn gameplay_ore_preparation_probe() {
-        run_focused_probe("ore-preparation", run_ore_preparation_capability_probe);
-    }
-
-    #[test]
-    fn gameplay_foundry_probe() {
-        run_focused_probe("foundry", run_foundry_capability_probe);
-    }
-}
-
-#[test]
-#[ignore = "human-readable gameplay report"]
-fn gameplay_report() {
+fn main() {
     use deep_hearth::content::build_registries;
 
     use configuration::ScenarioPlanMode;
@@ -125,7 +82,7 @@ fn gameplay_report() {
     let fallback_variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_464F);
     let fallback_behavior_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_4245);
     std::println!(
-        "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reinvest leverage=[knowledge,attention,scarce-copper,stored-work] constraints=[matter,energy,condition,survival]"
+        "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] constraints=[matter,energy,condition,survival]"
     );
     std::println!(
         "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap probes=[survival-provisioning,primitive-progression] reachability-authority=STATUS.md"

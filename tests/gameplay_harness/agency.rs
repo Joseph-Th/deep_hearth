@@ -665,6 +665,7 @@ fn maintained_agency_worlds() -> Vec<AgencyWorld> {
     ]
 }
 
+#[cfg(test)]
 pub(super) fn run_gameplay_agency_counterfactuals() {
     let registries = build_registries();
     let variation_root = replayable_agency_root();
@@ -674,6 +675,7 @@ pub(super) fn run_gameplay_agency_counterfactuals() {
     run_agency_probe(&registries, &worlds);
 }
 
+#[cfg(not(test))]
 pub(super) fn run_exploratory_agency_counterfactuals() {
     let registries = build_registries();
     let variation_root = replayable_agency_root();

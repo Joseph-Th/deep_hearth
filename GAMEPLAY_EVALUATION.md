@@ -184,16 +184,18 @@ exhaustive check establishes that conclusion.
 
 ## Focused scopes
 
-All focused targets use the `test-gameplay` feature contract. `gameplay_audit` is the broad checkpoint/report
-surface.
+All focused targets use the `test-gameplay` feature contract. Broad gameplay verification reuses the five
+focused targets plus the lightweight `gameplay_contracts` target in one Cargo invocation; there is no duplicate
+aggregate gameplay test crate. `python ci.py report` is a separate explicit Cargo example so exploratory output
+does not participate in routine test builds.
 
 | Scope | Contract |
 | --- | --- |
 | `survival` | Hunger/thirst pressure, exact authored food-option availability, food-category coverage, bounded quantity-scaled eating/drinking attention, world-seeded inherited reserve history independent of actor behavior, actor-selected attention-efficient versus maximum-protection storage investment from one shared raw-material opportunity, survival-owned prospective freshness across a future authored enclosure transition, ordinary raw-timber -> manual-board -> manual-enclosure-body -> preservation construction, matched storage counterfactuals at one wall-clock endpoint, completed-profile compatibility for existing contents, non-retroactive preservation-state effects, diet tradeoffs, varied prospecting-work cost, reserve recovery, and actual diet-supported vitality recovery. |
 | `progression` | Coarse-to-fine evidence acquisition and information-value decisions, primitive crafting/mining/power/processing, scarce-copper choice, direct-labor fallback versus mechanization, delegated work, finite-recovery sorting, flywheel self-discharge/recharge, second reinforcement, convergence, finite machine lifecycle, timed replacement-material preparation plus the currently untimed maintenance transition that preserves prior scarce upgrades, maintained mature reinvestment that executes crusher, separator, and flywheel upgrades, and finite organic geological opportunity that may prevent either mechanization payback or later reinvestment. |
 | `workshop` | Installed industrial operation under finite work, survival, wear, maintenance, structural pressure, hidden world change, and recovery. |
-| `ore` | Installed crush/grind/screen/regrind/concentrate flow with selective recovery, exact constituent accounting, gangue-hosted prepared-feed acceptance, and terminal current-tier tailings. Capability-only. |
-| `foundry` | Installed room-temperature pure-copper sensible preheating, melting/casting, finite electrical and thermal capacity, adaptive batches, ingot/reinforcement/native-copper/scrap remelting coverage, molten remainder, and passive sink recovery. Capability-only. |
+| `ore` | Installed crush/grind/screen/regrind/concentrate flow with selective recovery, exact constituent accounting, gangue-hosted prepared-feed acceptance, visible-work adaptive order sizing that leaves deferred ore physically owned, and terminal current-tier tailings. Capability-only. |
+| `foundry` | Installed room-temperature pure-copper heating/melting/casting with a direct-vs-sensible-preheat counterfactual, useful-mass/time strategy selection, finite electrical and thermal capacity, adaptive melt/cast batches, ingot/reinforcement/native-copper/scrap remelting coverage, molten remainder, and passive sink recovery. Capability-only. |
 
 Routine focused gates keep maintained regression/coverage cases and add one fresh replayable organic case.
 `python ci.py report` expands that sample for broader exploration without turning the ordinary repair loop into
@@ -217,12 +219,14 @@ that the higher-preservation double-wall option keeps the same usable capacity w
 timber and more construction attention. Inherited reserve history is generated only from the world seed; actor
 policy must never rewrite which enclosure existed before admission or how old retained food already is. Current
 investment alternatives start from the same raw-material opportunity and execute both construction branches to
-one matched wall-clock endpoint. The signed marginal result is intentional: extra construction delay can make a
-higher preservation multiplier temporarily worse before the longer-horizon storage investment breaks even. Each
-branch must first project its selected food lot through the planned authored storage transition using the
-survival-owned freshness projection, then prove that forecast exactly against the later canonical construction
-and tick outcome. The projection is planning evidence only and never substitutes for construction validation.
-Every storage body must expose at least one
+one matched wall-clock endpoint. The signed effective-age result is intentional: extra construction delay can
+make a higher preservation multiplier temporarily worse at that endpoint. The report also compares the exact
+remaining edible lifetime from the survival owner, so a slower-to-build enclosure can still demonstrate its
+longer-horizon advantage without an invented break-even approximation. Each branch must first project its selected
+food lot through the planned authored storage transition using the survival-owned freshness projection, then prove
+that forecast exactly against the later canonical construction and tick outcome. The projection is planning
+evidence only and never substitutes for construction validation.
+Each current timber preservation body must expose at least one
 manual salvage route that exactly partitions detached body mass into reusable boards and explicit chip residue;
 additional legitimate salvage routes may coexist, and reverse routes must not create a cheaper construction cycle.
 
@@ -239,10 +243,11 @@ work. Organic worlds vary between shallow and deep finite opportunities independ
 limit. A machine that performs useful canonical work but reaches known target exhaustion before setup payback is
 a valid gameplay outcome, not a harness failure. The actor may discover that an investment was premature because
 the available evidence does not expose hidden total deposit mass; hidden reserve truth must not become policy
-input merely to make the investment look optimal in hindsight. The mature reinvestment counterfactual follows
-the same rule: maintained deep worlds must execute it, while an organic branch that canonically exhausts its
-known target while gathering the required ore reports `known-target-supply` rather than receiving fixture ore or
-failing the harness. Progression reporting labels only replacement-component preparation as timed maintenance
+input merely to make the investment look optimal in hindsight. The mature reinvestment counterfactual is
+resolved only from the post-delegation, post-service state the actor actually reaches. Maintained deep worlds must
+still execute that branch, while an organic branch that has canonically exhausted its known target reports
+`known-target-supply` rather than receiving fixture ore or advertising an opportunity that later experience has
+erased. Progression reporting labels only replacement-component preparation as timed maintenance
 work; the maintenance transition itself remains untimed until the ordinary labor/access edge described by
 `STATUS.md` exists.
 

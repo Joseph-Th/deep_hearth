@@ -1230,14 +1230,36 @@ fn every_builtin_maintenance_spent_output_has_a_player_legible_appearance() {
     }
 }
 
+fn process_registry_domains(
+    capabilities: CapabilityRegistry,
+    ore_processing: OreProcessingRegistry,
+    thermal: ThermalRegistry,
+    production: ProductionRegistry,
+) -> RegistryDomains {
+    RegistryDomains {
+        energy: empty_energy_registry(),
+        fluid: fluid::build_fluid_registry(),
+        capabilities,
+        crafting: crate::crafting::CraftingRegistry::new(std::iter::empty()),
+        labor: labor::empty_labor_registry(),
+        equipment: empty_equipment_registry(),
+        storage: crate::inventory::StorageRegistry::new(std::iter::empty()),
+        structural: structural::build_structural_registry(),
+        materials: materials::build_material_registry(),
+        mining: crate::mining::MiningRegistry::new(std::iter::empty()),
+        ore_processing,
+        thermal,
+        production,
+        survival: survival::build_survival_registry(),
+        presentation: RegistryPresentation {
+            textures: empty_texture_registry(),
+            shaders: empty_shader_registry(),
+        },
+    }
+}
+
 #[test]
-fn process_capability_references_are_validated_during_registry_assembly() {
-    let mut capabilities = CapabilityRegistry::new();
-    capabilities.register_capability(CapabilityDefinition::new(
-        TEST_CAPABILITY,
-        "test chamber temperature",
-        CapabilityValueKind::Temperature,
-    ));
+fn missing_process_capability_reference_is_rejected_during_registry_assembly() {
     let process = ProcessDefinition::new(
         TEST_PROCESS,
         "test capability process",
@@ -1254,38 +1276,49 @@ fn process_capability_references_are_validated_during_registry_assembly() {
     let mut production = ProductionRegistry::new();
     production.register_process(process);
 
-    let registries = Registries::new(
-        REGISTRY_SCHEMA_VERSION,
-        build_core_definitions(),
-        RegistryDomains {
-            energy: empty_energy_registry(),
-            fluid: fluid::build_fluid_registry(),
-            capabilities,
-            crafting: crate::crafting::CraftingRegistry::new(std::iter::empty()),
-            labor: labor::empty_labor_registry(),
-            equipment: empty_equipment_registry(),
-            storage: crate::inventory::StorageRegistry::new(std::iter::empty()),
-            structural: structural::build_structural_registry(),
-            materials: materials::build_material_registry(),
-            mining: crate::mining::MiningRegistry::new(std::iter::empty()),
-            ore_processing: OreProcessingRegistry::new(std::iter::empty()),
-            thermal: empty_thermal_registry(),
-            production,
-            survival: survival::build_survival_registry(),
-            presentation: RegistryPresentation {
-                textures: empty_texture_registry(),
-                shaders: empty_shader_registry(),
-            },
-        },
-    );
+    let result = std::panic::catch_unwind(|| {
+        Registries::new(
+            REGISTRY_SCHEMA_VERSION,
+            build_core_definitions(),
+            process_registry_domains(
+                CapabilityRegistry::new(),
+                OreProcessingRegistry::new(std::iter::empty()),
+                empty_thermal_registry(),
+                production,
+            ),
+        )
+    });
 
-    assert!(
-        registries
-            .capabilities()
-            .get_capability(TEST_CAPABILITY)
-            .is_some()
-    );
-    assert!(registries.production().get_process(TEST_PROCESS).is_some());
+    assert!(result.is_err());
+}
+
+#[test]
+fn process_without_physical_resolver_semantics_is_rejected_during_registry_assembly() {
+    let mut production = ProductionRegistry::new();
+    production.register_process(ProcessDefinition::new(
+        TEST_PROCESS,
+        "orphan physical process fixture",
+        vec![MaterialInputSpec::new(
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            Mass::from_milligrams(1),
+        )],
+        Vec::new(),
+    ));
+
+    let result = std::panic::catch_unwind(|| {
+        Registries::new(
+            REGISTRY_SCHEMA_VERSION,
+            build_core_definitions(),
+            process_registry_domains(
+                CapabilityRegistry::new(),
+                OreProcessingRegistry::new(std::iter::empty()),
+                empty_thermal_registry(),
+                production,
+            ),
+        )
+    });
+
+    assert!(result.is_err());
 }
 
 #[test]
@@ -1379,26 +1412,7 @@ fn process_cannot_own_multiple_physical_resolver_semantics() {
         Registries::new(
             REGISTRY_SCHEMA_VERSION,
             build_core_definitions(),
-            RegistryDomains {
-                energy: empty_energy_registry(),
-                fluid: fluid::build_fluid_registry(),
-                capabilities,
-                crafting: crate::crafting::CraftingRegistry::new(std::iter::empty()),
-                labor: labor::empty_labor_registry(),
-                equipment: empty_equipment_registry(),
-                storage: crate::inventory::StorageRegistry::new(std::iter::empty()),
-                structural: structural::build_structural_registry(),
-                materials: materials::build_material_registry(),
-                mining: crate::mining::MiningRegistry::new(std::iter::empty()),
-                ore_processing,
-                thermal,
-                production,
-                survival: survival::build_survival_registry(),
-                presentation: RegistryPresentation {
-                    textures: empty_texture_registry(),
-                    shaders: empty_shader_registry(),
-                },
-            },
+            process_registry_domains(capabilities, ore_processing, thermal, production),
         )
     });
 

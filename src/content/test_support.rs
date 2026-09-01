@@ -56,6 +56,21 @@ impl TestRegistryDomains {
     }
 
     fn build(self) -> Registries {
+        self.build_with(Registries::new)
+    }
+
+    fn build_for_isolated_production_owner_test(self) -> Registries {
+        self.build_with(Registries::new_for_isolated_production_owner_test)
+    }
+
+    fn build_with(
+        self,
+        assemble: fn(
+            crate::registry::RegistrySchemaVersion,
+            crate::registry::CoreDefinitions,
+            RegistryDomains,
+        ) -> Registries,
+    ) -> Registries {
         let Self {
             energy,
             fluid,
@@ -70,7 +85,7 @@ impl TestRegistryDomains {
             production,
             survival,
         } = self;
-        Registries::new(
+        assemble(
             REGISTRY_SCHEMA_VERSION,
             build_core_definitions(),
             RegistryDomains {
@@ -166,7 +181,7 @@ pub(crate) fn make_test_registries_with_equipment(
 pub(crate) fn make_test_registries_with_process(process: ProcessDefinition) -> Registries {
     let mut domains = TestRegistryDomains::empty();
     domains.production = build_production_registry(process);
-    domains.build()
+    domains.build_for_isolated_production_owner_test()
 }
 
 pub(crate) fn make_test_registries_with_energy_store(

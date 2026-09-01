@@ -76,6 +76,19 @@ pub(super) fn finalize_completed_ore_probe(
         .get_stockpile(ids.tailings_storage)
         .map(|stockpile| stockpile.stored_mass())
         .unwrap_or_else(|| panic!("ore preparation tailings storage disappeared"));
+    let deferred_mass = state
+        .inventory()
+        .get_stockpile(ids.ore_source)
+        .map(|stockpile| stockpile.stored_mass())
+        .unwrap_or_else(|| panic!("ore preparation source storage disappeared"));
+    assert_eq!(
+        deferred_mass,
+        episode
+            .offered_batch_mass
+            .checked_sub(episode.batch_mass)
+            .unwrap_or_else(|| unreachable!("planned batch cannot exceed offered ore")),
+        "adaptive ore planning must leave deferred order mass physically owned at the source"
+    );
     let concentrate_identity_is_valid =
         state
             .inventory()
@@ -281,10 +294,12 @@ pub(super) fn finalize_completed_ore_probe(
     let concentration_batches = 1_u64;
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_VERBOSE").is_some() {
         std::println!(
-            "CAPABILITY ORE_PREP seed=0x{:016X} sample={} outcome=completed reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[particle-state,routing,finite-work,wear,constituent-concentration] batch={}mg feed=[copper:{}ppm stone:{}ppm clay:{}ppm] concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm initial-condition=[crusher:{} grinder:{} screen:{} separator:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t concentrate:{}b/{}t] matter=conserved composition=exact energy=resolved",
+            "CAPABILITY ORE_PREP seed=0x{:016X} sample={} outcome=completed reachability=bootstrapped-industrial installation=required+structurally-supported role=capability-evidence player-loop=not-claimed system-depth=[particle-state,routing,finite-work,wear,constituent-concentration] order=[offered:{}mg processed:{}mg deferred:{}mg] planning=visible-energy-adaptive feed=[copper:{}ppm stone:{}ppm clay:{}ppm] concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm initial-condition=[crusher:{} grinder:{} screen:{} separator:{}ppm] stored-work=[initial:{}nJ consumed:{}nJ remaining:{}nJ] stages=[crush:{}t grind:{}t screen:{}t regrind:{}t concentrate:{}b/{}t] matter=conserved composition=exact energy=resolved",
             episode.case.seed(),
             focused_probe_role_label(episode.case.role()),
+            episode.offered_batch_mass.milligrams(),
             episode.batch_mass.milligrams(),
+            deferred_mass.milligrams(),
             episode.input_copper_ppm,
             episode.input_stone_ppm,
             episode.input_clay_ppm,
@@ -309,10 +324,12 @@ pub(super) fn finalize_completed_ore_probe(
         );
     } else {
         std::println!(
-            "ORE REVIEW seed=0x{:016X} sample={} role=capability-only outcome=completed pipeline=crush->grind->screen->regrind->concentrate batch={}mg feed=[copper:{}ppm stone:{}ppm clay:{}ppm] concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm stored-work=[used:{}nJ remaining:{}nJ] durations=[{}+{}+{}+{}t concentration:{}b/{}t] matter=conserved composition=exact",
+            "ORE REVIEW seed=0x{:016X} sample={} role=capability-only outcome=completed pipeline=crush->grind->screen->regrind->concentrate order=[offered:{}mg processed:{}mg deferred:{}mg] planning=visible-energy-adaptive feed=[copper:{}ppm stone:{}ppm clay:{}ppm] concentrate={}mg tailings={}mg concentrate-grade={}ppm target-recovery={}ppm gangue-recovery={}ppm stored-work=[used:{}nJ remaining:{}nJ] durations=[{}+{}+{}+{}t concentration:{}b/{}t] matter=conserved composition=exact",
             episode.case.seed(),
             focused_probe_role_label(episode.case.role()),
+            episode.offered_batch_mass.milligrams(),
             episode.batch_mass.milligrams(),
+            deferred_mass.milligrams(),
             episode.input_copper_ppm,
             episode.input_stone_ppm,
             episode.input_clay_ppm,
@@ -331,5 +348,8 @@ pub(super) fn finalize_completed_ore_probe(
             evidence.concentration.duration.value(),
         );
     }
-    OreProbeOutcome::Completed
+    OreProbeOutcome::Completed {
+        offered_mass: episode.offered_batch_mass,
+        processed_mass: episode.batch_mass,
+    }
 }

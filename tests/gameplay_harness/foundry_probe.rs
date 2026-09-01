@@ -237,6 +237,105 @@ struct PreheatResult {
     applied: bool,
 }
 
+impl PreheatResult {
+    const fn skipped(source: StockpileId) -> Self {
+        Self {
+            source,
+            energy: Energy::ZERO,
+            duration: TickSpan::new(0),
+            applied: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HeatingStrategy {
+    Direct,
+    Preheat,
+}
+
+impl HeatingStrategy {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Direct => "direct-melt",
+            Self::Preheat => "preheat-then-melt",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct HeatingRouteEvidence {
+    processed_mass: Mass,
+    total_duration: TickSpan,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct HeatingDecision {
+    strategy: HeatingStrategy,
+    direct: Option<HeatingRouteEvidence>,
+    preheated: Option<HeatingRouteEvidence>,
+}
+
+fn route_evidence(
+    resolved: &ResolvedMelting,
+    processed_mass: Mass,
+    prior_duration: TickSpan,
+) -> HeatingRouteEvidence {
+    HeatingRouteEvidence {
+        processed_mass,
+        total_duration: TickSpan::new(
+            prior_duration
+                .value()
+                .checked_add(resolved.process_resolution().duration().value())
+                .unwrap_or_else(|| panic!("foundry heating-route duration overflowed")),
+        ),
+    }
+}
+
+fn heating_route_is_better(candidate: HeatingRouteEvidence, current: HeatingRouteEvidence) -> bool {
+    candidate.processed_mass > current.processed_mass
+        || (candidate.processed_mass == current.processed_mass
+            && candidate.total_duration < current.total_duration)
+}
+
+fn choose_heating_strategy(
+    registries: &Registries,
+    state: &deep_hearth::core::state::AppState,
+    ids: FoundryIds,
+    mass: Mass,
+    target: Temperature,
+) -> HeatingDecision {
+    let direct =
+        resolve_largest_feasible_melt(registries, state, ids, ids.pure_copper_source, mass)
+            .map(|(resolved, processed, _)| route_evidence(&resolved, processed, TickSpan::new(0)));
+
+    let mut preheated_state = state.clone();
+    let preheat = execute_optional_preheat(registries, &mut preheated_state, ids, mass, target);
+    let preheated = preheat
+        .applied
+        .then(|| {
+            resolve_largest_feasible_melt(registries, &preheated_state, ids, preheat.source, mass)
+                .map(|(resolved, processed, _)| {
+                    assert_preheat_partitions_melting_energy(registries, mass, preheat, &resolved);
+                    route_evidence(&resolved, processed, preheat.duration)
+                })
+        })
+        .flatten();
+
+    let strategy = match (direct, preheated) {
+        (None, Some(_)) => HeatingStrategy::Preheat,
+        (Some(direct), Some(preheated)) if heating_route_is_better(preheated, direct) => {
+            HeatingStrategy::Preheat
+        }
+        _ => HeatingStrategy::Direct,
+    };
+    HeatingDecision {
+        strategy,
+        direct,
+        preheated,
+    }
+}
+
 fn execute_optional_preheat(
     registries: &Registries,
     state: &mut deep_hearth::core::state::AppState,
@@ -267,12 +366,7 @@ fn execute_optional_preheat(
             ..
         }))
         | Err(SensibleHeatingResolutionError::ConditionDuration(_)) => {
-            return PreheatResult {
-                source: ids.pure_copper_source,
-                energy: Energy::ZERO,
-                duration: TickSpan::new(0),
-                applied: false,
-            };
+            return PreheatResult::skipped(ids.pure_copper_source);
         }
         Err(error) => panic!("foundry sensible-preheat resolution failed unexpectedly: {error}"),
     };
@@ -477,13 +571,13 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
     let initial_mold_condition = setup.mold_condition;
     let (mut state, ids) = setup_foundry_probe(registries, seed, setup);
     let initial = capture_initial_accounting(&state, ids);
-    let preheat = execute_optional_preheat(registries, &mut state, ids, mass, preheat_target);
-    if case.role() == FocusedProbeRole::MaintainedAnchor {
-        assert!(
-            preheat.applied,
-            "maintained foundry anchor must execute canonical sensible preheating"
-        );
-    }
+    let heating = choose_heating_strategy(registries, &state, ids, mass, preheat_target);
+    let preheat = match heating.strategy {
+        HeatingStrategy::Direct => PreheatResult::skipped(ids.pure_copper_source),
+        HeatingStrategy::Preheat => {
+            execute_optional_preheat(registries, &mut state, ids, mass, preheat_target)
+        }
+    };
     let Some((melt, processed_mass, melt_limit)) =
         resolve_largest_feasible_melt(registries, &state, ids, preheat.source, mass)
     else {
@@ -500,9 +594,10 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
             initial.matter
         );
         std::println!(
-            "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome=stopped stage=melt feed-form={} preheat=[applied:{} target:{}mK energy:{}nJ duration:{}t] blocker=no-feasible-batch electrical={}nJ matter=conserved",
+            "FOUNDRY REVIEW seed=0x{seed:016X} sample={} role=capability-only outcome=stopped stage=melt feed-form={} heating-strategy={} preheat=[applied:{} target:{}mK energy:{}nJ duration:{}t] blocker=no-feasible-batch electrical={}nJ matter=conserved",
             focused_probe_role_label(case.role()),
             feed_form.value(),
+            heating.strategy.label(),
             preheat.applied,
             preheat_target.millikelvin(),
             preheat.energy.nanojoules(),
@@ -647,6 +742,19 @@ pub(super) fn run_foundry_capability_probe(registries: &Registries, case: Focuse
         recovery_cast: recovered_cast_mass,
         recovery_limit,
         molten_final: final_molten_remaining,
+        heating_strategy: heating.strategy.label(),
+        direct_heating_mass: heating
+            .direct
+            .map_or(Mass::ZERO, |route| route.processed_mass),
+        direct_heating_duration: heating
+            .direct
+            .map_or(TickSpan::new(0), |route| route.total_duration),
+        preheated_mass: heating
+            .preheated
+            .map_or(Mass::ZERO, |route| route.processed_mass),
+        preheated_duration: heating
+            .preheated
+            .map_or(TickSpan::new(0), |route| route.total_duration),
         preheat_applied: preheat.applied,
         preheat_target,
         preheat_energy: preheat.energy,

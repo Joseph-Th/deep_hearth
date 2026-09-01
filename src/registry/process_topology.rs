@@ -83,43 +83,65 @@ pub(super) fn build_process_topology(
     domains
         .production
         .definitions()
-        .filter_map(|process| {
-            let (execution_family, energy_role) =
-                process_execution_semantics(domains, process.id())?;
-            let nominal_providers = if execution_family.is_manual() {
-                Vec::new()
-            } else {
-                domains
-                    .equipment
-                    .definitions()
-                    .filter(|equipment| {
-                        evaluate_capabilities(
-                            &domains.capabilities,
-                            equipment.capabilities(),
-                            process.capability_requirements(),
-                        )
-                        .is_ok()
-                    })
-                    .map(|equipment| equipment.id())
-                    .collect()
-            };
-            let compatible_energy_stores = domains
-                .energy
-                .definitions()
-                .filter(|store| energy_store_matches_role(store, energy_role))
-                .map(|store| store.id())
-                .collect();
-            Some((
-                process.id(),
-                ProcessTopology {
-                    execution_family,
-                    energy_role,
-                    nominal_providers,
-                    compatible_energy_stores,
-                },
-            ))
+        .map(|process| {
+            derive_process_topology(domains, process).unwrap_or_else(|| {
+                panic!(
+                    "process {} has no physical resolver semantics",
+                    process.id().value()
+                )
+            })
         })
         .collect()
+}
+
+#[cfg(test)]
+pub(super) fn build_partial_process_topology_for_owner_tests(
+    domains: &RegistryDomains,
+) -> BTreeMap<ProcessId, ProcessTopology> {
+    domains
+        .production
+        .definitions()
+        .filter_map(|process| derive_process_topology(domains, process))
+        .collect()
+}
+
+fn derive_process_topology(
+    domains: &RegistryDomains,
+    process: &crate::production::ProcessDefinition,
+) -> Option<(ProcessId, ProcessTopology)> {
+    let (execution_family, energy_role) = process_execution_semantics(domains, process.id())?;
+    let nominal_providers = if execution_family.is_manual() {
+        Vec::new()
+    } else {
+        domains
+            .equipment
+            .definitions()
+            .filter(|equipment| {
+                evaluate_capabilities(
+                    &domains.capabilities,
+                    equipment.capabilities(),
+                    process.capability_requirements(),
+                )
+                .is_ok()
+            })
+            .map(|equipment| equipment.id())
+            .collect()
+    };
+    let compatible_energy_stores = domains
+        .energy
+        .definitions()
+        .filter(|store| energy_store_matches_role(store, energy_role))
+        .map(|store| store.id())
+        .collect();
+    Some((
+        process.id(),
+        ProcessTopology {
+            execution_family,
+            energy_role,
+            nominal_providers,
+            compatible_energy_stores,
+        },
+    ))
 }
 
 fn claim_execution_semantics(

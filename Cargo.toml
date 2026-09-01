@@ -18,9 +18,9 @@ name = "validate-shaders"
 path = "src/bin/validate_shaders.rs"
 required-features = ["test-shader-validation"]
 
-[[test]]
-name = "gameplay_audit"
-path = "tests/gameplay_audit.rs"
+[[example]]
+name = "gameplay-report"
+path = "tests/gameplay_report.rs"
 required-features = ["test-gameplay"]
 
 [[test]]

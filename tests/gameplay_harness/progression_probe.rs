@@ -91,15 +91,52 @@ pub(super) fn extraction_grade_premium_ppm(case: FocusedProbeCase) -> u32 {
     }
 }
 
-pub(super) fn ore_opportunity_batch_budget(seed: u64, maintained_payback_required: bool) -> u64 {
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum OreOpportunityDepth {
+    Shallow,
+    Deep,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct OreOpportunity {
+    #[cfg(test)]
+    depth: OreOpportunityDepth,
+    batch_budget: u64,
+}
+
+impl OreOpportunity {
+    #[cfg(test)]
+    pub(super) const fn depth(self) -> OreOpportunityDepth {
+        self.depth
+    }
+
+    pub(super) const fn batch_budget(self) -> u64 {
+        self.batch_budget
+    }
+}
+
+pub(super) fn ore_opportunity(seed: u64, maintained_payback_required: bool) -> OreOpportunity {
     if maintained_payback_required {
-        return 512;
+        return OreOpportunity {
+            #[cfg(test)]
+            depth: OreOpportunityDepth::Deep,
+            batch_budget: 512,
+        };
     }
     let opportunity_roll = mix64(seed ^ 0x4F50_504F_5254_554E);
     if opportunity_roll.is_multiple_of(2) {
-        6 + (opportunity_roll >> 1) % 35
+        OreOpportunity {
+            #[cfg(test)]
+            depth: OreOpportunityDepth::Shallow,
+            batch_budget: 6 + (opportunity_roll >> 1) % 35,
+        }
     } else {
-        384 + (opportunity_roll >> 1) % 129
+        OreOpportunity {
+            #[cfg(test)]
+            depth: OreOpportunityDepth::Deep,
+            batch_budget: 384 + (opportunity_roll >> 1) % 129,
+        }
     }
 }
 
@@ -184,7 +221,7 @@ fn progression_clue_bounds(slot: usize) -> VoxelBounds {
 
 /// Verifies only the runtime dependencies this episode actually intends to use.
 ///
-/// The broader cold-agent catalog is discovered dynamically by the aggregate harness report. This
+/// The broader cold-agent catalog is discovered dynamically by the exploratory report. This
 /// probe therefore does not freeze the whole playable catalog to an exact ID list just to protect its
 /// own scenario. New routes may coexist without making this established primitive episode stale.
 fn assert_progression_authored_dependencies(registries: &Registries) {

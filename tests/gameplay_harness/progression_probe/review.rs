@@ -131,8 +131,8 @@ fn shallow_opportunity_stops_cleanly() {
         FocusedProbeRole::ExplicitReplay,
     );
     assert_eq!(
-        ore_opportunity_batch_budget(case.seed(), false),
-        7,
+        ore_opportunity(case.seed(), false).depth(),
+        OreOpportunityDepth::Shallow,
         "shallow-opportunity regression seed no longer exercises the intended narrow geological reserve"
     );
     let review = evaluate_primitive_progression_probe(&registries, case);
@@ -387,7 +387,7 @@ fn concise_reinvestment_summary(outcome: PrimitiveReinvestmentOutcome) -> String
         return "blocked:known-target-supply".to_string();
     };
     format!(
-        "completed copper-invested:{}mg crusher:{}->{}t separator:{}->{}t recovery:{}->{}mg separator-batch:{}->{}mg flywheel:{}->{}nJ expanded=[crusher:{}mg/{}t separator:{}t]",
+        "available copper-needed:{}mg projected=[crusher:{}->{}t separator:{}->{}t recovery:{}->{}mg separator-batch:{}->{}mg flywheel:{}->{}nJ expanded:crusher:{}mg/{}t separator:{}t]",
         reinvestment.invested_copper_mass.milligrams(),
         reinvestment.base_crush_ticks,
         reinvestment.reinforced_crush_ticks,
@@ -410,7 +410,7 @@ fn detailed_reinvestment_summary(outcome: PrimitiveReinvestmentOutcome) -> Strin
         return "blocked:known-target-supply".to_string();
     };
     format!(
-        "completed copper-invested:{}mg crusher-time:{}->{}t reduction:{}ppm separator-time:{}->{}t reduction:{}ppm separator-recovery:{}->{}mg separator-batch:{}->{}mg flywheel:{}->{}nJ expanded=[mass:{}mg crusher-energy:{}nJ charge:{}t crush:{}t separator-energy:{}nJ separator:{}t target:{}mg] survival:{}nJ/{}uL",
+        "available copper-needed:{}mg projected=[crusher-time:{}->{}t reduction:{}ppm separator-time:{}->{}t reduction:{}ppm separator-recovery:{}->{}mg separator-batch:{}->{}mg flywheel:{}->{}nJ expanded:[mass:{}mg crusher-energy:{}nJ charge:{}t crush:{}t separator-energy:{}nJ separator:{}t target:{}mg] survival:{}nJ/{}uL]",
         reinvestment.invested_copper_mass.milligrams(),
         reinvestment.base_crush_ticks,
         reinvestment.reinforced_crush_ticks,
@@ -459,8 +459,8 @@ fn evaluate_primitive_progression_probe(
         case.role(),
         FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
     );
-    let ore_opportunity_batch_budget =
-        ore_opportunity_batch_budget(seed, maintained_payback_required);
+    let opportunity = ore_opportunity(seed, maintained_payback_required);
+    let ore_opportunity_batch_budget = opportunity.batch_budget();
     let extraction = run_primitive_progression_case(
         registries,
         seed,
@@ -995,7 +995,7 @@ fn evaluate_primitive_progression_probe(
         && reinvestment_captured(&review, maintained_payback_required);
     assert!(
         fantasy_captured,
-        "primitive progression must turn uncertainty into a paid information choice, make an observation-grounded scarce-copper decision produce reciprocal physical leverage, and demonstrate useful work during delegated processing"
+        "primitive progression must turn uncertainty into a paid information choice, make an observation-grounded scarce-copper decision produce reciprocal physical leverage, demonstrate useful delegated work, and expose a legitimate post-work reinvestment opportunity or blocker"
     );
     let productive_payback = productive_payback_label(&review);
     let automation_economics = automation_economics_label(&review);
@@ -1033,7 +1033,7 @@ fn evaluate_primitive_progression_probe(
     let reinvestment_summary = concise_reinvestment_summary(review.reinvestment);
     report_maintained_manual_fallback(seed, manual_fallback);
     std::println!(
-        "PROGRESSION EXPERIENCE seed=0x{seed:016X} sample={sample} information={} first-copper={} choice-window=[extraction-hard:{}t/{}:{}mg mechanization-output:{}t/{} convergence-lead:{:+}t] bridge-tradeoff=[manual-now:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL; mechanize:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL] post-upgrade-feed={} delegation=[productive:{}t utilization:{}ppm payback:{productive_payback} post-payback:{}cycles stop:{} economics:{automation_economics}] leverage=[pick-attention:-{}ppm crank-power:+{}ppm] reinvestment=[{reinvestment_summary}] obligations=[maintenance-material-prep:{}t maintenance-transition:untimed survival:{}ppm/{}ppm]",
+        "PROGRESSION EXPERIENCE seed=0x{seed:016X} sample={sample} information={} first-copper={} choice-window=[extraction-hard:{}t/{}:{}mg mechanization-output:{}t/{} convergence-lead:{:+}t] bridge-tradeoff=[manual-now:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL; mechanize:{}t/{} feed:{}mg recovery:{}ppm body:{}nJ/{}uL] post-upgrade-feed={} delegation=[productive:{}t utilization:{}ppm payback:{productive_payback} post-payback:{}cycles stop:{} economics:{automation_economics}] leverage=[pick-attention:-{}ppm crank-power:+{}ppm] next-reinvestment=[{reinvestment_summary}] obligations=[maintenance-material-prep:{}t maintenance-transition:untimed survival:{}ppm/{}ppm]",
         if review.information_refinement_required {
             "deferred-refinement"
         } else {
@@ -1079,7 +1079,7 @@ fn evaluate_primitive_progression_probe(
     );
     let reinvestment_review = detailed_reinvestment_summary(review.reinvestment);
     std::println!(
-        "PROGRESSION REVIEW seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=observe->infer->prepare->extract->invest->delegate->maintain->reinvest captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t alternative-evidence:{}..{}ppm] actor-choice=[policy=hard-lower-bound-premium>={}ppm chosen:{} owned-bulk:{}ppm hard-evidence:{}..{}ppm] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[extraction-feed:{} extraction-grade:{}ppm mechanization-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} extraction-hard-window:{}t/{}mg mechanization-output-window:{}t convergence-lead:{:+}t reciprocal:{} converged:{}] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] reinvestment=[{reinvestment_review}] stored-work=[passive-loss:{}nJ reserve-recharge:{}t] maintenance=[pick:{}->{}ppm component:{}mg material-preparation:{}t transition:untimed copper-upgrade-preserved:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
+        "PROGRESSION REVIEW seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t alternative-evidence:{}..{}ppm] actor-choice=[policy=hard-lower-bound-premium>={}ppm chosen:{} owned-bulk:{}ppm hard-evidence:{}..{}ppm] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[extraction-feed:{} extraction-grade:{}ppm mechanization-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} extraction-hard-window:{}t/{}mg mechanization-output-window:{}t convergence-lead:{:+}t reciprocal:{} converged:{}] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] next-reinvestment-counterfactual=[{reinvestment_review}] stored-work=[passive-loss:{}nJ reserve-recharge:{}t] maintenance=[pick:{}->{}ppm component:{}mg material-preparation:{}t transition:untimed copper-upgrade-preserved:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
         if review.information_refinement_required {
             "deferred-survey"
         } else {

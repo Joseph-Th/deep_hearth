@@ -5,10 +5,9 @@ use std::collections::BTreeSet;
 use deep_hearth::core::quantity::{Energy, Mass, Volume};
 use deep_hearth::energy::EnergyCarrier;
 use deep_hearth::maintenance::MaintenanceBand;
-use deep_hearth::production::ProcessId;
-pub(super) use deep_hearth::registry::ProcessExecutionFamily as ProcessResolverKind;
 use deep_hearth::registry::{ProcessEnergyRole, Registries};
 
+use super::catalog::{ProcessResolverKind, process_catalog_entries};
 use super::scenario::ScenarioVariation;
 
 fn process_resolver_label(resolver: ProcessResolverKind) -> &'static str {
@@ -35,69 +34,6 @@ fn process_energy_role_label(role: ProcessEnergyRole) -> &'static str {
         ProcessEnergyRole::Sink(EnergyCarrier::Electrical) => "electrical-sink",
         ProcessEnergyRole::Sink(EnergyCarrier::Thermal) => "thermal-sink",
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct ProcessCatalogEntry {
-    pub(super) process: ProcessId,
-    pub(super) name: String,
-    pub(super) resolver: ProcessResolverKind,
-    pub(super) nominal_provider_count: usize,
-    pub(super) authored_acquisition_provider_count: usize,
-    pub(super) compatible_energy_store_count: usize,
-    pub(super) authored_assembly_energy_store_count: usize,
-    energy_role: ProcessEnergyRole,
-}
-
-pub(super) fn process_catalog_entries(registries: &Registries) -> Vec<ProcessCatalogEntry> {
-    registries
-        .production()
-        .definitions()
-        .map(|process| {
-            let topology = registries
-                .process_topology(process.id())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "authored process {} has no physical execution family",
-                        process.id().value()
-                    )
-                });
-            let resolver = topology.execution_family();
-            let energy_role = topology.energy_role();
-            let nominal_provider_count = topology.nominal_providers().len();
-            let authored_acquisition_provider_count = topology
-                .nominal_providers()
-                .iter()
-                .filter(|provider| {
-                    registries
-                        .equipment()
-                        .get_equipment(**provider)
-                        .is_some_and(|definition| definition.has_authored_acquisition_edge())
-                })
-                .count();
-            let compatible_energy_store_count = topology.compatible_energy_stores().len();
-            let authored_assembly_energy_store_count = topology
-                .compatible_energy_stores()
-                .iter()
-                .filter(|store| {
-                    registries
-                        .energy()
-                        .get_store(**store)
-                        .is_some_and(|definition| definition.has_authored_assembly_edge())
-                })
-                .count();
-            ProcessCatalogEntry {
-                process: process.id(),
-                name: process.name().to_owned(),
-                resolver,
-                nominal_provider_count,
-                authored_acquisition_provider_count,
-                compatible_energy_store_count,
-                authored_assembly_energy_store_count,
-                energy_role,
-            }
-        })
-        .collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -1,5 +1,7 @@
 //! Focused primitive-progression gameplay target for the fast edit/test loop.
 
+#[path = "gameplay_harness/catalog.rs"]
+mod catalog;
 #[path = "gameplay_harness/environment.rs"]
 mod environment;
 #[path = "gameplay_harness/equipment_support.rs"]
@@ -24,6 +26,8 @@ mod ore_fixture;
 mod physical_time;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
+#[path = "gameplay_harness/progression_contract_tests.rs"]
+mod progression_contract_tests;
 #[path = "gameplay_harness/progression_probe.rs"]
 mod progression_probe;
 #[path = "gameplay_harness/seed.rs"]

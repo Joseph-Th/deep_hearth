@@ -16,9 +16,8 @@ import time
 
 ROOT = Path(__file__).resolve().parent
 
-GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
 GAMEPLAY_CONTRACTS_TARGET = "gameplay_contracts"
-GAMEPLAY_AUDIT_TARGETS = (GAMEPLAY_CONTRACTS_TARGET, GAMEPLAY_AUDIT_TARGET)
+GAMEPLAY_REPORT_EXAMPLE = "gameplay-report"
 GAMEPLAY_TARGETS = {
     "workshop": "gameplay_workshop",
     "survival": "gameplay_survival",
@@ -26,6 +25,7 @@ GAMEPLAY_TARGETS = {
     "ore": "gameplay_ore",
     "foundry": "gameplay_foundry",
 }
+GAMEPLAY_AUDIT_TARGETS = (GAMEPLAY_CONTRACTS_TARGET, *GAMEPLAY_TARGETS.values())
 GAMEPLAY_TESTS = {
     "workshop": "workshop_contract_tests::gameplay_harness_gate",
     "survival": "gameplay_survival_provisioning_probe",
@@ -223,10 +223,7 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
             if rerun_targets and rerun_targets[-1].startswith("--test "):
                 target = rerun_targets[-1].removeprefix("--test ")
                 return f"python tools/run_test.py --target {target} {failed[-1]}"
-            return (
-                "python tools/run_test.py "
-                f"--target {GAMEPLAY_AUDIT_TARGET} {failed[-1]}"
-            )
+            return "python ci.py audit --gameplay"
         for scope, test_name in GAMEPLAY_TESTS.items():
             if test_name in command:
                 return f"python ci.py gate --gameplay {scope}"
@@ -312,25 +309,22 @@ def gameplay_plan(scope: str) -> list[tuple[str, list[str]]]:
     return [(label, gameplay_command(scope))]
 
 
-def exact_gameplay_command(target: str, name: str, *, ignored: bool = False) -> list[str]:
-    command = [
-        sys.executable,
-        "tools/run_test.py",
-        "--target",
-        target,
-        "--nocapture",
-    ]
-    if ignored:
-        command.append("--ignored")
-    command.append(name)
-    return command
-
-
 def report_plan() -> list[tuple[str, list[str]]]:
     return [
         (
             "gameplay report",
-            exact_gameplay_command(GAMEPLAY_AUDIT_TARGET, "gameplay_report", ignored=True),
+            [
+                "cargo",
+                "run",
+                "--quiet",
+                "--locked",
+                "--profile",
+                "test",
+                "--example",
+                GAMEPLAY_REPORT_EXAMPLE,
+                "--features",
+                "test-gameplay",
+            ],
         )
     ]
 

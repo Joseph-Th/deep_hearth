@@ -927,25 +927,6 @@ pub(super) fn run_primitive_progression_case(
     } else {
         bulk_ore_clue.request
     };
-    let reinvestment = evaluate_mature_reinvestment(
-        registries,
-        &state,
-        MatureReinvestmentPlan {
-            raw,
-            shaped,
-            ore_storage,
-            crushed_storage,
-            native_storage,
-            residue_storage: separation_residue_storage,
-            machine,
-            pick,
-            mining_target: post_convergence_mining_target,
-            primary_batch_mass: mined_mass,
-            separation_feed_mass: selected_separation_feed_mass,
-            reinforcement_mass: crank_upgrade_native,
-        },
-    );
-
     let banked_energy = state
         .energy()
         .get_store(machine.drive)
@@ -1048,6 +1029,27 @@ pub(super) fn run_primitive_progression_case(
     );
     let component_service =
         service_reinforced_pick(registries, &mut state, raw, native_storage, shaped, pick);
+    // Reinvestment is a forward-looking counterfactual from the state the actor actually reaches
+    // after repeated autonomous work and service. Evaluating it earlier would let a shallow world
+    // advertise an upgrade opportunity that later observable target exhaustion has already erased.
+    let reinvestment = evaluate_mature_reinvestment(
+        registries,
+        &state,
+        MatureReinvestmentPlan {
+            raw,
+            shaped,
+            ore_storage,
+            crushed_storage,
+            native_storage,
+            residue_storage: separation_residue_storage,
+            machine,
+            pick,
+            mining_target: post_convergence_mining_target,
+            primary_batch_mass: mined_mass,
+            separation_feed_mass: selected_separation_feed_mass,
+            reinforcement_mass: crank_upgrade_native,
+        },
+    );
     let drive_remaining = state
         .energy()
         .get_store(machine.drive)

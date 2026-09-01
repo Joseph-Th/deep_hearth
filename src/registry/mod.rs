@@ -29,6 +29,8 @@ mod process_topology;
 #[path = "process_topology_tests.rs"]
 mod process_topology_tests;
 
+#[cfg(test)]
+use process_topology::build_partial_process_topology_for_owner_tests;
 use process_topology::build_process_topology;
 pub use process_topology::{ProcessEnergyRole, ProcessExecutionFamily, ProcessTopology};
 
@@ -188,47 +190,69 @@ fn validate_infrastructure_perishability(domains: &RegistryDomains) {
     validate_storage_infrastructure_perishability(&domains.storage, &domains.survival);
 }
 
+fn validate_registry_domains(core: &CoreDefinitions, domains: &RegistryDomains) {
+    domains
+        .energy
+        .validate_references(&domains.materials, core.physical_tick_duration());
+    domains.fluid.validate_references(&domains.materials);
+    domains
+        .crafting
+        .validate_references(&domains.production, &domains.materials);
+    domains.labor.validate_references(&domains.capabilities);
+    domains
+        .equipment
+        .validate_references(&domains.capabilities, &domains.materials);
+    domains.storage.validate_references(&domains.materials);
+    domains
+        .production
+        .validate_references(&domains.materials, &domains.capabilities);
+    domains.mining.validate_references(&domains.capabilities);
+    domains.ore_processing.validate_references(
+        &domains.production,
+        &domains.capabilities,
+        &domains.materials,
+    );
+    domains
+        .survival
+        .validate_references(&domains.materials, &domains.fluid);
+    validate_infrastructure_perishability(domains);
+    domains.thermal.validate_references(
+        &domains.production,
+        &domains.capabilities,
+        &domains.materials,
+    );
+    domains
+        .presentation
+        .textures
+        .validate_references(&domains.materials, &domains.equipment);
+}
+
 impl Registries {
     pub(crate) fn new(
         schema_version: RegistrySchemaVersion,
         core: CoreDefinitions,
         domains: RegistryDomains,
     ) -> Self {
-        domains
-            .energy
-            .validate_references(&domains.materials, core.physical_tick_duration());
-        domains.fluid.validate_references(&domains.materials);
-        domains
-            .crafting
-            .validate_references(&domains.production, &domains.materials);
-        domains.labor.validate_references(&domains.capabilities);
-        domains
-            .equipment
-            .validate_references(&domains.capabilities, &domains.materials);
-        domains.storage.validate_references(&domains.materials);
-        domains
-            .production
-            .validate_references(&domains.materials, &domains.capabilities);
-        domains.mining.validate_references(&domains.capabilities);
-        domains.ore_processing.validate_references(
-            &domains.production,
-            &domains.capabilities,
-            &domains.materials,
-        );
-        domains
-            .survival
-            .validate_references(&domains.materials, &domains.fluid);
-        validate_infrastructure_perishability(&domains);
-        domains.thermal.validate_references(
-            &domains.production,
-            &domains.capabilities,
-            &domains.materials,
-        );
-        domains
-            .presentation
-            .textures
-            .validate_references(&domains.materials, &domains.equipment);
+        validate_registry_domains(&core, &domains);
         let process_topology = build_process_topology(&domains);
+        Self {
+            schema_version,
+            core,
+            domains,
+            process_topology,
+        }
+    }
+
+    /// Assembles registries for isolated tests of the generic production owner without requiring a
+    /// gameplay resolver family for the synthetic process definition.
+    #[cfg(test)]
+    pub(crate) fn new_for_isolated_production_owner_test(
+        schema_version: RegistrySchemaVersion,
+        core: CoreDefinitions,
+        domains: RegistryDomains,
+    ) -> Self {
+        validate_registry_domains(&core, &domains);
+        let process_topology = build_partial_process_topology_for_owner_tests(&domains);
         Self {
             schema_version,
             core,
@@ -327,11 +351,11 @@ impl Registries {
         &self.domains.production
     }
 
-    /// Returns immutable authored execution/provider/energy topology for one resolvable process.
+    /// Returns immutable authored execution/provider/energy topology for one process.
     ///
-    /// Absence means the process definition has no registered physical execution family. The
-    /// returned relationships describe definition-level possibilities, not current reachability or
-    /// authorization.
+    /// Runtime registry assembly guarantees one topology for every authored process, so absence
+    /// means the process identifier is not registered. The returned relationships describe
+    /// definition-level possibilities, not current reachability or authorization.
     #[must_use]
     pub fn process_topology(&self, process: ProcessId) -> Option<&ProcessTopology> {
         self.process_topology.get(&process)

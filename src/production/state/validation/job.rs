@@ -20,6 +20,7 @@ pub(super) fn validate_job_record(
 ) -> Result<(), ProductionValidationError> {
     validate_job_schedule(id, job, current)?;
     validate_job_suspension(id, job)?;
+    validate_material_storage_history(id, job, current)?;
     let consumed_mass = validate_consumed_resources(id, job)?;
     validate_energy_traces(id, job)?;
     validate_equipment_outcome(id, job)?;
@@ -70,12 +71,20 @@ fn validate_job_schedule(
     if job.schedule.active_duration.value() == 0 {
         return Err(ProductionValidationError::ZeroActiveDuration { job: id });
     }
-    let storage_transition = job.resources.material_storage_history.last_transition_at();
-    if storage_transition != job.schedule.started_at {
+    Ok(())
+}
+
+fn validate_material_storage_history(
+    id: ProductionJobId,
+    job: &ProductionJobRecord,
+    current: SimulationTick,
+) -> Result<(), ProductionValidationError> {
+    let transition = job.resources.material_storage_history.last_transition_at();
+    if transition != job.schedule.started_at {
         return Err(
             ProductionValidationError::StorageHistoryTransitionMismatch {
                 job: id,
-                transition: storage_transition,
+                transition,
                 started_at: job.schedule.started_at,
             },
         );
@@ -97,9 +106,6 @@ fn validate_job_schedule(
             job: id,
             at: job.schedule.completes_at,
         })?;
-    if job.equipment.requires_active_support && job.equipment.provider.is_none() {
-        return Err(ProductionValidationError::RequiredSupportWithoutEquipment { job: id });
-    }
     Ok(())
 }
 
@@ -330,6 +336,9 @@ fn validate_equipment_outcome(
     id: ProductionJobId,
     job: &ProductionJobRecord,
 ) -> Result<(), ProductionValidationError> {
+    if job.equipment.requires_active_support && job.equipment.provider.is_none() {
+        return Err(ProductionValidationError::RequiredSupportWithoutEquipment { job: id });
+    }
     match (job.equipment.provider, job.equipment.condition_after) {
         (Some(provider), Some(after)) => {
             if after > provider.condition() {

@@ -2,6 +2,7 @@
 
 use std::env;
 
+#[cfg(test)]
 use deep_hearth::content::build_registries;
 use deep_hearth::registry::Registries;
 
@@ -9,7 +10,9 @@ use super::focused_seeds::{
     EXPLORATORY_VARIATION_COUNT, FocusedProbeCase, FocusedProbeRole, FocusedProbeSeedPlan,
     GATE_VARIATION_COUNT, focused_probe_cases_from, probe_uses_actor_behavior,
 };
+#[cfg(test)]
 use super::fresh_seed::fresh_root;
+#[cfg(test)]
 use super::seed::MAINTAINED_VARIATION_ROOT;
 
 pub(super) const fn focused_probe_role_label(role: FocusedProbeRole) -> &'static str {
@@ -33,6 +36,7 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
     }
 }
 
+#[cfg(test)]
 pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, FocusedProbeCase)) {
     let registries = build_registries();
     let (_, _, salt) = probe_seed_spec(name);

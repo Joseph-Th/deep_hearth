@@ -706,7 +706,10 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertNotIn("check-fast", builds[0])
         self.assertEqual(builds[0].count("--test"), 1)
         self.assertIn(ci.GAMEPLAY_TARGETS["survival"], builds[0])
-        self.assertNotIn(ci.GAMEPLAY_AUDIT_TARGET, builds[0])
+        self.assertNotIn(ci.GAMEPLAY_CONTRACTS_TARGET, builds[0])
+        for scope, target in ci.GAMEPLAY_TARGETS.items():
+            if scope != "survival":
+                self.assertNotIn(target, builds[0])
         self.assertIn(ci.GAMEPLAY_TESTS["survival"], builds[0])
         self.assertIn("--exact", builds[0])
 
@@ -723,10 +726,6 @@ class LocalCiPlanTests(unittest.TestCase):
             self.assertIn("--nocapture", command)
             self.assertEqual(definitions[target].get("required-features"), ["test-gameplay"])
         self.assertEqual(
-            definitions[ci.GAMEPLAY_AUDIT_TARGET].get("required-features"),
-            ["test-gameplay"],
-        )
-        self.assertEqual(
             definitions[ci.GAMEPLAY_CONTRACTS_TARGET].get("required-features"),
             ["test-gameplay"],
         )
@@ -740,7 +739,7 @@ class LocalCiPlanTests(unittest.TestCase):
             "ore": "ore_probe",
             "foundry": "foundry_probe",
         }
-        aggregate_only = {"agency", "catalog_contract_tests", "seed_contract_tests"}
+        contracts_only = {"process_catalog_contract_tests", "seed_contract_tests"}
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
         target_paths = {
             definition["name"]: ROOT / definition["path"]
@@ -748,9 +747,11 @@ class LocalCiPlanTests(unittest.TestCase):
         }
         for scope, target in ci.GAMEPLAY_TARGETS.items():
             source = target_paths[target].read_text(encoding="utf-8")
-            forbidden = aggregate_only | {
+            forbidden = contracts_only | {
                 module for owner, module in probe_modules.items() if owner != scope
             }
+            if scope != "workshop":
+                forbidden.add("agency")
             for module in forbidden:
                 self.assertNotIn(
                     f"mod {module};",
@@ -819,10 +820,10 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertFalse(any("check-fast" in command for command in builds))
         self.assertEqual(builds, [ci.combined_test_command()])
         self.assertIn("--lib", builds[0])
-        for target in ci.GAMEPLAY_AUDIT_TARGETS:
-            self.assertIn(target, builds[0])
-        for target in ci.GAMEPLAY_TARGETS.values():
-            self.assertNotIn(target, builds[0])
+        self.assertEqual(
+            cargo_test_targets(builds[0]),
+            list(ci.GAMEPLAY_AUDIT_TARGETS),
+        )
 
     def test_combined_audit_summary_keeps_core_and_gameplay_counts_legible(self) -> None:
         output = "\n".join(
@@ -852,11 +853,15 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("test-gameplay", gameplay_builds[0])
         self.assertNotIn(["cargo", "test-core"], gameplay_builds)
 
-    def test_broad_gameplay_audit_links_contracts_and_heavy_audit_targets_once(self) -> None:
+    def test_broad_gameplay_audit_reuses_contracts_and_every_focused_target(self) -> None:
         command = ci.gameplay_command("all")
         self.assertEqual(
             cargo_test_targets(command),
             list(ci.GAMEPLAY_AUDIT_TARGETS),
+        )
+        self.assertEqual(
+            set(ci.GAMEPLAY_AUDIT_TARGETS),
+            {ci.GAMEPLAY_CONTRACTS_TARGET, *ci.GAMEPLAY_TARGETS.values()},
         )
 
     def test_broad_core_failure_points_to_one_exact_repair(self) -> None:
@@ -897,44 +902,43 @@ class LocalCiPlanTests(unittest.TestCase):
             "python tools/run_test.py --target gameplay_ore gameplay_ore_preparation_probe",
         )
 
-    def test_consolidated_focused_failure_stays_on_the_warm_audit_target(self) -> None:
-        output = "failures:\n    focused::gameplay_ore_preparation_probe\n"
-        error = "error: test failed, to rerun pass `--test gameplay_audit`"
+    def test_broad_focused_failure_stays_on_the_warm_focused_target(self) -> None:
+        output = "failures:\n    gameplay_ore_preparation_probe\n"
+        error = "error: test failed, to rerun pass `--test gameplay_ore`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit focused::gameplay_ore_preparation_probe",
+            "python tools/run_test.py --target gameplay_ore gameplay_ore_preparation_probe",
         )
 
-    def test_agency_failure_reuses_the_aggregate_target_instead_of_linking_another_binary(self) -> None:
+    def test_agency_failure_reuses_the_workshop_target(self) -> None:
         output = "failures:\n    agency::gameplay_agency_counterfactuals\n"
-        error = "error: test failed, to rerun pass `--test gameplay_audit`"
+        error = "error: test failed, to rerun pass `--test gameplay_workshop`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit agency::gameplay_agency_counterfactuals",
+            "python tools/run_test.py --target gameplay_workshop agency::gameplay_agency_counterfactuals",
         )
 
-    def test_global_catalog_failure_reuses_the_aggregate_target(self) -> None:
-        output = "failures:\n    catalog_contract_tests::gameplay_catalog_is_discovered_from_runtime_owners\n"
-        error = "error: test failed, to rerun pass `--test gameplay_audit`"
+    def test_process_catalog_failure_reuses_the_contract_target(self) -> None:
+        output = "failures:\n    process_catalog_contract_tests::every_authored_process_has_legible_physical_execution_topology\n"
+        error = "error: test failed, to rerun pass `--test gameplay_contracts`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit catalog_contract_tests::gameplay_catalog_is_discovered_from_runtime_owners",
+            "python tools/run_test.py --target gameplay_contracts process_catalog_contract_tests::every_authored_process_has_legible_physical_execution_topology",
         )
 
-    def test_generator_diversity_failure_reuses_the_aggregate_target(self) -> None:
-        output = "failures:\n    catalog_contract_tests::gameplay_generators_retain_meaningful_physical_variation\n"
-        error = "error: test failed, to rerun pass `--test gameplay_audit`"
+    def test_survival_generator_failure_reuses_the_survival_target(self) -> None:
+        output = "failures:\n    survival_contract_tests::survival_generation_covers_authored_options_without_policy_leakage\n"
+        error = "error: test failed, to rerun pass `--test gameplay_survival`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit catalog_contract_tests::gameplay_generators_retain_meaningful_physical_variation",
+            "python tools/run_test.py --target gameplay_survival survival_contract_tests::survival_generation_covers_authored_options_without_policy_leakage",
         )
 
-    def test_unknown_aggregate_only_failure_stays_on_the_aggregate_target(self) -> None:
+    def test_unknown_gameplay_failure_falls_back_to_the_broad_gameplay_audit(self) -> None:
         output = "failures:\n    future_contracts::new_global_check\n"
-        error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
-            ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit future_contracts::new_global_check",
+            ci.repair_hint(ci.gameplay_command("all"), output, ""),
+            "python ci.py audit --gameplay",
         )
 
     def test_integration_exact_command_infers_target_required_features(self) -> None:
@@ -964,7 +968,7 @@ class LocalCiPlanTests(unittest.TestCase):
 
     def test_integration_check_command_infers_required_features_without_linking(self) -> None:
         args = argparse.Namespace(
-            target=ci.GAMEPLAY_AUDIT_TARGET,
+            target=ci.GAMEPLAY_CONTRACTS_TARGET,
             features=None,
             list=False,
             suite=False,
@@ -977,7 +981,7 @@ class LocalCiPlanTests(unittest.TestCase):
                 "--quiet",
                 "--locked",
                 "--test",
-                ci.GAMEPLAY_AUDIT_TARGET,
+                ci.GAMEPLAY_CONTRACTS_TARGET,
                 "--features",
                 "test-gameplay",
             ],
@@ -989,17 +993,29 @@ class LocalCiPlanTests(unittest.TestCase):
         flattened = "\n".join(" ".join(command) for command in commands)
         self.assertEqual(len(plan), 1)
         self.assertNotIn("test-gameplay-full", flattened)
-        self.assertEqual(
-            run_test.requested_target_features(ci.GAMEPLAY_AUDIT_TARGET, None),
-            {"test-gameplay"},
+        manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+        report_definition = next(
+            definition
+            for definition in manifest.get("example", [])
+            if definition["name"] == ci.GAMEPLAY_REPORT_EXAMPLE
         )
+        self.assertEqual(report_definition.get("required-features"), ["test-gameplay"])
         report = plan[0][1]
-        self.assertIn("tools/run_test.py", report)
-        self.assertIn(ci.GAMEPLAY_AUDIT_TARGET, report)
-        self.assertIn("gameplay_report", report)
-        self.assertIn("--ignored", report)
-        self.assertIn("--nocapture", report)
-        self.assertNotIn("gameplay_workshop", report)
+        self.assertEqual(
+            report,
+            [
+                "cargo",
+                "run",
+                "--quiet",
+                "--locked",
+                "--profile",
+                "test",
+                "--example",
+                ci.GAMEPLAY_REPORT_EXAMPLE,
+                "--features",
+                "test-gameplay",
+            ],
+        )
 
     def test_report_replay_environment_is_fresh_by_default_and_preserves_explicit_roots(self) -> None:
         generated: dict[str, str] = {}
@@ -1027,7 +1043,7 @@ class LocalCiPlanTests(unittest.TestCase):
         output = "\n".join(
             [
                 "running 1 test",
-                "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reinvest",
+                "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified",
                 "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap",
                 "PROBE INPUT name=survival-provisioning mode=explore samples=3 organic=1 replay=anchor:0x0000000000000001,organic:0x00000000000000CC",
                 "HARNESS INPUT plan=anchor+variation",
@@ -1055,7 +1071,7 @@ class LocalCiPlanTests(unittest.TestCase):
             ci.concise_gameplay_report(output, {}),
             "\n".join(
                 [
-                    "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reinvest",
+                    "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reassess->reinvest-when-justified",
                     "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap",
                     "PROBE INPUT name=survival-provisioning mode=explore samples=3 organic=1 replay=anchor:0x0000000000000001,organic:0x00000000000000CC",
                     "CONTENT registry_schema=64 equipment=[authored:12]",
@@ -1086,12 +1102,11 @@ class LocalCiPlanTests(unittest.TestCase):
         for key in ("autobins", "autoexamples", "autotests", "autobenches"):
             self.assertFalse(package[key])
         targets = {definition["name"] for definition in manifest.get("test", [])}
-        self.assertEqual(
-            targets,
-            {*ci.GAMEPLAY_AUDIT_TARGETS, *ci.GAMEPLAY_TARGETS.values()},
-        )
+        self.assertEqual(targets, set(ci.GAMEPLAY_AUDIT_TARGETS))
         binaries = {definition["name"] for definition in manifest.get("bin", [])}
         self.assertEqual(binaries, {"validate-shaders"})
+        examples = {definition["name"] for definition in manifest.get("example", [])}
+        self.assertEqual(examples, {ci.GAMEPLAY_REPORT_EXAMPLE})
 
     def test_shader_validation_reuses_existing_test_profile(self) -> None:
         manifest = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
@@ -1442,17 +1457,10 @@ class ExactTestCommandTests(unittest.TestCase):
         )
 
     def test_source_catalog_resolves_gameplay_target_modules(self) -> None:
-        audit = run_test.source_test_catalog("gameplay_audit", None)
-        self.assertTrue(
-            {
-                "focused::gameplay_survival_provisioning_probe",
-                "focused::gameplay_primitive_progression_probe",
-                "focused::gameplay_ore_preparation_probe",
-                "focused::gameplay_foundry_probe",
-                "workshop_contract_tests::gameplay_harness_gate",
-                "agency::gameplay_agency_counterfactuals",
-                "gameplay_report",
-            }.issubset(set(audit))
+        contracts = run_test.source_test_catalog(ci.GAMEPLAY_CONTRACTS_TARGET, None)
+        self.assertIn(
+            "process_catalog_contract_tests::every_authored_process_has_legible_physical_execution_topology",
+            contracts,
         )
         for scope, target in ci.GAMEPLAY_TARGETS.items():
             focused = run_test.source_test_catalog(target, None)
@@ -1461,6 +1469,12 @@ class ExactTestCommandTests(unittest.TestCase):
                 focused,
                 f"focused gameplay scope {scope} must resolve in its dedicated target",
             )
+        workshop = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["workshop"], None)
+        self.assertIn("agency::gameplay_agency_counterfactuals", workshop)
+        self.assertIn("scenario_tests::world_seed_never_changes_player_policy", workshop)
+        self.assertTrue(
+            all("gameplay_report" not in run_test.source_test_catalog(target, None) for target in ci.GAMEPLAY_AUDIT_TARGETS)
+        )
 
     def test_source_catalog_listing_never_builds_through_cargo_command(self) -> None:
         args = argparse.Namespace(

@@ -32,11 +32,9 @@ Use the smallest lane that completely proves the changed contract.
 `quick` is build-free. `gate` runs one build lane and does not repeat `quick`; specialized flags replace its
 default compile. `audit` checkpoints add `quick` to the selected runtime surface.
 
-While code is unstable, use `cargo check-fast`; integration tests can use `run_test.py --check`. Then run one
-exact/suite or focused gameplay proof. Reuse warm artifacts. Keep one test profile and shared support shape; no
-prebuild or all-target repair-loop compile. Focused targets compile only declared harness modules; build-free
-contracts catch missing dependencies. Gameplay gates keep maintained cases plus one fresh replayable organic
-case; `report` broadens the sample.
+While code is unstable, use `cargo check-fast` or `run_test.py --check`, then one exact/suite or focused gameplay
+proof. Reuse warm artifacts; do not prebuild or compile all targets in the repair loop. Gameplay audit reuses
+`gameplay_contracts` plus the 5 focused targets. `report` is a separate example outside routine test builds.
 
 ## Evidence ladder
 
@@ -113,8 +111,9 @@ Assertions prove durable contracts:
 - persistence: serialized continuation and trusted-load admission for state that survives load;
 - authored values: read from registries instead of duplicating balance constants.
 
-Avoid error-prose, wall-clock, incidental-order/count, or unowned balance assertions. Prefer one canonical-path
-regression naming the invariant; interaction bugs reproduce the interacting states.
+Avoid error-prose, wall-clock, incidental-order/count, or unowned balance assertions. Prefer authored-registry or
+owner-state relationships over copied balance values. Generator tests prove bounded reachability/variation, not
+one exact permutation or count unless that value is itself owned. Interaction bugs reproduce interacting states.
 
 Soak tests are ignored tests whose qualified name includes `soak`. Use them only when repeated ownership,
 persistence, conservation, or numerical accumulation adds evidence that focused tests cannot provide.

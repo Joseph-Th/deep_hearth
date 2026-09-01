@@ -109,8 +109,10 @@ impl CrushEnvelopes {
 mod tests;
 
 struct ResolvableCrushBatch {
+    #[cfg(test)]
     mass: Mass,
     options: CrushOptions,
+    #[cfg(test)]
     desired_constraints: CrushConstraintFlags,
 }
 
@@ -217,8 +219,10 @@ fn largest_resolvable_crush_batch(
         "powered crush envelope admitted a mass rejected by both canonical supply choices"
     );
     Some(ResolvableCrushBatch {
+        #[cfg(test)]
         mass,
         options,
+        #[cfg(test)]
         desired_constraints: CrushConstraintFlags::from_envelopes(envelopes, desired),
     })
 }
