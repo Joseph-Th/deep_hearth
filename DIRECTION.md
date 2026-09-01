@@ -88,11 +88,11 @@ different alternatives. Debt exists when the alternatives differ only along a mo
 production resolver already computes the limits needed to answer that dimension directly.
 
 Use increasing claim strength when planning control surfaces: **direct authored edge -> authored path -> ordinary
-reachability -> current opportunity -> authorization -> committed consequence**. A future topology index should
-make the first two cheap; it must not silently upgrade them into the stronger claims. Existing local
-`has_runtime_*_route` predicates are useful direct-edge declarations even though their names can be read too
-broadly. If those APIs are touched, improve semantic naming/documentation instead of making each definition
-responsible for transitive reachability.
+reachability -> current opportunity -> authorization -> committed consequence**. Registry-derived topology should
+make the first two cheap; it must not silently upgrade them into the stronger claims. Local
+`has_authored_acquisition_edge` and `has_authored_assembly_edge` predicates are deliberately direct-edge
+declarations. Keep transitive authored-path and ordinary-reachability claims in topology/reachability authorities
+instead of pushing them into individual definitions.
 
 ### Current operability signals
 

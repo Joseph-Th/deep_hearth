@@ -8,8 +8,13 @@ pub(super) fn run_primitive_progression_case(
     priority: PrimitivePriority,
     extraction_grade_premium_ppm: u32,
     deferred_trace_refinement: bool,
+    ore_opportunity_batch_budget: u64,
     emit_detail: bool,
 ) -> PrimitiveProgressionExperience {
+    assert!(
+        ore_opportunity_batch_budget >= 6,
+        "primitive progression opportunity budget must leave room for discovery, convergence, and at least one repeated-work cycle"
+    );
     let mined_mass = progression_mining_mass(registries, seed);
     let crushed_storage_capacity = multiply_mass(
         mined_mass,
@@ -23,23 +28,20 @@ pub(super) fn run_primitive_progression_case(
         mined_mass.milligrams().div_ceil(2)
             + mix64(seed ^ 0x4841_5244_5F4F_5245) % (mined_mass.milligrams() + 1),
     );
-    let concurrent_jobs_per_cycle_budget = 14 + mix64(seed ^ 0x434F_4E43_5552_5245) % 7;
-    let reserve_batch_budget = (MAX_STEADY_STATE_CRUSH_CYCLES + 2)
-        .checked_mul(concurrent_jobs_per_cycle_budget)
-        .unwrap_or_else(|| panic!("primitive progression reserve batch budget overflowed"));
-    // Size finite ore reserves from the bounded repeat horizon so concurrent mining can exercise
-    // returned attention without fixture depletion becoming the limiting factor. Seed variation
-    // changes depletion slack between worlds.
+    // Geological opportunity is finite independently of the probe's repeat limit. Maintained worlds
+    // deliberately carry a deep reserve so they can prove automation payback. Organic worlds use a
+    // smaller seed-derived budget, allowing the same machinery to be physically useful without
+    // guaranteeing that local opportunity is large enough to repay its setup attention.
     let soft_ore_deposit_mass = multiply_mass(
         mined_mass,
-        reserve_batch_budget,
+        ore_opportunity_batch_budget,
         "soft-ore concurrent-work reserve",
     )
     .checked_add(soft_ore_surplus)
     .unwrap_or_else(|| panic!("primitive progression soft-ore reserve mass overflowed"));
     let hard_ore_deposit_mass = multiply_mass(
         mined_mass,
-        reserve_batch_budget,
+        ore_opportunity_batch_budget,
         "hard-ore concurrent-work reserve",
     )
     .checked_add(hard_ore_surplus)
@@ -1216,6 +1218,8 @@ pub(super) fn run_primitive_progression_case(
         automation_preparation_ticks: machine.automation_preparation_ticks,
         separator_preparation_ticks: machine.separator_preparation_ticks,
         processing_line_preparation_ticks: machine.processing_line_preparation_ticks,
+        processing_line_preparation_metabolic_cost_nj: machine.preparation_metabolic_cost_nj,
+        processing_line_preparation_hydration_cost_ul: machine.preparation_hydration_cost_ul,
         productive_payback_cycles: steady_state.productive_payback_cycle,
         steady_state_cycles: steady_state.cycles,
         steady_state_stop: steady_state.stop,
@@ -1254,7 +1258,7 @@ pub(super) fn run_primitive_progression_case(
         direct_second_upgrade_blocked,
         initial_crank_reinforced,
         crank_reinforced: machine.crank_reinforced,
-        component_service_ticks: component_service.preparation_ticks,
+        maintenance_material_preparation_ticks: component_service.preparation_ticks,
         component_service_mass: component_service.material_mass,
         component_service_condition_before_ppm: component_service.condition_before_ppm,
         component_service_preserved_reinforcement: component_service.preserved_reinforcement,

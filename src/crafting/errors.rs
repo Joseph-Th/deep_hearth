@@ -4,12 +4,15 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
 
+use crate::core::quantity::Mass;
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError};
 use crate::material::{CommodityKey, MaterialLotSpecError};
 use crate::production::{
     ProcessId, ProcessInputError, ProcessResolutionError, StartProcessCommitError,
     StartProcessError,
 };
+
+use super::batch::ManualCraftBatchError;
 
 /// Failure while resolving one exact manual shaping operation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -20,8 +23,17 @@ pub enum ManualCraftError {
         process: ProcessId,
     },
     Input(ProcessInputError),
+    InputCommodityMismatch {
+        expected: CommodityKey,
+    },
+    InputCompositionMismatch {
+        expected: CommodityKey,
+    },
     MixedInputTemperature,
-    MissingInputTrace,
+    InputMassNotWholeBatches {
+        consumed: Mass,
+        batch_mass: Mass,
+    },
     DurationOverflow {
         batches: NonZeroU64,
     },
@@ -46,12 +58,30 @@ impl Display for ManualCraftError {
                 process.value()
             ),
             Self::Input(error) => write!(formatter, "manual craft input is invalid: {error}"),
+            Self::InputCommodityMismatch { expected } => write!(
+                formatter,
+                "manual craft selection contains matter other than authored material {} form {}",
+                expected.material().value(),
+                expected.form().value()
+            ),
+            Self::InputCompositionMismatch { expected } => write!(
+                formatter,
+                "manual craft selection for material {} form {} must be pure host material",
+                expected.material().value(),
+                expected.form().value()
+            ),
             Self::MixedInputTemperature => formatter.write_str(
                 "manual shaping cannot combine different input temperatures without thermal physics",
             ),
-            Self::MissingInputTrace => {
-                formatter.write_str("manual shaping resolved no consumed input trace")
-            }
+            Self::InputMassNotWholeBatches {
+                consumed,
+                batch_mass,
+            } => write!(
+                formatter,
+                "manual craft selection contains {} mg, which is not a whole number of {} mg authored batches",
+                consumed.milligrams(),
+                batch_mass.milligrams()
+            ),
             Self::DurationOverflow { batches } => write!(
                 formatter,
                 "manual shaping duration overflows when repeated {} times",
@@ -82,10 +112,36 @@ impl Error for ManualCraftError {
             Self::SurvivalNotInitialized
             | Self::PlayerDead
             | Self::UnknownManualProcess { process: _ }
+            | Self::InputCommodityMismatch { .. }
+            | Self::InputCompositionMismatch { .. }
             | Self::MixedInputTemperature
-            | Self::MissingInputTrace
+            | Self::InputMassNotWholeBatches { .. }
             | Self::DurationOverflow { batches: _ }
             | Self::OutputMassOverflow { .. } => None,
+        }
+    }
+}
+
+impl ManualCraftError {
+    pub(super) fn from_batch_error(
+        error: ManualCraftBatchError,
+        definition: &super::ManualCraftDefinition,
+    ) -> Self {
+        match error {
+            ManualCraftBatchError::InputCommodityMismatch => Self::InputCommodityMismatch {
+                expected: definition.input(),
+            },
+            ManualCraftBatchError::InputCompositionMismatch => Self::InputCompositionMismatch {
+                expected: definition.input(),
+            },
+            ManualCraftBatchError::MixedInputTemperature => Self::MixedInputTemperature,
+            ManualCraftBatchError::InputMassNotWholeBatches {
+                consumed,
+                batch_mass,
+            } => Self::InputMassNotWholeBatches {
+                consumed,
+                batch_mass,
+            },
         }
     }
 }

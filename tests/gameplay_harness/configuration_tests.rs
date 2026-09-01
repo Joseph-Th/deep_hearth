@@ -34,11 +34,11 @@ fn plan(
 #[test]
 fn seed_configuration_rejects_invalid_inputs_with_exact_error_location() {
     assert_eq!(
-        plan(ScenarioPlanMode::Gate, None, Some("nope"), None),
+        plan(ScenarioPlanMode::Explore, None, Some("nope"), None),
         Err(GameplayHarnessConfigError::InvalidVariationSeed)
     );
     assert_eq!(
-        plan(ScenarioPlanMode::Gate, None, None, Some("nope")),
+        plan(ScenarioPlanMode::Explore, None, None, Some("nope")),
         Err(GameplayHarnessConfigError::InvalidBehaviorSeed)
     );
     assert_eq!(
@@ -116,12 +116,20 @@ fn default_gate_keeps_maintained_anchors_and_adds_one_organic_case() {
     );
     assert_eq!(plan.anchor_seed_count(), EXPECTED_MAINTAINED_ANCHORS.len());
     assert_eq!(plan.variation_seed_count(), 1);
-    assert_eq!(plan.variation_label(), "0xE7A10A7E5EED2026");
+    assert_eq!(
+        plan.variation_label(),
+        format!("0x{MAINTAINED_VARIATION_ROOT:016X}")
+    );
     assert_eq!(plan.behavior_label(), "0x0000000000000001");
+    assert!(
+        plan.cases()
+            .last()
+            .is_some_and(|case| case.anchor.is_none())
+    );
 }
 
 #[test]
-fn gate_and_explore_use_replay_roots_with_different_bounded_sample_sizes() {
+fn gate_uses_replay_roots_for_one_organic_case_without_changing_maintained_anchors() {
     let first = scenario_seeds_from(
         ScenarioPlanMode::Gate,
         None,
@@ -146,11 +154,18 @@ fn gate_and_explore_use_replay_roots_with_different_bounded_sample_sizes() {
         second.anchor_seed_count(),
         EXPECTED_MAINTAINED_ANCHORS.len()
     );
+    assert_eq!(first.source_label(), "anchor+variation");
     assert_eq!(first.variation_seed_count(), 1);
     assert_eq!(second.variation_seed_count(), 1);
+    assert_eq!(
+        &first.cases()[..EXPECTED_MAINTAINED_ANCHORS.len()],
+        &second.cases()[..EXPECTED_MAINTAINED_ANCHORS.len()]
+    );
     assert_ne!(first.cases().last(), second.cases().last());
     assert_eq!(first.variation_label(), "0x0000000000001111");
     assert_eq!(first.behavior_label(), "0x0000000000002222");
+    assert_eq!(second.variation_label(), "0x000000000000AAAA");
+    assert_eq!(second.behavior_label(), "0x000000000000BBBB");
 
     let exploratory =
         scenario_seeds_from(ScenarioPlanMode::Explore, None, None, None, 0x1111, 0x2222)

@@ -362,6 +362,13 @@ pub struct StockpileRecord {
     pub(in crate::inventory) contents: BTreeMap<CommodityKey, Mass>,
 }
 
+/// Checked stockpile-capacity projection around one atomic outgoing/incoming exchange.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::inventory) struct StockpileMassProjection {
+    pub(in crate::inventory) committed_before_incoming: Mass,
+    pub(in crate::inventory) after_incoming: Mass,
+}
+
 /// Exact physical enclosure currently embodied around one stockpile.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -456,6 +463,24 @@ impl StockpileRecord {
     #[must_use]
     pub const fn reserved_inbound(&self) -> Mass {
         self.reserved_inbound
+    }
+
+    /// Projects committed capacity after one outgoing amount and one new incoming amount.
+    ///
+    /// Existing inbound reservations remain committed throughout the exchange. Callers pass zero
+    /// outgoing mass when the withdrawal occurs from another stockpile.
+    pub(in crate::inventory) fn project_mass_exchange(
+        &self,
+        outgoing: Mass,
+        incoming: Mass,
+    ) -> Option<StockpileMassProjection> {
+        let stored_after_outgoing = self.stored_mass.checked_sub(outgoing)?;
+        let committed_before_incoming = stored_after_outgoing.checked_add(self.reserved_inbound)?;
+        let after_incoming = committed_before_incoming.checked_add(incoming)?;
+        Some(StockpileMassProjection {
+            committed_before_incoming,
+            after_incoming,
+        })
     }
 
     /// Returns currently stored mass for one exact material/form key.

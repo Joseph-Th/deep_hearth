@@ -12,7 +12,7 @@ check-fast = "check --quiet --locked --lib"
 # The optional lint checkpoint checks production code only. Broader alternate feature shapes are
 # verified by their owning executable lanes rather than one expensive all-features Clippy ritual.
 test-lint = "clippy --locked --lib -- -D warnings"
-test-fast = "test --quiet --locked --lib --features test-gameplay"
+test-core = "test --quiet --locked --lib --features test-gameplay"
 # Soak-only code is feature-gated out of the ordinary unit-test artifact so daily edits do not
 # type-check/codegen long-horizon fixtures. The explicit soak lane pays that cost only on demand.
 test-soak = "test --quiet --locked --lib --features test-soak -- --ignored"

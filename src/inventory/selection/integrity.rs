@@ -48,37 +48,21 @@ impl ConsumptionReservation {
                     destination.value()
                 )
             });
-            let stored_after_consumption = if self.source == *destination {
-                destination_record
-                    .stored_mass()
-                    .checked_sub(total_consumed)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "validated consumption reservation underflowed source stockpile {}",
-                            destination.value()
-                        )
-                    })
+            let outgoing = if self.source == *destination {
+                total_consumed
             } else {
-                destination_record.stored_mass()
+                Mass::ZERO
             };
-            let committed_after_consumption = stored_after_consumption
-                .checked_add(destination_record.reserved_inbound())
+            let projection = destination_record
+                .project_mass_exchange(outgoing, *inbound_mass)
                 .unwrap_or_else(|| {
                     panic!(
-                        "validated consumption reservation overflowed committed mass for stockpile {}",
-                        destination.value()
-                    )
-                });
-            let after_reservation = committed_after_consumption
-                .checked_add(*inbound_mass)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "validated consumption reservation overflowed inbound mass for stockpile {}",
+                        "validated consumption reservation mass projection failed for stockpile {}",
                         destination.value()
                     )
                 });
             assert!(
-                after_reservation <= destination_record.capacity(),
+                projection.after_incoming <= destination_record.capacity(),
                 "validated consumption reservation exceeds destination capacity"
             );
         }

@@ -12,12 +12,16 @@ mod focused_seeds;
 mod fresh_seed;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
+#[path = "gameplay_harness/manual_craft_selection.rs"]
+mod manual_craft_selection;
 #[path = "gameplay_harness/manual_power_timing.rs"]
 mod manual_power_timing;
 #[path = "gameplay_harness/material_selection.rs"]
 mod material_selection;
 #[path = "gameplay_harness/ore_fixture.rs"]
 mod ore_fixture;
+#[path = "gameplay_harness/physical_time.rs"]
+mod physical_time;
 #[path = "gameplay_harness/production_timing.rs"]
 mod production_timing;
 #[path = "gameplay_harness/progression_probe.rs"]

@@ -244,22 +244,16 @@ fn validate_ingress_capacity(
     destination: StockpileId,
     summary: &IngressMassSummary,
 ) -> Result<(), MaterialIngressError> {
-    let committed = destination_record
-        .stored_mass
-        .checked_add(destination_record.reserved_inbound)
+    let projection = destination_record
+        .project_mass_exchange(Mass::ZERO, summary.total)
         .ok_or(MaterialIngressError::MassOverflow {
             stockpile: destination,
         })?;
-    let after = committed
-        .checked_add(summary.total)
-        .ok_or(MaterialIngressError::MassOverflow {
-            stockpile: destination,
-        })?;
-    if after > destination_record.capacity {
+    if projection.after_incoming > destination_record.capacity() {
         return Err(MaterialIngressError::CapacityExceeded {
             stockpile: destination,
-            capacity: destination_record.capacity,
-            committed,
+            capacity: destination_record.capacity(),
+            committed: projection.committed_before_incoming,
             requested: summary.total,
         });
     }

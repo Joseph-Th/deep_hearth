@@ -29,14 +29,14 @@ Use the smallest lane that completely proves the changed contract.
 | Changed-source BCA review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 | Current BCA hotspot review | `python ci.py bca --hotspots [--path <scope>] [--since <revision>]` |
 
-`python ci.py quick` is build-free validation. `python ci.py gate` runs one build lane and never
-repeats `quick`; specialized flags replace its default compile. Broad `audit` checkpoints include `quick` plus
-the selected runtime surface.
+`quick` is build-free. `gate` runs one build lane and does not repeat `quick`; specialized flags replace its
+default compile. `audit` checkpoints add `quick` to the selected runtime surface.
 
-While code is unstable, use `cargo check-fast` for production typing and `run_test.py --check` after test edits.
-Once coherent, run one exact/suite or focused gameplay proof, not a compile-then-test staircase. Reuse warm
-artifacts; after source edits, return to compile-only feedback until behavior is ready. Selectors fail closed.
-Focused gameplay shares `test-gameplay` but uses smaller binaries than the broad gameplay audit.
+While code is unstable, use `cargo check-fast`; integration tests can use `run_test.py --check`. Then run one
+exact/suite or focused gameplay proof. Reuse warm artifacts. Keep one test profile and shared support shape; no
+prebuild or all-target repair-loop compile. Focused targets compile only declared harness modules; build-free
+contracts catch missing dependencies. Gameplay gates keep maintained cases plus one fresh replayable organic
+case; `report` broadens the sample.
 
 ## Evidence ladder
 

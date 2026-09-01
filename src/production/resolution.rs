@@ -18,7 +18,6 @@ mod errors;
 mod inputs;
 
 pub use errors::ProcessResolutionError;
-pub(crate) use inputs::validate_repeated_process_inputs;
 pub use inputs::{
     ProcessInputError, ValidatedProcessInputs, validate_process_inputs,
     validate_selected_process_inputs,

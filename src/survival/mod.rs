@@ -8,8 +8,9 @@ mod validation;
 
 pub use consumption::{
     DrinkCommitError, DrinkError, DrinkOutcome, EatCommitError, EatError, EatOutcome,
-    EatPortionOutcome, FoodFreshness, FoodFreshnessError, NutritionGain, ValidatedDrink,
-    ValidatedEat, assess_food_freshness, validate_drink, validate_eat,
+    EatPortionOutcome, FoodFreshness, FoodFreshnessError, FoodFreshnessProjectionError,
+    NutritionGain, ValidatedDrink, ValidatedEat, assess_food_freshness,
+    project_food_freshness_after_storage_transition, validate_drink, validate_eat,
 };
 pub use definitions::{
     ConsumptionTemperatureRange, DirectConsumptionDefinition, DrinkDefinition, FoodCategory,

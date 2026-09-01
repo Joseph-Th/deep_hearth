@@ -31,6 +31,7 @@ EXTERNAL_MODULE = re.compile(
 PATH_ATTRIBUTE = re.compile(r'^#\[path\s*=\s*"(?P<path>[^"]+)"\]$')
 FEATURE_NAME = re.compile(r'feature\s*=\s*"(?P<name>[^"]+)"')
 BARE_TEST_CFG = re.compile(r"(?:^|[,(])\s*test\s*(?:[,)]|$)")
+TOP_LEVEL_USE = re.compile(r"^use\s+(?P<body>.*?);", re.MULTILINE | re.DOTALL)
 
 
 def feature_set(raw: str | None) -> set[str]:
@@ -161,67 +162,132 @@ def cargo_test_target_path(target: str) -> Path:
     return ROOT / cargo_test_target_definition(target)["path"]
 
 
+def explicit_module_source(attributes: list[str]) -> str | None:
+    for attribute in attributes:
+        match = PATH_ATTRIBUTE.match(attribute)
+        if match is not None:
+            return match.group("path")
+    return None
+
+
+def resolve_external_module_path(
+    source: Path,
+    name: str,
+    attributes: list[str],
+) -> Path:
+    explicit = explicit_module_source(attributes)
+    if explicit is not None:
+        candidate = source.parent / explicit
+    else:
+        module_root = (
+            source.parent
+            if source.name in {"lib.rs", "main.rs", "mod.rs"}
+            else source.parent / source.stem
+        )
+        direct = module_root / f"{name}.rs"
+        nested = module_root / name / "mod.rs"
+        candidate = direct if direct.is_file() else nested
+    if not candidate.is_file():
+        raise ValueError(
+            f"source catalog cannot resolve module {name!r} from {source.relative_to(ROOT)}"
+        )
+    return candidate
+
+
 def external_modules(path: Path, features: set[str]) -> list[tuple[str, Path]]:
     modules: list[tuple[str, Path]] = []
     pending_attributes: list[str] = []
-    explicit_path: str | None = None
 
     for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if line == stripped and ATTRIBUTE.match(line):
             pending_attributes.append(stripped)
-            path_match = PATH_ATTRIBUTE.match(stripped)
-            if path_match is not None:
-                explicit_path = path_match.group("path")
             continue
 
         module_match = EXTERNAL_MODULE.match(stripped) if line == stripped else None
         if module_match is not None:
             if attributes_enabled(pending_attributes, features):
                 name = module_match.group("name")
-                if explicit_path is not None:
-                    module_path = path.parent / explicit_path
-                else:
-                    module_root = (
-                        path.parent
-                        if path.name in {"lib.rs", "main.rs", "mod.rs"}
-                        else path.parent / path.stem
-                    )
-                    direct = module_root / f"{name}.rs"
-                    nested = module_root / name / "mod.rs"
-                    module_path = direct if direct.is_file() else nested
-                if not module_path.is_file():
-                    raise ValueError(
-                        f"source catalog cannot resolve module {name!r} from {path.relative_to(ROOT)}"
-                    )
-                modules.append((name, module_path))
+                modules.append(
+                    (name, resolve_external_module_path(path, name, pending_attributes))
+                )
             pending_attributes.clear()
-            explicit_path = None
             continue
 
         if stripped:
             pending_attributes.clear()
-            explicit_path = None
 
     return modules
 
 
-def reachable_test_names(root: Path, features: set[str]) -> list[str]:
-    """Walk one Rust crate/module graph and return only tests reachable from its root."""
+def reachable_modules(
+    root: Path,
+    features: set[str],
+) -> list[tuple[Path, tuple[str, ...]]]:
+    """Return one Rust crate's external module closure with stable module prefixes."""
 
-    names: list[str] = []
+    modules: list[tuple[Path, tuple[str, ...]]] = []
     pending: list[tuple[Path, tuple[str, ...]]] = [(root, ())]
     visited: set[tuple[Path, tuple[str, ...]]] = set()
-
     while pending:
         path, prefix = pending.pop()
         key = (path.resolve(), prefix)
         if key in visited:
             continue
         visited.add(key)
-        names.extend(file_test_names(path, prefix, features))
+        modules.append((path, prefix))
         for module, module_path in external_modules(path, features):
             pending.append((module_path, (*prefix, module)))
+    return modules
+
+
+def root_sibling_imports(source: str, module_depth: int) -> set[str]:
+    """Return crate-root sibling modules referenced by ancestor-relative top-level imports."""
+
+    required: set[str] = set()
+    prefix = "super::" * module_depth
+    for match in TOP_LEVEL_USE.finditer(source):
+        body = " ".join(match.group("body").split())
+        if not body.startswith(prefix):
+            continue
+        body = body[len(prefix) :]
+        if body.startswith("super::"):
+            continue
+        if body.startswith("{") and body.endswith("}"):
+            for item in body[1:-1].split(","):
+                name = item.strip().split("::", 1)[0].strip()
+                if re.fullmatch(r"[A-Za-z_]\w*", name) and name != "self":
+                    required.add(name)
+            continue
+        name = body.split("::", 1)[0].strip()
+        if re.fullmatch(r"[A-Za-z_]\w*", name):
+            required.add(name)
+    return required
+
+
+def missing_root_modules(target: str, module_directory: Path) -> list[str]:
+    """Find source-referenced root sibling modules omitted by one integration-test crate root."""
+
+    root = cargo_test_target_path(target)
+    features = cargo_feature_set(target, None)
+    declared = {name for name, _path in external_modules(root, features)}
+    available = {path.stem for path in module_directory.glob("*.rs")}
+    required: set[str] = set()
+    for path, prefix in reachable_modules(root, features):
+        if not prefix:
+            continue
+        required.update(
+            root_sibling_imports(path.read_text(encoding="utf-8"), len(prefix)) & available
+        )
+    return sorted(required - declared)
+
+
+def reachable_test_names(root: Path, features: set[str]) -> list[str]:
+    """Walk one Rust crate/module graph and return only tests reachable from its root."""
+
+    names: list[str] = []
+    for path, prefix in reachable_modules(root, features):
+        names.extend(file_test_names(path, prefix, features))
     return names
 
 
@@ -302,17 +368,18 @@ def executed_test_counts(stdout: str) -> tuple[int, int] | None:
 
 
 def cargo_check_command(args: argparse.Namespace) -> list[str]:
-    """Type-check the exact test's owning target without code generation or linking."""
+    """Type-check one integration-test target without code generation or linking."""
 
     if args.list:
         raise ValueError("source catalog listing does not invoke Cargo")
-    command = ["cargo", "check", "--quiet", "--locked"]
     if args.target == "lib":
-        command.extend(("--lib", "--tests"))
-        requested_features = feature_set(args.features)
-    else:
-        command.extend(("--test", args.target))
-        requested_features = requested_target_features(args.target, args.features)
+        raise ValueError(
+            "lib --check is intentionally unsupported because Cargo's test check selects every "
+            "integration target; run the exact unit test instead"
+        )
+    command = ["cargo", "check", "--quiet", "--locked"]
+    command.extend(("--test", args.target))
+    requested_features = requested_target_features(args.target, args.features)
     if requested_features:
         command.extend(("--features", ",".join(sorted(requested_features))))
     return command
@@ -321,8 +388,8 @@ def cargo_check_command(args: argparse.Namespace) -> list[str]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run one exact cached Rust test or one bounded source-catalog suite, type-check the "
-            "owning target without linking, or inspect the build-free source catalog."
+            "Run one exact cached Rust test or one bounded source-catalog suite, type-check one "
+            "integration target without linking, or inspect the build-free source catalog."
         )
     )
     parser.add_argument(
@@ -338,7 +405,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="type-check the selected test target without linking or executing tests",
+        help="type-check one integration test target without linking; lib unit tests execute exactly",
     )
     parser.add_argument(
         "--suite",
@@ -359,6 +426,11 @@ def parse_args() -> argparse.Namespace:
         parser.error("--list and --check are mutually exclusive")
     if args.suite and (args.list or args.check):
         parser.error("--suite is an execution mode and cannot be combined with --list or --check")
+    if args.check and args.target == "lib":
+        parser.error(
+            "--check cannot target lib without checking every integration target; run the exact "
+            "unit test instead"
+        )
     if args.suite and args.ignored:
         parser.error("--ignored requires exact execution; use an exact ignored-test selector")
     if (args.list or args.check) and (args.ignored or args.nocapture):

@@ -48,31 +48,21 @@ fn validate_ingress_capacity_after_egress(
     egress: &ValidatedMaterialEgress,
 ) -> Result<(), MaterialIngressError> {
     let source_is_destination = egress.source() == destination;
-    let stored_after_egress = if source_is_destination {
-        destination_record
-            .stored_mass()
-            .checked_sub(egress.total_consumed())
-            .ok_or(MaterialIngressError::MassOverflow {
-                stockpile: destination,
-            })?
+    let outgoing = if source_is_destination {
+        egress.total_consumed()
     } else {
-        destination_record.stored_mass()
+        crate::core::quantity::Mass::ZERO
     };
-    let committed = stored_after_egress
-        .checked_add(destination_record.reserved_inbound())
+    let projection = destination_record
+        .project_mass_exchange(outgoing, summary.total)
         .ok_or(MaterialIngressError::MassOverflow {
             stockpile: destination,
         })?;
-    let after = committed
-        .checked_add(summary.total)
-        .ok_or(MaterialIngressError::MassOverflow {
-            stockpile: destination,
-        })?;
-    if after > destination_record.capacity() {
+    if projection.after_incoming > destination_record.capacity() {
         return Err(MaterialIngressError::CapacityExceeded {
             stockpile: destination,
             capacity: destination_record.capacity(),
-            committed,
+            committed: projection.committed_before_incoming,
             requested: summary.total,
         });
     }

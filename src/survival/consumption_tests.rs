@@ -2,8 +2,9 @@
 
 use super::*;
 use crate::content::{
-    FLUID_WATER, FORM_FOOD, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_GRAIN, MATERIAL_MEAT,
-    MATERIAL_STONE, PROCESS_KNAP_STONE_TOOL, build_registries,
+    FLUID_WATER, FORM_CHEST_BODY, FORM_FOOD, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_GRAIN,
+    MATERIAL_MEAT, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_KNAP_STONE_TOOL,
+    STORAGE_TIMBER_PROVISIONS_CHEST, build_registries,
 };
 use crate::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass, Temperature, Volume};
 use crate::core::state::{
@@ -14,7 +15,7 @@ use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::fluid::{add_fluid_store_with_contents_for_fixture, calculate_fluid_volume_accounting};
 use crate::inventory::{
     MaterialLotSelection, StockpileStorageProfile, add_solid_stockpile_for_test, add_stockpile,
-    deposit_lot_for_test, validate_material_transfer_for_test,
+    deposit_lot_for_test, validate_build_storage_enclosure, validate_material_transfer_for_test,
 };
 use crate::labor::{PlayerWork, PlayerWorkValidationError};
 use crate::material::CommodityKey;
@@ -34,6 +35,135 @@ fn initialize_and_spend_reserves(registries: &Registries, state: &mut AppState) 
         let _ = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("survival reserve-spend tick failed: {error}"));
     }
+}
+
+#[test]
+fn prospective_storage_freshness_matches_the_canonical_future_enclosure_transition() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0028));
+    let food_store = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("freshness projection food stockpile failed: {error}"));
+    let berries = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        food_store,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(100_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("freshness projection berry fixture failed: {error}"));
+    let enclosure_mass = registries
+        .storage()
+        .get(STORAGE_TIMBER_PROVISIONS_CHEST)
+        .unwrap_or_else(|| panic!("freshness projection storage definition disappeared"))
+        .assembly_profile()
+        .input_mass();
+    let construction =
+        add_solid_stockpile_for_test(&mut state, enclosure_mass).unwrap_or_else(|error| {
+            panic!("freshness projection construction stockpile failed: {error}")
+        });
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        construction,
+        CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
+        enclosure_mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("freshness projection enclosure body failed: {error}"));
+
+    apply_clock_advance(&mut state, SimulationTick::new(100));
+    let transition_at = SimulationTick::new(230);
+    let assessment_at = SimulationTick::new(430);
+    let forecast = project_food_freshness_after_storage_transition(
+        &registries,
+        &state,
+        berries,
+        transition_at,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        assessment_at,
+    )
+    .unwrap_or_else(|error| panic!("prospective freshness projection failed: {error:?}"));
+
+    apply_clock_advance(&mut state, transition_at);
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        food_store,
+        construction,
+    )
+    .unwrap_or_else(|error| panic!("forecast comparison enclosure validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("forecast comparison enclosure commit failed: {error}"));
+    apply_clock_advance(&mut state, assessment_at);
+
+    assert_eq!(
+        assess_food_freshness(&registries, &state, berries),
+        Ok(forecast)
+    );
+    validate_loaded_state(&registries, &state)
+        .unwrap_or_else(|error| panic!("forecast comparison state audit failed: {error}"));
+}
+
+#[test]
+fn prospective_storage_freshness_rejects_invalid_horizons_and_unknown_storage() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0x5A70_0029));
+    let food_store = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000))
+        .unwrap_or_else(|error| panic!("freshness projection rejection stockpile failed: {error}"));
+    let berries = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        food_store,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(100),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap_or_else(|error| panic!("freshness projection rejection berry failed: {error}"));
+    apply_clock_advance(&mut state, SimulationTick::new(10));
+
+    assert_eq!(
+        project_food_freshness_after_storage_transition(
+            &registries,
+            &state,
+            berries,
+            SimulationTick::new(9),
+            STORAGE_TIMBER_PROVISIONS_CHEST,
+            SimulationTick::new(20),
+        ),
+        Err(FoodFreshnessProjectionError::TransitionBeforeCurrent {
+            transition_at: SimulationTick::new(9),
+            current: SimulationTick::new(10),
+        })
+    );
+    assert_eq!(
+        project_food_freshness_after_storage_transition(
+            &registries,
+            &state,
+            berries,
+            SimulationTick::new(20),
+            STORAGE_TIMBER_PROVISIONS_CHEST,
+            SimulationTick::new(19),
+        ),
+        Err(FoodFreshnessProjectionError::AssessmentBeforeTransition {
+            assessment_at: SimulationTick::new(19),
+            transition_at: SimulationTick::new(20),
+        })
+    );
+    assert_eq!(
+        project_food_freshness_after_storage_transition(
+            &registries,
+            &state,
+            berries,
+            SimulationTick::new(20),
+            crate::inventory::StorageDefinitionId::new(u32::MAX),
+            SimulationTick::new(30),
+        ),
+        Err(FoodFreshnessProjectionError::UnknownStorageDefinition {
+            definition: crate::inventory::StorageDefinitionId::new(u32::MAX),
+        })
+    );
 }
 
 fn finish_direct_consumption(registries: &Registries, state: &mut AppState) -> u64 {
@@ -319,7 +449,7 @@ fn start_attention_owning_craft(registries: &Registries, state: &mut AppState) -
         .unwrap_or_else(|error| panic!("attention craft source fixture failed: {error}"));
     let destination = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("attention craft destination fixture failed: {error}"));
-    deposit_lot_for_test(
+    let lot = deposit_lot_for_test(
         registries,
         state,
         source,
@@ -331,7 +461,12 @@ fn start_attention_owning_craft(registries: &Registries, state: &mut AppState) -
     validate_start_manual_craft(
         registries,
         state,
-        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
     )
     .unwrap_or_else(|error| panic!("attention craft validation failed: {error}"))
     .commit(state)

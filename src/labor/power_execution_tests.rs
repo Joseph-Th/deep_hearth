@@ -21,7 +21,7 @@ use crate::equipment::{
     EquipmentConditionPlanError, decide_equipment_wear, validate_assemble_equipment,
     validate_mount_equipment, validate_unmount_equipment,
 };
-use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
+use crate::inventory::{MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError, PlayerWorkValidationError};
 use crate::material::CommodityKey;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
@@ -541,7 +541,7 @@ fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
         .unwrap_or_else(|error| panic!("manual power raw stockpile failed: {error}"));
     let shaped = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
         .unwrap_or_else(|error| panic!("manual power shaped stockpile failed: {error}"));
-    deposit_lot_for_test(
+    let stone = deposit_lot_for_test(
         &registries,
         &mut state,
         raw,
@@ -550,7 +550,7 @@ fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("manual power stone fixture failed: {error}"));
-    deposit_lot_for_test(
+    let wood = deposit_lot_for_test(
         &registries,
         &mut state,
         raw,
@@ -563,7 +563,12 @@ fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
     validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_SHAPE_STONE_FLYWHEEL, raw, shaped),
+        ManualCraftStartRequest::single(
+            PROCESS_SHAPE_STONE_FLYWHEEL,
+            raw,
+            MaterialLotSelection::new(stone, Mass::from_milligrams(1_000_000)),
+            shaped,
+        ),
     )
     .unwrap_or_else(|error| panic!("flywheel shaping validation failed: {error}"))
     .commit(&mut state)
@@ -572,7 +577,12 @@ fn primitive_hand_crank_turns_player_work_into_finite_mechanical_energy() {
     validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_SHAPE_WOOD_HANDLE, raw, shaped),
+        ManualCraftStartRequest::single(
+            PROCESS_SHAPE_WOOD_HANDLE,
+            raw,
+            MaterialLotSelection::new(wood, Mass::from_milligrams(1_000_000)),
+            shaped,
+        ),
     )
     .unwrap_or_else(|error| panic!("crank handle shaping validation failed: {error}"))
     .commit(&mut state)

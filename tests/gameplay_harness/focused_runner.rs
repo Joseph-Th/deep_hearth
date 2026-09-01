@@ -23,9 +23,9 @@ pub(super) const fn focused_probe_role_label(role: FocusedProbeRole) -> &'static
 
 fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
     match name {
-        // Stable coverage cases exercise a structural alternative to the anchor; every non-replay
-        // run also includes fresh bounded variation.
-        "survival-provisioning" => (0xD33F_C01D_5A70, &[], 0x5355_5256_5052_4F42),
+        // Stable coverage cases protect known behavior. A separate fresh root adds one bounded
+        // organic case in the repair loop without changing these regression worlds.
+        "survival-provisioning" => (0xD33F_C01D_5A70, &[1, 2], 0x5355_5256_5052_4F42),
         "primitive-progression" => (0xD33F_C01D_5052, &[3], 0x5052_4F47_5052_4F42),
         "ore-preparation" => (0xD33F_C01D_0A11, &[2], 0x0AE5_1A5E_5052_4F42),
         "foundry" => (0xD33F_C01D_F001, &[2], 0xF0A1_DA7A_5052_4F42),
@@ -36,12 +36,10 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
 pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, FocusedProbeCase)) {
     let registries = build_registries();
     let (_, _, salt) = probe_seed_spec(name);
-    let default_variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(13));
-    let default_behavior_root = if probe_uses_actor_behavior(name) {
-        fresh_root(MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(37) ^ 0x4245_4841_5649_4F52)
-    } else {
-        0
-    };
+    let default_variation_root =
+        fresh_root(MAINTAINED_VARIATION_ROOT ^ salt ^ 0x4741_5445_5F57_4F52);
+    let default_behavior_root =
+        fresh_root(MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(23) ^ 0x4741_5445_5F42_4548);
     run_focused_probe_with_registries(
         &registries,
         name,
@@ -121,9 +119,11 @@ pub(super) fn run_focused_probe_with_registries(
             .filter(|case| case.role() == FocusedProbeRole::OrganicVariation)
             .count(),
         scenario_raw.as_deref().map_or_else(
-            || variation_raw
-                .as_deref()
-                .map_or_else(|| format!("0x{default_variation_root:016X}"), str::to_owned),
+            || {
+                variation_raw
+                    .as_deref()
+                    .map_or_else(|| format!("0x{default_variation_root:016X}"), str::to_owned)
+            },
             |_| "explicit".to_owned(),
         ),
         if uses_actor_behavior {

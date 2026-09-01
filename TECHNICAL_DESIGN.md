@@ -409,6 +409,10 @@ with an authored edible form retains exact future-equivalent exposure cohorts in
 intermediate storage cannot erase perishability history before a later same-material food reform. Freshness
 reporting derives the remaining shelf-life horizon from the retained rational projection phase, not only from
 rounded current age, so the reported final fresh tick is the tick immediately before authoritative spoilage.
+`project_food_freshness_after_storage_transition` applies that same history arithmetic read-only across one
+future authored enclosure transition and a caller-chosen later assessment tick. It is disposable planning
+evidence: it does not validate enclosure capacity, containment, construction inputs, player work, or any
+intervening mutation, and callers must project again if authoritative state changes before acting.
 
 Storage enclosures are immutable definitions with a capacity limit, storage profile, and exact consolidated
 assembly profile. Construction transfers selected traces from inventory into persistent stockpile-owned
@@ -422,7 +426,10 @@ lidded timber chest embodies 2.4 kg of joined boards and provides a 2x preservat
 route consumes three 1 kg logs, emits 0.6 kg of chips, and occupies 230 player-attention ticks. The double-wall
 chest embodies 4.0 kg, provides a 3x preservation multiplier, consumes five logs, emits 1.0 kg of chips, and
 occupies 370 ticks. Both retain the same 333.15 K containment ceiling, so heavier joinery improves future food
-preservation without acting as extra capacity or high-temperature containment.
+preservation without acting as extra capacity or high-temperature containment. Because construction delay occurs
+before the improved storage rate begins, the stronger enclosure can be worse at a short matched endpoint; the
+prospective freshness projection lets legitimate callers inspect that break-even effect without cloning a future
+world or duplicating storage-aging formulas.
 
 Enclosure dismantling is the inverse custody transition for that exact embodied matter, not generic demolition.
 The target must be unmounted, have no reserved inbound work, and remain valid under the ambient storage profile.

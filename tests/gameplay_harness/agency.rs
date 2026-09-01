@@ -645,11 +645,8 @@ fn replayable_agency_root() -> u64 {
         .unwrap_or_else(|| fresh_root(MAINTAINED_VARIATION_ROOT ^ 0xA63E_4E43_595F_4652))
 }
 
-pub(super) fn run_gameplay_agency_counterfactuals() {
-    let registries = build_registries();
-    let variation_root = replayable_agency_root();
-    std::println!("AGENCY INPUT mode=gate organic=1 variation_root=0x{variation_root:016X}");
-    let mut worlds = vec![
+fn maintained_agency_worlds() -> Vec<AgencyWorld> {
+    vec![
         AgencyWorld {
             focus: AgencyFocus::PowerAndStructure,
             world_seed: 1,
@@ -665,7 +662,14 @@ pub(super) fn run_gameplay_agency_counterfactuals() {
             world_seed: 4,
             anchor: Some(MaintainedAnchor::WarningMaintenance),
         },
-    ];
+    ]
+}
+
+pub(super) fn run_gameplay_agency_counterfactuals() {
+    let registries = build_registries();
+    let variation_root = replayable_agency_root();
+    std::println!("AGENCY INPUT mode=gate organic=1 variation_root=0x{variation_root:016X}");
+    let mut worlds = maintained_agency_worlds();
     worlds.extend(organic_agency_worlds(variation_root, 1));
     run_agency_probe(&registries, &worlds);
 }
@@ -675,23 +679,7 @@ pub(super) fn run_exploratory_agency_counterfactuals() {
     let variation_root = replayable_agency_root();
     std::println!("AGENCY INPUT mode=explore organic=3 variation_root=0x{variation_root:016X}");
     let organic = organic_agency_worlds(variation_root, 3);
-    let mut worlds = vec![
-        AgencyWorld {
-            focus: AgencyFocus::PowerAndStructure,
-            world_seed: 1,
-            anchor: Some(MaintainedAnchor::NormalBaseline),
-        },
-        AgencyWorld {
-            focus: AgencyFocus::SurvivalRecovery,
-            world_seed: 0x1F65_DBFE_4A87_A054,
-            anchor: Some(MaintainedAnchor::SurvivalRecovery),
-        },
-        AgencyWorld {
-            focus: AgencyFocus::MaintenanceTiming,
-            world_seed: 4,
-            anchor: Some(MaintainedAnchor::WarningMaintenance),
-        },
-    ];
+    let mut worlds = maintained_agency_worlds();
     worlds.extend(organic);
     run_agency_probe(&registries, &worlds);
 }

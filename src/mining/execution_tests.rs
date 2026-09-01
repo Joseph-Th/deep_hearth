@@ -26,9 +26,9 @@ use crate::geology::{
     ProspectingResolution, validate_record_prospecting,
 };
 use crate::inventory::{
-    AMBIENT_PRESERVATION_MULTIPLIER_PPM, STORAGE_AGE_PARTS_PER_TICK, StockpileStructuralLoadError,
-    add_solid_stockpile_for_test, deposit_lot_for_test, validate_mount_stockpile,
-    validate_unmount_stockpile,
+    AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialLotSelection, STORAGE_AGE_PARTS_PER_TICK,
+    StockpileStructuralLoadError, add_solid_stockpile_for_test, deposit_lot_for_test,
+    validate_mount_stockpile, validate_unmount_stockpile,
 };
 use crate::labor::{
     PlayerWork, PlayerWorkStartError, PlayerWorkValidationError,
@@ -1547,7 +1547,7 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
     let ore_destination =
         add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
             .unwrap_or_else(|error| panic!("mining ore destination failed: {error}"));
-    deposit_lot_for_test(
+    let stone = deposit_lot_for_test(
         &registries,
         &mut state,
         stone_source,
@@ -1556,7 +1556,7 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("mining stone ingress failed: {error}"));
-    deposit_lot_for_test(
+    let wood = deposit_lot_for_test(
         &registries,
         &mut state,
         stone_source,
@@ -1569,7 +1569,12 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
     validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, stone_source, shaped),
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            stone_source,
+            MaterialLotSelection::new(stone, Mass::from_milligrams(1_000_000)),
+            shaped,
+        ),
     )
     .unwrap_or_else(|error| panic!("mining knapping start failed: {error}"))
     .commit(&mut state)
@@ -1581,7 +1586,12 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
     validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_SHAPE_WOOD_HANDLE, stone_source, shaped),
+        ManualCraftStartRequest::single(
+            PROCESS_SHAPE_WOOD_HANDLE,
+            stone_source,
+            MaterialLotSelection::new(wood, Mass::from_milligrams(1_000_000)),
+            shaped,
+        ),
     )
     .unwrap_or_else(|error| panic!("mining handle shaping start failed: {error}"))
     .commit(&mut state)
@@ -1703,7 +1713,12 @@ fn knap_assemble_mine_claim_loop_is_conserved_exclusive_and_persistent() {
     let craft_error = validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, stone_source, shaped),
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            stone_source,
+            MaterialLotSelection::new(stone, Mass::from_milligrams(1_000_000)),
+            shaped,
+        ),
     )
     .err()
     .unwrap_or_else(|| panic!("manual crafting unexpectedly started during mining"));

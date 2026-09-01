@@ -48,15 +48,11 @@ impl ValidatedInboundReservation {
                 self.stockpile.value()
             )
         });
-        let committed = record
-            .stored_mass()
-            .checked_add(record.reserved_inbound())
-            .unwrap_or_else(|| panic!("validated inbound reservation committed mass overflowed"));
-        let after = committed
-            .checked_add(self.mass)
-            .unwrap_or_else(|| panic!("validated inbound reservation mass overflowed"));
+        let projection = record
+            .project_mass_exchange(Mass::ZERO, self.mass)
+            .unwrap_or_else(|| panic!("validated inbound reservation mass projection overflowed"));
         assert!(
-            after <= record.capacity(),
+            projection.after_incoming <= record.capacity(),
             "validated inbound reservation exceeds stockpile capacity"
         );
     }
@@ -80,18 +76,14 @@ pub(crate) fn validate_inbound_reservation(
     let record = state
         .get_stockpile(stockpile)
         .ok_or(InboundReservationError::UnknownStockpile { stockpile })?;
-    let committed = record
-        .stored_mass()
-        .checked_add(record.reserved_inbound())
+    let projection = record
+        .project_mass_exchange(Mass::ZERO, mass)
         .ok_or(InboundReservationError::MassOverflow { stockpile })?;
-    let after = committed
-        .checked_add(mass)
-        .ok_or(InboundReservationError::MassOverflow { stockpile })?;
-    if after > record.capacity() {
+    if projection.after_incoming > record.capacity() {
         return Err(InboundReservationError::CapacityExceeded {
             stockpile,
             capacity: record.capacity(),
-            committed,
+            committed: projection.committed_before_incoming,
             requested: mass,
         });
     }

@@ -15,19 +15,20 @@ use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::WorldSeed;
 use crate::geology::{FieldProspectingRequest, validate_start_field_prospecting};
 use crate::inventory::{
-    add_solid_stockpile_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
-    validate_mount_stockpile, validate_unmount_stockpile,
+    MaterialLotId, MaterialLotSelection, add_solid_stockpile_for_test,
+    deposit_composed_lot_for_test, deposit_lot_for_test, validate_mount_stockpile,
+    validate_unmount_stockpile,
 };
 use crate::labor::{
     PlayerWorkCommitError, PlayerWorkStartError, PlayerWorkValidationError,
     calculate_player_work_resource_budget,
 };
-use crate::material::{CompositionComponent, MaterialComposition};
+use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::production::{
-    ProcessDefinition, ProcessId, ProcessInputError, ProductionAvailabilityChange,
-    ProductionRegistry, ProductionSuspensionReason, StartProcessError, validate_start_process,
+    ProcessDefinition, ProcessId, ProductionAvailabilityChange, ProductionRegistry,
+    ProductionSuspensionReason, StartProcessError, validate_start_process,
 };
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -36,7 +37,7 @@ use crate::structural::{
     materialize_structural_element_for_test, validate_activate_structural_element,
     validate_set_structural_load,
 };
-use crate::survival::{assess_survival, initialize_player_survival};
+use crate::survival::{SurvivalExertion, assess_survival, initialize_player_survival};
 
 fn stone_lump() -> CommodityKey {
     CommodityKey::new(MATERIAL_STONE, FORM_LUMP)
@@ -50,10 +51,9 @@ fn manual_craft_registry_rejects_output_that_requires_unauthored_particle_state(
     let output = CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED);
     let input_mass = Mass::from_milligrams(1);
     let mut production = ProductionRegistry::new();
-    production.register_process(ProcessDefinition::new(
+    production.register_process(ProcessDefinition::new_selected_batch(
         process,
         "particulate manual output fixture",
-        vec![crate::material::MaterialInputSpec::pure(input, input_mass)],
         Vec::new(),
     ));
     let crafting = CraftingRegistry::new([ManualCraftDefinition::new(
@@ -101,7 +101,7 @@ fn native_copper_reinforcement_rejects_ordinary_ore_form_without_inventing_separ
         .unwrap_or_else(|error| panic!("native copper source failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
         .unwrap_or_else(|error| panic!("native copper destination failed: {error}"));
-    deposit_lot_for_test(
+    let ore = deposit_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -119,18 +119,16 @@ fn native_copper_reinforcement_rejects_ordinary_ore_form_without_inventing_separ
             ManualCraftStartRequest::single(
                 PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
                 source,
+                MaterialLotSelection::new(ore, Mass::from_milligrams(20_000)),
                 destination,
             ),
         )
         .err(),
-        Some(StartManualCraftError::Resolution(ManualCraftError::Input(
-            ProcessInputError::InsufficientMass {
-                stockpile: source,
-                commodity: CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-                available: Mass::ZERO,
-                requested: Mass::from_milligrams(20_000),
+        Some(StartManualCraftError::Resolution(
+            ManualCraftError::InputCommodityMismatch {
+                expected: CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
             }
-        )))
+        ))
     );
     assert_eq!(state, before);
     assert_eq!(
@@ -160,7 +158,7 @@ fn native_copper_reinforcement_filters_contaminated_native_metal() {
         CompositionComponent::new(MATERIAL_STONE, 100_000),
     ])
     .unwrap_or_else(|error| panic!("contaminated native copper composition failed: {error}"));
-    deposit_composed_lot_for_test(
+    let contaminated = deposit_composed_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -179,18 +177,16 @@ fn native_copper_reinforcement_filters_contaminated_native_metal() {
             ManualCraftStartRequest::single(
                 PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
                 source,
+                MaterialLotSelection::new(contaminated, Mass::from_milligrams(20_000)),
                 destination,
             ),
         )
         .err(),
-        Some(StartManualCraftError::Resolution(ManualCraftError::Input(
-            ProcessInputError::InsufficientMass {
-                stockpile: source,
-                commodity: CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-                available: Mass::ZERO,
-                requested: Mass::from_milligrams(20_000),
+        Some(StartManualCraftError::Resolution(
+            ManualCraftError::InputCompositionMismatch {
+                expected: CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
             }
-        )))
+        ))
     );
     assert_eq!(state, before);
 }
@@ -220,7 +216,7 @@ fn native_copper_reinforcement_skips_contaminated_stock_when_pure_metal_exists()
         mixed,
     )
     .unwrap_or_else(|error| panic!("mixed-stock contaminated copper failed: {error}"));
-    deposit_lot_for_test(
+    let pure = deposit_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -236,6 +232,7 @@ fn native_copper_reinforcement_skips_contaminated_stock_when_pure_metal_exists()
         ManualCraftStartRequest::single(
             PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
             source,
+            MaterialLotSelection::new(pure, Mass::from_milligrams(20_000)),
             destination,
         ),
     )
@@ -266,7 +263,7 @@ fn copper_scrap_rework_is_slower_than_native_work_and_replays_exactly() {
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20_000))
         .unwrap_or_else(|error| panic!("scrap recovery destination failed: {error}"));
     let temperature = Temperature::from_millikelvin(320_000);
-    deposit_lot_for_test(
+    let scrap_lot = deposit_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -285,6 +282,7 @@ fn copper_scrap_rework_is_slower_than_native_work_and_replays_exactly() {
         ManualCraftStartRequest::single(
             PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
             source,
+            MaterialLotSelection::new(scrap_lot, Mass::from_milligrams(20_000)),
             destination,
         ),
     )
@@ -373,7 +371,7 @@ fn stone_scrap_reknapping_is_slower_than_fresh_knapping_and_replays_exactly() {
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("stone scrap reknap destination failed: {error}"));
     let temperature = Temperature::from_millikelvin(315_000);
-    deposit_lot_for_test(
+    let scrap_lot = deposit_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -389,7 +387,12 @@ fn stone_scrap_reknapping_is_slower_than_fresh_knapping_and_replays_exactly() {
     let job = validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_REKNAP_STONE_SCRAP_TOOL, source, destination),
+        ManualCraftStartRequest::single(
+            PROCESS_REKNAP_STONE_SCRAP_TOOL,
+            source,
+            MaterialLotSelection::new(scrap_lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
     )
     .unwrap_or_else(|error| panic!("stone scrap reknap validation failed: {error}"))
     .commit(&mut state)
@@ -470,7 +473,7 @@ fn stone_scrap_reknapping_rejects_contaminated_scrap_without_mutation() {
         CompositionComponent::new(MATERIAL_WOOD, 100_000),
     ])
     .unwrap_or_else(|error| panic!("contaminated stone scrap composition failed: {error}"));
-    deposit_composed_lot_for_test(
+    let contaminated = deposit_composed_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -486,17 +489,19 @@ fn stone_scrap_reknapping_rejects_contaminated_scrap_without_mutation() {
         validate_start_manual_craft(
             &registries,
             &state,
-            ManualCraftStartRequest::single(PROCESS_REKNAP_STONE_SCRAP_TOOL, source, destination),
+            ManualCraftStartRequest::single(
+                PROCESS_REKNAP_STONE_SCRAP_TOOL,
+                source,
+                MaterialLotSelection::new(contaminated, Mass::from_milligrams(1_000_000)),
+                destination,
+            ),
         )
         .err(),
-        Some(StartManualCraftError::Resolution(ManualCraftError::Input(
-            ProcessInputError::InsufficientMass {
-                stockpile: source,
-                commodity: CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
-                available: Mass::ZERO,
-                requested: Mass::from_milligrams(1_000_000),
+        Some(StartManualCraftError::Resolution(
+            ManualCraftError::InputCompositionMismatch {
+                expected: CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
             }
-        )))
+        ))
     );
     assert_eq!(state, before);
 }
@@ -511,7 +516,7 @@ fn stone_scrap_reknapping_rejects_mixed_temperatures_without_inventing_heat_exch
         .unwrap_or_else(|error| panic!("mixed-temperature reknap source failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("mixed-temperature reknap destination failed: {error}"));
-    for temperature in [300_000, 310_000] {
+    let lots = [300_000, 310_000].map(|temperature| {
         deposit_lot_for_test(
             &registries,
             &mut state,
@@ -520,15 +525,24 @@ fn stone_scrap_reknapping_rejects_mixed_temperatures_without_inventing_heat_exch
             Mass::from_milligrams(500_000),
             Temperature::from_millikelvin(temperature),
         )
-        .unwrap_or_else(|error| panic!("mixed-temperature reknap fixture failed: {error}"));
-    }
+        .unwrap_or_else(|error| panic!("mixed-temperature reknap fixture failed: {error}"))
+    });
     let before = state.clone();
 
     assert_eq!(
         validate_start_manual_craft(
             &registries,
             &state,
-            ManualCraftStartRequest::single(PROCESS_REKNAP_STONE_SCRAP_TOOL, source, destination),
+            ManualCraftStartRequest::new(
+                ManualCraftRequest::new(
+                    PROCESS_REKNAP_STONE_SCRAP_TOOL,
+                    source,
+                    lots.into_iter()
+                        .map(|lot| MaterialLotSelection::new(lot, Mass::from_milligrams(500_000)))
+                        .collect(),
+                ),
+                destination,
+            ),
         )
         .err(),
         Some(StartManualCraftError::Resolution(
@@ -536,6 +550,56 @@ fn stone_scrap_reknapping_rejects_mixed_temperatures_without_inventing_heat_exch
         ))
     );
     assert_eq!(state, before);
+}
+
+#[test]
+fn manual_craft_selection_is_not_poisoned_by_unselected_different_temperature_matter() {
+    let registries = build_registries();
+    let mut state = AppState::new(WorldSeed::new(0xC4AF_7021));
+    initialize_player_survival(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("temperature-selection survival setup failed: {error}"));
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
+        .unwrap_or_else(|error| panic!("temperature-selection source failed: {error}"));
+    let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
+        .unwrap_or_else(|error| panic!("temperature-selection destination failed: {error}"));
+    let _cold = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        stone_lump(),
+        Mass::from_milligrams(1_000_000),
+        Temperature::from_millikelvin(280_000),
+    )
+    .unwrap_or_else(|error| panic!("temperature-selection cold fixture failed: {error}"));
+    let selected = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        stone_lump(),
+        Mass::from_milligrams(1_000_000),
+        Temperature::from_millikelvin(320_000),
+    )
+    .unwrap_or_else(|error| panic!("temperature-selection hot fixture failed: {error}"));
+    let request = ManualCraftRequest::single(
+        PROCESS_KNAP_STONE_TOOL,
+        source,
+        MaterialLotSelection::new(selected, Mass::from_milligrams(1_000_000)),
+    );
+
+    let resolution = resolve_manual_craft(&registries, &state, &request)
+        .unwrap_or_else(|error| panic!("selected homogeneous craft was rejected: {error}"));
+    assert!(
+        resolution
+            .outputs()
+            .iter()
+            .all(|output| { output.temperature() == Temperature::from_millikelvin(320_000) })
+    );
+    let _ = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::new(request, destination),
+    )
+    .unwrap_or_else(|error| panic!("selected homogeneous craft admission failed: {error}"));
 }
 
 #[test]
@@ -553,7 +617,7 @@ fn copper_scrap_rework_rejects_contaminated_scrap_without_mutation() {
         CompositionComponent::new(MATERIAL_STONE, 100_000),
     ])
     .unwrap_or_else(|error| panic!("contaminated scrap composition failed: {error}"));
-    deposit_composed_lot_for_test(
+    let contaminated = deposit_composed_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -572,23 +636,27 @@ fn copper_scrap_rework_rejects_contaminated_scrap_without_mutation() {
             ManualCraftStartRequest::single(
                 PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
                 source,
+                MaterialLotSelection::new(contaminated, Mass::from_milligrams(20_000)),
                 destination,
             ),
         )
         .err(),
-        Some(StartManualCraftError::Resolution(ManualCraftError::Input(
-            ProcessInputError::InsufficientMass {
-                stockpile: source,
-                commodity: CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
-                available: Mass::ZERO,
-                requested: Mass::from_milligrams(20_000),
+        Some(StartManualCraftError::Resolution(
+            ManualCraftError::InputCompositionMismatch {
+                expected: CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
             }
-        )))
+        ))
     );
     assert_eq!(state, before);
 }
 
-fn make_fixture() -> (Registries, AppState, StockpileId, StockpileId) {
+fn make_fixture() -> (
+    Registries,
+    AppState,
+    StockpileId,
+    MaterialLotId,
+    StockpileId,
+) {
     let registries = build_registries();
     let mut state = AppState::new(WorldSeed::new(0xC4AF_7001));
     initialize_player_survival(&registries, &mut state)
@@ -597,7 +665,7 @@ fn make_fixture() -> (Registries, AppState, StockpileId, StockpileId) {
         .unwrap_or_else(|error| panic!("manual craft source fixture failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000))
         .unwrap_or_else(|error| panic!("manual craft destination fixture failed: {error}"));
-    deposit_lot_for_test(
+    let lot = deposit_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -606,7 +674,7 @@ fn make_fixture() -> (Registries, AppState, StockpileId, StockpileId) {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("manual craft stone fixture failed: {error}"));
-    (registries, state, source, destination)
+    (registries, state, source, lot, destination)
 }
 
 fn active_stockpile_support(registries: &Registries, state: &mut AppState) -> StructuralElementId {
@@ -646,7 +714,7 @@ fn active_stockpile_support_at(
 
 #[test]
 fn manual_craft_output_support_failure_pauses_work_and_exertion_until_recovered() {
-    let (registries, mut state, source, destination) = make_fixture();
+    let (registries, mut state, source, lot, destination) = make_fixture();
     let support = active_stockpile_support(&registries, &mut state);
     let _ = validate_mount_stockpile(&registries, &state, destination, support)
         .unwrap_or_else(|error| panic!("manual craft destination mount failed: {error}"))
@@ -655,7 +723,12 @@ fn manual_craft_output_support_failure_pauses_work_and_exertion_until_recovered(
     let job = validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
     )
     .unwrap_or_else(|error| panic!("supported manual craft start failed: {error}"))
     .commit(&mut state)
@@ -763,7 +836,7 @@ fn manual_craft_output_support_failure_pauses_work_and_exertion_until_recovered(
 
 #[test]
 fn suspended_manual_craft_releases_attention_and_waits_while_other_player_work_runs() {
-    let (registries, mut state, source, destination) = make_fixture();
+    let (registries, mut state, source, lot, destination) = make_fixture();
     let support = active_stockpile_support(&registries, &mut state);
     let _ = validate_mount_stockpile(&registries, &state, destination, support)
         .unwrap_or_else(|error| {
@@ -776,7 +849,12 @@ fn suspended_manual_craft_releases_attention_and_waits_while_other_player_work_r
     let job = validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
     )
     .unwrap_or_else(|error| panic!("manual craft parallel-work start failed: {error}"))
     .commit(&mut state)
@@ -875,8 +953,8 @@ fn suspended_manual_craft_releases_attention_and_waits_while_other_player_work_r
 
 #[test]
 fn simultaneously_recoverable_manual_crafts_resume_one_at_a_time_in_job_order() {
-    let (registries, mut state, source, first_destination) = make_fixture();
-    deposit_lot_for_test(
+    let (registries, mut state, source, first_lot, first_destination) = make_fixture();
+    let second_lot = deposit_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -905,7 +983,12 @@ fn simultaneously_recoverable_manual_crafts_resume_one_at_a_time_in_job_order() 
     let first = validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, first_destination),
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(first_lot, Mass::from_milligrams(1_000_000)),
+            first_destination,
+        ),
     )
     .unwrap_or_else(|error| panic!("first serial-resume craft start failed: {error}"))
     .commit(&mut state)
@@ -929,7 +1012,12 @@ fn simultaneously_recoverable_manual_crafts_resume_one_at_a_time_in_job_order() 
     let second = validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, second_destination),
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(second_lot, Mass::from_milligrams(1_000_000)),
+            second_destination,
+        ),
     )
     .unwrap_or_else(|error| panic!("second serial-resume craft start failed: {error}"))
     .commit(&mut state)
@@ -1027,7 +1115,7 @@ fn simultaneously_recoverable_manual_crafts_resume_one_at_a_time_in_job_order() 
 
 #[test]
 fn one_tick_manual_craft_resume_completes_without_leaking_player_work() {
-    let (registries, mut state, source, destination) = make_fixture();
+    let (registries, mut state, source, lot, destination) = make_fixture();
     let support = active_stockpile_support(&registries, &mut state);
     let _ = validate_mount_stockpile(&registries, &state, destination, support)
         .unwrap_or_else(|error| panic!("one-tick resume destination mount failed: {error}"))
@@ -1036,7 +1124,12 @@ fn one_tick_manual_craft_resume_completes_without_leaking_player_work() {
     let job = validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
     )
     .unwrap_or_else(|error| panic!("one-tick resume craft start failed: {error}"))
     .commit(&mut state)
@@ -1122,7 +1215,7 @@ fn one_tick_manual_craft_resume_completes_without_leaking_player_work() {
 
 #[test]
 fn stone_knapping_is_timed_conserved_hand_work() {
-    let (registries, mut state, source, destination) = make_fixture();
+    let (registries, mut state, source, lot, destination) = make_fixture();
     let matter_before = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("manual craft initial accounting failed: {error}"));
     let survival_before = assess_survival(&registries, &state)
@@ -1130,7 +1223,11 @@ fn stone_knapping_is_timed_conserved_hand_work() {
     let resolution = resolve_manual_craft(
         &registries,
         &state,
-        ManualCraftRequest::single(PROCESS_KNAP_STONE_TOOL, source),
+        &ManualCraftRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+        ),
     )
     .unwrap_or_else(|error| panic!("stone knapping resolution failed: {error}"));
     assert_eq!(resolution.duration(), TickSpan::new(40));
@@ -1143,7 +1240,12 @@ fn stone_knapping_is_timed_conserved_hand_work() {
     let token = validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
     )
     .unwrap_or_else(|error| panic!("stone knapping start failed: {error}"));
     token
@@ -1204,7 +1306,7 @@ fn stone_knapping_is_timed_conserved_hand_work() {
 
 #[test]
 fn manual_craft_requires_enough_metabolic_reserve_to_finish() {
-    let (registries, state, source, destination) = make_fixture();
+    let (registries, state, source, lot, destination) = make_fixture();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("manual craft reserve serialization failed: {error}"));
     encoded["state"]["systems"]["survival"]["player"]["metabolic_energy"] =
@@ -1220,7 +1322,12 @@ fn manual_craft_requires_enough_metabolic_reserve_to_finish() {
         validate_start_manual_craft(
             &registries,
             &low_reserve,
-            ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
+            ManualCraftStartRequest::single(
+                PROCESS_KNAP_STONE_TOOL,
+                source,
+                MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+                destination,
+            ),
         ),
         Err(StartManualCraftError::Work(
             PlayerWorkStartError::InsufficientMetabolicEnergy { .. }
@@ -1231,11 +1338,16 @@ fn manual_craft_requires_enough_metabolic_reserve_to_finish() {
 
 #[test]
 fn manual_craft_commit_rejects_intervening_survival_change() {
-    let (registries, mut state, source, destination) = make_fixture();
+    let (registries, mut state, source, lot, destination) = make_fixture();
     let token = validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
     )
     .unwrap_or_else(|error| panic!("manual craft survival-stale validation failed: {error}"));
     let expected = state.survival().revision();
@@ -1257,11 +1369,16 @@ fn manual_craft_commit_rejects_intervening_survival_change() {
 
 #[test]
 fn active_manual_craft_save_requires_enough_metabolic_energy_to_finish() {
-    let (registries, mut state, source, destination) = make_fixture();
+    let (registries, mut state, source, lot, destination) = make_fixture();
     let token = validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
     )
     .unwrap_or_else(|error| panic!("manual craft save reserve start failed: {error}"));
     let job = token
@@ -1306,7 +1423,7 @@ fn active_manual_craft_save_requires_enough_metabolic_energy_to_finish() {
 
 #[test]
 fn suspended_manual_craft_loads_with_depleted_reserves_and_does_not_resume_unsafely() {
-    let (registries, mut state, source, destination) = make_fixture();
+    let (registries, mut state, source, lot, destination) = make_fixture();
     let support = active_stockpile_support(&registries, &mut state);
     let _ = validate_mount_stockpile(&registries, &state, destination, support)
         .unwrap_or_else(|error| panic!("suspended low-reserve destination mount failed: {error}"))
@@ -1317,7 +1434,12 @@ fn suspended_manual_craft_loads_with_depleted_reserves_and_does_not_resume_unsaf
     let job = validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
     )
     .unwrap_or_else(|error| panic!("suspended low-reserve craft start failed: {error}"))
     .commit(&mut state)
@@ -1388,17 +1510,27 @@ fn suspended_manual_craft_loads_with_depleted_reserves_and_does_not_resume_unsaf
 
 #[test]
 fn stale_manual_craft_token_reports_labor_revision_conflict_after_prior_work_finishes() {
-    let (registries, mut state, source, destination) = make_fixture();
+    let (registries, mut state, source, lot, destination) = make_fixture();
     let first = validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
     )
     .unwrap_or_else(|error| panic!("first manual craft validation failed: {error}"));
     let stale = validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
     )
     .unwrap_or_else(|error| panic!("stale manual craft validation failed: {error}"));
     first
@@ -1426,11 +1558,16 @@ fn stale_manual_craft_token_reports_labor_revision_conflict_after_prior_work_fin
 
 #[test]
 fn manual_craft_load_audit_rejects_forged_duration() {
-    let (registries, mut state, source, destination) = make_fixture();
+    let (registries, mut state, source, lot, destination) = make_fixture();
     let token = validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_KNAP_STONE_TOOL, source, destination),
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
     )
     .unwrap_or_else(|error| panic!("manual craft tamper start failed: {error}"));
     let job = token
@@ -1488,7 +1625,7 @@ fn in_progress_timber_chest_joinery_round_trip_preserves_deterministic_continuat
         .unwrap_or_else(|error| panic!("timber chest joinery source failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, chest_mass)
         .unwrap_or_else(|error| panic!("timber chest joinery destination failed: {error}"));
-    deposit_lot_for_test(
+    let boards = deposit_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -1503,7 +1640,12 @@ fn in_progress_timber_chest_joinery_round_trip_preserves_deterministic_continuat
     let job = validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_ASSEMBLE_TIMBER_CHEST, source, destination),
+        ManualCraftStartRequest::single(
+            PROCESS_ASSEMBLE_TIMBER_CHEST,
+            source,
+            MaterialLotSelection::new(boards, chest_mass),
+            destination,
+        ),
     )
     .unwrap_or_else(|error| panic!("timber chest joinery start failed: {error}"))
     .commit(&mut state)
@@ -1578,7 +1720,7 @@ fn double_wall_chest_joinery_round_trip_preserves_full_cost_and_output() {
         .unwrap_or_else(|error| panic!("double-wall chest source failed: {error}"));
     let destination = add_solid_stockpile_for_test(&mut state, body_mass)
         .unwrap_or_else(|error| panic!("double-wall chest destination failed: {error}"));
-    deposit_lot_for_test(
+    let boards = deposit_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -1596,6 +1738,7 @@ fn double_wall_chest_joinery_round_trip_preserves_full_cost_and_output() {
         ManualCraftStartRequest::single(
             PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST,
             source,
+            MaterialLotSelection::new(boards, body_mass),
             destination,
         ),
     )
@@ -1662,8 +1805,8 @@ fn double_wall_chest_joinery_round_trip_preserves_full_cost_and_output() {
 
 #[test]
 fn repeated_manual_craft_batches_share_one_labor_job_without_discounting_work() {
-    let (registries, mut state, source, destination) = make_fixture();
-    deposit_lot_for_test(
+    let (registries, mut state, source, lot, destination) = make_fixture();
+    let merged_lot = deposit_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -1672,10 +1815,16 @@ fn repeated_manual_craft_batches_share_one_labor_job_without_discounting_work() 
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("batch craft second stone fixture failed: {error}"));
-    let batches =
-        NonZeroU64::new(2).unwrap_or_else(|| panic!("batch craft count fixture must be nonzero"));
-    let craft = ManualCraftRequest::new(PROCESS_KNAP_STONE_TOOL, source, batches);
-    let resolution = resolve_manual_craft(&registries, &state, craft)
+    assert_eq!(
+        merged_lot, lot,
+        "identical manual-craft input must retain one merged persistent lot identity"
+    );
+    let craft = ManualCraftRequest::single(
+        PROCESS_KNAP_STONE_TOOL,
+        source,
+        MaterialLotSelection::new(lot, Mass::from_milligrams(2_000_000)),
+    );
+    let resolution = resolve_manual_craft(&registries, &state, &craft)
         .unwrap_or_else(|error| panic!("batch craft resolution failed: {error}"));
 
     assert_eq!(resolution.input_mass(), Mass::from_milligrams(2_000_000));

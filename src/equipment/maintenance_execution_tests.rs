@@ -295,11 +295,26 @@ fn accumulated_maintenance_stone_scrap_can_reknap_the_next_pick_component() {
             .map(|stockpile| { stockpile.get_mass(CommodityKey::new(MATERIAL_STONE, FORM_SCRAP)) }),
         Some(Mass::from_milligrams(1_600_000))
     );
+    let scrap = state
+        .inventory()
+        .lot_ids(spent)
+        .find(|lot| {
+            state.inventory().get_lot(*lot).is_some_and(|record| {
+                record.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_SCRAP)
+                    && record.mass() >= Mass::from_milligrams(1_000_000)
+            })
+        })
+        .unwrap_or_else(|| panic!("maintenance stone scrap lot disappeared"));
 
     let reknap_job = validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_REKNAP_STONE_SCRAP_TOOL, spent, recovered),
+        ManualCraftStartRequest::single(
+            PROCESS_REKNAP_STONE_SCRAP_TOOL,
+            spent,
+            MaterialLotSelection::new(scrap, Mass::from_milligrams(1_000_000)),
+            recovered,
+        ),
     )
     .unwrap_or_else(|error| panic!("maintenance scrap reknap start failed: {error}"))
     .commit(&mut state)

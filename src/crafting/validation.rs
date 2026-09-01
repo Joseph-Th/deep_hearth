@@ -10,7 +10,10 @@ use crate::material::{MaterialComposition, MaterialLotSpec, MaterialLotSpecError
 use crate::production::{ProcessOutputStreamId, ProductionJobId, ProductionJobRecord};
 use crate::registry::Registries;
 
-use super::ManualCraftDefinition;
+use super::{
+    ManualCraftDefinition,
+    batch::{ManualCraftBatchError, validate_manual_craft_batch},
+};
 
 /// Corruption or semantic drift in an in-flight manual shaping job.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -166,71 +169,6 @@ fn validate_manual_craft_resources(
     Ok(())
 }
 
-fn validate_manual_craft_repetition(
-    definition: &ManualCraftDefinition,
-    job: &ProductionJobRecord,
-) -> Result<NonZeroU64, ManualCraftJobValidationError> {
-    let batch_mass = definition.input_mass();
-    let consumed_mass = job.consumed_mass();
-    let quotient = consumed_mass.milligrams() / batch_mass.milligrams();
-    let remainder = consumed_mass.milligrams() % batch_mass.milligrams();
-    let Some(batches) = NonZeroU64::new(quotient) else {
-        return Err(ManualCraftJobValidationError::InputMassNotWholeBatches {
-            job: job.id(),
-            consumed: consumed_mass,
-            batch_mass,
-        });
-    };
-    if remainder != 0 {
-        return Err(ManualCraftJobValidationError::InputMassNotWholeBatches {
-            job: job.id(),
-            consumed: consumed_mass,
-            batch_mass,
-        });
-    }
-    let required_duration = definition
-        .duration()
-        .value()
-        .checked_mul(batches.get())
-        .map(TickSpan::new)
-        .ok_or(ManualCraftJobValidationError::DurationOverflow {
-            job: job.id(),
-            batches,
-        })?;
-    if job.active_duration() != required_duration {
-        return Err(ManualCraftJobValidationError::DurationMismatch {
-            job: job.id(),
-            stored: job.active_duration(),
-            required: required_duration,
-        });
-    }
-    Ok(batches)
-}
-
-fn validate_manual_craft_inputs(
-    definition: &ManualCraftDefinition,
-    job: &ProductionJobRecord,
-) -> Result<Temperature, ManualCraftJobValidationError> {
-    let expected_composition = MaterialComposition::pure(definition.input().material());
-    let mut temperature = None;
-    for trace in job.consumed_inputs() {
-        if trace.profile().commodity() != definition.input() {
-            return Err(ManualCraftJobValidationError::InputCommodityMismatch { job: job.id() });
-        }
-        if trace.profile().composition() != &expected_composition {
-            return Err(ManualCraftJobValidationError::InputCompositionMismatch { job: job.id() });
-        }
-        match temperature {
-            Some(existing) if existing != trace.profile().temperature() => {
-                return Err(ManualCraftJobValidationError::MixedInputTemperature { job: job.id() });
-            }
-            Some(_) => {}
-            None => temperature = Some(trace.profile().temperature()),
-        }
-    }
-    temperature.ok_or(ManualCraftJobValidationError::InputCommodityMismatch { job: job.id() })
-}
-
 fn reconstruct_manual_craft_outputs(
     definition: &ManualCraftDefinition,
     job: &ProductionJobRecord,
@@ -288,8 +226,44 @@ pub(crate) fn validate_loaded_manual_craft_job(
         return Ok(());
     };
     validate_manual_craft_resources(job)?;
-    let batches = validate_manual_craft_repetition(definition, job)?;
-    let temperature = validate_manual_craft_inputs(definition, job)?;
+    let batch = validate_manual_craft_batch(definition, job.consumed_mass(), job.consumed_inputs())
+        .map_err(|error| match error {
+            ManualCraftBatchError::InputCommodityMismatch => {
+                ManualCraftJobValidationError::InputCommodityMismatch { job: job.id() }
+            }
+            ManualCraftBatchError::InputCompositionMismatch => {
+                ManualCraftJobValidationError::InputCompositionMismatch { job: job.id() }
+            }
+            ManualCraftBatchError::MixedInputTemperature => {
+                ManualCraftJobValidationError::MixedInputTemperature { job: job.id() }
+            }
+            ManualCraftBatchError::InputMassNotWholeBatches {
+                consumed,
+                batch_mass,
+            } => ManualCraftJobValidationError::InputMassNotWholeBatches {
+                job: job.id(),
+                consumed,
+                batch_mass,
+            },
+        })?;
+    let batches = batch.batches();
+    let required_duration = definition
+        .duration()
+        .value()
+        .checked_mul(batches.get())
+        .map(TickSpan::new)
+        .ok_or(ManualCraftJobValidationError::DurationOverflow {
+            job: job.id(),
+            batches,
+        })?;
+    if job.active_duration() != required_duration {
+        return Err(ManualCraftJobValidationError::DurationMismatch {
+            job: job.id(),
+            stored: job.active_duration(),
+            required: required_duration,
+        });
+    }
+    let temperature = batch.temperature();
     let expected_outputs = reconstruct_manual_craft_outputs(definition, job, batches, temperature)?;
     validate_manual_craft_outputs(job, &expected_outputs)
 }

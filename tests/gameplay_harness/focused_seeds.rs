@@ -71,12 +71,12 @@ impl FocusedProbeCase {
     }
 }
 
-/// Resolves maintained regression cases plus a bounded replayable variation sample.
+/// Resolves maintained regression cases plus an optional bounded replayable variation sample.
 ///
 /// `DEEP_HEARTH_GAMEPLAY_SEEDS` remains the exact override for deliberate replay/sweeps. Routine
-/// focused gates add one organic world to the maintained anchor/coverage set; reports use a slightly
-/// larger sample. A probe-specific salt keeps concerns independent. Physical and actor variation use
-/// independent replay roots so changing a preference cannot silently change the world being observed.
+/// focused gates keep maintained cases and add one fresh replayable organic case; reports sample a
+/// slightly broader pair. A probe-specific salt keeps concerns independent. Physical and actor
+/// variation use independent replay roots so changing a preference cannot silently change the world.
 pub(super) fn focused_probe_cases_from(
     plan: FocusedProbeSeedPlan<'_>,
 ) -> Result<Vec<FocusedProbeCase>, FocusedProbeSeedError> {

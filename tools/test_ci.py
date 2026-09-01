@@ -51,6 +51,54 @@ def cargo_test_targets(command: list[str]) -> list[str]:
     return [command[index + 1] for index, value in enumerate(command[:-1]) if value == "--test"]
 
 
+def brace_delta(line: str) -> int:
+    return line.count("{") - line.count("}")
+
+
+def read_multiline_attribute(lines: list[str], index: int) -> tuple[str, int]:
+    parts = [lines[index].strip()]
+    balance = parts[0].count("[") - parts[0].count("]")
+    while balance > 0:
+        index += 1
+        part = lines[index].strip()
+        parts.append(part)
+        balance += part.count("[") - part.count("]")
+    return " ".join(parts), index + 1
+
+
+def named_struct_fields(
+    lines: list[str],
+    struct_index: int,
+) -> tuple[list[tuple[int, str, str]], int]:
+    fields: list[tuple[int, str, str]] = []
+    attributes: list[str] = []
+    field_parts: list[str] = []
+    body_depth = brace_delta(lines[struct_index])
+    index = struct_index + 1
+    while index < len(lines) and body_depth > 0:
+        current = lines[index]
+        stripped = current.strip()
+        depth_before = body_depth
+        body_depth += brace_delta(current)
+        if depth_before != 1 or stripped == "}":
+            index += 1
+            continue
+        if stripped.startswith("#[") and not field_parts:
+            attribute, index = read_multiline_attribute(lines, index)
+            attributes.append(attribute)
+            continue
+        if not stripped or stripped.startswith(("///", "//")):
+            index += 1
+            continue
+        field_parts.append(stripped)
+        if stripped.endswith(","):
+            fields.append((index + 1, " ".join(field_parts), " ".join(attributes)))
+            attributes.clear()
+            field_parts.clear()
+        index += 1
+    return fields, index
+
+
 def deserialized_named_structs(
     path: Path,
 ) -> list[tuple[int, str, str, list[tuple[int, str, str]]]]:
@@ -63,16 +111,12 @@ def deserialized_named_structs(
     while index < len(lines):
         stripped = lines[index].strip()
         if depth != 0:
-            depth += lines[index].count("{") - lines[index].count("}")
+            depth += brace_delta(lines[index])
             index += 1
             continue
         if stripped.startswith("#["):
-            attribute = [stripped]
-            while sum(part.count("[") - part.count("]") for part in attribute) > 0:
-                index += 1
-                attribute.append(lines[index].strip())
-            pending_attributes.append(" ".join(attribute))
-            index += 1
+            attribute, index = read_multiline_attribute(lines, index)
+            pending_attributes.append(attribute)
             continue
         if not stripped or stripped.startswith("///") or stripped.startswith("//!"):
             index += 1
@@ -85,54 +129,14 @@ def deserialized_named_structs(
         attributes = " ".join(pending_attributes)
         pending_attributes.clear()
         if match is None:
-            depth += lines[index].count("{") - lines[index].count("}")
+            depth += brace_delta(lines[index])
             index += 1
             continue
 
-        body_depth = lines[index].count("{") - lines[index].count("}")
-        fields: list[tuple[int, str, str]] = []
-        field_attributes: list[str] = []
-        field_lines: list[str] = []
-        field_index = index + 1
-        while field_index < len(lines) and body_depth > 0:
-            current = lines[field_index]
-            stripped_field = current.strip()
-            depth_before = body_depth
-            body_depth += current.count("{") - current.count("}")
-            if depth_before != 1 or stripped_field == "}":
-                field_index += 1
-                continue
-            if stripped_field.startswith("#[") and not field_lines:
-                attribute = [stripped_field]
-                while sum(part.count("[") - part.count("]") for part in attribute) > 0:
-                    field_index += 1
-                    attribute.append(lines[field_index].strip())
-                field_attributes.append(" ".join(attribute))
-                field_index += 1
-                continue
-            if (
-                not stripped_field
-                or stripped_field.startswith("///")
-                or stripped_field.startswith("//")
-            ):
-                field_index += 1
-                continue
-            field_lines.append(stripped_field)
-            if stripped_field.endswith(","):
-                fields.append(
-                    (
-                        field_index + 1,
-                        " ".join(field_lines),
-                        " ".join(field_attributes),
-                    )
-                )
-                field_attributes.clear()
-                field_lines.clear()
-            field_index += 1
-
+        fields, next_index = named_struct_fields(lines, index)
         if re.search(r"Deserialize", attributes):
             structures.append((index + 1, match.group(1), attributes, fields))
-        index = field_index
+        index = next_index
 
     return structures
 
@@ -149,6 +153,27 @@ class LocalCiPlanTests(unittest.TestCase):
             ),
             ci.quick_plan(),
         )
+
+    def test_focused_gameplay_roots_are_closed_over_harness_dependencies(self) -> None:
+        for scope, target in ci.GAMEPLAY_TARGETS.items():
+            self.assertEqual(
+                run_test.missing_root_modules(target, ROOT / "tests" / "gameplay_harness"),
+                [],
+                f"focused gameplay target {scope!r} is missing a root-level harness module",
+            )
+
+    def test_root_sibling_import_parser_handles_nested_and_grouped_modules(self) -> None:
+        self.assertEqual(
+            run_test.root_sibling_imports("use super::super::{seed, temporal};", 2),
+            {"seed", "temporal"},
+        )
+        self.assertEqual(
+            run_test.root_sibling_imports(
+                "use super::focused_seeds::FocusedProbeCase;", 1
+            ),
+            {"focused_seeds"},
+        )
+        self.assertEqual(run_test.root_sibling_imports("use super::local_item;", 2), set())
 
     def test_bca_preset_reuses_the_pinned_changed_source_review(self) -> None:
         plan = ci.bca_review_plan("HEAD~1", ["src/inventory", "src/production"])
@@ -740,7 +765,15 @@ class LocalCiPlanTests(unittest.TestCase):
                 "world_root=0x111 behavior_root=0x222 "
                 "replay=anchor:0xA@0x1,organic:0xC@0x3\n"
             ),
-            "replay=anchor:0xA@0x1,organic:0xC@0x3",
+            "roots=0x111/0x222",
+        )
+        self.assertEqual(
+            ci.gameplay_replay_summary(
+                "PROBE INPUT name=survival-provisioning mode=gate samples=2 organic=0 "
+                "world_root=explicit behavior_root=0x222 "
+                "replay=replay:0xA@0x1,replay:0xC@0x3\n"
+            ),
+            "roots=explicit/0x222; replay=replay:0xA@0x1,replay:0xC@0x3",
         )
         self.assertEqual(
             ci.gameplay_replay_summary(
@@ -748,6 +781,20 @@ class LocalCiPlanTests(unittest.TestCase):
                 "world_root=0x1234 behavior_root=0x5678 replay=ignored\n"
             ),
             "roots=0x1234/0x5678",
+        )
+        self.assertEqual(
+            ci.gameplay_replay_summary(
+                "HARNESS INPUT plan=maintained anchors=7 variation=0 custom=0 "
+                "world_root=n/a behavior_root=0x1 replay=ignored\n"
+            ),
+            "maintained=7",
+        )
+        self.assertEqual(
+            ci.gameplay_replay_summary(
+                "HARNESS INPUT plan=custom anchors=0 variation=0 custom=2 "
+                "world_root=n/a behavior_root=0x1 replay=ignored\n"
+            ),
+            "custom=2",
         )
         self.assertIsNone(ci.gameplay_replay_summary("test result: ok. 1 passed"))
 
@@ -792,7 +839,7 @@ class LocalCiPlanTests(unittest.TestCase):
 
     def test_core_and_gameplay_execution_share_one_test_support_feature_shape(self) -> None:
         config = tomllib.loads((ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8"))
-        core_alias = config["alias"]["test-fast"]
+        core_alias = config["alias"]["test-core"]
         gameplay = " ".join(ci.gameplay_command("all"))
         self.assertIn("--features test-gameplay", core_alias)
         self.assertIn("--features test-gameplay", gameplay)
@@ -800,10 +847,10 @@ class LocalCiPlanTests(unittest.TestCase):
     def test_scoped_audits_do_not_build_the_other_broad_surface(self) -> None:
         core_builds = cargo_build_commands(ci.audit_plan("core"))
         gameplay_builds = cargo_build_commands(ci.audit_plan("gameplay"))
-        self.assertEqual(core_builds, [["cargo", "test-fast"]])
+        self.assertEqual(core_builds, [["cargo", "test-core"]])
         self.assertEqual(len(gameplay_builds), 1)
         self.assertIn("test-gameplay", gameplay_builds[0])
-        self.assertNotIn(["cargo", "test-fast"], gameplay_builds)
+        self.assertNotIn(["cargo", "test-core"], gameplay_builds)
 
     def test_broad_gameplay_audit_links_contracts_and_heavy_audit_targets_once(self) -> None:
         command = ci.gameplay_command("all")
@@ -815,7 +862,7 @@ class LocalCiPlanTests(unittest.TestCase):
     def test_broad_core_failure_points_to_one_exact_repair(self) -> None:
         output = "failures:\n    mining::execution::tests::missing_capability\n"
         self.assertEqual(
-            ci.repair_hint(["cargo", "test-fast"], output, ""),
+            ci.repair_hint(["cargo", "test-core"], output, ""),
             "python tools/run_test.py mining::execution::tests::missing_capability",
         )
 
@@ -905,35 +952,15 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("test-gameplay", command)
         self.assertIn(ci.GAMEPLAY_TARGETS["ore"], command)
 
-    def test_library_check_command_avoids_codegen_and_linking(self) -> None:
+    def test_library_check_refuses_cargos_broad_all_test_graph(self) -> None:
         args = argparse.Namespace(
             target="lib",
             features=None,
             list=False,
             suite=False,
         )
-        self.assertEqual(
-            run_test.cargo_check_command(args),
-            [
-                "cargo",
-                "check",
-                "--quiet",
-                "--locked",
-                "--lib",
-                "--tests",
-            ],
-        )
-
-    def test_library_check_does_not_enable_gameplay_integration_feature_by_default(self) -> None:
-        args = argparse.Namespace(
-            target="lib",
-            features=None,
-            list=False,
-            suite=False,
-        )
-        command = run_test.cargo_check_command(args)
-        self.assertNotIn("test-gameplay", command)
-        self.assertNotIn("gameplay_audit", command)
+        with self.assertRaisesRegex(ValueError, "every integration target"):
+            run_test.cargo_check_command(args)
 
     def test_integration_check_command_infers_required_features_without_linking(self) -> None:
         args = argparse.Namespace(
@@ -1002,8 +1029,10 @@ class LocalCiPlanTests(unittest.TestCase):
                 "running 1 test",
                 "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reinvest",
                 "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap",
+                "PROBE INPUT name=survival-provisioning mode=explore samples=3 organic=1 replay=anchor:0x0000000000000001,organic:0x00000000000000CC",
                 "HARNESS INPUT plan=anchor+variation",
                 "CONTENT registry_schema=64 equipment=[authored:12]",
+                "CONTENT ACQUISITION EDGES equipment=[authored-edge:8 no-authored-edge:4] energy=[authored-edge:2 no-authored-edge:4] reachability=direct-edge-not-end-to-end-proof",
                 "CONTENT CATALOG equipment=[very-long-detail]",
                 "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression]",
                 "AGENCY INPUT mode=explore organic=3 variation_root=0x1234",
@@ -1017,6 +1046,7 @@ class LocalCiPlanTests(unittest.TestCase):
                 "PROGRESSION EXPERIENCE seed=0x0000000000000001 anchor-experience",
                 "PROGRESSION REVIEW seed=0x0000000000000001 accounting-detail",
                 "SURVIVAL EXPERIENCE seed=0x00000000000000AA organic-experience",
+                "SURVIVAL EXPERIENCE seed=0x00000000000000CC survival-organic-experience",
                 "SURVIVAL REVIEW seed=0x00000000000000AA accounting-detail",
                 "test result: ok. 1 passed",
             ]
@@ -1027,19 +1057,14 @@ class LocalCiPlanTests(unittest.TestCase):
                 [
                     "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reinvest",
                     "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap",
-                    "HARNESS INPUT plan=anchor+variation",
+                    "PROBE INPUT name=survival-provisioning mode=explore samples=3 organic=1 replay=anchor:0x0000000000000001,organic:0x00000000000000CC",
                     "CONTENT registry_schema=64 equipment=[authored:12]",
+                    "CONTENT ACQUISITION EDGES equipment=[authored-edge:8 no-authored-edge:4] energy=[authored-edge:2 no-authored-edge:4] reachability=direct-edge-not-end-to-end-proof",
                     "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression]",
-                    "AGENCY INPUT mode=explore organic=3 variation_root=0x1234",
-                    "WORKSHOP CAPABILITY mode=exploratory scenarios=9",
-                    "PROBE INPUT name=ore-preparation mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,organic:0x00000000000000AA,organic:0x00000000000000BB",
-                    "ORE REVIEW seed=0x0000000000000001 anchor-detail",
-                    "ORE REVIEW seed=0x00000000000000AA organic-representative",
-                    "ORE REVIEW seed=0x00000000000000BB second-organic-detail",
                     "PROBE INPUT name=primitive-progression mode=explore samples=4 organic=2 replay=anchor:0x0000000000000001,coverage:0x0000000000000002,organic:0x00000000000000AA,organic:0x00000000000000BB",
                     "PROGRESSION FALLBACK seed=0x0000000000000001 anchor-fallback",
                     "PROGRESSION EXPERIENCE seed=0x0000000000000001 anchor-experience",
-                    "SURVIVAL EXPERIENCE seed=0x00000000000000AA organic-experience",
+                    "SURVIVAL EXPERIENCE seed=0x00000000000000CC survival-organic-experience",
                 ]
             ),
         )

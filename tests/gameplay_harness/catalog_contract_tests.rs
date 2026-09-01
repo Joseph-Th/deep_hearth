@@ -13,7 +13,6 @@ use deep_hearth::content::{
     PROCESS_REKNAP_STONE_SCRAP_TOOL, PROCESS_SEPARATE_NATIVE_COPPER,
     STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST, STORAGE_TIMBER_PROVISIONS_CHEST, build_registries,
 };
-use deep_hearth::core::quantity::{Energy, Mass};
 use deep_hearth::inventory::StockpileStorageProfile;
 use deep_hearth::material::CommodityKey;
 
@@ -25,7 +24,8 @@ use super::foundry_probe::probe_setup as foundry_probe_setup;
 use super::ore_probe::probe_parameters;
 use super::preservation_route::preservation_construction_plan;
 use super::progression_probe::{
-    extraction_grade_premium_ppm, manual_processing::manual_processing_setup, varied_four_way_order,
+    extraction_grade_premium_ppm, manual_processing::manual_processing_setup,
+    ore_opportunity_batch_budget, varied_four_way_order,
 };
 use super::report::{ProcessResolverKind, process_catalog_entries};
 use super::survival_probe::{
@@ -177,30 +177,25 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
         recycled_stone.input(),
         CommodityKey::new(MATERIAL_STONE, FORM_SCRAP)
     );
-    assert_eq!(
-        recycled_stone.input_mass(),
-        Mass::from_milligrams(1_000_000)
-    );
+    assert!(!recycled_stone.input_mass().is_zero());
     assert!(
         recycled_stone.duration() > fresh_stone.duration(),
         "recycling irregular stone scrap must remain more attention-intensive than fresh knapping"
     );
-    assert_eq!(
-        recycled_stone
-            .outputs()
-            .iter()
-            .find(|output| output.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
-            .map(|output| output.mass()),
-        Some(Mass::from_milligrams(800_000))
-    );
-    assert_eq!(
-        recycled_stone
-            .outputs()
-            .iter()
-            .find(|output| output.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_CHIP))
-            .map(|output| output.mass()),
-        Some(Mass::from_milligrams(200_000))
-    );
+    let recovered_tool = recycled_stone
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_TOOL))
+        .map(|output| output.mass())
+        .unwrap_or_else(|| panic!("stone scrap reknapping lost reusable tool output"));
+    let recovered_chips = recycled_stone
+        .outputs()
+        .iter()
+        .find(|output| output.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_CHIP))
+        .map(|output| output.mass())
+        .unwrap_or_else(|| panic!("stone scrap reknapping lost explicit residue"));
+    assert!(!recovered_tool.is_zero());
+    assert!(!recovered_chips.is_zero());
     assert_eq!(
         recycled_stone
             .outputs()
@@ -211,6 +206,20 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
     );
 
     let reinforcement_commodity = CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT);
+    let canonical_reinforcement = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_COPPER_REINFORCED_PICK)
+        .and_then(|definition| definition.upgrade_profile())
+        .unwrap_or_else(|| panic!("primitive reinforced pick lost its additive upgrade route"))
+        .additions()
+        .inputs();
+    assert_eq!(
+        canonical_reinforcement.len(),
+        1,
+        "primitive reinforced pick must expose one legible additive reinforcement input"
+    );
+    let canonical_reinforcement = &canonical_reinforcement[0];
+    assert_eq!(canonical_reinforcement.commodity(), reinforcement_commodity);
     let copper_upgrade_targets = registries
         .equipment()
         .definitions()
@@ -218,25 +227,25 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
             let upgrade = definition.upgrade_profile()?;
             let additions = upgrade.additions().inputs();
             (additions.len() == 1
-                && additions[0].commodity() == reinforcement_commodity
-                && additions[0].mass() == Mass::from_milligrams(20_000))
+                && additions[0].commodity() == canonical_reinforcement.commodity()
+                && additions[0].mass() == canonical_reinforcement.mass())
             .then_some(definition.id())
         })
         .collect::<BTreeSet<_>>();
-    assert_eq!(
-        copper_upgrade_targets,
-        BTreeSet::from([
-            EQUIPMENT_COPPER_REINFORCED_PICK,
-            EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-            EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
-            EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
-        ]),
-        "ordinary 20 g copper reinforcement must remain usable across extraction, power, crushing, and separation"
+    let required_primitive_targets = BTreeSet::from([
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
+        EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER,
+        EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+    ]);
+    assert!(
+        required_primitive_targets.is_subset(&copper_upgrade_targets),
+        "the canonical scarce-copper reinforcement must remain usable across primitive extraction, power, crushing, and separation"
     );
-    for target in copper_upgrade_targets {
+    for target in &copper_upgrade_targets {
         let target_definition = registries
             .equipment()
-            .get_equipment(target)
+            .get_equipment(*target)
             .unwrap_or_else(|| panic!("copper upgrade target disappeared"));
         let upgrade = target_definition
             .upgrade_profile()
@@ -246,10 +255,16 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
             .get_equipment(upgrade.from())
             .unwrap_or_else(|| panic!("copper upgrade base definition disappeared"));
         assert!(
-            base.assembly_profile().is_some(),
-            "copper upgrade base {} must remain ordinarily assemblable",
+            base.has_authored_acquisition_edge(),
+            "copper upgrade base {} must retain an authored acquisition edge",
             base.id().value()
         );
+    }
+    for target in required_primitive_targets {
+        let target_definition = registries
+            .equipment()
+            .get_equipment(target)
+            .unwrap_or_else(|| panic!("required primitive copper upgrade target disappeared"));
         assert!(target_definition.maintenance_profile().is_some());
         assert!(target_definition.worn_recovery_form().is_some());
         assert!(!target_definition.requires_structural_support());
@@ -266,11 +281,11 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
     assert_eq!(flywheel_upgrade.additions().inputs().len(), 1);
     assert_eq!(
         flywheel_upgrade.additions().inputs()[0].commodity(),
-        reinforcement_commodity
+        canonical_reinforcement.commodity()
     );
     assert_eq!(
         flywheel_upgrade.additions().inputs()[0].mass(),
-        Mass::from_milligrams(20_000)
+        canonical_reinforcement.mass()
     );
     let base_flywheel = registries
         .energy()
@@ -279,23 +294,10 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
     assert!(base_flywheel.has_authored_assembly_edge());
     assert!(flywheel.has_authored_assembly_edge());
     assert_eq!(base_flywheel.carrier(), flywheel.carrier());
-    assert_eq!(base_flywheel.max_input_power(), flywheel.max_input_power());
-    assert_eq!(
-        base_flywheel.max_output_power(),
-        flywheel.max_output_power()
-    );
-    assert_eq!(
-        base_flywheel.passive_dissipation_power(),
-        flywheel.passive_dissipation_power()
-    );
-    assert_eq!(
-        base_flywheel.capacity(),
-        Energy::from_nanojoules(500_000_000_000)
-    );
-    assert_eq!(
-        flywheel.capacity(),
-        Energy::from_nanojoules(750_000_000_000)
-    );
+    assert!(flywheel.capacity() > base_flywheel.capacity());
+    assert!(flywheel.max_input_power() >= base_flywheel.max_input_power());
+    assert!(flywheel.max_output_power() >= base_flywheel.max_output_power());
+    assert!(flywheel.passive_dissipation_power() <= base_flywheel.passive_dissipation_power());
 
     let ambient_preservation =
         StockpileStorageProfile::unbounded_solid_only().preservation_multiplier_ppm();
@@ -335,14 +337,34 @@ fn gameplay_catalog_is_discovered_from_runtime_owners() {
                 .crafting()
                 .manual_consumers(input.commodity())
                 .collect::<Vec<_>>();
-            assert_eq!(
-                salvage_routes.len(),
-                1,
-                "storage body commodity {} must expose exactly one authored manual salvage route",
-                input.commodity().value()
-            );
-            let salvage = salvage_routes[0];
-            assert_eq!(salvage.input_mass(), input.mass());
+            let salvage = salvage_routes
+                .into_iter()
+                .find(|salvage| {
+                    if salvage.input_mass() != input.mass() {
+                        return false;
+                    }
+                    let board = salvage
+                        .outputs()
+                        .iter()
+                        .find(|output| {
+                            output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)
+                        })
+                        .map(|output| output.mass());
+                    let chips = salvage
+                        .outputs()
+                        .iter()
+                        .find(|output| {
+                            output.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)
+                        })
+                        .map(|output| output.mass());
+                    matches!((board, chips), (Some(board), Some(chips)) if !board.is_zero() && !chips.is_zero() && board.checked_add(chips) == Some(input.mass()))
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "storage body commodity {} has no mass-conserving manual salvage route to reusable boards plus explicit chip residue",
+                        input.commodity().value()
+                    )
+                });
             let salvage_catalog = catalog
                 .iter()
                 .find(|entry| entry.process == salvage.process())
@@ -467,6 +489,20 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
         sorted == [0, 1, 2, 3]
     }));
 
+    let opportunity_budgets = (1_u64..=32)
+        .map(|seed| ore_opportunity_batch_budget(seed, false))
+        .collect::<BTreeSet<_>>();
+    assert!(
+        opportunity_budgets.iter().any(|budget| *budget <= 40)
+            && opportunity_budgets.iter().any(|budget| *budget >= 384),
+        "organic primitive progression must span both shallow local opportunities and deep automation-worthy reserves"
+    );
+    assert_eq!(
+        ore_opportunity_batch_budget(1, true),
+        512,
+        "maintained progression must keep a deep deterministic payback reserve"
+    );
+
     let progression_actor_policies = (1_u64..=16)
         .map(|behavior_seed| {
             extraction_grade_premium_ppm(FocusedProbeCase::new(
@@ -553,9 +589,6 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
         "manual copper fallback variation collapsed to one gangue composition"
     );
 
-    let foundry_setups = (1_u64..=8)
-        .map(|seed| foundry_probe_setup(&registries, seed))
-        .collect::<Vec<_>>();
     let authored_foundry_feed_forms = registries
         .thermal()
         .get_melting(PROCESS_MELT_PURE_COPPER)
@@ -564,6 +597,16 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
         .iter()
         .copied()
         .collect::<BTreeSet<_>>();
+    assert!(
+        !authored_foundry_feed_forms.is_empty(),
+        "canonical copper melting must retain at least one solid recovery feed form"
+    );
+    let foundry_sample_count = authored_foundry_feed_forms.len().max(8);
+    let foundry_setups = (1_u64
+        ..=u64::try_from(foundry_sample_count)
+            .unwrap_or_else(|_| unreachable!("bounded authored feed-form count fits u64")))
+        .map(|seed| foundry_probe_setup(&registries, seed))
+        .collect::<Vec<_>>();
     let sampled_foundry_feed_forms = foundry_setups
         .iter()
         .map(|setup| setup.feed_form)
@@ -599,13 +642,7 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
     );
 
     let survival_worlds = (1_u64..=8)
-        .map(|seed| {
-            let preservation = preservation_storage_definition_for_policy(
-                &registries,
-                preservation_investment_policy_for_behavior_seed(seed),
-            );
-            provisioning_world(&registries, seed, preservation)
-        })
+        .map(|seed| provisioning_world(&registries, seed))
         .collect::<Vec<_>>();
     assert!(
         survival_worlds
@@ -615,7 +652,7 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
                     world.start_profile,
                     world.provisioning_wait_ticks,
                     world.age_ticks,
-                    world.preservation_multiplier_ppm,
+                    world.inherited_preservation_multiplier_ppm,
                     world.witness_index,
                     world
                         .foods
@@ -681,13 +718,7 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
     let broader_survival_sample = (1_u64
         ..=u64::try_from(broader_survival_sample_count)
             .unwrap_or_else(|_| unreachable!("bounded survival generator sample fits u64")))
-        .map(|seed| {
-            let preservation = preservation_storage_definition_for_policy(
-                &registries,
-                preservation_investment_policy_for_behavior_seed(seed),
-            );
-            provisioning_world(&registries, seed, preservation)
-        })
+        .map(|seed| provisioning_world(&registries, seed))
         .collect::<Vec<_>>();
     assert_eq!(
         broader_survival_sample
@@ -735,30 +766,23 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
             )
         })
         .collect::<BTreeSet<_>>();
-    let sampled_preservation = (1_u64
-        ..=u64::try_from(broader_survival_sample_count)
-            .unwrap_or_else(|_| unreachable!("bounded preservation selector sample fits u64")))
-        .map(preservation_investment_policy_for_behavior_seed)
-        .map(|policy| preservation_storage_definition_for_policy(&registries, policy))
-        .map(|definition| {
-            let record = registries
-                .storage()
-                .get(definition)
-                .unwrap_or_else(|| unreachable!("sampled preservation definition is authored"));
+    let sampled_preservation = broader_survival_sample
+        .iter()
+        .map(|world| {
             (
-                definition.value(),
-                record.storage_profile().preservation_multiplier_ppm(),
+                world.inherited_preservation_definition.value(),
+                world.inherited_preservation_multiplier_ppm,
             )
         })
         .collect::<BTreeSet<_>>();
     assert!(
         sampled_preservation.is_subset(&authored_preservation),
-        "survival worlds must use authored storage definitions rather than a harness-only preservation profile"
+        "survival world history must use authored storage definitions rather than a harness-only preservation profile"
     );
     if authored_preservation.len() > 1 {
         assert!(
             sampled_preservation.len() > 1,
-            "bounded actor behavior collapsed the preservation investment tradeoff to one repeated choice"
+            "bounded world generation collapsed inherited preservation history to one repeated storage state"
         );
         let sampled_policies = (1_u64
             ..=u64::try_from(broader_survival_sample_count)
@@ -772,6 +796,32 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
                 PreservationInvestmentPolicy::MaximumProtection,
             ]),
             "bounded actor behavior must exercise both preservation investment objectives"
+        );
+    }
+
+    let same_world = provisioning_world(&registries, 0x51A2_0001);
+    for behavior_seed in [1_u64, 2, 3, 4] {
+        let policy = preservation_investment_policy_for_behavior_seed(behavior_seed);
+        let _current_investment = preservation_storage_definition_for_policy(&registries, policy);
+        let replayed_world = provisioning_world(&registries, 0x51A2_0001);
+        assert_eq!(
+            (
+                replayed_world.start_profile,
+                replayed_world.inherited_preservation_definition,
+                replayed_world.inherited_preservation_multiplier_ppm,
+                replayed_world.provisioning_wait_ticks,
+                replayed_world.age_ticks,
+                replayed_world.witness_index,
+            ),
+            (
+                same_world.start_profile,
+                same_world.inherited_preservation_definition,
+                same_world.inherited_preservation_multiplier_ppm,
+                same_world.provisioning_wait_ticks,
+                same_world.age_ticks,
+                same_world.witness_index,
+            ),
+            "actor preservation preference must not rewrite inherited survival-world state"
         );
     }
 

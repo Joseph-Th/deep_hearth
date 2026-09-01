@@ -50,7 +50,7 @@ fn seed_list_reports_empty_and_exact_invalid_position() {
 }
 
 #[test]
-fn focused_gate_adds_one_replayable_organic_case() {
+fn focused_gate_keeps_maintained_cases_and_adds_one_replayable_organic_case() {
     let first = focused_probe_cases_from(
         GATE_VARIATION_COUNT,
         None,
@@ -72,15 +72,17 @@ fn focused_gate_adds_one_replayable_organic_case() {
     )
     .unwrap_or_else(|error| panic!("second focused probe plan failed: {error:?}"));
 
-    assert_eq!(first.len(), 3 + GATE_VARIATION_COUNT);
+    assert_eq!(GATE_VARIATION_COUNT, 1);
+    assert_eq!(first.len(), 4);
     assert_eq!(first[0].seed(), 0x1111);
     assert_eq!(first[0].role(), FocusedProbeRole::MaintainedAnchor);
     assert_eq!(first[1].seed(), 0xAAAA);
     assert_eq!(first[1].role(), FocusedProbeRole::MaintainedCoverage);
     assert_eq!(first[2].seed(), 0xBBBB);
     assert_eq!(first[2].role(), FocusedProbeRole::MaintainedCoverage);
-    assert_eq!(first[3].role(), FocusedProbeRole::OrganicVariation);
     assert_eq!(&first[..3], &second[..3]);
+    assert_eq!(first[3].role(), FocusedProbeRole::OrganicVariation);
+    assert_eq!(second[3].role(), FocusedProbeRole::OrganicVariation);
     assert_ne!(first[3].seed(), second[3].seed());
 }
 
@@ -240,7 +242,7 @@ fn focused_explicit_seed_list_is_exact_and_invalid_variation_is_rejected() {
 #[test]
 fn focused_world_and_behavior_variation_are_independent_and_replayable() {
     let first = build_focused_probe_cases(FocusedProbeSeedPlan {
-        variation_count: GATE_VARIATION_COUNT,
+        variation_count: 1,
         scenario_raw: None,
         variation_raw: Some("0x1111"),
         behavior_raw: Some("0xAAAA"),
@@ -252,7 +254,7 @@ fn focused_world_and_behavior_variation_are_independent_and_replayable() {
     })
     .unwrap_or_else(|error| panic!("first independent focused plan failed: {error:?}"));
     let different_behavior = build_focused_probe_cases(FocusedProbeSeedPlan {
-        variation_count: GATE_VARIATION_COUNT,
+        variation_count: 1,
         scenario_raw: None,
         variation_raw: Some("0x1111"),
         behavior_raw: Some("0xBBBB"),
@@ -264,7 +266,7 @@ fn focused_world_and_behavior_variation_are_independent_and_replayable() {
     })
     .unwrap_or_else(|error| panic!("behavior-varied focused plan failed: {error:?}"));
     let different_world = build_focused_probe_cases(FocusedProbeSeedPlan {
-        variation_count: GATE_VARIATION_COUNT,
+        variation_count: 1,
         scenario_raw: None,
         variation_raw: Some("0x2222"),
         behavior_raw: Some("0xAAAA"),

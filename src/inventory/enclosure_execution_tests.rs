@@ -13,7 +13,7 @@ use crate::core::time::{TickSpan, WorldSeed};
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::inventory::{
-    MaterialLotId, StockpileStorageError, StorageEnclosureValidationError,
+    MaterialLotId, MaterialLotSelection, StockpileStorageError, StorageEnclosureValidationError,
     add_solid_stockpile_for_test, deposit_lot_for_test, validate_mount_stockpile,
 };
 use crate::material::CommodityKey;
@@ -318,7 +318,7 @@ fn enclosure_rejects_storage_profile_change_while_inbound_output_is_reserved() {
         construction_fixture(Mass::from_milligrams(5_000_000));
     let craft_source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("reserved-enclosure craft source failed: {error}"));
-    deposit_lot_for_test(
+    let craft_lot = deposit_lot_for_test(
         &registries,
         &mut state,
         craft_source,
@@ -332,7 +332,12 @@ fn enclosure_rejects_storage_profile_change_while_inbound_output_is_reserved() {
     validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_SHAPE_WOOD_BOARDS, craft_source, target),
+        ManualCraftStartRequest::single(
+            PROCESS_SHAPE_WOOD_BOARDS,
+            craft_source,
+            MaterialLotSelection::new(craft_lot, Mass::from_milligrams(1_000_000)),
+            target,
+        ),
     )
     .unwrap_or_else(|error| panic!("reserved-enclosure craft start failed: {error}"))
     .commit(&mut state)

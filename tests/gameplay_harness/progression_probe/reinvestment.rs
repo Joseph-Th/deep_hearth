@@ -102,7 +102,7 @@ pub(super) fn evaluate_mature_reinvestment(
     registries: &Registries,
     decision_state: &AppState,
     plan: MatureReinvestmentPlan,
-) -> PrimitiveReinvestmentExperience {
+) -> PrimitiveReinvestmentOutcome {
     let MatureReinvestmentPlan {
         raw,
         shaped,
@@ -171,7 +171,7 @@ pub(super) fn evaluate_mature_reinvestment(
         .checked_add(maximum_drain_mass)
         .and_then(|mass| mass.checked_add(expanded_batch_mass))
         .unwrap_or_else(|| panic!("primitive reinvestment prepared ore mass overflowed"));
-    mine_total_and_claim(
+    match try_mine_total_and_claim(
         registries,
         &mut state,
         mining_target,
@@ -179,7 +179,14 @@ pub(super) fn evaluate_mature_reinvestment(
         pick,
         prepared_ore,
         reinforced_pick_mining_batch_limit(registries),
-    );
+    ) {
+        Ok(_) => {}
+        Err(
+            MiningStartError::TargetNoLongerResolved
+            | MiningStartError::InsufficientTargetMass { .. },
+        ) => return PrimitiveReinvestmentOutcome::TargetSupplyLimited,
+        Err(error) => panic!("primitive mature reinvestment mining failed: {error}"),
+    }
 
     let primary_energy = calculate_mass_specific_energy(
         primary_batch_mass,
@@ -544,7 +551,7 @@ pub(super) fn evaluate_mature_reinvestment(
     );
     validate_loaded_state(registries, &state)
         .unwrap_or_else(|error| panic!("primitive reinvestment state audit failed: {error}"));
-    PrimitiveReinvestmentExperience {
+    PrimitiveReinvestmentOutcome::Completed(PrimitiveReinvestmentExperience {
         invested_copper_mass,
         base_crush_ticks,
         reinforced_crush_ticks,
@@ -567,5 +574,5 @@ pub(super) fn evaluate_mature_reinvestment(
         expanded_separator_target_mass: expanded_separator.target_mass,
         survival_energy_spent_nj,
         survival_hydration_spent_ul,
-    }
+    })
 }

@@ -228,30 +228,21 @@ fn plan_reform_mass_and_structure(
                 stockpile: destination,
             })?
     };
-    let committed_before_output = if source == destination {
-        source_after
-            .checked_add(destination_record.reserved_inbound())
-            .ok_or(MaterialReformError::DestinationMassOverflow {
-                stockpile: destination,
-            })?
+    let outgoing = if source == destination {
+        total_consumed
     } else {
-        destination_record
-            .stored_mass()
-            .checked_add(destination_record.reserved_inbound())
-            .ok_or(MaterialReformError::DestinationMassOverflow {
-                stockpile: destination,
-            })?
+        Mass::ZERO
     };
-    let after_with_reserved = committed_before_output.checked_add(total_consumed).ok_or(
-        MaterialReformError::DestinationMassOverflow {
+    let projection = destination_record
+        .project_mass_exchange(outgoing, total_consumed)
+        .ok_or(MaterialReformError::DestinationMassOverflow {
             stockpile: destination,
-        },
-    )?;
-    if after_with_reserved > destination_record.capacity() {
+        })?;
+    if projection.after_incoming > destination_record.capacity() {
         return Err(MaterialReformError::DestinationCapacityExceeded {
             stockpile: destination,
             capacity: destination_record.capacity(),
-            committed: committed_before_output,
+            committed: projection.committed_before_incoming,
             requested: total_consumed,
         });
     }

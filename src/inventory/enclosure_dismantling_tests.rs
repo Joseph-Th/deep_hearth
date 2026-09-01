@@ -15,8 +15,8 @@ use crate::core::time::{TickSpan, WorldSeed};
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::calculate_explicit_energy_accounting;
 use crate::inventory::{
-    MaterialLotId, StockpileStorageProfile, add_solid_stockpile_for_test, deposit_lot_for_test,
-    validate_build_storage_enclosure, validate_mount_stockpile,
+    MaterialLotId, MaterialLotSelection, StockpileStorageProfile, add_solid_stockpile_for_test,
+    deposit_lot_for_test, validate_build_storage_enclosure, validate_mount_stockpile,
 };
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
@@ -373,6 +373,10 @@ fn dismantled_double_wall_body_salvages_into_a_standard_enclosure_with_exact_res
         dismantled.definition(),
         STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST
     );
+    let recovered_body = *dismantled
+        .recovered_lots()
+        .first()
+        .unwrap_or_else(|| panic!("storage salvage recovered body disappeared"));
 
     let salvage_job = validate_start_manual_craft(
         &registries,
@@ -380,6 +384,7 @@ fn dismantled_double_wall_body_salvages_into_a_standard_enclosure_with_exact_res
         ManualCraftStartRequest::single(
             PROCESS_SALVAGE_DOUBLE_WALL_TIMBER_CHEST_BODY,
             recovery,
+            MaterialLotSelection::new(recovered_body, body_mass),
             salvage_output,
         ),
     )
@@ -424,6 +429,16 @@ fn dismantled_double_wall_body_salvages_into_a_standard_enclosure_with_exact_res
             .map(|stockpile| { stockpile.get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_CHIP)) }),
         Some(Mass::from_milligrams(800_000))
     );
+    let boards = state
+        .inventory()
+        .lot_ids(salvage_output)
+        .find(|lot| {
+            state.inventory().get_lot(*lot).is_some_and(|record| {
+                record.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD)
+                    && record.mass() >= CHEST_MASS
+            })
+        })
+        .unwrap_or_else(|| panic!("storage salvage board lot disappeared"));
 
     let rebuild_job = validate_start_manual_craft(
         &registries,
@@ -431,6 +446,7 @@ fn dismantled_double_wall_body_salvages_into_a_standard_enclosure_with_exact_res
         ManualCraftStartRequest::single(
             PROCESS_ASSEMBLE_TIMBER_CHEST,
             salvage_output,
+            MaterialLotSelection::new(boards, CHEST_MASS),
             rebuilt_body,
         ),
     )
@@ -556,7 +572,7 @@ fn dismantling_rejects_reserved_inbound_output_without_mutation() {
         .unwrap_or_else(|error| panic!("reserved dismantle survival setup failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000))
         .unwrap_or_else(|error| panic!("reserved dismantle craft source failed: {error}"));
-    deposit_lot_for_test(
+    let craft_lot = deposit_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -568,7 +584,12 @@ fn dismantling_rejects_reserved_inbound_output_without_mutation() {
     validate_start_manual_craft(
         &registries,
         &state,
-        ManualCraftStartRequest::single(PROCESS_SHAPE_WOOD_BOARDS, source, target),
+        ManualCraftStartRequest::single(
+            PROCESS_SHAPE_WOOD_BOARDS,
+            source,
+            MaterialLotSelection::new(craft_lot, Mass::from_milligrams(1_000_000)),
+            target,
+        ),
     )
     .unwrap_or_else(|error| panic!("reserved dismantle craft start failed: {error}"))
     .commit(&mut state)

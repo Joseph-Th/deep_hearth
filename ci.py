@@ -60,34 +60,25 @@ RUST_TEST_RESULT = re.compile(
     r"test result: ok\. (?P<passed>\d+) passed; (?P<failed>\d+) failed; "
     r"(?P<ignored>\d+) ignored;"
 )
-GAMEPLAY_REPORT_PREFIXES = (
+ORDINARY_GAMEPLAY_REPORT_PREFIXES = (
     "PLAYER FANTASY ",
-    "EVALUATION SCOPE ",
-    "HARNESS INPUT ",
     "CONTENT registry_schema=",
-    "CONTENT ACQUISITION DECLARATIONS ",
+    "CONTENT ACQUISITION EDGES ",
     "EVIDENCE CONTRACT ",
-    "CAPABILITY HIGHLIGHT ",
-    "SAMPLE ",
-    "WORKSHOP CAPABILITY ",
-    "CAPABILITY SYSTEMS ",
-    "WORKSHOP EXPERIENCE REVIEW ",
-    "AGENCY INPUT ",
-    "AGENCY SUMMARY ",
-    "PROBE INPUT ",
 )
-FOCUSED_REVIEW_PREFIXES = (
-    "SURVIVAL EXPERIENCE ",
-    "PROGRESSION FALLBACK ",
-    "PROGRESSION EXPERIENCE ",
-    "ORE REVIEW ",
-    "FOUNDRY REVIEW ",
+ORDINARY_PROBE_REVIEW_PREFIXES = (
+    ("survival-provisioning", "SURVIVAL EXPERIENCE "),
+    ("primitive-progression", "PROGRESSION FALLBACK "),
+    ("primitive-progression", "PROGRESSION EXPERIENCE "),
 )
 FOCUSED_VISIBLE_REPLAY_SEED = re.compile(
     r"\b(?:anchor|coverage|organic):(0x[0-9A-Fa-f]+)"
 )
-WORKSHOP_REPLAY_ROOTS = re.compile(
+GAMEPLAY_REPLAY_ROOTS = re.compile(
     r"\bworld_root=(?P<world>\S+)\s+behavior_root=(?P<behavior>\S+)"
+)
+WORKSHOP_PLAN_SUMMARY = re.compile(
+    r"\bplan=(?P<plan>\S+)\s+anchors=(?P<anchors>\d+)\s+variation=(?P<variation>\d+)\s+custom=(?P<custom>\d+)"
 )
 
 
@@ -114,9 +105,20 @@ def gameplay_replay_summary(stdout: str) -> str | None:
 
     for line in stdout.splitlines():
         if line.startswith("PROBE INPUT ") and " replay=" in line:
-            return f"replay={line.split(' replay=', 1)[1]}"
+            roots = GAMEPLAY_REPLAY_ROOTS.search(line)
+            if roots is not None and roots.group("world") != "explicit":
+                return f"roots={roots.group('world')}/{roots.group('behavior')}"
+            replay = line.split(" replay=", 1)[1]
+            if roots is not None:
+                return f"roots={roots.group('world')}/{roots.group('behavior')}; replay={replay}"
+            return f"replay={replay}"
         if line.startswith("HARNESS INPUT "):
-            match = WORKSHOP_REPLAY_ROOTS.search(line)
+            plan = WORKSHOP_PLAN_SUMMARY.search(line)
+            if plan is not None and plan.group("plan") == "maintained":
+                return f"maintained={plan.group('anchors')}"
+            if plan is not None and plan.group("plan") == "custom":
+                return f"custom={plan.group('custom')}"
+            match = GAMEPLAY_REPLAY_ROOTS.search(line)
             if match is not None:
                 return f"roots={match.group('world')}/{match.group('behavior')}"
     return None
@@ -140,7 +142,7 @@ def combined_test_summary(stdout: str) -> str | None:
 
 
 def concise_gameplay_report(stdout: str, environ=None) -> str:
-    """Keep high-signal aggregates plus the focused reference and organic outcomes."""
+    """Keep the current ordinary-player experience; verbose mode retains capability diagnostics."""
 
     environment = os.environ if environ is None else environ
     if environment.get("DEEP_HEARTH_GAMEPLAY_VERBOSE") is not None or environment.get(
@@ -148,21 +150,39 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     ) is not None:
         return stdout.rstrip()
     lines = stdout.splitlines()
-    focused_visible_seeds = {
-        match.group(1).upper()
-        for line in lines
-        if line.startswith("PROBE INPUT ")
-        for match in FOCUSED_VISIBLE_REPLAY_SEED.finditer(line)
+    ordinary_probe_inputs = {
+        probe: [
+            line
+            for line in lines
+            if line.startswith(f"PROBE INPUT name={probe} ")
+        ]
+        for probe, _prefix in ORDINARY_PROBE_REVIEW_PREFIXES
+    }
+    visible_seeds = {
+        probe: {
+            match.group(1).upper()
+            for line in probe_lines
+            for match in FOCUSED_VISIBLE_REPLAY_SEED.finditer(line)
+        }
+        for probe, probe_lines in ordinary_probe_inputs.items()
+    }
+    ordinary_input_lines = {
+        line for probe_lines in ordinary_probe_inputs.values() for line in probe_lines
     }
     return "\n".join(
         line
         for line in lines
-        if line.startswith(GAMEPLAY_REPORT_PREFIXES)
+        if line.startswith(ORDINARY_GAMEPLAY_REPORT_PREFIXES)
+        or line.startswith("EVALUATION SCOPE kind=ordinary-play ")
+        or line in ordinary_input_lines
         or (
-            line.startswith(FOCUSED_REVIEW_PREFIXES)
-            and any(
-                f"SEED={seed}" in line.upper()
-                for seed in focused_visible_seeds
+            any(
+                line.startswith(prefix)
+                and any(
+                    f"SEED={seed}" in line.upper()
+                    for seed in visible_seeds.get(probe, set())
+                )
+                for probe, prefix in ORDINARY_PROBE_REVIEW_PREFIXES
             )
         )
     )
@@ -189,7 +209,7 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
     """Return the narrow follow-up command for a failed broad executable lane when detectable."""
 
     combined = f"{stdout}\n{stderr}"
-    if command == cargo("test-fast"):
+    if command == cargo("test-core"):
         failed = FAILED_TEST.findall(combined)
         if failed:
             return f"python tools/run_test.py {failed[-1]}"
@@ -224,7 +244,7 @@ def audit_plan(scope: str) -> list[tuple[str, list[str]]]:
         plan.append(("core + gameplay", combined_test_command()))
         return plan
     if scope == "core":
-        plan.append(("core", cargo("test-fast")))
+        plan.append(("core", cargo("test-core")))
     if scope == "gameplay":
         plan.append(("gameplay", gameplay_command("all")))
     return plan

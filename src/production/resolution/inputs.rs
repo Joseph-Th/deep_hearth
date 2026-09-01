@@ -2,7 +2,6 @@
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::num::NonZeroU64;
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
@@ -11,7 +10,7 @@ use crate::inventory::{
     ExplicitConsumptionSelectionError, MaterialLotId, MaterialLotSelection, StockpileId,
     validate_consumption_selection, validate_explicit_consumption_selection,
 };
-use crate::material::{CommodityKey, MaterialInputSpec, MaterialInputSpecError};
+use crate::material::CommodityKey;
 use crate::registry::Registries;
 
 use crate::production::definitions::{ProcessId, ProcessInputPolicy};
@@ -39,11 +38,6 @@ pub enum ProcessInputError {
     },
     FixedInputsRequired {
         process: ProcessId,
-    },
-    RepeatedInputMassOverflow {
-        process: ProcessId,
-        commodity: CommodityKey,
-        repetitions: NonZeroU64,
     },
     EmptySelection,
     ZeroSelectedMass {
@@ -102,18 +96,6 @@ impl Display for ProcessInputError {
                 formatter,
                 "process {} owns fixed authored inputs and cannot accept an arbitrary selected batch",
                 process.value()
-            ),
-            Self::RepeatedInputMassOverflow {
-                process,
-                commodity,
-                repetitions,
-            } => write!(
-                formatter,
-                "repeating process {} input material {} form {} {} times exceeds authoritative mass range",
-                process.value(),
-                commodity.material().value(),
-                commodity.form().value(),
-                repetitions.get()
             ),
             Self::EmptySelection => formatter.write_str("selected process batch must not be empty"),
             Self::ZeroSelectedMass { lot } => write!(
@@ -208,35 +190,6 @@ pub fn validate_process_inputs(
     Ok(ValidatedProcessInputs { process, selection })
 }
 
-/// Deterministically binds an integral number of identical fixed-input process batches.
-///
-/// This remains a fixed-input operation: every authored input mass and composition constraint is
-/// scaled by the same repeat count, so callers cannot turn a fixed recipe into an arbitrary batch.
-pub(crate) fn validate_repeated_process_inputs(
-    registries: &Registries,
-    state: &AppState,
-    process: ProcessId,
-    source: StockpileId,
-    repetitions: NonZeroU64,
-) -> Result<ValidatedProcessInputs, ProcessInputError> {
-    if repetitions == NonZeroU64::MIN {
-        return validate_process_inputs(registries, state, process, source);
-    }
-    let Some(definition) = registries.production().get_process(process) else {
-        return Err(ProcessInputError::UnknownProcess { process });
-    };
-    let ProcessInputPolicy::Fixed { inputs, .. } = definition.input_policy() else {
-        return Err(ProcessInputError::ExplicitSelectionRequired { process });
-    };
-    let scaled_inputs = inputs
-        .iter()
-        .map(|input| scale_input(process, input, repetitions))
-        .collect::<Result<Vec<_>, _>>()?;
-    let selection = validate_consumption_selection(state.inventory(), source, &scaled_inputs)
-        .map_err(map_consumption_selection_error)?;
-    Ok(ValidatedProcessInputs { process, selection })
-}
-
 fn map_consumption_selection_error(error: ConsumptionSelectionError) -> ProcessInputError {
     match error {
         ConsumptionSelectionError::UnknownStockpile { stockpile } => {
@@ -255,41 +208,6 @@ fn map_consumption_selection_error(error: ConsumptionSelectionError) -> ProcessI
         },
         ConsumptionSelectionError::MassOverflow { stockpile } => {
             ProcessInputError::MassOverflow { stockpile }
-        }
-    }
-}
-
-fn scale_input(
-    process: ProcessId,
-    input: &MaterialInputSpec,
-    repetitions: NonZeroU64,
-) -> Result<MaterialInputSpec, ProcessInputError> {
-    let mass = input
-        .mass()
-        .milligrams()
-        .checked_mul(repetitions.get())
-        .map(Mass::from_milligrams)
-        .ok_or(ProcessInputError::RepeatedInputMassOverflow {
-            process,
-            commodity: input.commodity(),
-            repetitions,
-        })?;
-    match MaterialInputSpec::with_constraints(input.commodity(), mass, input.constraints().to_vec())
-    {
-        Ok(input) => Ok(input),
-        Err(MaterialInputSpecError::ZeroMass) => {
-            unreachable!("nonzero authored input repeated a nonzero number of times")
-        }
-        Err(MaterialInputSpecError::DuplicateConstraint { material: _ }) => {
-            unreachable!("authored input constraints were validated before repeat scaling")
-        }
-        Err(MaterialInputSpecError::HostExcluded { host: _ }) => {
-            unreachable!("authored input host feasibility was validated before repeat scaling")
-        }
-        Err(MaterialInputSpecError::ImpossibleMinimumTotal { total_ppm: _ }) => {
-            unreachable!(
-                "authored input constraint feasibility was validated before repeat scaling"
-            )
         }
     }
 }

@@ -4,7 +4,6 @@ use crate::capability::{
     CapabilityComparison, CapabilityId, CapabilityRequirement, CapabilityValue,
 };
 use crate::core::quantity::{Mass, MassFlow, Power, Temperature};
-use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::production::{ProcessDefinition, ProcessId, ProductionRegistry};
 
 use super::capabilities::{
@@ -12,10 +11,6 @@ use super::capabilities::{
     CAPABILITY_GRINDER_BATCH, CAPABILITY_GRINDER_FLOW, CAPABILITY_HEATING_POWER,
     CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW, CAPABILITY_SEPARATOR_BATCH,
     CAPABILITY_SEPARATOR_FLOW, CAPABILITY_THERMAL_BATCH, CAPABILITY_THERMAL_MAX_TEMPERATURE,
-};
-use super::{
-    FORM_BOARD, FORM_CHEST_BODY, FORM_DOUBLE_WALL_CHEST_BODY, FORM_LOG, FORM_LUMP,
-    FORM_NATIVE_METAL, FORM_SCRAP, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 pub const PROCESS_CRUSH_ORE: ProcessId = ProcessId::new(1);
@@ -127,59 +122,35 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
             "hand sort native copper from crushed ore",
             Vec::new(),
         ),
-        ProcessDefinition::new(
+        ProcessDefinition::new_selected_batch(
             PROCESS_REKNAP_STONE_SCRAP_TOOL,
             "reknap stone scrap tool",
-            vec![MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_STONE, FORM_SCRAP),
-                Mass::from_milligrams(1_000_000),
-            )],
             Vec::new(),
         ),
-        ProcessDefinition::new(
+        ProcessDefinition::new_selected_batch(
             PROCESS_ASSEMBLE_TIMBER_CHEST,
             "assemble timber chest body",
-            vec![MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-                Mass::from_milligrams(2_400_000),
-            )],
             Vec::new(),
         ),
-        ProcessDefinition::new(
+        ProcessDefinition::new_selected_batch(
             PROCESS_ASSEMBLE_DOUBLE_WALL_TIMBER_CHEST,
             "assemble double-wall timber chest body",
-            vec![MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-                Mass::from_milligrams(4_000_000),
-            )],
             Vec::new(),
         ),
-        ProcessDefinition::new(
+        ProcessDefinition::new_selected_batch(
             PROCESS_SALVAGE_TIMBER_CHEST_BODY,
             "salvage timber chest body",
-            vec![MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_WOOD, FORM_CHEST_BODY),
-                Mass::from_milligrams(2_400_000),
-            )],
             Vec::new(),
         ),
-        ProcessDefinition::new(
+        ProcessDefinition::new_selected_batch(
             PROCESS_SALVAGE_DOUBLE_WALL_TIMBER_CHEST_BODY,
             "salvage double-wall timber chest body",
-            vec![MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_WOOD, FORM_DOUBLE_WALL_CHEST_BODY),
-                Mass::from_milligrams(4_000_000),
-            )],
             Vec::new(),
         ),
         ProcessDefinition::new_selected_batch(PROCESS_HAND_BREAK_ORE, "hand break ore", Vec::new()),
-        ProcessDefinition::new(
+        ProcessDefinition::new_selected_batch(
             PROCESS_SHAPE_WOOD_BOARDS,
             "shape timber boards",
-            vec![MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-                Mass::from_milligrams(1_000_000),
-            )],
             Vec::new(),
         ),
         ProcessDefinition::new_selected_batch(
@@ -192,49 +163,29 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
             "concentrate copper from liberated ore",
             mass_flow_resolver_requirements(CAPABILITY_SEPARATOR_FLOW, CAPABILITY_SEPARATOR_BATCH),
         ),
-        ProcessDefinition::new(
+        ProcessDefinition::new_selected_batch(
             PROCESS_KNAP_STONE_TOOL,
             "knap stone tool",
-            vec![MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-                Mass::from_milligrams(1_000_000),
-            )],
             Vec::new(),
         ),
-        ProcessDefinition::new(
+        ProcessDefinition::new_selected_batch(
             PROCESS_SHAPE_WOOD_HANDLE,
             "shape wood handle",
-            vec![MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-                Mass::from_milligrams(1_000_000),
-            )],
             Vec::new(),
         ),
-        ProcessDefinition::new(
+        ProcessDefinition::new_selected_batch(
             PROCESS_SHAPE_STONE_FLYWHEEL,
             "shape stone flywheel",
-            vec![MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-                Mass::from_milligrams(1_000_000),
-            )],
             Vec::new(),
         ),
-        ProcessDefinition::new(
+        ProcessDefinition::new_selected_batch(
             PROCESS_COLD_WORK_COPPER_REINFORCEMENT,
             "cold-work native copper reinforcement",
-            vec![MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-                Mass::from_milligrams(20_000),
-            )],
             Vec::new(),
         ),
-        ProcessDefinition::new(
+        ProcessDefinition::new_selected_batch(
             PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
             "rework copper scrap reinforcement",
-            vec![MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP),
-                Mass::from_milligrams(20_000),
-            )],
             Vec::new(),
         ),
     ] {

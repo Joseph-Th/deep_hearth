@@ -97,15 +97,6 @@ enum ScenarioSeedSource {
     Custom,
 }
 
-impl ScenarioSeedSource {
-    const fn label(self) -> &'static str {
-        match self {
-            Self::AnchorVariation => "anchor+variation",
-            Self::Custom => "custom",
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ScenarioSeedPair {
     pub(super) world_seed: u64,
@@ -123,7 +114,11 @@ pub(super) struct ScenarioSeedPlan {
 
 impl ScenarioSeedPlan {
     pub(super) const fn source_label(&self) -> &'static str {
-        self.source.label()
+        match (self.source, self.variation_seed) {
+            (ScenarioSeedSource::AnchorVariation, None) => "maintained",
+            (ScenarioSeedSource::AnchorVariation, Some(_)) => "anchor+variation",
+            (ScenarioSeedSource::Custom, _) => "custom",
+        }
     }
 
     pub(super) fn cases(&self) -> &[ScenarioSeedPair] {
@@ -248,17 +243,22 @@ pub(super) fn scenario_seeds_from(
         });
     }
 
-    let behavior_seed_root = resolve_behavior_seed(behavior_raw, default_behavior_seed)?;
-    let variation_seed = resolve_variation_seed(variation_raw, default_variation_seed)?;
     let variation_count = match mode {
         ScenarioPlanMode::Gate => GATE_VARIATION_SCENARIO_COUNT,
         ScenarioPlanMode::Explore => EXPLORATORY_VARIATION_SCENARIO_COUNT,
     };
+    let behavior_seed_root = resolve_behavior_seed(behavior_raw, default_behavior_seed)?;
+    let variation_seed = Some(resolve_variation_seed(
+        variation_raw,
+        default_variation_seed,
+    )?);
     let mut world_seeds = MAINTAINED_ANCHORS
         .iter()
         .map(|(_, world_seed)| *world_seed)
         .collect::<Vec<_>>();
-    append_variation_seeds(&mut world_seeds, variation_seed, variation_count);
+    if let Some(variation_seed) = variation_seed {
+        append_variation_seeds(&mut world_seeds, variation_seed, variation_count);
+    }
     let mut cases = maintained_cases();
     cases.extend(
         world_seeds[MAINTAINED_ANCHORS.len()..]
@@ -274,7 +274,7 @@ pub(super) fn scenario_seeds_from(
     Ok(ScenarioSeedPlan {
         source: ScenarioSeedSource::AnchorVariation,
         cases,
-        variation_seed: Some(variation_seed),
+        variation_seed,
         behavior_seed_root,
     })
 }

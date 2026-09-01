@@ -10,7 +10,10 @@ pub use eating::{
     EatCommitError, EatError, EatOutcome, EatPortionOutcome, NutritionGain, ValidatedEat,
     validate_eat,
 };
-pub use freshness::{FoodFreshness, FoodFreshnessError, assess_food_freshness};
+pub use freshness::{
+    FoodFreshness, FoodFreshnessError, FoodFreshnessProjectionError, assess_food_freshness,
+    project_food_freshness_after_storage_transition,
+};
 
 pub(crate) use absorption::{DirectConsumptionInstallment, direct_consumption_installment};
 

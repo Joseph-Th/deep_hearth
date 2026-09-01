@@ -132,29 +132,21 @@ pub(crate) fn validate_consumption_reservation_from_selection(
                 stockpile: *destination,
             });
         };
-        let destination_stored_after_consumption = if source == *destination {
-            destination_record
-                .stored_mass
-                .checked_sub(total_consumed)
-                .ok_or(ReservationError::MassOverflow { stockpile: source })?
+        let outgoing = if source == *destination {
+            total_consumed
         } else {
-            destination_record.stored_mass
+            Mass::ZERO
         };
-        let committed_after_consumption = destination_stored_after_consumption
-            .checked_add(destination_record.reserved_inbound)
+        let projection = destination_record
+            .project_mass_exchange(outgoing, *inbound_mass)
             .ok_or(ReservationError::MassOverflow {
                 stockpile: *destination,
             })?;
-        let after_reservation = committed_after_consumption
-            .checked_add(*inbound_mass)
-            .ok_or(ReservationError::MassOverflow {
-                stockpile: *destination,
-            })?;
-        if after_reservation > destination_record.capacity {
+        if projection.after_incoming > destination_record.capacity() {
             return Err(ReservationError::CapacityExceeded {
                 stockpile: *destination,
-                capacity: destination_record.capacity,
-                committed_after_consumption,
+                capacity: destination_record.capacity(),
+                committed_after_consumption: projection.committed_before_incoming,
                 requested_inbound: *inbound_mass,
             });
         }

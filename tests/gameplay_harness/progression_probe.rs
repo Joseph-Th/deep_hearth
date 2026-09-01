@@ -2,16 +2,17 @@
 
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
-use std::num::NonZeroU64;
 
 use super::environment::ROOM_TEMPERATURE;
 use super::equipment_support::nominal_equipment_mass_capability;
 use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
+use super::manual_craft_selection::select_manual_craft_request;
 use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
 use super::ore_fixture::copper_ore_composition;
+use super::physical_time::format_physical_duration;
 use super::production_timing::finish_uninterrupted_production_job;
 use super::seed::mix64;
 use deep_hearth::capability::{CapabilityId, CapabilityValue};
@@ -33,9 +34,7 @@ use deep_hearth::content::{
 use deep_hearth::core::quantity::{Energy, Mass, Power, Pressure};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
 use deep_hearth::core::time::WorldSeed;
-use deep_hearth::crafting::{
-    ManualCraftRequest, ManualCraftStartRequest, validate_start_manual_craft,
-};
+use deep_hearth::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use deep_hearth::energy::{
     calculate_mass_specific_energy, validate_assemble_energy_store, validate_upgrade_energy_store,
 };
@@ -89,6 +88,18 @@ pub(super) fn extraction_grade_premium_ppm(case: FocusedProbeCase) -> u32 {
             });
             50_000 + (mix64(behavior_seed ^ 0x4752_4144_4550_5245) % 100_001) as u32
         }
+    }
+}
+
+pub(super) fn ore_opportunity_batch_budget(seed: u64, maintained_payback_required: bool) -> u64 {
+    if maintained_payback_required {
+        return 512;
+    }
+    let opportunity_roll = mix64(seed ^ 0x4F50_504F_5254_554E);
+    if opportunity_roll.is_multiple_of(2) {
+        6 + (opportunity_roll >> 1) % 35
+    } else {
+        384 + (opportunity_roll >> 1) % 129
     }
 }
 
@@ -273,15 +284,18 @@ fn craft_batches(
     destination: deep_hearth::inventory::StockpileId,
     batches: u64,
 ) {
-    let batches = NonZeroU64::new(batches)
-        .unwrap_or_else(|| panic!("primitive progression craft batch count must be nonzero"));
+    let craft = select_manual_craft_request(
+        registries,
+        state,
+        process,
+        source,
+        batches,
+        "primitive progression repeated craft",
+    );
     let job = validate_start_manual_craft(
         registries,
         state,
-        ManualCraftStartRequest::new(
-            ManualCraftRequest::new(process, source, batches),
-            destination,
-        ),
+        ManualCraftStartRequest::new(craft, destination),
     )
     .unwrap_or_else(|error| panic!("primitive progression repeated craft failed: {error}"))
     .commit(state)
@@ -747,6 +761,18 @@ fn mine_and_claim(
     equipment: deep_hearth::equipment::EquipmentId,
     mass: Mass,
 ) -> u64 {
+    try_mine_and_claim(registries, state, target, destination, equipment, mass)
+        .unwrap_or_else(|error| panic!("primitive progression mining failed: {error}"))
+}
+
+fn try_mine_and_claim(
+    registries: &Registries,
+    state: &mut AppState,
+    target: MiningTargetRequest,
+    destination: deep_hearth::inventory::StockpileId,
+    equipment: deep_hearth::equipment::EquipmentId,
+    mass: Mass,
+) -> Result<u64, MiningStartError> {
     let target = resolve_progression_mining_target(state, target);
     let mining = validate_start_mining(
         registries,
@@ -756,8 +782,7 @@ fn mine_and_claim(
         destination,
         equipment,
         mass,
-    )
-    .unwrap_or_else(|error| panic!("primitive progression mining failed: {error}"));
+    )?;
     let mining_job = mining
         .commit(state)
         .unwrap_or_else(|error| panic!("primitive progression mining commit failed: {error}"));
@@ -779,7 +804,7 @@ fn mine_and_claim(
         .unwrap_or_else(|error| {
             panic!("primitive progression mining claim commit failed: {error}")
         });
-    mining_ticks
+    Ok(mining_ticks)
 }
 
 fn mine_total_and_claim(
@@ -791,6 +816,27 @@ fn mine_total_and_claim(
     total: Mass,
     maximum_batch: Mass,
 ) -> u64 {
+    try_mine_total_and_claim(
+        registries,
+        state,
+        target,
+        destination,
+        equipment,
+        total,
+        maximum_batch,
+    )
+    .unwrap_or_else(|error| panic!("primitive progression mining failed: {error}"))
+}
+
+fn try_mine_total_and_claim(
+    registries: &Registries,
+    state: &mut AppState,
+    target: MiningTargetRequest,
+    destination: deep_hearth::inventory::StockpileId,
+    equipment: deep_hearth::equipment::EquipmentId,
+    total: Mass,
+    maximum_batch: Mass,
+) -> Result<u64, MiningStartError> {
     assert!(!total.is_zero());
     assert!(!maximum_batch.is_zero());
     let mut remaining = total;
@@ -798,20 +844,20 @@ fn mine_total_and_claim(
     while !remaining.is_zero() {
         let batch = Mass::from_milligrams(remaining.milligrams().min(maximum_batch.milligrams()));
         elapsed = elapsed
-            .checked_add(mine_and_claim(
+            .checked_add(try_mine_and_claim(
                 registries,
                 state,
                 target,
                 destination,
                 equipment,
                 batch,
-            ))
+            )?)
             .unwrap_or_else(|| panic!("primitive progression mining duration overflowed"));
         remaining = remaining
             .checked_sub(batch)
             .unwrap_or_else(|| unreachable!("mining batch is bounded by remaining mass"));
     }
-    elapsed
+    Ok(elapsed)
 }
 
 fn resolve_progression_mining_target(
@@ -1032,6 +1078,8 @@ struct PrimitiveProgressionExperience {
     automation_preparation_ticks: u64,
     separator_preparation_ticks: u64,
     processing_line_preparation_ticks: u64,
+    processing_line_preparation_metabolic_cost_nj: u128,
+    processing_line_preparation_hydration_cost_ul: u64,
     productive_payback_cycles: Option<u64>,
     steady_state_cycles: u64,
     steady_state_stop: PrimitiveSteadyStop,
@@ -1068,14 +1116,20 @@ struct PrimitiveProgressionExperience {
     direct_second_upgrade_blocked: bool,
     initial_crank_reinforced: bool,
     crank_reinforced: bool,
-    component_service_ticks: u64,
+    maintenance_material_preparation_ticks: u64,
     component_service_mass: Mass,
     component_service_condition_before_ppm: u32,
     component_service_preserved_reinforcement: bool,
     final_pick_condition_ppm: u32,
     metabolic_energy_spent_nj: u128,
     hydration_spent_ul: u64,
-    reinvestment: PrimitiveReinvestmentExperience,
+    reinvestment: PrimitiveReinvestmentOutcome,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PrimitiveReinvestmentOutcome {
+    Completed(PrimitiveReinvestmentExperience),
+    TargetSupplyLimited,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1373,6 +1427,8 @@ struct PrimitiveMachine {
     automation_preparation_ticks: u64,
     separator_preparation_ticks: u64,
     processing_line_preparation_ticks: u64,
+    preparation_metabolic_cost_nj: u128,
+    preparation_hydration_cost_ul: u64,
     crank_reinforced: bool,
 }
 
@@ -1400,6 +1456,8 @@ fn build_primitive_machine(
         seed,
     } = plan;
     let preparation_started_at = state.tick().value();
+    let survival_before = assess_survival(registries, state)
+        .unwrap_or_else(|| panic!("primitive processing-line builder lost player survival state"));
     craft_for_profile(
         registries,
         state,
@@ -1549,6 +1607,23 @@ fn build_primitive_machine(
     let automation_preparation_ticks =
         duration(preparation_started_at, automation_hardware_ready_at);
     let processing_line_preparation_ticks = duration(preparation_started_at, separator_ready_at);
+    let survival_after = assess_survival(registries, state).unwrap_or_else(|| {
+        panic!("primitive processing-line builder lost player after construction")
+    });
+    let preparation_metabolic_cost_nj = survival_before
+        .metabolic_energy()
+        .checked_sub(survival_after.metabolic_energy())
+        .unwrap_or_else(|| {
+            unreachable!("manual processing-line construction cannot create metabolic reserve")
+        })
+        .nanojoules();
+    let preparation_hydration_cost_ul = survival_before
+        .hydration()
+        .checked_sub(survival_after.hydration())
+        .unwrap_or_else(|| {
+            unreachable!("manual processing-line construction cannot create hydration reserve")
+        })
+        .microliters();
 
     PrimitiveMachine {
         crank,
@@ -1566,6 +1641,8 @@ fn build_primitive_machine(
         automation_preparation_ticks,
         separator_preparation_ticks,
         processing_line_preparation_ticks,
+        preparation_metabolic_cost_nj,
+        preparation_hydration_cost_ul,
         crank_reinforced: false,
     }
 }

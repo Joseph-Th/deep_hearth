@@ -18,7 +18,7 @@ use crate::equipment::{
     EquipmentDefinitionId, apply_equipment_condition_plan, decide_equipment_wear,
     validate_assemble_equipment, validate_upgrade_equipment,
 };
-use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
+use crate::inventory::{MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{ManualPowerRequest, validate_start_manual_power};
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
@@ -142,6 +142,15 @@ fn worn_pick_copper_scrap_can_be_reworked_into_a_second_pick_upgrade() {
         }),
         Some(Mass::from_milligrams(20_000))
     );
+    let scrap = state
+        .inventory()
+        .lot_ids(recovery)
+        .find(|lot| {
+            state.inventory().get_lot(*lot).is_some_and(|record| {
+                record.commodity() == CommodityKey::new(MATERIAL_COPPER, FORM_SCRAP)
+            })
+        })
+        .unwrap_or_else(|| panic!("scrap-loop recovered copper lot disappeared"));
 
     let job = validate_start_manual_craft(
         &registries,
@@ -149,6 +158,7 @@ fn worn_pick_copper_scrap_can_be_reworked_into_a_second_pick_upgrade() {
         ManualCraftStartRequest::single(
             PROCESS_COLD_WORK_COPPER_SCRAP_REINFORCEMENT,
             recovery,
+            MaterialLotSelection::new(scrap, Mass::from_milligrams(20_000)),
             reinforcement,
         ),
     )

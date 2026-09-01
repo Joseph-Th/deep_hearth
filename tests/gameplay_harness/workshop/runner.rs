@@ -891,7 +891,7 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     );
     if verbose {
         std::println!(
-            "EVIDENCE INTERPRETATION runtime-experience-probes=normal-resolvers+validators+commits+ticks-after-disclosed-starting-world-setup controlled-probes=same-runtime-operations-on-unreachable-preinstalled-capabilities actor-hidden=[deposit-identity,future-controlled-event] variation=maintained-regressions+fresh-replayable-organic-worlds detailed-outcomes=PROGRESSION-REVIEW+SURVIVAL-REVIEW+WORKSHOP-CAPABILITY+ORE-REVIEW+FOUNDRY-REVIEW"
+            "EVIDENCE INTERPRETATION runtime-experience-probes=normal-resolvers+validators+commits+ticks-after-disclosed-starting-world-setup controlled-probes=same-runtime-operations-on-unreachable-preinstalled-capabilities actor-hidden=[deposit-identity,future-controlled-event] routine-gates=maintained+one-fresh-replayable-organic exploration=broader-fresh-replayable-organic detailed-outcomes=PROGRESSION-REVIEW+SURVIVAL-REVIEW+WORKSHOP-CAPABILITY+ORE-REVIEW+FOUNDRY-REVIEW"
         );
     }
     println!(
@@ -934,7 +934,7 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
         assert_anchor_diversity(&anchor_reports);
     }
     let evidence_mode = match mode {
-        ScenarioPlanMode::Gate => "gate+organic",
+        ScenarioPlanMode::Gate => "gate-bounded-organic",
         ScenarioPlanMode::Explore => "exploratory",
     };
     print_harness_summary(evidence_mode, &reports, verbose);
