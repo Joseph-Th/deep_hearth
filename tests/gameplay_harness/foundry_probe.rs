@@ -11,7 +11,8 @@ use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::foundry_setup::{FoundryIds, FoundrySetup, setup_foundry_probe};
 use super::material_selection::select_stockpile_mass;
-use super::production_support::{finish_uninterrupted_production_job, varied_healthy_condition};
+use super::production_support::varied_healthy_condition;
+use super::production_timing::finish_uninterrupted_production_job;
 use super::seed::mix64;
 use deep_hearth::content::{
     ENERGY_ELECTRICAL_BUFFER, ENERGY_THERMAL_SINK, EQUIPMENT_CASTING_MOLD,

@@ -8,14 +8,20 @@ mod focused_runner;
 mod focused_seeds;
 #[path = "gameplay_harness/fresh_seed.rs"]
 mod fresh_seed;
+#[path = "gameplay_harness/manual_power_timing.rs"]
+mod manual_power_timing;
 #[path = "gameplay_harness/preservation_route.rs"]
 mod preservation_route;
+#[path = "gameplay_harness/production_timing.rs"]
+mod production_timing;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
 #[path = "gameplay_harness/survival_probe.rs"]
 mod survival_probe;
+#[path = "gameplay_harness/temporal.rs"]
+mod temporal;
 
 #[test]
 fn gameplay_survival_provisioning_probe() {

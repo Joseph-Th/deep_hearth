@@ -206,20 +206,20 @@ fn panel_scratch_texel(x: usize, y: usize) -> Option<PackedTexel> {
     scratch.then(|| packed(1, varied_shade(6, 2, hash_2d(71, x, y))))
 }
 
+fn panel_overlay_texel(x: usize, y: usize) -> Option<PackedTexel> {
+    // Preserve the original overlay precedence while avoiding work for layers that will be hidden.
+    panel_scratch_texel(x, y)
+        .or_else(|| panel_seam_texel(x))
+        .or_else(|| panel_rivet_texel(x, y))
+        .or_else(|| panel_frame_texel(x, y))
+}
+
 pub(super) fn panel_pattern() -> TexturePattern {
     let mut texels = base_noise_pattern(0xa7b3_3141, 8, 2);
     for y in 0..TEXTURE_SIDE {
         for x in 0..TEXTURE_SIDE {
             let index = y * TEXTURE_SIDE + x;
-            for overlay in [
-                panel_frame_texel(x, y),
-                panel_rivet_texel(x, y),
-                panel_seam_texel(x),
-                panel_scratch_texel(x, y),
-            ]
-            .into_iter()
-            .flatten()
-            {
+            if let Some(overlay) = panel_overlay_texel(x, y) {
                 texels[index] = overlay;
             }
         }

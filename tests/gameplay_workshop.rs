@@ -16,6 +16,8 @@ mod fresh_seed;
 mod industrial_support;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
+#[path = "gameplay_harness/manual_power_timing.rs"]
+mod manual_power_timing;
 #[path = "gameplay_harness/ore_fixture.rs"]
 mod ore_fixture;
 #[macro_use]
@@ -31,6 +33,8 @@ mod seed;
 mod seed_input;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
+#[path = "gameplay_harness/temporal.rs"]
+mod temporal;
 
 #[path = "gameplay_harness/workshop.rs"]
 mod workshop;

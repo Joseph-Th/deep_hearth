@@ -1,98 +1,17 @@
 //! Pure particle-size projection for screening inputs.
 
 use std::collections::BTreeMap;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Mass, Temperature};
 use crate::inventory::ConsumedMaterialTrace;
 use crate::material::{
-    CommodityKey, FormId, MaterialComposition, MaterialLotSpec, MaterialLotSpecError,
-    ParticleSizeClass, ParticleSizeDistribution, ParticleSizeDistributionError, ParticleSizeRange,
+    CommodityKey, MaterialComposition, MaterialLotSpec, ParticleSizeClass, ParticleSizeDistribution,
 };
 use crate::production::ProcessOutputStream;
 
 use crate::ore_processing::ScreeningProcessDefinition;
 
-/// Failure while partitioning selected material into exact screen products.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ScreeningBatchError {
-    EmptyInput,
-    InputFormMismatch {
-        expected: FormId,
-        found: FormId,
-    },
-    MissingParticleSize,
-    UnresolvedParticleClass {
-        aperture: crate::core::quantity::Length,
-        class: ParticleSizeRange,
-    },
-    UnrepresentableClassMass {
-        mass: Mass,
-        undersize_weight: u64,
-        total_weight: u64,
-    },
-    MassOverflow,
-    Distribution(ParticleSizeDistributionError),
-    Output(MaterialLotSpecError),
-}
-
-impl Display for ScreeningBatchError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::EmptyInput => formatter.write_str("screening batch contains no material"),
-            Self::InputFormMismatch { expected, found } => write!(
-                formatter,
-                "screening batch requires input form {} but selected form {}",
-                expected.value(),
-                found.value()
-            ),
-            Self::MissingParticleSize => {
-                formatter.write_str("screening input has no particulate size distribution")
-            }
-            Self::UnresolvedParticleClass { aperture, class } => write!(
-                formatter,
-                "screen aperture {} um intersects unresolved particle class {}..={} um",
-                aperture.micrometers(),
-                class.minimum_diameter().micrometers(),
-                class.maximum_diameter().micrometers()
-            ),
-            Self::UnrepresentableClassMass {
-                mass,
-                undersize_weight,
-                total_weight,
-            } => write!(
-                formatter,
-                "screening {} mg with undersize weight {undersize_weight}/{total_weight} cannot be represented exactly at whole-milligram mass resolution",
-                mass.milligrams()
-            ),
-            Self::MassOverflow => formatter.write_str("screening output mass overflowed"),
-            Self::Distribution(error) => write!(
-                formatter,
-                "screening could not preserve a classified particle distribution: {error}"
-            ),
-            Self::Output(error) => write!(
-                formatter,
-                "screening output specification could not preserve its material profile: {error}"
-            ),
-        }
-    }
-}
-
-impl Error for ScreeningBatchError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Distribution(error) => Some(error),
-            Self::Output(error) => Some(error),
-            Self::InputFormMismatch { .. }
-            | Self::UnresolvedParticleClass { .. }
-            | Self::UnrepresentableClassMass { .. }
-            | Self::EmptyInput
-            | Self::MissingParticleSize
-            | Self::MassOverflow => None,
-        }
-    }
-}
+use super::errors::ScreeningBatchError;
 
 pub(super) struct ScreeningOutputs {
     pub(super) streams: Vec<ProcessOutputStream>,
@@ -323,5 +242,13 @@ pub(super) fn resolve_screening_outputs(
     for (key, mass) in grouped {
         outputs.add_group(definition, key, mass)?;
     }
-    Ok(outputs.finish())
+    let outputs = outputs.finish();
+    if definition.input_form() == definition.output_form()
+        && (outputs.undersize_mass.is_zero() || outputs.oversize_mass.is_zero())
+    {
+        return Err(ScreeningBatchError::NoParticleSizePartition {
+            aperture: definition.aperture(),
+        });
+    }
+    Ok(outputs)
 }

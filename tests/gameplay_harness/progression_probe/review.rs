@@ -94,6 +94,7 @@ struct PrimitiveProgressionReview {
     final_pick_condition_ppm: u32,
     mechanization_player_free_delta_ticks: i128,
     mechanization_elapsed_delta_ticks: i128,
+    reinvestment: PrimitiveReinvestmentExperience,
 }
 
 fn information_path_captured(review: &PrimitiveProgressionReview) -> bool {
@@ -174,6 +175,31 @@ fn lifecycle_obligations_captured(review: &PrimitiveProgressionReview) -> bool {
         && review.component_service_mass_mg > 0
         && review.component_service_condition_before_ppm < review.final_pick_condition_ppm
         && review.component_service_preserved_reinforcement
+}
+
+fn reinvestment_captured(review: &PrimitiveProgressionReview) -> bool {
+    let reinvestment = review.reinvestment;
+    reinvestment.invested_copper_mass == Mass::from_milligrams(60_000)
+        && reinvestment.base_crush_ticks > reinvestment.reinforced_crush_ticks
+        && reinvestment.crusher_time_reduction_ppm > 0
+        && reinvestment.base_separator_ticks > reinvestment.reinforced_separator_ticks
+        && reinvestment.separator_time_reduction_ppm > 0
+        && !reinvestment.base_separator_target_mass.is_zero()
+        && !reinvestment.reinforced_separator_target_mass.is_zero()
+        && reinvestment.upgraded_separator_batch_capacity
+            > reinvestment.base_separator_batch_capacity
+        && reinvestment.upgraded_drive_capacity > reinvestment.base_drive_capacity
+        && reinvestment.expanded_batch_energy > reinvestment.base_drive_capacity
+        && reinvestment.expanded_batch_energy <= reinvestment.upgraded_drive_capacity
+        && reinvestment.expanded_batch_mass > reinvestment.base_separator_batch_capacity
+        && reinvestment.expanded_batch_mass <= reinvestment.upgraded_separator_batch_capacity
+        && reinvestment.expanded_charge_ticks > 0
+        && reinvestment.expanded_crush_ticks > 0
+        && reinvestment.expanded_separator_energy > Energy::ZERO
+        && reinvestment.expanded_separator_ticks > 0
+        && !reinvestment.expanded_separator_target_mass.is_zero()
+        && reinvestment.survival_energy_spent_nj > 0
+        && reinvestment.survival_hydration_spent_ul > 0
 }
 
 fn report_maintained_manual_fallback(
@@ -802,6 +828,7 @@ fn evaluate_primitive_progression_probe(
             extraction.elapsed_ticks,
             mechanization.elapsed_ticks,
         ),
+        reinvestment: natural.reinvestment,
     };
     let choice_windows_are_consequential = review.extraction_hard_material_window_ticks > 0
         && review.mechanization_processed_output_window_ticks > 0;
@@ -814,7 +841,8 @@ fn evaluate_primitive_progression_probe(
         && investment_choice_captured(&review, choice_windows_are_consequential)
         && manual_bridge_evidence_captured(&review)
         && automation_maturity_captured(&review, post_productive_payback_cycles)
-        && lifecycle_obligations_captured(&review);
+        && lifecycle_obligations_captured(&review)
+        && reinvestment_captured(&review);
     assert!(
         fantasy_captured,
         "primitive progression must turn uncertainty into a paid information choice, make an observation-grounded scarce-copper decision produce reciprocal physical leverage, and demonstrate useful work during delegated processing"
@@ -851,13 +879,17 @@ fn evaluate_primitive_progression_probe(
         };
     report_maintained_manual_fallback(seed, manual_fallback);
     std::println!(
-        "PROGRESSION EXPERIENCE seed=0x{seed:016X} sample={sample} information={} first-copper={} bridge-tradeoff=[manual-now:{}t feed:{}mg recovery:{}ppm survival:{}nJ/{}uL; mechanize:{}t feed:{}mg recovery:{}ppm] post-upgrade-feed={} delegation=[productive:{}t utilization:{}ppm payback:{productive_payback} post-payback:{}cycles stop:{}] leverage=[pick-attention:-{}ppm crank-power:+{}ppm] obligations=[service:{}t survival:{}ppm/{}ppm]",
+        "PROGRESSION EXPERIENCE seed=0x{seed:016X} sample={sample} information={} first-copper={} choice-window=[extraction-hard:{}t/{}mg mechanization-output:{}t convergence-lead:{:+}t] bridge-tradeoff=[manual-now:{}t feed:{}mg recovery:{}ppm survival:{}nJ/{}uL; mechanize:{}t feed:{}mg recovery:{}ppm] post-upgrade-feed={} delegation=[productive:{}t utilization:{}ppm payback:{productive_payback} post-payback:{}cycles stop:{}] leverage=[pick-attention:-{}ppm crank-power:+{}ppm] reinvestment=[copper-invested:{}mg crusher:{}->{}t separator:{}->{}t recovery:{}->{}mg separator-batch:{}->{}mg flywheel:{}->{}nJ expanded=[crusher:{}mg/{}t separator:{}t]] obligations=[service:{}t survival:{}ppm/{}ppm]",
         if review.information_refinement_required {
             "deferred-refinement"
         } else {
             "surface-resolved"
         },
         review.natural_priority.label(),
+        review.extraction_hard_material_window_ticks,
+        review.extraction_hard_ore_before_convergence_mg,
+        review.mechanization_processed_output_window_ticks,
+        review.mechanization_convergence_delta_ticks,
         review.manual_bridge_attention_ticks,
         review.manual_bridge_feed_mg,
         review.manual_bridge_recovery_ppm,
@@ -881,12 +913,35 @@ fn evaluate_primitive_progression_probe(
         review.steady_state_stop.label(),
         review.tool_attention_reduction_ppm,
         review.crank_power_gain_ppm,
+        review.reinvestment.invested_copper_mass.milligrams(),
+        review.reinvestment.base_crush_ticks,
+        review.reinvestment.reinforced_crush_ticks,
+        review.reinvestment.base_separator_ticks,
+        review.reinvestment.reinforced_separator_ticks,
+        review.reinvestment.base_separator_target_mass.milligrams(),
+        review
+            .reinvestment
+            .reinforced_separator_target_mass
+            .milligrams(),
+        review
+            .reinvestment
+            .base_separator_batch_capacity
+            .milligrams(),
+        review
+            .reinvestment
+            .upgraded_separator_batch_capacity
+            .milligrams(),
+        review.reinvestment.base_drive_capacity.nanojoules(),
+        review.reinvestment.upgraded_drive_capacity.nanojoules(),
+        review.reinvestment.expanded_batch_mass.milligrams(),
+        review.reinvestment.expanded_crush_ticks,
+        review.reinvestment.expanded_separator_ticks,
         review.component_service_ticks,
         natural_energy_spent_ppm,
         natural_hydration_spent_ppm,
     );
     std::println!(
-        "PROGRESSION REVIEW seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=observe->infer->prepare->extract->invest->delegate->maintain->reinvest captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t alternative-evidence:{}..{}ppm] actor-choice=[policy=hard-lower-bound-premium>={}ppm chosen:{} owned-bulk:{}ppm hard-evidence:{}..{}ppm] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[extraction-feed:{} extraction-grade:{}ppm mechanization-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} first-output-delta:{:+}t reciprocal:{} converged:{}] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] stored-work=[passive-loss:{}nJ reserve-recharge:{}t] service=[pick:{}->{}ppm component:{}mg preparation:{}t copper-upgrade-preserved:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
+        "PROGRESSION REVIEW seed=0x{seed:016X} behavior=0x{behavior_seed:016X} sample={sample} role=runtime-experience-after-disclosed-bootstrap fantasy=observe->infer->prepare->extract->invest->delegate->maintain->reinvest captured:{fantasy_captured} knowledge=[path:{} regional:{}t zones:{} upper:[{},{}]ppm priority:{} local:{}t clues:{} resolved:{} deferred:{} shortage-triggered-refinement:{} survey:{}t alternative-evidence:{}..{}ppm] actor-choice=[policy=hard-lower-bound-premium>={}ppm chosen:{} owned-bulk:{}ppm hard-evidence:{}..{}ppm] investment-effects=[pick-attention-reduction:{}ppm crank-power-gain:{}ppm crank-charge-attention-reduction:{}ppm] tradeoff=[extraction-feed:{} extraction-grade:{}ppm mechanization-grade:{}ppm efficiency-gain:{} avoided-worse-hard:{} extraction-hard-window:{}t/{}mg mechanization-output-window:{}t convergence-lead:{:+}t reciprocal:{} converged:{}] autonomy=[productive-overlap:{}t unfilled:{}t utilization:{}ppm post-convergence-target:{} useful-actions=[primary:{}jobs/{} reserve:{}jobs/{} steady:{}jobs buffer-limited:{}/{}cycles] productive-setup-equivalent:{productive_payback} post-equivalent:{}cycles repeat-horizon:{}/{}cycles stop:{}] reinvestment=[copper-invested:{}mg crusher-time:{}->{}t reduction:{}ppm separator-time:{}->{}t reduction:{}ppm separator-recovery:{}->{}mg separator-batch:{}->{}mg flywheel:{}->{}nJ expanded=[mass:{}mg crusher-energy:{}nJ charge:{}t crush:{}t separator-energy:{}nJ separator:{}t target:{}mg] survival:{}nJ/{}uL] stored-work=[passive-loss:{}nJ reserve-recharge:{}t] service=[pick:{}->{}ppm component:{}mg preparation:{}t copper-upgrade-preserved:{}] survival-cost=[energy:{}ppm hydration:{}ppm elapsed:{}t]",
         if review.information_refinement_required {
             "deferred-survey"
         } else {
@@ -922,7 +977,10 @@ fn evaluate_primitive_progression_probe(
         review.mechanization_feed_copper_ppm,
         review.material_efficiency_tradeoff,
         review.extraction_reassessment_avoided_worse_feed,
-        review.mechanization_output_delta_ticks,
+        review.extraction_hard_material_window_ticks,
+        review.extraction_hard_ore_before_convergence_mg,
+        review.mechanization_processed_output_window_ticks,
+        review.mechanization_convergence_delta_ticks,
         review.sequencing_tradeoff,
         review.converged_both_upgrades,
         natural.machine_useful_overlap_ticks,
@@ -944,6 +1002,40 @@ fn evaluate_primitive_progression_probe(
         review.steady_state_cycles,
         MAX_STEADY_STATE_CRUSH_CYCLES,
         review.steady_state_stop.label(),
+        review.reinvestment.invested_copper_mass.milligrams(),
+        review.reinvestment.base_crush_ticks,
+        review.reinvestment.reinforced_crush_ticks,
+        review.reinvestment.crusher_time_reduction_ppm,
+        review.reinvestment.base_separator_ticks,
+        review.reinvestment.reinforced_separator_ticks,
+        review.reinvestment.separator_time_reduction_ppm,
+        review.reinvestment.base_separator_target_mass.milligrams(),
+        review
+            .reinvestment
+            .reinforced_separator_target_mass
+            .milligrams(),
+        review
+            .reinvestment
+            .base_separator_batch_capacity
+            .milligrams(),
+        review
+            .reinvestment
+            .upgraded_separator_batch_capacity
+            .milligrams(),
+        review.reinvestment.base_drive_capacity.nanojoules(),
+        review.reinvestment.upgraded_drive_capacity.nanojoules(),
+        review.reinvestment.expanded_batch_mass.milligrams(),
+        review.reinvestment.expanded_batch_energy.nanojoules(),
+        review.reinvestment.expanded_charge_ticks,
+        review.reinvestment.expanded_crush_ticks,
+        review.reinvestment.expanded_separator_energy.nanojoules(),
+        review.reinvestment.expanded_separator_ticks,
+        review
+            .reinvestment
+            .expanded_separator_target_mass
+            .milligrams(),
+        review.reinvestment.survival_energy_spent_nj,
+        review.reinvestment.survival_hydration_spent_ul,
         review.flywheel_loss_before_reserve_nj,
         review.reserve_recharge_ticks,
         review.component_service_condition_before_ppm,

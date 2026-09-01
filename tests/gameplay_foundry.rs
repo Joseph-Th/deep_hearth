@@ -24,12 +24,16 @@ mod inventory_support;
 mod material_selection;
 #[path = "gameplay_harness/production_support.rs"]
 mod production_support;
+#[path = "gameplay_harness/production_timing.rs"]
+mod production_timing;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
+#[path = "gameplay_harness/temporal.rs"]
+mod temporal;
 
 #[test]
 fn gameplay_foundry_probe() {

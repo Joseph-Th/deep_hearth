@@ -8,7 +8,7 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::WorldSeed;
+use deep_hearth::core::time::{TickSpan, WorldSeed};
 use deep_hearth::inventory::{MaterialLotSelection, StockpileId};
 use deep_hearth::material::{COMPOSITION_PARTS_PER_MILLION, CommodityKey};
 use deep_hearth::matter::calculate_matter_accounting;
@@ -25,11 +25,9 @@ use super::super::environment::ROOM_TEMPERATURE;
 use super::super::inventory_support::add_solid_stockpile;
 use super::super::material_selection::select_stockpile_mass;
 use super::super::ore_fixture::copper_ore_composition;
+use super::super::production_timing::finish_uninterrupted_production_job;
 use super::super::seed::mix64;
-use super::{
-    advance_exact, craft_batches, feed_mass_for_exact_recovered_constituent,
-    native_input_for_upgrade,
-};
+use super::{craft_batches, feed_mass_for_exact_recovered_constituent, native_input_for_upgrade};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct OwnedOreManualBridgeReview {
@@ -109,7 +107,7 @@ pub(super) fn evaluate_owned_ore_manual_bridge(
     )
     .unwrap_or_else(|error| panic!("owned-ore manual bridge hand breaking failed: {error}"));
     let break_ticks = breaking.duration().value();
-    validate_start_manual_comminution(
+    let break_job = validate_start_manual_comminution(
         registries,
         &state,
         &breaking,
@@ -119,7 +117,13 @@ pub(super) fn evaluate_owned_ore_manual_bridge(
     .unwrap_or_else(|error| panic!("owned-ore manual bridge breaking start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("owned-ore manual bridge breaking commit failed: {error}"));
-    advance_exact(registries, &mut state, break_ticks);
+    finish_uninterrupted_production_job(
+        registries,
+        &mut state,
+        break_job,
+        TickSpan::new(break_ticks),
+        "owned-ore manual breaking",
+    );
 
     let crushed_selections = select_stockpile_mass(
         &state,
@@ -149,7 +153,7 @@ pub(super) fn evaluate_owned_ore_manual_bridge(
         Some(feed_mass),
         "same-world hand sorting must partition the complete selected ore feed"
     );
-    validate_start_manual_constituent_separation(
+    let sort_job = validate_start_manual_constituent_separation(
         registries,
         &state,
         &sorting,
@@ -160,7 +164,13 @@ pub(super) fn evaluate_owned_ore_manual_bridge(
     .unwrap_or_else(|error| panic!("owned-ore manual bridge sorting start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("owned-ore manual bridge sorting commit failed: {error}"));
-    advance_exact(registries, &mut state, sort_ticks);
+    finish_uninterrupted_production_job(
+        registries,
+        &mut state,
+        sort_job,
+        TickSpan::new(sort_ticks),
+        "owned-ore manual sorting",
+    );
 
     let cold_work_started_at = state.tick().value();
     craft_batches(
@@ -331,13 +341,19 @@ pub(super) fn evaluate_manual_processing_fallback(
     )
     .unwrap_or_else(|error| panic!("manual processing fallback hand breaking failed: {error}"));
     let break_ticks = breaking.duration().value();
-    validate_start_manual_comminution(registries, &state, &breaking, ore, crushed)
+    let break_job = validate_start_manual_comminution(registries, &state, &breaking, ore, crushed)
         .unwrap_or_else(|error| panic!("manual processing fallback breaking start failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| {
             panic!("manual processing fallback breaking commit failed: {error}")
         });
-    advance_exact(registries, &mut state, break_ticks);
+    finish_uninterrupted_production_job(
+        registries,
+        &mut state,
+        break_job,
+        TickSpan::new(break_ticks),
+        "manual processing fallback breaking",
+    );
     assert_eq!(state.player_work().active(), None);
     let crushed_record = state
         .inventory()
@@ -368,13 +384,19 @@ pub(super) fn evaluate_manual_processing_fallback(
     let sort_ticks = sorting.duration().value();
     let recovered_native = sorting.target_mass();
     let residue_mass = sorting.residue_mass();
-    validate_start_manual_constituent_separation(
+    let sort_job = validate_start_manual_constituent_separation(
         registries, &state, &sorting, crushed, native, residue,
     )
     .unwrap_or_else(|error| panic!("manual processing fallback sorting start failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("manual processing fallback sorting commit failed: {error}"));
-    advance_exact(registries, &mut state, sort_ticks);
+    finish_uninterrupted_production_job(
+        registries,
+        &mut state,
+        sort_job,
+        TickSpan::new(sort_ticks),
+        "manual processing fallback sorting",
+    );
     assert_eq!(state.player_work().active(), None);
     assert_eq!(
         recovered_native.checked_add(residue_mass),

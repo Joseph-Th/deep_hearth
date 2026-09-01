@@ -18,9 +18,6 @@ mod contracts;
 mod environment;
 #[path = "gameplay_harness/equipment_support.rs"]
 mod equipment_support;
-#[cfg(test)]
-#[path = "gameplay_harness/fixture_boundary_tests.rs"]
-mod fixture_boundary_tests;
 #[path = "gameplay_harness/focused_runner.rs"]
 mod focused_runner;
 #[path = "gameplay_harness/focused_seeds.rs"]
@@ -35,6 +32,8 @@ mod fresh_seed;
 mod industrial_support;
 #[path = "gameplay_harness/inventory_support.rs"]
 mod inventory_support;
+#[path = "gameplay_harness/manual_power_timing.rs"]
+mod manual_power_timing;
 #[path = "gameplay_harness/material_selection.rs"]
 mod material_selection;
 #[path = "gameplay_harness/ore_fixture.rs"]
@@ -50,23 +49,27 @@ mod output;
 mod preservation_route;
 #[path = "gameplay_harness/production_support.rs"]
 mod production_support;
+#[path = "gameplay_harness/production_timing.rs"]
+mod production_timing;
 #[path = "gameplay_harness/progression_probe.rs"]
 mod progression_probe;
 #[path = "gameplay_harness/report.rs"]
 mod report;
 #[path = "gameplay_harness/scenario.rs"]
 mod scenario;
+#[cfg(test)]
+#[path = "gameplay_harness/scenario_tests.rs"]
+mod scenario_tests;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
-#[cfg(test)]
-#[path = "gameplay_harness/seed_contract_tests.rs"]
-mod seed_contract_tests;
 #[path = "gameplay_harness/seed_input.rs"]
 mod seed_input;
 #[path = "gameplay_harness/structural_fixture.rs"]
 mod structural_fixture;
 #[path = "gameplay_harness/survival_probe.rs"]
 mod survival_probe;
+#[path = "gameplay_harness/temporal.rs"]
+mod temporal;
 
 #[path = "gameplay_harness/workshop.rs"]
 mod workshop;
@@ -114,45 +117,50 @@ fn gameplay_report() {
     use fresh_seed::fresh_root;
     use seed::MAINTAINED_VARIATION_ROOT;
 
-    workshop::run_gameplay_harness(ScenarioPlanMode::Explore);
-    agency::run_exploratory_agency_counterfactuals();
-
     let registries = build_registries();
-    let focused_variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_464F);
-    let focused_behavior_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_4245);
+    let fallback_variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_464F);
+    let fallback_behavior_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_4245);
     std::println!(
-        "FOCUSED REPORT INPUT variation_root=0x{focused_variation_root:016X} actor_behavior_root=0x{focused_behavior_root:016X}"
+        "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reinvest leverage=[knowledge,attention,scarce-copper,stored-work] constraints=[matter,energy,condition,survival]"
+    );
+    std::println!(
+        "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap probes=[survival-provisioning,primitive-progression] reachability-authority=STATUS.md"
     );
     run_focused_probe_with_registries(
         &registries,
         "survival-provisioning",
         survival_probe::run_survival_provisioning_probe,
         true,
-        focused_variation_root,
-        focused_behavior_root,
+        fallback_variation_root,
+        fallback_behavior_root,
     );
     run_focused_probe_with_registries(
         &registries,
         "primitive-progression",
         progression_probe::run_primitive_progression_probe,
         true,
-        focused_variation_root,
-        focused_behavior_root,
+        fallback_variation_root,
+        fallback_behavior_root,
     );
+    std::println!(
+        "EVALUATION SCOPE kind=controlled-capability evidence=isolated-system-behavior probes=[industrial-workshop,agency,ore-preparation,foundry] ordinary-reachability=false reachability-authority=STATUS.md"
+    );
+    workshop::run_gameplay_harness(ScenarioPlanMode::Explore);
+    agency::run_exploratory_agency_counterfactuals();
     run_focused_probe_with_registries(
         &registries,
         "ore-preparation",
         ore_probe::run_ore_preparation_capability_probe,
         true,
-        focused_variation_root,
-        focused_behavior_root,
+        fallback_variation_root,
+        fallback_behavior_root,
     );
     run_focused_probe_with_registries(
         &registries,
         "foundry",
         foundry_probe::run_foundry_capability_probe,
         true,
-        focused_variation_root,
-        focused_behavior_root,
+        fallback_variation_root,
+        fallback_behavior_root,
     );
 }

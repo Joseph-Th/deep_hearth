@@ -1,7 +1,8 @@
 //! Physical execution and conservation audits for the focused foundry scenario.
 
 use super::super::environment::ROOM_TEMPERATURE;
-use super::super::production_support::finish_uninterrupted_production_job;
+use super::super::production_timing::finish_uninterrupted_production_job;
+use super::super::temporal::advance_idle_ticks;
 use super::{CastBatchLimit, FoundryIds, PreheatResult, RecoveryCast};
 use deep_hearth::content::{ENERGY_THERMAL_SINK, MATERIAL_COPPER};
 use deep_hearth::core::quantity::{AggregateMass, Energy, Mass};
@@ -13,7 +14,6 @@ use deep_hearth::material::MaterialComposition;
 use deep_hearth::matter::calculate_matter_accounting;
 use deep_hearth::production::validate_start_process;
 use deep_hearth::registry::Registries;
-use deep_hearth::simulation::advance_tick;
 use deep_hearth::thermal::{
     ResolvedCasting, ResolvedMelting, calculate_fusion_heat, calculate_sensible_heat,
 };
@@ -137,11 +137,12 @@ pub(super) fn execute_primary_cast(
     let released_heat = casting.released_energy();
     // Compare against the same-duration no-cast branch so canonical scheduling owns passive loss.
     let mut no_cast_baseline = state.clone();
-    for _ in 0..duration.value() {
-        let _ = advance_tick(registries, &mut no_cast_baseline).unwrap_or_else(|error| {
-            panic!("foundry no-cast thermal baseline tick failed: {error}")
-        });
-    }
+    advance_idle_ticks(
+        registries,
+        &mut no_cast_baseline,
+        duration.value(),
+        "foundry no-cast thermal baseline",
+    );
     let thermal_without_cast = no_cast_baseline
         .energy()
         .get_store(ids.heat_sink)
@@ -282,10 +283,7 @@ pub(super) fn cool_thermal_sink(
         .div_ceil(passive_dissipation.energy().nanojoules());
     let ticks = u64::try_from(ticks)
         .unwrap_or_else(|_| panic!("foundry thermal cooling duration exceeded tick range"));
-    for _ in 0..ticks {
-        let _ = advance_tick(registries, state)
-            .unwrap_or_else(|error| panic!("foundry thermal cooldown tick failed: {error}"));
-    }
+    advance_idle_ticks(registries, state, ticks, "foundry thermal cooldown");
     let cooled_thermal = state
         .energy()
         .get_store(ids.heat_sink)

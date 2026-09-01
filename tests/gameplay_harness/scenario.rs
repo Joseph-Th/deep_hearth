@@ -299,7 +299,3 @@ fn scale_mass(mass: Mass, parts_per_million: u32) -> Mass {
         .unwrap_or_else(|_| panic!("gameplay harness mass scaling overflowed"));
     Mass::from_milligrams(scaled.max(1))
 }
-
-#[cfg(test)]
-#[path = "scenario_tests.rs"]
-mod tests;

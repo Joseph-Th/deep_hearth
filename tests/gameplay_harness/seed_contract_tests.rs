@@ -1,9 +1,9 @@
 //! Contract tests for replay-seed parsing and focused-probe planning.
 
-use super::focused_runner::probe_uses_actor_behavior;
 use super::focused_seeds::{
     EXPLORATORY_VARIATION_COUNT, FocusedProbeRole, FocusedProbeSeedError, FocusedProbeSeedPlan,
     GATE_VARIATION_COUNT, focused_probe_cases_from as build_focused_probe_cases,
+    probe_uses_actor_behavior,
 };
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
 

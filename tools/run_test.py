@@ -366,24 +366,35 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def main() -> int:
-    args = parse_args()
+def load_source_catalog(args: argparse.Namespace) -> list[str] | None:
     try:
-        catalog = source_test_catalog(args.target, args.features)
+        return source_test_catalog(args.target, args.features)
     except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
         print(f"FAIL source test catalog: {error}", file=sys.stderr)
-        return 2
+        return None
 
-    if args.list:
-        names = catalog
-        if args.name:
-            names = [name for name in names if args.name in name]
-        for name in names:
-            print(name)
-        print(f"{len(names)} test(s)")
-        return 0
 
+def print_source_catalog(args: argparse.Namespace, catalog: list[str]) -> None:
+    names = catalog if not args.name else [name for name in catalog if args.name in name]
+    for name in names:
+        print(name)
+    print(f"{len(names)} test(s)")
+
+
+def report_selection_error(selector: str, catalog: list[str], error: ValueError) -> None:
+    candidates = source_test_matches(selector, catalog)
+    if not candidates:
+        candidates = difflib.get_close_matches(selector, catalog, n=5, cutoff=0.45)
+    print(f"FAIL {error}", file=sys.stderr)
+    print(f"catalog: python tools/run_test.py --list {selector}", file=sys.stderr)
+    for candidate in candidates[:8]:
+        print(f"candidate: {candidate}", file=sys.stderr)
+
+
+def resolve_requested_selection(args: argparse.Namespace, catalog: list[str]) -> str | None:
     selector = args.name
+    assert selector is not None
+
     try:
         if args.suite:
             matches = source_test_matches(selector, catalog)
@@ -393,16 +404,12 @@ def main() -> int:
         else:
             args.name = resolve_test_name(selector, catalog)
     except ValueError as error:
-        candidates = source_test_matches(selector, catalog)
-        if not candidates:
-            candidates = difflib.get_close_matches(selector, catalog, n=5, cutoff=0.45)
-        print(f"FAIL {error}", file=sys.stderr)
-        print(f"catalog: python tools/run_test.py --list {selector}", file=sys.stderr)
-        for candidate in candidates[:8]:
-            print(f"candidate: {candidate}", file=sys.stderr)
-        return 2
+        report_selection_error(selector, catalog, error)
+        return None
+    return selector
 
-    command = cargo_check_command(args) if args.check else cargo_command(args)
+
+def execute_cargo_command(command: list[str]) -> tuple[subprocess.CompletedProcess[str], float]:
     environment = os.environ.copy()
     environment["CARGO_TERM_COLOR"] = "never"
     started = time.perf_counter()
@@ -414,14 +421,68 @@ def main() -> int:
         capture_output=True,
         check=False,
     )
-    elapsed = time.perf_counter() - started
+    return result, time.perf_counter() - started
+
+
+def report_cargo_failure(
+    command: list[str],
+    result: subprocess.CompletedProcess[str],
+    elapsed: float,
+) -> None:
+    print(f"FAIL ({elapsed:.1f}s)", file=sys.stderr)
+    print(f"reproduce: {' '.join(command)}", file=sys.stderr)
+    if result.stdout.strip():
+        print(result.stdout.rstrip(), file=sys.stderr)
+    if result.stderr.strip():
+        print(result.stderr.rstrip(), file=sys.stderr)
+
+
+def suite_result_detail(stdout: str) -> str:
+    counts = executed_test_counts(stdout)
+    if counts is None:
+        return "tests executed"
+    passed, ignored = counts
+    detail = f"{passed} tests"
+    if ignored:
+        detail += f", {ignored} ignored"
+    return detail
+
+
+def report_cargo_success(
+    args: argparse.Namespace,
+    selector: str,
+    result: subprocess.CompletedProcess[str],
+    elapsed: float,
+) -> None:
+    if not args.check and args.nocapture and result.stdout.strip():
+        print(result.stdout.rstrip())
+    if args.suite:
+        print(
+            f"PASS suite {args.target}::{selector} "
+            f"({suite_result_detail(result.stdout)}; {elapsed:.1f}s)"
+        )
+        return
+    action = "check " if args.check else ""
+    print(f"PASS {action}{args.target}::{args.name} ({elapsed:.1f}s)")
+
+
+def main() -> int:
+    args = parse_args()
+    catalog = load_source_catalog(args)
+    if catalog is None:
+        return 2
+    if args.list:
+        print_source_catalog(args, catalog)
+        return 0
+
+    selector = resolve_requested_selection(args, catalog)
+    if selector is None:
+        return 2
+
+    command = cargo_check_command(args) if args.check else cargo_command(args)
+    result, elapsed = execute_cargo_command(command)
     if result.returncode != 0:
-        print(f"FAIL ({elapsed:.1f}s)", file=sys.stderr)
-        print(f"reproduce: {' '.join(command)}", file=sys.stderr)
-        if result.stdout.strip():
-            print(result.stdout.rstrip(), file=sys.stderr)
-        if result.stderr.strip():
-            print(result.stderr.rstrip(), file=sys.stderr)
+        report_cargo_failure(command, result, elapsed)
         return result.returncode
 
     if not args.check and ZERO_TESTS.search(result.stdout):
@@ -430,21 +491,7 @@ def main() -> int:
         print(f"catalog: python tools/run_test.py --list {args.name}", file=sys.stderr)
         return 2
 
-    if not args.check and args.nocapture and result.stdout.strip():
-        print(result.stdout.rstrip())
-    if args.suite:
-        counts = executed_test_counts(result.stdout)
-        if counts is None:
-            detail = "tests executed"
-        else:
-            passed, ignored = counts
-            detail = f"{passed} tests"
-            if ignored:
-                detail += f", {ignored} ignored"
-        print(f"PASS suite {args.target}::{selector} ({detail}; {elapsed:.1f}s)")
-    else:
-        action = "check " if args.check else ""
-        print(f"PASS {action}{args.target}::{args.name} ({elapsed:.1f}s)")
+    report_cargo_success(args, selector, result, elapsed)
     return 0
 
 

@@ -749,7 +749,12 @@ fn observe_episode(
         if episode.state.tick().value() < episode.variation.delivery.delivery_at_tick {
             let wait_ticks =
                 episode.variation.delivery.delivery_at_tick - episode.state.tick().value();
-            finish_operation(registries, &mut episode.state, TickSpan::new(wait_ticks));
+            advance_idle_ticks(
+                registries,
+                &mut episode.state,
+                wait_ticks,
+                "post-episode controlled-event wait",
+            );
         }
         let mut controller = ControlledDeliveryRuntime {
             delivery: episode.variation.delivery,
@@ -780,7 +785,12 @@ fn observe_episode(
     }
     if episode.state.tick().value() < observation_horizon {
         let wait_ticks = observation_horizon - episode.state.tick().value();
-        finish_operation(registries, &mut episode.state, TickSpan::new(wait_ticks));
+        advance_idle_ticks(
+            registries,
+            &mut episode.state,
+            wait_ticks,
+            "agency observation horizon",
+        );
     }
     assert_eq!(
         episode.state.tick().value(),

@@ -278,7 +278,3 @@ pub(super) fn scenario_seeds_from(
         behavior_seed_root,
     })
 }
-
-#[cfg(test)]
-#[path = "configuration_tests.rs"]
-mod tests;

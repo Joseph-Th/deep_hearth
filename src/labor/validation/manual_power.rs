@@ -60,6 +60,21 @@ fn validate_manual_power_bindings(
     work: ManualPowerWork,
     method: ManualPowerDefinition,
 ) -> Result<Power, PlayerWorkValidationError> {
+    validate_manual_power_equipment_record(state, work)?;
+    validate_manual_power_resource_availability(state, work)?;
+    let destination_power = validate_manual_power_destination(registries, state, work, method)?;
+    let equipment_power = resolve_manual_power_equipment_output(registries, state, work, method)?;
+    let transfer_power = std::cmp::min(equipment_power, destination_power);
+    if transfer_power.is_zero() {
+        return Err(PlayerWorkValidationError::ManualPowerZeroPower);
+    }
+    Ok(transfer_power)
+}
+
+fn validate_manual_power_equipment_record(
+    state: &AppState,
+    work: ManualPowerWork,
+) -> Result<(), PlayerWorkValidationError> {
     let equipment = state
         .equipment()
         .get_equipment(work.equipment())
@@ -73,6 +88,13 @@ fn validate_manual_power_bindings(
     if equipment.supported_by().is_some() {
         return Err(PlayerWorkValidationError::ManualPowerEquipmentMounted);
     }
+    Ok(())
+}
+
+fn validate_manual_power_resource_availability(
+    state: &AppState,
+    work: ManualPowerWork,
+) -> Result<(), PlayerWorkValidationError> {
     if state
         .production()
         .get_equipment_occupant(work.equipment())
@@ -88,6 +110,15 @@ fn validate_manual_power_bindings(
     {
         return Err(PlayerWorkValidationError::ManualPowerResourceDoubleBooked);
     }
+    Ok(())
+}
+
+fn validate_manual_power_destination(
+    registries: &Registries,
+    state: &AppState,
+    work: ManualPowerWork,
+    method: ManualPowerDefinition,
+) -> Result<Power, PlayerWorkValidationError> {
     let destination = state
         .energy()
         .get_store(work.destination())
@@ -107,6 +138,19 @@ fn validate_manual_power_bindings(
     if energy_definition.max_input_power().is_zero() {
         return Err(PlayerWorkValidationError::ManualPowerDestinationCannotAcceptEnergy);
     }
+    Ok(energy_definition.max_input_power())
+}
+
+fn resolve_manual_power_equipment_output(
+    registries: &Registries,
+    state: &AppState,
+    work: ManualPowerWork,
+    method: ManualPowerDefinition,
+) -> Result<Power, PlayerWorkValidationError> {
+    let equipment = state
+        .equipment()
+        .get_equipment(work.equipment())
+        .unwrap_or_else(|| unreachable!("manual power equipment was validated before capability"));
     let equipment_definition = registries
         .equipment()
         .get_equipment(equipment.definition())
@@ -120,11 +164,7 @@ fn validate_manual_power_bindings(
     let crate::capability::CapabilityValue::Power(equipment_power) = capability else {
         return Err(PlayerWorkValidationError::ManualPowerEquipmentCapabilityKindMismatch);
     };
-    let transfer_power = std::cmp::min(equipment_power, energy_definition.max_input_power());
-    if transfer_power.is_zero() {
-        return Err(PlayerWorkValidationError::ManualPowerZeroPower);
-    }
-    Ok(transfer_power)
+    Ok(equipment_power)
 }
 
 fn validate_manual_power_destination_capacity(

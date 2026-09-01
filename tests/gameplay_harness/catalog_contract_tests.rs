@@ -29,8 +29,9 @@ use super::progression_probe::{
 };
 use super::report::{ProcessResolverKind, process_catalog_entries};
 use super::survival_probe::{
-    DietProvisioningPolicy, SurvivalStartProfile, diet_provisioning_policy_for_behavior_seed,
-    preservation_storage_definition_for_seed, prospecting_method_for_work_pressure,
+    DietProvisioningPolicy, PreservationInvestmentPolicy, SurvivalStartProfile,
+    diet_provisioning_policy_for_behavior_seed, preservation_investment_policy_for_behavior_seed,
+    preservation_storage_definition_for_policy, prospecting_method_for_work_pressure,
     provisioning_world,
 };
 
@@ -598,7 +599,13 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
     );
 
     let survival_worlds = (1_u64..=8)
-        .map(|seed| provisioning_world(&registries, seed))
+        .map(|seed| {
+            let preservation = preservation_storage_definition_for_policy(
+                &registries,
+                preservation_investment_policy_for_behavior_seed(seed),
+            );
+            provisioning_world(&registries, seed, preservation)
+        })
         .collect::<Vec<_>>();
     assert!(
         survival_worlds
@@ -674,7 +681,13 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
     let broader_survival_sample = (1_u64
         ..=u64::try_from(broader_survival_sample_count)
             .unwrap_or_else(|_| unreachable!("bounded survival generator sample fits u64")))
-        .map(|seed| provisioning_world(&registries, seed))
+        .map(|seed| {
+            let preservation = preservation_storage_definition_for_policy(
+                &registries,
+                preservation_investment_policy_for_behavior_seed(seed),
+            );
+            provisioning_world(&registries, seed, preservation)
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         broader_survival_sample
@@ -725,7 +738,8 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
     let sampled_preservation = (1_u64
         ..=u64::try_from(broader_survival_sample_count)
             .unwrap_or_else(|_| unreachable!("bounded preservation selector sample fits u64")))
-        .map(|seed| preservation_storage_definition_for_seed(&registries, seed))
+        .map(preservation_investment_policy_for_behavior_seed)
+        .map(|policy| preservation_storage_definition_for_policy(&registries, policy))
         .map(|definition| {
             let record = registries
                 .storage()
@@ -744,7 +758,20 @@ fn gameplay_generators_retain_meaningful_physical_variation() {
     if authored_preservation.len() > 1 {
         assert!(
             sampled_preservation.len() > 1,
-            "bounded organic survival generation collapsed multiple authored preservation options to one repeated choice"
+            "bounded actor behavior collapsed the preservation investment tradeoff to one repeated choice"
+        );
+        let sampled_policies = (1_u64
+            ..=u64::try_from(broader_survival_sample_count)
+                .unwrap_or_else(|_| unreachable!("bounded preservation policy sample fits u64")))
+            .map(preservation_investment_policy_for_behavior_seed)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            sampled_policies,
+            BTreeSet::from([
+                PreservationInvestmentPolicy::AttentionEfficient,
+                PreservationInvestmentPolicy::MaximumProtection,
+            ]),
+            "bounded actor behavior must exercise both preservation investment objectives"
         );
     }
 

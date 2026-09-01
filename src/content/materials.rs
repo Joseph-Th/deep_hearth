@@ -69,7 +69,13 @@ fn loose_form(
 
 pub(crate) fn build_material_registry() -> MaterialRegistry {
     let mut registry = MaterialRegistry::new();
+    register_forms(&mut registry);
+    register_materials(&mut registry);
+    register_commodities(&mut registry);
+    registry
+}
 
+fn register_forms(registry: &mut MaterialRegistry) {
     for definition in [
         consolidated_form(FORM_LOG, "log"),
         loose_form(
@@ -133,88 +139,96 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
     ] {
         registry.register_form(definition);
     }
+}
 
-    registry.register_material(MaterialDefinition::new(
-        MATERIAL_WOOD,
-        "wood",
-        MaterialProperties::new(
-            650,
-            ThermalProperties::new(1_700, None),
-            Some(StructuralProperties::new(40_000, 70_000)),
-        ),
-    ));
-    registry.register_material(MaterialDefinition::new(
-        MATERIAL_CHARCOAL,
-        "charcoal",
-        MaterialProperties::new(250, ThermalProperties::new(1_000, None), None),
-    ));
-    registry.register_material(MaterialDefinition::new(
-        MATERIAL_COPPER,
-        "copper",
-        MaterialProperties::new(
-            8_960,
-            ThermalProperties::new(
-                385,
-                Some(FusionProperties::new(COPPER_MELTING_POINT, 205_000)),
+fn register_materials(registry: &mut MaterialRegistry) {
+    for definition in [
+        MaterialDefinition::new(
+            MATERIAL_WOOD,
+            "wood",
+            MaterialProperties::new(
+                650,
+                ThermalProperties::new(1_700, None),
+                Some(StructuralProperties::new(40_000, 70_000)),
             ),
-            Some(StructuralProperties::new(70_000, 210_000)),
         ),
-    ));
-    registry.register_material(MaterialDefinition::new(
-        MATERIAL_SLAG,
-        "slag",
-        MaterialProperties::new(2_700, ThermalProperties::new(900, None), None),
-    ));
-    registry.register_material(MaterialDefinition::new(
-        MATERIAL_WATER,
-        "water",
-        MaterialProperties::new(
-            1_000,
-            ThermalProperties::new(
-                4_184,
-                Some(FusionProperties::new(
-                    WATER_MELTING_POINT,
-                    WATER_LATENT_HEAT_OF_FUSION_J_PER_KG,
-                )),
+        MaterialDefinition::new(
+            MATERIAL_CHARCOAL,
+            "charcoal",
+            MaterialProperties::new(250, ThermalProperties::new(1_000, None), None),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_COPPER,
+            "copper",
+            MaterialProperties::new(
+                8_960,
+                ThermalProperties::new(
+                    385,
+                    Some(FusionProperties::new(COPPER_MELTING_POINT, 205_000)),
+                ),
+                Some(StructuralProperties::new(70_000, 210_000)),
             ),
-            None,
         ),
-    ));
-    registry.register_material(MaterialDefinition::new(
-        MATERIAL_GRAIN,
-        "grain",
-        MaterialProperties::new(750, ThermalProperties::new(1_500, None), None),
-    ));
-    registry.register_material(MaterialDefinition::new(
-        MATERIAL_BERRIES,
-        "berries",
-        MaterialProperties::new(1_000, ThermalProperties::new(3_800, None), None),
-    ));
-    registry.register_material(MaterialDefinition::new(
-        MATERIAL_MEAT,
-        "meat",
-        MaterialProperties::new(1_050, ThermalProperties::new(3_300, None), None),
-    ));
-    registry.register_material(MaterialDefinition::new(
-        MATERIAL_STONE,
-        "stone",
-        MaterialProperties::new(
-            2_650,
-            ThermalProperties::new(800, None),
-            Some(StructuralProperties::new(100_000, 10_000)),
+        MaterialDefinition::new(
+            MATERIAL_SLAG,
+            "slag",
+            MaterialProperties::new(2_700, ThermalProperties::new(900, None), None),
         ),
-    ));
-    registry.register_material(MaterialDefinition::new(
-        MATERIAL_CLAY,
-        "clay",
-        MaterialProperties::new(1_900, ThermalProperties::new(900, None), None),
-    ));
-    registry.register_material(MaterialDefinition::new(
-        MATERIAL_LEGUMES,
-        "roasted legumes",
-        MaterialProperties::new(800, ThermalProperties::new(1_600, None), None),
-    ));
+        MaterialDefinition::new(
+            MATERIAL_WATER,
+            "water",
+            MaterialProperties::new(
+                1_000,
+                ThermalProperties::new(
+                    4_184,
+                    Some(FusionProperties::new(
+                        WATER_MELTING_POINT,
+                        WATER_LATENT_HEAT_OF_FUSION_J_PER_KG,
+                    )),
+                ),
+                None,
+            ),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_GRAIN,
+            "grain",
+            MaterialProperties::new(750, ThermalProperties::new(1_500, None), None),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_BERRIES,
+            "berries",
+            MaterialProperties::new(1_000, ThermalProperties::new(3_800, None), None),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_MEAT,
+            "meat",
+            MaterialProperties::new(1_050, ThermalProperties::new(3_300, None), None),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_STONE,
+            "stone",
+            MaterialProperties::new(
+                2_650,
+                ThermalProperties::new(800, None),
+                Some(StructuralProperties::new(100_000, 10_000)),
+            ),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_CLAY,
+            "clay",
+            MaterialProperties::new(1_900, ThermalProperties::new(900, None), None),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_LEGUMES,
+            "roasted legumes",
+            MaterialProperties::new(800, ThermalProperties::new(1_600, None), None),
+        ),
+    ] {
+        registry.register_material(definition);
+    }
+}
 
+fn register_commodities(registry: &mut MaterialRegistry) {
     for commodity in [
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
         CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
@@ -251,6 +265,4 @@ pub(crate) fn build_material_registry() -> MaterialRegistry {
     ] {
         registry.register_commodity(commodity);
     }
-
-    registry
 }

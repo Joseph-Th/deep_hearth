@@ -12,7 +12,7 @@ Use the smallest lane that completely proves the changed contract.
 | Documentation/contracts | `python tools/check_authority_docs.py` |
 | Build-free edit loop | `python ci.py quick` |
 | Production compile | `cargo check-fast` |
-| Standard production gate | `python ci.py gate` |
+| Production build gate | `python ci.py gate` |
 | List tests without building | `python tools/run_test.py --list [substring]` |
 | Type-check a test target without linking | `python tools/run_test.py --check <qualified-name-or-unique-substring>` |
 | Run one exact unit/integration test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
@@ -29,9 +29,14 @@ Use the smallest lane that completely proves the changed contract.
 | Changed-source BCA review | `python ci.py bca [--path <scope>] [--since <revision>]` |
 | Current BCA hotspot review | `python ci.py bca --hotspots [--path <scope>] [--since <revision>]` |
 
-`python ci.py quick` is build-free policy validation. Use `cargo check-fast` for production typing,
-`run_test.py --check` for test typing, and exact/suite execution for behavior. Do not duplicate compile work.
-Selectors fail closed on ambiguity/zero matches; focused gameplay shares the `test-gameplay` feature shape.
+`python ci.py quick` is build-free validation. `python ci.py gate` runs one build lane and never
+repeats `quick`; specialized flags replace its default compile. Broad `audit` checkpoints include `quick` plus
+the selected runtime surface.
+
+While code is unstable, use `cargo check-fast` for production typing and `run_test.py --check` after test edits.
+Once coherent, run one exact/suite or focused gameplay proof, not a compile-then-test staircase. Reuse warm
+artifacts; after source edits, return to compile-only feedback until behavior is ready. Selectors fail closed.
+Focused gameplay shares `test-gameplay` but uses smaller binaries than the broad gameplay audit.
 
 ## Evidence ladder
 

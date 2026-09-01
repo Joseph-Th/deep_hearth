@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use super::*;
+use super::scenario::*;
 use deep_hearth::content::build_registries;
 
 #[test]

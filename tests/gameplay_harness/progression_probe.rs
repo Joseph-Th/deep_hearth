@@ -9,18 +9,22 @@ use super::equipment_support::nominal_equipment_mass_capability;
 use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::inventory_support::add_solid_stockpile;
+use super::manual_power_timing::finish_manual_power_work;
 use super::material_selection::select_stockpile_mass;
 use super::ore_fixture::copper_ore_composition;
+use super::production_timing::finish_uninterrupted_production_job;
 use super::seed::mix64;
 use deep_hearth::capability::{CapabilityId, CapabilityValue};
 use deep_hearth::content::gameplay_fixture::{
     GeologicalDepositSeed, seed_geological_deposit, seed_lot,
 };
 use deep_hearth::content::{
-    ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_COPPER_REINFORCED_HAND_CRANK,
-    EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK,
-    EQUIPMENT_STONE_PICK, EQUIPMENT_STONE_SEPARATOR, FORM_NATIVE_METAL, FORM_ORE,
-    FORM_REINFORCEMENT, MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MINING_METHOD_HAND_PICK,
+    ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_STONE_FLYWHEEL_DRIVE,
+    EQUIPMENT_COPPER_REINFORCED_HAND_CRANK, EQUIPMENT_COPPER_REINFORCED_PICK,
+    EQUIPMENT_COPPER_REINFORCED_STONE_CRUSHER, EQUIPMENT_COPPER_REINFORCED_STONE_SEPARATOR,
+    EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_HAND_CRANK, EQUIPMENT_STONE_PICK,
+    EQUIPMENT_STONE_SEPARATOR, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT,
+    MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MINING_METHOD_HAND_PICK,
     PROCESS_COLD_WORK_COPPER_REINFORCEMENT, PROCESS_CRUSH_ORE, PROCESS_HAND_BREAK_ORE,
     PROCESS_HAND_SORT_NATIVE_COPPER, PROCESS_KNAP_STONE_TOOL, PROCESS_SEPARATE_NATIVE_COPPER,
     PROCESS_SHAPE_STONE_FLYWHEEL, PROCESS_SHAPE_WOOD_HANDLE, PROSPECTING_DETAILED_FIELD_SURVEY,
@@ -32,7 +36,9 @@ use deep_hearth::core::time::WorldSeed;
 use deep_hearth::crafting::{
     ManualCraftRequest, ManualCraftStartRequest, validate_start_manual_craft,
 };
-use deep_hearth::energy::{calculate_mass_specific_energy, validate_assemble_energy_store};
+use deep_hearth::energy::{
+    calculate_mass_specific_energy, validate_assemble_energy_store, validate_upgrade_energy_store,
+};
 use deep_hearth::equipment::{
     EquipmentMaintenanceRequest, resolve_equipment_maintenance, validate_assemble_equipment,
     validate_equipment_maintenance, validate_upgrade_equipment,
@@ -84,6 +90,18 @@ pub(super) fn extraction_grade_premium_ppm(case: FocusedProbeCase) -> u32 {
             50_000 + (mix64(behavior_seed ^ 0x4752_4144_4550_5245) % 100_001) as u32
         }
     }
+}
+
+fn reinforced_pick_mining_batch_limit(registries: &Registries) -> Mass {
+    let method = registries
+        .mining()
+        .get_method(MINING_METHOD_HAND_PICK)
+        .unwrap_or_else(|| panic!("primitive progression mining method disappeared"));
+    nominal_equipment_mass_capability(
+        registries,
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        method.max_batch_mass_capability(),
+    )
 }
 
 pub(super) fn varied_four_way_order(seed: u64) -> [usize; 4] {
@@ -242,13 +260,6 @@ fn assert_progression_authored_dependencies(registries: &Registries) {
     );
 }
 
-fn advance_exact(registries: &Registries, state: &mut AppState, ticks: u64) {
-    for _ in 0..ticks {
-        let _ = advance_tick(registries, state)
-            .unwrap_or_else(|error| panic!("primitive progression tick failed: {error}"));
-    }
-}
-
 fn duration(start: u64, end: u64) -> u64 {
     end.checked_sub(start)
         .unwrap_or_else(|| panic!("primitive progression work duration underflowed"))
@@ -280,7 +291,59 @@ fn craft_batches(
         .get_job(job)
         .map(|record| record.active_duration())
         .unwrap_or_else(|| panic!("primitive progression craft job disappeared after start"));
-    advance_exact(registries, state, duration.value());
+    finish_uninterrupted_production_job(
+        registries,
+        state,
+        job,
+        duration,
+        "primitive progression manual craft",
+    );
+}
+
+fn finish_mining_work(
+    registries: &Registries,
+    state: &mut AppState,
+    job: deep_hearth::mining::MiningJobId,
+    concurrent_production: Option<ProductionJobId>,
+    context: &'static str,
+) -> u64 {
+    let record = state
+        .mining()
+        .get_job(job)
+        .unwrap_or_else(|| panic!("primitive progression {context} mining job disappeared"));
+    let ticks = duration(record.started_at().value(), record.completes_at().value());
+    for elapsed in 1..=ticks {
+        let outcome = advance_tick(registries, state)
+            .unwrap_or_else(|error| panic!("primitive progression {context} tick failed: {error}"));
+        assert!(
+            outcome.production_availability_changes().is_empty(),
+            "primitive progression {context} encountered an unexpected production availability change"
+        );
+        assert!(
+            outcome.production_completions().iter().all(|completion| {
+                concurrent_production.is_some_and(|expected| completion.job() == expected)
+            }),
+            "primitive progression {context} observed an unrelated production completion"
+        );
+        if elapsed < ticks {
+            assert!(
+                !outcome.ready_mining_jobs().contains(&job),
+                "primitive progression {context} mining became ready before its validated completion"
+            );
+            assert_eq!(
+                state.player_work().active(),
+                Some(deep_hearth::labor::PlayerWork::Mining { job })
+            );
+        } else {
+            assert_eq!(
+                outcome.ready_mining_jobs(),
+                &[job],
+                "primitive progression {context} must expose the completed mining job exactly once"
+            );
+            assert_eq!(state.player_work().active(), None);
+        }
+    }
+    ticks
 }
 
 fn multiply_mass(mass: Mass, count: u64, context: &'static str) -> Mass {
@@ -706,7 +769,10 @@ fn mine_and_claim(
         mining_record.started_at().value(),
         mining_record.completes_at().value(),
     );
-    advance_exact(registries, state, mining_ticks);
+    assert_eq!(
+        finish_mining_work(registries, state, mining_job, None, "mining"),
+        mining_ticks
+    );
     validate_claim_mining_output(registries, state, mining_job)
         .unwrap_or_else(|error| panic!("primitive progression mining claim failed: {error}"))
         .commit(state)
@@ -1009,6 +1075,33 @@ struct PrimitiveProgressionExperience {
     final_pick_condition_ppm: u32,
     metabolic_energy_spent_nj: u128,
     hydration_spent_ul: u64,
+    reinvestment: PrimitiveReinvestmentExperience,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PrimitiveReinvestmentExperience {
+    invested_copper_mass: Mass,
+    base_crush_ticks: u64,
+    reinforced_crush_ticks: u64,
+    crusher_time_reduction_ppm: u32,
+    base_separator_ticks: u64,
+    reinforced_separator_ticks: u64,
+    separator_time_reduction_ppm: u32,
+    base_separator_target_mass: Mass,
+    reinforced_separator_target_mass: Mass,
+    base_separator_batch_capacity: Mass,
+    upgraded_separator_batch_capacity: Mass,
+    base_drive_capacity: Energy,
+    upgraded_drive_capacity: Energy,
+    expanded_batch_mass: Mass,
+    expanded_batch_energy: Energy,
+    expanded_charge_ticks: u64,
+    expanded_crush_ticks: u64,
+    expanded_separator_energy: Energy,
+    expanded_separator_ticks: u64,
+    expanded_separator_target_mass: Mass,
+    survival_energy_spent_nj: u128,
+    survival_hydration_spent_ul: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1520,7 +1613,15 @@ fn charge_primitive_machine(
     power
         .commit(state)
         .unwrap_or_else(|error| panic!("primitive progression charge commit failed: {error}"));
-    advance_exact(registries, state, charge_ticks);
+    assert_eq!(
+        finish_manual_power_work(
+            registries,
+            state,
+            charge_work,
+            "primitive accumulator charge"
+        ),
+        charge_ticks
+    );
     assert_eq!(
         state
             .energy()
@@ -1585,7 +1686,10 @@ fn fill_primitive_accumulator(
     power
         .commit(state)
         .unwrap_or_else(|error| panic!("primitive progression recharge commit failed: {error}"));
-    advance_exact(registries, state, ticks);
+    assert_eq!(
+        finish_manual_power_work(registries, state, work, "primitive accumulator recharge"),
+        ticks
+    );
     let stored_after = state
         .energy()
         .get_store(machine.drive)
@@ -1901,7 +2005,7 @@ fn separate_native_copper(
     );
     assert_eq!(resolved.target_mass(), expected_target);
     let ticks = resolved.process_resolution().duration().value();
-    validate_start_process_routed(
+    let job = validate_start_process_routed(
         registries,
         state,
         resolved.process_resolution(),
@@ -1920,7 +2024,13 @@ fn separate_native_copper(
     .unwrap_or_else(|error| panic!("primitive progression separation start failed: {error}"))
     .commit(state)
     .unwrap_or_else(|error| panic!("primitive progression separation commit failed: {error}"));
-    advance_exact(registries, state, ticks);
+    finish_uninterrupted_production_job(
+        registries,
+        state,
+        job,
+        resolved.process_resolution().duration(),
+        "primitive powered separation",
+    );
     let target_after = state
         .inventory()
         .get_stockpile(native_storage)
@@ -1939,6 +2049,140 @@ fn separate_native_copper(
         charge_ticks,
         ticks,
     }
+}
+
+#[derive(Clone, Copy)]
+struct MatureReinvestmentPlan {
+    raw: deep_hearth::inventory::StockpileId,
+    shaped: deep_hearth::inventory::StockpileId,
+    ore_storage: deep_hearth::inventory::StockpileId,
+    crushed_storage: deep_hearth::inventory::StockpileId,
+    native_storage: deep_hearth::inventory::StockpileId,
+    residue_storage: deep_hearth::inventory::StockpileId,
+    machine: PrimitiveMachine,
+    pick: deep_hearth::equipment::EquipmentId,
+    mining_target: MiningTargetRequest,
+    primary_batch_mass: Mass,
+    separation_feed_mass: Mass,
+    reinforcement_mass: Mass,
+}
+
+fn crush_mass_for_exact_energy(registries: &Registries, energy: Energy) -> Mass {
+    let process = registries
+        .ore_processing()
+        .get_comminution(PROCESS_CRUSH_ORE)
+        .unwrap_or_else(|| panic!("primitive reinvestment crusher process disappeared"));
+    let per_milligram = u128::from(process.specific_energy().nanojoules_per_milligram());
+    assert!(per_milligram > 0);
+    assert_eq!(
+        energy.nanojoules() % per_milligram,
+        0,
+        "primitive reinvestment stored work must map to an exact crusher feed mass"
+    );
+    let milligrams = u64::try_from(energy.nanojoules() / per_milligram).unwrap_or_else(|_| {
+        panic!("primitive reinvestment crusher mass exceeds authoritative range")
+    });
+    Mass::from_milligrams(milligrams)
+}
+
+fn resolve_crush_ticks(
+    registries: &Registries,
+    state: &AppState,
+    source: deep_hearth::inventory::StockpileId,
+    machine: PrimitiveMachine,
+    mass: Mass,
+    expected_energy: Energy,
+    context: &'static str,
+) -> u64 {
+    let selection = select_stockpile_mass(state, source, mass, context);
+    let resolved = resolve_comminution_process(
+        registries,
+        state,
+        ComminutionRequest::new(
+            PROCESS_CRUSH_ORE,
+            source,
+            selection.as_slice(),
+            machine.crusher,
+            machine.drive,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("primitive reinvestment {context} resolution failed: {error}"));
+    assert_eq!(resolved.required_energy(), expected_energy);
+    resolved.process_resolution().duration().value()
+}
+
+fn run_uninterrupted_crush(
+    registries: &Registries,
+    state: &mut AppState,
+    source: deep_hearth::inventory::StockpileId,
+    destination: deep_hearth::inventory::StockpileId,
+    machine: PrimitiveMachine,
+    mass: Mass,
+    expected_energy: Energy,
+    context: &'static str,
+) -> u64 {
+    let selection = select_stockpile_mass(state, source, mass, context);
+    let resolved = resolve_comminution_process(
+        registries,
+        state,
+        ComminutionRequest::new(
+            PROCESS_CRUSH_ORE,
+            source,
+            selection.as_slice(),
+            machine.crusher,
+            machine.drive,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("primitive reinvestment {context} resolution failed: {error}"));
+    assert_eq!(resolved.required_energy(), expected_energy);
+    let ticks = resolved.process_resolution().duration().value();
+    let job = validate_start_process(
+        registries,
+        state,
+        resolved.process_resolution(),
+        source,
+        destination,
+    )
+    .unwrap_or_else(|error| panic!("primitive reinvestment {context} start failed: {error}"))
+    .commit(state)
+    .unwrap_or_else(|error| panic!("primitive reinvestment {context} commit failed: {error}"));
+    finish_uninterrupted_production_job(
+        registries,
+        state,
+        job,
+        resolved.process_resolution().duration(),
+        context,
+    );
+    ticks
+}
+
+fn charge_exact_reinvestment_energy(
+    registries: &Registries,
+    state: &mut AppState,
+    machine: PrimitiveMachine,
+    energy: Energy,
+) -> u64 {
+    let start = validate_start_manual_power(
+        registries,
+        state,
+        ManualPowerRequest::new(
+            MANUAL_POWER_HAND_CRANK,
+            machine.crank,
+            machine.drive,
+            energy,
+        ),
+    )
+    .unwrap_or_else(|error| panic!("primitive reinvestment accumulator charge failed: {error}"));
+    let work = start.work();
+    let ticks = duration(work.started_at().value(), work.completes_at().value());
+    start
+        .commit(state)
+        .unwrap_or_else(|error| panic!("primitive reinvestment charge commit failed: {error}"));
+    assert_eq!(
+        finish_manual_power_work(registries, state, work, "primitive reinvestment charge"),
+        ticks
+    );
+    ticks
 }
 
 #[derive(Clone, Copy)]
@@ -2078,7 +2322,16 @@ fn crush_while_mining(
         mining_jobs = mining_jobs
             .checked_add(1)
             .unwrap_or_else(|| panic!("primitive concurrent mining-job count overflowed"));
-        advance_exact(registries, state, work_ticks);
+        assert_eq!(
+            finish_mining_work(
+                registries,
+                state,
+                concurrent_mining_job,
+                Some(crush_job),
+                "concurrent mining",
+            ),
+            work_ticks
+        );
         assert!(
             state.mining().get_job(concurrent_mining_job).is_some(),
             "completed mining output must remain claimable after concurrent machine work"
@@ -2161,6 +2414,10 @@ fn finish_autonomous_crush(
     );
     player_free_ticks
 }
+
+#[path = "progression_probe/reinvestment.rs"]
+mod reinvestment;
+use reinvestment::evaluate_mature_reinvestment;
 
 #[path = "progression_probe/episode.rs"]
 mod episode;

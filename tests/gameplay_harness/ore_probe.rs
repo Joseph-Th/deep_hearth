@@ -5,7 +5,8 @@ use super::focused_runner::focused_probe_role_label;
 use super::focused_seeds::{FocusedProbeCase, FocusedProbeRole};
 use super::material_selection::select_stockpile_mass;
 use super::ore_setup::{OrePreparationProbeIds, OrePreparationSetup, setup_ore_preparation_probe};
-use super::production_support::{finish_uninterrupted_production_job, varied_healthy_condition};
+use super::production_support::varied_healthy_condition;
+use super::production_timing::finish_uninterrupted_production_job;
 use super::seed::mix64;
 use deep_hearth::content::{
     ENERGY_MECHANICAL_LARGE_DRIVE, EQUIPMENT_DRY_SCREEN, EQUIPMENT_GRAVITY_SEPARATOR,

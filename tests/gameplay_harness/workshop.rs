@@ -13,6 +13,7 @@ use super::environment::ROOM_TEMPERATURE;
 use super::fresh_seed::fresh_root;
 use super::industrial_support::install_equipment_on_grounded_support;
 use super::inventory_support::add_solid_stockpile;
+use super::manual_power_timing::{advance_manual_power_to, finish_manual_power_work};
 use super::ore_fixture::copper_ore_composition;
 use super::output::has_verbose_output;
 use super::report::{
@@ -23,6 +24,7 @@ use super::report::{
 };
 use super::scenario::{ScenarioDeliveryVariation, ScenarioVariation, WORKSHOP_SUPPORT_LENGTH};
 use super::seed::mix64;
+use super::temporal::advance_idle_ticks;
 use deep_hearth::content::gameplay_fixture::{
     ControlledMaterialDelivery, authorize_controlled_material_delivery,
     commit_controlled_material_delivery, seed_composed_lot, seed_grounded_active_structure,
@@ -37,7 +39,7 @@ use deep_hearth::content::{
 };
 use deep_hearth::core::quantity::{Area, Energy, Mass};
 use deep_hearth::core::state::{AppState, validate_loaded_state};
-use deep_hearth::core::time::{TickSpan, WorldSeed};
+use deep_hearth::core::time::WorldSeed;
 use deep_hearth::energy::{
     EnergySinkError, EnergyStoreId, EnergySupplyError, calculate_mass_specific_energy,
 };
@@ -88,6 +90,41 @@ struct ManualRecoveryProbe {
     policy_declined: bool,
     equipment_limited: bool,
     storage_limited: bool,
+}
+
+fn advance_running_production_to_tick(
+    registries: &Registries,
+    state: &mut AppState,
+    job: ProductionJobId,
+    target_tick: u64,
+    context: &'static str,
+) {
+    let record = state.production().get_job(job).unwrap_or_else(|| {
+        panic!("gameplay harness {context} job disappeared before bounded advance")
+    });
+    assert!(
+        target_tick > state.tick().value() && target_tick < record.completes_at().value(),
+        "gameplay harness {context} bounded advance must stop strictly before scheduled completion"
+    );
+    while state.tick().value() < target_tick {
+        let outcome = advance_tick(registries, state)
+            .unwrap_or_else(|error| panic!("gameplay harness {context} tick failed: {error}"));
+        assert!(
+            outcome.production_availability_changes().is_empty(),
+            "gameplay harness {context} job availability changed before the declared world event"
+        );
+        assert!(
+            outcome.production_completions().is_empty(),
+            "gameplay harness {context} production completed before the declared world event"
+        );
+    }
+    assert!(
+        state
+            .production()
+            .get_job(job)
+            .is_some_and(|record| !record.is_suspended()),
+        "gameplay harness {context} job must remain active at the bounded observation tick"
+    );
 }
 
 enum ManualRecoverySearch {
@@ -555,14 +592,6 @@ fn service_crusher(
     MaintenanceAttempt::Serviced
 }
 
-fn finish_operation(registries: &Registries, state: &mut AppState, duration: TickSpan) {
-    for _ in 0..duration.value() {
-        if let Err(error) = advance_tick(registries, state) {
-            panic!("gameplay harness tick failed: {error}");
-        }
-    }
-}
-
 fn stage_rank(stage: StructuralStage) -> u8 {
     match stage {
         StructuralStage::Stable => 0,
@@ -659,21 +688,24 @@ fn execute_manual_recovery(
         && event_tick > started_at
         && event_tick < completes_at
     {
-        finish_operation(
+        assert!(!advance_manual_power_to(
             registries,
             state,
-            TickSpan::new(event_tick - state.tick().value()),
-        );
+            work,
+            event_tick,
+            "workshop manual recovery before controlled event",
+        ));
         println!(
             "  interruption: controlled world event occurs during manual charging; structural response waits until the charging work releases player attention"
         );
         event_assessment = Some(apply_delivery(registries, state, ids, controller, actor));
     }
     if state.tick().value() < completes_at {
-        finish_operation(
+        let _remaining_ticks = finish_manual_power_work(
             registries,
             state,
-            TickSpan::new(completes_at - state.tick().value()),
+            work,
+            "workshop manual recovery completion",
         );
     }
     if !actor.report.progress.delivery_applied && state.tick().value() == event_tick {
@@ -1000,10 +1032,12 @@ fn crush_batch(
         && started_at < controller.delivery.delivery_at_tick
         && controller.delivery.delivery_at_tick < completes_at
     {
-        finish_operation(
+        advance_running_production_to_tick(
             registries,
             state,
-            TickSpan::new(controller.delivery.delivery_at_tick - started_at),
+            job,
+            controller.delivery.delivery_at_tick,
+            "workshop crushing before controlled event",
         );
         let assessment = apply_delivery(registries, state, ids, controller, actor);
         if assessment.stage() == StructuralStage::Failed {

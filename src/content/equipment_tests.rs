@@ -2,8 +2,23 @@
 
 use std::cmp::Ordering;
 
+use crate::capability::CapabilityValue;
+use crate::core::quantity::Mass;
+use crate::material::CommodityKey;
+
+use super::authoring::{INDUSTRIAL_MAINTENANCE_MASS_DIVISOR, condition};
 use super::*;
+use crate::content::capabilities::{
+    CAPABILITY_COOLING_POWER, CAPABILITY_CRUSHER_BATCH, CAPABILITY_CRUSHER_FLOW,
+    CAPABILITY_HEATING_POWER, CAPABILITY_MANUAL_POWER_OUTPUT, CAPABILITY_MINING_FLOW,
+    CAPABILITY_MINING_MAX_BATCH, CAPABILITY_MINING_MAX_HARDNESS, CAPABILITY_SEPARATOR_BATCH,
+    CAPABILITY_SEPARATOR_FLOW,
+};
+use crate::content::materials::{
+    FORM_HANDLE, FORM_INGOT, FORM_SCRAP, FORM_TOOL, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+};
 use crate::equipment::resolve_equipment_capability;
+use crate::maintenance::Condition;
 
 #[test]
 fn failed_thermal_equipment_exposes_no_heat_transfer_capability() {

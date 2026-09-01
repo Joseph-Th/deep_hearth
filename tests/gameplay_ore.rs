@@ -26,6 +26,8 @@ mod ore_probe;
 mod ore_setup;
 #[path = "gameplay_harness/production_support.rs"]
 mod production_support;
+#[path = "gameplay_harness/production_timing.rs"]
+mod production_timing;
 #[path = "gameplay_harness/seed.rs"]
 mod seed;
 #[path = "gameplay_harness/seed_input.rs"]

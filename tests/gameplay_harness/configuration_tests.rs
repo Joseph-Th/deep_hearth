@@ -1,6 +1,19 @@
 //! Contract tests for gameplay seed configuration and replay planning.
 
-use super::*;
+use super::configuration::{
+    GameplayHarnessConfigError, MAINTAINED_BEHAVIOR_ROOT, MAINTAINED_VARIATION_ROOT,
+    MaintainedAnchor, ScenarioPlanMode, ScenarioSeedPlan, scenario_seeds_from,
+};
+
+const EXPECTED_MAINTAINED_ANCHORS: [(MaintainedAnchor, u64); 7] = [
+    (MaintainedAnchor::NormalBaseline, 1),
+    (MaintainedAnchor::WarningMaintenance, 4),
+    (MaintainedAnchor::CriticalMaintenance, 9),
+    (MaintainedAnchor::ConditionPressure, 29),
+    (MaintainedAnchor::AdaptiveEnergy, 19),
+    (MaintainedAnchor::ManualRecovery, 380),
+    (MaintainedAnchor::SurvivalRecovery, 0x1F65_DBFE_4A87_A054),
+];
 
 fn plan(
     mode: ScenarioPlanMode,
@@ -21,11 +34,11 @@ fn plan(
 #[test]
 fn seed_configuration_rejects_invalid_inputs_with_exact_error_location() {
     assert_eq!(
-        resolve_variation_seed(Some("nope"), 1),
+        plan(ScenarioPlanMode::Gate, None, Some("nope"), None),
         Err(GameplayHarnessConfigError::InvalidVariationSeed)
     );
     assert_eq!(
-        resolve_behavior_seed(Some("nope"), 1),
+        plan(ScenarioPlanMode::Gate, None, None, Some("nope")),
         Err(GameplayHarnessConfigError::InvalidBehaviorSeed)
     );
     assert_eq!(
@@ -55,18 +68,25 @@ fn custom_world_seed_list_is_exact_and_behavior_is_a_separate_channel() {
             .collect::<Vec<_>>(),
         [1, 42, 3]
     );
-    assert_eq!(plan.source, ScenarioSeedSource::Custom);
+    assert_eq!(plan.source_label(), "custom");
     assert_eq!(plan.anchor_seed_count(), 0);
     assert_eq!(plan.variation_seed_count(), 0);
     assert_eq!(plan.custom_seed_count(), 3);
-    assert_eq!(plan.variation_seed, None);
-    assert_eq!(plan.behavior_seed_root, 0xBEEF);
+    assert_eq!(plan.variation_label(), "n/a");
+    assert_eq!(plan.behavior_label(), "0x000000000000BEEF");
     assert!(plan.cases().iter().all(|case| case.anchor.is_none()));
     assert!(
         plan.cases()
             .windows(2)
             .all(|pair| pair[0].behavior_seed != pair[1].behavior_seed)
     );
+    let expected_replay = plan
+        .cases()
+        .iter()
+        .map(|case| format!("0x{:016X}@0x{:016X}", case.world_seed, case.behavior_seed))
+        .collect::<Vec<_>>()
+        .join(",");
+    assert_eq!(plan.replay_label(), expected_replay);
 }
 
 #[test]
@@ -74,18 +94,30 @@ fn default_gate_keeps_maintained_anchors_and_adds_one_organic_case() {
     let plan = plan(ScenarioPlanMode::Gate, None, None, None)
         .unwrap_or_else(|error| panic!("default gate seed plan failed: {error:?}"));
 
-    assert_eq!(plan.source, ScenarioSeedSource::AnchorVariation);
+    assert_eq!(plan.source_label(), "anchor+variation");
+    assert_eq!(
+        MaintainedAnchor::ALL.map(|anchor| anchor.label()),
+        [
+            "normal-baseline",
+            "warning-maintenance",
+            "critical-maintenance",
+            "condition-pressure",
+            "adaptive-energy",
+            "manual-recovery",
+            "survival-recovery",
+        ]
+    );
     assert_eq!(
         plan.cases()
             .iter()
             .filter_map(|case| case.anchor.map(|anchor| (anchor, case.world_seed)))
             .collect::<Vec<_>>(),
-        MAINTAINED_ANCHORS
+        EXPECTED_MAINTAINED_ANCHORS
     );
-    assert_eq!(plan.anchor_seed_count(), MAINTAINED_ANCHORS.len());
-    assert_eq!(plan.variation_seed_count(), GATE_VARIATION_SCENARIO_COUNT);
-    assert_eq!(plan.variation_seed, Some(MAINTAINED_VARIATION_ROOT));
-    assert_eq!(plan.behavior_seed_root, MAINTAINED_BEHAVIOR_ROOT);
+    assert_eq!(plan.anchor_seed_count(), EXPECTED_MAINTAINED_ANCHORS.len());
+    assert_eq!(plan.variation_seed_count(), 1);
+    assert_eq!(plan.variation_label(), "0xE7A10A7E5EED2026");
+    assert_eq!(plan.behavior_label(), "0x0000000000000001");
 }
 
 #[test]
@@ -109,24 +141,24 @@ fn gate_and_explore_use_replay_roots_with_different_bounded_sample_sizes() {
     )
     .unwrap_or_else(|error| panic!("second gate-default plan failed: {error:?}"));
 
-    assert_eq!(first.anchor_seed_count(), MAINTAINED_ANCHORS.len());
-    assert_eq!(second.anchor_seed_count(), MAINTAINED_ANCHORS.len());
-    assert_eq!(first.variation_seed_count(), GATE_VARIATION_SCENARIO_COUNT);
-    assert_eq!(second.variation_seed_count(), GATE_VARIATION_SCENARIO_COUNT);
+    assert_eq!(first.anchor_seed_count(), EXPECTED_MAINTAINED_ANCHORS.len());
+    assert_eq!(
+        second.anchor_seed_count(),
+        EXPECTED_MAINTAINED_ANCHORS.len()
+    );
+    assert_eq!(first.variation_seed_count(), 1);
+    assert_eq!(second.variation_seed_count(), 1);
     assert_ne!(first.cases().last(), second.cases().last());
-    assert_eq!(first.variation_seed, Some(0x1111));
-    assert_eq!(first.behavior_seed_root, 0x2222);
+    assert_eq!(first.variation_label(), "0x0000000000001111");
+    assert_eq!(first.behavior_label(), "0x0000000000002222");
 
     let exploratory =
         scenario_seeds_from(ScenarioPlanMode::Explore, None, None, None, 0x1111, 0x2222)
             .unwrap_or_else(|error| panic!("exploratory plan failed: {error:?}"));
-    assert_eq!(exploratory.source, ScenarioSeedSource::AnchorVariation);
-    assert_eq!(
-        exploratory.variation_seed_count(),
-        EXPLORATORY_VARIATION_SCENARIO_COUNT
-    );
-    assert_eq!(exploratory.variation_seed, Some(0x1111));
-    assert_eq!(exploratory.behavior_seed_root, 0x2222);
+    assert_eq!(exploratory.source_label(), "anchor+variation");
+    assert_eq!(exploratory.variation_seed_count(), 4);
+    assert_eq!(exploratory.variation_label(), "0x0000000000001111");
+    assert_eq!(exploratory.behavior_label(), "0x0000000000002222");
 }
 
 #[test]
@@ -147,32 +179,29 @@ fn explicit_world_and_behavior_roots_replay_the_same_cases() {
     .unwrap_or_else(|error| panic!("second variation seed plan failed: {error:?}"));
 
     assert_eq!(first, second);
-    assert_eq!(first.source, ScenarioSeedSource::AnchorVariation);
-    assert_eq!(first.anchor_seed_count(), MAINTAINED_ANCHORS.len());
+    assert_eq!(first.source_label(), "anchor+variation");
+    assert_eq!(first.anchor_seed_count(), EXPECTED_MAINTAINED_ANCHORS.len());
     assert_eq!(
         first
             .cases()
             .iter()
             .filter_map(|case| case.anchor.map(|anchor| (anchor, case.world_seed)))
             .collect::<Vec<_>>(),
-        MAINTAINED_ANCHORS
+        EXPECTED_MAINTAINED_ANCHORS
     );
-    assert_eq!(
-        first.variation_seed_count(),
-        EXPLORATORY_VARIATION_SCENARIO_COUNT
-    );
+    assert_eq!(first.variation_seed_count(), 4);
     assert_eq!(first.custom_seed_count(), 0);
     assert!(
         first
             .cases()
             .iter()
             .filter(|case| case.anchor.is_none())
-            .all(|case| !MAINTAINED_ANCHORS
+            .all(|case| !EXPECTED_MAINTAINED_ANCHORS
                 .iter()
                 .any(|(_, world_seed)| *world_seed == case.world_seed))
     );
-    assert_eq!(first.variation_seed, Some(0xBAD));
-    assert_eq!(first.behavior_seed_root, 0xCAFE);
+    assert_eq!(first.variation_label(), "0x0000000000000BAD");
+    assert_eq!(first.behavior_label(), "0x000000000000CAFE");
 }
 
 #[test]

@@ -7,7 +7,7 @@ use deep_hearth::registry::Registries;
 
 use super::focused_seeds::{
     EXPLORATORY_VARIATION_COUNT, FocusedProbeCase, FocusedProbeRole, FocusedProbeSeedPlan,
-    GATE_VARIATION_COUNT, focused_probe_cases_from,
+    GATE_VARIATION_COUNT, focused_probe_cases_from, probe_uses_actor_behavior,
 };
 use super::fresh_seed::fresh_root;
 use super::seed::MAINTAINED_VARIATION_ROOT;
@@ -31,10 +31,6 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
         "foundry" => (0xD33F_C01D_F001, &[2], 0xF0A1_DA7A_5052_4F42),
         unknown => panic!("unknown focused gameplay probe {unknown:?}"),
     }
-}
-
-pub(super) fn probe_uses_actor_behavior(name: &str) -> bool {
-    matches!(name, "survival-provisioning" | "primitive-progression")
 }
 
 pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, FocusedProbeCase)) {

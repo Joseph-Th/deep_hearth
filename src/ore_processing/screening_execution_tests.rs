@@ -50,6 +50,24 @@ fn distribution() -> ParticleSizeDistribution {
     .unwrap_or_else(|error| panic!("screening distribution fixture failed: {error}"))
 }
 
+#[test]
+fn screening_rejects_already_classified_feed_instead_of_consuming_resources_for_a_noop() {
+    for aperture in [
+        Length::from_micrometers(10_000),
+        Length::from_micrometers(499),
+    ] {
+        let fixture = fixture(aperture);
+        let before = fixture.state.clone();
+        assert_eq!(
+            resolve(&fixture).err(),
+            Some(ScreeningResolutionError::Batch(
+                ScreeningBatchError::NoParticleSizePartition { aperture }
+            ))
+        );
+        assert_eq!(fixture.state, before);
+    }
+}
+
 fn composition() -> MaterialComposition {
     MaterialComposition::new(vec![
         CompositionComponent::new(MATERIAL_COPPER, 400_000),

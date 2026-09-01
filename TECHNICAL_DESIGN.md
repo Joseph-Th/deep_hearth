@@ -529,7 +529,8 @@ Implemented resolver contracts:
 - **Comminution:** validates feed and output particle state, batch limits, condition-adjusted throughput,
   finite work energy, duration, and wear. Direct-labor and powered routes share the same material projection.
 - **Dry screening:** partitions fully resolved particle classes around an authored aperture without inventing
-  unresolved fractions.
+  unresolved fractions. Same-form batches already wholly classified to one side of the aperture are rejected
+  instead of consuming work energy and equipment condition for a no-op pass.
 - **Constituent separation:** applies authored target and non-target recovery to liberated particulate feed.
   Unrecovered constituents remain in physical residue. Sorting and concentration preserve exact composition,
   use deterministic remainder allocation, and emit forms that prevent unsupported repeat-processing loops.

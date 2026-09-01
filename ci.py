@@ -17,6 +17,8 @@ import time
 ROOT = Path(__file__).resolve().parent
 
 GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
+GAMEPLAY_CONTRACTS_TARGET = "gameplay_contracts"
+GAMEPLAY_AUDIT_TARGETS = (GAMEPLAY_CONTRACTS_TARGET, GAMEPLAY_AUDIT_TARGET)
 GAMEPLAY_TARGETS = {
     "workshop": "gameplay_workshop",
     "survival": "gameplay_survival",
@@ -59,6 +61,8 @@ RUST_TEST_RESULT = re.compile(
     r"(?P<ignored>\d+) ignored;"
 )
 GAMEPLAY_REPORT_PREFIXES = (
+    "PLAYER FANTASY ",
+    "EVALUATION SCOPE ",
     "HARNESS INPUT ",
     "CONTENT registry_schema=",
     "CONTENT ACQUISITION DECLARATIONS ",
@@ -70,7 +74,6 @@ GAMEPLAY_REPORT_PREFIXES = (
     "WORKSHOP EXPERIENCE REVIEW ",
     "AGENCY INPUT ",
     "AGENCY SUMMARY ",
-    "FOCUSED REPORT INPUT ",
     "PROBE INPUT ",
 )
 FOCUSED_REVIEW_PREFIXES = (
@@ -123,11 +126,14 @@ def combined_test_summary(stdout: str) -> str | None:
     """Return the core/gameplay split for the one-graph broad test command."""
 
     matches = list(RUST_TEST_RESULT.finditer(stdout))
-    if len(matches) != 2:
+    if len(matches) < 2:
         return rust_test_summary(stdout)
-    core, gameplay = matches
-    detail = f"{core.group('passed')} core + {gameplay.group('passed')} gameplay"
-    ignored = int(core.group("ignored")) + int(gameplay.group("ignored"))
+    core, *gameplay = matches
+    gameplay_passed = sum(int(match.group("passed")) for match in gameplay)
+    detail = f"{core.group('passed')} core + {gameplay_passed} gameplay"
+    ignored = int(core.group("ignored")) + sum(
+        int(match.group("ignored")) for match in gameplay
+    )
     if ignored:
         detail += f", {ignored} ignored"
     return detail
@@ -187,7 +193,7 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
         failed = FAILED_TEST.findall(combined)
         if failed:
             return f"python tools/run_test.py {failed[-1]}"
-    gameplay_targets = (GAMEPLAY_AUDIT_TARGET, *GAMEPLAY_TARGETS.values())
+    gameplay_targets = (*GAMEPLAY_AUDIT_TARGETS, *GAMEPLAY_TARGETS.values())
     if any(target in command for target in gameplay_targets):
         failed = FAILED_TEST.findall(combined)
         if failed:
@@ -227,7 +233,7 @@ def audit_plan(scope: str) -> list[tuple[str, list[str]]]:
 def combined_test_command() -> list[str]:
     """Run core and gameplay tests in one Cargo graph with one shared feature fingerprint."""
 
-    return [
+    command = [
         "cargo",
         "test",
         "--quiet",
@@ -235,9 +241,10 @@ def combined_test_command() -> list[str]:
         "--features",
         "test-gameplay",
         "--lib",
-        "--test",
-        GAMEPLAY_AUDIT_TARGET,
     ]
+    for target in GAMEPLAY_AUDIT_TARGETS:
+        command.extend(("--test", target))
+    return command
 
 
 def gameplay_targets_command(
@@ -270,7 +277,7 @@ def gameplay_targets_command(
 
 def gameplay_command(scope: str, *, nocapture: bool = False) -> list[str]:
     if scope == "all":
-        return gameplay_targets_command((GAMEPLAY_AUDIT_TARGET,), nocapture=nocapture)
+        return gameplay_targets_command(GAMEPLAY_AUDIT_TARGETS, nocapture=nocapture)
     return gameplay_targets_command(
         (GAMEPLAY_TARGETS[scope],),
         test_filter=GAMEPLAY_TESTS[scope],
@@ -342,7 +349,7 @@ def audit_plan_for_args(args: argparse.Namespace) -> list[tuple[str, list[str]]]
 
 
 def gate_plan(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
-    """Resolve the single build-producing lane layered on top of the build-free quick checks."""
+    """Resolve exactly one build-producing proof without repeating the separate quick lane."""
 
     if args.all:
         raise ValueError("broad verification is audit-only; use `python ci.py audit --all`")
@@ -366,20 +373,17 @@ def gate_plan(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
     if selected_lanes > 1:
         raise ValueError("gate accepts exactly one build-producing lane at a time")
 
-    plan = quick_plan()
     if args.soak:
-        plan.append(("soak", cargo("test-soak")))
-    elif args.gameplay:
-        plan.extend(gameplay_plan(args.gameplay))
-    elif args.shaders:
-        plan.append(("shaders", cargo("test-shaders")))
-    elif args.rustdoc:
-        plan.append(("rustdoc", cargo("test-doc")))
-    elif args.lint:
-        plan.append(("clippy", cargo("test-lint")))
-    else:
-        plan.append(("compile", cargo("check-fast")))
-    return plan
+        return [("soak", cargo("test-soak"))]
+    if args.gameplay:
+        return gameplay_plan(args.gameplay)
+    if args.shaders:
+        return [("shaders", cargo("test-shaders"))]
+    if args.rustdoc:
+        return [("rustdoc", cargo("test-doc"))]
+    if args.lint:
+        return [("clippy", cargo("test-lint"))]
+    return [("compile", cargo("check-fast"))]
 
 
 def plan_for(args: argparse.Namespace) -> list[tuple[str, list[str]]]:

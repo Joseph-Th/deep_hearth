@@ -22,8 +22,7 @@ use super::powered_physics::{
 mod errors;
 mod outputs;
 
-pub use errors::{ScreeningJobValidationError, ScreeningResolutionError};
-pub use outputs::ScreeningBatchError;
+pub use errors::{ScreeningBatchError, ScreeningJobValidationError, ScreeningResolutionError};
 use outputs::resolve_screening_outputs;
 
 #[cfg(test)]

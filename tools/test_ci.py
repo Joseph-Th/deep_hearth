@@ -473,6 +473,23 @@ class LocalCiPlanTests(unittest.TestCase):
         ]
         self.assertEqual(offenders, [])
 
+    def test_gameplay_harness_does_not_bind_assertions_to_panic_prose(self) -> None:
+        forbidden = re.compile(r"#\[should_panic\s*\([^]]*\bexpected\s*=", re.DOTALL)
+        offenders = [
+            path.relative_to(ROOT).as_posix()
+            for path in (ROOT / "tests" / "gameplay_harness").rglob("*.rs")
+            if forbidden.search(path.read_text(encoding="utf-8"))
+        ]
+        self.assertEqual(offenders, [])
+
+    def test_gameplay_harness_never_discards_tick_outcomes(self) -> None:
+        offenders = [
+            path.relative_to(ROOT).as_posix()
+            for path in (ROOT / "tests" / "gameplay_harness").rglob("*.rs")
+            if "let _ = advance_tick" in path.read_text(encoding="utf-8")
+        ]
+        self.assertEqual(offenders, [])
+
     def test_gameplay_feature_public_surface_is_explicitly_bounded(self) -> None:
         exposed: set[tuple[str, str]] = set()
         for path in (ROOT / "src").rglob("*.rs"):
@@ -636,15 +653,30 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertEqual(offenders, [])
 
     def test_standard_gate_compiles_production_once(self) -> None:
-        builds = cargo_build_commands(ci.plan_for(gate_args()))
-        self.assertEqual(builds, [["cargo", "check-fast"]])
+        self.assertEqual(
+            ci.plan_for(gate_args()),
+            [("compile", ["cargo", "check-fast"])],
+        )
+
+    def test_gate_does_not_repeat_build_free_quick_checks(self) -> None:
+        for args in (
+            gate_args(),
+            gate_args(gameplay="survival"),
+            gate_args(soak=True),
+            gate_args(lint=True),
+        ):
+            plan = ci.plan_for(args)
+            self.assertEqual(len(plan), 1)
+            self.assertFalse(any(stage in ci.quick_plan() for stage in plan))
 
     def test_soak_gate_does_not_repeat_ordinary_core_tests(self) -> None:
         builds = cargo_build_commands(ci.plan_for(gate_args(soak=True)))
         self.assertEqual(builds, [["cargo", "test-soak"]])
 
     def test_focused_gameplay_does_not_precompile_production(self) -> None:
-        builds = cargo_build_commands(ci.plan_for(gate_args(gameplay="survival")))
+        plan = ci.plan_for(gate_args(gameplay="survival"))
+        self.assertEqual(plan, ci.gameplay_plan("survival"))
+        builds = cargo_build_commands(plan)
         self.assertEqual(len(builds), 1)
         self.assertNotIn("check-fast", builds[0])
         self.assertEqual(builds[0].count("--test"), 1)
@@ -667,6 +699,10 @@ class LocalCiPlanTests(unittest.TestCase):
             self.assertEqual(definitions[target].get("required-features"), ["test-gameplay"])
         self.assertEqual(
             definitions[ci.GAMEPLAY_AUDIT_TARGET].get("required-features"),
+            ["test-gameplay"],
+        )
+        self.assertEqual(
+            definitions[ci.GAMEPLAY_CONTRACTS_TARGET].get("required-features"),
             ["test-gameplay"],
         )
         self.assertNotIn("--nocapture", ci.gameplay_command("all"))
@@ -736,7 +772,8 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertFalse(any("check-fast" in command for command in builds))
         self.assertEqual(builds, [ci.combined_test_command()])
         self.assertIn("--lib", builds[0])
-        self.assertIn(ci.GAMEPLAY_AUDIT_TARGET, builds[0])
+        for target in ci.GAMEPLAY_AUDIT_TARGETS:
+            self.assertIn(target, builds[0])
         for target in ci.GAMEPLAY_TARGETS.values():
             self.assertNotIn(target, builds[0])
 
@@ -744,7 +781,8 @@ class LocalCiPlanTests(unittest.TestCase):
         output = "\n".join(
             [
                 "test result: ok. 559 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
-                "test result: ok. 26 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out",
+                "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
+                "test result: ok. 14 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out",
             ]
         )
         self.assertEqual(
@@ -767,11 +805,11 @@ class LocalCiPlanTests(unittest.TestCase):
         self.assertIn("test-gameplay", gameplay_builds[0])
         self.assertNotIn(["cargo", "test-fast"], gameplay_builds)
 
-    def test_broad_gameplay_audit_links_one_consolidated_target(self) -> None:
+    def test_broad_gameplay_audit_links_contracts_and_heavy_audit_targets_once(self) -> None:
         command = ci.gameplay_command("all")
         self.assertEqual(
             cargo_test_targets(command),
-            [ci.GAMEPLAY_AUDIT_TARGET],
+            list(ci.GAMEPLAY_AUDIT_TARGETS),
         )
 
     def test_broad_core_failure_points_to_one_exact_repair(self) -> None:
@@ -781,12 +819,12 @@ class LocalCiPlanTests(unittest.TestCase):
             "python tools/run_test.py mining::execution::tests::missing_capability",
         )
 
-    def test_gameplay_audit_failure_reuses_the_already_built_audit_target(self) -> None:
-        output = "failures:\n    configuration::tests::broken_contract\n"
-        error = "error: test failed, to rerun pass `--test gameplay_audit`"
+    def test_gameplay_contract_failure_reuses_the_already_built_contract_target(self) -> None:
+        output = "failures:\n    configuration_tests::broken_contract\n"
+        error = "error: test failed, to rerun pass `--test gameplay_contracts`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit configuration::tests::broken_contract",
+            "python tools/run_test.py --target gameplay_contracts configuration_tests::broken_contract",
         )
 
     def test_combined_audit_core_failure_points_to_exact_unit_test(self) -> None:
@@ -962,6 +1000,8 @@ class LocalCiPlanTests(unittest.TestCase):
         output = "\n".join(
             [
                 "running 1 test",
+                "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reinvest",
+                "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap",
                 "HARNESS INPUT plan=anchor+variation",
                 "CONTENT registry_schema=64 equipment=[authored:12]",
                 "CONTENT CATALOG equipment=[very-long-detail]",
@@ -985,6 +1025,8 @@ class LocalCiPlanTests(unittest.TestCase):
             ci.concise_gameplay_report(output, {}),
             "\n".join(
                 [
+                    "PLAYER FANTASY scope=current-ordinary loop=observe->infer->prepare->extract->invest->delegate->maintain->reinvest",
+                    "EVALUATION SCOPE kind=ordinary-play evidence=runtime-actions-after-disclosed-bootstrap",
                     "HARNESS INPUT plan=anchor+variation",
                     "CONTENT registry_schema=64 equipment=[authored:12]",
                     "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression]",
@@ -1021,7 +1063,7 @@ class LocalCiPlanTests(unittest.TestCase):
         targets = {definition["name"] for definition in manifest.get("test", [])}
         self.assertEqual(
             targets,
-            {ci.GAMEPLAY_AUDIT_TARGET, *ci.GAMEPLAY_TARGETS.values()},
+            {*ci.GAMEPLAY_AUDIT_TARGETS, *ci.GAMEPLAY_TARGETS.values()},
         )
         binaries = {definition["name"] for definition in manifest.get("bin", [])}
         self.assertEqual(binaries, {"validate-shaders"})

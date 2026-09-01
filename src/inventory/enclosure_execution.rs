@@ -5,11 +5,11 @@ use crate::registry::Registries;
 
 use super::storage_validation::validate_stockpile_storage_profile;
 use super::{
-    ConsumptionSelectionError, MaterialEgressError, StockpileEnclosureRecord, StockpileId,
-    StockpileStorageProfile, StockpileStoredMassChange, StorageDefinitionId,
-    ValidatedMaterialEgress, ValidatedStockpileStructuralLoad, apply_material_egress,
-    validate_consumption_selection, validate_material_egress_from_selection,
-    validate_stockpile_stored_mass_changes,
+    ConsumedMaterialTrace, ConsumptionSelection, ConsumptionSelectionError, MaterialEgressError,
+    StockpileEnclosureRecord, StockpileId, StockpileRecord, StockpileStorageProfile,
+    StockpileStoredMassChange, StorageDefinition, StorageDefinitionId, ValidatedMaterialEgress,
+    ValidatedStockpileStructuralLoad, apply_material_egress, validate_consumption_selection,
+    validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
 };
 
 mod errors;
@@ -25,6 +25,12 @@ pub struct ValidatedStorageEnclosureConstruction {
     expected_profile: StockpileStorageProfile,
     next_profile: StockpileStorageProfile,
     enclosure: StockpileEnclosureRecord,
+    egress: ValidatedMaterialEgress,
+    structural_load: Option<ValidatedStockpileStructuralLoad>,
+}
+
+struct EnclosureMaterialPlan {
+    embodied_material: Vec<ConsumedMaterialTrace>,
     egress: ValidatedMaterialEgress,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
 }
@@ -94,6 +100,38 @@ pub fn validate_build_storage_enclosure(
         .inventory()
         .get_stockpile(target)
         .ok_or(StorageEnclosureConstructionError::UnknownTarget { stockpile: target })?;
+    let required_profile = StockpileStorageProfile::unbounded_solid_only();
+    validate_enclosure_target(definition_record, target_record, target, required_profile)?;
+    let selection = select_enclosure_material(state, definition_record, source)?;
+    let next_profile = definition_record.storage_profile();
+    validate_enclosure_contents(registries, state, target_record, &selection, next_profile)?;
+    let material_plan = plan_enclosure_materials(registries, state, source, selection)?;
+    let expected_inventory_revision = state.inventory().revision();
+    let next_inventory_revision = expected_inventory_revision
+        .checked_add(2)
+        .ok_or(StorageEnclosureConstructionError::InventoryRevisionExhausted)?;
+    Ok(ValidatedStorageEnclosureConstruction {
+        target,
+        expected_inventory_revision,
+        next_inventory_revision,
+        expected_profile: required_profile,
+        next_profile,
+        enclosure: StockpileEnclosureRecord::new(
+            definition,
+            material_plan.embodied_material,
+            state.tick(),
+        ),
+        egress: material_plan.egress,
+        structural_load: material_plan.structural_load,
+    })
+}
+
+fn validate_enclosure_target(
+    definition: &StorageDefinition,
+    target_record: &StockpileRecord,
+    target: StockpileId,
+    required_profile: StockpileStorageProfile,
+) -> Result<(), StorageEnclosureConstructionError> {
     if let Some(enclosure) = target_record.enclosure() {
         return Err(StorageEnclosureConstructionError::AlreadyEnclosed {
             stockpile: target,
@@ -106,14 +144,13 @@ pub fn validate_build_storage_enclosure(
             element,
         });
     }
-    if target_record.capacity() > definition_record.maximum_stockpile_capacity() {
+    if target_record.capacity() > definition.maximum_stockpile_capacity() {
         return Err(StorageEnclosureConstructionError::TargetCapacityTooLarge {
             stockpile: target,
             capacity: target_record.capacity(),
-            maximum: definition_record.maximum_stockpile_capacity(),
+            maximum: definition.maximum_stockpile_capacity(),
         });
     }
-    let required_profile = StockpileStorageProfile::unbounded_solid_only();
     if target_record.storage_profile() != required_profile {
         return Err(
             StorageEnclosureConstructionError::TargetStorageProfileMismatch {
@@ -131,12 +168,24 @@ pub fn validate_build_storage_enclosure(
             },
         );
     }
-    let selection = validate_consumption_selection(
+    Ok(())
+}
+
+fn select_enclosure_material(
+    state: &AppState,
+    definition: &StorageDefinition,
+    source: StockpileId,
+) -> Result<ConsumptionSelection, StorageEnclosureConstructionError> {
+    validate_consumption_selection(
         state.inventory(),
         source,
-        definition_record.assembly_profile().inputs(),
+        definition.assembly_profile().inputs(),
     )
-    .map_err(|error| match error {
+    .map_err(map_selection_error)
+}
+
+fn map_selection_error(error: ConsumptionSelectionError) -> StorageEnclosureConstructionError {
+    match error {
         ConsumptionSelectionError::UnknownStockpile { stockpile } => {
             StorageEnclosureConstructionError::UnknownSource { stockpile }
         }
@@ -154,9 +203,21 @@ pub fn validate_build_storage_enclosure(
         ConsumptionSelectionError::MassOverflow { stockpile } => {
             StorageEnclosureConstructionError::SourceMassOverflow { stockpile }
         }
-    })?;
-    let next_profile = definition_record.storage_profile();
-    let source_preservation = required_profile.preservation_multiplier_ppm();
+    }
+}
+
+fn validate_enclosure_contents(
+    registries: &Registries,
+    state: &AppState,
+    target_record: &StockpileRecord,
+    selection: &ConsumptionSelection,
+    next_profile: StockpileStorageProfile,
+) -> Result<(), StorageEnclosureConstructionError> {
+    let target = target_record.id();
+    let source = selection.source();
+    let source_preservation = target_record
+        .storage_profile()
+        .preservation_multiplier_ppm();
     let destination_preservation = next_profile.preservation_multiplier_ppm();
     for lot in state.inventory().lot_ids(target) {
         let record = state
@@ -186,6 +247,15 @@ pub fn validate_build_storage_enclosure(
             return Err(StorageEnclosureConstructionError::StorageHistoryOverflow { lot });
         }
     }
+    Ok(())
+}
+
+fn plan_enclosure_materials(
+    registries: &Registries,
+    state: &AppState,
+    source: StockpileId,
+    selection: ConsumptionSelection,
+) -> Result<EnclosureMaterialPlan, StorageEnclosureConstructionError> {
     let embodied_material = selection.consumed_inputs().to_vec();
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {
@@ -214,17 +284,8 @@ pub fn validate_build_storage_enclosure(
         [StockpileStoredMassChange::new(source, source_after)],
     )
     .map_err(StorageEnclosureConstructionError::StructuralLoad)?;
-    let expected_inventory_revision = state.inventory().revision();
-    let next_inventory_revision = expected_inventory_revision
-        .checked_add(2)
-        .ok_or(StorageEnclosureConstructionError::InventoryRevisionExhausted)?;
-    Ok(ValidatedStorageEnclosureConstruction {
-        target,
-        expected_inventory_revision,
-        next_inventory_revision,
-        expected_profile: required_profile,
-        next_profile,
-        enclosure: StockpileEnclosureRecord::new(definition, embodied_material, state.tick()),
+    Ok(EnclosureMaterialPlan {
+        embodied_material,
         egress,
         structural_load,
     })

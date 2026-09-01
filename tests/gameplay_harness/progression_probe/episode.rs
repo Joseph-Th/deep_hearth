@@ -145,9 +145,12 @@ pub(super) fn run_primitive_progression_case(
     let ore_storage = add_solid_stockpile(&mut state, ore_storage_capacity);
     let hard_ore_storage = add_solid_stockpile(&mut state, mined_mass);
     let refined_clue_storage = add_solid_stockpile(&mut state, refined_clue_sample_mass);
-    let native_storage = add_solid_stockpile(&mut state, total_native_copper);
+    // Output staging is sized for the bounded primitive-processing horizon, not merely the first
+    // two 20 g upgrades. Later reinvestment can legitimately route a reinforced-separator batch
+    // through these same pre-admission stockpiles without manufacturing storage after play begins.
+    let native_storage = add_solid_stockpile(&mut state, crushed_storage_capacity);
     let crushed_storage = add_solid_stockpile(&mut state, crushed_storage_capacity);
-    let separation_residue_storage = add_solid_stockpile(&mut state, mined_mass);
+    let separation_residue_storage = add_solid_stockpile(&mut state, crushed_storage_capacity);
     for (commodity, mass) in raw_seed_inputs {
         seed_lot(
             registries,
@@ -922,6 +925,24 @@ pub(super) fn run_primitive_progression_case(
     } else {
         bulk_ore_clue.request
     };
+    let reinvestment = evaluate_mature_reinvestment(
+        registries,
+        &state,
+        MatureReinvestmentPlan {
+            raw,
+            shaped,
+            ore_storage,
+            crushed_storage,
+            native_storage,
+            residue_storage: separation_residue_storage,
+            machine,
+            pick,
+            mining_target: post_convergence_mining_target,
+            primary_batch_mass: mined_mass,
+            separation_feed_mass: selected_separation_feed_mass,
+            reinforcement_mass: crank_upgrade_native,
+        },
+    );
 
     let banked_energy = state
         .energy()
@@ -1240,6 +1261,7 @@ pub(super) fn run_primitive_progression_case(
         final_pick_condition_ppm,
         metabolic_energy_spent_nj,
         hydration_spent_ul,
+        reinvestment,
     };
     let (first_upgrade, second_upgrade) = match priority {
         PrimitivePriority::ExtractionFirst => ("pick", "hand-crank"),
